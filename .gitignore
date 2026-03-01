@@ -1,0 +1,6 @@
+# Unreal plugin build artifacts
+Plugins/*/Binaries/
+Plugins/*/Intermediate/
+
+# macOS
+.DS_Store
