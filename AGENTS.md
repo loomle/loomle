@@ -20,6 +20,7 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 
 1. Run `./Loomle/scripts/install_loomle.sh` from UE project root.
 2. Treat script output as contract checks:
+   - root `AGENTS.md` guidance line is created/updated and verified
    - `.uproject` wiring for `AdditionalPluginDirectories` and `LoomleMcpBridge`
    - prebuilt plugin resolution (local binary -> local build fallback)
    - editor target build (only when prebuilt is unavailable/incompatible)

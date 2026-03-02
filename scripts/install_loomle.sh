@@ -112,16 +112,76 @@ PY
 pass ".uproject wiring is correct"
 
 log "Ensuring root AGENTS.md includes Loomle guidance"
-if [[ -f "$ROOT_AGENTS_PATH" ]]; then
-  if grep -Fqx -- "$ROOT_AGENTS_HINT" "$ROOT_AGENTS_PATH"; then
-    pass "Root AGENTS.md already contains Loomle guidance"
-  else
-    printf '\n%s\n' "$ROOT_AGENTS_HINT" >> "$ROOT_AGENTS_PATH"
-    pass "Appended Loomle guidance to root AGENTS.md"
-  fi
+AGENTS_WRITE_RESULT="$(
+python3 - <<'PY' "$PROJECT_ROOT" "$ROOT_AGENTS_PATH" "$ROOT_AGENTS_HINT"
+from pathlib import Path
+import sys
+
+project_root = Path(sys.argv[1])
+default_agents_path = Path(sys.argv[2])
+hint = sys.argv[3]
+
+try:
+    candidates = []
+    if project_root.exists():
+        for p in project_root.iterdir():
+            if p.is_file() and p.name.lower() == "agents.md":
+                candidates.append(p)
+
+    target = default_agents_path
+    if candidates:
+        exact = [p for p in candidates if p.name == "AGENTS.md"]
+        target = exact[0] if exact else sorted(candidates, key=lambda x: x.name.lower())[0]
+
+    existed = target.exists()
+    text = target.read_text(encoding="utf-8", errors="replace") if existed else ""
+    lines = text.splitlines()
+
+    if hint in lines:
+        state = "unchanged"
+    else:
+        updated = text
+        if updated and not updated.endswith("\n"):
+            updated += "\n"
+        if updated and not updated.endswith("\n\n"):
+            updated += "\n"
+        updated += hint + "\n"
+        target.write_text(updated, encoding="utf-8")
+        state = "updated" if existed else "created"
+
+    print(state)
+    print(str(target))
+except Exception as exc:
+    print(f"failed: {exc}", file=sys.stderr)
+    raise
+PY
+)" || fail "Failed to write root AGENTS.md guidance"
+
+AGENTS_WRITE_STATE="$(printf '%s\n' "$AGENTS_WRITE_RESULT" | sed -n '1p')"
+AGENTS_TARGET_PATH="$(printf '%s\n' "$AGENTS_WRITE_RESULT" | sed -n '2p')"
+[[ -n "$AGENTS_TARGET_PATH" ]] || fail "Root AGENTS.md write result is missing target path"
+
+python3 - <<'PY' "$AGENTS_TARGET_PATH" "$ROOT_AGENTS_HINT"
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+hint = sys.argv[2]
+
+if not path.exists():
+    raise SystemExit(f"target file not found: {path}")
+lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+if hint not in lines:
+    raise SystemExit(f"guidance line missing in {path}")
+PY
+[[ "$AGENTS_WRITE_STATE" =~ ^(created|updated|unchanged)$ ]] || fail "Unexpected root AGENTS.md state: $AGENTS_WRITE_STATE"
+
+if [[ "$AGENTS_WRITE_STATE" == "created" ]]; then
+  pass "Created root AGENTS guidance at $AGENTS_TARGET_PATH"
+elif [[ "$AGENTS_WRITE_STATE" == "updated" ]]; then
+  pass "Updated root AGENTS guidance at $AGENTS_TARGET_PATH"
 else
-  printf '%s\n' "$ROOT_AGENTS_HINT" > "$ROOT_AGENTS_PATH"
-  pass "Created root AGENTS.md with Loomle guidance"
+  pass "Root AGENTS guidance already up to date at $AGENTS_TARGET_PATH"
 fi
 
 check_local_prebuilt_compatibility() {
