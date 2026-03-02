@@ -8,6 +8,8 @@ class FLoomleMcpPipeServer;
 class AActor;
 class FJsonObject;
 class FJsonValue;
+class UObject;
+struct FPropertyChangedEvent;
 
 class FLoomleMcpBridgeModule : public IModuleInterface
 {
@@ -21,18 +23,30 @@ private:
     TSharedPtr<FJsonObject> BuildInitializeResult(const TSharedPtr<FJsonObject>& Params) const;
     TSharedPtr<FJsonObject> BuildToolsListResult() const;
     TSharedPtr<FJsonObject> BuildToolCallResult(const TSharedPtr<FJsonObject>& Params);
+    TSharedPtr<FJsonObject> BuildLoomleToolResult() const;
 
-    TSharedPtr<FJsonObject> BuildEditorStreamToolResult(const TSharedPtr<FJsonObject>& Arguments);
+    TSharedPtr<FJsonObject> BuildLiveToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildGetContextToolResult() const;
     TSharedPtr<FJsonObject> BuildSelectionTransformToolResult() const;
     TSharedPtr<FJsonObject> BuildExecutePythonToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
-    void SendEditorStreamEvent(const FString& EventName, const TSharedPtr<FJsonObject>& Data) const;
-    void AppendEditorStreamEventLog(const FString& JsonLine) const;
+    void SendEditorStreamEvent(const FString& EventName, const TSharedPtr<FJsonObject>& Data);
+    void AppendEditorStreamEventLog(const FString& JsonLine);
+    bool ParseLiveEventLine(const FString& JsonLine, int64& OutSeq, TSharedPtr<FJsonObject>& OutEventObject) const;
     void RegisterEditorStreamDelegates();
     void UnregisterEditorStreamDelegates();
     void OnSelectionChanged(UObject* NewSelection);
     void OnMapOpened(const FString& Filename, bool bAsTemplate);
     void OnActorMoved(AActor* Actor);
+    void OnActorAdded(AActor* Actor);
+    void OnActorDeleted(AActor* Actor);
+    void OnActorAttached(AActor* Actor, const AActor* ParentActor);
+    void OnActorDetached(AActor* Actor, const AActor* ParentActor);
+    void OnBeginPIE(bool bIsSimulating);
+    void OnEndPIE(bool bIsSimulating);
+    void OnPausePIE(bool bIsSimulating);
+    void OnResumePIE(bool bIsSimulating);
+    void OnObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& PropertyChangedEvent);
+    void OnPostUndoRedo();
 
     FString MakeJsonResponse(const TSharedPtr<FJsonValue>& Id, const TSharedPtr<FJsonObject>& Result) const;
     FString MakeJsonError(const TSharedPtr<FJsonValue>& Id, int32 Code, const FString& Message) const;
@@ -40,13 +54,28 @@ private:
 private:
     TUniquePtr<FLoomleMcpPipeServer> PipeServer;
     bool bEditorStreamEnabled = false;
+    int64 NextLiveSequence = 1;
+    TArray<FString> LiveEventBuffer;
     bool bSelectionEventPending = false;
     int32 PendingSelectionCount = 0;
     FString PendingSelectionSignature;
+    TArray<FString> PendingSelectionPaths;
     FString LastEmittedSelectionSignature;
     double LastSelectionChangeTimeSeconds = 0.0;
+    TMap<FString, FTransform> LastActorTransformByPath;
+    TMap<FString, FTransform> LastSceneComponentRelativeTransformByPath;
     FDelegateHandle SelectionChangedHandle;
     FDelegateHandle MapOpenedHandle;
     FDelegateHandle ActorMovedHandle;
+    FDelegateHandle ActorAddedHandle;
+    FDelegateHandle ActorDeletedHandle;
+    FDelegateHandle ActorAttachedHandle;
+    FDelegateHandle ActorDetachedHandle;
+    FDelegateHandle BeginPieHandle;
+    FDelegateHandle EndPieHandle;
+    FDelegateHandle PausePieHandle;
+    FDelegateHandle ResumePieHandle;
+    FDelegateHandle PostUndoRedoHandle;
+    FDelegateHandle ObjectPropertyChangedHandle;
     FTSTicker::FDelegateHandle SelectionDebounceTickerHandle;
 };

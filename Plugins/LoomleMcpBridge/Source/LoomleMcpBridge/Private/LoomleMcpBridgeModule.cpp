@@ -3,6 +3,7 @@
 #include "Editor.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Algo/Sort.h"
+#include "Components/ActorComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
@@ -21,6 +22,7 @@
 #include "HAL/PlatformTime.h"
 #include "IPythonScriptPlugin.h"
 #include "Json.h"
+#include "HAL/FileManager.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_DynamicCast.h"
 #include "K2Node_Event.h"
@@ -34,6 +36,8 @@
 #include "Misc/FileHelper.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
+#include "UObject/UObjectGlobals.h"
+#include "UObject/UnrealType.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogLoomleMcpBridge, Log, All);
 
@@ -42,6 +46,143 @@ using FCondensedJsonWriter = TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>
 namespace LoomleMcpBridgeConstants
 {
     static const TCHAR* PipeName = TEXT("loomle-mcp");
+    static const TCHAR* LiveToolName = TEXT("live");
+    static const TCHAR* ExecuteToolName = TEXT("execute");
+    static const TCHAR* LiveNotificationMethod = TEXT("notifications/live");
+    static const TCHAR* LiveLogFileName = TEXT("live_events.jsonl");
+    constexpr int32 MaxLiveLogRecords = 100;
+    constexpr int32 MaxLiveMemoryRecords = 300;
+}
+
+namespace
+{
+TSharedPtr<FJsonObject> ToVectorJson(const FVector& Value)
+{
+    TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
+    Obj->SetNumberField(TEXT("x"), Value.X);
+    Obj->SetNumberField(TEXT("y"), Value.Y);
+    Obj->SetNumberField(TEXT("z"), Value.Z);
+    return Obj;
+}
+
+TSharedPtr<FJsonObject> ToRotatorJson(const FRotator& Value)
+{
+    TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
+    Obj->SetNumberField(TEXT("pitch"), Value.Pitch);
+    Obj->SetNumberField(TEXT("yaw"), Value.Yaw);
+    Obj->SetNumberField(TEXT("roll"), Value.Roll);
+    return Obj;
+}
+
+TSharedPtr<FJsonObject> ToTransformJson(const FTransform& Value)
+{
+    TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
+    Obj->SetObjectField(TEXT("location"), ToVectorJson(Value.GetLocation()));
+    Obj->SetObjectField(TEXT("rotation"), ToRotatorJson(Value.Rotator()));
+    Obj->SetObjectField(TEXT("scale"), ToVectorJson(Value.GetScale3D()));
+    return Obj;
+}
+
+bool IsLiveLifecycleEvent(const FString& EventName)
+{
+    return EventName.Equals(TEXT("live_started")) || EventName.Equals(TEXT("live_stopping"));
+}
+
+bool IsLikelySystemActorIdentity(const FString& ActorName, const FString& ActorPath, const FString& ClassPath)
+{
+    if (ClassPath.Equals(TEXT("/Script/Engine.DefaultPhysicsVolume"))
+        || ClassPath.Equals(TEXT("/Script/GameplayDebugger.GameplayDebuggerPlayerManager"))
+        || ClassPath.Equals(TEXT("/Script/NavigationSystem.AbstractNavData")))
+    {
+        return true;
+    }
+
+    return ActorName.Contains(TEXT("DefaultPhysicsVolume"))
+        || ActorName.Contains(TEXT("GameplayDebugger"))
+        || ActorName.Contains(TEXT("ChaosDebugDraw"))
+        || ActorName.Contains(TEXT("AbstractNavData"))
+        || ActorPath.Contains(TEXT("DefaultPhysicsVolume"))
+        || ActorPath.Contains(TEXT("GameplayDebugger"))
+        || ActorPath.Contains(TEXT("ChaosDebugDraw"))
+        || ActorPath.Contains(TEXT("AbstractNavData"));
+}
+
+FString DeriveEventOrigin(const FString& EventName, const TSharedPtr<FJsonObject>& Data)
+{
+    if (IsLiveLifecycleEvent(EventName))
+    {
+        return TEXT("system");
+    }
+
+    if (EventName.Equals(TEXT("selection_changed"))
+        || EventName.Equals(TEXT("actor_moved"))
+        || EventName.Equals(TEXT("actor_deleted"))
+        || EventName.Equals(TEXT("actor_attached"))
+        || EventName.Equals(TEXT("actor_detached"))
+        || EventName.Equals(TEXT("pie_started"))
+        || EventName.Equals(TEXT("pie_stopped"))
+        || EventName.Equals(TEXT("pie_paused"))
+        || EventName.Equals(TEXT("pie_resumed"))
+        || EventName.Equals(TEXT("undo_redo")))
+    {
+        return TEXT("user");
+    }
+
+    if (EventName.Equals(TEXT("actor_added")) && Data.IsValid())
+    {
+        FString Name;
+        FString Path;
+        FString ClassPath;
+        Data->TryGetStringField(TEXT("name"), Name);
+        Data->TryGetStringField(TEXT("path"), Path);
+        Data->TryGetStringField(TEXT("class"), ClassPath);
+        return IsLikelySystemActorIdentity(Name, Path, ClassPath) ? TEXT("system") : TEXT("user");
+    }
+
+    if (EventName.Equals(TEXT("object_property_changed")) && Data.IsValid())
+    {
+        FString ObjectClass;
+        FString Property;
+        FString ActorName;
+        FString ActorPath;
+        Data->TryGetStringField(TEXT("objectClass"), ObjectClass);
+        Data->TryGetStringField(TEXT("property"), Property);
+        Data->TryGetStringField(TEXT("actorName"), ActorName);
+        Data->TryGetStringField(TEXT("actorPath"), ActorPath);
+
+        if (ObjectClass.Equals(TEXT("/Script/NavigationSystem.AbstractNavData"))
+            || Property.Equals(TEXT("ActorLabel"))
+            || IsLikelySystemActorIdentity(ActorName, ActorPath, ObjectClass))
+        {
+            return TEXT("system");
+        }
+        return TEXT("user");
+    }
+
+    return TEXT("unknown");
+}
+
+bool ShouldReturnInLivePull(const TSharedPtr<FJsonObject>& EventObject)
+{
+    if (!EventObject.IsValid())
+    {
+        return false;
+    }
+
+    const TSharedPtr<FJsonObject>* Params = nullptr;
+    if (!EventObject->TryGetObjectField(TEXT("params"), Params) || Params == nullptr || !(*Params).IsValid())
+    {
+        return true;
+    }
+
+    FString EventName;
+    if (!(*Params)->TryGetStringField(TEXT("event"), EventName))
+    {
+        return true;
+    }
+
+    return !IsLiveLifecycleEvent(EventName);
+}
 }
 
 void FLoomleMcpBridgeModule::StartupModule()
@@ -65,11 +206,36 @@ void FLoomleMcpBridgeModule::StartupModule()
 #else
     UE_LOG(LogLoomleMcpBridge, Display, TEXT("Loomle MCP bridge started on unix socket %s"), *FPaths::Combine(FPaths::ProjectIntermediateDir(), TEXT("loomle-mcp.sock")));
 #endif
+
+    RegisterEditorStreamDelegates();
+    bEditorStreamEnabled = true;
+    bSelectionEventPending = false;
+    PendingSelectionCount = 0;
+    PendingSelectionSignature.Empty();
+    PendingSelectionPaths.Empty();
+    LastEmittedSelectionSignature.Empty();
+    LastSelectionChangeTimeSeconds = 0.0;
+    LastActorTransformByPath.Empty();
+    LastSceneComponentRelativeTransformByPath.Empty();
+
+    TSharedPtr<FJsonObject> StartedData = MakeShared<FJsonObject>();
+    StartedData->SetStringField(TEXT("reason"), TEXT("mcp_started"));
+    StartedData->SetStringField(TEXT("message"), TEXT("live started"));
+    SendEditorStreamEvent(TEXT("live_started"), StartedData);
 }
 
 void FLoomleMcpBridgeModule::ShutdownModule()
 {
+    if (bEditorStreamEnabled)
+    {
+        TSharedPtr<FJsonObject> StoppedData = MakeShared<FJsonObject>();
+        StoppedData->SetStringField(TEXT("reason"), TEXT("mcp_stopping"));
+        StoppedData->SetStringField(TEXT("message"), TEXT("live stopping"));
+        SendEditorStreamEvent(TEXT("live_stopping"), StoppedData);
+    }
+
     UnregisterEditorStreamDelegates();
+    bEditorStreamEnabled = false;
 
     if (PipeServer)
     {
@@ -133,7 +299,7 @@ TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildInitializeResult(const TSha
     Result->SetStringField(TEXT("protocolVersion"), TEXT("2025-06-18"));
 
     TSharedPtr<FJsonObject> ServerInfo = MakeShared<FJsonObject>();
-    ServerInfo->SetStringField(TEXT("name"), TEXT("loomle-ue5-mcp"));
+    ServerInfo->SetStringField(TEXT("name"), TEXT("Loomle Bridge"));
     ServerInfo->SetStringField(TEXT("version"), TEXT("0.1.0"));
     Result->SetObjectField(TEXT("serverInfo"), ServerInfo);
 
@@ -163,7 +329,7 @@ TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildToolsListResult() const
         Schema->SetStringField(TEXT("type"), TEXT("object"));
         Schema->SetArrayField(TEXT("required"), TArray<TSharedPtr<FJsonValue>>{});
         Schema->SetObjectField(TEXT("properties"), MakeShared<FJsonObject>());
-        Tools.Add(MakeTool(TEXT("get_context"), TEXT("Get current UE editor context."), Schema));
+        Tools.Add(MakeTool(TEXT("context"), TEXT("Get current UE editor context."), Schema));
     }
 
     {
@@ -171,29 +337,37 @@ TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildToolsListResult() const
         Schema->SetStringField(TEXT("type"), TEXT("object"));
         Schema->SetArrayField(TEXT("required"), TArray<TSharedPtr<FJsonValue>>{});
         Schema->SetObjectField(TEXT("properties"), MakeShared<FJsonObject>());
-        Tools.Add(MakeTool(TEXT("get_selection_transform"), TEXT("Get transform and bounds for selected actors."), Schema));
+        Tools.Add(MakeTool(TEXT("selection"), TEXT("Get transform and bounds for selected actors."), Schema));
     }
 
     {
         TSharedPtr<FJsonObject> Schema = MakeShared<FJsonObject>();
         Schema->SetStringField(TEXT("type"), TEXT("object"));
-        TArray<TSharedPtr<FJsonValue>> Required;
-        Required.Add(MakeShared<FJsonValueString>(TEXT("action")));
-        Schema->SetArrayField(TEXT("required"), Required);
+        Schema->SetArrayField(TEXT("required"), TArray<TSharedPtr<FJsonValue>>{});
+        Schema->SetObjectField(TEXT("properties"), MakeShared<FJsonObject>());
+        Tools.Add(MakeTool(TEXT("loomle"), TEXT("Inspect Loomle Bridge health and callable capabilities."), Schema));
+    }
+
+    {
+        TSharedPtr<FJsonObject> Schema = MakeShared<FJsonObject>();
+        Schema->SetStringField(TEXT("type"), TEXT("object"));
+        Schema->SetArrayField(TEXT("required"), TArray<TSharedPtr<FJsonValue>>{});
 
         TSharedPtr<FJsonObject> Properties = MakeShared<FJsonObject>();
-        TSharedPtr<FJsonObject> ActionProperty = MakeShared<FJsonObject>();
-        ActionProperty->SetStringField(TEXT("type"), TEXT("string"));
-        ActionProperty->SetStringField(TEXT("description"), TEXT("editor_stream action: start, stop, or status."));
-        TArray<TSharedPtr<FJsonValue>> EnumValues;
-        EnumValues.Add(MakeShared<FJsonValueString>(TEXT("start")));
-        EnumValues.Add(MakeShared<FJsonValueString>(TEXT("stop")));
-        EnumValues.Add(MakeShared<FJsonValueString>(TEXT("status")));
-        ActionProperty->SetArrayField(TEXT("enum"), EnumValues);
-        Properties->SetObjectField(TEXT("action"), ActionProperty);
+        {
+            TSharedPtr<FJsonObject> CursorProperty = MakeShared<FJsonObject>();
+            CursorProperty->SetStringField(TEXT("type"), TEXT("number"));
+            CursorProperty->SetStringField(TEXT("description"), TEXT("Last consumed live sequence. Return events after this cursor."));
+            Properties->SetObjectField(TEXT("cursor"), CursorProperty);
+
+            TSharedPtr<FJsonObject> LimitProperty = MakeShared<FJsonObject>();
+            LimitProperty->SetStringField(TEXT("type"), TEXT("number"));
+            LimitProperty->SetStringField(TEXT("description"), TEXT("Maximum events to return, default 20, max 100."));
+            Properties->SetObjectField(TEXT("limit"), LimitProperty);
+        }
 
         Schema->SetObjectField(TEXT("properties"), Properties);
-        Tools.Add(MakeTool(TEXT("editor_stream"), TEXT("Control live editor event streaming."), Schema));
+        Tools.Add(MakeTool(LoomleMcpBridgeConstants::LiveToolName, TEXT("Pull live editor events incrementally (auto-managed with bridge lifecycle)."), Schema));
     }
 
     {
@@ -221,7 +395,7 @@ TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildToolsListResult() const
         }
 
         Schema->SetObjectField(TEXT("properties"), Properties);
-        Tools.Add(MakeTool(TEXT("execute_python"), TEXT("Execute inline Python code inside UE Editor."), Schema));
+        Tools.Add(MakeTool(LoomleMcpBridgeConstants::ExecuteToolName, TEXT("Execute inline Python code inside UE Editor."), Schema));
     }
 
     Result->SetArrayField(TEXT("tools"), Tools);
@@ -246,20 +420,25 @@ TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildToolCallResult(const TShare
     TSharedPtr<FJsonObject> Payload;
     bool bIsError = false;
 
-    if (Name.Equals(TEXT("get_context")))
+    if (Name.Equals(TEXT("context")))
     {
         Payload = BuildGetContextToolResult();
     }
-    else if (Name.Equals(TEXT("get_selection_transform")))
+    else if (Name.Equals(TEXT("selection")))
     {
         Payload = BuildSelectionTransformToolResult();
     }
-    else if (Name.Equals(TEXT("editor_stream")))
+    else if (Name.Equals(TEXT("loomle")))
     {
-        Payload = BuildEditorStreamToolResult(Arguments);
+        Payload = BuildLoomleToolResult();
         bIsError = Payload->GetBoolField(TEXT("isError"));
     }
-    else if (Name.Equals(TEXT("execute_python")))
+    else if (Name.Equals(LoomleMcpBridgeConstants::LiveToolName))
+    {
+        Payload = BuildLiveToolResult(Arguments);
+        bIsError = Payload->GetBoolField(TEXT("isError"));
+    }
+    else if (Name.Equals(LoomleMcpBridgeConstants::ExecuteToolName))
     {
         Payload = BuildExecutePythonToolResult(Arguments);
         bIsError = Payload->GetBoolField(TEXT("isError"));
@@ -316,71 +495,197 @@ TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildGetContextToolResult() cons
     return Result;
 }
 
-TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildEditorStreamToolResult(const TSharedPtr<FJsonObject>& Arguments)
+TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildLoomleToolResult() const
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
 
-    FString Action;
-    if (!Arguments->TryGetStringField(TEXT("action"), Action))
+    const bool bBridgeRunning = PipeServer.IsValid();
+    const bool bLiveRunning = bEditorStreamEnabled;
+
+    IPythonScriptPlugin* PythonScriptPlugin = IPythonScriptPlugin::Get();
+    const bool bPythonModuleLoaded = PythonScriptPlugin != nullptr;
+    const bool bPythonReady = bPythonModuleLoaded && PythonScriptPlugin->IsPythonInitialized();
+
+    TSharedPtr<FJsonObject> Status = MakeShared<FJsonObject>();
+    Status->SetStringField(TEXT("serverName"), TEXT("Loomle Bridge"));
+    Status->SetStringField(TEXT("serverVersion"), TEXT("0.1.0"));
+    Status->SetStringField(TEXT("protocolVersion"), TEXT("2025-06-18"));
+    Status->SetBoolField(TEXT("bridgeRunning"), bBridgeRunning);
+    Status->SetBoolField(TEXT("liveRunning"), bLiveRunning);
+    Status->SetBoolField(TEXT("pythonModuleLoaded"), bPythonModuleLoaded);
+    Status->SetBoolField(TEXT("pythonReady"), bPythonReady);
+#if PLATFORM_WINDOWS
+    Status->SetStringField(TEXT("transport"), TEXT("\\\\.\\pipe\\loomle-mcp"));
+#else
+    Status->SetStringField(TEXT("transport"), FPaths::Combine(FPaths::ProjectIntermediateDir(), TEXT("loomle-mcp.sock")));
+#endif
+    Result->SetObjectField(TEXT("status"), Status);
+
+    auto MakeCapability = [](const FString& Name, const FString& Summary, bool bReady, const FString& Reason)
+    {
+        TSharedPtr<FJsonObject> Capability = MakeShared<FJsonObject>();
+        Capability->SetStringField(TEXT("name"), Name);
+        Capability->SetStringField(TEXT("summary"), Summary);
+        Capability->SetBoolField(TEXT("ready"), bReady);
+        if (!Reason.IsEmpty())
+        {
+            Capability->SetStringField(TEXT("reason"), Reason);
+        }
+        return MakeShared<FJsonValueObject>(Capability);
+    };
+
+    TArray<TSharedPtr<FJsonValue>> Capabilities;
+    Capabilities.Add(MakeCapability(TEXT("loomle"), TEXT("Bridge health and capabilities."), bBridgeRunning, bBridgeRunning ? TEXT("") : TEXT("Bridge server is not running.")));
+    Capabilities.Add(MakeCapability(TEXT("context"), TEXT("Current editor context."), bBridgeRunning, bBridgeRunning ? TEXT("") : TEXT("Bridge server is not running.")));
+    Capabilities.Add(MakeCapability(TEXT("selection"), TEXT("Selected actor transforms and bounds."), bBridgeRunning, bBridgeRunning ? TEXT("") : TEXT("Bridge server is not running.")));
+    Capabilities.Add(MakeCapability(TEXT("live"), TEXT("Incremental live event feed by cursor."), bBridgeRunning && bLiveRunning, bLiveRunning ? TEXT("") : TEXT("Live stream is not running. Restart Unreal Editor.")));
+    Capabilities.Add(MakeCapability(TEXT("execute"), TEXT("Execute Python in editor."), bPythonReady, bPythonReady ? TEXT("") : TEXT("Python runtime is not initialized yet.")));
+    Result->SetArrayField(TEXT("capabilities"), Capabilities);
+
+    Result->SetStringField(
+        TEXT("message"),
+        bBridgeRunning ? TEXT("Loomle Bridge is running.") : TEXT("Loomle Bridge is not running. Restart Unreal Editor."));
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildLiveToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+    Result->SetBoolField(TEXT("running"), bEditorStreamEnabled);
+
+    if (!bEditorStreamEnabled)
     {
         Result->SetBoolField(TEXT("isError"), true);
-        Result->SetStringField(TEXT("message"), TEXT("arguments.action is required."));
+        Result->SetStringField(TEXT("message"), TEXT("Live stream is not running. Please restart Unreal Editor to recover Loomle Bridge."));
         return Result;
     }
 
-    Action = Action.ToLower();
-    if (Action.Equals(TEXT("start")))
+    int64 Cursor = 0;
+    double CursorNumber = 0.0;
+    if (Arguments->TryGetNumberField(TEXT("cursor"), CursorNumber))
     {
-        if (!bEditorStreamEnabled)
+        Cursor = static_cast<int64>(CursorNumber);
+    }
+    if (Cursor < 0)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("message"), TEXT("arguments.cursor must be >= 0."));
+        return Result;
+    }
+
+    int32 Limit = 20;
+    double LimitNumber = 0.0;
+    if (Arguments->TryGetNumberField(TEXT("limit"), LimitNumber))
+    {
+        Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, LoomleMcpBridgeConstants::MaxLiveLogRecords);
+    }
+
+    TArray<TSharedPtr<FJsonValue>> Events;
+    int64 NextCursor = Cursor;
+    bool bDropped = false;
+    bool bServedFromFile = false;
+
+    int64 EarliestBufferSeq = NextLiveSequence;
+    int64 LatestBufferSeq = Cursor;
+    if (LiveEventBuffer.Num() > 0)
+    {
+        int64 Seq = 0;
+        TSharedPtr<FJsonObject> Parsed;
+        if (ParseLiveEventLine(LiveEventBuffer[0], Seq, Parsed))
         {
-            RegisterEditorStreamDelegates();
-            bEditorStreamEnabled = true;
-            bSelectionEventPending = false;
-            PendingSelectionCount = 0;
-            PendingSelectionSignature.Empty();
-            LastEmittedSelectionSignature.Empty();
-            LastSelectionChangeTimeSeconds = 0.0;
+            EarliestBufferSeq = Seq;
+        }
+        if (ParseLiveEventLine(LiveEventBuffer.Last(), Seq, Parsed))
+        {
+            LatestBufferSeq = Seq;
+        }
+    }
+
+    for (const FString& Line : LiveEventBuffer)
+    {
+        if (Events.Num() >= Limit)
+        {
+            break;
         }
 
-        TSharedPtr<FJsonObject> StartedData = MakeShared<FJsonObject>();
-        StartedData->SetStringField(TEXT("message"), TEXT("editor_stream started"));
-        SendEditorStreamEvent(TEXT("stream_started"), StartedData);
-
-        Result->SetBoolField(TEXT("isError"), false);
-        Result->SetBoolField(TEXT("running"), true);
-        Result->SetStringField(TEXT("message"), TEXT("editor_stream started."));
-        return Result;
-    }
-
-    if (Action.Equals(TEXT("stop")))
-    {
-        if (bEditorStreamEnabled)
+        int64 Seq = 0;
+        TSharedPtr<FJsonObject> EventObject;
+        if (!ParseLiveEventLine(Line, Seq, EventObject) || !EventObject.IsValid())
         {
-            UnregisterEditorStreamDelegates();
-            bEditorStreamEnabled = false;
-            bSelectionEventPending = false;
-            PendingSelectionCount = 0;
-            PendingSelectionSignature.Empty();
-            LastEmittedSelectionSignature.Empty();
-            LastSelectionChangeTimeSeconds = 0.0;
+            continue;
+        }
+        if (Seq <= Cursor)
+        {
+            continue;
         }
 
-        Result->SetBoolField(TEXT("isError"), false);
-        Result->SetBoolField(TEXT("running"), false);
-        Result->SetStringField(TEXT("message"), TEXT("editor_stream stopped."));
-        return Result;
+        NextCursor = FMath::Max(NextCursor, Seq);
+        if (!ShouldReturnInLivePull(EventObject))
+        {
+            continue;
+        }
+
+        Events.Add(MakeShared<FJsonValueObject>(EventObject));
     }
 
-    if (Action.Equals(TEXT("status")))
+    if (Events.Num() == 0 && Cursor < EarliestBufferSeq - 1)
     {
-        Result->SetBoolField(TEXT("isError"), false);
-        Result->SetBoolField(TEXT("running"), bEditorStreamEnabled);
-        Result->SetStringField(TEXT("message"), bEditorStreamEnabled ? TEXT("editor_stream is running.") : TEXT("editor_stream is stopped."));
-        return Result;
+        const FString StreamLogPath = FPaths::Combine(FPaths::ProjectDir(), TEXT("Loomle"), TEXT("runtime"), LoomleMcpBridgeConstants::LiveLogFileName);
+        TArray<FString> LogLines;
+        FFileHelper::LoadFileToStringArray(LogLines, *StreamLogPath);
+        bServedFromFile = true;
+
+        int64 EarliestFileSeq = MAX_int64;
+        int64 LatestFileSeq = 0;
+        for (const FString& Line : LogLines)
+        {
+            int64 Seq = 0;
+            TSharedPtr<FJsonObject> EventObject;
+            if (!ParseLiveEventLine(Line, Seq, EventObject) || !EventObject.IsValid())
+            {
+                continue;
+            }
+            EarliestFileSeq = FMath::Min(EarliestFileSeq, Seq);
+            LatestFileSeq = FMath::Max(LatestFileSeq, Seq);
+
+            if (Seq <= Cursor || Events.Num() >= Limit)
+            {
+                continue;
+            }
+
+            NextCursor = FMath::Max(NextCursor, Seq);
+            if (!ShouldReturnInLivePull(EventObject))
+            {
+                continue;
+            }
+
+            Events.Add(MakeShared<FJsonValueObject>(EventObject));
+        }
+
+        if (EarliestFileSeq != MAX_int64 && Cursor < EarliestFileSeq - 1)
+        {
+            bDropped = true;
+        }
+        if (LatestFileSeq > 0)
+        {
+            NextCursor = FMath::Max(NextCursor, LatestFileSeq);
+        }
     }
 
-    Result->SetBoolField(TEXT("isError"), true);
-    Result->SetStringField(TEXT("message"), TEXT("arguments.action must be start, stop, or status."));
+    Result->SetNumberField(TEXT("cursor"), static_cast<double>(Cursor));
+    Result->SetNumberField(TEXT("nextCursor"), static_cast<double>(NextCursor));
+    Result->SetBoolField(TEXT("dropped"), bDropped);
+    Result->SetStringField(TEXT("source"), bServedFromFile ? TEXT("file") : TEXT("memory"));
+    Result->SetArrayField(TEXT("events"), Events);
+    Result->SetNumberField(TEXT("count"), Events.Num());
+
+    if (Events.Num() == 0 && Cursor < LatestBufferSeq)
+    {
+        Result->SetStringField(TEXT("message"), TEXT("No new events."));
+    }
+
     return Result;
 }
 
@@ -496,7 +801,7 @@ TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildSelectionTransformToolResul
     return Result;
 }
 
-void FLoomleMcpBridgeModule::SendEditorStreamEvent(const FString& EventName, const TSharedPtr<FJsonObject>& Data) const
+void FLoomleMcpBridgeModule::SendEditorStreamEvent(const FString& EventName, const TSharedPtr<FJsonObject>& Data)
 {
     if (!bEditorStreamEnabled || !PipeServer.IsValid())
     {
@@ -504,27 +809,72 @@ void FLoomleMcpBridgeModule::SendEditorStreamEvent(const FString& EventName, con
     }
 
     TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+    const int64 Sequence = NextLiveSequence++;
     Params->SetStringField(TEXT("event"), EventName);
+    Params->SetNumberField(TEXT("seq"), static_cast<double>(Sequence));
     Params->SetStringField(TEXT("timestamp"), FDateTime::UtcNow().ToIso8601());
+    Params->SetStringField(TEXT("origin"), DeriveEventOrigin(EventName, Data));
     Params->SetObjectField(TEXT("data"), Data);
 
     TSharedPtr<FJsonObject> Notification = MakeShared<FJsonObject>();
     Notification->SetStringField(TEXT("jsonrpc"), TEXT("2.0"));
-    Notification->SetStringField(TEXT("method"), TEXT("notifications/editor_stream"));
+    Notification->SetStringField(TEXT("method"), LoomleMcpBridgeConstants::LiveNotificationMethod);
     Notification->SetObjectField(TEXT("params"), Params);
 
     FString Output;
     TSharedRef<FCondensedJsonWriter> Writer = TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Output);
     FJsonSerializer::Serialize(Notification.ToSharedRef(), Writer);
+    LiveEventBuffer.Add(Output);
+    if (LiveEventBuffer.Num() > LoomleMcpBridgeConstants::MaxLiveMemoryRecords)
+    {
+        LiveEventBuffer.RemoveAt(0, LiveEventBuffer.Num() - LoomleMcpBridgeConstants::MaxLiveMemoryRecords, EAllowShrinking::No);
+    }
     AppendEditorStreamEventLog(Output);
     PipeServer->SendServerNotification(Output);
 }
 
-void FLoomleMcpBridgeModule::AppendEditorStreamEventLog(const FString& JsonLine) const
+void FLoomleMcpBridgeModule::AppendEditorStreamEventLog(const FString& JsonLine)
 {
-    const FString StreamLogPath = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("editor_stream_events.jsonl"));
-    const FString Line = JsonLine + LINE_TERMINATOR;
-    FFileHelper::SaveStringToFile(Line, *StreamLogPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM, &IFileManager::Get(), FILEWRITE_Append);
+    const FString RuntimeDir = FPaths::Combine(FPaths::ProjectDir(), TEXT("Loomle"), TEXT("runtime"));
+    IFileManager::Get().MakeDirectory(*RuntimeDir, true);
+    const FString StreamLogPath = FPaths::Combine(RuntimeDir, LoomleMcpBridgeConstants::LiveLogFileName);
+    TArray<FString> Lines;
+    FFileHelper::LoadFileToStringArray(Lines, *StreamLogPath);
+    Lines.Add(JsonLine);
+    if (Lines.Num() > LoomleMcpBridgeConstants::MaxLiveLogRecords)
+    {
+        Lines.RemoveAt(0, Lines.Num() - LoomleMcpBridgeConstants::MaxLiveLogRecords, EAllowShrinking::No);
+    }
+    FFileHelper::SaveStringArrayToFile(Lines, *StreamLogPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+}
+
+bool FLoomleMcpBridgeModule::ParseLiveEventLine(const FString& JsonLine, int64& OutSeq, TSharedPtr<FJsonObject>& OutEventObject) const
+{
+    OutSeq = 0;
+    OutEventObject.Reset();
+
+    TSharedPtr<FJsonObject> EventObject;
+    const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonLine);
+    if (!FJsonSerializer::Deserialize(Reader, EventObject) || !EventObject.IsValid())
+    {
+        return false;
+    }
+
+    const TSharedPtr<FJsonObject>* Params = nullptr;
+    if (!EventObject->TryGetObjectField(TEXT("params"), Params) || Params == nullptr || !(*Params).IsValid())
+    {
+        return false;
+    }
+
+    double SeqNumber = 0.0;
+    if (!(*Params)->TryGetNumberField(TEXT("seq"), SeqNumber))
+    {
+        return false;
+    }
+
+    OutSeq = static_cast<int64>(SeqNumber);
+    OutEventObject = EventObject;
+    return true;
 }
 
 void FLoomleMcpBridgeModule::RegisterEditorStreamDelegates()
@@ -542,6 +892,56 @@ void FLoomleMcpBridgeModule::RegisterEditorStreamDelegates()
     if (GEngine && !ActorMovedHandle.IsValid())
     {
         ActorMovedHandle = GEngine->OnActorMoved().AddRaw(this, &FLoomleMcpBridgeModule::OnActorMoved);
+    }
+
+    if (GEngine && !ActorAddedHandle.IsValid())
+    {
+        ActorAddedHandle = GEngine->OnLevelActorAdded().AddRaw(this, &FLoomleMcpBridgeModule::OnActorAdded);
+    }
+
+    if (GEngine && !ActorDeletedHandle.IsValid())
+    {
+        ActorDeletedHandle = GEngine->OnLevelActorDeleted().AddRaw(this, &FLoomleMcpBridgeModule::OnActorDeleted);
+    }
+
+    if (GEngine && !ActorAttachedHandle.IsValid())
+    {
+        ActorAttachedHandle = GEngine->OnLevelActorAttached().AddRaw(this, &FLoomleMcpBridgeModule::OnActorAttached);
+    }
+
+    if (GEngine && !ActorDetachedHandle.IsValid())
+    {
+        ActorDetachedHandle = GEngine->OnLevelActorDetached().AddRaw(this, &FLoomleMcpBridgeModule::OnActorDetached);
+    }
+
+    if (!BeginPieHandle.IsValid())
+    {
+        BeginPieHandle = FEditorDelegates::BeginPIE.AddRaw(this, &FLoomleMcpBridgeModule::OnBeginPIE);
+    }
+
+    if (!EndPieHandle.IsValid())
+    {
+        EndPieHandle = FEditorDelegates::EndPIE.AddRaw(this, &FLoomleMcpBridgeModule::OnEndPIE);
+    }
+
+    if (!PausePieHandle.IsValid())
+    {
+        PausePieHandle = FEditorDelegates::PausePIE.AddRaw(this, &FLoomleMcpBridgeModule::OnPausePIE);
+    }
+
+    if (!ResumePieHandle.IsValid())
+    {
+        ResumePieHandle = FEditorDelegates::ResumePIE.AddRaw(this, &FLoomleMcpBridgeModule::OnResumePIE);
+    }
+
+    if (!PostUndoRedoHandle.IsValid())
+    {
+        PostUndoRedoHandle = FEditorDelegates::PostUndoRedo.AddRaw(this, &FLoomleMcpBridgeModule::OnPostUndoRedo);
+    }
+
+    if (!ObjectPropertyChangedHandle.IsValid())
+    {
+        ObjectPropertyChangedHandle = FCoreUObjectDelegates::OnObjectPropertyChanged.AddRaw(this, &FLoomleMcpBridgeModule::OnObjectPropertyChanged);
     }
 
     if (!SelectionDebounceTickerHandle.IsValid())
@@ -564,6 +964,13 @@ void FLoomleMcpBridgeModule::RegisterEditorStreamDelegates()
                 TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
                 Data->SetNumberField(TEXT("count"), PendingSelectionCount);
                 Data->SetStringField(TEXT("signature"), PendingSelectionSignature);
+                TArray<TSharedPtr<FJsonValue>> PathValues;
+                PathValues.Reserve(PendingSelectionPaths.Num());
+                for (const FString& Path : PendingSelectionPaths)
+                {
+                    PathValues.Add(MakeShared<FJsonValueString>(Path));
+                }
+                Data->SetArrayField(TEXT("paths"), PathValues);
                 SendEditorStreamEvent(TEXT("selection_changed"), Data);
                 LastEmittedSelectionSignature = PendingSelectionSignature;
                 bSelectionEventPending = false;
@@ -591,6 +998,66 @@ void FLoomleMcpBridgeModule::UnregisterEditorStreamDelegates()
     {
         GEngine->OnActorMoved().Remove(ActorMovedHandle);
         ActorMovedHandle.Reset();
+    }
+
+    if (GEngine && ActorAddedHandle.IsValid())
+    {
+        GEngine->OnLevelActorAdded().Remove(ActorAddedHandle);
+        ActorAddedHandle.Reset();
+    }
+
+    if (GEngine && ActorDeletedHandle.IsValid())
+    {
+        GEngine->OnLevelActorDeleted().Remove(ActorDeletedHandle);
+        ActorDeletedHandle.Reset();
+    }
+
+    if (GEngine && ActorAttachedHandle.IsValid())
+    {
+        GEngine->OnLevelActorAttached().Remove(ActorAttachedHandle);
+        ActorAttachedHandle.Reset();
+    }
+
+    if (GEngine && ActorDetachedHandle.IsValid())
+    {
+        GEngine->OnLevelActorDetached().Remove(ActorDetachedHandle);
+        ActorDetachedHandle.Reset();
+    }
+
+    if (BeginPieHandle.IsValid())
+    {
+        FEditorDelegates::BeginPIE.Remove(BeginPieHandle);
+        BeginPieHandle.Reset();
+    }
+
+    if (EndPieHandle.IsValid())
+    {
+        FEditorDelegates::EndPIE.Remove(EndPieHandle);
+        EndPieHandle.Reset();
+    }
+
+    if (PausePieHandle.IsValid())
+    {
+        FEditorDelegates::PausePIE.Remove(PausePieHandle);
+        PausePieHandle.Reset();
+    }
+
+    if (ResumePieHandle.IsValid())
+    {
+        FEditorDelegates::ResumePIE.Remove(ResumePieHandle);
+        ResumePieHandle.Reset();
+    }
+
+    if (PostUndoRedoHandle.IsValid())
+    {
+        FEditorDelegates::PostUndoRedo.Remove(PostUndoRedoHandle);
+        PostUndoRedoHandle.Reset();
+    }
+
+    if (ObjectPropertyChangedHandle.IsValid())
+    {
+        FCoreUObjectDelegates::OnObjectPropertyChanged.Remove(ObjectPropertyChangedHandle);
+        ObjectPropertyChangedHandle.Reset();
     }
 
     if (SelectionDebounceTickerHandle.IsValid())
@@ -630,6 +1097,7 @@ void FLoomleMcpBridgeModule::OnSelectionChanged(UObject*)
 
     PendingSelectionCount = Count;
     PendingSelectionSignature = Signature;
+    PendingSelectionPaths = MoveTemp(Paths);
     LastSelectionChangeTimeSeconds = FPlatformTime::Seconds();
     bSelectionEventPending = true;
 }
@@ -638,6 +1106,7 @@ void FLoomleMcpBridgeModule::OnMapOpened(const FString& Filename, bool bAsTempla
 {
     TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
     Data->SetStringField(TEXT("filename"), Filename);
+    Data->SetStringField(TEXT("mapName"), FPaths::GetBaseFilename(Filename));
     Data->SetBoolField(TEXT("asTemplate"), bAsTemplate);
     SendEditorStreamEvent(TEXT("map_opened"), Data);
 }
@@ -649,18 +1118,235 @@ void FLoomleMcpBridgeModule::OnActorMoved(AActor* Actor)
         return;
     }
 
-    const FVector Location = Actor->GetActorLocation();
+    const FString ActorPath = Actor->GetPathName();
+    const FTransform CurrentTransform(Actor->GetActorRotation(), Actor->GetActorLocation(), Actor->GetActorScale3D());
+    TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
+    Data->SetStringField(TEXT("name"), Actor->GetActorLabel());
+    Data->SetStringField(TEXT("path"), ActorPath);
+    Data->SetObjectField(TEXT("currentTransform"), ToTransformJson(CurrentTransform));
+
+    if (const FTransform* PreviousTransform = LastActorTransformByPath.Find(ActorPath))
+    {
+        Data->SetObjectField(TEXT("previousTransform"), ToTransformJson(*PreviousTransform));
+
+        TSharedPtr<FJsonObject> Delta = MakeShared<FJsonObject>();
+        Delta->SetObjectField(TEXT("location"), ToVectorJson(CurrentTransform.GetLocation() - PreviousTransform->GetLocation()));
+        Delta->SetObjectField(TEXT("rotation"), ToRotatorJson((CurrentTransform.Rotator() - PreviousTransform->Rotator()).GetNormalized()));
+        Delta->SetObjectField(TEXT("scale"), ToVectorJson(CurrentTransform.GetScale3D() - PreviousTransform->GetScale3D()));
+        Data->SetObjectField(TEXT("delta"), Delta);
+    }
+
+    LastActorTransformByPath.Add(ActorPath, CurrentTransform);
+
+    SendEditorStreamEvent(TEXT("actor_moved"), Data);
+}
+
+void FLoomleMcpBridgeModule::OnActorAdded(AActor* Actor)
+{
+    if (!Actor)
+    {
+        return;
+    }
+
     TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
     Data->SetStringField(TEXT("name"), Actor->GetActorLabel());
     Data->SetStringField(TEXT("path"), Actor->GetPathName());
+    Data->SetStringField(TEXT("class"), Actor->GetClass() ? Actor->GetClass()->GetPathName() : TEXT(""));
+    Data->SetObjectField(TEXT("initialTransform"), ToTransformJson(FTransform(Actor->GetActorRotation(), Actor->GetActorLocation(), Actor->GetActorScale3D())));
+    LastActorTransformByPath.Add(Actor->GetPathName(), FTransform(Actor->GetActorRotation(), Actor->GetActorLocation(), Actor->GetActorScale3D()));
+    TArray<USceneComponent*> SceneComponents;
+    Actor->GetComponents<USceneComponent>(SceneComponents);
+    for (USceneComponent* SceneComponent : SceneComponents)
+    {
+        if (SceneComponent)
+        {
+            LastSceneComponentRelativeTransformByPath.Add(
+                SceneComponent->GetPathName(),
+                FTransform(SceneComponent->GetRelativeRotation(), SceneComponent->GetRelativeLocation(), SceneComponent->GetRelativeScale3D()));
+        }
+    }
+    SendEditorStreamEvent(TEXT("actor_added"), Data);
+}
 
-    TSharedPtr<FJsonObject> LocationObj = MakeShared<FJsonObject>();
-    LocationObj->SetNumberField(TEXT("x"), Location.X);
-    LocationObj->SetNumberField(TEXT("y"), Location.Y);
-    LocationObj->SetNumberField(TEXT("z"), Location.Z);
-    Data->SetObjectField(TEXT("location"), LocationObj);
+void FLoomleMcpBridgeModule::OnActorDeleted(AActor* Actor)
+{
+    if (!Actor)
+    {
+        return;
+    }
 
-    SendEditorStreamEvent(TEXT("actor_moved"), Data);
+    TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
+    Data->SetStringField(TEXT("name"), Actor->GetActorLabel());
+    Data->SetStringField(TEXT("path"), Actor->GetPathName());
+    if (const FTransform* PreviousTransform = LastActorTransformByPath.Find(Actor->GetPathName()))
+    {
+        Data->SetObjectField(TEXT("lastKnownTransform"), ToTransformJson(*PreviousTransform));
+    }
+    const FString ActorPath = Actor->GetPathName();
+    LastActorTransformByPath.Remove(ActorPath);
+    for (auto It = LastSceneComponentRelativeTransformByPath.CreateIterator(); It; ++It)
+    {
+        if (It.Key().StartsWith(ActorPath + TEXT(".")))
+        {
+            It.RemoveCurrent();
+        }
+    }
+    SendEditorStreamEvent(TEXT("actor_deleted"), Data);
+}
+
+void FLoomleMcpBridgeModule::OnActorAttached(AActor* Actor, const AActor* ParentActor)
+{
+    if (!Actor)
+    {
+        return;
+    }
+
+    TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
+    Data->SetStringField(TEXT("name"), Actor->GetActorLabel());
+    Data->SetStringField(TEXT("path"), Actor->GetPathName());
+    Data->SetStringField(TEXT("parentPath"), ParentActor ? ParentActor->GetPathName() : TEXT(""));
+    SendEditorStreamEvent(TEXT("actor_attached"), Data);
+}
+
+void FLoomleMcpBridgeModule::OnActorDetached(AActor* Actor, const AActor* ParentActor)
+{
+    if (!Actor)
+    {
+        return;
+    }
+
+    TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
+    Data->SetStringField(TEXT("name"), Actor->GetActorLabel());
+    Data->SetStringField(TEXT("path"), Actor->GetPathName());
+    Data->SetStringField(TEXT("formerParentPath"), ParentActor ? ParentActor->GetPathName() : TEXT(""));
+    SendEditorStreamEvent(TEXT("actor_detached"), Data);
+}
+
+void FLoomleMcpBridgeModule::OnBeginPIE(bool bIsSimulating)
+{
+    TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
+    Data->SetBoolField(TEXT("isSimulating"), bIsSimulating);
+    SendEditorStreamEvent(TEXT("pie_started"), Data);
+}
+
+void FLoomleMcpBridgeModule::OnEndPIE(bool bIsSimulating)
+{
+    TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
+    Data->SetBoolField(TEXT("isSimulating"), bIsSimulating);
+    SendEditorStreamEvent(TEXT("pie_stopped"), Data);
+}
+
+void FLoomleMcpBridgeModule::OnPausePIE(bool bIsSimulating)
+{
+    TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
+    Data->SetBoolField(TEXT("isSimulating"), bIsSimulating);
+    SendEditorStreamEvent(TEXT("pie_paused"), Data);
+}
+
+void FLoomleMcpBridgeModule::OnResumePIE(bool bIsSimulating)
+{
+    TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
+    Data->SetBoolField(TEXT("isSimulating"), bIsSimulating);
+    SendEditorStreamEvent(TEXT("pie_resumed"), Data);
+}
+
+void FLoomleMcpBridgeModule::OnObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& PropertyChangedEvent)
+{
+    if (!Object)
+    {
+        return;
+    }
+
+    AActor* Actor = Cast<AActor>(Object);
+    if (!Actor)
+    {
+        if (const UActorComponent* Component = Cast<UActorComponent>(Object))
+        {
+            Actor = Component->GetOwner();
+        }
+    }
+
+    if (!Actor)
+    {
+        return;
+    }
+
+    TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
+    Data->SetStringField(TEXT("actorName"), Actor->GetActorLabel());
+    Data->SetStringField(TEXT("actorPath"), Actor->GetPathName());
+    Data->SetStringField(TEXT("objectPath"), Object->GetPathName());
+    Data->SetStringField(TEXT("objectClass"), Object->GetClass() ? Object->GetClass()->GetPathName() : TEXT(""));
+    Data->SetStringField(TEXT("property"), PropertyChangedEvent.GetPropertyName().ToString());
+    Data->SetStringField(TEXT("memberProperty"), PropertyChangedEvent.GetMemberPropertyName().ToString());
+    Data->SetNumberField(TEXT("changeType"), static_cast<int32>(PropertyChangedEvent.ChangeType));
+
+    // Only export value from class-level member property. Nested struct leaf properties
+    // (for example RelativeScale3D.Z) may not be directly addressable from UObject container.
+    if (FProperty* SafeValueProperty = PropertyChangedEvent.MemberProperty)
+    {
+        bool bCanExportInContainer = false;
+        if (const UObject* OwnerObject = SafeValueProperty->GetOwnerUObject())
+        {
+            if (const UClass* OwnerClass = Cast<UClass>(OwnerObject))
+            {
+                bCanExportInContainer = Object->IsA(OwnerClass);
+            }
+            else
+            {
+                bCanExportInContainer = true;
+            }
+        }
+
+        if (bCanExportInContainer)
+        {
+            FString NewValue;
+            SafeValueProperty->ExportText_InContainer(0, NewValue, Object, Object, Object, PPF_None);
+            if (!NewValue.IsEmpty())
+            {
+                Data->SetStringField(TEXT("newValue"), NewValue);
+            }
+        }
+    }
+
+    const FString ActorPath = Actor->GetPathName();
+    const FTransform CurrentActorTransform(Actor->GetActorRotation(), Actor->GetActorLocation(), Actor->GetActorScale3D());
+    Data->SetObjectField(TEXT("actorCurrentTransform"), ToTransformJson(CurrentActorTransform));
+    if (const FTransform* PreviousActorTransform = LastActorTransformByPath.Find(ActorPath))
+    {
+        Data->SetObjectField(TEXT("actorPreviousTransform"), ToTransformJson(*PreviousActorTransform));
+    }
+    LastActorTransformByPath.Add(ActorPath, CurrentActorTransform);
+
+    if (USceneComponent* SceneComponent = Cast<USceneComponent>(Object))
+    {
+        const FString ComponentPath = SceneComponent->GetPathName();
+        const FTransform CurrentRelative(
+            SceneComponent->GetRelativeRotation(),
+            SceneComponent->GetRelativeLocation(),
+            SceneComponent->GetRelativeScale3D());
+        Data->SetObjectField(TEXT("componentCurrentRelativeTransform"), ToTransformJson(CurrentRelative));
+
+        if (const FTransform* PreviousRelative = LastSceneComponentRelativeTransformByPath.Find(ComponentPath))
+        {
+            Data->SetObjectField(TEXT("componentPreviousRelativeTransform"), ToTransformJson(*PreviousRelative));
+
+            TSharedPtr<FJsonObject> Delta = MakeShared<FJsonObject>();
+            Delta->SetObjectField(TEXT("location"), ToVectorJson(CurrentRelative.GetLocation() - PreviousRelative->GetLocation()));
+            Delta->SetObjectField(TEXT("rotation"), ToRotatorJson((CurrentRelative.Rotator() - PreviousRelative->Rotator()).GetNormalized()));
+            Delta->SetObjectField(TEXT("scale"), ToVectorJson(CurrentRelative.GetScale3D() - PreviousRelative->GetScale3D()));
+            Data->SetObjectField(TEXT("componentDelta"), Delta);
+        }
+
+        LastSceneComponentRelativeTransformByPath.Add(ComponentPath, CurrentRelative);
+    }
+
+    SendEditorStreamEvent(TEXT("object_property_changed"), Data);
+}
+
+void FLoomleMcpBridgeModule::OnPostUndoRedo()
+{
+    TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
+    SendEditorStreamEvent(TEXT("undo_redo"), Data);
 }
 
 TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildExecutePythonToolResult(const TSharedPtr<FJsonObject>& Arguments) const

@@ -1,6 +1,14 @@
-# Loomle MCP Bridge (UE5 Plugin)
+# Loomle Bridge (UE5 Plugin)
 
 This plugin exposes a local MCP-compatible JSON-RPC endpoint from UE5 Editor over local IPC.
+
+## Install / Verify
+
+From UE project root:
+
+```bash
+./Loomle/scripts/install_loomle.sh
+```
 
 ## Transport
 
@@ -18,21 +26,42 @@ This plugin exposes a local MCP-compatible JSON-RPC endpoint from UE5 Editor ove
 
 ## Tools (Current)
 
-- `get_context`
-- `get_selection_transform`
-- `editor_stream`
-  - Required argument: `action` = `start` | `stop` | `status`
-  - Notifications method: `notifications/editor_stream`
-  - Event types: `selection_changed`, `actor_moved`, `map_opened`
-  - Events are also appended to `Saved/editor_stream_events.jsonl`
-- `execute_python`
+- `context`
+- `selection`
+- `loomle`
+  - No arguments.
+  - Returns bridge health and a friendly list of currently callable capabilities (including readiness/reason).
+- `live`
+  - Optional arguments:
+    - `cursor` (last consumed seq, default `0`)
+    - `limit` (default `20`, max `100`)
+  - Returns incremental events after `cursor`.
+  - Pull response filters out lifecycle noise events (`live_started`, `live_stopping`).
+  - Each event includes `params.origin` (`user` / `system` / `unknown`) for user-vs-system analysis.
+  - If bridge runtime is abnormal, returns an error and asks user to restart Unreal Editor.
+  - Notifications method: `notifications/live`
+  - Event types:
+    - `live_started`, `live_stopping`
+    - `selection_changed`
+    - `map_opened`
+    - `actor_added`, `actor_deleted`, `actor_attached`, `actor_detached`, `actor_moved`
+    - `pie_started`, `pie_stopped`, `pie_paused`, `pie_resumed`
+    - `object_property_changed`
+    - `undo_redo`
+  - Rich payloads for behavior analysis:
+    - `selection_changed` includes `paths`
+    - `actor_moved` includes `previousTransform`, `currentTransform`, `delta`
+    - `object_property_changed` includes `newValue`; for scene components includes relative `previous/current/delta` transforms
+  - Events are appended to `Loomle/runtime/live_events.jsonl` and only latest 100 records are retained.
+  - Bridge module startup auto-enables live stream, and module shutdown auto-disables it.
+- `execute`
   - Required argument: `code` (inline Python string)
   - Optional argument: `mode` (`exec` default, or `eval`)
 
 ## BlueprintGraphBridge (C++ API exposed to Python)
 
 `BlueprintGraphBridge` is a `UBlueprintFunctionLibrary` exposed as `unreal.BlueprintGraphBridge`.
-Use it through `execute_python` for programmable, Python-driven BP construction.
+Use it through `execute` for programmable, Python-driven BP construction.
 
 Exposed methods:
 
@@ -52,7 +81,7 @@ Exposed methods:
 - `compile_blueprint(blueprint_asset_path)`
 - `spawn_blueprint_actor(blueprint_asset_path, location, rotation)`
 
-## Quick Python bridge example (via `execute_python`)
+## Quick Python bridge example (via `execute`)
 
 ```python
 import unreal
@@ -87,12 +116,11 @@ err = B.compile_blueprint(asset)
 SOCK="/Users/xartest/Documents/UnrealProjects/Loomle/Intermediate/loomle-mcp.sock"
 printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n' | nc -U "$SOCK"
 printf '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n' | nc -U "$SOCK"
-printf '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_context","arguments":{}}}\n' | nc -U "$SOCK"
-printf '{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"editor_stream","arguments":{"action":"start"}}}\n' | nc -U "$SOCK"
-printf '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"execute_python","arguments":{"code":"import unreal\\nunreal.log(\\\"hello from mcp\\\")"}}}\n' | nc -U "$SOCK"
-printf '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"execute_python","arguments":{"mode":"eval","code":"1+2+3"}}}\n' | nc -U "$SOCK"
-printf '{"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"name":"editor_stream","arguments":{"action":"status"}}}\n' | nc -U "$SOCK"
-printf '{"jsonrpc":"2.0","id":33,"method":"tools/call","params":{"name":"editor_stream","arguments":{"action":"stop"}}}\n' | nc -U "$SOCK"
+printf '{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"loomle","arguments":{}}}\n' | nc -U "$SOCK"
+printf '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"context","arguments":{}}}\n' | nc -U "$SOCK"
+printf '{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"live","arguments":{"cursor":0,"limit":20}}}\n' | nc -U "$SOCK"
+printf '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"execute","arguments":{"code":"import unreal\\nunreal.log(\\\"hello from bridge\\\")"}}}\n' | nc -U "$SOCK"
+printf '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"execute","arguments":{"mode":"eval","code":"1+2+3"}}}\n' | nc -U "$SOCK"
 ```
 
 ## Quick test (Windows PowerShell)
@@ -110,13 +138,13 @@ $reader.ReadLine()
 $writer.WriteLine('{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}')
 $reader.ReadLine()
 
-$writer.WriteLine('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_context","arguments":{}}}')
+$writer.WriteLine('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"context","arguments":{}}}')
 $reader.ReadLine()
 
-$writer.WriteLine('{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"execute_python","arguments":{"code":"import unreal\nunreal.log(\"hello from mcp\")"}}}')
+$writer.WriteLine('{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"execute","arguments":{"code":"import unreal\nunreal.log(\"hello from bridge\")"}}}')
 $reader.ReadLine()
 
-$writer.WriteLine('{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"execute_python","arguments":{"mode":"eval","code":"1+2+3"}}}')
+$writer.WriteLine('{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"execute","arguments":{"mode":"eval","code":"1+2+3"}}}')
 $reader.ReadLine()
 ```
 

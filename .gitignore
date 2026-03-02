@@ -4,3 +4,6 @@ Plugins/*/Intermediate/
 
 # macOS
 .DS_Store
+
+# Loomle runtime event logs
+runtime/*.jsonl
