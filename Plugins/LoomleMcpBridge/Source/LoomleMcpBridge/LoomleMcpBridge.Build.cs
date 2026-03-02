@@ -23,6 +23,7 @@ public class LoomleMcpBridge : ModuleRules
                 "Json",
                 "JsonUtilities",
                 "Kismet",
+                "MaterialEditor",
                 "PythonScriptPlugin",
                 "Projects",
                 "UnrealEd"

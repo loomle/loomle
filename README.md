@@ -23,7 +23,7 @@ For Agent (single install entrypoint):
 
 - `loomle`: Show bridge health and capability summary.
 - `context`: Read current project context.
-- `selection`: Read current editor selection.
+- `selection`: Read current editor selection (graph nodes in supported editors, otherwise selected actors).
 - `live`: Pull recent editor live events on demand.
 - `execute`: Run Codex-generated UE Python actions.
 

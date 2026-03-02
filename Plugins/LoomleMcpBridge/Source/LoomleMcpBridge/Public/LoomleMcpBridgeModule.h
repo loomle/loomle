@@ -5,6 +5,7 @@
 #include "Modules/ModuleManager.h"
 
 class FLoomleMcpPipeServer;
+class FEditorContextProviderRegistry;
 class AActor;
 class FJsonObject;
 class FJsonValue;
@@ -34,6 +35,7 @@ private:
     bool ParseLiveEventLine(const FString& JsonLine, int64& OutSeq, TSharedPtr<FJsonObject>& OutEventObject) const;
     void RegisterEditorStreamDelegates();
     void UnregisterEditorStreamDelegates();
+    void EmitGraphSelectionIfChanged();
     void OnSelectionChanged(UObject* NewSelection);
     void OnMapOpened(const FString& Filename, bool bAsTemplate);
     void OnActorMoved(AActor* Actor);
@@ -53,6 +55,7 @@ private:
 
 private:
     TSharedPtr<FLoomleMcpPipeServer, ESPMode::ThreadSafe> PipeServer;
+    TUniquePtr<FEditorContextProviderRegistry> ContextProviderRegistry;
     bool bEditorStreamEnabled = false;
     int64 NextLiveSequence = 1;
     int32 LiveLogAppendSinceTrim = 0;
@@ -63,6 +66,7 @@ private:
     FString PendingSelectionSignature;
     TArray<FString> PendingSelectionPaths;
     FString LastEmittedSelectionSignature;
+    FString LastEmittedGraphSelectionSignature;
     double LastSelectionChangeTimeSeconds = 0.0;
     TMap<FString, FTransform> LastActorTransformByPath;
     TMap<FString, FTransform> LastSceneComponentRelativeTransformByPath;

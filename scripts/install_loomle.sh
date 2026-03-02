@@ -54,15 +54,61 @@ UPROJECT_PATH="$(find "$PROJECT_ROOT" -maxdepth 1 -type f -name '*.uproject' | h
 UPROJECT_NAME="$(basename "$UPROJECT_PATH")"
 PROJECT_NAME="${UPROJECT_NAME%.uproject}"
 TARGET_NAME="${PROJECT_NAME}Editor"
-PLUGIN_DIR="$PROJECT_ROOT/Loomle/Plugins/LoomleMcpBridge"
 SOCKET_PATH="$PROJECT_ROOT/Intermediate/loomle-mcp.sock"
 ROOT_AGENTS_PATH="$PROJECT_ROOT/AGENTS.md"
 ROOT_AGENTS_HINT="- Always read ./Loomle/AGENTS.md before starting work in this project."
+ROOT_BIN="$PROJECT_ROOT/Binaries/Mac/UnrealEditor-LoomleMcpBridge.dylib"
+ROOT_MODULES="$PROJECT_ROOT/Binaries/Mac/UnrealEditor.modules"
+
+PLUGIN_DIR="$(
+python3 - <<'PY' "$UPROJECT_PATH" "$PROJECT_ROOT"
+import json
+import pathlib
+import sys
+
+uproject_path = pathlib.Path(sys.argv[1])
+project_root = pathlib.Path(sys.argv[2]).resolve()
+
+data = json.loads(uproject_path.read_text())
+
+candidates = []
+addl = data.get("AdditionalPluginDirectories")
+if isinstance(addl, list):
+    candidates.extend(addl)
+
+# Keep project-local plugins as a fallback lookup root.
+candidates.append("./Plugins")
+candidates.append("./Loomle/Plugins")
+
+seen = set()
+for entry in candidates:
+    if not isinstance(entry, str):
+        continue
+    entry = entry.strip()
+    if not entry:
+        continue
+    if entry in seen:
+        continue
+    seen.add(entry)
+
+    base = pathlib.Path(entry)
+    if not base.is_absolute():
+        base = (project_root / base).resolve()
+    plugin_dir = base / "LoomleMcpBridge"
+    if (plugin_dir / "LoomleMcpBridge.uplugin").exists():
+        print(str(plugin_dir))
+        sys.exit(0)
+
+fallback = (project_root / "Loomle" / "Plugins" / "LoomleMcpBridge").resolve()
+print(str(fallback))
+PY
+)"
+
 PLUGIN_BIN="$PLUGIN_DIR/Binaries/Mac/UnrealEditor-LoomleMcpBridge.dylib"
 PLUGIN_MODULES="$PLUGIN_DIR/Binaries/Mac/UnrealEditor.modules"
 
-[[ -d "$PLUGIN_DIR" ]] || fail "Plugin not found: $PLUGIN_DIR"
-pass "Plugin directory exists"
+[[ -d "$PLUGIN_DIR" ]] || fail "Plugin not found from project config/fallback: $PLUGIN_DIR"
+pass "Plugin directory resolved: $PLUGIN_DIR"
 
 log "Ensuring .uproject wiring for AdditionalPluginDirectories + LoomleMcpBridge"
 python3 - <<'PY' "$UPROJECT_PATH"
@@ -207,6 +253,38 @@ PY
   [[ -n "$plugin_build" && -n "$engine_build" && "$plugin_build" == "$engine_build" ]]
 }
 
+sync_built_plugin_artifacts() {
+  [[ -f "$ROOT_BIN" ]] || fail "Built plugin binary not found at expected path: $ROOT_BIN"
+  cp -f "$ROOT_BIN" "$PLUGIN_BIN"
+  pass "Synchronized built plugin binary to plugin directory"
+
+  if [[ -f "$ROOT_MODULES" ]]; then
+    python3 - <<'PY' "$ROOT_MODULES" "$PLUGIN_MODULES"
+import json
+import pathlib
+import sys
+
+root_modules = pathlib.Path(sys.argv[1])
+plugin_modules = pathlib.Path(sys.argv[2])
+
+root_data = json.loads(root_modules.read_text())
+plugin_data = {}
+if plugin_modules.exists():
+    plugin_data = json.loads(plugin_modules.read_text())
+
+plugin_data["BuildId"] = root_data.get("BuildId", plugin_data.get("BuildId", ""))
+mods = plugin_data.get("Modules")
+if not isinstance(mods, dict):
+    mods = {}
+mods["LoomleMcpBridge"] = "UnrealEditor-LoomleMcpBridge.dylib"
+plugin_data["Modules"] = mods
+
+plugin_modules.write_text(json.dumps(plugin_data, indent=2) + "\n")
+PY
+    pass "Synchronized plugin modules BuildId metadata"
+  fi
+}
+
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
   [[ -x "$GEN_SCRIPT" ]] || fail "GenerateProjectFiles script missing: $GEN_SCRIPT"
   [[ -x "$BUILD_SCRIPT" ]] || fail "Build script missing: $BUILD_SCRIPT"
@@ -228,6 +306,7 @@ if [[ "$SKIP_BUILD" -eq 0 ]]; then
     log "Building target: $TARGET_NAME (Mac Development)"
     "$BUILD_SCRIPT" "$TARGET_NAME" Mac Development "$UPROJECT_PATH" -WaitMutex
     pass "Editor target built"
+    sync_built_plugin_artifacts
   else
     log "Skipping build; compatible prebuilt plugin is available"
   fi

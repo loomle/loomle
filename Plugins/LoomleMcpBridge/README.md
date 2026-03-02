@@ -36,6 +36,10 @@ From UE project root:
 
 - `context`
 - `selection`
+  - Returns provider-backed graph-node selection when a supported graph editor is active:
+    - Blueprint graph nodes (`UEdGraphNode`)
+    - Material graph expressions (`UMaterialExpression`)
+  - Falls back to selected level actors (transform/bounds) when no supported graph-node selection is available.
 - `loomle`
   - No arguments.
   - Returns bridge health and a friendly list of currently callable capabilities (including readiness/reason).
@@ -51,6 +55,7 @@ From UE project root:
   - Event types:
     - `live_started`, `live_stopping`
     - `selection_changed`
+    - `graph_selection_changed`
     - `map_opened`
     - `actor_added`, `actor_deleted`, `actor_attached`, `actor_detached`, `actor_moved`
     - `pie_started`, `pie_stopped`, `pie_paused`, `pie_resumed`
@@ -58,6 +63,7 @@ From UE project root:
     - `undo_redo`
   - Rich payloads for behavior analysis:
     - `selection_changed` includes `paths`
+    - `graph_selection_changed` includes `selectionKind`, `editorType`, `assetPath`, `assetPaths`, and `items` (typed graph selections such as blueprint nodes and material expressions)
     - `actor_moved` includes `previousTransform`, `currentTransform`, `delta`
     - `object_property_changed` includes `newValue`; for scene components includes relative `previous/current/delta` transforms
   - Events are appended to `Loomle/runtime/live_events.jsonl` and only latest 100 records are retained.

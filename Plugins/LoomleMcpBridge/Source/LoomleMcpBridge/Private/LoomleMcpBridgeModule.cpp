@@ -2,6 +2,7 @@
 
 #include "Async/Async.h"
 #include "Editor.h"
+#include "EditorContextProviderRegistry.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Algo/Sort.h"
 #include "Components/ActorComponent.h"
@@ -11,6 +12,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Containers/Ticker.h"
 #include "EdGraph/EdGraph.h"
+#include "EdGraph/EdGraphNode.h"
 #include "EdGraph/EdGraphPin.h"
 #include "Engine/Engine.h"
 #include "Engine/Selection.h"
@@ -31,6 +33,10 @@
 #include "Kismet2/KismetEditorUtilities.h"
 #include "EdGraphSchema_K2.h"
 #include "Engine/Blueprint.h"
+#include "Materials/Material.h"
+#include "Materials/MaterialExpression.h"
+#include "ContextProviders/BlueprintContextProvider.h"
+#include "ContextProviders/MaterialContextProvider.h"
 #include "LoomleMcpPipeServer.h"
 #include "Misc/App.h"
 #include "Misc/DateTime.h"
@@ -117,6 +123,7 @@ FString DeriveEventOrigin(const FString& EventName, const TSharedPtr<FJsonObject
     }
 
     if (EventName.Equals(TEXT("selection_changed"))
+        || EventName.Equals(TEXT("graph_selection_changed"))
         || EventName.Equals(TEXT("actor_moved"))
         || EventName.Equals(TEXT("actor_deleted"))
         || EventName.Equals(TEXT("actor_attached"))
@@ -190,6 +197,10 @@ bool ShouldReturnInLivePull(const TSharedPtr<FJsonObject>& EventObject)
 
 void FLoomleMcpBridgeModule::StartupModule()
 {
+    ContextProviderRegistry = MakeUnique<FEditorContextProviderRegistry>();
+    ContextProviderRegistry->RegisterProvider(MakeShared<FBlueprintContextProvider>());
+    ContextProviderRegistry->RegisterProvider(MakeShared<FMaterialContextProvider>());
+
     PipeServer = MakeShared<FLoomleMcpPipeServer, ESPMode::ThreadSafe>(
         LoomleMcpBridgeConstants::PipeName,
         [this](const FString& RequestLine)
@@ -220,6 +231,7 @@ void FLoomleMcpBridgeModule::StartupModule()
     PendingSelectionSignature.Empty();
     PendingSelectionPaths.Empty();
     LastEmittedSelectionSignature.Empty();
+    LastEmittedGraphSelectionSignature.Empty();
     LastSelectionChangeTimeSeconds = 0.0;
     LastActorTransformByPath.Empty();
     LastSceneComponentRelativeTransformByPath.Empty();
@@ -249,6 +261,12 @@ void FLoomleMcpBridgeModule::ShutdownModule()
         PipeServer->StopServer();
         PipeServer.Reset();
     }
+
+    if (ContextProviderRegistry)
+    {
+        ContextProviderRegistry->ClearProviders();
+    }
+    ContextProviderRegistry.Reset();
 }
 
 FString FLoomleMcpBridgeModule::HandleRequest(const FString& RequestLine)
@@ -344,7 +362,7 @@ TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildToolsListResult() const
         Schema->SetStringField(TEXT("type"), TEXT("object"));
         Schema->SetArrayField(TEXT("required"), TArray<TSharedPtr<FJsonValue>>{});
         Schema->SetObjectField(TEXT("properties"), MakeShared<FJsonObject>());
-        Tools.Add(MakeTool(TEXT("selection"), TEXT("Get transform and bounds for selected actors."), Schema));
+        Tools.Add(MakeTool(TEXT("selection"), TEXT("Get current editor selection (graph nodes when available, otherwise selected actors)."), Schema));
     }
 
     {
@@ -480,6 +498,18 @@ TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildToolCallResult(const TShare
 
 TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildGetContextToolResult() const
 {
+    if (ContextProviderRegistry)
+    {
+        TSharedPtr<FJsonObject> ProviderContext;
+        FName ProviderId = NAME_None;
+        if (ContextProviderRegistry->BuildActiveContextSnapshot(ProviderContext, ProviderId) && ProviderContext.IsValid())
+        {
+            ProviderContext->SetStringField(TEXT("source"), TEXT("provider"));
+            ProviderContext->SetStringField(TEXT("providerId"), ProviderId.ToString());
+            return ProviderContext;
+        }
+    }
+
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 
     Result->SetBoolField(TEXT("isError"), false);
@@ -498,6 +528,7 @@ TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildGetContextToolResult() cons
     }
 
     Result->SetStringField(TEXT("editorWorld"), EditorWorld ? EditorWorld->GetName() : TEXT(""));
+    Result->SetStringField(TEXT("source"), TEXT("legacy"));
 
     return Result;
 }
@@ -545,7 +576,7 @@ TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildLoomleToolResult() const
     TArray<TSharedPtr<FJsonValue>> Capabilities;
     Capabilities.Add(MakeCapability(TEXT("loomle"), TEXT("Bridge health and capabilities."), bBridgeRunning, bBridgeRunning ? TEXT("") : TEXT("Bridge server is not running.")));
     Capabilities.Add(MakeCapability(TEXT("context"), TEXT("Current editor context."), bBridgeRunning, bBridgeRunning ? TEXT("") : TEXT("Bridge server is not running.")));
-    Capabilities.Add(MakeCapability(TEXT("selection"), TEXT("Selected actor transforms and bounds."), bBridgeRunning, bBridgeRunning ? TEXT("") : TEXT("Bridge server is not running.")));
+    Capabilities.Add(MakeCapability(TEXT("selection"), TEXT("Current editor selection with graph-node support."), bBridgeRunning, bBridgeRunning ? TEXT("") : TEXT("Bridge server is not running.")));
     Capabilities.Add(MakeCapability(TEXT("live"), TEXT("Incremental live event feed by cursor."), bBridgeRunning && bLiveRunning, bLiveRunning ? TEXT("") : TEXT("Live stream is not running. Restart Unreal Editor.")));
     Capabilities.Add(MakeCapability(TEXT("execute"), TEXT("Execute Python in editor."), bPythonReady, bPythonReady ? TEXT("") : TEXT("Python runtime is not initialized yet.")));
     Result->SetArrayField(TEXT("capabilities"), Capabilities);
@@ -698,6 +729,18 @@ TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildLiveToolResult(const TShare
 
 TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildSelectionTransformToolResult() const
 {
+    if (ContextProviderRegistry)
+    {
+        TSharedPtr<FJsonObject> ProviderSelection;
+        FName ProviderId = NAME_None;
+        if (ContextProviderRegistry->BuildActiveSelectionSnapshot(ProviderSelection, ProviderId) && ProviderSelection.IsValid())
+        {
+            ProviderSelection->SetStringField(TEXT("source"), TEXT("provider"));
+            ProviderSelection->SetStringField(TEXT("providerId"), ProviderId.ToString());
+            return ProviderSelection;
+        }
+    }
+
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
 
@@ -992,31 +1035,34 @@ void FLoomleMcpBridgeModule::RegisterEditorStreamDelegates()
         SelectionDebounceTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
             FTickerDelegate::CreateLambda([this](float)
             {
-                if (!bEditorStreamEnabled || !bSelectionEventPending)
+                if (!bEditorStreamEnabled)
                 {
                     return true;
                 }
 
-                const double Now = FPlatformTime::Seconds();
-                constexpr double DebounceSeconds = 0.1;
-                if (Now - LastSelectionChangeTimeSeconds < DebounceSeconds)
+                if (bSelectionEventPending)
                 {
-                    return true;
+                    const double Now = FPlatformTime::Seconds();
+                    constexpr double DebounceSeconds = 0.1;
+                    if (Now - LastSelectionChangeTimeSeconds >= DebounceSeconds)
+                    {
+                        TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
+                        Data->SetNumberField(TEXT("count"), PendingSelectionCount);
+                        Data->SetStringField(TEXT("signature"), PendingSelectionSignature);
+                        TArray<TSharedPtr<FJsonValue>> PathValues;
+                        PathValues.Reserve(PendingSelectionPaths.Num());
+                        for (const FString& Path : PendingSelectionPaths)
+                        {
+                            PathValues.Add(MakeShared<FJsonValueString>(Path));
+                        }
+                        Data->SetArrayField(TEXT("paths"), PathValues);
+                        SendEditorStreamEvent(TEXT("selection_changed"), Data);
+                        LastEmittedSelectionSignature = PendingSelectionSignature;
+                        bSelectionEventPending = false;
+                    }
                 }
 
-                TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
-                Data->SetNumberField(TEXT("count"), PendingSelectionCount);
-                Data->SetStringField(TEXT("signature"), PendingSelectionSignature);
-                TArray<TSharedPtr<FJsonValue>> PathValues;
-                PathValues.Reserve(PendingSelectionPaths.Num());
-                for (const FString& Path : PendingSelectionPaths)
-                {
-                    PathValues.Add(MakeShared<FJsonValueString>(Path));
-                }
-                Data->SetArrayField(TEXT("paths"), PathValues);
-                SendEditorStreamEvent(TEXT("selection_changed"), Data);
-                LastEmittedSelectionSignature = PendingSelectionSignature;
-                bSelectionEventPending = false;
+                EmitGraphSelectionIfChanged();
                 return true;
             }),
             0.02f);
@@ -1143,6 +1189,82 @@ void FLoomleMcpBridgeModule::OnSelectionChanged(UObject*)
     PendingSelectionPaths = MoveTemp(Paths);
     LastSelectionChangeTimeSeconds = FPlatformTime::Seconds();
     bSelectionEventPending = true;
+}
+
+void FLoomleMcpBridgeModule::EmitGraphSelectionIfChanged()
+{
+    TSharedPtr<FJsonObject> GraphData;
+    FString GraphSignature;
+    bool bHasGraphSelection = false;
+
+    if (ContextProviderRegistry)
+    {
+        TSharedPtr<FJsonObject> ProviderSelection;
+        FName ProviderId = NAME_None;
+        if (ContextProviderRegistry->BuildActiveSelectionSnapshot(ProviderSelection, ProviderId) && ProviderSelection.IsValid())
+        {
+            FString SelectionKind;
+            ProviderSelection->TryGetStringField(TEXT("selectionKind"), SelectionKind);
+            if (SelectionKind.Equals(TEXT("graph_node")))
+            {
+                const TArray<TSharedPtr<FJsonValue>>* ItemsPtr = nullptr;
+                TArray<FString> SignatureParts;
+                if (ProviderSelection->TryGetArrayField(TEXT("items"), ItemsPtr) && ItemsPtr)
+                {
+                    SignatureParts.Reserve((*ItemsPtr).Num());
+                    for (const TSharedPtr<FJsonValue>& ItemValue : *ItemsPtr)
+                    {
+                        const TSharedPtr<FJsonObject>* ItemObj = nullptr;
+                        if (!ItemValue.IsValid() || !ItemValue->TryGetObject(ItemObj) || !ItemObj || !(*ItemObj).IsValid())
+                        {
+                            continue;
+                        }
+
+                        FString SignatureToken;
+                        if (!(*ItemObj)->TryGetStringField(TEXT("id"), SignatureToken) || SignatureToken.IsEmpty())
+                        {
+                            (*ItemObj)->TryGetStringField(TEXT("path"), SignatureToken);
+                        }
+                        if (!SignatureToken.IsEmpty())
+                        {
+                            SignatureParts.Add(SignatureToken);
+                        }
+                    }
+                }
+
+                Algo::Sort(SignatureParts);
+                GraphSignature = FString::Join(SignatureParts, TEXT("|"));
+                ProviderSelection->SetStringField(TEXT("signature"), GraphSignature);
+                ProviderSelection->SetStringField(TEXT("providerId"), ProviderId.ToString());
+                GraphData = ProviderSelection;
+                bHasGraphSelection = true;
+            }
+        }
+    }
+
+    if (bHasGraphSelection)
+    {
+        if (GraphSignature == LastEmittedGraphSelectionSignature)
+        {
+            return;
+        }
+
+        SendEditorStreamEvent(TEXT("graph_selection_changed"), GraphData);
+        LastEmittedGraphSelectionSignature = GraphSignature;
+    }
+    else if (!LastEmittedGraphSelectionSignature.IsEmpty())
+    {
+        TSharedPtr<FJsonObject> ClearedGraphData = MakeShared<FJsonObject>();
+        ClearedGraphData->SetStringField(TEXT("selectionKind"), TEXT("graph_node"));
+        ClearedGraphData->SetStringField(TEXT("editorType"), TEXT("none"));
+        ClearedGraphData->SetStringField(TEXT("assetPath"), TEXT(""));
+        ClearedGraphData->SetArrayField(TEXT("assetPaths"), TArray<TSharedPtr<FJsonValue>>{});
+        ClearedGraphData->SetArrayField(TEXT("items"), TArray<TSharedPtr<FJsonValue>>{});
+        ClearedGraphData->SetNumberField(TEXT("count"), 0);
+        ClearedGraphData->SetStringField(TEXT("signature"), TEXT(""));
+        SendEditorStreamEvent(TEXT("graph_selection_changed"), ClearedGraphData);
+        LastEmittedGraphSelectionSignature.Empty();
+    }
 }
 
 void FLoomleMcpBridgeModule::OnMapOpened(const FString& Filename, bool bAsTemplate)
