@@ -7,7 +7,7 @@ LOOMLE is a project-local bridge that lets Codex operate UE5 Editor through MCP 
 Use this exact prompt in Codex from your UE project root:
 
 ```text
-Install Loomle in this UE5 project from https://github.com/loomle/loomle and follow the repository README automatically.
+Install Loomle (https://github.com/loomle/loomle)
 ```
 
 ## Install Contract (for Codex)
