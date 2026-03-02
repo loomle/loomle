@@ -52,10 +52,12 @@ private:
     FString MakeJsonError(const TSharedPtr<FJsonValue>& Id, int32 Code, const FString& Message) const;
 
 private:
-    TUniquePtr<FLoomleMcpPipeServer> PipeServer;
+    TSharedPtr<FLoomleMcpPipeServer, ESPMode::ThreadSafe> PipeServer;
     bool bEditorStreamEnabled = false;
     int64 NextLiveSequence = 1;
+    int32 LiveLogAppendSinceTrim = 0;
     TArray<FString> LiveEventBuffer;
+    FCriticalSection LiveLogMutex;
     bool bSelectionEventPending = false;
     int32 PendingSelectionCount = 0;
     FString PendingSelectionSignature;

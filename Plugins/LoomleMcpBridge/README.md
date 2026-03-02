@@ -10,6 +10,14 @@ From UE project root:
 ./Loomle/scripts/install_loomle.sh
 ```
 
+## Upgrade (Source Mode)
+
+From UE project root:
+
+```bash
+./Loomle/scripts/upgrade_loomle.sh
+```
+
 ## Transport
 
 - Windows: Named Pipe `\\.\\pipe\\loomle-mcp`

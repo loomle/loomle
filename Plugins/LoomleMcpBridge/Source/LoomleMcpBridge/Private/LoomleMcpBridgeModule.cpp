@@ -1,5 +1,6 @@
 #include "LoomleMcpBridgeModule.h"
 
+#include "Async/Async.h"
 #include "Editor.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Algo/Sort.h"
@@ -52,6 +53,7 @@ namespace LoomleMcpBridgeConstants
     static const TCHAR* LiveLogFileName = TEXT("live_events.jsonl");
     constexpr int32 MaxLiveLogRecords = 100;
     constexpr int32 MaxLiveMemoryRecords = 300;
+    constexpr int32 LiveLogTrimInterval = 25;
 }
 
 namespace
@@ -183,11 +185,12 @@ bool ShouldReturnInLivePull(const TSharedPtr<FJsonObject>& EventObject)
 
     return !IsLiveLifecycleEvent(EventName);
 }
+
 }
 
 void FLoomleMcpBridgeModule::StartupModule()
 {
-    PipeServer = MakeUnique<FLoomleMcpPipeServer>(
+    PipeServer = MakeShared<FLoomleMcpPipeServer, ESPMode::ThreadSafe>(
         LoomleMcpBridgeConstants::PipeName,
         [this](const FString& RequestLine)
         {
@@ -209,6 +212,9 @@ void FLoomleMcpBridgeModule::StartupModule()
 
     RegisterEditorStreamDelegates();
     bEditorStreamEnabled = true;
+    NextLiveSequence = 1;
+    LiveLogAppendSinceTrim = 0;
+    LiveEventBuffer.Empty();
     bSelectionEventPending = false;
     PendingSelectionCount = 0;
     PendingSelectionSignature.Empty();
@@ -236,8 +242,9 @@ void FLoomleMcpBridgeModule::ShutdownModule()
 
     UnregisterEditorStreamDelegates();
     bEditorStreamEnabled = false;
+    LiveLogAppendSinceTrim = 0;
 
-    if (PipeServer)
+    if (PipeServer.IsValid())
     {
         PipeServer->StopServer();
         PipeServer.Reset();
@@ -830,22 +837,58 @@ void FLoomleMcpBridgeModule::SendEditorStreamEvent(const FString& EventName, con
         LiveEventBuffer.RemoveAt(0, LiveEventBuffer.Num() - LoomleMcpBridgeConstants::MaxLiveMemoryRecords, EAllowShrinking::No);
     }
     AppendEditorStreamEventLog(Output);
-    PipeServer->SendServerNotification(Output);
+
+    const TSharedPtr<FLoomleMcpPipeServer, ESPMode::ThreadSafe> PipeServerSnapshot = PipeServer;
+    Async(EAsyncExecution::ThreadPool, [PipeServerSnapshot, Output]()
+    {
+        if (!PipeServerSnapshot.IsValid())
+        {
+            return;
+        }
+
+        PipeServerSnapshot->SendServerNotification(Output);
+    });
 }
 
 void FLoomleMcpBridgeModule::AppendEditorStreamEventLog(const FString& JsonLine)
 {
+    FScopeLock ScopeLock(&LiveLogMutex);
+
     const FString RuntimeDir = FPaths::Combine(FPaths::ProjectDir(), TEXT("Loomle"), TEXT("runtime"));
     IFileManager::Get().MakeDirectory(*RuntimeDir, true);
     const FString StreamLogPath = FPaths::Combine(RuntimeDir, LoomleMcpBridgeConstants::LiveLogFileName);
-    TArray<FString> Lines;
-    FFileHelper::LoadFileToStringArray(Lines, *StreamLogPath);
-    Lines.Add(JsonLine);
-    if (Lines.Num() > LoomleMcpBridgeConstants::MaxLiveLogRecords)
+
+    const FString JsonLineWithNewline = JsonLine + TEXT("\n");
+    FFileHelper::SaveStringToFile(
+        JsonLineWithNewline,
+        *StreamLogPath,
+        FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM,
+        &IFileManager::Get(),
+        FILEWRITE_Append | FILEWRITE_AllowRead);
+
+    ++LiveLogAppendSinceTrim;
+    if (LiveLogAppendSinceTrim < LoomleMcpBridgeConstants::LiveLogTrimInterval)
     {
-        Lines.RemoveAt(0, Lines.Num() - LoomleMcpBridgeConstants::MaxLiveLogRecords, EAllowShrinking::No);
+        return;
     }
-    FFileHelper::SaveStringArrayToFile(Lines, *StreamLogPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+    LiveLogAppendSinceTrim = 0;
+
+    TArray<FString> Lines;
+    if (!FFileHelper::LoadFileToStringArray(Lines, *StreamLogPath))
+    {
+        return;
+    }
+
+    if (Lines.Num() <= LoomleMcpBridgeConstants::MaxLiveLogRecords)
+    {
+        return;
+    }
+
+    Lines.RemoveAt(0, Lines.Num() - LoomleMcpBridgeConstants::MaxLiveLogRecords, EAllowShrinking::No);
+    FFileHelper::SaveStringArrayToFile(
+        Lines,
+        *StreamLogPath,
+        FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
 }
 
 bool FLoomleMcpBridgeModule::ParseLiveEventLine(const FString& JsonLine, int64& OutSeq, TSharedPtr<FJsonObject>& OutEventObject) const

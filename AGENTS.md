@@ -28,6 +28,15 @@ Human-oriented explanation lives in `./Loomle/README.md`.
    - MCP baseline tools
    - Python bridge `unreal.BlueprintGraphBridge`
 
+## Install And Upgrade
+
+- Install entrypoint stays `./Loomle/scripts/install_loomle.sh`.
+- Upgrade entrypoint stays `./Loomle/scripts/upgrade_loomle.sh`.
+- At the start of each Codex thread/session for this project, Codex should check Loomle source update status in `./Loomle` (git upstream compare).
+- If a newer upstream revision exists, Codex should proactively remind the user with the exact command:
+  - `./Loomle/scripts/upgrade_loomle.sh`
+- Do not auto-upgrade without explicit user confirmation.
+
 ## Runtime Policy
 
 - Preferred automation path: `execute` + `unreal.BlueprintGraphBridge`.
