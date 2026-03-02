@@ -1,40 +1,35 @@
 # LOOMLE
 
-LOOMLE is a project-local integration layer that lets Codex work with UE5 Editor through MCP and Python bridge APIs.
+LOOMLE is a project-local bridge that lets Codex operate UE5 Editor through MCP + Python.
 
-## What This File Is For
+## One-Line Prompt (for users)
 
-This `README.md` is for humans:
+Use this exact prompt in Codex from your UE project root:
 
-- what to place
-- how to trigger setup
-- what "success" looks like
+```text
+Install Loomle in this UE5 project from https://github.com/loomle/loomle and follow the repository README automatically.
+```
 
-Execution rules for Codex are in `./Loomle/AGENTS.md`.
+## Install Contract (for Codex)
 
-## Minimal Installation Model
+When asked to install LOOMLE, Codex should:
 
-1. Put this folder in your UE project root as:
-   - `./Loomle`
-2. Open Codex in the UE project root.
-3. Ask Codex:
-   - `Enable LOOMLE in this project and follow Loomle/AGENTS.md`
+1. Ensure repo exists at `./Loomle` (clone if missing).
+2. Ensure `<Project>.uproject` contains:
+   - `AdditionalPluginDirectories: ["./Loomle/Plugins"]`
+   - plugin enabled: `LoomleMcpBridge`
+3. Generate project files and build editor target so `LoomleMcpBridge` is compiled.
+4. Launch UE Editor and verify bridge availability.
+5. Report final status with pass/fail checks.
 
-No global CLI install is required.
+No global installer is required.
 
-## Expected Project Wiring
+## Verification Checklist
 
-Codex should ensure your `.uproject` has:
+Installation is successful only if all checks pass:
 
-- `AdditionalPluginDirectories: ["./Loomle/Plugins"]`
-- plugin enabled: `LoomleMcpBridge` (Editor)
-
-## Success Criteria
-
-A successful setup means all of these pass:
-
-1. `LoomleMcpBridge` compiles.
-2. Bridge endpoint is reachable:
+1. `LoomleMcpBridge` compiles successfully.
+2. Bridge endpoint exists:
    - macOS/Linux: `<Project>/Intermediate/loomle-mcp.sock`
    - Windows: `\\.\\pipe\\loomle-mcp`
 3. `tools/list` includes:
@@ -42,10 +37,15 @@ A successful setup means all of these pass:
    - `get_selection_transform`
    - `editor_stream`
    - `execute_python`
-4. Python sees:
+4. UE Python exposes:
    - `unreal.BlueprintGraphBridge`
 
-## Scope Rules
+## File Roles
 
-- Keep all LOOMLE assets inside `./Loomle`.
-- Do not overwrite user's root `AGENTS.md`.
+- `README.md`: user-facing install contract and success criteria.
+- `AGENTS.md`: Codex execution rules and conventions.
+
+## Boundaries
+
+- Keep LOOMLE-contained assets under `./Loomle`.
+- Do not modify or overwrite the project's root `AGENTS.md`.
