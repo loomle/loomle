@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Install contract (single entrypoint, idempotent):
+# 1) Ensure .uproject wiring (AdditionalPluginDirectories + LoomleMcpBridge Editor enablement)
+# 2) Resolve plugin binary (compatible local prebuilt first, local build fallback)
+# 3) Launch Unreal Editor
+# 4) Verify bridge transport endpoint (socket / named pipe equivalent)
+# 5) Verify MCP baseline tools (loomle/context/selection/live/execute) and unreal.BlueprintGraphBridge
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOOMLE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_ROOT="$(cd "$LOOMLE_DIR/.." && pwd)"

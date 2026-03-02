@@ -1,90 +1,40 @@
-# LOOMLE
+# Loomle
 
-LOOMLE is a project-local bridge that lets Codex operate UE5 Editor through MCP + Python.
+## What It Is
 
-## One-Line Prompt (for users)
+Loomle is an AI-native toolkit for building AAA Unreal projects with natural language.  
+It combines editor control, automation, skills, and extensible modules.
 
-Use this exact prompt in Codex from your UE project root:
+## Quick Start
+
+For Human (paste this in Codex from your Unreal project root):
 
 ```text
 Install Loomle (https://github.com/loomle/loomle) by following ./Loomle/README.md.
 ```
 
-## Install Contract (for Codex)
-
-Use one idempotent entrypoint:
+For Agent (single install entrypoint):
 
 ```bash
 ./Loomle/scripts/install_loomle.sh
 ```
 
-What this script does:
+## What It Can Do
 
-1. Verifies plugin path `./Loomle/Plugins/LoomleMcpBridge` exists.
-2. Ensures `<Project>.uproject` wiring:
-   - `AdditionalPluginDirectories` includes `./Loomle/Plugins`
-   - `LoomleMcpBridge` is enabled for `Editor`
-3. Uses prebuilt plugin in this order:
-   - compatible local binary under `./Loomle/Plugins/LoomleMcpBridge/Binaries/Mac`
-   - fallback: build `<Project>Editor` (`Mac Development`)
-4. Launches Unreal Editor using `open -na ...UnrealEditor.app --args <Project>.uproject`.
-5. Verifies bridge endpoint and MCP baseline (`initialize`, `tools/list`, `loomle`, `execute` with `BlueprintGraphBridge` assertion).
+- `loomle`: Show bridge health and capability summary.
+- `context`: Read current project context.
+- `selection`: Read current editor selection.
+- `live`: Pull recent editor live events on demand.
+- `execute`: Run Codex-generated UE Python actions.
 
-Optional flags:
+## How It Works
 
-- `--skip-build`
-- `--skip-launch`
-- `--skip-verify`
-- `--force-build`
+You describe intent in natural language. Codex calls the matching MCP tool, `LoomleMcpBridge` executes or reads state inside UE Editor, and Codex returns concise human-readable results.
 
-## CI Build (GitHub Actions)
-
-Workflow file: `.github/workflows/build-plugin.yml`
-
-It builds `LoomleMcpBridge` for both `Win64` and `Mac`, then uploads packaged plugin artifacts.
-
-Requirements:
-
-1. A `self-hosted` Windows runner with UE 5.7 installed.
-2. A `self-hosted` macOS runner with UE 5.7 installed.
-3. Configure repo variables (recommended):
-   - `UE_5_7_ROOT_WIN` (for example `C:\Program Files\Epic Games\UE_5.7`)
-   - `UE_5_7_ROOT_MAC` (for example `/Users/Shared/Epic Games/UE_5.7`)
-4. Or set runner environment variables with the same names.
-
-Trigger:
-
-- Manual: `workflow_dispatch`
-- Auto on `main` changes under `Plugins/LoomleMcpBridge/**`
-- On tag `v*`: builds both platforms and publishes GitHub Release assets:
-  - `LoomleMcpBridge-Win64.zip`
-  - `LoomleMcpBridge-Mac.zip`
-
-Note: CI is optional. If runners are not configured, installation still works via local source build.
-
-## Verification Checklist
-
-Installation is successful only if all checks pass:
-
-1. `LoomleMcpBridge` compiles successfully.
-2. Bridge endpoint exists:
-   - macOS/Linux: `<Project>/Intermediate/loomle-mcp.sock`
-   - Windows: `\\.\\pipe\\loomle-mcp`
-3. `tools/list` includes:
-   - `loomle`
-   - `context`
-   - `selection`
-   - `live`
-   - `execute`
-4. UE Python exposes:
-   - `unreal.BlueprintGraphBridge`
-
-## File Roles
-
-- `README.md`: user-facing install contract and success criteria.
-- `AGENTS.md`: Codex execution rules and conventions.
+Transport is local IPC (socket / named pipe), not remote editor control.  
+`execute` is an internal execution channel, so users usually describe intent instead of writing low-level parameters.  
+By default, Loomle returns interpreted results instead of raw JSON (unless explicitly requested).
 
 ## Boundaries
 
-- Keep LOOMLE-contained assets under `./Loomle`.
-- Do not modify or overwrite the project's root `AGENTS.md`.
+- Keep Loomle content under `./Loomle`.
