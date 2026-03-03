@@ -16,6 +16,8 @@ REQUIRED_TOOLS = {
     "execute",
 }
 
+_SOCKET_BUFFERS: dict[int, bytes] = {}
+
 
 def fail(msg: str) -> None:
     print(f"[FAIL] {msg}")
@@ -31,23 +33,33 @@ def send_jsonrpc(sock: socket.socket, req_id: int, method: str, params: dict) ->
     }
     sock.sendall((json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8"))
 
-    data = b""
-    while b"\n" not in data:
-        chunk = sock.recv(4096)
-        if not chunk:
-            fail(f"Socket closed while waiting for response to {method}")
-        data += chunk
+    sock_key = sock.fileno()
+    pending = _SOCKET_BUFFERS.get(sock_key, b"")
 
-    line, _, _ = data.partition(b"\n")
-    try:
-        response = json.loads(line.decode("utf-8"))
-    except json.JSONDecodeError as exc:
-        fail(f"Invalid JSON response for {method}: {exc}")
+    while True:
+        while b"\n" not in pending:
+            chunk = sock.recv(4096)
+            if not chunk:
+                fail(f"Socket closed while waiting for response to {method}")
+            pending += chunk
 
-    if "error" in response:
-        fail(f"JSON-RPC error for {method}: {response['error']}")
+        line, _, pending = pending.partition(b"\n")
+        _SOCKET_BUFFERS[sock_key] = pending
 
-    return response
+        try:
+            frame = json.loads(line.decode("utf-8"))
+        except json.JSONDecodeError as exc:
+            fail(f"Invalid JSON response for {method}: {exc}")
+
+        frame_id = frame.get("id")
+        if frame_id != req_id:
+            # Bridge can push notifications/live while waiting for tools/call response.
+            continue
+
+        if "error" in frame:
+            fail(f"JSON-RPC error for {method}: {frame['error']}")
+
+        return frame
 
 
 def parse_tool_payload(response: dict, method: str) -> dict:
@@ -76,8 +88,8 @@ def parse_tool_payload(response: dict, method: str) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Verify Loomle MCP bridge availability")
-    parser.add_argument("--socket", required=True, help="Path to loomle-mcp.sock")
+    parser = argparse.ArgumentParser(description="Verify Loomle bridge availability")
+    parser.add_argument("--socket", required=True, help="Path to loomle.sock")
     parser.add_argument("--timeout", type=float, default=3.0, help="Socket timeout seconds")
     args = parser.parse_args()
 
@@ -116,14 +128,14 @@ def main() -> int:
                 "name": "execute",
                 "arguments": {
                     "mode": "exec",
-                    "code": "import unreal\nassert hasattr(unreal, 'LoomeBlueprintAdapter')",
+                    "code": "import unreal\nassert hasattr(unreal, 'LoomleBlueprintAdapter')",
                 },
             },
         )
         exec_payload = parse_tool_payload(exec_resp, "tools/call.execute")
         if exec_payload.get("isError"):
             fail(f"execute failed: {exec_payload.get('message') or exec_payload}")
-        print("[PASS] unreal.LoomeBlueprintAdapter is available")
+        print("[PASS] unreal.LoomleBlueprintAdapter is available")
 
     print("[PASS] Bridge verification complete")
     return 0

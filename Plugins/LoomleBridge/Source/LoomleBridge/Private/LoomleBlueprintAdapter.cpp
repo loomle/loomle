@@ -1,4 +1,4 @@
-#include "LoomeBlueprintAdapter.h"
+#include "LoomleBlueprintAdapter.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Components/BoxComponent.h"
@@ -24,7 +24,7 @@
 #include "Serialization/JsonWriter.h"
 #include "Misc/PackageName.h"
 
-namespace LoomeBlueprintAdapterInternal
+namespace LoomleBlueprintAdapterInternal
 {
     static UBlueprint* LoadBlueprintByAssetPath(const FString& AssetPath)
     {
@@ -310,7 +310,7 @@ namespace LoomeBlueprintAdapterInternal
     }
 }
 
-bool ULoomeBlueprintAdapter::CreateBlueprint(const FString& AssetPath, const FString& ParentClassPath, FString& OutBlueprintObjectPath, FString& OutError)
+bool ULoomleBlueprintAdapter::CreateBlueprint(const FString& AssetPath, const FString& ParentClassPath, FString& OutBlueprintObjectPath, FString& OutError)
 {
     OutBlueprintObjectPath.Empty();
     OutError.Empty();
@@ -321,7 +321,7 @@ bool ULoomeBlueprintAdapter::CreateBlueprint(const FString& AssetPath, const FSt
         return false;
     }
 
-    if (UBlueprint* Existing = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(AssetPath))
+    if (UBlueprint* Existing = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(AssetPath))
     {
         const FString AssetName = FPackageName::GetLongPackageAssetName(AssetPath);
         OutBlueprintObjectPath = FString::Printf(TEXT("%s.%s"), *AssetPath, *AssetName);
@@ -329,7 +329,7 @@ bool ULoomeBlueprintAdapter::CreateBlueprint(const FString& AssetPath, const FSt
         return true;
     }
 
-    UClass* ParentClass = LoomeBlueprintAdapterInternal::ResolveClass(ParentClassPath);
+    UClass* ParentClass = LoomleBlueprintAdapterInternal::ResolveClass(ParentClassPath);
     if (!ParentClass || !ParentClass->IsChildOf(AActor::StaticClass()))
     {
         OutError = FString::Printf(TEXT("Failed to resolve actor parent class: %s"), *ParentClassPath);
@@ -365,17 +365,17 @@ bool ULoomeBlueprintAdapter::CreateBlueprint(const FString& AssetPath, const FSt
     return true;
 }
 
-bool ULoomeBlueprintAdapter::AddComponent(const FString& BlueprintAssetPath, const FString& ComponentClassPath, const FString& ComponentName, const FString& ParentComponentName, FString& OutError)
+bool ULoomleBlueprintAdapter::AddComponent(const FString& BlueprintAssetPath, const FString& ComponentClassPath, const FString& ComponentName, const FString& ParentComponentName, FString& OutError)
 {
     OutError.Empty();
-    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
     if (!Blueprint || !Blueprint->SimpleConstructionScript)
     {
         OutError = FString::Printf(TEXT("Blueprint not found or no SCS: %s"), *BlueprintAssetPath);
         return false;
     }
 
-    UClass* ComponentClass = LoomeBlueprintAdapterInternal::ResolveClass(ComponentClassPath);
+    UClass* ComponentClass = LoomleBlueprintAdapterInternal::ResolveClass(ComponentClassPath);
     if (!ComponentClass || !ComponentClass->IsChildOf(UActorComponent::StaticClass()))
     {
         OutError = FString::Printf(TEXT("Failed to resolve component class: %s"), *ComponentClassPath);
@@ -417,11 +417,11 @@ bool ULoomeBlueprintAdapter::AddComponent(const FString& BlueprintAssetPath, con
     return true;
 }
 
-bool ULoomeBlueprintAdapter::SetStaticMeshComponentAsset(const FString& BlueprintAssetPath, const FString& ComponentName, const FString& MeshAssetPath, FString& OutError)
+bool ULoomleBlueprintAdapter::SetStaticMeshComponentAsset(const FString& BlueprintAssetPath, const FString& ComponentName, const FString& MeshAssetPath, FString& OutError)
 {
     OutError.Empty();
-    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    USCS_Node* Node = LoomeBlueprintAdapterInternal::FindComponentNode(Blueprint, ComponentName);
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    USCS_Node* Node = LoomleBlueprintAdapterInternal::FindComponentNode(Blueprint, ComponentName);
     UStaticMeshComponent* MeshComp = Node ? Cast<UStaticMeshComponent>(Node->ComponentTemplate) : nullptr;
     UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *MeshAssetPath);
     if (!Blueprint || !MeshComp || !Mesh)
@@ -435,11 +435,11 @@ bool ULoomeBlueprintAdapter::SetStaticMeshComponentAsset(const FString& Blueprin
     return true;
 }
 
-bool ULoomeBlueprintAdapter::SetSceneComponentRelativeLocation(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Location, FString& OutError)
+bool ULoomleBlueprintAdapter::SetSceneComponentRelativeLocation(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Location, FString& OutError)
 {
     OutError.Empty();
-    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    USCS_Node* Node = LoomeBlueprintAdapterInternal::FindComponentNode(Blueprint, ComponentName);
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    USCS_Node* Node = LoomleBlueprintAdapterInternal::FindComponentNode(Blueprint, ComponentName);
     USceneComponent* Comp = Node ? Cast<USceneComponent>(Node->ComponentTemplate) : nullptr;
     if (!Blueprint || !Comp)
     {
@@ -452,11 +452,11 @@ bool ULoomeBlueprintAdapter::SetSceneComponentRelativeLocation(const FString& Bl
     return true;
 }
 
-bool ULoomeBlueprintAdapter::SetSceneComponentRelativeScale3D(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Scale3D, FString& OutError)
+bool ULoomleBlueprintAdapter::SetSceneComponentRelativeScale3D(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Scale3D, FString& OutError)
 {
     OutError.Empty();
-    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    USCS_Node* Node = LoomeBlueprintAdapterInternal::FindComponentNode(Blueprint, ComponentName);
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    USCS_Node* Node = LoomleBlueprintAdapterInternal::FindComponentNode(Blueprint, ComponentName);
     USceneComponent* Comp = Node ? Cast<USceneComponent>(Node->ComponentTemplate) : nullptr;
     if (!Blueprint || !Comp)
     {
@@ -469,11 +469,11 @@ bool ULoomeBlueprintAdapter::SetSceneComponentRelativeScale3D(const FString& Blu
     return true;
 }
 
-bool ULoomeBlueprintAdapter::SetPrimitiveComponentCollisionEnabled(const FString& BlueprintAssetPath, const FString& ComponentName, const FString& CollisionMode, FString& OutError)
+bool ULoomleBlueprintAdapter::SetPrimitiveComponentCollisionEnabled(const FString& BlueprintAssetPath, const FString& ComponentName, const FString& CollisionMode, FString& OutError)
 {
     OutError.Empty();
-    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    USCS_Node* Node = LoomeBlueprintAdapterInternal::FindComponentNode(Blueprint, ComponentName);
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    USCS_Node* Node = LoomleBlueprintAdapterInternal::FindComponentNode(Blueprint, ComponentName);
     UPrimitiveComponent* Comp = Node ? Cast<UPrimitiveComponent>(Node->ComponentTemplate) : nullptr;
     if (!Blueprint || !Comp)
     {
@@ -504,11 +504,11 @@ bool ULoomeBlueprintAdapter::SetPrimitiveComponentCollisionEnabled(const FString
     return true;
 }
 
-bool ULoomeBlueprintAdapter::SetBoxComponentExtent(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Extent, FString& OutError)
+bool ULoomleBlueprintAdapter::SetBoxComponentExtent(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Extent, FString& OutError)
 {
     OutError.Empty();
-    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    USCS_Node* Node = LoomeBlueprintAdapterInternal::FindComponentNode(Blueprint, ComponentName);
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    USCS_Node* Node = LoomleBlueprintAdapterInternal::FindComponentNode(Blueprint, ComponentName);
     UBoxComponent* Comp = Node ? Cast<UBoxComponent>(Node->ComponentTemplate) : nullptr;
     if (!Blueprint || !Comp)
     {
@@ -521,11 +521,11 @@ bool ULoomeBlueprintAdapter::SetBoxComponentExtent(const FString& BlueprintAsset
     return true;
 }
 
-bool ULoomeBlueprintAdapter::SetPrimitiveComponentGenerateOverlapEvents(const FString& BlueprintAssetPath, const FString& ComponentName, bool bGenerate, FString& OutError)
+bool ULoomleBlueprintAdapter::SetPrimitiveComponentGenerateOverlapEvents(const FString& BlueprintAssetPath, const FString& ComponentName, bool bGenerate, FString& OutError)
 {
     OutError.Empty();
-    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    USCS_Node* Node = LoomeBlueprintAdapterInternal::FindComponentNode(Blueprint, ComponentName);
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    USCS_Node* Node = LoomleBlueprintAdapterInternal::FindComponentNode(Blueprint, ComponentName);
     UPrimitiveComponent* Comp = Node ? Cast<UPrimitiveComponent>(Node->ComponentTemplate) : nullptr;
     if (!Blueprint || !Comp)
     {
@@ -538,14 +538,14 @@ bool ULoomeBlueprintAdapter::SetPrimitiveComponentGenerateOverlapEvents(const FS
     return true;
 }
 
-bool ULoomeBlueprintAdapter::AddEventNode(const FString& BlueprintAssetPath, const FString& EventName, const FString& EventClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool ULoomleBlueprintAdapter::AddEventNode(const FString& BlueprintAssetPath, const FString& EventName, const FString& EventClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
 
-    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomeBlueprintAdapterInternal::GetEventGraph(Blueprint);
-    UClass* EventClass = LoomeBlueprintAdapterInternal::ResolveClass(EventClassPath);
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UClass* EventClass = LoomleBlueprintAdapterInternal::ResolveClass(EventClassPath);
     if (!Blueprint || !EventGraph || !EventClass)
     {
         OutError = TEXT("Failed to resolve blueprint/event graph/event class.");
@@ -566,14 +566,14 @@ bool ULoomeBlueprintAdapter::AddEventNode(const FString& BlueprintAssetPath, con
     return true;
 }
 
-bool ULoomeBlueprintAdapter::AddCastNode(const FString& BlueprintAssetPath, const FString& TargetClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool ULoomleBlueprintAdapter::AddCastNode(const FString& BlueprintAssetPath, const FString& TargetClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
 
-    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomeBlueprintAdapterInternal::GetEventGraph(Blueprint);
-    UClass* TargetClass = LoomeBlueprintAdapterInternal::ResolveClass(TargetClassPath);
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UClass* TargetClass = LoomleBlueprintAdapterInternal::ResolveClass(TargetClassPath);
     if (!Blueprint || !EventGraph || !TargetClass)
     {
         OutError = TEXT("Failed to resolve blueprint/event graph/target class.");
@@ -593,14 +593,14 @@ bool ULoomeBlueprintAdapter::AddCastNode(const FString& BlueprintAssetPath, cons
     return true;
 }
 
-bool ULoomeBlueprintAdapter::AddCallFunctionNode(const FString& BlueprintAssetPath, const FString& FunctionClassPath, const FString& FunctionName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool ULoomleBlueprintAdapter::AddCallFunctionNode(const FString& BlueprintAssetPath, const FString& FunctionClassPath, const FString& FunctionName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
 
-    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomeBlueprintAdapterInternal::GetEventGraph(Blueprint);
-    UClass* FunctionClass = LoomeBlueprintAdapterInternal::ResolveClass(FunctionClassPath);
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UClass* FunctionClass = LoomleBlueprintAdapterInternal::ResolveClass(FunctionClassPath);
     UFunction* Function = FunctionClass ? FunctionClass->FindFunctionByName(*FunctionName) : nullptr;
     if (!Blueprint || !EventGraph || !Function)
     {
@@ -620,22 +620,22 @@ bool ULoomeBlueprintAdapter::AddCallFunctionNode(const FString& BlueprintAssetPa
     return true;
 }
 
-bool ULoomeBlueprintAdapter::ConnectPins(const FString& BlueprintAssetPath, const FString& FromNodeGuid, const FString& FromPinName, const FString& ToNodeGuid, const FString& ToPinName, FString& OutError)
+bool ULoomleBlueprintAdapter::ConnectPins(const FString& BlueprintAssetPath, const FString& FromNodeGuid, const FString& FromPinName, const FString& ToNodeGuid, const FString& ToPinName, FString& OutError)
 {
     OutError.Empty();
 
-    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomeBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
     if (!Blueprint || !EventGraph)
     {
         OutError = TEXT("Failed to resolve blueprint/event graph.");
         return false;
     }
 
-    UEdGraphNode* FromNode = LoomeBlueprintAdapterInternal::FindNodeByGuid(EventGraph, FromNodeGuid);
-    UEdGraphNode* ToNode = LoomeBlueprintAdapterInternal::FindNodeByGuid(EventGraph, ToNodeGuid);
-    UEdGraphPin* FromPin = LoomeBlueprintAdapterInternal::ResolvePin(FromNode, FromPinName);
-    UEdGraphPin* ToPin = LoomeBlueprintAdapterInternal::ResolvePin(ToNode, ToPinName);
+    UEdGraphNode* FromNode = LoomleBlueprintAdapterInternal::FindNodeByGuid(EventGraph, FromNodeGuid);
+    UEdGraphNode* ToNode = LoomleBlueprintAdapterInternal::FindNodeByGuid(EventGraph, ToNodeGuid);
+    UEdGraphPin* FromPin = LoomleBlueprintAdapterInternal::ResolvePin(FromNode, FromPinName);
+    UEdGraphPin* ToPin = LoomleBlueprintAdapterInternal::ResolvePin(ToNode, ToPinName);
     if (!FromNode || !ToNode || !FromPin || !ToPin)
     {
         OutError = TEXT("Failed to resolve nodes or pins.");
@@ -652,20 +652,20 @@ bool ULoomeBlueprintAdapter::ConnectPins(const FString& BlueprintAssetPath, cons
     return true;
 }
 
-bool ULoomeBlueprintAdapter::SetPinDefaultValue(const FString& BlueprintAssetPath, const FString& NodeGuid, const FString& PinName, const FString& Value, FString& OutError)
+bool ULoomleBlueprintAdapter::SetPinDefaultValue(const FString& BlueprintAssetPath, const FString& NodeGuid, const FString& PinName, const FString& Value, FString& OutError)
 {
     OutError.Empty();
 
-    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomeBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
     if (!Blueprint || !EventGraph)
     {
         OutError = TEXT("Failed to resolve blueprint/event graph.");
         return false;
     }
 
-    UEdGraphNode* Node = LoomeBlueprintAdapterInternal::FindNodeByGuid(EventGraph, NodeGuid);
-    UEdGraphPin* Pin = LoomeBlueprintAdapterInternal::ResolvePin(Node, PinName);
+    UEdGraphNode* Node = LoomleBlueprintAdapterInternal::FindNodeByGuid(EventGraph, NodeGuid);
+    UEdGraphPin* Pin = LoomleBlueprintAdapterInternal::ResolvePin(Node, PinName);
     if (!Node || !Pin)
     {
         OutError = TEXT("Failed to resolve node or pin.");
@@ -676,13 +676,13 @@ bool ULoomeBlueprintAdapter::SetPinDefaultValue(const FString& BlueprintAssetPat
     return true;
 }
 
-bool ULoomeBlueprintAdapter::ListEventGraphNodes(const FString& BlueprintAssetPath, FString& OutNodesJson, FString& OutError)
+bool ULoomleBlueprintAdapter::ListEventGraphNodes(const FString& BlueprintAssetPath, FString& OutNodesJson, FString& OutError)
 {
     OutNodesJson = TEXT("[]");
     OutError.Empty();
 
-    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomeBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
     if (!Blueprint || !EventGraph)
     {
         OutError = TEXT("Failed to resolve blueprint/event graph.");
@@ -692,38 +692,38 @@ bool ULoomeBlueprintAdapter::ListEventGraphNodes(const FString& BlueprintAssetPa
     TArray<TSharedPtr<FJsonValue>> Nodes;
     for (const UEdGraphNode* Node : EventGraph->Nodes)
     {
-        Nodes.Add(MakeShared<FJsonValueObject>(LoomeBlueprintAdapterInternal::SerializeNode(Node)));
+        Nodes.Add(MakeShared<FJsonValueObject>(LoomleBlueprintAdapterInternal::SerializeNode(Node)));
     }
 
-    OutNodesJson = LoomeBlueprintAdapterInternal::JsonArrayToString(Nodes);
+    OutNodesJson = LoomleBlueprintAdapterInternal::JsonArrayToString(Nodes);
     return true;
 }
 
-bool ULoomeBlueprintAdapter::GetNodeDetails(const FString& BlueprintAssetPath, const FString& NodeGuid, FString& OutNodeJson, FString& OutError)
+bool ULoomleBlueprintAdapter::GetNodeDetails(const FString& BlueprintAssetPath, const FString& NodeGuid, FString& OutNodeJson, FString& OutError)
 {
     OutNodeJson = TEXT("{}");
     OutError.Empty();
 
-    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomeBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
     if (!Blueprint || !EventGraph)
     {
         OutError = TEXT("Failed to resolve blueprint/event graph.");
         return false;
     }
 
-    UEdGraphNode* Node = LoomeBlueprintAdapterInternal::FindNodeByGuid(EventGraph, NodeGuid);
+    UEdGraphNode* Node = LoomleBlueprintAdapterInternal::FindNodeByGuid(EventGraph, NodeGuid);
     if (!Node)
     {
         OutError = FString::Printf(TEXT("Node not found by guid: %s"), *NodeGuid);
         return false;
     }
 
-    OutNodeJson = LoomeBlueprintAdapterInternal::JsonObjectToString(LoomeBlueprintAdapterInternal::SerializeNode(Node));
+    OutNodeJson = LoomleBlueprintAdapterInternal::JsonObjectToString(LoomleBlueprintAdapterInternal::SerializeNode(Node));
     return true;
 }
 
-bool ULoomeBlueprintAdapter::FindNodesByClass(const FString& BlueprintAssetPath, const FString& NodeClassPathOrName, FString& OutNodesJson, FString& OutError)
+bool ULoomleBlueprintAdapter::FindNodesByClass(const FString& BlueprintAssetPath, const FString& NodeClassPathOrName, FString& OutNodesJson, FString& OutError)
 {
     OutNodesJson = TEXT("[]");
     OutError.Empty();
@@ -734,8 +734,8 @@ bool ULoomeBlueprintAdapter::FindNodesByClass(const FString& BlueprintAssetPath,
         return false;
     }
 
-    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomeBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
     if (!Blueprint || !EventGraph)
     {
         OutError = TEXT("Failed to resolve blueprint/event graph.");
@@ -745,21 +745,21 @@ bool ULoomeBlueprintAdapter::FindNodesByClass(const FString& BlueprintAssetPath,
     TArray<TSharedPtr<FJsonValue>> Nodes;
     for (const UEdGraphNode* Node : EventGraph->Nodes)
     {
-        if (LoomeBlueprintAdapterInternal::NodeClassMatches(Node, NodeClassPathOrName))
+        if (LoomleBlueprintAdapterInternal::NodeClassMatches(Node, NodeClassPathOrName))
         {
-            Nodes.Add(MakeShared<FJsonValueObject>(LoomeBlueprintAdapterInternal::SerializeNode(Node)));
+            Nodes.Add(MakeShared<FJsonValueObject>(LoomleBlueprintAdapterInternal::SerializeNode(Node)));
         }
     }
 
-    OutNodesJson = LoomeBlueprintAdapterInternal::JsonArrayToString(Nodes);
+    OutNodesJson = LoomleBlueprintAdapterInternal::JsonArrayToString(Nodes);
     return true;
 }
 
-bool ULoomeBlueprintAdapter::CompileBlueprint(const FString& BlueprintAssetPath, FString& OutError)
+bool ULoomleBlueprintAdapter::CompileBlueprint(const FString& BlueprintAssetPath, FString& OutError)
 {
     OutError.Empty();
 
-    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
     if (!Blueprint)
     {
         OutError = FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintAssetPath);
@@ -780,12 +780,12 @@ bool ULoomeBlueprintAdapter::CompileBlueprint(const FString& BlueprintAssetPath,
     return true;
 }
 
-bool ULoomeBlueprintAdapter::SpawnBlueprintActor(const FString& BlueprintAssetPath, FVector Location, FRotator Rotation, FString& OutActorPath, FString& OutError)
+bool ULoomleBlueprintAdapter::SpawnBlueprintActor(const FString& BlueprintAssetPath, FVector Location, FRotator Rotation, FString& OutActorPath, FString& OutError)
 {
     OutActorPath.Empty();
     OutError.Empty();
 
-    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
     if (!Blueprint || !Blueprint->GeneratedClass)
     {
         OutError = TEXT("Blueprint or GeneratedClass not found.");

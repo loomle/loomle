@@ -1,26 +1,26 @@
-# Loome Design Docs
+# Loomle Design Docs
 
 ## Naming (Canonical)
 
-- External protocol/module: `Loome Graph`
-- Internal runtime/control plane: `Loome Bridge`
+- External protocol/module: `Loomle Graph`
+- Internal runtime/control plane: `Loomle Bridge`
 - Per-graph implementation layer: `Adapter`
-- Blueprint adapter canonical name: `LoomeBlueprintAdapter`
-- Python canonical symbol (target): `unreal.LoomeBlueprintAdapter`
+- Blueprint adapter canonical name: `LoomleBlueprintAdapter`
+- Python canonical symbol (target): `unreal.LoomleBlueprintAdapter`
 
 ## Documents
 
-1. `LOOME_GRAPH.md`
-- MCP contract (`graph/query/mutate/watch`), data schema, error model.
+1. `LOOMLE_GRAPH.md`
+- bridge contract (`graph/query/mutate/watch`), data schema, error model.
 
-2. `LOOME_BLUEPRINT_ADAPTER.md`
+2. `LOOMLE_BLUEPRINT_ADAPTER.md`
 - Blueprint adapter operation contract and mapping to current UE implementation.
 
-3. `LOOME_BRIDGE.md`
+3. `LOOMLE_BRIDGE.md`
 - Runtime architecture, tool routing, adapter orchestration, compatibility policy.
 
 ## Read Order
 
-1. `LOOME_GRAPH.md`
-2. `LOOME_BLUEPRINT_ADAPTER.md`
-3. `LOOME_BRIDGE.md`
+1. `LOOMLE_GRAPH.md`
+2. `LOOMLE_BLUEPRINT_ADAPTER.md`
+3. `LOOMLE_BRIDGE.md`

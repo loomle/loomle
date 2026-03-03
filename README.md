@@ -28,7 +28,7 @@ For Agent (single install entrypoint):
 
 ## How It Works
 
-You describe intent in natural language. Codex calls the matching MCP tool, `LoomleMcpBridge` executes or reads state inside UE Editor, and Codex returns concise human-readable results.
+You describe intent in natural language. Codex calls the matching bridge tool, `LoomleBridge` executes or reads state inside UE Editor, and Codex returns concise human-readable results.
 
 Transport is local IPC (socket / named pipe), not remote editor control.  
 `execute` is an internal execution channel, so users usually describe intent instead of writing low-level parameters.  

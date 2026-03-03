@@ -1,6 +1,6 @@
 # Loomle Bridge (UE5 Plugin)
 
-This plugin exposes a local MCP-compatible JSON-RPC endpoint from UE5 Editor over local IPC.
+This plugin exposes a local Loomle-compatible JSON-RPC endpoint from UE5 Editor over local IPC.
 
 ## Install / Verify
 
@@ -20,12 +20,12 @@ From UE project root:
 
 ## Transport
 
-- Windows: Named Pipe `\\.\\pipe\\loomle-mcp`
-- macOS/Linux: Unix socket `<Project>/Intermediate/loomle-mcp.sock`
+- Windows: Named Pipe `\\.\\pipe\\loomle`
+- macOS/Linux: Unix socket `<Project>/Intermediate/loomle.sock`
 - Framing: newline-delimited JSON (one JSON object per line)
 - Scope: local machine only
 
-## Implemented MCP methods
+## Implemented bridge methods
 
 - `initialize`
 - `tools/list`
@@ -74,9 +74,9 @@ From UE project root:
   - Required argument: `code` (inline Python string)
   - Optional argument: `mode` (`exec` default, or `eval`)
 
-## LoomeBlueprintAdapter (C++ API exposed to Python)
+## LoomleBlueprintAdapter (C++ API exposed to Python)
 
-`LoomeBlueprintAdapter` is a `UBlueprintFunctionLibrary` exposed as `unreal.LoomeBlueprintAdapter`.
+`LoomleBlueprintAdapter` is a `UBlueprintFunctionLibrary` exposed as `unreal.LoomleBlueprintAdapter`.
 Use it through `execute` for programmable, Python-driven BP construction.
 
 Exposed methods:
@@ -104,7 +104,7 @@ Exposed methods:
 
 ```python
 import unreal
-B = unreal.LoomeBlueprintAdapter
+B = unreal.LoomleBlueprintAdapter
 asset = "/Game/Codex/BP_PyBridgePad_Visible"
 
 obj_path, err = B.create_blueprint(asset, "/Script/Engine.Actor")
@@ -133,7 +133,7 @@ err = B.compile_blueprint(asset)
 
 ```python
 import unreal, json
-B = unreal.LoomeBlueprintAdapter
+B = unreal.LoomleBlueprintAdapter
 asset = "/Game/Codex/BP_BouncyPad"
 
 nodes_json, err = B.list_event_graph_nodes(asset)
@@ -159,7 +159,7 @@ if cast_nodes:
 ## Quick test (macOS/Linux)
 
 ```bash
-SOCK="/Users/xartest/Documents/UnrealProjects/Loomle/Intermediate/loomle-mcp.sock"
+SOCK="/Users/xartest/Documents/UnrealProjects/Loomle/Intermediate/loomle.sock"
 printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n' | nc -U "$SOCK"
 printf '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n' | nc -U "$SOCK"
 printf '{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"loomle","arguments":{}}}\n' | nc -U "$SOCK"
@@ -173,7 +173,7 @@ printf '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"execute"
 ## Quick test (Windows PowerShell)
 
 ```powershell
-$pipe = New-Object System.IO.Pipes.NamedPipeClientStream('.', 'loomle-mcp', [System.IO.Pipes.PipeDirection]::InOut)
+$pipe = New-Object System.IO.Pipes.NamedPipeClientStream('.', 'loomle', [System.IO.Pipes.PipeDirection]::InOut)
 $pipe.Connect(3000)
 $reader = New-Object System.IO.StreamReader($pipe)
 $writer = New-Object System.IO.StreamWriter($pipe)
@@ -200,7 +200,7 @@ $reader.ReadLine()
 
 ## Notes
 
-- Transport differs per OS, MCP payload is identical.
+- Transport differs per OS, tool payload is identical.
 - On macOS, prefer launching editor with:
   - `open -na '/Users/Shared/Epic Games/UE_5.7/Engine/Binaries/Mac/UnrealEditor.app' --args '/Users/xartest/Documents/UnrealProjects/Loomle/Loomle.uproject'`
 - Avoid detached direct binary launch (`.../MacOS/UnrealEditor ... & disown`) because it may auto-terminate unexpectedly.

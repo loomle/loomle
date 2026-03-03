@@ -2,11 +2,11 @@
 set -euo pipefail
 
 # Install contract (single entrypoint, idempotent):
-# 1) Ensure .uproject wiring (AdditionalPluginDirectories + LoomleMcpBridge Editor enablement)
+# 1) Ensure .uproject wiring (AdditionalPluginDirectories + LoomleBridge Editor enablement)
 # 2) Resolve plugin binary (compatible local prebuilt first, local build fallback)
 # 3) Launch Unreal Editor
 # 4) Verify bridge transport endpoint (socket / named pipe equivalent)
-# 5) Verify MCP baseline tools (loomle/graph/graph.query/graph.mutate/graph.watch/context/live/execute) and unreal.LoomeBlueprintAdapter
+# 5) Verify bridge baseline tools (loomle/graph/graph.query/graph.mutate/graph.watch/context/live/execute) and unreal.LoomleBlueprintAdapter
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOOMLE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -79,10 +79,10 @@ UPROJECT_PATH="$(find "$PROJECT_ROOT" -maxdepth 1 -type f -name '*.uproject' | h
 UPROJECT_NAME="$(basename "$UPROJECT_PATH")"
 PROJECT_NAME="${UPROJECT_NAME%.uproject}"
 TARGET_NAME="${PROJECT_NAME}Editor"
-SOCKET_PATH="$PROJECT_ROOT/Intermediate/loomle-mcp.sock"
+SOCKET_PATH="$PROJECT_ROOT/Intermediate/loomle.sock"
 ROOT_AGENTS_PATH="$PROJECT_ROOT/AGENTS.md"
 ROOT_AGENTS_HINT="- Always read ./Loomle/AGENTS.md before starting work in this project."
-ROOT_BIN="$PROJECT_ROOT/Binaries/Mac/UnrealEditor-LoomleMcpBridge.dylib"
+ROOT_BIN="$PROJECT_ROOT/Binaries/Mac/UnrealEditor-LoomleBridge.dylib"
 ROOT_MODULES="$PROJECT_ROOT/Binaries/Mac/UnrealEditor.modules"
 
 PLUGIN_DIR="$(
@@ -119,23 +119,23 @@ for entry in candidates:
     base = pathlib.Path(entry)
     if not base.is_absolute():
         base = (project_root / base).resolve()
-    plugin_dir = base / "LoomleMcpBridge"
-    if (plugin_dir / "LoomleMcpBridge.uplugin").exists():
+    plugin_dir = base / "LoomleBridge"
+    if (plugin_dir / "LoomleBridge.uplugin").exists():
         print(str(plugin_dir))
         sys.exit(0)
 
-fallback = (project_root / "Loomle" / "Plugins" / "LoomleMcpBridge").resolve()
+fallback = (project_root / "Loomle" / "Plugins" / "LoomleBridge").resolve()
 print(str(fallback))
 PY
 )"
 
-PLUGIN_BIN="$PLUGIN_DIR/Binaries/Mac/UnrealEditor-LoomleMcpBridge.dylib"
+PLUGIN_BIN="$PLUGIN_DIR/Binaries/Mac/UnrealEditor-LoomleBridge.dylib"
 PLUGIN_MODULES="$PLUGIN_DIR/Binaries/Mac/UnrealEditor.modules"
 
 [[ -d "$PLUGIN_DIR" ]] || fail "Plugin not found from project config/fallback: $PLUGIN_DIR"
 pass "Plugin directory resolved: $PLUGIN_DIR"
 
-log "Ensuring .uproject wiring for AdditionalPluginDirectories + LoomleMcpBridge"
+log "Ensuring .uproject wiring for AdditionalPluginDirectories + LoomleBridge"
 python3 - <<'PY' "$UPROJECT_PATH"
 import json
 import pathlib
@@ -160,11 +160,11 @@ if not isinstance(plugins, list):
 
 bridge = None
 for p in plugins:
-    if isinstance(p, dict) and p.get("Name") == "LoomleMcpBridge":
+    if isinstance(p, dict) and p.get("Name") == "LoomleBridge":
         bridge = p
         break
 if bridge is None:
-    bridge = {"Name": "LoomleMcpBridge"}
+    bridge = {"Name": "LoomleBridge"}
     plugins.append(bridge)
     changed = True
 if bridge.get("Enabled") is not True:
@@ -280,6 +280,7 @@ PY
 
 sync_built_plugin_artifacts() {
   [[ -f "$ROOT_BIN" ]] || fail "Built plugin binary not found at expected path: $ROOT_BIN"
+  mkdir -p "$(dirname "$PLUGIN_BIN")"
   cp -f "$ROOT_BIN" "$PLUGIN_BIN"
   pass "Synchronized built plugin binary to plugin directory"
 
@@ -301,7 +302,7 @@ plugin_data["BuildId"] = root_data.get("BuildId", plugin_data.get("BuildId", "")
 mods = plugin_data.get("Modules")
 if not isinstance(mods, dict):
     mods = {}
-mods["LoomleMcpBridge"] = "UnrealEditor-LoomleMcpBridge.dylib"
+mods["LoomleBridge"] = "UnrealEditor-LoomleBridge.dylib"
 plugin_data["Modules"] = mods
 
 plugin_modules.write_text(json.dumps(plugin_data, indent=2) + "\n")
@@ -349,7 +350,7 @@ else
 fi
 
 if [[ "$SKIP_VERIFY" -eq 0 ]]; then
-  log "Waiting for MCP socket: $SOCKET_PATH"
+  log "Waiting for bridge socket: $SOCKET_PATH"
   for _ in $(seq 1 60); do
     if [[ -S "$SOCKET_PATH" ]]; then
       break
@@ -357,8 +358,8 @@ if [[ "$SKIP_VERIFY" -eq 0 ]]; then
     sleep 1
   done
 
-  [[ -S "$SOCKET_PATH" ]] || fail "MCP socket not ready: $SOCKET_PATH"
-  pass "MCP socket is ready"
+  [[ -S "$SOCKET_PATH" ]] || fail "bridge socket not ready: $SOCKET_PATH"
+  pass "bridge socket is ready"
 
   log "Running bridge protocol checks"
   python3 "$SCRIPT_DIR/verify_bridge.py" --socket "$SOCKET_PATH"

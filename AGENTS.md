@@ -18,11 +18,12 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 - At the start of each Codex thread/session, check Loomle source update status in `./Loomle` (git upstream compare).
 - If a newer upstream revision exists, remind the user they can ask in natural language (for example: "upgrade Loomle" / "update Loomle"), and Codex will run the upgrade flow.
 - Do not auto-upgrade without explicit user confirmation.
+- Before launching Unreal Editor, terminate any existing Unreal Editor processes for this project to avoid multiple concurrent editor instances.
 
 ## User Command Handling Policy
 - Supported user commands: `loomle`, `context`, `live`, `execute`.
 - Agent-internal tools that should be used when needed: `graph`, `graph.query`, `graph.mutate`, `graph.watch`.
-- For these commands, always call the corresponding MCP tool first, then return concise natural-language output.
+- For these commands, always call the corresponding bridge tool first, then return concise natural-language output.
 - Do not dump raw JSON by default; show raw payload only when explicitly requested.
 - JSON-RPC transport note:
   - Bridge may actively push `notifications/live` on the same connection while handling `tools/call`.
@@ -51,7 +52,7 @@ Human-oriented explanation lives in `./Loomle/README.md`.
   - Keep pull bounded (`limit` <= 100) and prefer small windows unless user asks for full history.
 - If live pull fails or cursor is stale, recover from `Loomle/runtime/live_events.jsonl` as fallback context.
 
-## MCP Interface Playbook
+## Bridge Interface Playbook
 
 ### Tool Routing
 

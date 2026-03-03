@@ -1,8 +1,8 @@
-# Loome Graph
+# Loomle Graph
 
 ## 1. Scope
 
-- Protocol: JSON-RPC 2.0 (MCP tools).
+- Protocol: JSON-RPC 2.0 (bridge tools).
 - Graph types (v1): `blueprint`.
 - Reserved graph types: `material`, `niagara`.
 - Tools: `graph`, `graph.query`, `graph.mutate`, `graph.watch`.

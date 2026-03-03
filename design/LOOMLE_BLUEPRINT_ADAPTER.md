@@ -1,10 +1,10 @@
-# Loome Blueprint Adapter
+# Loomle Blueprint Adapter
 
 ## 1. Scope
 
-- Adapter name: `LoomeBlueprintAdapter`
-- Role: execute `Loome Graph` blueprint operations inside UE editor runtime.
-- Python exposure policy (target): `unreal.LoomeBlueprintAdapter` is the canonical Python entry.
+- Adapter name: `LoomleBlueprintAdapter`
+- Role: execute `Loomle Graph` blueprint operations inside UE editor runtime.
+- Python exposure policy (target): `unreal.LoomleBlueprintAdapter` is the canonical Python entry.
 - Compatibility policy: no legacy Python alias is kept.
 
 ## 2. Operation Contract
@@ -103,7 +103,7 @@
 
 ## 4. Mapping to Current UE Implementation
 
-Currently implemented (runtime class `LoomeBlueprintAdapter`, target API name `LoomeBlueprintAdapter`):
+Currently implemented (runtime class `LoomleBlueprintAdapter`, target API name `LoomleBlueprintAdapter`):
 
 - `addNode.event` -> `AddEventNode`
 - `addNode.cast` -> `AddCastNode`

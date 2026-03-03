@@ -6,13 +6,13 @@
 
 class FRunnableThread;
 
-class FLoomleMcpPipeServer : public FRunnable
+class FLoomlePipeServer : public FRunnable
 {
 public:
     using FRequestHandler = TFunction<FString(const FString&)>;
 
-    FLoomleMcpPipeServer(const FString& InPipeName, FRequestHandler InHandler);
-    virtual ~FLoomleMcpPipeServer();
+    FLoomlePipeServer(const FString& InPipeName, FRequestHandler InHandler);
+    virtual ~FLoomlePipeServer();
 
     bool Start();
     void StopServer();

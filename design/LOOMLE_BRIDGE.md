@@ -1,17 +1,17 @@
-# Loome Bridge
+# Loomle Bridge
 
 ## 1. Scope
 
 - Runtime control plane inside UE editor plugin.
-- Provides MCP-compatible tool routing and execution.
+- Provides Loomle-compatible tool routing and execution.
 - Hosts adapters for graph types.
 
 Naming:
 
-- External protocol/module: `Loome Graph`
+- External protocol/module: `Loomle Graph`
 - Internal per-graph execution unit: `Adapter`
-- Blueprint adapter canonical name: `LoomeBlueprintAdapter`
-- Python canonical adapter symbol (target): `unreal.LoomeBlueprintAdapter`
+- Blueprint adapter canonical name: `LoomleBlueprintAdapter`
+- Python canonical adapter symbol (target): `unreal.LoomleBlueprintAdapter`
 
 ## 2. Runtime Layers
 
@@ -31,7 +31,7 @@ Naming:
 - Revision and cursor state.
 
 5. Adapter Layer
-- `LoomeBlueprintAdapter` (v1).
+- `LoomleBlueprintAdapter` (v1).
 - Future: material/niagara adapters.
 
 6. Execution Layer
@@ -78,7 +78,7 @@ Naming:
 
 ## 6. Error and Diagnostics
 
-- All tool errors use canonical code set from `LOOME_GRAPH.md`.
+- All tool errors use canonical code set from `LOOMLE_GRAPH.md`.
 - Adapter-native errors are mapped to canonical codes.
 - Response always contains machine-readable `diagnostics` array.
 
@@ -87,7 +87,7 @@ Naming:
 - Keep `context/live/execute` available.
 - New feature work targets `graph.*` first.
 - `execute` remains fallback only.
-- No dual-source schemas: canonical graph schema is defined only in `LOOME_GRAPH.md`.
+- No dual-source schemas: canonical graph schema is defined only in `LOOMLE_GRAPH.md`.
 - Keep Python adapter access available under canonical symbol; no legacy Python alias is kept.
 
 ## 8. Rollout Sequence
@@ -95,6 +95,6 @@ Naming:
 1. Ship `graph`.
 2. Ship `graph.query` for blueprint.
 3. Route compatible `context` graph args to `graph.query`.
-4. Ship `graph.mutate` backed by `LoomeBlueprintAdapter`.
+4. Ship `graph.mutate` backed by `LoomleBlueprintAdapter`.
 5. Ship `graph.watch` and align `live` source.
 6. Freeze new feature additions to legacy-only paths.

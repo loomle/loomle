@@ -4,7 +4,7 @@
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
 
-class FLoomleMcpPipeServer;
+class FLoomlePipeServer;
 class FEditorContextProviderRegistry;
 class AActor;
 class FJsonObject;
@@ -12,7 +12,7 @@ class FJsonValue;
 class UObject;
 struct FPropertyChangedEvent;
 
-class FLoomleMcpBridgeModule : public IModuleInterface
+class FLoomleBridgeModule : public IModuleInterface
 {
 public:
     virtual void StartupModule() override;
@@ -58,7 +58,7 @@ private:
     FString MakeJsonError(const TSharedPtr<FJsonValue>& Id, int32 Code, const FString& Message) const;
 
 private:
-    TSharedPtr<FLoomleMcpPipeServer, ESPMode::ThreadSafe> PipeServer;
+    TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> PipeServer;
     TUniquePtr<FEditorContextProviderRegistry> ContextProviderRegistry;
     bool bEditorStreamEnabled = false;
     int64 NextLiveSequence = 1;

@@ -1,8 +1,8 @@
 using UnrealBuildTool;
 
-public class LoomleMcpBridge : ModuleRules
+public class LoomleBridge : ModuleRules
 {
-    public LoomleMcpBridge(ReadOnlyTargetRules Target) : base(Target)
+    public LoomleBridge(ReadOnlyTargetRules Target) : base(Target)
     {
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 

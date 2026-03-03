@@ -1,4 +1,4 @@
-#include "LoomleMcpPipeServer.h"
+#include "LoomlePipeServer.h"
 
 #include "Async/Async.h"
 #include "HAL/PlatformProcess.h"
@@ -16,20 +16,20 @@
 #include <unistd.h>
 #endif
 
-DEFINE_LOG_CATEGORY_STATIC(LogLoomleMcpPipe, Log, All);
+DEFINE_LOG_CATEGORY_STATIC(LogLoomlePipe, Log, All);
 
-FLoomleMcpPipeServer::FLoomleMcpPipeServer(const FString& InPipeName, FRequestHandler InHandler)
+FLoomlePipeServer::FLoomlePipeServer(const FString& InPipeName, FRequestHandler InHandler)
     : PipeName(InPipeName)
     , RequestHandler(MoveTemp(InHandler))
 {
 }
 
-FLoomleMcpPipeServer::~FLoomleMcpPipeServer()
+FLoomlePipeServer::~FLoomlePipeServer()
 {
     StopServer();
 }
 
-bool FLoomleMcpPipeServer::Start()
+bool FLoomlePipeServer::Start()
 {
     if (Thread != nullptr)
     {
@@ -37,11 +37,11 @@ bool FLoomleMcpPipeServer::Start()
     }
 
     bStopRequested = false;
-    Thread = FRunnableThread::Create(this, TEXT("LoomleMcpPipeServerThread"), 0, TPri_Normal);
+    Thread = FRunnableThread::Create(this, TEXT("LoomlePipeServerThread"), 0, TPri_Normal);
     return Thread != nullptr;
 }
 
-void FLoomleMcpPipeServer::StopServer()
+void FLoomlePipeServer::StopServer()
 {
     Stop();
 
@@ -53,12 +53,12 @@ void FLoomleMcpPipeServer::StopServer()
     }
 }
 
-bool FLoomleMcpPipeServer::SendServerNotification(const FString& JsonMessage)
+bool FLoomlePipeServer::SendServerNotification(const FString& JsonMessage)
 {
     return WriteMessage(JsonMessage);
 }
 
-void FLoomleMcpPipeServer::Stop()
+void FLoomlePipeServer::Stop()
 {
     bStopRequested = true;
 
@@ -86,7 +86,7 @@ void FLoomleMcpPipeServer::Stop()
 #endif
 }
 
-uint32 FLoomleMcpPipeServer::Run()
+uint32 FLoomlePipeServer::Run()
 {
 #if PLATFORM_WINDOWS
     const FString FullPipePath = FString::Printf(TEXT("\\\\.\\pipe\\%s"), *PipeName);
@@ -105,7 +105,7 @@ uint32 FLoomleMcpPipeServer::Run()
 
         if (LocalPipe == INVALID_HANDLE_VALUE)
         {
-            UE_LOG(LogLoomleMcpPipe, Error, TEXT("Failed to create named pipe %s, error=%lu"), *FullPipePath, GetLastError());
+            UE_LOG(LogLoomlePipe, Error, TEXT("Failed to create named pipe %s, error=%lu"), *FullPipePath, GetLastError());
             FPlatformProcess::Sleep(1.0f);
             continue;
         }
@@ -115,13 +115,13 @@ uint32 FLoomleMcpPipeServer::Run()
         const BOOL bConnected = ConnectNamedPipe(LocalPipe, nullptr) || (GetLastError() == ERROR_PIPE_CONNECTED);
         if (!bConnected)
         {
-            UE_LOG(LogLoomleMcpPipe, Warning, TEXT("ConnectNamedPipe failed, error=%lu"), GetLastError());
+            UE_LOG(LogLoomlePipe, Warning, TEXT("ConnectNamedPipe failed, error=%lu"), GetLastError());
             CloseHandle(LocalPipe);
             PipeHandle = nullptr;
             continue;
         }
 
-        UE_LOG(LogLoomleMcpPipe, Display, TEXT("MCP client connected on %s"), *FullPipePath);
+        UE_LOG(LogLoomlePipe, Display, TEXT("Loomle client connected on %s"), *FullPipePath);
 
         TArray<uint8> PendingBytes;
         PendingBytes.Reserve(64 * 1024);
@@ -168,7 +168,7 @@ uint32 FLoomleMcpPipeServer::Run()
 
                 if (!Response.IsEmpty() && !WriteMessage(Response))
                 {
-                    UE_LOG(LogLoomleMcpPipe, Warning, TEXT("Failed writing response to client pipe"));
+                    UE_LOG(LogLoomlePipe, Warning, TEXT("Failed writing response to client pipe"));
                     break;
                 }
             }
@@ -179,7 +179,7 @@ uint32 FLoomleMcpPipeServer::Run()
         CloseHandle(LocalPipe);
         PipeHandle = nullptr;
 
-        UE_LOG(LogLoomleMcpPipe, Display, TEXT("MCP client disconnected"));
+        UE_LOG(LogLoomlePipe, Display, TEXT("Loomle client disconnected"));
     }
 #else
     const FString SocketPath = GetSocketPath();
@@ -188,7 +188,7 @@ uint32 FLoomleMcpPipeServer::Run()
     const int32 LocalServerFd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (LocalServerFd < 0)
     {
-        UE_LOG(LogLoomleMcpPipe, Error, TEXT("Failed to create unix socket at %s"), *SocketPath);
+        UE_LOG(LogLoomlePipe, Error, TEXT("Failed to create unix socket at %s"), *SocketPath);
         FPlatformProcess::Sleep(1.0f);
         return 0;
     }
@@ -203,7 +203,7 @@ uint32 FLoomleMcpPipeServer::Run()
 
     if (bind(LocalServerFd, reinterpret_cast<const sockaddr*>(&Address), sizeof(Address)) != 0)
     {
-        UE_LOG(LogLoomleMcpPipe, Error, TEXT("Failed to bind unix socket %s"), *SocketPath);
+        UE_LOG(LogLoomlePipe, Error, TEXT("Failed to bind unix socket %s"), *SocketPath);
         close(LocalServerFd);
         ServerFd = -1;
         FPlatformProcess::Sleep(1.0f);
@@ -212,7 +212,7 @@ uint32 FLoomleMcpPipeServer::Run()
 
     if (listen(LocalServerFd, 8) != 0)
     {
-        UE_LOG(LogLoomleMcpPipe, Error, TEXT("Failed to listen on unix socket %s"), *SocketPath);
+        UE_LOG(LogLoomlePipe, Error, TEXT("Failed to listen on unix socket %s"), *SocketPath);
         close(LocalServerFd);
         ServerFd = -1;
         FPlatformProcess::Sleep(1.0f);
@@ -226,7 +226,7 @@ uint32 FLoomleMcpPipeServer::Run()
         {
             if (!bStopRequested)
             {
-                UE_LOG(LogLoomleMcpPipe, Warning, TEXT("Failed to accept unix socket client on %s"), *SocketPath);
+                UE_LOG(LogLoomlePipe, Warning, TEXT("Failed to accept unix socket client on %s"), *SocketPath);
             }
 
             close(LocalServerFd);
@@ -235,7 +235,7 @@ uint32 FLoomleMcpPipeServer::Run()
         }
 
         ClientFd = LocalClientFd;
-        UE_LOG(LogLoomleMcpPipe, Display, TEXT("MCP client connected on unix socket %s"), *SocketPath);
+        UE_LOG(LogLoomlePipe, Display, TEXT("Loomle client connected on unix socket %s"), *SocketPath);
 
         TArray<uint8> PendingBytes;
         PendingBytes.Reserve(64 * 1024);
@@ -280,7 +280,7 @@ uint32 FLoomleMcpPipeServer::Run()
 
                 if (!Response.IsEmpty() && !WriteMessage(Response))
                 {
-                    UE_LOG(LogLoomleMcpPipe, Warning, TEXT("Failed writing response to unix socket client"));
+                    UE_LOG(LogLoomlePipe, Warning, TEXT("Failed writing response to unix socket client"));
                     break;
                 }
             }
@@ -288,7 +288,7 @@ uint32 FLoomleMcpPipeServer::Run()
 
         close(LocalClientFd);
         ClientFd = -1;
-        UE_LOG(LogLoomleMcpPipe, Display, TEXT("MCP client disconnected"));
+        UE_LOG(LogLoomlePipe, Display, TEXT("Loomle client disconnected"));
     }
 
     if (LocalServerFd >= 0)
@@ -302,7 +302,7 @@ uint32 FLoomleMcpPipeServer::Run()
     return 0;
 }
 
-bool FLoomleMcpPipeServer::WriteMessage(const FString& Message)
+bool FLoomlePipeServer::WriteMessage(const FString& Message)
 {
     FScopeLock ScopeLock(&WriteMutex);
 
@@ -336,11 +336,11 @@ bool FLoomleMcpPipeServer::WriteMessage(const FString& Message)
 #endif
 }
 
-FString FLoomleMcpPipeServer::GetSocketPath() const
+FString FLoomlePipeServer::GetSocketPath() const
 {
 #if PLATFORM_WINDOWS
     return FString();
 #else
-    return FPaths::Combine(FPaths::ProjectIntermediateDir(), TEXT("loomle-mcp.sock"));
+    return FPaths::Combine(FPaths::ProjectIntermediateDir(), TEXT("loomle.sock"));
 #endif
 }

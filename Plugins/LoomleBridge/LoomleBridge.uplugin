@@ -16,7 +16,7 @@
   ],
   "Modules": [
     {
-      "Name": "LoomleMcpBridge",
+      "Name": "LoomleBridge",
       "Type": "Editor",
       "LoadingPhase": "PostEngineInit"
     }
