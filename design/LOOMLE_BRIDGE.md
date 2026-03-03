@@ -59,7 +59,8 @@ Naming:
   - no graph args -> unified context detector behavior.
   - with `assetPath/graphName/includeNodes/...` -> internally delegate to `graph.query`.
 - `live` compatibility mode:
-  - internally reads from watch event source.
+  - reads from the same unified event bus as `graph.watch`.
+  - returns both editor-scope and graph-scope events.
 
 ## 4. Standard Request Flow
 
@@ -80,6 +81,17 @@ Naming:
 6. Persist new revision token.
 7. Emit watch events.
 8. Return operation result list.
+
+Graph mutate event coverage (blueprint):
+- `graph.node_added` (`addNode.event|cast|callFunction|branch|variableGet|variableSet`)
+- `graph.node_connected` (`connectPins`)
+- `graph.links_changed` (`disconnectPins|breakPinLinks`)
+- `graph.pin_default_changed` (`setPinDefault`)
+- `graph.node_removed` (`removeNode`)
+- `graph.node_moved` (`moveNode`)
+- `graph.compiled` (`compile`)
+- `graph.actor_spawned` (`spawnActor`)
+- `graph.component_added` (`addComponent`)
 
 ## 6. Error and Diagnostics
 

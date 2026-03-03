@@ -44,7 +44,28 @@ public:
     static bool AddCallFunctionNode(const FString& BlueprintAssetPath, const FString& FunctionClassPath, const FString& FunctionName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);
 
     UFUNCTION(BlueprintCallable, Category = "Loomle|LoomleBlueprintAdapter")
+    static bool AddBranchNode(const FString& BlueprintAssetPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);
+
+    UFUNCTION(BlueprintCallable, Category = "Loomle|LoomleBlueprintAdapter")
+    static bool AddVariableGetNode(const FString& BlueprintAssetPath, const FString& VariableName, const FString& VariableClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);
+
+    UFUNCTION(BlueprintCallable, Category = "Loomle|LoomleBlueprintAdapter")
+    static bool AddVariableSetNode(const FString& BlueprintAssetPath, const FString& VariableName, const FString& VariableClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);
+
+    UFUNCTION(BlueprintCallable, Category = "Loomle|LoomleBlueprintAdapter")
     static bool ConnectPins(const FString& BlueprintAssetPath, const FString& FromNodeGuid, const FString& FromPinName, const FString& ToNodeGuid, const FString& ToPinName, FString& OutError);
+
+    UFUNCTION(BlueprintCallable, Category = "Loomle|LoomleBlueprintAdapter")
+    static bool DisconnectPins(const FString& BlueprintAssetPath, const FString& FromNodeGuid, const FString& FromPinName, const FString& ToNodeGuid, const FString& ToPinName, FString& OutError);
+
+    UFUNCTION(BlueprintCallable, Category = "Loomle|LoomleBlueprintAdapter")
+    static bool BreakPinLinks(const FString& BlueprintAssetPath, const FString& NodeGuid, const FString& PinName, FString& OutError);
+
+    UFUNCTION(BlueprintCallable, Category = "Loomle|LoomleBlueprintAdapter")
+    static bool RemoveNode(const FString& BlueprintAssetPath, const FString& NodeGuid, FString& OutError);
+
+    UFUNCTION(BlueprintCallable, Category = "Loomle|LoomleBlueprintAdapter")
+    static bool MoveNode(const FString& BlueprintAssetPath, const FString& NodeGuid, int32 NodePosX, int32 NodePosY, FString& OutError);
 
     UFUNCTION(BlueprintCallable, Category = "Loomle|LoomleBlueprintAdapter")
     static bool SetPinDefaultValue(const FString& BlueprintAssetPath, const FString& NodeGuid, const FString& PinName, const FString& Value, FString& OutError);

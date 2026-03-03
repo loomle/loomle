@@ -44,19 +44,15 @@ Response:
     "addNode.cast",
     "addNode.callFunction",
     "addNode.branch",
-    "addNode.comment",
-    "removeNode",
-    "moveNode",
-    "resizeComment",
+    "addNode.variableGet",
+    "addNode.variableSet",
     "connectPins",
     "disconnectPins",
     "breakPinLinks",
     "setPinDefault",
-    "setNodeComment",
-    "setNodeEnabled",
+    "removeNode",
+    "moveNode",
     "addComponent",
-    "setComponentProperty",
-    "removeComponent",
     "compile",
     "spawnActor"
   ]
@@ -157,9 +153,7 @@ Request:
   "arguments": {
     "graphType": "blueprint",
     "assetPath": "/Game/Codex/BP_BouncyPad",
-    "graphName": "EventGraph",
-    "cursor": "",
-    "fromRevision": "",
+    "cursor": 0,
     "limit": 100
   }
 }
@@ -169,8 +163,10 @@ Response:
 
 ```json
 {
-  "cursor": "210",
-  "nextCursor": "224",
+  "cursor": 210,
+  "nextCursor": 224,
+  "count": 0,
+  "running": true,
   "dropped": false,
   "events": []
 }
@@ -259,7 +255,8 @@ Canonical codes:
 - `execute` remains available as fallback.
 - Internal mapping:
   - `context` -> `graph.query` (when explicit graph args are provided)
-  - `live` -> `graph.watch` typed stream
+  - `graph.watch` -> graph-scoped view from unified event bus
+  - `live` -> editor + graph scopes from unified event bus
 
 ## 6. Rules
 

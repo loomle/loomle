@@ -44,6 +44,7 @@
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/UnrealType.h"
+#include "Misc/TransactionObjectEvent.h"
 #include "Widgets/SWindow.h"
 #include "BlueprintEditor.h"
 
@@ -101,6 +102,11 @@ bool IsLiveLifecycleEvent(const FString& EventName)
     return EventName.Equals(TEXT("live_started")) || EventName.Equals(TEXT("live_stopping"));
 }
 
+bool IsGraphEventName(const FString& EventName)
+{
+    return EventName.StartsWith(TEXT("graph."));
+}
+
 bool IsLikelySystemActorIdentity(const FString& ActorName, const FString& ActorPath, const FString& ClassPath)
 {
     if (ClassPath.Equals(TEXT("/Script/Engine.DefaultPhysicsVolume"))
@@ -128,7 +134,7 @@ FString DeriveEventOrigin(const FString& EventName, const TSharedPtr<FJsonObject
     }
 
     if (EventName.Equals(TEXT("selection_changed"))
-        || EventName.Equals(TEXT("graph_selection_changed"))
+        || EventName.Equals(TEXT("graph.selection_changed"))
         || EventName.Equals(TEXT("actor_moved"))
         || EventName.Equals(TEXT("actor_deleted"))
         || EventName.Equals(TEXT("actor_attached"))
@@ -173,6 +179,11 @@ FString DeriveEventOrigin(const FString& EventName, const TSharedPtr<FJsonObject
         return TEXT("user");
     }
 
+    if (IsGraphEventName(EventName))
+    {
+        return TEXT("user");
+    }
+
     return TEXT("unknown");
 }
 
@@ -196,6 +207,78 @@ bool ShouldReturnInLivePull(const TSharedPtr<FJsonObject>& EventObject)
     }
 
     return !IsLiveLifecycleEvent(EventName);
+}
+
+bool TryReadEventParams(const TSharedPtr<FJsonObject>& EventObject, const TSharedPtr<FJsonObject>*& OutParams)
+{
+    OutParams = nullptr;
+    if (!EventObject.IsValid())
+    {
+        return false;
+    }
+
+    if (!EventObject->TryGetObjectField(TEXT("params"), OutParams) || OutParams == nullptr || !(*OutParams).IsValid())
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool ShouldIncludeEventForScope(const TSharedPtr<FJsonObject>& EventObject, const FString& ScopeFilter)
+{
+    if (ScopeFilter.IsEmpty())
+    {
+        return true;
+    }
+
+    const TSharedPtr<FJsonObject>* Params = nullptr;
+    if (!TryReadEventParams(EventObject, Params))
+    {
+        return false;
+    }
+
+    FString Scope;
+    if ((*Params)->TryGetStringField(TEXT("scope"), Scope))
+    {
+        return Scope.Equals(ScopeFilter, ESearchCase::IgnoreCase);
+    }
+
+    FString EventName;
+    (*Params)->TryGetStringField(TEXT("event"), EventName);
+    if (ScopeFilter.Equals(TEXT("graph"), ESearchCase::IgnoreCase))
+    {
+        return IsGraphEventName(EventName);
+    }
+    return !IsGraphEventName(EventName);
+}
+
+bool ShouldIncludeEventForAsset(const TSharedPtr<FJsonObject>& EventObject, const FString& AssetPathFilter)
+{
+    if (AssetPathFilter.IsEmpty())
+    {
+        return true;
+    }
+
+    const TSharedPtr<FJsonObject>* Params = nullptr;
+    if (!TryReadEventParams(EventObject, Params))
+    {
+        return false;
+    }
+
+    const TSharedPtr<FJsonObject>* Data = nullptr;
+    if (!(*Params)->TryGetObjectField(TEXT("data"), Data) || Data == nullptr || !(*Data).IsValid())
+    {
+        return false;
+    }
+
+    FString AssetPath;
+    if ((*Data)->TryGetStringField(TEXT("assetPath"), AssetPath))
+    {
+        return AssetPath.Equals(AssetPathFilter);
+    }
+
+    return false;
 }
 
 TSharedPtr<FJsonObject> BuildActiveWindowJson()
@@ -591,6 +674,13 @@ void FLoomleBridgeModule::StartupModule()
     LastSelectionChangeTimeSeconds = 0.0;
     LastActorTransformByPath.Empty();
     LastSceneComponentRelativeTransformByPath.Empty();
+    PendingDirtyBlueprintGraphReasons.Empty();
+    LastBlueprintGraphSignatureByAssetPath.Empty();
+    LastBlueprintGraphNodeCountByAssetPath.Empty();
+    LastBlueprintGraphEdgeCountByAssetPath.Empty();
+    LastBlueprintGraphNodeTokensByAssetPath.Empty();
+    LastBlueprintGraphEdgeTokensByAssetPath.Empty();
+    bGraphMutateInProgress = false;
 
     TSharedPtr<FJsonObject> StartedData = MakeShared<FJsonObject>();
     StartedData->SetStringField(TEXT("reason"), TEXT("loomle_started"));
@@ -800,9 +890,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildToolsListResult() const
             TSharedPtr<FJsonObject> GraphTypeProperty = MakeShared<FJsonObject>();
             GraphTypeProperty->SetStringField(TEXT("type"), TEXT("string"));
             Properties->SetObjectField(TEXT("graphType"), GraphTypeProperty);
+            TSharedPtr<FJsonObject> AssetPathProperty = MakeShared<FJsonObject>();
+            AssetPathProperty->SetStringField(TEXT("type"), TEXT("string"));
+            Properties->SetObjectField(TEXT("assetPath"), AssetPathProperty);
         }
         Schema->SetObjectField(TEXT("properties"), Properties);
-        Tools.Add(MakeTool(LoomleBridgeConstants::GraphWatchToolName, TEXT("Watch graph-related live events incrementally."), Schema));
+        Tools.Add(MakeTool(LoomleBridgeConstants::GraphWatchToolName, TEXT("Watch graph-scoped events incrementally."), Schema));
     }
 
     {
@@ -1052,7 +1145,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildLoomleToolResult() const
     return Result;
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildLiveToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEventPullResult(
+    const TSharedPtr<FJsonObject>& Arguments,
+    const FString& ScopeFilter,
+    const FString& AssetPathFilter,
+    bool bFilterLifecycle) const
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
@@ -1125,7 +1222,15 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildLiveToolResult(const TSharedPt
         }
 
         NextCursor = FMath::Max(NextCursor, Seq);
-        if (!ShouldReturnInLivePull(EventObject))
+        if (bFilterLifecycle && !ShouldReturnInLivePull(EventObject))
+        {
+            continue;
+        }
+        if (!ShouldIncludeEventForScope(EventObject, ScopeFilter))
+        {
+            continue;
+        }
+        if (!ShouldIncludeEventForAsset(EventObject, AssetPathFilter))
         {
             continue;
         }
@@ -1159,7 +1264,15 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildLiveToolResult(const TSharedPt
             }
 
             NextCursor = FMath::Max(NextCursor, Seq);
-            if (!ShouldReturnInLivePull(EventObject))
+            if (bFilterLifecycle && !ShouldReturnInLivePull(EventObject))
+            {
+                continue;
+            }
+            if (!ShouldIncludeEventForScope(EventObject, ScopeFilter))
+            {
+                continue;
+            }
+            if (!ShouldIncludeEventForAsset(EventObject, AssetPathFilter))
             {
                 continue;
             }
@@ -1190,6 +1303,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildLiveToolResult(const TSharedPt
     }
 
     return Result;
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildLiveToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+{
+    return BuildEventPullResult(Arguments, TEXT(""), TEXT(""), true);
 }
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphToolResult(const TSharedPtr<FJsonObject>& Arguments) const
@@ -1240,9 +1358,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphToolResult(const TSharedP
     Result->SetArrayField(TEXT("pinCoreFields"), ToStringArray({TEXT("name"), TEXT("direction"), TEXT("category"), TEXT("subCategory"), TEXT("subCategoryObject"), TEXT("defaultValue"), TEXT("links")}));
     Result->SetArrayField(TEXT("nodeExtensions"), ToStringArray({TEXT("callFunction"), TEXT("dynamicCast"), TEXT("comment")}));
     Result->SetArrayField(TEXT("ops"), ToStringArray({
-        TEXT("addNode.event"), TEXT("addNode.cast"), TEXT("addNode.callFunction"),
-        TEXT("connectPins"), TEXT("setPinDefault"), TEXT("compile"),
-        TEXT("spawnActor"), TEXT("addComponent")
+        TEXT("addNode.event"), TEXT("addNode.cast"), TEXT("addNode.callFunction"), TEXT("addNode.branch"),
+        TEXT("addNode.variableGet"), TEXT("addNode.variableSet"),
+        TEXT("connectPins"), TEXT("disconnectPins"), TEXT("breakPinLinks"),
+        TEXT("setPinDefault"), TEXT("removeNode"), TEXT("moveNode"),
+        TEXT("compile"), TEXT("spawnActor"), TEXT("addComponent")
     }));
     return Result;
 }
@@ -1399,7 +1519,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
     return Result;
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
@@ -1423,6 +1543,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         Result->SetStringField(TEXT("message"), TEXT("arguments.assetPath is required."));
         return Result;
     }
+
+    FString GraphName = TEXT("EventGraph");
+    Arguments->TryGetStringField(TEXT("graphName"), GraphName);
 
     bool bDryRun = false;
     Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
@@ -1460,6 +1583,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         return false;
     };
 
+    bGraphMutateInProgress = !bDryRun;
     for (int32 Index = 0; Index < Ops->Num(); ++Index)
     {
         const TSharedPtr<FJsonObject>* OpObj = nullptr;
@@ -1475,6 +1599,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         FString Error;
         FString NodeId;
         FString ClientRef;
+        FString GraphEventName;
+        TSharedPtr<FJsonObject> GraphEventData = MakeShared<FJsonObject>();
         (*OpObj)->TryGetStringField(TEXT("clientRef"), ClientRef);
 
         if (!bDryRun)
@@ -1496,6 +1622,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     Y = static_cast<int32>(Yn);
                 }
                 bOk = ULoomleBlueprintAdapter::AddEventNode(AssetPath, EventName, EventClassPath, X, Y, NodeId, Error);
+                if (bOk)
+                {
+                    GraphEventName = TEXT("graph.node_added");
+                    GraphEventData->SetStringField(TEXT("nodeId"), NodeId);
+                    GraphEventData->SetStringField(TEXT("nodeType"), TEXT("event"));
+                    GraphEventData->SetStringField(TEXT("op"), Op);
+                }
             }
             else if (Op.Equals(TEXT("addNode.cast")))
             {
@@ -1513,6 +1646,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     Y = static_cast<int32>(Yn);
                 }
                 bOk = ULoomleBlueprintAdapter::AddCastNode(AssetPath, TargetClassPath, X, Y, NodeId, Error);
+                if (bOk)
+                {
+                    GraphEventName = TEXT("graph.node_added");
+                    GraphEventData->SetStringField(TEXT("nodeId"), NodeId);
+                    GraphEventData->SetStringField(TEXT("nodeType"), TEXT("cast"));
+                    GraphEventData->SetStringField(TEXT("op"), Op);
+                }
             }
             else if (Op.Equals(TEXT("addNode.callFunction")))
             {
@@ -1531,6 +1671,71 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     Y = static_cast<int32>(Yn);
                 }
                 bOk = ULoomleBlueprintAdapter::AddCallFunctionNode(AssetPath, FunctionClassPath, FunctionName, X, Y, NodeId, Error);
+                if (bOk)
+                {
+                    GraphEventName = TEXT("graph.node_added");
+                    GraphEventData->SetStringField(TEXT("nodeId"), NodeId);
+                    GraphEventData->SetStringField(TEXT("nodeType"), TEXT("call_function"));
+                    GraphEventData->SetStringField(TEXT("op"), Op);
+                }
+            }
+            else if (Op.Equals(TEXT("addNode.branch")))
+            {
+                const TSharedPtr<FJsonObject>* Position = nullptr;
+                int32 X = 0;
+                int32 Y = 0;
+                if ((*OpObj)->TryGetObjectField(TEXT("position"), Position) && Position && (*Position).IsValid())
+                {
+                    double Xn = 0.0, Yn = 0.0;
+                    (*Position)->TryGetNumberField(TEXT("x"), Xn);
+                    (*Position)->TryGetNumberField(TEXT("y"), Yn);
+                    X = static_cast<int32>(Xn);
+                    Y = static_cast<int32>(Yn);
+                }
+                bOk = ULoomleBlueprintAdapter::AddBranchNode(AssetPath, X, Y, NodeId, Error);
+                if (bOk)
+                {
+                    GraphEventName = TEXT("graph.node_added");
+                    GraphEventData->SetStringField(TEXT("nodeId"), NodeId);
+                    GraphEventData->SetStringField(TEXT("nodeType"), TEXT("branch"));
+                    GraphEventData->SetStringField(TEXT("op"), Op);
+                }
+            }
+            else if (Op.Equals(TEXT("addNode.variableGet")) || Op.Equals(TEXT("addNode.variableSet")))
+            {
+                FString VariableName;
+                FString VariableClassPath;
+                (*OpObj)->TryGetStringField(TEXT("variableName"), VariableName);
+                (*OpObj)->TryGetStringField(TEXT("variableClassPath"), VariableClassPath);
+                const TSharedPtr<FJsonObject>* Position = nullptr;
+                int32 X = 0;
+                int32 Y = 0;
+                if ((*OpObj)->TryGetObjectField(TEXT("position"), Position) && Position && (*Position).IsValid())
+                {
+                    double Xn = 0.0, Yn = 0.0;
+                    (*Position)->TryGetNumberField(TEXT("x"), Xn);
+                    (*Position)->TryGetNumberField(TEXT("y"), Yn);
+                    X = static_cast<int32>(Xn);
+                    Y = static_cast<int32>(Yn);
+                }
+
+                if (Op.Equals(TEXT("addNode.variableGet")))
+                {
+                    bOk = ULoomleBlueprintAdapter::AddVariableGetNode(AssetPath, VariableName, VariableClassPath, X, Y, NodeId, Error);
+                }
+                else
+                {
+                    bOk = ULoomleBlueprintAdapter::AddVariableSetNode(AssetPath, VariableName, VariableClassPath, X, Y, NodeId, Error);
+                }
+
+                if (bOk)
+                {
+                    GraphEventName = TEXT("graph.node_added");
+                    GraphEventData->SetStringField(TEXT("nodeId"), NodeId);
+                    GraphEventData->SetStringField(TEXT("nodeType"), Op.Equals(TEXT("addNode.variableGet")) ? TEXT("variable_get") : TEXT("variable_set"));
+                    GraphEventData->SetStringField(TEXT("variableName"), VariableName);
+                    GraphEventData->SetStringField(TEXT("op"), Op);
+                }
             }
             else if (Op.Equals(TEXT("connectPins")))
             {
@@ -1553,6 +1758,71 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 {
                     Error = TEXT("Failed to resolve connectPins node ids/pins.");
                 }
+                if (bOk)
+                {
+                    GraphEventName = TEXT("graph.node_connected");
+                    GraphEventData->SetStringField(TEXT("fromNodeId"), FromNodeId);
+                    GraphEventData->SetStringField(TEXT("fromPin"), FromPin);
+                    GraphEventData->SetStringField(TEXT("toNodeId"), ToNodeId);
+                    GraphEventData->SetStringField(TEXT("toPin"), ToPin);
+                    GraphEventData->SetStringField(TEXT("op"), Op);
+                }
+            }
+            else if (Op.Equals(TEXT("disconnectPins")))
+            {
+                const TSharedPtr<FJsonObject>* FromObj = nullptr;
+                const TSharedPtr<FJsonObject>* ToObj = nullptr;
+                FString FromNodeId, ToNodeId, FromPin, ToPin;
+                if ((*OpObj)->TryGetObjectField(TEXT("from"), FromObj) && FromObj && (*FromObj).IsValid())
+                {
+                    ResolveNodeToken(*FromObj, FromNodeId);
+                    (*FromObj)->TryGetStringField(TEXT("pin"), FromPin);
+                }
+                if ((*OpObj)->TryGetObjectField(TEXT("to"), ToObj) && ToObj && (*ToObj).IsValid())
+                {
+                    ResolveNodeToken(*ToObj, ToNodeId);
+                    (*ToObj)->TryGetStringField(TEXT("pin"), ToPin);
+                }
+                bOk = !FromNodeId.IsEmpty() && !ToNodeId.IsEmpty() && !FromPin.IsEmpty() && !ToPin.IsEmpty()
+                    && ULoomleBlueprintAdapter::DisconnectPins(AssetPath, FromNodeId, FromPin, ToNodeId, ToPin, Error);
+                if (!bOk && Error.IsEmpty())
+                {
+                    Error = TEXT("Failed to resolve disconnectPins node ids/pins.");
+                }
+                if (bOk)
+                {
+                    GraphEventName = TEXT("graph.links_changed");
+                    GraphEventData->SetStringField(TEXT("change"), TEXT("disconnected"));
+                    GraphEventData->SetStringField(TEXT("fromNodeId"), FromNodeId);
+                    GraphEventData->SetStringField(TEXT("fromPin"), FromPin);
+                    GraphEventData->SetStringField(TEXT("toNodeId"), ToNodeId);
+                    GraphEventData->SetStringField(TEXT("toPin"), ToPin);
+                    GraphEventData->SetStringField(TEXT("op"), Op);
+                }
+            }
+            else if (Op.Equals(TEXT("breakPinLinks")))
+            {
+                const TSharedPtr<FJsonObject>* TargetObj = nullptr;
+                FString NodeToken, Pin;
+                if ((*OpObj)->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid())
+                {
+                    ResolveNodeToken(*TargetObj, NodeToken);
+                    (*TargetObj)->TryGetStringField(TEXT("pin"), Pin);
+                }
+                bOk = !NodeToken.IsEmpty() && !Pin.IsEmpty()
+                    && ULoomleBlueprintAdapter::BreakPinLinks(AssetPath, NodeToken, Pin, Error);
+                if (!bOk && Error.IsEmpty())
+                {
+                    Error = TEXT("Failed to resolve breakPinLinks target.");
+                }
+                if (bOk)
+                {
+                    GraphEventName = TEXT("graph.links_changed");
+                    GraphEventData->SetStringField(TEXT("change"), TEXT("break_all"));
+                    GraphEventData->SetStringField(TEXT("nodeId"), NodeToken);
+                    GraphEventData->SetStringField(TEXT("pin"), Pin);
+                    GraphEventData->SetStringField(TEXT("op"), Op);
+                }
             }
             else if (Op.Equals(TEXT("setPinDefault")))
             {
@@ -1570,10 +1840,82 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 {
                     Error = TEXT("Failed to resolve setPinDefault target.");
                 }
+                if (bOk)
+                {
+                    GraphEventName = TEXT("graph.pin_default_changed");
+                    GraphEventData->SetStringField(TEXT("nodeId"), NodeToken);
+                    GraphEventData->SetStringField(TEXT("pin"), Pin);
+                    GraphEventData->SetStringField(TEXT("value"), Value);
+                    GraphEventData->SetStringField(TEXT("op"), Op);
+                }
+            }
+            else if (Op.Equals(TEXT("removeNode")))
+            {
+                FString NodeToken;
+                if (const TSharedPtr<FJsonObject>* TargetObj = nullptr; (*OpObj)->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid())
+                {
+                    ResolveNodeToken(*TargetObj, NodeToken);
+                }
+                if (NodeToken.IsEmpty())
+                {
+                    (*OpObj)->TryGetStringField(TEXT("nodeId"), NodeToken);
+                }
+                bOk = !NodeToken.IsEmpty() && ULoomleBlueprintAdapter::RemoveNode(AssetPath, NodeToken, Error);
+                if (!bOk && Error.IsEmpty())
+                {
+                    Error = TEXT("Failed to resolve removeNode target.");
+                }
+                if (bOk)
+                {
+                    GraphEventName = TEXT("graph.node_removed");
+                    GraphEventData->SetStringField(TEXT("nodeId"), NodeToken);
+                    GraphEventData->SetStringField(TEXT("op"), Op);
+                }
+            }
+            else if (Op.Equals(TEXT("moveNode")))
+            {
+                FString NodeToken;
+                if (const TSharedPtr<FJsonObject>* TargetObj = nullptr; (*OpObj)->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid())
+                {
+                    ResolveNodeToken(*TargetObj, NodeToken);
+                }
+                if (NodeToken.IsEmpty())
+                {
+                    (*OpObj)->TryGetStringField(TEXT("nodeId"), NodeToken);
+                }
+                const TSharedPtr<FJsonObject>* Position = nullptr;
+                int32 X = 0;
+                int32 Y = 0;
+                if ((*OpObj)->TryGetObjectField(TEXT("position"), Position) && Position && (*Position).IsValid())
+                {
+                    double Xn = 0.0, Yn = 0.0;
+                    (*Position)->TryGetNumberField(TEXT("x"), Xn);
+                    (*Position)->TryGetNumberField(TEXT("y"), Yn);
+                    X = static_cast<int32>(Xn);
+                    Y = static_cast<int32>(Yn);
+                }
+                bOk = !NodeToken.IsEmpty() && ULoomleBlueprintAdapter::MoveNode(AssetPath, NodeToken, X, Y, Error);
+                if (!bOk && Error.IsEmpty())
+                {
+                    Error = TEXT("Failed to resolve moveNode target.");
+                }
+                if (bOk)
+                {
+                    GraphEventName = TEXT("graph.node_moved");
+                    GraphEventData->SetStringField(TEXT("nodeId"), NodeToken);
+                    GraphEventData->SetNumberField(TEXT("x"), X);
+                    GraphEventData->SetNumberField(TEXT("y"), Y);
+                    GraphEventData->SetStringField(TEXT("op"), Op);
+                }
             }
             else if (Op.Equals(TEXT("compile")))
             {
                 bOk = ULoomleBlueprintAdapter::CompileBlueprint(AssetPath, Error);
+                if (bOk)
+                {
+                    GraphEventName = TEXT("graph.compiled");
+                    GraphEventData->SetStringField(TEXT("op"), Op);
+                }
             }
             else if (Op.Equals(TEXT("spawnActor")))
             {
@@ -1599,6 +1941,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 }
                 FString ActorPath;
                 bOk = ULoomleBlueprintAdapter::SpawnBlueprintActor(AssetPath, Location, Rotation, ActorPath, Error);
+                if (bOk)
+                {
+                    GraphEventName = TEXT("graph.actor_spawned");
+                    GraphEventData->SetStringField(TEXT("actorPath"), ActorPath);
+                    GraphEventData->SetStringField(TEXT("op"), Op);
+                }
             }
             else if (Op.Equals(TEXT("addComponent")))
             {
@@ -1607,6 +1955,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 (*OpObj)->TryGetStringField(TEXT("componentName"), ComponentName);
                 (*OpObj)->TryGetStringField(TEXT("parentComponentName"), ParentComponentName);
                 bOk = ULoomleBlueprintAdapter::AddComponent(AssetPath, ComponentClassPath, ComponentName, ParentComponentName, Error);
+                if (bOk)
+                {
+                    GraphEventName = TEXT("graph.component_added");
+                    GraphEventData->SetStringField(TEXT("componentClassPath"), ComponentClassPath);
+                    GraphEventData->SetStringField(TEXT("componentName"), ComponentName);
+                    GraphEventData->SetStringField(TEXT("parentComponentName"), ParentComponentName);
+                    GraphEventData->SetStringField(TEXT("op"), Op);
+                }
             }
             else
             {
@@ -1643,7 +1999,17 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             }
             break;
         }
+
+        if (!bDryRun && !GraphEventName.IsEmpty() && GraphEventData.IsValid())
+        {
+            GraphEventData->SetStringField(TEXT("graphType"), TEXT("blueprint"));
+            GraphEventData->SetStringField(TEXT("assetPath"), AssetPath);
+            GraphEventData->SetStringField(TEXT("graphName"), GraphName);
+            GraphEventData->SetStringField(TEXT("sourceKind"), TEXT("graph.mutate"));
+            SendEditorStreamEvent(GraphEventName, GraphEventData);
+        }
     }
+    bGraphMutateInProgress = false;
 
     Result->SetBoolField(TEXT("isError"), bAnyError);
     if (bAnyError)
@@ -1655,7 +2021,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
     Result->SetBoolField(TEXT("applied"), !bAnyError);
     Result->SetStringField(TEXT("graphType"), GraphType);
     Result->SetStringField(TEXT("assetPath"), AssetPath);
-    Result->SetStringField(TEXT("graphName"), TEXT("EventGraph"));
+    Result->SetStringField(TEXT("graphName"), GraphName);
     Result->SetStringField(TEXT("previousRevision"), FString::Printf(TEXT("bp:%08x"), GetTypeHash(AssetPath + TEXT("|prev"))));
     Result->SetStringField(TEXT("newRevision"), FString::Printf(TEXT("bp:%08x"), GetTypeHash(AssetPath + TEXT("|new") + FString::FromInt(OpResults.Num()))));
     Result->SetArrayField(TEXT("opResults"), OpResults);
@@ -1665,44 +2031,28 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphWatchToolResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
-    TSharedPtr<FJsonObject> Live = BuildLiveToolResult(Arguments);
-    if (Live->GetBoolField(TEXT("isError")))
+    FString GraphType = TEXT("blueprint");
+    Arguments->TryGetStringField(TEXT("graphType"), GraphType);
+    GraphType = GraphType.ToLower();
+    if (!GraphType.Equals(TEXT("blueprint")))
     {
-        return Live;
+        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_GRAPH_TYPE"));
+        Result->SetStringField(TEXT("message"), TEXT("Only blueprint graphType is currently supported."));
+        return Result;
     }
 
-    TArray<TSharedPtr<FJsonValue>> GraphEvents;
-    const TArray<TSharedPtr<FJsonValue>>* Events = nullptr;
-    if (Live->TryGetArrayField(TEXT("events"), Events) && Events)
-    {
-        for (const TSharedPtr<FJsonValue>& Value : *Events)
-        {
-            const TSharedPtr<FJsonObject>* EventObj = nullptr;
-            if (!Value.IsValid() || !Value->TryGetObject(EventObj) || !EventObj || !(*EventObj).IsValid())
-            {
-                continue;
-            }
-            const TSharedPtr<FJsonObject>* Params = nullptr;
-            if (!(*EventObj)->TryGetObjectField(TEXT("params"), Params) || !Params || !(*Params).IsValid())
-            {
-                continue;
-            }
-            FString EventName;
-            if (!(*Params)->TryGetStringField(TEXT("event"), EventName))
-            {
-                continue;
-            }
-            if (EventName.Equals(TEXT("graph_selection_changed")))
-            {
-                GraphEvents.Add(Value);
-            }
-        }
-    }
+    FString AssetPath;
+    Arguments->TryGetStringField(TEXT("assetPath"), AssetPath);
 
-    Live->SetArrayField(TEXT("events"), GraphEvents);
-    Live->SetNumberField(TEXT("count"), GraphEvents.Num());
-    Live->SetStringField(TEXT("graphType"), TEXT("blueprint"));
-    return Live;
+    TSharedPtr<FJsonObject> Result = BuildEventPullResult(Arguments, TEXT("graph"), AssetPath, false);
+    Result->SetStringField(TEXT("graphType"), GraphType);
+    if (!AssetPath.IsEmpty())
+    {
+        Result->SetStringField(TEXT("assetPath"), AssetPath);
+    }
+    return Result;
 }
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildSelectionTransformToolResult() const
@@ -1846,6 +2196,7 @@ void FLoomleBridgeModule::SendEditorStreamEvent(const FString& EventName, const 
     Params->SetNumberField(TEXT("seq"), static_cast<double>(Sequence));
     Params->SetStringField(TEXT("timestamp"), FDateTime::UtcNow().ToIso8601());
     Params->SetStringField(TEXT("origin"), DeriveEventOrigin(EventName, Data));
+    Params->SetStringField(TEXT("scope"), IsGraphEventName(EventName) ? TEXT("graph") : TEXT("editor"));
     Params->SetObjectField(TEXT("data"), Data);
 
     TSharedPtr<FJsonObject> Notification = MakeShared<FJsonObject>();
@@ -2012,6 +2363,11 @@ void FLoomleBridgeModule::RegisterEditorStreamDelegates()
         ObjectPropertyChangedHandle = FCoreUObjectDelegates::OnObjectPropertyChanged.AddRaw(this, &FLoomleBridgeModule::OnObjectPropertyChanged);
     }
 
+    if (!ObjectTransactedHandle.IsValid())
+    {
+        ObjectTransactedHandle = FCoreUObjectDelegates::OnObjectTransacted.AddRaw(this, &FLoomleBridgeModule::OnObjectTransacted);
+    }
+
     if (!SelectionDebounceTickerHandle.IsValid())
     {
         SelectionDebounceTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
@@ -2044,6 +2400,7 @@ void FLoomleBridgeModule::RegisterEditorStreamDelegates()
                     }
                 }
 
+                EmitDirtyBlueprintGraphChanges();
                 EmitGraphSelectionIfChanged();
                 return true;
             }),
@@ -2131,6 +2488,12 @@ void FLoomleBridgeModule::UnregisterEditorStreamDelegates()
         ObjectPropertyChangedHandle.Reset();
     }
 
+    if (ObjectTransactedHandle.IsValid())
+    {
+        FCoreUObjectDelegates::OnObjectTransacted.Remove(ObjectTransactedHandle);
+        ObjectTransactedHandle.Reset();
+    }
+
     if (SelectionDebounceTickerHandle.IsValid())
     {
         FTSTicker::GetCoreTicker().RemoveTicker(SelectionDebounceTickerHandle);
@@ -2211,6 +2574,12 @@ void FLoomleBridgeModule::EmitGraphSelectionIfChanged()
         GraphSignature = FString::Join(SignatureParts, TEXT("|"));
         BlueprintSelection->SetStringField(TEXT("signature"), GraphSignature);
         BlueprintSelection->SetStringField(TEXT("source"), TEXT("adapter"));
+        FString GraphAssetPath;
+        if (BlueprintSelection->TryGetStringField(TEXT("assetPath"), GraphAssetPath) && !GraphAssetPath.IsEmpty())
+        {
+            // Prime baseline before first manual edit so first diff is not treated as full-graph add.
+            EnsureBlueprintGraphBaseline(GraphAssetPath);
+        }
         GraphData = BlueprintSelection;
         bHasGraphSelection = true;
     }
@@ -2222,7 +2591,7 @@ void FLoomleBridgeModule::EmitGraphSelectionIfChanged()
             return;
         }
 
-        SendEditorStreamEvent(TEXT("graph_selection_changed"), GraphData);
+        SendEditorStreamEvent(TEXT("graph.selection_changed"), GraphData);
         LastEmittedGraphSelectionSignature = GraphSignature;
     }
     else if (!LastEmittedGraphSelectionSignature.IsEmpty())
@@ -2235,9 +2604,357 @@ void FLoomleBridgeModule::EmitGraphSelectionIfChanged()
         ClearedGraphData->SetArrayField(TEXT("items"), TArray<TSharedPtr<FJsonValue>>{});
         ClearedGraphData->SetNumberField(TEXT("count"), 0);
         ClearedGraphData->SetStringField(TEXT("signature"), TEXT(""));
-        SendEditorStreamEvent(TEXT("graph_selection_changed"), ClearedGraphData);
+        SendEditorStreamEvent(TEXT("graph.selection_changed"), ClearedGraphData);
         LastEmittedGraphSelectionSignature.Empty();
     }
+}
+
+void FLoomleBridgeModule::EnsureBlueprintGraphBaseline(const FString& BlueprintAssetPath)
+{
+    if (BlueprintAssetPath.IsEmpty())
+    {
+        return;
+    }
+
+    FString NormalizedAssetPath = BlueprintAssetPath;
+    const int32 DotIndex = NormalizedAssetPath.Find(TEXT("."));
+    if (DotIndex > 0)
+    {
+        NormalizedAssetPath = NormalizedAssetPath.Left(DotIndex);
+    }
+
+    if (LastBlueprintGraphSignatureByAssetPath.Contains(NormalizedAssetPath))
+    {
+        return;
+    }
+
+    FString Signature;
+    int32 NodeCount = 0;
+    int32 EdgeCount = 0;
+    TArray<FString> NodeTokens;
+    TArray<FString> EdgeTokens;
+    if (!CaptureBlueprintGraphSnapshot(NormalizedAssetPath, Signature, NodeCount, EdgeCount, NodeTokens, EdgeTokens))
+    {
+        return;
+    }
+
+    LastBlueprintGraphSignatureByAssetPath.Add(NormalizedAssetPath, Signature);
+    LastBlueprintGraphNodeCountByAssetPath.Add(NormalizedAssetPath, NodeCount);
+    LastBlueprintGraphEdgeCountByAssetPath.Add(NormalizedAssetPath, EdgeCount);
+    LastBlueprintGraphNodeTokensByAssetPath.Add(NormalizedAssetPath, NodeTokens);
+    LastBlueprintGraphEdgeTokensByAssetPath.Add(NormalizedAssetPath, EdgeTokens);
+}
+
+void FLoomleBridgeModule::EmitDirtyBlueprintGraphChanges()
+{
+    if (PendingDirtyBlueprintGraphReasons.Num() == 0)
+    {
+        return;
+    }
+
+    TMap<FString, FString> DirtyGraphReasons = PendingDirtyBlueprintGraphReasons;
+    PendingDirtyBlueprintGraphReasons.Empty();
+
+    for (const TPair<FString, FString>& Entry : DirtyGraphReasons)
+    {
+        const FString& AssetPath = Entry.Key;
+        const FString& Reason = Entry.Value;
+        FString SignatureAfter;
+        int32 NodeCountAfter = 0;
+        int32 EdgeCountAfter = 0;
+        TArray<FString> NodeTokensAfter;
+        TArray<FString> EdgeTokensAfter;
+        if (!CaptureBlueprintGraphSnapshot(AssetPath, SignatureAfter, NodeCountAfter, EdgeCountAfter, NodeTokensAfter, EdgeTokensAfter))
+        {
+            continue;
+        }
+
+        const FString SignatureBefore = LastBlueprintGraphSignatureByAssetPath.FindRef(AssetPath);
+        const int32 NodeCountBefore = LastBlueprintGraphNodeCountByAssetPath.FindRef(AssetPath);
+        const int32 EdgeCountBefore = LastBlueprintGraphEdgeCountByAssetPath.FindRef(AssetPath);
+        const TArray<FString> NodeTokensBefore = LastBlueprintGraphNodeTokensByAssetPath.FindRef(AssetPath);
+        const TArray<FString> EdgeTokensBefore = LastBlueprintGraphEdgeTokensByAssetPath.FindRef(AssetPath);
+
+        if (!SignatureBefore.IsEmpty() && SignatureBefore.Equals(SignatureAfter))
+        {
+            continue;
+        }
+
+        TSet<FString> NodeBeforeSet;
+        NodeBeforeSet.Reserve(NodeTokensBefore.Num());
+        for (const FString& Token : NodeTokensBefore)
+        {
+            NodeBeforeSet.Add(Token);
+        }
+        TSet<FString> NodeAfterSet;
+        NodeAfterSet.Reserve(NodeTokensAfter.Num());
+        for (const FString& Token : NodeTokensAfter)
+        {
+            NodeAfterSet.Add(Token);
+        }
+        TSet<FString> EdgeBeforeSet;
+        EdgeBeforeSet.Reserve(EdgeTokensBefore.Num());
+        for (const FString& Token : EdgeTokensBefore)
+        {
+            EdgeBeforeSet.Add(Token);
+        }
+        TSet<FString> EdgeAfterSet;
+        EdgeAfterSet.Reserve(EdgeTokensAfter.Num());
+        for (const FString& Token : EdgeTokensAfter)
+        {
+            EdgeAfterSet.Add(Token);
+        }
+
+        TArray<FString> RemovedNodeIds;
+        TArray<FString> AddedNodeIds;
+        TArray<FString> RemovedEdges;
+        TArray<FString> AddedEdges;
+
+        for (const FString& Token : NodeBeforeSet)
+        {
+            if (!NodeAfterSet.Contains(Token))
+            {
+                RemovedNodeIds.Add(Token);
+            }
+        }
+        for (const FString& Token : NodeAfterSet)
+        {
+            if (!NodeBeforeSet.Contains(Token))
+            {
+                AddedNodeIds.Add(Token);
+            }
+        }
+        for (const FString& Token : EdgeBeforeSet)
+        {
+            if (!EdgeAfterSet.Contains(Token))
+            {
+                RemovedEdges.Add(Token);
+            }
+        }
+        for (const FString& Token : EdgeAfterSet)
+        {
+            if (!EdgeBeforeSet.Contains(Token))
+            {
+                AddedEdges.Add(Token);
+            }
+        }
+
+        Algo::Sort(RemovedNodeIds);
+        Algo::Sort(AddedNodeIds);
+        Algo::Sort(RemovedEdges);
+        Algo::Sort(AddedEdges);
+
+        TSharedPtr<FJsonObject> Summary = MakeShared<FJsonObject>();
+        Summary->SetNumberField(TEXT("nodeCountDelta"), NodeCountAfter - NodeCountBefore);
+        Summary->SetNumberField(TEXT("edgeCountDelta"), EdgeCountAfter - EdgeCountBefore);
+        Summary->SetStringField(TEXT("signatureBefore"), SignatureBefore);
+        Summary->SetStringField(TEXT("signatureAfter"), SignatureAfter);
+        Summary->SetStringField(TEXT("reason"), Reason.IsEmpty() ? TEXT("manual_edit") : Reason);
+        {
+            TArray<TSharedPtr<FJsonValue>> RemovedNodeValues;
+            RemovedNodeValues.Reserve(RemovedNodeIds.Num());
+            for (const FString& Token : RemovedNodeIds)
+            {
+                RemovedNodeValues.Add(MakeShared<FJsonValueString>(Token));
+            }
+            Summary->SetArrayField(TEXT("removedNodeIds"), RemovedNodeValues);
+        }
+        {
+            TArray<TSharedPtr<FJsonValue>> AddedNodeValues;
+            AddedNodeValues.Reserve(AddedNodeIds.Num());
+            for (const FString& Token : AddedNodeIds)
+            {
+                AddedNodeValues.Add(MakeShared<FJsonValueString>(Token));
+            }
+            Summary->SetArrayField(TEXT("addedNodeIds"), AddedNodeValues);
+        }
+        {
+            TArray<TSharedPtr<FJsonValue>> RemovedEdgeValues;
+            RemovedEdgeValues.Reserve(RemovedEdges.Num());
+            for (const FString& Token : RemovedEdges)
+            {
+                RemovedEdgeValues.Add(MakeShared<FJsonValueString>(Token));
+            }
+            Summary->SetArrayField(TEXT("removedEdges"), RemovedEdgeValues);
+        }
+        {
+            TArray<TSharedPtr<FJsonValue>> AddedEdgeValues;
+            AddedEdgeValues.Reserve(AddedEdges.Num());
+            for (const FString& Token : AddedEdges)
+            {
+                AddedEdgeValues.Add(MakeShared<FJsonValueString>(Token));
+            }
+            Summary->SetArrayField(TEXT("addedEdges"), AddedEdgeValues);
+        }
+
+        TSharedPtr<FJsonObject> EventData = MakeShared<FJsonObject>();
+        EventData->SetStringField(TEXT("graphType"), TEXT("blueprint"));
+        EventData->SetStringField(TEXT("assetPath"), AssetPath);
+        EventData->SetStringField(TEXT("graphName"), TEXT("EventGraph"));
+        EventData->SetStringField(TEXT("sourceKind"), TEXT("editor.manual"));
+        EventData->SetObjectField(TEXT("summary"), Summary);
+        SendEditorStreamEvent(TEXT("graph.changed"), EventData);
+
+        LastBlueprintGraphSignatureByAssetPath.Add(AssetPath, SignatureAfter);
+        LastBlueprintGraphNodeCountByAssetPath.Add(AssetPath, NodeCountAfter);
+        LastBlueprintGraphEdgeCountByAssetPath.Add(AssetPath, EdgeCountAfter);
+        LastBlueprintGraphNodeTokensByAssetPath.Add(AssetPath, NodeTokensAfter);
+        LastBlueprintGraphEdgeTokensByAssetPath.Add(AssetPath, EdgeTokensAfter);
+    }
+}
+
+void FLoomleBridgeModule::MarkBlueprintGraphDirty(const FString& BlueprintAssetPath, const FString& Reason)
+{
+    if (BlueprintAssetPath.IsEmpty())
+    {
+        return;
+    }
+
+    PendingDirtyBlueprintGraphReasons.FindOrAdd(BlueprintAssetPath) = Reason;
+}
+
+bool FLoomleBridgeModule::CaptureBlueprintGraphSnapshot(
+    const FString& BlueprintAssetPath,
+    FString& OutSignature,
+    int32& OutNodeCount,
+    int32& OutEdgeCount,
+    TArray<FString>& OutNodeTokens,
+    TArray<FString>& OutEdgeTokens) const
+{
+    OutSignature.Empty();
+    OutNodeCount = 0;
+    OutEdgeCount = 0;
+    OutNodeTokens.Reset();
+    OutEdgeTokens.Reset();
+
+    FString NodesJson;
+    FString Error;
+    if (!ULoomleBlueprintAdapter::ListEventGraphNodes(BlueprintAssetPath, NodesJson, Error))
+    {
+        return false;
+    }
+
+    TArray<TSharedPtr<FJsonValue>> Nodes;
+    {
+        TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(NodesJson);
+        if (!FJsonSerializer::Deserialize(Reader, Nodes))
+        {
+            return false;
+        }
+    }
+
+    OutNodeTokens.Reserve(Nodes.Num());
+
+    for (const TSharedPtr<FJsonValue>& NodeValue : Nodes)
+    {
+        const TSharedPtr<FJsonObject>* NodeObj = nullptr;
+        if (!NodeValue.IsValid() || !NodeValue->TryGetObject(NodeObj) || !NodeObj || !(*NodeObj).IsValid())
+        {
+            continue;
+        }
+
+        FString NodeId;
+        if (!(*NodeObj)->TryGetStringField(TEXT("guid"), NodeId) || NodeId.IsEmpty())
+        {
+            continue;
+        }
+        OutNodeTokens.Add(NodeId);
+
+        const TArray<TSharedPtr<FJsonValue>>* Pins = nullptr;
+        if (!(*NodeObj)->TryGetArrayField(TEXT("pins"), Pins) || !Pins)
+        {
+            continue;
+        }
+
+        for (const TSharedPtr<FJsonValue>& PinValue : *Pins)
+        {
+            const TSharedPtr<FJsonObject>* PinObj = nullptr;
+            if (!PinValue.IsValid() || !PinValue->TryGetObject(PinObj) || !PinObj || !(*PinObj).IsValid())
+            {
+                continue;
+            }
+
+            FString FromPin;
+            (*PinObj)->TryGetStringField(TEXT("name"), FromPin);
+
+            const TArray<TSharedPtr<FJsonValue>>* Linked = nullptr;
+            if (!(*PinObj)->TryGetArrayField(TEXT("linkedTo"), Linked) || !Linked)
+            {
+                continue;
+            }
+
+            for (const TSharedPtr<FJsonValue>& LinkValue : *Linked)
+            {
+                const TSharedPtr<FJsonObject>* LinkObj = nullptr;
+                if (!LinkValue.IsValid() || !LinkValue->TryGetObject(LinkObj) || !LinkObj || !(*LinkObj).IsValid())
+                {
+                    continue;
+                }
+
+                FString ToNodeId;
+                FString ToPin;
+                (*LinkObj)->TryGetStringField(TEXT("nodeGuid"), ToNodeId);
+                (*LinkObj)->TryGetStringField(TEXT("pin"), ToPin);
+                if (ToNodeId.IsEmpty() || ToPin.IsEmpty() || FromPin.IsEmpty())
+                {
+                    continue;
+                }
+
+                OutEdgeTokens.Add(NodeId + TEXT("|") + FromPin + TEXT("->") + ToNodeId + TEXT("|") + ToPin);
+            }
+        }
+    }
+
+    Algo::Sort(OutNodeTokens);
+    Algo::Sort(OutEdgeTokens);
+
+    OutNodeCount = OutNodeTokens.Num();
+    OutEdgeCount = OutEdgeTokens.Num();
+    OutSignature = FString::Join(OutNodeTokens, TEXT(";")) + TEXT("#") + FString::Join(OutEdgeTokens, TEXT(";"));
+    return true;
+}
+
+bool FLoomleBridgeModule::TryResolveBlueprintAssetPath(UObject* Object, FString& OutBlueprintAssetPath)
+{
+    OutBlueprintAssetPath.Empty();
+    if (!Object)
+    {
+        return false;
+    }
+
+    UBlueprint* Blueprint = Cast<UBlueprint>(Object);
+    if (!Blueprint)
+    {
+        if (UEdGraph* GraphObject = Cast<UEdGraph>(Object))
+        {
+            Blueprint = Cast<UBlueprint>(GraphObject->GetOuter());
+        }
+        else if (UEdGraphNode* Node = Cast<UEdGraphNode>(Object))
+        {
+            if (UEdGraph* NodeGraph = Node->GetGraph())
+            {
+                Blueprint = Cast<UBlueprint>(NodeGraph->GetOuter());
+            }
+        }
+    }
+
+    if (!Blueprint)
+    {
+        UObject* Outer = Object->GetOuter();
+        while (Outer && !Blueprint)
+        {
+            Blueprint = Cast<UBlueprint>(Outer);
+            Outer = Outer->GetOuter();
+        }
+    }
+
+    if (!Blueprint || !Blueprint->GetOutermost())
+    {
+        return false;
+    }
+
+    OutBlueprintAssetPath = Blueprint->GetOutermost()->GetName();
+    return !OutBlueprintAssetPath.IsEmpty() && FPackageName::IsValidLongPackageName(OutBlueprintAssetPath);
 }
 
 void FLoomleBridgeModule::OnMapOpened(const FString& Filename, bool bAsTemplate)
@@ -2395,6 +3112,12 @@ void FLoomleBridgeModule::OnObjectPropertyChanged(UObject* Object, FPropertyChan
         return;
     }
 
+    FString BlueprintAssetPath;
+    if (!bGraphMutateInProgress && TryResolveBlueprintAssetPath(Object, BlueprintAssetPath))
+    {
+        MarkBlueprintGraphDirty(BlueprintAssetPath, TEXT("property_change"));
+    }
+
     AActor* Actor = Cast<AActor>(Object);
     if (!Actor)
     {
@@ -2481,8 +3204,39 @@ void FLoomleBridgeModule::OnObjectPropertyChanged(UObject* Object, FPropertyChan
     SendEditorStreamEvent(TEXT("object_property_changed"), Data);
 }
 
+void FLoomleBridgeModule::OnObjectTransacted(UObject* Object, const FTransactionObjectEvent& TransactionEvent)
+{
+    if (!Object || bGraphMutateInProgress)
+    {
+        return;
+    }
+
+    FString BlueprintAssetPath;
+    if (!TryResolveBlueprintAssetPath(Object, BlueprintAssetPath))
+    {
+        return;
+    }
+
+    const ETransactionObjectEventType EventType = TransactionEvent.GetEventType();
+    if (EventType == ETransactionObjectEventType::Finalized)
+    {
+        return;
+    }
+
+    MarkBlueprintGraphDirty(BlueprintAssetPath, TEXT("manual_edit"));
+}
+
 void FLoomleBridgeModule::OnPostUndoRedo()
 {
+    if (UBlueprint* EditedBlueprint = FindEditedBlueprint())
+    {
+        const FString BlueprintAssetPath = EditedBlueprint->GetOutermost() ? EditedBlueprint->GetOutermost()->GetName() : FString();
+        if (!BlueprintAssetPath.IsEmpty())
+        {
+            MarkBlueprintGraphDirty(BlueprintAssetPath, TEXT("undo_redo"));
+        }
+    }
+
     TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
     SendEditorStreamEvent(TEXT("undo_redo"), Data);
 }

@@ -50,14 +50,19 @@ From UE project root:
     - `cursor` (last consumed seq, default `0`)
     - `limit` (default `20`, max `100`)
   - Returns incremental events after `cursor`.
+  - Returns both `editor` and `graph` scope events from the same event bus.
   - Pull response filters out lifecycle noise events (`live_started`, `live_stopping`).
-  - Each event includes `params.origin` (`user` / `system` / `unknown`) for user-vs-system analysis.
+  - Each event includes `params.origin` (`user` / `system` / `unknown`) and `params.scope` (`editor` / `graph`).
   - If bridge runtime is abnormal, returns an error and asks user to restart Unreal Editor.
   - Notifications method: `notifications/live`
   - Event types:
     - `live_started`, `live_stopping`
     - `selection_changed`
-    - `graph_selection_changed`
+    - `graph.selection_changed`
+    - `graph.changed`
+    - `graph.node_added`, `graph.node_connected`, `graph.pin_default_changed`
+    - `graph.links_changed`, `graph.node_removed`, `graph.node_moved`
+    - `graph.compiled`, `graph.actor_spawned`, `graph.component_added`
     - `map_opened`
     - `actor_added`, `actor_deleted`, `actor_attached`, `actor_detached`, `actor_moved`
     - `pie_started`, `pie_stopped`, `pie_paused`, `pie_resumed`
@@ -65,11 +70,19 @@ From UE project root:
     - `undo_redo`
   - Rich payloads for behavior analysis:
     - `selection_changed` includes `paths`
-    - `graph_selection_changed` includes `selectionKind`, `editorType`, `assetPath`, `assetPaths`, and `items` (typed graph selections such as blueprint nodes and material expressions)
+    - `graph.selection_changed` includes `selectionKind`, `editorType`, `assetPath`, `assetPaths`, and `items`
+    - `graph.changed` includes `summary.nodeCountDelta`, `summary.edgeCountDelta`, `summary.signatureBefore`, `summary.signatureAfter`, `summary.reason`
     - `actor_moved` includes `previousTransform`, `currentTransform`, `delta`
     - `object_property_changed` includes `newValue`; for scene components includes relative `previous/current/delta` transforms
   - Events are appended to `Loomle/runtime/live_events.jsonl` and only latest 100 records are retained.
   - Bridge module startup auto-enables live stream, and module shutdown auto-disables it.
+- `graph.watch`
+  - Optional arguments:
+    - `cursor` (last consumed seq, default `0`)
+    - `limit` (default `20`, max `100`)
+    - `graphType` (`blueprint`, default `blueprint`)
+    - `assetPath` (optional; only return events for this asset path)
+  - Returns only `scope=graph` events from the same event bus used by `live`.
 - `execute`
   - Required argument: `code` (inline Python string)
   - Optional argument: `mode` (`exec` default, or `eval`)
@@ -92,8 +105,13 @@ Exposed methods:
 - `add_event_node(blueprint_asset_path, event_name, event_class_path, node_pos_x, node_pos_y)`
 - `add_cast_node(blueprint_asset_path, target_class_path, node_pos_x, node_pos_y)`
 - `add_call_function_node(blueprint_asset_path, function_class_path, function_name, node_pos_x, node_pos_y)`
+- `add_branch_node(blueprint_asset_path, node_pos_x, node_pos_y)`
 - `connect_pins(blueprint_asset_path, from_node_guid, from_pin_name, to_node_guid, to_pin_name)`
+- `disconnect_pins(blueprint_asset_path, from_node_guid, from_pin_name, to_node_guid, to_pin_name)`
+- `break_pin_links(blueprint_asset_path, node_guid, pin_name)`
 - `set_pin_default_value(blueprint_asset_path, node_guid, pin_name, value)`
+- `remove_node(blueprint_asset_path, node_guid)`
+- `move_node(blueprint_asset_path, node_guid, node_pos_x, node_pos_y)`
 - `list_event_graph_nodes(blueprint_asset_path)`
 - `get_node_details(blueprint_asset_path, node_guid)`
 - `find_nodes_by_class(blueprint_asset_path, node_class_path_or_name)`

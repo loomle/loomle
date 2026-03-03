@@ -17,6 +17,9 @@
 #include "K2Node_CallFunction.h"
 #include "K2Node_DynamicCast.h"
 #include "K2Node_Event.h"
+#include "K2Node_IfThenElse.h"
+#include "K2Node_VariableGet.h"
+#include "K2Node_VariableSet.h"
 #include "Misc/Guid.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
@@ -307,6 +310,48 @@ namespace LoomleBlueprintAdapterInternal
         const FString ClassName = NormalizePinToken(NodeClass->GetName());
         const FString ClassPath = NormalizePinToken(NodeClass->GetPathName());
         return ClassName.Equals(NormalizedFilter) || ClassPath.Equals(NormalizedFilter);
+    }
+
+    static const FProperty* ResolveVariableProperty(UBlueprint* Blueprint, const FString& VariableName, const FString& VariableClassPath, bool& bOutSelfContext, UClass*& OutOwnerClass)
+    {
+        bOutSelfContext = true;
+        OutOwnerClass = nullptr;
+        if (!Blueprint || VariableName.IsEmpty())
+        {
+            return nullptr;
+        }
+
+        UClass* SearchClass = nullptr;
+        if (!VariableClassPath.IsEmpty())
+        {
+            SearchClass = ResolveClass(VariableClassPath);
+            if (!SearchClass)
+            {
+                return nullptr;
+            }
+        }
+        else
+        {
+            SearchClass = Blueprint->GeneratedClass ? Blueprint->GeneratedClass : Blueprint->SkeletonGeneratedClass;
+        }
+
+        const FProperty* Property = nullptr;
+        for (UClass* Class = SearchClass; Class != nullptr && Property == nullptr; Class = Class->GetSuperClass())
+        {
+            Property = FindFProperty<FProperty>(Class, *VariableName);
+            if (Property)
+            {
+                OutOwnerClass = Class;
+            }
+        }
+        if (!Property)
+        {
+            return nullptr;
+        }
+
+        UClass* BlueprintClass = Blueprint->GeneratedClass ? Blueprint->GeneratedClass : Blueprint->SkeletonGeneratedClass;
+        bOutSelfContext = (OutOwnerClass == nullptr) || (BlueprintClass != nullptr && OutOwnerClass->IsChildOf(BlueprintClass));
+        return Property;
     }
 }
 
@@ -620,6 +665,98 @@ bool ULoomleBlueprintAdapter::AddCallFunctionNode(const FString& BlueprintAssetP
     return true;
 }
 
+bool ULoomleBlueprintAdapter::AddBranchNode(const FString& BlueprintAssetPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+{
+    OutNodeGuid.Empty();
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    if (!Blueprint || !EventGraph)
+    {
+        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        return false;
+    }
+
+    FGraphNodeCreator<UK2Node_IfThenElse> Creator(*EventGraph);
+    UK2Node_IfThenElse* Node = Creator.CreateNode();
+    Node->NodePosX = NodePosX;
+    Node->NodePosY = NodePosY;
+    Node->AllocateDefaultPins();
+    Creator.Finalize();
+
+    OutNodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+    return true;
+}
+
+bool ULoomleBlueprintAdapter::AddVariableGetNode(const FString& BlueprintAssetPath, const FString& VariableName, const FString& VariableClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+{
+    OutNodeGuid.Empty();
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    if (!Blueprint || !EventGraph)
+    {
+        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        return false;
+    }
+
+    bool bSelfContext = true;
+    UClass* OwnerClass = nullptr;
+    const FProperty* Property = LoomleBlueprintAdapterInternal::ResolveVariableProperty(Blueprint, VariableName, VariableClassPath, bSelfContext, OwnerClass);
+    if (!Property)
+    {
+        OutError = FString::Printf(TEXT("Failed to resolve variable property: %s"), *VariableName);
+        return false;
+    }
+
+    FGraphNodeCreator<UK2Node_VariableGet> Creator(*EventGraph);
+    UK2Node_VariableGet* Node = Creator.CreateNode();
+    Node->NodePosX = NodePosX;
+    Node->NodePosY = NodePosY;
+    Node->SetFromProperty(Property, bSelfContext, OwnerClass);
+    Node->AllocateDefaultPins();
+    Creator.Finalize();
+
+    OutNodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+    return true;
+}
+
+bool ULoomleBlueprintAdapter::AddVariableSetNode(const FString& BlueprintAssetPath, const FString& VariableName, const FString& VariableClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+{
+    OutNodeGuid.Empty();
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    if (!Blueprint || !EventGraph)
+    {
+        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        return false;
+    }
+
+    bool bSelfContext = true;
+    UClass* OwnerClass = nullptr;
+    const FProperty* Property = LoomleBlueprintAdapterInternal::ResolveVariableProperty(Blueprint, VariableName, VariableClassPath, bSelfContext, OwnerClass);
+    if (!Property)
+    {
+        OutError = FString::Printf(TEXT("Failed to resolve variable property: %s"), *VariableName);
+        return false;
+    }
+
+    FGraphNodeCreator<UK2Node_VariableSet> Creator(*EventGraph);
+    UK2Node_VariableSet* Node = Creator.CreateNode();
+    Node->NodePosX = NodePosX;
+    Node->NodePosY = NodePosY;
+    Node->SetFromProperty(Property, bSelfContext, OwnerClass);
+    Node->AllocateDefaultPins();
+    Creator.Finalize();
+
+    OutNodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+    return true;
+}
+
 bool ULoomleBlueprintAdapter::ConnectPins(const FString& BlueprintAssetPath, const FString& FromNodeGuid, const FString& FromPinName, const FString& ToNodeGuid, const FString& ToPinName, FString& OutError)
 {
     OutError.Empty();
@@ -649,6 +786,111 @@ bool ULoomleBlueprintAdapter::ConnectPins(const FString& BlueprintAssetPath, con
         return false;
     }
 
+    return true;
+}
+
+bool ULoomleBlueprintAdapter::DisconnectPins(const FString& BlueprintAssetPath, const FString& FromNodeGuid, const FString& FromPinName, const FString& ToNodeGuid, const FString& ToPinName, FString& OutError)
+{
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    if (!Blueprint || !EventGraph)
+    {
+        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        return false;
+    }
+
+    UEdGraphNode* FromNode = LoomleBlueprintAdapterInternal::FindNodeByGuid(EventGraph, FromNodeGuid);
+    UEdGraphNode* ToNode = LoomleBlueprintAdapterInternal::FindNodeByGuid(EventGraph, ToNodeGuid);
+    UEdGraphPin* FromPin = LoomleBlueprintAdapterInternal::ResolvePin(FromNode, FromPinName);
+    UEdGraphPin* ToPin = LoomleBlueprintAdapterInternal::ResolvePin(ToNode, ToPinName);
+    if (!FromNode || !ToNode || !FromPin || !ToPin)
+    {
+        OutError = TEXT("Failed to resolve nodes or pins.");
+        return false;
+    }
+
+    if (!(FromPin->LinkedTo.Contains(ToPin) || ToPin->LinkedTo.Contains(FromPin)))
+    {
+        OutError = TEXT("Specified pin link does not exist.");
+        return false;
+    }
+
+    FromPin->BreakLinkTo(ToPin);
+    return true;
+}
+
+bool ULoomleBlueprintAdapter::BreakPinLinks(const FString& BlueprintAssetPath, const FString& NodeGuid, const FString& PinName, FString& OutError)
+{
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    if (!Blueprint || !EventGraph)
+    {
+        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        return false;
+    }
+
+    UEdGraphNode* Node = LoomleBlueprintAdapterInternal::FindNodeByGuid(EventGraph, NodeGuid);
+    UEdGraphPin* Pin = LoomleBlueprintAdapterInternal::ResolvePin(Node, PinName);
+    if (!Node || !Pin)
+    {
+        OutError = TEXT("Failed to resolve node or pin.");
+        return false;
+    }
+
+    Pin->BreakAllPinLinks(true);
+    return true;
+}
+
+bool ULoomleBlueprintAdapter::RemoveNode(const FString& BlueprintAssetPath, const FString& NodeGuid, FString& OutError)
+{
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    if (!Blueprint || !EventGraph)
+    {
+        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        return false;
+    }
+
+    UEdGraphNode* Node = LoomleBlueprintAdapterInternal::FindNodeByGuid(EventGraph, NodeGuid);
+    if (!Node)
+    {
+        OutError = FString::Printf(TEXT("Node not found by guid: %s"), *NodeGuid);
+        return false;
+    }
+
+    Node->DestroyNode();
+    return true;
+}
+
+bool ULoomleBlueprintAdapter::MoveNode(const FString& BlueprintAssetPath, const FString& NodeGuid, int32 NodePosX, int32 NodePosY, FString& OutError)
+{
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    if (!Blueprint || !EventGraph)
+    {
+        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        return false;
+    }
+
+    UEdGraphNode* Node = LoomleBlueprintAdapterInternal::FindNodeByGuid(EventGraph, NodeGuid);
+    if (!Node)
+    {
+        OutError = FString::Printf(TEXT("Node not found by guid: %s"), *NodeGuid);
+        return false;
+    }
+
+    Node->Modify();
+    Node->NodePosX = NodePosX;
+    Node->NodePosY = NodePosY;
+    Node->SnapToGrid(16);
     return true;
 }
 

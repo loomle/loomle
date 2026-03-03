@@ -10,6 +10,7 @@ class FJsonObject;
 class FJsonValue;
 class UObject;
 struct FPropertyChangedEvent;
+class FTransactionObjectEvent;
 
 class FLoomleBridgeModule : public IModuleInterface
 {
@@ -26,8 +27,9 @@ private:
     TSharedPtr<FJsonObject> BuildLoomleToolResult() const;
     TSharedPtr<FJsonObject> BuildGraphToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildGraphQueryToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
-    TSharedPtr<FJsonObject> BuildGraphMutateToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+    TSharedPtr<FJsonObject> BuildGraphMutateToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildGraphWatchToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+    TSharedPtr<FJsonObject> BuildEventPullResult(const TSharedPtr<FJsonObject>& Arguments, const FString& ScopeFilter, const FString& AssetPathFilter, bool bFilterLifecycle) const;
 
     TSharedPtr<FJsonObject> BuildLiveToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildGetContextToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
@@ -39,6 +41,11 @@ private:
     void RegisterEditorStreamDelegates();
     void UnregisterEditorStreamDelegates();
     void EmitGraphSelectionIfChanged();
+    void EmitDirtyBlueprintGraphChanges();
+    void MarkBlueprintGraphDirty(const FString& BlueprintAssetPath, const FString& Reason);
+    void EnsureBlueprintGraphBaseline(const FString& BlueprintAssetPath);
+    bool CaptureBlueprintGraphSnapshot(const FString& BlueprintAssetPath, FString& OutSignature, int32& OutNodeCount, int32& OutEdgeCount, TArray<FString>& OutNodeTokens, TArray<FString>& OutEdgeTokens) const;
+    static bool TryResolveBlueprintAssetPath(UObject* Object, FString& OutBlueprintAssetPath);
     void OnSelectionChanged(UObject* NewSelection);
     void OnMapOpened(const FString& Filename, bool bAsTemplate);
     void OnActorMoved(AActor* Actor);
@@ -51,6 +58,7 @@ private:
     void OnPausePIE(bool bIsSimulating);
     void OnResumePIE(bool bIsSimulating);
     void OnObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& PropertyChangedEvent);
+    void OnObjectTransacted(UObject* Object, const FTransactionObjectEvent& TransactionEvent);
     void OnPostUndoRedo();
 
     FString MakeJsonResponse(const TSharedPtr<FJsonValue>& Id, const TSharedPtr<FJsonObject>& Result) const;
@@ -72,6 +80,13 @@ private:
     double LastSelectionChangeTimeSeconds = 0.0;
     TMap<FString, FTransform> LastActorTransformByPath;
     TMap<FString, FTransform> LastSceneComponentRelativeTransformByPath;
+    TMap<FString, FString> PendingDirtyBlueprintGraphReasons;
+    TMap<FString, FString> LastBlueprintGraphSignatureByAssetPath;
+    TMap<FString, int32> LastBlueprintGraphNodeCountByAssetPath;
+    TMap<FString, int32> LastBlueprintGraphEdgeCountByAssetPath;
+    TMap<FString, TArray<FString>> LastBlueprintGraphNodeTokensByAssetPath;
+    TMap<FString, TArray<FString>> LastBlueprintGraphEdgeTokensByAssetPath;
+    bool bGraphMutateInProgress = false;
     FDelegateHandle SelectionChangedHandle;
     FDelegateHandle MapOpenedHandle;
     FDelegateHandle ActorMovedHandle;
@@ -85,5 +100,6 @@ private:
     FDelegateHandle ResumePieHandle;
     FDelegateHandle PostUndoRedoHandle;
     FDelegateHandle ObjectPropertyChangedHandle;
+    FDelegateHandle ObjectTransactedHandle;
     FTSTicker::FDelegateHandle SelectionDebounceTickerHandle;
 };

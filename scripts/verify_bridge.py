@@ -87,6 +87,13 @@ def parse_tool_payload(response: dict, method: str) -> dict:
     return payload
 
 
+def assert_cursor_fields(payload: dict, method: str) -> None:
+    for field in ("cursor", "nextCursor"):
+        value = payload.get(field)
+        if not isinstance(value, (int, float)):
+            fail(f"{method} payload {field} must be a number, got: {value!r}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify Loomle bridge availability")
     parser.add_argument("--socket", required=True, help="Path to loomle.sock")
@@ -136,6 +143,53 @@ def main() -> int:
         if exec_payload.get("isError"):
             fail(f"execute failed: {exec_payload.get('message') or exec_payload}")
         print("[PASS] unreal.LoomleBlueprintAdapter is available")
+
+        graph_watch_resp = send_jsonrpc(
+            sock,
+            4,
+            "tools/call",
+            {
+                "name": "graph.watch",
+                "arguments": {"graphType": "blueprint", "cursor": 0, "limit": 20},
+            },
+        )
+        graph_watch_payload = parse_tool_payload(graph_watch_resp, "tools/call.graph.watch")
+        if graph_watch_payload.get("isError"):
+            fail(f"graph.watch failed: {graph_watch_payload.get('message') or graph_watch_payload}")
+        assert_cursor_fields(graph_watch_payload, "graph.watch")
+
+        live_resp = send_jsonrpc(
+            sock,
+            5,
+            "tools/call",
+            {
+                "name": "live",
+                "arguments": {"cursor": 0, "limit": 100},
+            },
+        )
+        live_payload = parse_tool_payload(live_resp, "tools/call.live")
+        if live_payload.get("isError"):
+            fail(f"live failed: {live_payload.get('message') or live_payload}")
+        assert_cursor_fields(live_payload, "live")
+
+        live_events = live_payload.get("events", [])
+        graph_watch_events = graph_watch_payload.get("events", [])
+        live_seq = set()
+        for event in live_events:
+            params = event.get("params", {}) if isinstance(event, dict) else {}
+            seq = params.get("seq")
+            if isinstance(seq, (int, float)):
+                live_seq.add(int(seq))
+
+        for event in graph_watch_events:
+            params = event.get("params", {}) if isinstance(event, dict) else {}
+            scope = params.get("scope")
+            if scope != "graph":
+                fail(f"graph.watch returned non-graph event scope: {scope!r}")
+            seq = params.get("seq")
+            if isinstance(seq, (int, float)) and int(seq) not in live_seq:
+                fail("graph.watch event seq not found in live mirror window")
+        print("[PASS] live/graph.watch cursor types and mirror consistency verified")
 
     print("[PASS] Bridge verification complete")
     return 0
