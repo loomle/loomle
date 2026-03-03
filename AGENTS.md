@@ -6,20 +6,17 @@ This file is execution policy for Codex.
 Human-oriented explanation lives in `./Loomle/README.md`.
 
 ## Trigger
-
-- If user asks to enable `LOOMLE`, run this flow.
-<!---这条已经过时了感觉，我们已经把loomle定义成一个命令了-->
+<!--干脆删掉-->
+- If user invokes `loomle` or asks to enable/setup Loomle, run the setup flow when needed.
 
 ## Hard Constraints
 
 - Keep all LOOMLE content under `./Loomle`.
 - Do not create extra top-level folders outside `./Loomle`.
 - Do not overwrite user's root `AGENTS.md`.
-- Do not reintroduce deprecated MCP tools.
-<!--- 最后这一条删掉 -->
 
 ## Setup Flow (Authoritative)
-
+<!--这部分也可以删掉了，安装和升级脚本都有了，这个流程没有必要了。-->
 1. Run `./Loomle/scripts/install_loomle.sh` from UE project root.
 2. Treat script output as contract checks:
    - root `AGENTS.md` guidance line is created/updated and verified
@@ -36,13 +33,10 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 - Install entrypoint stays `./Loomle/scripts/install_loomle.sh`.
 - Upgrade entrypoint stays `./Loomle/scripts/upgrade_loomle.sh`.
 - At the start of each Codex thread/session for this project, Codex should check Loomle source update status in `./Loomle` (git upstream compare).
-- If a newer upstream revision exists, Codex should proactively remind the user with the exact command:
-  - `./Loomle/scripts/upgrade_loomle.sh`
-  <!--- 这句不对，用户只需要用自然语言说升级，update之类的，就可以了。不要让用户做执行脚本命令。-->
+- If a newer upstream revision exists, Codex should proactively remind the user that they can ask in natural language (for example: "upgrade Loomle" / "update Loomle") and Codex will run the upgrade flow.
 - Do not auto-upgrade without explicit user confirmation.
 
-## Runtime Policy
-<!--这部分的标题应该是类似如何处理用户的输入指令-->
+## User Command Handling Policy
 - Command handling + user-facing translation:
   - Supported user commands: `loomle`, `context`, `live`, `execute`.
   - For these commands, always call the corresponding MCP tool first, then translate result into concise, user-friendly text.
@@ -125,7 +119,5 @@ print(json.dumps({
 ```
 
 ### Hard Rules For Agents
-<!--这整个部分的三条感觉都不需要，只需要一条去提醒不要通过改Bridge源码的方式去获得更强大的context，python足够了-->
-- Do not assume every node has `callFunction` or `dynamicCast`.
-- If selection is empty, return "no selected items" and stop.
-- Prefer `context` for read queries; switch to `execute` only when needed.
+
+- Do not expand context capability by modifying Bridge source only to fetch richer data; use `execute` Python for deeper reads.
