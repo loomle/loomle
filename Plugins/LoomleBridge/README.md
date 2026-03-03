@@ -83,6 +83,14 @@ From UE project root:
     - `graphType` (`blueprint`, default `blueprint`)
     - `assetPath` (optional; only return events for this asset path)
   - Returns only `scope=graph` events from the same event bus used by `live`.
+- `graph.list`
+  - Required argument: `assetPath` (long package path)
+  - Optional argument: `graphType` (`blueprint`, default `blueprint`)
+  - Returns readable graph names (`graphs[]`) for the blueprint asset.
+- `graph.query`
+  - Required arguments: `assetPath`, `graphName`
+  - Optional arguments: `graphType`, `filter`, `limit`
+  - Returns semantic snapshot in `semanticSnapshot` (`signature`, `nodes[]`, `edges[]`).
 - `execute`
   - Required argument: `code` (inline Python string)
   - Optional argument: `mode` (`exec` default, or `eval`)
@@ -113,6 +121,8 @@ Exposed methods:
 - `remove_node(blueprint_asset_path, node_guid)`
 - `move_node(blueprint_asset_path, node_guid, node_pos_x, node_pos_y)`
 - `list_event_graph_nodes(blueprint_asset_path)`
+- `list_blueprint_graphs(blueprint_asset_path)`
+- `list_graph_nodes(blueprint_asset_path, graph_name)`
 - `get_node_details(blueprint_asset_path, node_guid)`
 - `find_nodes_by_class(blueprint_asset_path, node_class_path_or_name)`
 - `compile_blueprint(blueprint_asset_path)`

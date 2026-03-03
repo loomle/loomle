@@ -47,6 +47,12 @@ public:
     static bool AddBranchNode(const FString& BlueprintAssetPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);
 
     UFUNCTION(BlueprintCallable, Category = "Loomle|LoomleBlueprintAdapter")
+    static bool AddCommentNode(const FString& BlueprintAssetPath, const FString& CommentText, int32 NodePosX, int32 NodePosY, int32 Width, int32 Height, FString& OutNodeGuid, FString& OutError);
+
+    UFUNCTION(BlueprintCallable, Category = "Loomle|LoomleBlueprintAdapter")
+    static bool AddKnotNode(const FString& BlueprintAssetPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);
+
+    UFUNCTION(BlueprintCallable, Category = "Loomle|LoomleBlueprintAdapter")
     static bool AddVariableGetNode(const FString& BlueprintAssetPath, const FString& VariableName, const FString& VariableClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);
 
     UFUNCTION(BlueprintCallable, Category = "Loomle|LoomleBlueprintAdapter")
@@ -72,6 +78,12 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "Loomle|LoomleBlueprintAdapter")
     static bool ListEventGraphNodes(const FString& BlueprintAssetPath, FString& OutNodesJson, FString& OutError);
+
+    UFUNCTION(BlueprintCallable, Category = "Loomle|LoomleBlueprintAdapter")
+    static bool ListBlueprintGraphs(const FString& BlueprintAssetPath, FString& OutGraphsJson, FString& OutError);
+
+    UFUNCTION(BlueprintCallable, Category = "Loomle|LoomleBlueprintAdapter")
+    static bool ListGraphNodes(const FString& BlueprintAssetPath, const FString& GraphName, FString& OutNodesJson, FString& OutError);
 
     UFUNCTION(BlueprintCallable, Category = "Loomle|LoomleBlueprintAdapter")
     static bool GetNodeDetails(const FString& BlueprintAssetPath, const FString& NodeGuid, FString& OutNodeJson, FString& OutError);

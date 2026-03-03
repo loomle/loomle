@@ -18,8 +18,13 @@
 #include "K2Node_DynamicCast.h"
 #include "K2Node_Event.h"
 #include "K2Node_IfThenElse.h"
+#include "K2Node_MacroInstance.h"
+#include "K2Node_Knot.h"
+#include "K2Node_Timeline.h"
+#include "K2Node_Variable.h"
 #include "K2Node_VariableGet.h"
 #include "K2Node_VariableSet.h"
+#include "EdGraphNode_Comment.h"
 #include "Misc/Guid.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
@@ -69,6 +74,69 @@ namespace LoomleBlueprintAdapterInternal
         return Blueprint ? FBlueprintEditorUtils::FindEventGraph(Blueprint) : nullptr;
     }
 
+    static UEdGraph* FindGraphByName(UBlueprint* Blueprint, const FString& GraphName)
+    {
+        if (!Blueprint || GraphName.IsEmpty())
+        {
+            return nullptr;
+        }
+
+        auto Match = [&GraphName](UEdGraph* Graph) -> bool
+        {
+            return Graph && (Graph->GetName().Equals(GraphName) || Graph->GetFName().ToString().Equals(GraphName));
+        };
+
+        for (UEdGraph* Graph : Blueprint->UbergraphPages)
+        {
+            if (Match(Graph))
+            {
+                return Graph;
+            }
+        }
+        for (UEdGraph* Graph : Blueprint->FunctionGraphs)
+        {
+            if (Match(Graph))
+            {
+                return Graph;
+            }
+        }
+        for (UEdGraph* Graph : Blueprint->MacroGraphs)
+        {
+            if (Match(Graph))
+            {
+                return Graph;
+            }
+        }
+        for (const FBPInterfaceDescription& InterfaceDesc : Blueprint->ImplementedInterfaces)
+        {
+            for (UEdGraph* Graph : InterfaceDesc.Graphs)
+            {
+                if (Match(Graph))
+                {
+                    return Graph;
+                }
+            }
+        }
+        return nullptr;
+    }
+
+    static void AppendGraphListEntries(const TArray<UEdGraph*>& Graphs, const FString& GraphKind, TArray<TSharedPtr<FJsonValue>>& OutGraphs)
+    {
+        for (UEdGraph* Graph : Graphs)
+        {
+            if (!Graph)
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+            Entry->SetStringField(TEXT("graphName"), Graph->GetName());
+            Entry->SetStringField(TEXT("graphKind"), GraphKind);
+            Entry->SetStringField(TEXT("graphClassPath"), Graph->GetClass() ? Graph->GetClass()->GetPathName() : TEXT(""));
+            OutGraphs.Add(MakeShared<FJsonValueObject>(Entry));
+        }
+    }
+
     static USCS_Node* FindComponentNode(UBlueprint* Blueprint, const FString& ComponentName)
     {
         if (!Blueprint || !Blueprint->SimpleConstructionScript)
@@ -116,6 +184,54 @@ namespace LoomleBlueprintAdapterInternal
         Value.ReplaceInline(TEXT("_"), TEXT(""));
         Value.ReplaceInline(TEXT("-"), TEXT(""));
         return Value;
+    }
+
+    static FString NormalizeIdentifier(FString Value)
+    {
+        Value = Value.ToLower();
+        FString Out;
+        Out.Reserve(Value.Len());
+        for (const TCHAR Ch : Value)
+        {
+            if (FChar::IsAlnum(Ch))
+            {
+                Out.AppendChar(Ch);
+            }
+        }
+        return Out;
+    }
+
+    static bool ResolveVariableReferenceFromNode(const UK2Node_Variable* VariableNode, FString& OutMemberName, UClass*& OutOwnerClass, FString& OutSignatureId)
+    {
+        OutMemberName = VariableNode ? VariableNode->VariableReference.GetMemberName().ToString() : TEXT("");
+        OutOwnerClass = VariableNode ? VariableNode->VariableReference.GetMemberParentClass() : nullptr;
+        OutSignatureId = VariableNode ? VariableNode->VariableReference.GetMemberGuid().ToString(EGuidFormats::DigitsWithHyphens) : TEXT("");
+
+        if (!VariableNode)
+        {
+            return false;
+        }
+
+        if (const FProperty* Property = VariableNode->GetPropertyForVariable())
+        {
+            if (OutMemberName.IsEmpty())
+            {
+                OutMemberName = Property->GetName();
+            }
+            if (OutOwnerClass == nullptr)
+            {
+                OutOwnerClass = Property->GetOwnerClass();
+            }
+            if (OutSignatureId.IsEmpty() || OutSignatureId.Equals(TEXT("00000000-0000-0000-0000-000000000000")))
+            {
+                OutSignatureId = FString::Printf(TEXT("%s:%s"),
+                    OutOwnerClass ? *OutOwnerClass->GetPathName() : TEXT(""),
+                    *Property->GetName());
+            }
+            return true;
+        }
+
+        return !OutMemberName.IsEmpty() || OutOwnerClass != nullptr;
     }
 
     static UEdGraphPin* ResolvePin(UEdGraphNode* Node, const FString& RequestedName)
@@ -222,7 +338,34 @@ namespace LoomleBlueprintAdapterInternal
         PinObject->SetStringField(TEXT("defaultObject"), Pin->DefaultObject ? Pin->DefaultObject->GetPathName() : TEXT(""));
         PinObject->SetStringField(TEXT("defaultText"), Pin->DefaultTextValue.ToString());
 
+        TSharedPtr<FJsonObject> PinTypeObject = MakeShared<FJsonObject>();
+        PinTypeObject->SetStringField(TEXT("category"), Pin->PinType.PinCategory.ToString());
+        PinTypeObject->SetStringField(TEXT("subCategory"), Pin->PinType.PinSubCategory.ToString());
+        PinTypeObject->SetStringField(TEXT("object"), Pin->PinType.PinSubCategoryObject.IsValid() ? Pin->PinType.PinSubCategoryObject->GetPathName() : TEXT(""));
+        FString ContainerType = TEXT("none");
+        if (Pin->PinType.ContainerType == EPinContainerType::Array)
+        {
+            ContainerType = TEXT("array");
+        }
+        else if (Pin->PinType.ContainerType == EPinContainerType::Set)
+        {
+            ContainerType = TEXT("set");
+        }
+        else if (Pin->PinType.ContainerType == EPinContainerType::Map)
+        {
+            ContainerType = TEXT("map");
+        }
+        PinTypeObject->SetStringField(TEXT("container"), ContainerType);
+        PinObject->SetObjectField(TEXT("type"), PinTypeObject);
+
+        TSharedPtr<FJsonObject> PinDefaultObject = MakeShared<FJsonObject>();
+        PinDefaultObject->SetStringField(TEXT("value"), Pin->DefaultValue);
+        PinDefaultObject->SetStringField(TEXT("object"), Pin->DefaultObject ? Pin->DefaultObject->GetPathName() : TEXT(""));
+        PinDefaultObject->SetStringField(TEXT("text"), Pin->DefaultTextValue.ToString());
+        PinObject->SetObjectField(TEXT("default"), PinDefaultObject);
+
         TArray<TSharedPtr<FJsonValue>> Links;
+        TArray<TSharedPtr<FJsonValue>> SemanticLinks;
         for (const UEdGraphPin* LinkedPin : Pin->LinkedTo)
         {
             if (!LinkedPin)
@@ -242,8 +385,14 @@ namespace LoomleBlueprintAdapterInternal
             }
 
             Links.Add(MakeShared<FJsonValueObject>(LinkObject));
+
+            TSharedPtr<FJsonObject> SemanticLinkObject = MakeShared<FJsonObject>();
+            SemanticLinkObject->SetStringField(TEXT("toPin"), LinkedPin->PinName.ToString());
+            SemanticLinkObject->SetStringField(TEXT("toNodeId"), LinkedNode ? LinkedNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens) : TEXT(""));
+            SemanticLinks.Add(MakeShared<FJsonValueObject>(SemanticLinkObject));
         }
         PinObject->SetArrayField(TEXT("linkedTo"), Links);
+        PinObject->SetArrayField(TEXT("links"), SemanticLinks);
 
         return PinObject;
     }
@@ -256,16 +405,125 @@ namespace LoomleBlueprintAdapterInternal
             return NodeObject;
         }
 
+        const FString NodeClassPath = Node->GetClass() ? Node->GetClass()->GetPathName() : TEXT("");
+        const FString NodeTitle = Node->GetNodeTitle(ENodeTitleType::ListView).ToString();
         NodeObject->SetStringField(TEXT("name"), Node->GetName());
         NodeObject->SetStringField(TEXT("guid"), Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens));
+        NodeObject->SetStringField(TEXT("id"), Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens));
         NodeObject->SetStringField(TEXT("className"), Node->GetClass()->GetName());
-        NodeObject->SetStringField(TEXT("classPath"), Node->GetClass()->GetPathName());
+        NodeObject->SetStringField(TEXT("classPath"), NodeClassPath);
+        NodeObject->SetStringField(TEXT("nodeClassPath"), NodeClassPath);
         NodeObject->SetStringField(TEXT("path"), Node->GetPathName());
         NodeObject->SetNumberField(TEXT("nodePosX"), Node->NodePosX);
         NodeObject->SetNumberField(TEXT("nodePosY"), Node->NodePosY);
-        NodeObject->SetStringField(TEXT("nodeTitle"), Node->GetNodeTitle(ENodeTitleType::ListView).ToString());
+        NodeObject->SetStringField(TEXT("nodeTitle"), NodeTitle);
         NodeObject->SetStringField(TEXT("nodeTitleFull"), Node->GetNodeTitle(ENodeTitleType::FullTitle).ToString());
+        NodeObject->SetStringField(TEXT("title"), NodeTitle);
         NodeObject->SetBoolField(TEXT("isNodeEnabled"), Node->IsNodeEnabled());
+        NodeObject->SetBoolField(TEXT("enabled"), Node->IsNodeEnabled());
+
+        TSharedPtr<FJsonObject> Position = MakeShared<FJsonObject>();
+        Position->SetNumberField(TEXT("x"), Node->NodePosX);
+        Position->SetNumberField(TEXT("y"), Node->NodePosY);
+        NodeObject->SetObjectField(TEXT("position"), Position);
+
+        TSharedPtr<FJsonObject> MemberReference = MakeShared<FJsonObject>();
+        MemberReference->SetStringField(TEXT("memberKind"), TEXT(""));
+        MemberReference->SetStringField(TEXT("ownerClassPath"), TEXT(""));
+        MemberReference->SetStringField(TEXT("memberName"), TEXT(""));
+        MemberReference->SetStringField(TEXT("signatureId"), TEXT(""));
+
+        TSharedPtr<FJsonObject> FunctionReference = MakeShared<FJsonObject>();
+        FunctionReference->SetStringField(TEXT("classPath"), TEXT(""));
+        FunctionReference->SetStringField(TEXT("functionName"), TEXT(""));
+        FunctionReference->SetStringField(TEXT("signatureId"), TEXT(""));
+
+        if (const UK2Node_CallFunction* CallNode = Cast<UK2Node_CallFunction>(Node))
+        {
+            const UFunction* TargetFunction = CallNode->GetTargetFunction();
+            UClass* ParentClass = CallNode->FunctionReference.GetMemberParentClass();
+            FName MemberName = CallNode->FunctionReference.GetMemberName();
+            FGuid MemberGuid = CallNode->FunctionReference.GetMemberGuid();
+
+            // Fallback: some call-function nodes do not carry a complete FunctionReference.
+            if ((!ParentClass || MemberName.IsNone()) && TargetFunction)
+            {
+                ParentClass = TargetFunction->GetOuterUClass();
+                MemberName = TargetFunction->GetFName();
+            }
+
+            FString SignatureId = MemberGuid.ToString(EGuidFormats::DigitsWithHyphens);
+            if ((SignatureId.IsEmpty() || SignatureId.Equals(TEXT("00000000-0000-0000-0000-000000000000"))) && TargetFunction)
+            {
+                SignatureId = TargetFunction->GetPathName();
+            }
+            MemberReference->SetStringField(TEXT("memberKind"), TEXT("function"));
+            MemberReference->SetStringField(TEXT("ownerClassPath"), ParentClass ? ParentClass->GetPathName() : TEXT(""));
+            MemberReference->SetStringField(TEXT("memberName"), MemberName.ToString());
+            MemberReference->SetStringField(TEXT("signatureId"), SignatureId);
+
+            FunctionReference->SetStringField(TEXT("classPath"), ParentClass ? ParentClass->GetPathName() : TEXT(""));
+            FunctionReference->SetStringField(TEXT("functionName"), MemberName.ToString());
+            FunctionReference->SetStringField(TEXT("signatureId"), SignatureId);
+        }
+        else if (const UK2Node_VariableGet* VariableGetNode = Cast<UK2Node_VariableGet>(Node))
+        {
+            FString MemberName;
+            UClass* ParentClass = nullptr;
+            FString SignatureId;
+            ResolveVariableReferenceFromNode(VariableGetNode, MemberName, ParentClass, SignatureId);
+            MemberReference->SetStringField(TEXT("memberKind"), TEXT("variable"));
+            MemberReference->SetStringField(TEXT("ownerClassPath"), ParentClass ? ParentClass->GetPathName() : TEXT(""));
+            MemberReference->SetStringField(TEXT("memberName"), MemberName);
+            MemberReference->SetStringField(TEXT("rawMemberName"), VariableGetNode->VariableReference.GetMemberName().ToString());
+            MemberReference->SetStringField(TEXT("resolvedOwnerClassPath"), ParentClass ? ParentClass->GetPathName() : TEXT(""));
+            MemberReference->SetStringField(TEXT("signatureId"), SignatureId);
+        }
+        else if (const UK2Node_VariableSet* VariableSetNode = Cast<UK2Node_VariableSet>(Node))
+        {
+            FString MemberName;
+            UClass* ParentClass = nullptr;
+            FString SignatureId;
+            ResolveVariableReferenceFromNode(VariableSetNode, MemberName, ParentClass, SignatureId);
+            MemberReference->SetStringField(TEXT("memberKind"), TEXT("variable"));
+            MemberReference->SetStringField(TEXT("ownerClassPath"), ParentClass ? ParentClass->GetPathName() : TEXT(""));
+            MemberReference->SetStringField(TEXT("memberName"), MemberName);
+            MemberReference->SetStringField(TEXT("rawMemberName"), VariableSetNode->VariableReference.GetMemberName().ToString());
+            MemberReference->SetStringField(TEXT("resolvedOwnerClassPath"), ParentClass ? ParentClass->GetPathName() : TEXT(""));
+            MemberReference->SetStringField(TEXT("signatureId"), SignatureId);
+        }
+
+        NodeObject->SetObjectField(TEXT("memberReference"), MemberReference);
+        NodeObject->SetObjectField(TEXT("functionReference"), FunctionReference);
+
+        TSharedPtr<FJsonObject> K2Extensions = MakeShared<FJsonObject>();
+        if (const UK2Node_DynamicCast* CastNode = Cast<UK2Node_DynamicCast>(Node))
+        {
+            TSharedPtr<FJsonObject> CastExt = MakeShared<FJsonObject>();
+            CastExt->SetStringField(TEXT("targetClassPath"), CastNode->TargetType ? CastNode->TargetType->GetPathName() : TEXT(""));
+            K2Extensions->SetObjectField(TEXT("cast"), CastExt);
+        }
+        if (const UK2Node_MacroInstance* MacroNode = Cast<UK2Node_MacroInstance>(Node))
+        {
+            TSharedPtr<FJsonObject> MacroExt = MakeShared<FJsonObject>();
+            MacroExt->SetStringField(TEXT("macroGraph"), MacroNode->GetMacroGraph() ? MacroNode->GetMacroGraph()->GetName() : TEXT(""));
+            K2Extensions->SetObjectField(TEXT("macro"), MacroExt);
+        }
+        if (const UEdGraphNode_Comment* CommentNode = Cast<UEdGraphNode_Comment>(Node))
+        {
+            TSharedPtr<FJsonObject> CommentExt = MakeShared<FJsonObject>();
+            CommentExt->SetStringField(TEXT("text"), CommentNode->NodeComment);
+            CommentExt->SetNumberField(TEXT("width"), CommentNode->NodeWidth);
+            CommentExt->SetNumberField(TEXT("height"), CommentNode->NodeHeight);
+            K2Extensions->SetObjectField(TEXT("comment"), CommentExt);
+        }
+        if (const UK2Node_Timeline* TimelineNode = Cast<UK2Node_Timeline>(Node))
+        {
+            TSharedPtr<FJsonObject> TimelineExt = MakeShared<FJsonObject>();
+            TimelineExt->SetStringField(TEXT("timelineName"), TimelineNode->TimelineName.ToString());
+            K2Extensions->SetObjectField(TEXT("timeline"), TimelineExt);
+        }
+        NodeObject->SetObjectField(TEXT("k2Extensions"), K2Extensions);
 
         TArray<TSharedPtr<FJsonValue>> Pins;
         for (const UEdGraphPin* Pin : Node->Pins)
@@ -312,10 +570,20 @@ namespace LoomleBlueprintAdapterInternal
         return ClassName.Equals(NormalizedFilter) || ClassPath.Equals(NormalizedFilter);
     }
 
-    static const FProperty* ResolveVariableProperty(UBlueprint* Blueprint, const FString& VariableName, const FString& VariableClassPath, bool& bOutSelfContext, UClass*& OutOwnerClass)
+    static const FProperty* ResolveVariableProperty(
+        UBlueprint* Blueprint,
+        const FString& VariableName,
+        const FString& VariableClassPath,
+        bool& bOutSelfContext,
+        UClass*& OutOwnerClass,
+        FString* OutResolvedVariableName = nullptr)
     {
         bOutSelfContext = true;
         OutOwnerClass = nullptr;
+        if (OutResolvedVariableName)
+        {
+            OutResolvedVariableName->Empty();
+        }
         if (!Blueprint || VariableName.IsEmpty())
         {
             return nullptr;
@@ -336,12 +604,44 @@ namespace LoomleBlueprintAdapterInternal
         }
 
         const FProperty* Property = nullptr;
+        const FString TargetNormalized = NormalizeIdentifier(VariableName);
         for (UClass* Class = SearchClass; Class != nullptr && Property == nullptr; Class = Class->GetSuperClass())
         {
             Property = FindFProperty<FProperty>(Class, *VariableName);
             if (Property)
             {
                 OutOwnerClass = Class;
+                if (OutResolvedVariableName)
+                {
+                    *OutResolvedVariableName = Property->GetName();
+                }
+                break;
+            }
+
+            for (TFieldIterator<FProperty> It(Class, EFieldIteratorFlags::ExcludeSuper); It; ++It)
+            {
+                const FProperty* Candidate = *It;
+                if (!Candidate)
+                {
+                    continue;
+                }
+
+                const FString CandidateName = Candidate->GetName();
+                const FString CandidateDisplay = FName::NameToDisplayString(CandidateName, false);
+                const FString CandidateDisplayText = Candidate->GetDisplayNameText().ToString();
+
+                if (NormalizeIdentifier(CandidateName).Equals(TargetNormalized)
+                    || NormalizeIdentifier(CandidateDisplay).Equals(TargetNormalized)
+                    || NormalizeIdentifier(CandidateDisplayText).Equals(TargetNormalized))
+                {
+                    Property = Candidate;
+                    OutOwnerClass = Class;
+                    if (OutResolvedVariableName)
+                    {
+                        *OutResolvedVariableName = CandidateName;
+                    }
+                    break;
+                }
             }
         }
         if (!Property)
@@ -689,6 +989,56 @@ bool ULoomleBlueprintAdapter::AddBranchNode(const FString& BlueprintAssetPath, i
     return true;
 }
 
+bool ULoomleBlueprintAdapter::AddCommentNode(const FString& BlueprintAssetPath, const FString& CommentText, int32 NodePosX, int32 NodePosY, int32 Width, int32 Height, FString& OutNodeGuid, FString& OutError)
+{
+    OutNodeGuid.Empty();
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    if (!Blueprint || !EventGraph)
+    {
+        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        return false;
+    }
+
+    FGraphNodeCreator<UEdGraphNode_Comment> Creator(*EventGraph);
+    UEdGraphNode_Comment* Node = Creator.CreateNode();
+    Node->NodePosX = NodePosX;
+    Node->NodePosY = NodePosY;
+    Node->NodeComment = CommentText;
+    Node->NodeWidth = Width > 0 ? Width : Node->NodeWidth;
+    Node->NodeHeight = Height > 0 ? Height : Node->NodeHeight;
+    Creator.Finalize();
+
+    OutNodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+    return true;
+}
+
+bool ULoomleBlueprintAdapter::AddKnotNode(const FString& BlueprintAssetPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+{
+    OutNodeGuid.Empty();
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    if (!Blueprint || !EventGraph)
+    {
+        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        return false;
+    }
+
+    FGraphNodeCreator<UK2Node_Knot> Creator(*EventGraph);
+    UK2Node_Knot* Node = Creator.CreateNode();
+    Node->NodePosX = NodePosX;
+    Node->NodePosY = NodePosY;
+    Node->AllocateDefaultPins();
+    Creator.Finalize();
+
+    OutNodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+    return true;
+}
+
 bool ULoomleBlueprintAdapter::AddVariableGetNode(const FString& BlueprintAssetPath, const FString& VariableName, const FString& VariableClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
@@ -704,7 +1054,8 @@ bool ULoomleBlueprintAdapter::AddVariableGetNode(const FString& BlueprintAssetPa
 
     bool bSelfContext = true;
     UClass* OwnerClass = nullptr;
-    const FProperty* Property = LoomleBlueprintAdapterInternal::ResolveVariableProperty(Blueprint, VariableName, VariableClassPath, bSelfContext, OwnerClass);
+    const FProperty* Property = LoomleBlueprintAdapterInternal::ResolveVariableProperty(
+        Blueprint, VariableName, VariableClassPath, bSelfContext, OwnerClass, nullptr);
     if (!Property)
     {
         OutError = FString::Printf(TEXT("Failed to resolve variable property: %s"), *VariableName);
@@ -738,7 +1089,8 @@ bool ULoomleBlueprintAdapter::AddVariableSetNode(const FString& BlueprintAssetPa
 
     bool bSelfContext = true;
     UClass* OwnerClass = nullptr;
-    const FProperty* Property = LoomleBlueprintAdapterInternal::ResolveVariableProperty(Blueprint, VariableName, VariableClassPath, bSelfContext, OwnerClass);
+    const FProperty* Property = LoomleBlueprintAdapterInternal::ResolveVariableProperty(
+        Blueprint, VariableName, VariableClassPath, bSelfContext, OwnerClass, nullptr);
     if (!Property)
     {
         OutError = FString::Printf(TEXT("Failed to resolve variable property: %s"), *VariableName);
@@ -920,21 +1272,59 @@ bool ULoomleBlueprintAdapter::SetPinDefaultValue(const FString& BlueprintAssetPa
 
 bool ULoomleBlueprintAdapter::ListEventGraphNodes(const FString& BlueprintAssetPath, FString& OutNodesJson, FString& OutError)
 {
-    OutNodesJson = TEXT("[]");
+    return ListGraphNodes(BlueprintAssetPath, TEXT("EventGraph"), OutNodesJson, OutError);
+}
+
+bool ULoomleBlueprintAdapter::ListBlueprintGraphs(const FString& BlueprintAssetPath, FString& OutGraphsJson, FString& OutError)
+{
+    OutGraphsJson = TEXT("[]");
     OutError.Empty();
 
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
-    if (!Blueprint || !EventGraph)
+    if (!Blueprint)
     {
-        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        OutError = FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintAssetPath);
+        return false;
+    }
+
+    TArray<TSharedPtr<FJsonValue>> Graphs;
+    LoomleBlueprintAdapterInternal::AppendGraphListEntries(Blueprint->UbergraphPages, TEXT("Event"), Graphs);
+    LoomleBlueprintAdapterInternal::AppendGraphListEntries(Blueprint->FunctionGraphs, TEXT("Function"), Graphs);
+    LoomleBlueprintAdapterInternal::AppendGraphListEntries(Blueprint->MacroGraphs, TEXT("Macro"), Graphs);
+    for (const FBPInterfaceDescription& InterfaceDesc : Blueprint->ImplementedInterfaces)
+    {
+        LoomleBlueprintAdapterInternal::AppendGraphListEntries(InterfaceDesc.Graphs, TEXT("Interface"), Graphs);
+    }
+
+    OutGraphsJson = LoomleBlueprintAdapterInternal::JsonArrayToString(Graphs);
+    return true;
+}
+
+bool ULoomleBlueprintAdapter::ListGraphNodes(const FString& BlueprintAssetPath, const FString& GraphName, FString& OutNodesJson, FString& OutError)
+{
+    OutNodesJson = TEXT("[]");
+    OutError.Empty();
+
+    if (GraphName.IsEmpty())
+    {
+        OutError = TEXT("GraphName is required.");
+        return false;
+    }
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* Graph = LoomleBlueprintAdapterInternal::FindGraphByName(Blueprint, GraphName);
+    if (!Blueprint || !Graph)
+    {
+        OutError = FString::Printf(TEXT("Graph not found: %s"), *GraphName);
         return false;
     }
 
     TArray<TSharedPtr<FJsonValue>> Nodes;
-    for (const UEdGraphNode* Node : EventGraph->Nodes)
+    for (const UEdGraphNode* Node : Graph->Nodes)
     {
-        Nodes.Add(MakeShared<FJsonValueObject>(LoomleBlueprintAdapterInternal::SerializeNode(Node)));
+        TSharedPtr<FJsonObject> NodeObject = LoomleBlueprintAdapterInternal::SerializeNode(Node);
+        NodeObject->SetStringField(TEXT("graphName"), Graph->GetName());
+        Nodes.Add(MakeShared<FJsonValueObject>(NodeObject));
     }
 
     OutNodesJson = LoomleBlueprintAdapterInternal::JsonArrayToString(Nodes);

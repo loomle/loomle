@@ -58,6 +58,7 @@ namespace LoomleBridgeConstants
     static const TCHAR* LiveToolName = TEXT("live");
     static const TCHAR* ExecuteToolName = TEXT("execute");
     static const TCHAR* GraphToolName = TEXT("graph");
+    static const TCHAR* GraphListToolName = TEXT("graph.list");
     static const TCHAR* GraphQueryToolName = TEXT("graph.query");
     static const TCHAR* GraphMutateToolName = TEXT("graph.mutate");
     static const TCHAR* GraphWatchToolName = TEXT("graph.watch");
@@ -823,7 +824,29 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildToolsListResult() const
     {
         TSharedPtr<FJsonObject> Schema = MakeShared<FJsonObject>();
         Schema->SetStringField(TEXT("type"), TEXT("object"));
-        Schema->SetArrayField(TEXT("required"), TArray<TSharedPtr<FJsonValue>>{});
+        TArray<TSharedPtr<FJsonValue>> Required;
+        Required.Add(MakeShared<FJsonValueString>(TEXT("assetPath")));
+        Schema->SetArrayField(TEXT("required"), Required);
+        TSharedPtr<FJsonObject> Properties = MakeShared<FJsonObject>();
+        {
+            TSharedPtr<FJsonObject> GraphTypeProperty = MakeShared<FJsonObject>();
+            GraphTypeProperty->SetStringField(TEXT("type"), TEXT("string"));
+            Properties->SetObjectField(TEXT("graphType"), GraphTypeProperty);
+            TSharedPtr<FJsonObject> AssetPathProperty = MakeShared<FJsonObject>();
+            AssetPathProperty->SetStringField(TEXT("type"), TEXT("string"));
+            Properties->SetObjectField(TEXT("assetPath"), AssetPathProperty);
+        }
+        Schema->SetObjectField(TEXT("properties"), Properties);
+        Tools.Add(MakeTool(LoomleBridgeConstants::GraphListToolName, TEXT("List readable graph names in a blueprint asset."), Schema));
+    }
+
+    {
+        TSharedPtr<FJsonObject> Schema = MakeShared<FJsonObject>();
+        Schema->SetStringField(TEXT("type"), TEXT("object"));
+        TArray<TSharedPtr<FJsonValue>> Required;
+        Required.Add(MakeShared<FJsonValueString>(TEXT("assetPath")));
+        Required.Add(MakeShared<FJsonValueString>(TEXT("graphName")));
+        Schema->SetArrayField(TEXT("required"), Required);
         TSharedPtr<FJsonObject> Properties = MakeShared<FJsonObject>();
         {
             TSharedPtr<FJsonObject> GraphTypeProperty = MakeShared<FJsonObject>();
@@ -989,6 +1012,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildToolCallResult(const TSharedPt
         Payload = BuildGraphToolResult(Arguments);
         bIsError = Payload->GetBoolField(TEXT("isError"));
     }
+    else if (Name.Equals(LoomleBridgeConstants::GraphListToolName))
+    {
+        Payload = BuildGraphListToolResult(Arguments);
+        bIsError = Payload->GetBoolField(TEXT("isError"));
+    }
     else if (Name.Equals(LoomleBridgeConstants::GraphQueryToolName))
     {
         Payload = BuildGraphQueryToolResult(Arguments);
@@ -1133,6 +1161,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildLoomleToolResult() const
     Capabilities.Add(MakeCapability(TEXT("context"), TEXT("Current editor context."), bBridgeRunning, bBridgeRunning ? TEXT("") : TEXT("Bridge server is not running.")));
     Capabilities.Add(MakeCapability(TEXT("live"), TEXT("Incremental live event feed by cursor."), bBridgeRunning && bLiveRunning, bLiveRunning ? TEXT("") : TEXT("Live stream is not running. Restart Unreal Editor.")));
     Capabilities.Add(MakeCapability(TEXT("graph"), TEXT("Graph descriptor (capabilities + schema)."), bBridgeRunning, bBridgeRunning ? TEXT("") : TEXT("Bridge server is not running.")));
+    Capabilities.Add(MakeCapability(TEXT("graph.list"), TEXT("List readable graphs in a graph asset."), bBridgeRunning, bBridgeRunning ? TEXT("") : TEXT("Bridge server is not running.")));
     Capabilities.Add(MakeCapability(TEXT("graph.query"), TEXT("Graph query API."), bBridgeRunning, bBridgeRunning ? TEXT("") : TEXT("Bridge server is not running.")));
     Capabilities.Add(MakeCapability(TEXT("graph.mutate"), TEXT("Graph mutate API."), bBridgeRunning, bBridgeRunning ? TEXT("") : TEXT("Bridge server is not running.")));
     Capabilities.Add(MakeCapability(TEXT("graph.watch"), TEXT("Graph watch API."), bBridgeRunning && bLiveRunning, bLiveRunning ? TEXT("") : TEXT("Live stream is not running. Restart Unreal Editor.")));
@@ -1330,6 +1359,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphToolResult(const TSharedP
     Result->SetStringField(TEXT("graphType"), GraphType);
 
     TSharedPtr<FJsonObject> Features = MakeShared<FJsonObject>();
+    Features->SetBoolField(TEXT("list"), true);
     Features->SetBoolField(TEXT("query"), true);
     Features->SetBoolField(TEXT("mutate"), true);
     Features->SetBoolField(TEXT("watch"), true);
@@ -1354,9 +1384,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphToolResult(const TSharedP
         return Out;
     };
 
-    Result->SetArrayField(TEXT("nodeCoreFields"), ToStringArray({TEXT("id"), TEXT("classPath"), TEXT("title"), TEXT("graphName"), TEXT("position"), TEXT("enabled"), TEXT("pins")}));
-    Result->SetArrayField(TEXT("pinCoreFields"), ToStringArray({TEXT("name"), TEXT("direction"), TEXT("category"), TEXT("subCategory"), TEXT("subCategoryObject"), TEXT("defaultValue"), TEXT("links")}));
-    Result->SetArrayField(TEXT("nodeExtensions"), ToStringArray({TEXT("callFunction"), TEXT("dynamicCast"), TEXT("comment")}));
+    Result->SetArrayField(TEXT("nodeCoreFields"), ToStringArray({TEXT("id"), TEXT("nodeClassPath"), TEXT("title"), TEXT("graphName"), TEXT("position"), TEXT("enabled"), TEXT("pins"), TEXT("memberReference"), TEXT("functionReference"), TEXT("k2Extensions")}));
+    Result->SetArrayField(TEXT("pinCoreFields"), ToStringArray({TEXT("name"), TEXT("direction"), TEXT("type"), TEXT("default"), TEXT("links")}));
+    Result->SetArrayField(TEXT("nodeExtensions"), ToStringArray({TEXT("cast"), TEXT("macro"), TEXT("comment"), TEXT("timeline")}));
     Result->SetArrayField(TEXT("ops"), ToStringArray({
         TEXT("addNode.event"), TEXT("addNode.cast"), TEXT("addNode.callFunction"), TEXT("addNode.branch"),
         TEXT("addNode.variableGet"), TEXT("addNode.variableSet"),
@@ -1364,6 +1394,54 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphToolResult(const TSharedP
         TEXT("setPinDefault"), TEXT("removeNode"), TEXT("moveNode"),
         TEXT("compile"), TEXT("spawnActor"), TEXT("addComponent")
     }));
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+
+    FString GraphType = TEXT("blueprint");
+    Arguments->TryGetStringField(TEXT("graphType"), GraphType);
+    GraphType = GraphType.ToLower();
+    if (!GraphType.Equals(TEXT("blueprint")))
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_GRAPH_TYPE"));
+        Result->SetStringField(TEXT("message"), TEXT("Only blueprint graphType is currently supported."));
+        return Result;
+    }
+
+    FString AssetPath;
+    if (!Arguments->TryGetStringField(TEXT("assetPath"), AssetPath) || AssetPath.IsEmpty())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("arguments.assetPath is required."));
+        return Result;
+    }
+
+    FString GraphsJson;
+    FString Error;
+    if (!ULoomleBlueprintAdapter::ListBlueprintGraphs(AssetPath, GraphsJson, Error))
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+        Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("graph.list failed") : Error);
+        return Result;
+    }
+
+    TArray<TSharedPtr<FJsonValue>> Graphs;
+    {
+        const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(GraphsJson);
+        FJsonSerializer::Deserialize(Reader, Graphs);
+    }
+
+    Result->SetStringField(TEXT("graphType"), GraphType);
+    Result->SetStringField(TEXT("assetPath"), AssetPath);
+    Result->SetArrayField(TEXT("graphs"), Graphs);
+    Result->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
     return Result;
 }
 
@@ -1392,30 +1470,41 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
         return Result;
     }
 
-    FString GraphName = TEXT("EventGraph");
-    Arguments->TryGetStringField(TEXT("graphName"), GraphName);
+    FString GraphName;
+    if (!Arguments->TryGetStringField(TEXT("graphName"), GraphName) || GraphName.IsEmpty())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("arguments.graphName is required."));
+        return Result;
+    }
 
-    FString FilterClass;
+    TArray<FString> FilterClasses;
     const TSharedPtr<FJsonObject>* FilterObj = nullptr;
     if (Arguments->TryGetObjectField(TEXT("filter"), FilterObj) && FilterObj && (*FilterObj).IsValid())
     {
         const TArray<TSharedPtr<FJsonValue>>* NodeClasses = nullptr;
-        if ((*FilterObj)->TryGetArrayField(TEXT("nodeClasses"), NodeClasses) && NodeClasses && NodeClasses->Num() > 0)
+        if ((*FilterObj)->TryGetArrayField(TEXT("nodeClasses"), NodeClasses) && NodeClasses)
         {
-            (*NodeClasses)[0]->TryGetString(FilterClass);
+            for (const TSharedPtr<FJsonValue>& NodeClassValue : *NodeClasses)
+            {
+                FString NodeClass;
+                if (NodeClassValue.IsValid() && NodeClassValue->TryGetString(NodeClass) && !NodeClass.IsEmpty())
+                {
+                    FilterClasses.Add(NodeClass);
+                }
+            }
         }
     }
 
     FString NodesJson;
     FString Error;
-    const bool bOk = FilterClass.IsEmpty()
-        ? ULoomleBlueprintAdapter::ListEventGraphNodes(AssetPath, NodesJson, Error)
-        : ULoomleBlueprintAdapter::FindNodesByClass(AssetPath, FilterClass, NodesJson, Error);
+    const bool bOk = ULoomleBlueprintAdapter::ListGraphNodes(AssetPath, GraphName, NodesJson, Error);
 
     if (!bOk)
     {
         Result->SetBoolField(TEXT("isError"), true);
-        Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+        Result->SetStringField(TEXT("code"), Error.Contains(TEXT("Graph not found")) ? TEXT("GRAPH_NOT_FOUND") : TEXT("INTERNAL_ERROR"));
         Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("graph.query failed") : Error);
         return Result;
     }
@@ -1433,11 +1522,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
         Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, 1000);
     }
 
-    TArray<TSharedPtr<FJsonValue>> TrimmedNodes;
+    TArray<TSharedPtr<FJsonValue>> SnapshotNodes;
     TArray<TSharedPtr<FJsonValue>> Edges;
-    TrimmedNodes.Reserve(FMath::Min(Limit, Nodes.Num()));
+    SnapshotNodes.Reserve(FMath::Min(Limit, Nodes.Num()));
+    TArray<FString> SignatureNodeTokens;
+    TArray<FString> SignatureEdgeTokens;
 
-    for (int32 Index = 0; Index < Nodes.Num() && Index < Limit; ++Index)
+    int32 AddedCount = 0;
+    for (int32 Index = 0; Index < Nodes.Num(); ++Index)
     {
         const TSharedPtr<FJsonValue>& NodeValue = Nodes[Index];
         const TSharedPtr<FJsonObject>* NodeObj = nullptr;
@@ -1446,10 +1538,39 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
             continue;
         }
 
-        TrimmedNodes.Add(NodeValue);
+        if (FilterClasses.Num() > 0)
+        {
+            FString NodeClassPath;
+            (*NodeObj)->TryGetStringField(TEXT("nodeClassPath"), NodeClassPath);
+            if (NodeClassPath.IsEmpty())
+            {
+                (*NodeObj)->TryGetStringField(TEXT("classPath"), NodeClassPath);
+            }
+            bool bClassMatched = false;
+            for (const FString& FilterClass : FilterClasses)
+            {
+                if (NodeClassPath.Equals(FilterClass))
+                {
+                    bClassMatched = true;
+                    break;
+                }
+            }
+            if (!bClassMatched)
+            {
+                continue;
+            }
+        }
+
+        if (AddedCount >= Limit)
+        {
+            break;
+        }
+        ++AddedCount;
+        SnapshotNodes.Add(NodeValue);
 
         FString FromNodeId;
         (*NodeObj)->TryGetStringField(TEXT("guid"), FromNodeId);
+        SignatureNodeTokens.Add(FromNodeId);
         const TArray<TSharedPtr<FJsonValue>>* Pins = nullptr;
         if (!(*NodeObj)->TryGetArrayField(TEXT("pins"), Pins) || !Pins)
         {
@@ -1496,24 +1617,34 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
                 Edge->SetStringField(TEXT("toNodeId"), ToNodeId);
                 Edge->SetStringField(TEXT("toPin"), ToPin);
                 Edges.Add(MakeShared<FJsonValueObject>(Edge));
+                SignatureEdgeTokens.Add(FromNodeId + TEXT("|") + FromPin + TEXT("->") + ToNodeId + TEXT("|") + ToPin);
             }
         }
     }
 
+    Algo::Sort(SignatureNodeTokens);
+    Algo::Sort(SignatureEdgeTokens);
+    const FString Signature = FString::Join(SignatureNodeTokens, TEXT(";")) + TEXT("#") + FString::Join(SignatureEdgeTokens, TEXT(";"));
+    const FString Revision = FString::Printf(TEXT("bp:%08x"), GetTypeHash(AssetPath + TEXT("|") + GraphName + TEXT("|") + Signature));
+
+    TSharedPtr<FJsonObject> Snapshot = MakeShared<FJsonObject>();
+    Snapshot->SetStringField(TEXT("signature"), Signature);
+    Snapshot->SetArrayField(TEXT("nodes"), SnapshotNodes);
+    Snapshot->SetArrayField(TEXT("edges"), Edges);
+
     Result->SetStringField(TEXT("graphType"), GraphType);
     Result->SetStringField(TEXT("assetPath"), AssetPath);
     Result->SetStringField(TEXT("graphName"), GraphName);
-    Result->SetStringField(TEXT("revision"), FString::Printf(TEXT("bp:%08x"), GetTypeHash(AssetPath + TEXT("|") + GraphName)));
-    Result->SetArrayField(TEXT("nodes"), TrimmedNodes);
-    Result->SetArrayField(TEXT("edges"), Edges);
+    Result->SetStringField(TEXT("revision"), Revision);
+    Result->SetObjectField(TEXT("semanticSnapshot"), Snapshot);
     Result->SetStringField(TEXT("nextCursor"), TEXT(""));
-    Result->SetBoolField(TEXT("truncated"), Nodes.Num() > Limit);
 
     TSharedPtr<FJsonObject> Meta = MakeShared<FJsonObject>();
     Meta->SetNumberField(TEXT("totalNodes"), Nodes.Num());
-    Meta->SetNumberField(TEXT("returnedNodes"), TrimmedNodes.Num());
+    Meta->SetNumberField(TEXT("returnedNodes"), SnapshotNodes.Num());
     Meta->SetNumberField(TEXT("totalEdges"), Edges.Num());
     Meta->SetNumberField(TEXT("returnedEdges"), Edges.Num());
+    Meta->SetBoolField(TEXT("truncated"), AddedCount < Nodes.Num() && SnapshotNodes.Num() >= Limit);
     Result->SetObjectField(TEXT("meta"), Meta);
     Result->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
     return Result;

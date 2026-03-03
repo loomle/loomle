@@ -22,7 +22,7 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 
 ## User Command Handling Policy
 - Supported user commands: `loomle`, `context`, `live`, `execute`.
-- Agent-internal tools that should be used when needed: `graph`, `graph.query`, `graph.mutate`, `graph.watch`.
+- Agent-internal tools that should be used when needed: `graph`, `graph.list`, `graph.query`, `graph.mutate`, `graph.watch`.
 - For these commands, always call the corresponding bridge tool first, then return concise natural-language output.
 - Do not dump raw JSON by default; show raw payload only when explicitly requested.
 - JSON-RPC transport note:
@@ -61,7 +61,8 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 - `live`: incremental editor event stream pull.
 - `execute`: Python fallback for custom reads/writes.
 - `graph`: graph capability/schema descriptor.
-- `graph.query`: read graph nodes/edges.
+- `graph.list`: list readable graphs in an asset.
+- `graph.query`: read semantic graph snapshot (nodes/edges in `semanticSnapshot`).
 - `graph.mutate`: apply graph operations.
 - `graph.watch`: graph-oriented event pull.
 
@@ -135,24 +136,35 @@ print(json.dumps({
 {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"graph","arguments":{"graphType":"blueprint"}}}
 ```
 
-### `graph.query` (Read)
+### `graph.list` (Graph Enumeration)
 
 - Required: `arguments.assetPath`.
+- Request:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"graph.list","arguments":{"assetPath":"/Game/Codex/BP_BouncyPad","graphType":"blueprint"}}}
+```
+
+- Key response fields: `graphs[]`, `graphType`, `assetPath`, `diagnostics[]`.
+
+### `graph.query` (Read)
+
+- Required: `arguments.assetPath`, `arguments.graphName`.
 - `assetPath` must be long package path (example: `/Game/Codex/BP_BouncyPad`), not object path (`/Game/Codex/BP_BouncyPad.BP_BouncyPad`).
-- Optional: `graphName` (default `EventGraph`), `filter.nodeClasses`, `limit` (or implementation-supported max node options).
+- Optional: `filter.nodeClasses`, `limit` (or implementation-supported max node options).
 - Base request:
 
 ```json
-{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"graph.query","arguments":{"assetPath":"/Game/Codex/BP_BouncyPad","graphType":"blueprint","limit":200}}}
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"graph.query","arguments":{"assetPath":"/Game/Codex/BP_BouncyPad","graphName":"EventGraph","graphType":"blueprint","limit":200}}}
 ```
 
 - Filtered request:
 
 ```json
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"graph.query","arguments":{"assetPath":"/Game/Codex/BP_BouncyPad","filter":{"nodeClasses":["/Script/BlueprintGraph.K2Node_CallFunction"]}}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"graph.query","arguments":{"assetPath":"/Game/Codex/BP_BouncyPad","graphName":"EventGraph","filter":{"nodeClasses":["/Script/BlueprintGraph.K2Node_CallFunction"]}}}}
 ```
 
-- Key response fields: `nodes[]`, `edges[]`, `graphName`, `truncated`, `nextCursor`, `meta`.
+- Key response fields: `semanticSnapshot.signature`, `semanticSnapshot.nodes[]`, `semanticSnapshot.edges[]`, `graphName`, `meta`.
 
 ### `graph.mutate` (Write)
 

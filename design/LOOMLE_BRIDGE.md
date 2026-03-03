@@ -23,7 +23,7 @@ Naming:
 
 3. Tool Layer
 - Existing tools: `loomle`, `context`, `live`, `execute`.
-- New graph tools: `graph`, `graph.query`, `graph.mutate`, `graph.watch`.
+- New graph tools: `graph`, `graph.list`, `graph.query`, `graph.mutate`, `graph.watch`.
 
 4. State Layer
 - Active editor window tracker.
@@ -51,7 +51,8 @@ Naming:
 
 ## 3. Tool Routing
 
-- `graph.query` -> Adapter query path.
+- `graph.list` -> Adapter graph enumeration path.
+- `graph.query` -> Adapter semantic snapshot query path.
 - `graph.mutate` -> Adapter mutate path.
 - `graph.watch` -> Event layer pull.
 - `graph` -> static + runtime capability + schema descriptor.

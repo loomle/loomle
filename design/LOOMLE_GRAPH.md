@@ -5,7 +5,7 @@
 - Protocol: JSON-RPC 2.0 (bridge tools).
 - Graph types (v1): `blueprint`.
 - Reserved graph types: `material`, `niagara`.
-- Tools: `graph`, `graph.query`, `graph.mutate`, `graph.watch`.
+- Tools: `graph`, `graph.list`, `graph.query`, `graph.mutate`, `graph.watch`.
 
 ## 2. Tool Contracts
 
@@ -59,7 +59,34 @@ Response:
 }
 ```
 
-### 2.2 `graph.query`
+### 2.2 `graph.list`
+
+Request:
+
+```json
+{
+  "name": "graph.list",
+  "arguments": {
+    "graphType": "blueprint",
+    "assetPath": "/Game/Codex/BP_BouncyPad"
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "graphType": "blueprint",
+  "assetPath": "/Game/Codex/BP_BouncyPad",
+  "graphs": [
+    {"graphName":"EventGraph","graphKind":"Event","graphClassPath":"/Script/Engine.EdGraph"}
+  ],
+  "diagnostics": []
+}
+```
+
+### 2.3 `graph.query`
 
 Request:
 
@@ -76,11 +103,6 @@ Request:
       "text": "",
       "bbox": null
     },
-    "fields": {
-      "node": ["id","classPath","title","position","enabled","pins","extensions"],
-      "pin": ["name","direction","category","subCategory","defaultValue","links"]
-    },
-    "cursor": "",
     "limit": 200
   }
 }
@@ -94,21 +116,24 @@ Response:
   "assetPath": "/Game/Codex/BP_BouncyPad",
   "graphName": "EventGraph",
   "revision": "bp:3f8a9b26",
-  "nodes": [],
-  "edges": [],
+  "semanticSnapshot": {
+    "signature": "string",
+    "nodes": [],
+    "edges": []
+  },
   "nextCursor": "",
-  "truncated": false,
   "meta": {
     "totalNodes": 0,
     "returnedNodes": 0,
     "totalEdges": 0,
-    "returnedEdges": 0
+    "returnedEdges": 0,
+    "truncated": false
   },
   "diagnostics": []
 }
 ```
 
-### 2.3 `graph.mutate`
+### 2.4 `graph.mutate`
 
 Request:
 
@@ -143,7 +168,7 @@ Response:
 }
 ```
 
-### 2.4 `graph.watch`
+### 2.5 `graph.watch`
 
 Request:
 
@@ -179,13 +204,15 @@ Response:
 ```json
 {
   "id": "string-guid",
-  "classPath": "string",
+  "nodeClassPath": "string",
   "title": "string",
   "graphName": "string",
   "position": {"x": 0, "y": 0},
   "enabled": true,
+  "memberReference": {},
+  "functionReference": {},
   "pins": [],
-  "extensions": {}
+  "k2Extensions": {}
 }
 ```
 
@@ -195,12 +222,8 @@ Response:
 {
   "name": "string",
   "direction": "input|output",
-  "category": "string",
-  "subCategory": "string",
-  "subCategoryObject": "string",
-  "defaultValue": "string",
-  "defaultObject": "string",
-  "defaultText": "string",
+  "type": {"category":"string","subCategory":"string","object":"string","container":"none|array|set|map"},
+  "default": {"value":"string","object":"string","text":"string"},
   "links": [
     {"toNodeId":"string-guid","toPin":"string"}
   ]
