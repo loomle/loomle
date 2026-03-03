@@ -2,12 +2,8 @@
 
 ## Purpose
 
-This file is execution policy for Codex.  
+This file defines execution policy for Codex.
 Human-oriented explanation lives in `./Loomle/README.md`.
-
-## Trigger
-<!--干脆删掉-->
-- If user invokes `loomle` or asks to enable/setup Loomle, run the setup flow when needed.
 
 ## Hard Constraints
 
@@ -15,47 +11,33 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 - Do not create extra top-level folders outside `./Loomle`.
 - Do not overwrite user's root `AGENTS.md`.
 
-## Setup Flow (Authoritative)
-<!--这部分也可以删掉了，安装和升级脚本都有了，这个流程没有必要了。-->
-1. Run `./Loomle/scripts/install_loomle.sh` from UE project root.
-2. Treat script output as contract checks:
-   - root `AGENTS.md` guidance line is created/updated and verified
-   - `.uproject` wiring for `AdditionalPluginDirectories` and `LoomleMcpBridge`
-   - prebuilt plugin resolution (local binary -> local build fallback)
-   - editor target build (only when prebuilt is unavailable/incompatible)
-   - editor launch
-   - bridge transport (`loomle-mcp.sock` / named pipe)
-   - MCP baseline tools
-   - Python bridge `unreal.BlueprintGraphBridge`
-
 ## Install And Upgrade
 
-- Install entrypoint stays `./Loomle/scripts/install_loomle.sh`.
-- Upgrade entrypoint stays `./Loomle/scripts/upgrade_loomle.sh`.
-- At the start of each Codex thread/session for this project, Codex should check Loomle source update status in `./Loomle` (git upstream compare).
-- If a newer upstream revision exists, Codex should proactively remind the user that they can ask in natural language (for example: "upgrade Loomle" / "update Loomle") and Codex will run the upgrade flow.
+- Install entrypoint: `./Loomle/scripts/install_loomle.sh`.
+- Upgrade entrypoint: `./Loomle/scripts/upgrade_loomle.sh`.
+- At the start of each Codex thread/session, check Loomle source update status in `./Loomle` (git upstream compare).
+- If a newer upstream revision exists, remind the user they can ask in natural language (for example: "upgrade Loomle" / "update Loomle"), and Codex will run the upgrade flow.
 - Do not auto-upgrade without explicit user confirmation.
 
 ## User Command Handling Policy
-- Command handling + user-facing translation:
-  - Supported user commands: `loomle`, `context`, `live`, `execute`.
-  - For these commands, always call the corresponding MCP tool first, then translate result into concise, user-friendly text.
-  - Do not dump raw JSON by default; only show raw payload when user explicitly asks for it.
-  - Output policy by command:
-    - `loomle`:
-      1. Summary line (core bridge status)
-      2. Capability list with short descriptions
-      3. Current status interpretation
-    - `context` / `live` / `execute`:
-      - only return the current command result in natural language
-      - do not repeat overall bridge status or capability list
-  - `execute` UX guardrail:
-    - If user only types `execute` (without Python code), do not surface raw parameter error first.
-    - Explain that `execute` is an internal Python execution command usually operated by Codex.
-    - Ask user to describe intent in natural language (what they want to do in editor), then Codex should generate and run Python via `execute`.
-  - Only when abnormal/error:
-    - append transport/protocol/version diagnostics
-    - append actionable recovery guidance (for example restart Unreal Editor)
+- Supported user commands: `loomle`, `context`, `live`, `execute`.
+- For these commands, always call the corresponding MCP tool first, then return concise natural-language output.
+- Do not dump raw JSON by default; show raw payload only when explicitly requested.
+- Output policy by command:
+  - `loomle`:
+    1. Summary line (core bridge status)
+    2. Capability list with short descriptions
+    3. Current status interpretation
+  - `context` / `live` / `execute`:
+    - Return only the current command result in natural language.
+    - Do not repeat overall bridge status or capability list.
+- `execute` UX guardrail:
+  - If user only types `execute` (without Python code), do not surface raw parameter error first.
+  - Explain that `execute` is an internal Python execution command usually operated by Codex.
+  - Ask for intent in natural language, then generate and run Python via `execute`.
+- Only when abnormal/error:
+  - Append transport/protocol/version diagnostics.
+  - Append actionable recovery guidance (for example restart Unreal Editor).
 - Live policy (intent-based, not unconditional):
   - If the user request depends on current editor state or recent user actions in UE (selection, actor/map/PIE/property changes, "I just did X in editor"), call `live` before reasoning.
   - If the user request is pure knowledge/chat and does not depend on live editor state, skip `live`.
@@ -67,8 +49,8 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 
 ## Context Capability Playbook
 
-- Use `context` as the default read path for active editor state and current selection.
-- Keep `items` as lightweight identifiers. Use `resolvedValues` for detail.
+- Use `context` as the first read path for active editor state and current selection.
+- Keep `items` lightweight. Use `resolvedValues` for detail.
 - Call order:
   - `context {}` first
   - then `context {"resolveIds":[...]}` for detail
