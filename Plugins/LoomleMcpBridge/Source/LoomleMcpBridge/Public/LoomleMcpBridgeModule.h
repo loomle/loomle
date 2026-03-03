@@ -27,7 +27,7 @@ private:
     TSharedPtr<FJsonObject> BuildLoomleToolResult() const;
 
     TSharedPtr<FJsonObject> BuildLiveToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
-    TSharedPtr<FJsonObject> BuildGetContextToolResult() const;
+    TSharedPtr<FJsonObject> BuildGetContextToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildSelectionTransformToolResult() const;
     TSharedPtr<FJsonObject> BuildExecutePythonToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     void SendEditorStreamEvent(const FString& EventName, const TSharedPtr<FJsonObject>& Data);

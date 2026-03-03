@@ -8,7 +8,6 @@ from pathlib import Path
 REQUIRED_TOOLS = {
     "loomle",
     "context",
-    "selection",
     "live",
     "execute",
 }

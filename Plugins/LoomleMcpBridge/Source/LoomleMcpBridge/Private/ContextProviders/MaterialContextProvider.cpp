@@ -4,14 +4,36 @@
 #include "Dom/JsonValue.h"
 #include "Editor.h"
 #include "Engine/Selection.h"
+#include "Framework/Application/SlateApplication.h"
 #include "IMaterialEditor.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpression.h"
 #include "MaterialGraph/MaterialGraphNode.h"
 #include "Subsystems/AssetEditorSubsystem.h"
+#include "Widgets/SWindow.h"
 
 namespace
 {
+FString GetActiveWindowTitle()
+{
+    if (!FSlateApplication::IsInitialized())
+    {
+        return FString();
+    }
+
+    TSharedPtr<SWindow> ActiveWindow = FSlateApplication::Get().GetActiveTopLevelWindow();
+    if (!ActiveWindow.IsValid())
+    {
+        const TSharedPtr<SWidget> FocusedWidget = FSlateApplication::Get().GetKeyboardFocusedWidget();
+        if (FocusedWidget.IsValid())
+        {
+            ActiveWindow = FSlateApplication::Get().FindWidgetWindow(FocusedWidget.ToSharedRef());
+        }
+    }
+
+    return ActiveWindow.IsValid() ? ActiveWindow->GetTitle().ToString() : FString();
+}
+
 UMaterial* FindEditedMaterial()
 {
     if (!GEditor)
@@ -25,16 +47,28 @@ UMaterial* FindEditedMaterial()
         return nullptr;
     }
 
+    const FString ActiveWindowTitle = GetActiveWindowTitle();
+    UMaterial* FallbackMaterial = nullptr;
+
     const TArray<UObject*> EditedAssets = AssetEditorSubsystem->GetAllEditedAssets();
     for (UObject* Asset : EditedAssets)
     {
         if (UMaterial* Material = Cast<UMaterial>(Asset))
         {
-            return Material;
+            if (!FallbackMaterial)
+            {
+                FallbackMaterial = Material;
+            }
+
+            if (!ActiveWindowTitle.IsEmpty()
+                && ActiveWindowTitle.Contains(Material->GetName(), ESearchCase::IgnoreCase))
+            {
+                return Material;
+            }
         }
     }
 
-    return nullptr;
+    return ActiveWindowTitle.IsEmpty() ? FallbackMaterial : nullptr;
 }
 
 bool CollectSelectedMaterialExpressions(TArray<UMaterialExpression*>& OutExpressions, UMaterial*& OutMaterial)

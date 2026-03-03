@@ -26,6 +26,8 @@ public class LoomleMcpBridge : ModuleRules
                 "MaterialEditor",
                 "PythonScriptPlugin",
                 "Projects",
+                "Slate",
+                "SlateCore",
                 "UnrealEd"
             });
     }

@@ -15,7 +15,7 @@ PROJECT_ROOT="$(cd "$LOOMLE_DIR/.." && pwd)"
 run_windows_installer_if_needed() {
   local uname_s uname_lc win_installer win_installer_path
   uname_s="$(uname -s 2>/dev/null || echo unknown)"
-  uname_lc="${uname_s,,}"
+  uname_lc="$(printf '%s' "$uname_s" | tr '[:upper:]' '[:lower:]')"
 
   case "$uname_lc" in
     mingw*|msys*|cygwin*)

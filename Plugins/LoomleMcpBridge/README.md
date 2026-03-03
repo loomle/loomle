@@ -35,11 +35,13 @@ From UE project root:
 ## Tools (Current)
 
 - `context`
-- `selection`
-  - Returns provider-backed graph-node selection when a supported graph editor is active:
-    - Blueprint graph nodes (`UEdGraphNode`)
-    - Material graph expressions (`UMaterialExpression`)
-  - Falls back to selected level actors (transform/bounds) when no supported graph-node selection is available.
+  - Returns unified editor snapshot including context + selection.
+  - Supports optional arguments:
+    - `resolveIds` (array of object ids for detail resolution, especially multi-select)
+    - `resolveFields` (array allowlist for resolved value fields)
+  - Default behavior:
+    - single-select auto-resolves detailed values
+    - multi-select returns selection index unless `resolveIds` is provided
 - `loomle`
   - No arguments.
   - Returns bridge health and a friendly list of currently callable capabilities (including readiness/reason).
@@ -132,6 +134,7 @@ printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n' | nc -U "$
 printf '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n' | nc -U "$SOCK"
 printf '{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"loomle","arguments":{}}}\n' | nc -U "$SOCK"
 printf '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"context","arguments":{}}}\n' | nc -U "$SOCK"
+printf '{"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"name":"context","arguments":{"resolveIds":["/Game/Map.Map:PersistentLevel.Actor_1"]}}}\n' | nc -U "$SOCK"
 printf '{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"live","arguments":{"cursor":0,"limit":20}}}\n' | nc -U "$SOCK"
 printf '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"execute","arguments":{"code":"import unreal\\nunreal.log(\\\"hello from bridge\\\")"}}}\n' | nc -U "$SOCK"
 printf '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"execute","arguments":{"mode":"eval","code":"1+2+3"}}}\n' | nc -U "$SOCK"
@@ -153,6 +156,9 @@ $writer.WriteLine('{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}')
 $reader.ReadLine()
 
 $writer.WriteLine('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"context","arguments":{}}}')
+$reader.ReadLine()
+
+$writer.WriteLine('{"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"name":"context","arguments":{"resolveIds":["/Game/Map.Map:PersistentLevel.Actor_1"]}}}')
 $reader.ReadLine()
 
 $writer.WriteLine('{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"execute","arguments":{"code":"import unreal\nunreal.log(\"hello from bridge\")"}}}')

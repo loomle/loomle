@@ -8,10 +8,32 @@
 #include "EdGraph/EdGraphNode.h"
 #include "Engine/Blueprint.h"
 #include "Engine/Selection.h"
+#include "Framework/Application/SlateApplication.h"
 #include "Subsystems/AssetEditorSubsystem.h"
+#include "Widgets/SWindow.h"
 
 namespace
 {
+FString GetActiveWindowTitle()
+{
+    if (!FSlateApplication::IsInitialized())
+    {
+        return FString();
+    }
+
+    TSharedPtr<SWindow> ActiveWindow = FSlateApplication::Get().GetActiveTopLevelWindow();
+    if (!ActiveWindow.IsValid())
+    {
+        const TSharedPtr<SWidget> FocusedWidget = FSlateApplication::Get().GetKeyboardFocusedWidget();
+        if (FocusedWidget.IsValid())
+        {
+            ActiveWindow = FSlateApplication::Get().FindWidgetWindow(FocusedWidget.ToSharedRef());
+        }
+    }
+
+    return ActiveWindow.IsValid() ? ActiveWindow->GetTitle().ToString() : FString();
+}
+
 UBlueprint* FindEditedBlueprint()
 {
     if (!GEditor)
@@ -25,16 +47,28 @@ UBlueprint* FindEditedBlueprint()
         return nullptr;
     }
 
+    const FString ActiveWindowTitle = GetActiveWindowTitle();
+    UBlueprint* FallbackBlueprint = nullptr;
+
     const TArray<UObject*> EditedAssets = AssetEditorSubsystem->GetAllEditedAssets();
     for (UObject* Asset : EditedAssets)
     {
         if (UBlueprint* Blueprint = Cast<UBlueprint>(Asset))
         {
-            return Blueprint;
+            if (!FallbackBlueprint)
+            {
+                FallbackBlueprint = Blueprint;
+            }
+
+            if (!ActiveWindowTitle.IsEmpty()
+                && ActiveWindowTitle.Contains(Blueprint->GetName(), ESearchCase::IgnoreCase))
+            {
+                return Blueprint;
+            }
         }
     }
 
-    return nullptr;
+    return ActiveWindowTitle.IsEmpty() ? FallbackBlueprint : nullptr;
 }
 
 bool CollectSelectedBlueprintNodes(TArray<UEdGraphNode*>& OutNodes, UBlueprint*& OutBlueprint)

@@ -22,6 +22,7 @@
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Character.h"
+#include "Framework/Application/SlateApplication.h"
 #include "HAL/PlatformTime.h"
 #include "IPythonScriptPlugin.h"
 #include "Json.h"
@@ -40,11 +41,13 @@
 #include "LoomleMcpPipeServer.h"
 #include "Misc/App.h"
 #include "Misc/DateTime.h"
+#include "Misc/EngineVersion.h"
 #include "Misc/FileHelper.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/UnrealType.h"
+#include "Widgets/SWindow.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogLoomleMcpBridge, Log, All);
 
@@ -191,6 +194,320 @@ bool ShouldReturnInLivePull(const TSharedPtr<FJsonObject>& EventObject)
     }
 
     return !IsLiveLifecycleEvent(EventName);
+}
+
+TSharedPtr<FJsonObject> BuildActiveWindowJson()
+{
+    TSharedPtr<FJsonObject> Window = MakeShared<FJsonObject>();
+    Window->SetBoolField(TEXT("isValid"), false);
+    Window->SetStringField(TEXT("title"), TEXT(""));
+
+    if (!FSlateApplication::IsInitialized())
+    {
+        return Window;
+    }
+
+    TSharedPtr<SWindow> ActiveWindow = FSlateApplication::Get().GetActiveTopLevelWindow();
+    if (!ActiveWindow.IsValid())
+    {
+        const TSharedPtr<SWidget> FocusedWidget = FSlateApplication::Get().GetKeyboardFocusedWidget();
+        if (FocusedWidget.IsValid())
+        {
+            ActiveWindow = FSlateApplication::Get().FindWidgetWindow(FocusedWidget.ToSharedRef());
+        }
+    }
+
+    if (!ActiveWindow.IsValid())
+    {
+        return Window;
+    }
+
+    Window->SetBoolField(TEXT("isValid"), true);
+    Window->SetStringField(TEXT("title"), ActiveWindow->GetTitle().ToString());
+    return Window;
+}
+
+bool TryReadStringArrayField(const TSharedPtr<FJsonObject>& Obj, const TCHAR* FieldName, TArray<FString>& OutValues)
+{
+    OutValues.Reset();
+    if (!Obj.IsValid())
+    {
+        return false;
+    }
+
+    const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+    if (!Obj->TryGetArrayField(FieldName, Values) || Values == nullptr)
+    {
+        return false;
+    }
+
+    for (const TSharedPtr<FJsonValue>& Value : *Values)
+    {
+        FString Text;
+        if (Value.IsValid() && Value->TryGetString(Text) && !Text.IsEmpty())
+        {
+            OutValues.Add(Text);
+        }
+    }
+
+    return true;
+}
+
+TSharedPtr<FJsonObject> CloneWithFieldAllowlist(const TSharedPtr<FJsonObject>& Source, const TSet<FString>& AllowFields)
+{
+    if (!Source.IsValid() || AllowFields.Num() == 0)
+    {
+        return Source;
+    }
+
+    TSharedPtr<FJsonObject> Filtered = MakeShared<FJsonObject>();
+    for (const FString& Field : AllowFields)
+    {
+        const TSharedPtr<FJsonValue>* Value = Source->Values.Find(Field);
+        if (Value && (*Value).IsValid())
+        {
+            Filtered->SetField(Field, *Value);
+        }
+    }
+    return Filtered;
+}
+
+TSharedPtr<FJsonObject> CloneJsonObject(const TSharedPtr<FJsonObject>& Source)
+{
+    TSharedPtr<FJsonObject> Copy = MakeShared<FJsonObject>();
+    if (!Source.IsValid())
+    {
+        return Copy;
+    }
+
+    for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Source->Values)
+    {
+        if (Pair.Value.IsValid())
+        {
+            Copy->SetField(Pair.Key, Pair.Value);
+        }
+    }
+
+    return Copy;
+}
+
+FString ToPinDirectionString(const EEdGraphPinDirection Direction)
+{
+    switch (Direction)
+    {
+    case EGPD_Input:
+        return TEXT("input");
+    case EGPD_Output:
+        return TEXT("output");
+    default:
+        return TEXT("unknown");
+    }
+}
+
+TSharedPtr<FJsonObject> BuildPinJson(const UEdGraphPin* Pin)
+{
+    TSharedPtr<FJsonObject> PinObj = MakeShared<FJsonObject>();
+    if (!Pin)
+    {
+        return PinObj;
+    }
+
+    PinObj->SetStringField(TEXT("name"), Pin->PinName.ToString());
+    PinObj->SetStringField(TEXT("direction"), ToPinDirectionString(Pin->Direction));
+    PinObj->SetStringField(TEXT("category"), Pin->PinType.PinCategory.ToString());
+    PinObj->SetStringField(TEXT("subCategory"), Pin->PinType.PinSubCategory.ToString());
+    PinObj->SetStringField(
+        TEXT("subCategoryObject"),
+        Pin->PinType.PinSubCategoryObject.IsValid() ? Pin->PinType.PinSubCategoryObject->GetPathName() : TEXT(""));
+    PinObj->SetStringField(TEXT("containerType"), StaticEnum<EPinContainerType>()->GetNameStringByValue(static_cast<int64>(Pin->PinType.ContainerType)));
+    PinObj->SetBoolField(TEXT("isReference"), Pin->PinType.bIsReference);
+    PinObj->SetBoolField(TEXT("isConst"), Pin->PinType.bIsConst);
+    PinObj->SetBoolField(TEXT("isWeakPointer"), Pin->PinType.bIsWeakPointer);
+    PinObj->SetBoolField(TEXT("isUObjectWrapper"), Pin->PinType.bIsUObjectWrapper);
+    PinObj->SetBoolField(TEXT("isValueModified"), Pin->bDefaultValueIsIgnored == false);
+    PinObj->SetStringField(TEXT("defaultValue"), Pin->DefaultValue);
+    PinObj->SetStringField(TEXT("defaultObject"), Pin->DefaultObject ? Pin->DefaultObject->GetPathName() : TEXT(""));
+    PinObj->SetStringField(TEXT("defaultText"), Pin->DefaultTextValue.ToString());
+
+    TArray<TSharedPtr<FJsonValue>> LinkedTo;
+    for (const UEdGraphPin* LinkedPin : Pin->LinkedTo)
+    {
+        if (!LinkedPin)
+        {
+            continue;
+        }
+
+        TSharedPtr<FJsonObject> LinkObj = MakeShared<FJsonObject>();
+        LinkObj->SetStringField(TEXT("pin"), LinkedPin->PinName.ToString());
+        LinkObj->SetStringField(TEXT("node"), LinkedPin->GetOwningNodeUnchecked() ? LinkedPin->GetOwningNodeUnchecked()->GetPathName() : TEXT(""));
+        LinkedTo.Add(MakeShared<FJsonValueObject>(LinkObj));
+    }
+    PinObj->SetArrayField(TEXT("linkedTo"), LinkedTo);
+
+    return PinObj;
+}
+
+TSharedPtr<FJsonObject> BuildDetailedResolvedValue(const TSharedPtr<FJsonObject>& ItemObj)
+{
+    TSharedPtr<FJsonObject> ValueObj = CloneJsonObject(ItemObj);
+    if (!ItemObj.IsValid())
+    {
+        return ValueObj;
+    }
+
+    FString ItemClass;
+    FString ItemPath;
+    ItemObj->TryGetStringField(TEXT("class"), ItemClass);
+    ItemObj->TryGetStringField(TEXT("path"), ItemPath);
+
+    if (!ItemClass.StartsWith(TEXT("/Script/BlueprintGraph.")) || ItemPath.IsEmpty())
+    {
+        return ValueObj;
+    }
+
+    UEdGraphNode* Node = FindObject<UEdGraphNode>(nullptr, *ItemPath);
+    if (!Node)
+    {
+        Node = LoadObject<UEdGraphNode>(nullptr, *ItemPath);
+    }
+    if (!Node)
+    {
+        ValueObj->SetStringField(TEXT("resolveError"), TEXT("Unable to resolve node object by path."));
+        return ValueObj;
+    }
+
+    ValueObj->SetStringField(TEXT("nodeGuid"), Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
+    ValueObj->SetStringField(TEXT("nodeTitle"), Node->GetNodeTitle(ENodeTitleType::ListView).ToString());
+    ValueObj->SetStringField(TEXT("nodeTitleFull"), Node->GetNodeTitle(ENodeTitleType::FullTitle).ToString());
+    ValueObj->SetStringField(TEXT("tooltip"), Node->GetTooltipText().ToString());
+    ValueObj->SetBoolField(TEXT("isNodeEnabled"), Node->IsNodeEnabled());
+
+    TArray<TSharedPtr<FJsonValue>> Pins;
+    Pins.Reserve(Node->Pins.Num());
+    for (const UEdGraphPin* Pin : Node->Pins)
+    {
+        Pins.Add(MakeShared<FJsonValueObject>(BuildPinJson(Pin)));
+    }
+    ValueObj->SetArrayField(TEXT("pins"), Pins);
+
+    if (const UK2Node_CallFunction* CallNode = Cast<UK2Node_CallFunction>(Node))
+    {
+        TSharedPtr<FJsonObject> FunctionObj = MakeShared<FJsonObject>();
+        const UFunction* TargetFunction = CallNode->GetTargetFunction();
+        if (TargetFunction)
+        {
+            FunctionObj->SetStringField(TEXT("name"), TargetFunction->GetName());
+            FunctionObj->SetStringField(TEXT("path"), TargetFunction->GetPathName());
+            FunctionObj->SetStringField(TEXT("ownerClass"), TargetFunction->GetOuterUClass() ? TargetFunction->GetOuterUClass()->GetPathName() : TEXT(""));
+            FunctionObj->SetBoolField(TEXT("isPure"), TargetFunction->HasAnyFunctionFlags(FUNC_BlueprintPure));
+            FunctionObj->SetBoolField(TEXT("isConst"), TargetFunction->HasAnyFunctionFlags(FUNC_Const));
+            FunctionObj->SetBoolField(TEXT("isStatic"), TargetFunction->HasAnyFunctionFlags(FUNC_Static));
+            FunctionObj->SetBoolField(TEXT("isEvent"), TargetFunction->HasAnyFunctionFlags(FUNC_Event));
+        }
+        else
+        {
+            FunctionObj->SetStringField(TEXT("resolveError"), TEXT("Target function is null."));
+        }
+        ValueObj->SetObjectField(TEXT("callFunction"), FunctionObj);
+    }
+
+    if (const UK2Node_DynamicCast* CastNode = Cast<UK2Node_DynamicCast>(Node))
+    {
+        TSharedPtr<FJsonObject> CastObj = MakeShared<FJsonObject>();
+        if (const UEdGraphPin* SourcePin = CastNode->GetCastSourcePin())
+        {
+            CastObj->SetStringField(TEXT("sourcePin"), SourcePin->PinName.ToString());
+        }
+        if (const UEdGraphPin* ResultPin = CastNode->GetCastResultPin())
+        {
+            CastObj->SetStringField(TEXT("resultPin"), ResultPin->PinName.ToString());
+            CastObj->SetStringField(
+                TEXT("targetClass"),
+                ResultPin->PinType.PinSubCategoryObject.IsValid()
+                    ? ResultPin->PinType.PinSubCategoryObject->GetPathName()
+                    : TEXT(""));
+        }
+        ValueObj->SetObjectField(TEXT("dynamicCast"), CastObj);
+    }
+
+    return ValueObj;
+}
+
+TSharedPtr<FJsonObject> BuildResolvedValuesFromSelection(
+    const TSharedPtr<FJsonObject>& Selection,
+    const TSet<FString>& RequestedIds,
+    const TSet<FString>& ResolveFields,
+    const bool bAutoResolveSingle)
+{
+    TSharedPtr<FJsonObject> Resolved = MakeShared<FJsonObject>();
+    if (!Selection.IsValid())
+    {
+        return Resolved;
+    }
+
+    const TArray<TSharedPtr<FJsonValue>>* Items = nullptr;
+    if (!Selection->TryGetArrayField(TEXT("items"), Items) || Items == nullptr)
+    {
+        return Resolved;
+    }
+
+    const int32 ItemCount = Items->Num();
+    for (const TSharedPtr<FJsonValue>& ItemValue : *Items)
+    {
+        const TSharedPtr<FJsonObject>* ItemObj = nullptr;
+        if (!ItemValue.IsValid() || !ItemValue->TryGetObject(ItemObj) || ItemObj == nullptr || !(*ItemObj).IsValid())
+        {
+            continue;
+        }
+
+        FString Id;
+        if (!(*ItemObj)->TryGetStringField(TEXT("id"), Id) || Id.IsEmpty())
+        {
+            continue;
+        }
+
+        const bool bShouldResolve = RequestedIds.Contains(Id) || (bAutoResolveSingle && ItemCount == 1);
+        if (!bShouldResolve)
+        {
+            continue;
+        }
+
+        TSharedPtr<FJsonObject> ValueObj = BuildDetailedResolvedValue(*ItemObj);
+        ValueObj = CloneWithFieldAllowlist(ValueObj, ResolveFields);
+        Resolved->SetObjectField(Id, ValueObj);
+    }
+
+    return Resolved;
+}
+
+void ApplyContextSelectionResolution(
+    const TSharedPtr<FJsonObject>& Selection,
+    const TSharedPtr<FJsonObject>& Arguments)
+{
+    if (!Selection.IsValid())
+    {
+        return;
+    }
+
+    TArray<FString> ResolveIds;
+    TArray<FString> ResolveFieldList;
+    TryReadStringArrayField(Arguments, TEXT("resolveIds"), ResolveIds);
+    TryReadStringArrayField(Arguments, TEXT("resolveFields"), ResolveFieldList);
+
+    TSet<FString> ResolveIdSet;
+    ResolveIdSet.Append(ResolveIds);
+    TSet<FString> ResolveFieldSet;
+    ResolveFieldSet.Append(ResolveFieldList);
+
+    const bool bAutoResolveSingle = true;
+    TSharedPtr<FJsonObject> ResolvedValues = BuildResolvedValuesFromSelection(
+        Selection,
+        ResolveIdSet,
+        ResolveFieldSet,
+        bAutoResolveSingle);
+
+    Selection->SetBoolField(TEXT("resolved"), ResolvedValues->Values.Num() > 0);
+    Selection->SetObjectField(TEXT("resolvedValues"), ResolvedValues);
 }
 
 }
@@ -353,16 +670,26 @@ TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildToolsListResult() const
         TSharedPtr<FJsonObject> Schema = MakeShared<FJsonObject>();
         Schema->SetStringField(TEXT("type"), TEXT("object"));
         Schema->SetArrayField(TEXT("required"), TArray<TSharedPtr<FJsonValue>>{});
-        Schema->SetObjectField(TEXT("properties"), MakeShared<FJsonObject>());
-        Tools.Add(MakeTool(TEXT("context"), TEXT("Get current UE editor context."), Schema));
-    }
+        TSharedPtr<FJsonObject> Properties = MakeShared<FJsonObject>();
+        {
+            TSharedPtr<FJsonObject> ResolveIdsProperty = MakeShared<FJsonObject>();
+            ResolveIdsProperty->SetStringField(TEXT("type"), TEXT("array"));
+            ResolveIdsProperty->SetStringField(TEXT("description"), TEXT("Optional object ids to resolve detail values for multi-selection."));
+            TSharedPtr<FJsonObject> ResolveIdsItems = MakeShared<FJsonObject>();
+            ResolveIdsItems->SetStringField(TEXT("type"), TEXT("string"));
+            ResolveIdsProperty->SetObjectField(TEXT("items"), ResolveIdsItems);
+            Properties->SetObjectField(TEXT("resolveIds"), ResolveIdsProperty);
 
-    {
-        TSharedPtr<FJsonObject> Schema = MakeShared<FJsonObject>();
-        Schema->SetStringField(TEXT("type"), TEXT("object"));
-        Schema->SetArrayField(TEXT("required"), TArray<TSharedPtr<FJsonValue>>{});
-        Schema->SetObjectField(TEXT("properties"), MakeShared<FJsonObject>());
-        Tools.Add(MakeTool(TEXT("selection"), TEXT("Get current editor selection (graph nodes when available, otherwise selected actors)."), Schema));
+            TSharedPtr<FJsonObject> ResolveFieldsProperty = MakeShared<FJsonObject>();
+            ResolveFieldsProperty->SetStringField(TEXT("type"), TEXT("array"));
+            ResolveFieldsProperty->SetStringField(TEXT("description"), TEXT("Optional field allowlist for resolved object values."));
+            TSharedPtr<FJsonObject> ResolveFieldsItems = MakeShared<FJsonObject>();
+            ResolveFieldsItems->SetStringField(TEXT("type"), TEXT("string"));
+            ResolveFieldsProperty->SetObjectField(TEXT("items"), ResolveFieldsItems);
+            Properties->SetObjectField(TEXT("resolveFields"), ResolveFieldsProperty);
+        }
+        Schema->SetObjectField(TEXT("properties"), Properties);
+        Tools.Add(MakeTool(TEXT("context"), TEXT("Get unified UE editor snapshot (context + selection)."), Schema));
     }
 
     {
@@ -447,11 +774,7 @@ TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildToolCallResult(const TShare
 
     if (Name.Equals(TEXT("context")))
     {
-        Payload = BuildGetContextToolResult();
-    }
-    else if (Name.Equals(TEXT("selection")))
-    {
-        Payload = BuildSelectionTransformToolResult();
+        Payload = BuildGetContextToolResult(Arguments);
     }
     else if (Name.Equals(TEXT("loomle")))
     {
@@ -496,39 +819,49 @@ TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildToolCallResult(const TShare
     return Result;
 }
 
-TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildGetContextToolResult() const
+TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildGetContextToolResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+    Result->SetStringField(TEXT("timestamp"), FDateTime::UtcNow().ToIso8601());
+
+    TSharedPtr<FJsonObject> Runtime = MakeShared<FJsonObject>();
+    Runtime->SetStringField(TEXT("projectName"), FApp::GetProjectName());
+    Runtime->SetStringField(TEXT("projectFilePath"), FPaths::GetProjectFilePath());
+    Runtime->SetStringField(TEXT("engineVersion"), FEngineVersion::Current().ToString(EVersionComponent::Patch));
+    UWorld* EditorWorld = nullptr;
+    if (GEditor)
+    {
+        EditorWorld = GEditor->GetEditorWorldContext().World();
+        Runtime->SetBoolField(TEXT("isPIE"), GEditor->IsPlayingSessionInEditor());
+    }
+    else
+    {
+        Runtime->SetBoolField(TEXT("isPIE"), false);
+    }
+    Runtime->SetStringField(TEXT("editorWorld"), EditorWorld ? EditorWorld->GetName() : TEXT(""));
+    Result->SetObjectField(TEXT("runtime"), Runtime);
+    Result->SetObjectField(TEXT("activeWindow"), BuildActiveWindowJson());
+
+    TSharedPtr<FJsonObject> Context = MakeShared<FJsonObject>();
+    Context->SetStringField(TEXT("source"), TEXT("legacy"));
+    Context->SetStringField(TEXT("providerId"), TEXT("none"));
     if (ContextProviderRegistry)
     {
         TSharedPtr<FJsonObject> ProviderContext;
         FName ProviderId = NAME_None;
         if (ContextProviderRegistry->BuildActiveContextSnapshot(ProviderContext, ProviderId) && ProviderContext.IsValid())
         {
-            ProviderContext->SetStringField(TEXT("source"), TEXT("provider"));
-            ProviderContext->SetStringField(TEXT("providerId"), ProviderId.ToString());
-            return ProviderContext;
+            Context = ProviderContext;
+            Context->SetStringField(TEXT("source"), TEXT("provider"));
+            Context->SetStringField(TEXT("providerId"), ProviderId.ToString());
         }
     }
+    Result->SetObjectField(TEXT("context"), Context);
 
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-
-    Result->SetBoolField(TEXT("isError"), false);
-    Result->SetStringField(TEXT("projectName"), FApp::GetProjectName());
-    Result->SetStringField(TEXT("projectFilePath"), FPaths::GetProjectFilePath());
-
-    UWorld* EditorWorld = nullptr;
-    if (GEditor)
-    {
-        EditorWorld = GEditor->GetEditorWorldContext().World();
-        Result->SetBoolField(TEXT("isPIE"), GEditor->IsPlayingSessionInEditor());
-    }
-    else
-    {
-        Result->SetBoolField(TEXT("isPIE"), false);
-    }
-
-    Result->SetStringField(TEXT("editorWorld"), EditorWorld ? EditorWorld->GetName() : TEXT(""));
-    Result->SetStringField(TEXT("source"), TEXT("legacy"));
+    TSharedPtr<FJsonObject> Selection = BuildSelectionTransformToolResult();
+    ApplyContextSelectionResolution(Selection, Arguments);
+    Result->SetObjectField(TEXT("selection"), Selection);
 
     return Result;
 }
@@ -576,7 +909,6 @@ TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildLoomleToolResult() const
     TArray<TSharedPtr<FJsonValue>> Capabilities;
     Capabilities.Add(MakeCapability(TEXT("loomle"), TEXT("Bridge health and capabilities."), bBridgeRunning, bBridgeRunning ? TEXT("") : TEXT("Bridge server is not running.")));
     Capabilities.Add(MakeCapability(TEXT("context"), TEXT("Current editor context."), bBridgeRunning, bBridgeRunning ? TEXT("") : TEXT("Bridge server is not running.")));
-    Capabilities.Add(MakeCapability(TEXT("selection"), TEXT("Current editor selection with graph-node support."), bBridgeRunning, bBridgeRunning ? TEXT("") : TEXT("Bridge server is not running.")));
     Capabilities.Add(MakeCapability(TEXT("live"), TEXT("Incremental live event feed by cursor."), bBridgeRunning && bLiveRunning, bLiveRunning ? TEXT("") : TEXT("Live stream is not running. Restart Unreal Editor.")));
     Capabilities.Add(MakeCapability(TEXT("execute"), TEXT("Execute Python in editor."), bPythonReady, bPythonReady ? TEXT("") : TEXT("Python runtime is not initialized yet.")));
     Result->SetArrayField(TEXT("capabilities"), Capabilities);
@@ -772,7 +1104,9 @@ TSharedPtr<FJsonObject> FLoomleMcpBridgeModule::BuildSelectionTransformToolResul
                 AggregateBox += (BoundsOrigin + BoundsExtent);
 
                 TSharedPtr<FJsonObject> Item = MakeShared<FJsonObject>();
+                Item->SetStringField(TEXT("id"), Actor->GetPathName());
                 Item->SetStringField(TEXT("name"), Actor->GetActorLabel());
+                Item->SetStringField(TEXT("class"), Actor->GetClass() ? Actor->GetClass()->GetPathName() : TEXT(""));
                 Item->SetStringField(TEXT("path"), Actor->GetPathName());
 
                 TSharedPtr<FJsonObject> LocationObj = MakeShared<FJsonObject>();

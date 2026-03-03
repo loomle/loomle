@@ -8,6 +8,7 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 ## Trigger
 
 - If user asks to enable `LOOMLE`, run this flow.
+<!---这条已经过时了感觉，我们已经把loomle定义成一个命令了-->
 
 ## Hard Constraints
 
@@ -15,6 +16,7 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 - Do not create extra top-level folders outside `./Loomle`.
 - Do not overwrite user's root `AGENTS.md`.
 - Do not reintroduce deprecated MCP tools.
+<!--- 最后这一条删掉 -->
 
 ## Setup Flow (Authoritative)
 
@@ -36,16 +38,13 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 - At the start of each Codex thread/session for this project, Codex should check Loomle source update status in `./Loomle` (git upstream compare).
 - If a newer upstream revision exists, Codex should proactively remind the user with the exact command:
   - `./Loomle/scripts/upgrade_loomle.sh`
+  <!--- 这句不对，用户只需要用自然语言说升级，update之类的，就可以了。不要让用户做执行脚本命令。-->
 - Do not auto-upgrade without explicit user confirmation.
 
 ## Runtime Policy
-
-- Preferred automation path: `execute` + `unreal.BlueprintGraphBridge`.
-- Apply Anti-Entropy Principle:
-  - remove superseded paths quickly
-  - keep one source of truth per capability
+<!--这部分的标题应该是类似如何处理用户的输入指令-->
 - Command handling + user-facing translation:
-  - Supported user commands: `loomle`, `context`, `selection`, `live`, `execute`.
+  - Supported user commands: `loomle`, `context`, `live`, `execute`.
   - For these commands, always call the corresponding MCP tool first, then translate result into concise, user-friendly text.
   - Do not dump raw JSON by default; only show raw payload when user explicitly asks for it.
   - Output policy by command:
@@ -53,7 +52,7 @@ Human-oriented explanation lives in `./Loomle/README.md`.
       1. Summary line (core bridge status)
       2. Capability list with short descriptions
       3. Current status interpretation
-    - `context` / `selection` / `live` / `execute`:
+    - `context` / `live` / `execute`:
       - only return the current command result in natural language
       - do not repeat overall bridge status or capability list
   - `execute` UX guardrail:
@@ -71,3 +70,62 @@ Human-oriented explanation lives in `./Loomle/README.md`.
     - subsequent pulls: use previous `nextCursor`
   - Keep pull bounded (`limit` <= 100) and prefer small windows unless user asks for full history.
   - If live pull fails or cursor is stale, recover from `Loomle/runtime/live_events.jsonl` as fallback context.
+
+## Context Capability Playbook
+
+- Use `context` as the default read path for active editor state and current selection.
+- Keep `items` as lightweight identifiers. Use `resolvedValues` for detail.
+- Call order:
+  - `context {}` first
+  - then `context {"resolveIds":[...]}` for detail
+  - optionally add `resolveFields` to reduce payload
+
+### `context` Request Templates
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"context","arguments":{}}}
+```
+
+```json
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"context","arguments":{"resolveIds":["<id1>","<id2>"]}}}
+```
+
+```json
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"context","arguments":{"resolveIds":["<id1>"],"resolveFields":["id","name","class","nodeTitle","pins","callFunction","dynamicCast"]}}}
+```
+
+### `context` Response Shape (Selection)
+
+- `selection.items[]` (lightweight): `id,name,class,path,nodePosX,nodePosY,graphName,graphPath`
+- `selection.resolvedValues[id]` (detailed, when resolved):
+  - common: `nodeGuid,nodeTitle,nodeTitleFull,tooltip,isNodeEnabled,pins`
+  - `K2Node_CallFunction`: `callFunction{name,path,ownerClass,isPure,isConst,isStatic,isEvent}`
+  - `K2Node_DynamicCast`: `dynamicCast{sourcePin,resultPin,targetClass}`
+
+### When To Use `execute` (Python)
+
+- Use `execute` when any of these apply:
+  - cross-graph or cross-asset traversal
+  - fields not present in `context`
+  - custom aggregation/output schema
+  - any write action (create/connect/update graph elements)
+- Do not rely on `context` for C++ function body source text. Use reflection data only.
+
+### Minimal Python Read Example (`execute`)
+
+```python
+import unreal, json
+
+node = unreal.load_object(None, "/Game/Codex/BP_BouncyPad.BP_BouncyPad:EventGraph.K2Node_CallFunction_0")
+print(json.dumps({
+    "class": node.get_class().get_path_name(),
+    "name": node.get_name(),
+    "full_name": node.get_full_name()
+}, ensure_ascii=False))
+```
+
+### Hard Rules For Agents
+<!--这整个部分的三条感觉都不需要，只需要一条去提醒不要通过改Bridge源码的方式去获得更强大的context，python足够了-->
+- Do not assume every node has `callFunction` or `dynamicCast`.
+- If selection is empty, return "no selected items" and stop.
+- Prefer `context` for read queries; switch to `execute` only when needed.
