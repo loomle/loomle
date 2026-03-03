@@ -460,7 +460,7 @@ try {
                     $toolNames[[string]$tool.name] = $true
                 }
             }
-            $requiredTools = @('loomle', 'context', 'selection', 'live', 'execute')
+            $requiredTools = @('loomle', 'graph', 'graph.query', 'graph.mutate', 'graph.watch', 'context', 'live', 'execute')
             $missing = @()
             foreach ($required in $requiredTools) {
                 if (-not $toolNames.ContainsKey($required)) {
@@ -476,14 +476,14 @@ try {
                 name = 'execute'
                 arguments = @{
                     mode = 'exec'
-                    code = "import unreal`nassert hasattr(unreal, 'BlueprintGraphBridge')"
+                    code = "import unreal`nassert hasattr(unreal, 'LoomeBlueprintAdapter')"
                 }
             }
             $execPayload = Parse-ToolPayload -Response $execResp -MethodName 'tools/call.execute'
             if ($execPayload.PSObject.Properties.Name -contains 'isError' -and (Convert-ToBool $execPayload.isError)) {
                 Fail ("execute failed: " + [string]$execPayload.message)
             }
-            Pass 'unreal.BlueprintGraphBridge is available'
+            Pass 'unreal.LoomeBlueprintAdapter is available'
         }
         finally {
             if ($null -ne $writer) { $writer.Dispose() }

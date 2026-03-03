@@ -74,9 +74,9 @@ From UE project root:
   - Required argument: `code` (inline Python string)
   - Optional argument: `mode` (`exec` default, or `eval`)
 
-## BlueprintGraphBridge (C++ API exposed to Python)
+## LoomeBlueprintAdapter (C++ API exposed to Python)
 
-`BlueprintGraphBridge` is a `UBlueprintFunctionLibrary` exposed as `unreal.BlueprintGraphBridge`.
+`LoomeBlueprintAdapter` is a `UBlueprintFunctionLibrary` exposed as `unreal.LoomeBlueprintAdapter`.
 Use it through `execute` for programmable, Python-driven BP construction.
 
 Exposed methods:
@@ -94,6 +94,9 @@ Exposed methods:
 - `add_call_function_node(blueprint_asset_path, function_class_path, function_name, node_pos_x, node_pos_y)`
 - `connect_pins(blueprint_asset_path, from_node_guid, from_pin_name, to_node_guid, to_pin_name)`
 - `set_pin_default_value(blueprint_asset_path, node_guid, pin_name, value)`
+- `list_event_graph_nodes(blueprint_asset_path)`
+- `get_node_details(blueprint_asset_path, node_guid)`
+- `find_nodes_by_class(blueprint_asset_path, node_class_path_or_name)`
 - `compile_blueprint(blueprint_asset_path)`
 - `spawn_blueprint_actor(blueprint_asset_path, location, rotation)`
 
@@ -101,7 +104,7 @@ Exposed methods:
 
 ```python
 import unreal
-B = unreal.BlueprintGraphBridge
+B = unreal.LoomeBlueprintAdapter
 asset = "/Game/Codex/BP_PyBridgePad_Visible"
 
 obj_path, err = B.create_blueprint(asset, "/Script/Engine.Actor")
@@ -124,6 +127,33 @@ err = B.connect_pins(asset, cast_guid, "As Character", launch_guid, "self")
 err = B.set_pin_default_value(asset, launch_guid, "LaunchVelocity", "(X=0.0,Y=0.0,Z=1700.0)")
 
 err = B.compile_blueprint(asset)
+```
+
+## Read graph data (via `execute`)
+
+```python
+import unreal, json
+B = unreal.LoomeBlueprintAdapter
+asset = "/Game/Codex/BP_BouncyPad"
+
+nodes_json, err = B.list_event_graph_nodes(asset)
+if err:
+    raise RuntimeError(err)
+
+nodes = json.loads(nodes_json)
+print("node_count:", len(nodes))
+
+cast_nodes_json, err = B.find_nodes_by_class(asset, "K2Node_DynamicCast")
+if err:
+    raise RuntimeError(err)
+
+cast_nodes = json.loads(cast_nodes_json)
+if cast_nodes:
+    first_guid = cast_nodes[0]["guid"]
+    detail_json, err = B.get_node_details(asset, first_guid)
+    if err:
+        raise RuntimeError(err)
+    print(detail_json)
 ```
 
 ## Quick test (macOS/Linux)

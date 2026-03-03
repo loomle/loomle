@@ -7,6 +7,10 @@ from pathlib import Path
 
 REQUIRED_TOOLS = {
     "loomle",
+    "graph",
+    "graph.query",
+    "graph.mutate",
+    "graph.watch",
     "context",
     "live",
     "execute",
@@ -112,14 +116,14 @@ def main() -> int:
                 "name": "execute",
                 "arguments": {
                     "mode": "exec",
-                    "code": "import unreal\nassert hasattr(unreal, 'BlueprintGraphBridge')",
+                    "code": "import unreal\nassert hasattr(unreal, 'LoomeBlueprintAdapter')",
                 },
             },
         )
         exec_payload = parse_tool_payload(exec_resp, "tools/call.execute")
         if exec_payload.get("isError"):
             fail(f"execute failed: {exec_payload.get('message') or exec_payload}")
-        print("[PASS] unreal.BlueprintGraphBridge is available")
+        print("[PASS] unreal.LoomeBlueprintAdapter is available")
 
     print("[PASS] Bridge verification complete")
     return 0

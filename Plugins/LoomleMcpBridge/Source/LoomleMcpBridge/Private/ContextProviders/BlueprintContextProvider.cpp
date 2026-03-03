@@ -49,6 +49,8 @@ UBlueprint* FindEditedBlueprint()
 
     const FString ActiveWindowTitle = GetActiveWindowTitle();
     UBlueprint* FallbackBlueprint = nullptr;
+    UBlueprint* BestTitleMatchBlueprint = nullptr;
+    int32 BestTitleMatchNameLen = -1;
 
     const TArray<UObject*> EditedAssets = AssetEditorSubsystem->GetAllEditedAssets();
     for (UObject* Asset : EditedAssets)
@@ -63,9 +65,19 @@ UBlueprint* FindEditedBlueprint()
             if (!ActiveWindowTitle.IsEmpty()
                 && ActiveWindowTitle.Contains(Blueprint->GetName(), ESearchCase::IgnoreCase))
             {
-                return Blueprint;
+                const int32 NameLen = Blueprint->GetName().Len();
+                if (NameLen > BestTitleMatchNameLen)
+                {
+                    BestTitleMatchNameLen = NameLen;
+                    BestTitleMatchBlueprint = Blueprint;
+                }
             }
         }
+    }
+
+    if (BestTitleMatchBlueprint)
+    {
+        return BestTitleMatchBlueprint;
     }
 
     return ActiveWindowTitle.IsEmpty() ? FallbackBlueprint : nullptr;

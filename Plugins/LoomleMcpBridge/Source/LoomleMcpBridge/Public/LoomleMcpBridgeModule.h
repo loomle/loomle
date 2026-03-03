@@ -25,6 +25,10 @@ private:
     TSharedPtr<FJsonObject> BuildToolsListResult() const;
     TSharedPtr<FJsonObject> BuildToolCallResult(const TSharedPtr<FJsonObject>& Params);
     TSharedPtr<FJsonObject> BuildLoomleToolResult() const;
+    TSharedPtr<FJsonObject> BuildGraphToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+    TSharedPtr<FJsonObject> BuildGraphQueryToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+    TSharedPtr<FJsonObject> BuildGraphMutateToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+    TSharedPtr<FJsonObject> BuildGraphWatchToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
 
     TSharedPtr<FJsonObject> BuildLiveToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildGetContextToolResult(const TSharedPtr<FJsonObject>& Arguments) const;

@@ -6,7 +6,7 @@ set -euo pipefail
 # 2) Resolve plugin binary (compatible local prebuilt first, local build fallback)
 # 3) Launch Unreal Editor
 # 4) Verify bridge transport endpoint (socket / named pipe equivalent)
-# 5) Verify MCP baseline tools (loomle/context/selection/live/execute) and unreal.BlueprintGraphBridge
+# 5) Verify MCP baseline tools (loomle/graph/graph.query/graph.mutate/graph.watch/context/live/execute) and unreal.LoomeBlueprintAdapter
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOOMLE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"

@@ -1,4 +1,4 @@
-#include "BlueprintGraphBridge.h"
+#include "LoomeBlueprintAdapter.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Components/BoxComponent.h"
@@ -17,11 +17,14 @@
 #include "K2Node_CallFunction.h"
 #include "K2Node_DynamicCast.h"
 #include "K2Node_Event.h"
+#include "Misc/Guid.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 #include "Misc/PackageName.h"
 
-namespace BlueprintGraphBridgeInternal
+namespace LoomeBlueprintAdapterInternal
 {
     static UBlueprint* LoadBlueprintByAssetPath(const FString& AssetPath)
     {
@@ -182,9 +185,132 @@ namespace BlueprintGraphBridgeInternal
         }
         return nullptr;
     }
+
+    static FString PinDirectionToString(EEdGraphPinDirection Direction)
+    {
+        switch (Direction)
+        {
+            case EGPD_Input:
+                return TEXT("input");
+            case EGPD_Output:
+                return TEXT("output");
+            default:
+                return TEXT("unknown");
+        }
+    }
+
+    static TSharedPtr<FJsonObject> SerializePin(const UEdGraphPin* Pin)
+    {
+        TSharedPtr<FJsonObject> PinObject = MakeShared<FJsonObject>();
+        if (!Pin)
+        {
+            return PinObject;
+        }
+
+        PinObject->SetStringField(TEXT("name"), Pin->PinName.ToString());
+        PinObject->SetStringField(TEXT("direction"), PinDirectionToString(Pin->Direction));
+        PinObject->SetStringField(TEXT("category"), Pin->PinType.PinCategory.ToString());
+        PinObject->SetStringField(TEXT("subCategory"), Pin->PinType.PinSubCategory.ToString());
+        PinObject->SetStringField(TEXT("subCategoryObject"), Pin->PinType.PinSubCategoryObject.IsValid() ? Pin->PinType.PinSubCategoryObject->GetPathName() : TEXT(""));
+        PinObject->SetBoolField(TEXT("isReference"), Pin->PinType.bIsReference);
+        PinObject->SetBoolField(TEXT("isConst"), Pin->PinType.bIsConst);
+        PinObject->SetBoolField(TEXT("isArray"), Pin->PinType.ContainerType == EPinContainerType::Array);
+        PinObject->SetStringField(TEXT("defaultValue"), Pin->DefaultValue);
+        PinObject->SetStringField(TEXT("defaultObject"), Pin->DefaultObject ? Pin->DefaultObject->GetPathName() : TEXT(""));
+        PinObject->SetStringField(TEXT("defaultText"), Pin->DefaultTextValue.ToString());
+
+        TArray<TSharedPtr<FJsonValue>> Links;
+        for (const UEdGraphPin* LinkedPin : Pin->LinkedTo)
+        {
+            if (!LinkedPin)
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> LinkObject = MakeShared<FJsonObject>();
+            LinkObject->SetStringField(TEXT("pin"), LinkedPin->PinName.ToString());
+
+            const UEdGraphNode* LinkedNode = LinkedPin->GetOwningNodeUnchecked();
+            if (LinkedNode)
+            {
+                LinkObject->SetStringField(TEXT("nodeName"), LinkedNode->GetName());
+                LinkObject->SetStringField(TEXT("nodeGuid"), LinkedNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens));
+                LinkObject->SetStringField(TEXT("nodePath"), LinkedNode->GetPathName());
+            }
+
+            Links.Add(MakeShared<FJsonValueObject>(LinkObject));
+        }
+        PinObject->SetArrayField(TEXT("linkedTo"), Links);
+
+        return PinObject;
+    }
+
+    static TSharedPtr<FJsonObject> SerializeNode(const UEdGraphNode* Node)
+    {
+        TSharedPtr<FJsonObject> NodeObject = MakeShared<FJsonObject>();
+        if (!Node)
+        {
+            return NodeObject;
+        }
+
+        NodeObject->SetStringField(TEXT("name"), Node->GetName());
+        NodeObject->SetStringField(TEXT("guid"), Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens));
+        NodeObject->SetStringField(TEXT("className"), Node->GetClass()->GetName());
+        NodeObject->SetStringField(TEXT("classPath"), Node->GetClass()->GetPathName());
+        NodeObject->SetStringField(TEXT("path"), Node->GetPathName());
+        NodeObject->SetNumberField(TEXT("nodePosX"), Node->NodePosX);
+        NodeObject->SetNumberField(TEXT("nodePosY"), Node->NodePosY);
+        NodeObject->SetStringField(TEXT("nodeTitle"), Node->GetNodeTitle(ENodeTitleType::ListView).ToString());
+        NodeObject->SetStringField(TEXT("nodeTitleFull"), Node->GetNodeTitle(ENodeTitleType::FullTitle).ToString());
+        NodeObject->SetBoolField(TEXT("isNodeEnabled"), Node->IsNodeEnabled());
+
+        TArray<TSharedPtr<FJsonValue>> Pins;
+        for (const UEdGraphPin* Pin : Node->Pins)
+        {
+            Pins.Add(MakeShared<FJsonValueObject>(SerializePin(Pin)));
+        }
+        NodeObject->SetArrayField(TEXT("pins"), Pins);
+
+        return NodeObject;
+    }
+
+    static FString JsonObjectToString(const TSharedPtr<FJsonObject>& Object)
+    {
+        FString Output;
+        TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Output);
+        FJsonSerializer::Serialize(Object.ToSharedRef(), Writer);
+        return Output;
+    }
+
+    static FString JsonArrayToString(const TArray<TSharedPtr<FJsonValue>>& ArrayValues)
+    {
+        FString Output;
+        TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Output);
+        FJsonSerializer::Serialize(ArrayValues, Writer);
+        return Output;
+    }
+
+    static bool NodeClassMatches(const UEdGraphNode* Node, const FString& Filter)
+    {
+        if (!Node || Filter.IsEmpty())
+        {
+            return false;
+        }
+
+        const FString NormalizedFilter = NormalizePinToken(Filter);
+        const UClass* NodeClass = Node->GetClass();
+        if (!NodeClass)
+        {
+            return false;
+        }
+
+        const FString ClassName = NormalizePinToken(NodeClass->GetName());
+        const FString ClassPath = NormalizePinToken(NodeClass->GetPathName());
+        return ClassName.Equals(NormalizedFilter) || ClassPath.Equals(NormalizedFilter);
+    }
 }
 
-bool UBlueprintGraphBridge::CreateBlueprint(const FString& AssetPath, const FString& ParentClassPath, FString& OutBlueprintObjectPath, FString& OutError)
+bool ULoomeBlueprintAdapter::CreateBlueprint(const FString& AssetPath, const FString& ParentClassPath, FString& OutBlueprintObjectPath, FString& OutError)
 {
     OutBlueprintObjectPath.Empty();
     OutError.Empty();
@@ -195,7 +321,7 @@ bool UBlueprintGraphBridge::CreateBlueprint(const FString& AssetPath, const FStr
         return false;
     }
 
-    if (UBlueprint* Existing = BlueprintGraphBridgeInternal::LoadBlueprintByAssetPath(AssetPath))
+    if (UBlueprint* Existing = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(AssetPath))
     {
         const FString AssetName = FPackageName::GetLongPackageAssetName(AssetPath);
         OutBlueprintObjectPath = FString::Printf(TEXT("%s.%s"), *AssetPath, *AssetName);
@@ -203,7 +329,7 @@ bool UBlueprintGraphBridge::CreateBlueprint(const FString& AssetPath, const FStr
         return true;
     }
 
-    UClass* ParentClass = BlueprintGraphBridgeInternal::ResolveClass(ParentClassPath);
+    UClass* ParentClass = LoomeBlueprintAdapterInternal::ResolveClass(ParentClassPath);
     if (!ParentClass || !ParentClass->IsChildOf(AActor::StaticClass()))
     {
         OutError = FString::Printf(TEXT("Failed to resolve actor parent class: %s"), *ParentClassPath);
@@ -239,17 +365,17 @@ bool UBlueprintGraphBridge::CreateBlueprint(const FString& AssetPath, const FStr
     return true;
 }
 
-bool UBlueprintGraphBridge::AddComponent(const FString& BlueprintAssetPath, const FString& ComponentClassPath, const FString& ComponentName, const FString& ParentComponentName, FString& OutError)
+bool ULoomeBlueprintAdapter::AddComponent(const FString& BlueprintAssetPath, const FString& ComponentClassPath, const FString& ComponentName, const FString& ParentComponentName, FString& OutError)
 {
     OutError.Empty();
-    UBlueprint* Blueprint = BlueprintGraphBridgeInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
     if (!Blueprint || !Blueprint->SimpleConstructionScript)
     {
         OutError = FString::Printf(TEXT("Blueprint not found or no SCS: %s"), *BlueprintAssetPath);
         return false;
     }
 
-    UClass* ComponentClass = BlueprintGraphBridgeInternal::ResolveClass(ComponentClassPath);
+    UClass* ComponentClass = LoomeBlueprintAdapterInternal::ResolveClass(ComponentClassPath);
     if (!ComponentClass || !ComponentClass->IsChildOf(UActorComponent::StaticClass()))
     {
         OutError = FString::Printf(TEXT("Failed to resolve component class: %s"), *ComponentClassPath);
@@ -291,11 +417,11 @@ bool UBlueprintGraphBridge::AddComponent(const FString& BlueprintAssetPath, cons
     return true;
 }
 
-bool UBlueprintGraphBridge::SetStaticMeshComponentAsset(const FString& BlueprintAssetPath, const FString& ComponentName, const FString& MeshAssetPath, FString& OutError)
+bool ULoomeBlueprintAdapter::SetStaticMeshComponentAsset(const FString& BlueprintAssetPath, const FString& ComponentName, const FString& MeshAssetPath, FString& OutError)
 {
     OutError.Empty();
-    UBlueprint* Blueprint = BlueprintGraphBridgeInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    USCS_Node* Node = BlueprintGraphBridgeInternal::FindComponentNode(Blueprint, ComponentName);
+    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    USCS_Node* Node = LoomeBlueprintAdapterInternal::FindComponentNode(Blueprint, ComponentName);
     UStaticMeshComponent* MeshComp = Node ? Cast<UStaticMeshComponent>(Node->ComponentTemplate) : nullptr;
     UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *MeshAssetPath);
     if (!Blueprint || !MeshComp || !Mesh)
@@ -309,11 +435,11 @@ bool UBlueprintGraphBridge::SetStaticMeshComponentAsset(const FString& Blueprint
     return true;
 }
 
-bool UBlueprintGraphBridge::SetSceneComponentRelativeLocation(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Location, FString& OutError)
+bool ULoomeBlueprintAdapter::SetSceneComponentRelativeLocation(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Location, FString& OutError)
 {
     OutError.Empty();
-    UBlueprint* Blueprint = BlueprintGraphBridgeInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    USCS_Node* Node = BlueprintGraphBridgeInternal::FindComponentNode(Blueprint, ComponentName);
+    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    USCS_Node* Node = LoomeBlueprintAdapterInternal::FindComponentNode(Blueprint, ComponentName);
     USceneComponent* Comp = Node ? Cast<USceneComponent>(Node->ComponentTemplate) : nullptr;
     if (!Blueprint || !Comp)
     {
@@ -326,11 +452,11 @@ bool UBlueprintGraphBridge::SetSceneComponentRelativeLocation(const FString& Blu
     return true;
 }
 
-bool UBlueprintGraphBridge::SetSceneComponentRelativeScale3D(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Scale3D, FString& OutError)
+bool ULoomeBlueprintAdapter::SetSceneComponentRelativeScale3D(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Scale3D, FString& OutError)
 {
     OutError.Empty();
-    UBlueprint* Blueprint = BlueprintGraphBridgeInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    USCS_Node* Node = BlueprintGraphBridgeInternal::FindComponentNode(Blueprint, ComponentName);
+    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    USCS_Node* Node = LoomeBlueprintAdapterInternal::FindComponentNode(Blueprint, ComponentName);
     USceneComponent* Comp = Node ? Cast<USceneComponent>(Node->ComponentTemplate) : nullptr;
     if (!Blueprint || !Comp)
     {
@@ -343,11 +469,11 @@ bool UBlueprintGraphBridge::SetSceneComponentRelativeScale3D(const FString& Blue
     return true;
 }
 
-bool UBlueprintGraphBridge::SetPrimitiveComponentCollisionEnabled(const FString& BlueprintAssetPath, const FString& ComponentName, const FString& CollisionMode, FString& OutError)
+bool ULoomeBlueprintAdapter::SetPrimitiveComponentCollisionEnabled(const FString& BlueprintAssetPath, const FString& ComponentName, const FString& CollisionMode, FString& OutError)
 {
     OutError.Empty();
-    UBlueprint* Blueprint = BlueprintGraphBridgeInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    USCS_Node* Node = BlueprintGraphBridgeInternal::FindComponentNode(Blueprint, ComponentName);
+    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    USCS_Node* Node = LoomeBlueprintAdapterInternal::FindComponentNode(Blueprint, ComponentName);
     UPrimitiveComponent* Comp = Node ? Cast<UPrimitiveComponent>(Node->ComponentTemplate) : nullptr;
     if (!Blueprint || !Comp)
     {
@@ -378,11 +504,11 @@ bool UBlueprintGraphBridge::SetPrimitiveComponentCollisionEnabled(const FString&
     return true;
 }
 
-bool UBlueprintGraphBridge::SetBoxComponentExtent(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Extent, FString& OutError)
+bool ULoomeBlueprintAdapter::SetBoxComponentExtent(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Extent, FString& OutError)
 {
     OutError.Empty();
-    UBlueprint* Blueprint = BlueprintGraphBridgeInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    USCS_Node* Node = BlueprintGraphBridgeInternal::FindComponentNode(Blueprint, ComponentName);
+    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    USCS_Node* Node = LoomeBlueprintAdapterInternal::FindComponentNode(Blueprint, ComponentName);
     UBoxComponent* Comp = Node ? Cast<UBoxComponent>(Node->ComponentTemplate) : nullptr;
     if (!Blueprint || !Comp)
     {
@@ -395,11 +521,11 @@ bool UBlueprintGraphBridge::SetBoxComponentExtent(const FString& BlueprintAssetP
     return true;
 }
 
-bool UBlueprintGraphBridge::SetPrimitiveComponentGenerateOverlapEvents(const FString& BlueprintAssetPath, const FString& ComponentName, bool bGenerate, FString& OutError)
+bool ULoomeBlueprintAdapter::SetPrimitiveComponentGenerateOverlapEvents(const FString& BlueprintAssetPath, const FString& ComponentName, bool bGenerate, FString& OutError)
 {
     OutError.Empty();
-    UBlueprint* Blueprint = BlueprintGraphBridgeInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    USCS_Node* Node = BlueprintGraphBridgeInternal::FindComponentNode(Blueprint, ComponentName);
+    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    USCS_Node* Node = LoomeBlueprintAdapterInternal::FindComponentNode(Blueprint, ComponentName);
     UPrimitiveComponent* Comp = Node ? Cast<UPrimitiveComponent>(Node->ComponentTemplate) : nullptr;
     if (!Blueprint || !Comp)
     {
@@ -412,14 +538,14 @@ bool UBlueprintGraphBridge::SetPrimitiveComponentGenerateOverlapEvents(const FSt
     return true;
 }
 
-bool UBlueprintGraphBridge::AddEventNode(const FString& BlueprintAssetPath, const FString& EventName, const FString& EventClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool ULoomeBlueprintAdapter::AddEventNode(const FString& BlueprintAssetPath, const FString& EventName, const FString& EventClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
 
-    UBlueprint* Blueprint = BlueprintGraphBridgeInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = BlueprintGraphBridgeInternal::GetEventGraph(Blueprint);
-    UClass* EventClass = BlueprintGraphBridgeInternal::ResolveClass(EventClassPath);
+    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomeBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UClass* EventClass = LoomeBlueprintAdapterInternal::ResolveClass(EventClassPath);
     if (!Blueprint || !EventGraph || !EventClass)
     {
         OutError = TEXT("Failed to resolve blueprint/event graph/event class.");
@@ -440,14 +566,14 @@ bool UBlueprintGraphBridge::AddEventNode(const FString& BlueprintAssetPath, cons
     return true;
 }
 
-bool UBlueprintGraphBridge::AddCastNode(const FString& BlueprintAssetPath, const FString& TargetClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool ULoomeBlueprintAdapter::AddCastNode(const FString& BlueprintAssetPath, const FString& TargetClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
 
-    UBlueprint* Blueprint = BlueprintGraphBridgeInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = BlueprintGraphBridgeInternal::GetEventGraph(Blueprint);
-    UClass* TargetClass = BlueprintGraphBridgeInternal::ResolveClass(TargetClassPath);
+    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomeBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UClass* TargetClass = LoomeBlueprintAdapterInternal::ResolveClass(TargetClassPath);
     if (!Blueprint || !EventGraph || !TargetClass)
     {
         OutError = TEXT("Failed to resolve blueprint/event graph/target class.");
@@ -467,14 +593,14 @@ bool UBlueprintGraphBridge::AddCastNode(const FString& BlueprintAssetPath, const
     return true;
 }
 
-bool UBlueprintGraphBridge::AddCallFunctionNode(const FString& BlueprintAssetPath, const FString& FunctionClassPath, const FString& FunctionName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool ULoomeBlueprintAdapter::AddCallFunctionNode(const FString& BlueprintAssetPath, const FString& FunctionClassPath, const FString& FunctionName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
 
-    UBlueprint* Blueprint = BlueprintGraphBridgeInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = BlueprintGraphBridgeInternal::GetEventGraph(Blueprint);
-    UClass* FunctionClass = BlueprintGraphBridgeInternal::ResolveClass(FunctionClassPath);
+    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomeBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UClass* FunctionClass = LoomeBlueprintAdapterInternal::ResolveClass(FunctionClassPath);
     UFunction* Function = FunctionClass ? FunctionClass->FindFunctionByName(*FunctionName) : nullptr;
     if (!Blueprint || !EventGraph || !Function)
     {
@@ -494,22 +620,22 @@ bool UBlueprintGraphBridge::AddCallFunctionNode(const FString& BlueprintAssetPat
     return true;
 }
 
-bool UBlueprintGraphBridge::ConnectPins(const FString& BlueprintAssetPath, const FString& FromNodeGuid, const FString& FromPinName, const FString& ToNodeGuid, const FString& ToPinName, FString& OutError)
+bool ULoomeBlueprintAdapter::ConnectPins(const FString& BlueprintAssetPath, const FString& FromNodeGuid, const FString& FromPinName, const FString& ToNodeGuid, const FString& ToPinName, FString& OutError)
 {
     OutError.Empty();
 
-    UBlueprint* Blueprint = BlueprintGraphBridgeInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = BlueprintGraphBridgeInternal::GetEventGraph(Blueprint);
+    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomeBlueprintAdapterInternal::GetEventGraph(Blueprint);
     if (!Blueprint || !EventGraph)
     {
         OutError = TEXT("Failed to resolve blueprint/event graph.");
         return false;
     }
 
-    UEdGraphNode* FromNode = BlueprintGraphBridgeInternal::FindNodeByGuid(EventGraph, FromNodeGuid);
-    UEdGraphNode* ToNode = BlueprintGraphBridgeInternal::FindNodeByGuid(EventGraph, ToNodeGuid);
-    UEdGraphPin* FromPin = BlueprintGraphBridgeInternal::ResolvePin(FromNode, FromPinName);
-    UEdGraphPin* ToPin = BlueprintGraphBridgeInternal::ResolvePin(ToNode, ToPinName);
+    UEdGraphNode* FromNode = LoomeBlueprintAdapterInternal::FindNodeByGuid(EventGraph, FromNodeGuid);
+    UEdGraphNode* ToNode = LoomeBlueprintAdapterInternal::FindNodeByGuid(EventGraph, ToNodeGuid);
+    UEdGraphPin* FromPin = LoomeBlueprintAdapterInternal::ResolvePin(FromNode, FromPinName);
+    UEdGraphPin* ToPin = LoomeBlueprintAdapterInternal::ResolvePin(ToNode, ToPinName);
     if (!FromNode || !ToNode || !FromPin || !ToPin)
     {
         OutError = TEXT("Failed to resolve nodes or pins.");
@@ -526,20 +652,20 @@ bool UBlueprintGraphBridge::ConnectPins(const FString& BlueprintAssetPath, const
     return true;
 }
 
-bool UBlueprintGraphBridge::SetPinDefaultValue(const FString& BlueprintAssetPath, const FString& NodeGuid, const FString& PinName, const FString& Value, FString& OutError)
+bool ULoomeBlueprintAdapter::SetPinDefaultValue(const FString& BlueprintAssetPath, const FString& NodeGuid, const FString& PinName, const FString& Value, FString& OutError)
 {
     OutError.Empty();
 
-    UBlueprint* Blueprint = BlueprintGraphBridgeInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = BlueprintGraphBridgeInternal::GetEventGraph(Blueprint);
+    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomeBlueprintAdapterInternal::GetEventGraph(Blueprint);
     if (!Blueprint || !EventGraph)
     {
         OutError = TEXT("Failed to resolve blueprint/event graph.");
         return false;
     }
 
-    UEdGraphNode* Node = BlueprintGraphBridgeInternal::FindNodeByGuid(EventGraph, NodeGuid);
-    UEdGraphPin* Pin = BlueprintGraphBridgeInternal::ResolvePin(Node, PinName);
+    UEdGraphNode* Node = LoomeBlueprintAdapterInternal::FindNodeByGuid(EventGraph, NodeGuid);
+    UEdGraphPin* Pin = LoomeBlueprintAdapterInternal::ResolvePin(Node, PinName);
     if (!Node || !Pin)
     {
         OutError = TEXT("Failed to resolve node or pin.");
@@ -550,11 +676,90 @@ bool UBlueprintGraphBridge::SetPinDefaultValue(const FString& BlueprintAssetPath
     return true;
 }
 
-bool UBlueprintGraphBridge::CompileBlueprint(const FString& BlueprintAssetPath, FString& OutError)
+bool ULoomeBlueprintAdapter::ListEventGraphNodes(const FString& BlueprintAssetPath, FString& OutNodesJson, FString& OutError)
+{
+    OutNodesJson = TEXT("[]");
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomeBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    if (!Blueprint || !EventGraph)
+    {
+        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        return false;
+    }
+
+    TArray<TSharedPtr<FJsonValue>> Nodes;
+    for (const UEdGraphNode* Node : EventGraph->Nodes)
+    {
+        Nodes.Add(MakeShared<FJsonValueObject>(LoomeBlueprintAdapterInternal::SerializeNode(Node)));
+    }
+
+    OutNodesJson = LoomeBlueprintAdapterInternal::JsonArrayToString(Nodes);
+    return true;
+}
+
+bool ULoomeBlueprintAdapter::GetNodeDetails(const FString& BlueprintAssetPath, const FString& NodeGuid, FString& OutNodeJson, FString& OutError)
+{
+    OutNodeJson = TEXT("{}");
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomeBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    if (!Blueprint || !EventGraph)
+    {
+        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        return false;
+    }
+
+    UEdGraphNode* Node = LoomeBlueprintAdapterInternal::FindNodeByGuid(EventGraph, NodeGuid);
+    if (!Node)
+    {
+        OutError = FString::Printf(TEXT("Node not found by guid: %s"), *NodeGuid);
+        return false;
+    }
+
+    OutNodeJson = LoomeBlueprintAdapterInternal::JsonObjectToString(LoomeBlueprintAdapterInternal::SerializeNode(Node));
+    return true;
+}
+
+bool ULoomeBlueprintAdapter::FindNodesByClass(const FString& BlueprintAssetPath, const FString& NodeClassPathOrName, FString& OutNodesJson, FString& OutError)
+{
+    OutNodesJson = TEXT("[]");
+    OutError.Empty();
+
+    if (NodeClassPathOrName.IsEmpty())
+    {
+        OutError = TEXT("NodeClassPathOrName is empty.");
+        return false;
+    }
+
+    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomeBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    if (!Blueprint || !EventGraph)
+    {
+        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        return false;
+    }
+
+    TArray<TSharedPtr<FJsonValue>> Nodes;
+    for (const UEdGraphNode* Node : EventGraph->Nodes)
+    {
+        if (LoomeBlueprintAdapterInternal::NodeClassMatches(Node, NodeClassPathOrName))
+        {
+            Nodes.Add(MakeShared<FJsonValueObject>(LoomeBlueprintAdapterInternal::SerializeNode(Node)));
+        }
+    }
+
+    OutNodesJson = LoomeBlueprintAdapterInternal::JsonArrayToString(Nodes);
+    return true;
+}
+
+bool ULoomeBlueprintAdapter::CompileBlueprint(const FString& BlueprintAssetPath, FString& OutError)
 {
     OutError.Empty();
 
-    UBlueprint* Blueprint = BlueprintGraphBridgeInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
     if (!Blueprint)
     {
         OutError = FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintAssetPath);
@@ -575,12 +780,12 @@ bool UBlueprintGraphBridge::CompileBlueprint(const FString& BlueprintAssetPath, 
     return true;
 }
 
-bool UBlueprintGraphBridge::SpawnBlueprintActor(const FString& BlueprintAssetPath, FVector Location, FRotator Rotation, FString& OutActorPath, FString& OutError)
+bool ULoomeBlueprintAdapter::SpawnBlueprintActor(const FString& BlueprintAssetPath, FVector Location, FRotator Rotation, FString& OutActorPath, FString& OutError)
 {
     OutActorPath.Empty();
     OutError.Empty();
 
-    UBlueprint* Blueprint = BlueprintGraphBridgeInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UBlueprint* Blueprint = LoomeBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
     if (!Blueprint || !Blueprint->GeneratedClass)
     {
         OutError = TEXT("Blueprint or GeneratedClass not found.");
