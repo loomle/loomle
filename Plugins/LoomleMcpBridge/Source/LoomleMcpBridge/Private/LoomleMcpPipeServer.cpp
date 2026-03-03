@@ -112,7 +112,7 @@ uint32 FLoomleMcpPipeServer::Run()
 
         PipeHandle = LocalPipe;
 
-        const BOOL bConnected = ConnectNamedPipe(LocalPipe, nullptr) ? TRUE : (GetLastError() == ERROR_PIPE_CONNECTED);
+        const BOOL bConnected = ConnectNamedPipe(LocalPipe, nullptr) || (GetLastError() == ERROR_PIPE_CONNECTED);
         if (!bConnected)
         {
             UE_LOG(LogLoomleMcpPipe, Warning, TEXT("ConnectNamedPipe failed, error=%lu"), GetLastError());

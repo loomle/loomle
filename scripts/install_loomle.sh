@@ -12,6 +12,29 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOOMLE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_ROOT="$(cd "$LOOMLE_DIR/.." && pwd)"
 
+run_windows_installer_if_needed() {
+  local uname_s uname_lc win_installer win_installer_path
+  uname_s="$(uname -s 2>/dev/null || echo unknown)"
+  uname_lc="${uname_s,,}"
+
+  case "$uname_lc" in
+    mingw*|msys*|cygwin*)
+      win_installer="$SCRIPT_DIR/install_loomle_windows.ps1"
+      [[ -f "$win_installer" ]] || fail "Windows installer not found: $win_installer"
+      command -v powershell.exe >/dev/null 2>&1 || fail "powershell.exe is required on Windows shells"
+
+      win_installer_path="$win_installer"
+      if command -v cygpath >/dev/null 2>&1; then
+        win_installer_path="$(cygpath -w "$win_installer")"
+      fi
+
+      log "Detected Windows shell ($uname_s); forwarding to install_loomle_windows.ps1"
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$win_installer_path" "$@"
+      exit $?
+      ;;
+  esac
+}
+
 UE_APP="/Users/Shared/Epic Games/UE_5.7/Engine/Binaries/Mac/UnrealEditor.app"
 UE_VERSION_FILE="/Users/Shared/Epic Games/UE_5.7/Engine/Binaries/Mac/UnrealEditor.version"
 GEN_SCRIPT="/Users/Shared/Epic Games/UE_5.7/Engine/Build/BatchFiles/Mac/GenerateProjectFiles.sh"
@@ -21,6 +44,12 @@ SKIP_BUILD=0
 SKIP_LAUNCH=0
 SKIP_VERIFY=0
 FORCE_BUILD=0
+
+log() { printf '[INFO] %s\n' "$1"; }
+pass() { printf '[PASS] %s\n' "$1"; }
+fail() { printf '[FAIL] %s\n' "$1" >&2; exit 1; }
+
+run_windows_installer_if_needed "$@"
 
 for arg in "$@"; do
   case "$arg" in
@@ -42,10 +71,6 @@ EOF
       ;;
   esac
 done
-
-log() { printf '[INFO] %s\n' "$1"; }
-pass() { printf '[PASS] %s\n' "$1"; }
-fail() { printf '[FAIL] %s\n' "$1" >&2; exit 1; }
 
 command -v python3 >/dev/null 2>&1 || fail "python3 is required"
 

@@ -17,13 +17,38 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [--remote <name>] [--branch <name>] [--allow-dirty] [-- <install_args...>]
 
-Upgrades Loomle from source (git pull --ff-only) and then runs install_loomle.sh.
+Upgrades Loomle from source (git pull --ff-only) and then runs platform install flow.
 
 Examples:
   $(basename "$0")
   $(basename "$0") -- --skip-launch
   $(basename "$0") --branch main -- --skip-build --skip-verify
 EOF
+}
+
+run_install_flow() {
+  local uname_s uname_lc win_installer win_installer_path
+  uname_s="$(uname -s 2>/dev/null || echo unknown)"
+  uname_lc="${uname_s,,}"
+
+  case "$uname_lc" in
+    mingw*|msys*|cygwin*)
+      win_installer="$SCRIPT_DIR/install_loomle_windows.ps1"
+      [[ -f "$win_installer" ]] || fail "Windows installer not found: $win_installer"
+      command -v powershell.exe >/dev/null 2>&1 || fail "powershell.exe is required on Windows shells"
+
+      win_installer_path="$win_installer"
+      if command -v cygpath >/dev/null 2>&1; then
+        win_installer_path="$(cygpath -w "$win_installer")"
+      fi
+
+      log "Detected Windows shell ($uname_s); running install_loomle_windows.ps1"
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$win_installer_path" "${INSTALL_ARGS[@]}"
+      ;;
+    *)
+      "$SCRIPT_DIR/install_loomle.sh" "${INSTALL_ARGS[@]}"
+      ;;
+  esac
 }
 
 while [[ $# -gt 0 ]]; do
@@ -108,5 +133,5 @@ else
 fi
 
 log "Running install flow"
-"$SCRIPT_DIR/install_loomle.sh" "${INSTALL_ARGS[@]}"
+run_install_flow
 pass "Loomle source upgrade completed"
