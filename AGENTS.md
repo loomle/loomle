@@ -86,11 +86,11 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 ## Context Capability Playbook
 
 - Use `context` as the first read path for active editor state and current selection.
-- Keep `items` lightweight. Use `resolvedValues` for detail.
+- `context` is implemented as a single unified detector path (no provider registry).
+- Keep `items` lightweight (id/path/class/position).
+- Deep graph details should come from `graph.query` (preferred) or `execute`.
 - Call order:
   - `context {}` first
-  - then `context {"resolveIds":[...]}` for detail
-  - optionally add `resolveFields` to reduce payload
 
 ### `context` Request Templates
 
@@ -98,21 +98,9 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"context","arguments":{}}}
 ```
 
-```json
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"context","arguments":{"resolveIds":["<id1>","<id2>"]}}}
-```
-
-```json
-{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"context","arguments":{"resolveIds":["<id1>"],"resolveFields":["id","name","class","nodeTitle","pins","callFunction","dynamicCast"]}}}
-```
-
 ### `context` Response Shape (Selection)
 
 - `selection.items[]` (lightweight): `id,name,class,path,nodePosX,nodePosY,graphName,graphPath`
-- `selection.resolvedValues[id]` (detailed, when resolved):
-  - common: `nodeGuid,nodeTitle,nodeTitleFull,tooltip,isNodeEnabled,pins`
-  - `K2Node_CallFunction`: `callFunction{name,path,ownerClass,isPure,isConst,isStatic,isEvent}`
-  - `K2Node_DynamicCast`: `dynamicCast{sourcePin,resultPin,targetClass}`
 
 ### When To Use `execute` (Python)
 

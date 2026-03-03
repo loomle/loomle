@@ -30,16 +30,21 @@ Naming:
 - Snapshot cache.
 - Revision and cursor state.
 
-5. Adapter Layer
+5. Context Detector Layer
+- Single in-module detector for active editor context/selection.
+- No provider registry fan-out for `context`.
+- Uses editor-type branches (for example blueprint/material) behind one unified tool path.
+
+6. Adapter Layer
 - `LoomleBlueprintAdapter` (v1).
 - Future: material/niagara adapters.
 
-6. Execution Layer
+7. Execution Layer
 - Operation transaction executor.
 - Dry-run pipeline.
 - Idempotency gate.
 
-7. Event Layer
+8. Event Layer
 - Typed graph event bus.
 - Cursor-based watch stream.
 - Runtime jsonl sink.
@@ -51,7 +56,7 @@ Naming:
 - `graph.watch` -> Event layer pull.
 - `graph` -> static + runtime capability + schema descriptor.
 - `context` compatibility mode:
-  - no graph args -> current behavior.
+  - no graph args -> unified context detector behavior.
   - with `assetPath/graphName/includeNodes/...` -> internally delegate to `graph.query`.
 - `live` compatibility mode:
   - internally reads from watch event source.

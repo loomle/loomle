@@ -5,7 +5,6 @@
 #include "Modules/ModuleManager.h"
 
 class FLoomlePipeServer;
-class FEditorContextProviderRegistry;
 class AActor;
 class FJsonObject;
 class FJsonValue;
@@ -59,7 +58,6 @@ private:
 
 private:
     TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> PipeServer;
-    TUniquePtr<FEditorContextProviderRegistry> ContextProviderRegistry;
     bool bEditorStreamEnabled = false;
     int64 NextLiveSequence = 1;
     int32 LiveLogAppendSinceTrim = 0;
