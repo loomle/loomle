@@ -502,32 +502,36 @@ UBlueprint* FindEditedBlueprint()
     return ActiveWindowTitle.IsEmpty() ? FallbackBlueprint : nullptr;
 }
 
+enum class EGraphSelectionDomain : uint8
+{
+    Unknown,
+    Blueprint,
+    Material,
+    Pcg
+};
+
+bool CollectSelectedGraphObjectsFromActiveWindow(TArray<UObject*>& OutSelectedObjects, EGraphSelectionDomain& OutDomain);
+
 bool CollectSelectedBlueprintNodes(TArray<UEdGraphNode*>& OutNodes, UBlueprint*& OutBlueprint)
 {
     OutNodes.Reset();
     OutBlueprint = nullptr;
 
     UBlueprint* EditedBlueprint = FindEditedBlueprint();
-    if (!EditedBlueprint || !GEditor)
+    if (!EditedBlueprint)
     {
         return false;
     }
 
-    UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
-    if (!AssetEditorSubsystem)
+    TArray<UObject*> SelectedObjects;
+    EGraphSelectionDomain SelectedDomain = EGraphSelectionDomain::Unknown;
+    if (!CollectSelectedGraphObjectsFromActiveWindow(SelectedObjects, SelectedDomain)
+        || SelectedDomain != EGraphSelectionDomain::Blueprint)
     {
         return false;
     }
 
-    IAssetEditorInstance* AssetEditorInstance = AssetEditorSubsystem->FindEditorForAsset(EditedBlueprint, false);
-    FBlueprintEditor* BlueprintEditor = static_cast<FBlueprintEditor*>(AssetEditorInstance);
-    if (!BlueprintEditor)
-    {
-        return false;
-    }
-
-    const FGraphPanelSelectionSet SelectedNodes = BlueprintEditor->GetSelectedNodes();
-    for (UObject* SelectedObject : SelectedNodes)
+    for (UObject* SelectedObject : SelectedObjects)
     {
         UEdGraphNode* Node = Cast<UEdGraphNode>(SelectedObject);
         if (Node)
@@ -691,26 +695,20 @@ bool CollectSelectedMaterialExpressions(TArray<UMaterialExpression*>& OutExpress
     OutMaterial = nullptr;
 
     UMaterial* EditedMaterial = FindEditedMaterial();
-    if (!EditedMaterial || !GEditor)
+    if (!EditedMaterial)
     {
         return false;
     }
 
-    UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
-    if (!AssetEditorSubsystem)
+    TArray<UObject*> SelectedObjects;
+    EGraphSelectionDomain SelectedDomain = EGraphSelectionDomain::Unknown;
+    if (!CollectSelectedGraphObjectsFromActiveWindow(SelectedObjects, SelectedDomain)
+        || SelectedDomain != EGraphSelectionDomain::Material)
     {
         return false;
     }
 
-    IAssetEditorInstance* AssetEditorInstance = AssetEditorSubsystem->FindEditorForAsset(EditedMaterial, false);
-    IMaterialEditor* MaterialEditor = static_cast<IMaterialEditor*>(AssetEditorInstance);
-    if (!MaterialEditor)
-    {
-        return false;
-    }
-
-    const TSet<UObject*> SelectedNodes = MaterialEditor->GetSelectedNodes();
-    for (UObject* SelectedObject : SelectedNodes)
+    for (UObject* SelectedObject : SelectedObjects)
     {
         UMaterialExpression* Expression = Cast<UMaterialExpression>(SelectedObject);
         if (!Expression)
@@ -859,9 +857,61 @@ void CollectGraphEditorsFromWidgetTree(const TSharedRef<SWidget>& RootWidget, TA
     }
 }
 
-bool CollectSelectedGraphNodesFromActiveWindow(TArray<UEdGraphNode*>& OutNodes)
+EGraphSelectionDomain DetectGraphSelectionDomain(const TArray<UObject*>& SelectedObjects)
 {
-    OutNodes.Reset();
+    bool bHasPcgNode = false;
+    bool bHasMaterialNode = false;
+    bool bHasGenericGraphNode = false;
+
+    for (UObject* SelectedObject : SelectedObjects)
+    {
+        if (!SelectedObject)
+        {
+            continue;
+        }
+
+        if (SelectedObject->IsA<UMaterialExpression>() || SelectedObject->IsA<UMaterialGraphNode>())
+        {
+            bHasMaterialNode = true;
+        }
+
+        if (UEdGraphNode* GraphNode = Cast<UEdGraphNode>(SelectedObject))
+        {
+            bHasGenericGraphNode = true;
+
+            if (GraphNode->IsA<UMaterialGraphNode>())
+            {
+                bHasMaterialNode = true;
+            }
+
+            const UClass* NodeClass = GraphNode->GetClass();
+            const FString NodeClassPath = NodeClass ? NodeClass->GetPathName() : FString();
+            if (NodeClassPath.Contains(TEXT("PCGEditorGraphNode")))
+            {
+                bHasPcgNode = true;
+            }
+        }
+    }
+
+    if (bHasPcgNode)
+    {
+        return EGraphSelectionDomain::Pcg;
+    }
+    if (bHasMaterialNode)
+    {
+        return EGraphSelectionDomain::Material;
+    }
+    if (bHasGenericGraphNode)
+    {
+        return EGraphSelectionDomain::Blueprint;
+    }
+    return EGraphSelectionDomain::Unknown;
+}
+
+bool CollectSelectedGraphObjectsFromActiveWindow(TArray<UObject*>& OutSelectedObjects, EGraphSelectionDomain& OutDomain)
+{
+    OutSelectedObjects.Reset();
+    OutDomain = EGraphSelectionDomain::Unknown;
 
     TSharedPtr<SWindow> ActiveWindow = GetActiveWindow();
     if (!ActiveWindow.IsValid())
@@ -872,8 +922,9 @@ bool CollectSelectedGraphNodesFromActiveWindow(TArray<UEdGraphNode*>& OutNodes)
     TArray<TSharedPtr<SGraphEditor>> GraphEditors;
     CollectGraphEditorsFromWidgetTree(ActiveWindow.ToSharedRef(), GraphEditors);
 
-    TArray<UEdGraphNode*> BestPcgSelection;
-    TArray<UEdGraphNode*> BestAnySelection;
+    int32 BestScore = TNumericLimits<int32>::Min();
+    TArray<UObject*> BestSelection;
+    EGraphSelectionDomain BestDomain = EGraphSelectionDomain::Unknown;
 
     for (const TSharedPtr<SGraphEditor>& GraphEditor : GraphEditors)
     {
@@ -882,25 +933,21 @@ bool CollectSelectedGraphNodesFromActiveWindow(TArray<UEdGraphNode*>& OutNodes)
             continue;
         }
 
-        TArray<UEdGraphNode*> CurrentSelection;
-        bool bHasPcgNodes = false;
-
         const FGraphPanelSelectionSet& SelectedNodes = GraphEditor->GetSelectedNodes();
+        if (SelectedNodes.Num() == 0)
+        {
+            continue;
+        }
+
+        TArray<UObject*> CurrentSelection;
+        CurrentSelection.Reserve(SelectedNodes.Num());
         for (UObject* SelectedObject : SelectedNodes)
         {
-            UEdGraphNode* GraphNode = Cast<UEdGraphNode>(SelectedObject);
-            if (!GraphNode)
+            if (!SelectedObject)
             {
                 continue;
             }
-
-            CurrentSelection.Add(GraphNode);
-            if (!bHasPcgNodes)
-            {
-                const UClass* NodeClass = GraphNode->GetClass();
-                const FString NodeClassPath = NodeClass ? NodeClass->GetPathName() : FString();
-                bHasPcgNodes = NodeClassPath.Contains(TEXT("PCGEditorGraphNode"));
-            }
+            CurrentSelection.Add(SelectedObject);
         }
 
         if (CurrentSelection.Num() == 0)
@@ -908,20 +955,33 @@ bool CollectSelectedGraphNodesFromActiveWindow(TArray<UEdGraphNode*>& OutNodes)
             continue;
         }
 
-        if (bHasPcgNodes)
+        const EGraphSelectionDomain CurrentDomain = DetectGraphSelectionDomain(CurrentSelection);
+        int32 Score = CurrentSelection.Num();
+        if (CurrentDomain != EGraphSelectionDomain::Unknown)
         {
-            BestPcgSelection = MoveTemp(CurrentSelection);
-            break;
+            Score += 1000;
+        }
+        if (CurrentDomain == EGraphSelectionDomain::Material || CurrentDomain == EGraphSelectionDomain::Pcg)
+        {
+            Score += 100;
         }
 
-        if (BestAnySelection.Num() == 0)
+        if (Score > BestScore)
         {
-            BestAnySelection = MoveTemp(CurrentSelection);
+            BestScore = Score;
+            BestSelection = MoveTemp(CurrentSelection);
+            BestDomain = CurrentDomain;
         }
     }
 
-    OutNodes = (BestPcgSelection.Num() > 0) ? MoveTemp(BestPcgSelection) : MoveTemp(BestAnySelection);
-    return OutNodes.Num() > 0;
+    if (BestSelection.Num() == 0)
+    {
+        return false;
+    }
+
+    OutSelectedObjects = MoveTemp(BestSelection);
+    OutDomain = BestDomain;
+    return true;
 }
 
 UPCGNode* ResolvePcgNodeFromEditorNode(UEdGraphNode* GraphNode)
@@ -951,17 +1011,20 @@ bool BuildPcgSelectionSnapshot(TSharedPtr<FJsonObject>& OutSelection)
         return false;
     }
 
-    TArray<UEdGraphNode*> SelectedGraphNodes;
-    if (!CollectSelectedGraphNodesFromActiveWindow(SelectedGraphNodes))
+    TArray<UObject*> SelectedObjects;
+    EGraphSelectionDomain SelectedDomain = EGraphSelectionDomain::Unknown;
+    if (!CollectSelectedGraphObjectsFromActiveWindow(SelectedObjects, SelectedDomain)
+        || SelectedDomain != EGraphSelectionDomain::Pcg)
     {
         return false;
     }
 
     TArray<TSharedPtr<FJsonValue>> Items;
-    Items.Reserve(SelectedGraphNodes.Num());
+    Items.Reserve(SelectedObjects.Num());
 
-    for (UEdGraphNode* GraphNode : SelectedGraphNodes)
+    for (UObject* SelectedObject : SelectedObjects)
     {
+        UEdGraphNode* GraphNode = Cast<UEdGraphNode>(SelectedObject);
         if (!GraphNode)
         {
             continue;
