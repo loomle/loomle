@@ -58,6 +58,7 @@
 #include "UObject/UObjectGlobals.h"
 #include "UObject/UnrealType.h"
 #include "Misc/TransactionObjectEvent.h"
+#include "Widgets/SWidget.h"
 #include "Widgets/SWindow.h"
 #include "BlueprintEditor.h"
 
@@ -808,6 +809,203 @@ bool BuildPcgContextSnapshot(TSharedPtr<FJsonObject>& OutContext)
     OutContext->SetStringField(TEXT("assetPath"), PcgAsset->GetPathName());
     OutContext->SetStringField(TEXT("assetClass"), PcgAsset->GetClass() ? PcgAsset->GetClass()->GetPathName() : TEXT(""));
     OutContext->SetStringField(TEXT("status"), TEXT("active"));
+    return true;
+}
+
+TSharedPtr<SWindow> GetActiveWindow()
+{
+    if (!FSlateApplication::IsInitialized())
+    {
+        return nullptr;
+    }
+
+    TSharedPtr<SWindow> ActiveWindow = FSlateApplication::Get().GetActiveTopLevelWindow();
+    if (!ActiveWindow.IsValid())
+    {
+        const TSharedPtr<SWidget> FocusedWidget = FSlateApplication::Get().GetKeyboardFocusedWidget();
+        if (FocusedWidget.IsValid())
+        {
+            ActiveWindow = FSlateApplication::Get().FindWidgetWindow(FocusedWidget.ToSharedRef());
+        }
+    }
+    return ActiveWindow;
+}
+
+void CollectGraphEditorsFromWidgetTree(const TSharedRef<SWidget>& RootWidget, TArray<TSharedPtr<SGraphEditor>>& OutGraphEditors)
+{
+    TArray<TSharedRef<SWidget>> Stack;
+    Stack.Add(RootWidget);
+
+    while (Stack.Num() > 0)
+    {
+        const TSharedRef<SWidget> CurrentWidget = Stack.Pop(EAllowShrinking::No);
+
+        if (CurrentWidget->GetType() == FName(TEXT("SGraphEditor")))
+        {
+            OutGraphEditors.Add(StaticCastSharedRef<SGraphEditor>(CurrentWidget));
+        }
+
+        FChildren* Children = CurrentWidget->GetAllChildren();
+        if (!Children)
+        {
+            continue;
+        }
+
+        for (int32 ChildIndex = 0; ChildIndex < Children->Num(); ++ChildIndex)
+        {
+            TSharedRef<SWidget> ChildWidget = Children->GetChildAt(ChildIndex);
+            Stack.Add(ChildWidget);
+        }
+    }
+}
+
+bool CollectSelectedGraphNodesFromActiveWindow(TArray<UEdGraphNode*>& OutNodes)
+{
+    OutNodes.Reset();
+
+    TSharedPtr<SWindow> ActiveWindow = GetActiveWindow();
+    if (!ActiveWindow.IsValid())
+    {
+        return false;
+    }
+
+    TArray<TSharedPtr<SGraphEditor>> GraphEditors;
+    CollectGraphEditorsFromWidgetTree(ActiveWindow.ToSharedRef(), GraphEditors);
+
+    TArray<UEdGraphNode*> BestPcgSelection;
+    TArray<UEdGraphNode*> BestAnySelection;
+
+    for (const TSharedPtr<SGraphEditor>& GraphEditor : GraphEditors)
+    {
+        if (!GraphEditor.IsValid())
+        {
+            continue;
+        }
+
+        TArray<UEdGraphNode*> CurrentSelection;
+        bool bHasPcgNodes = false;
+
+        const FGraphPanelSelectionSet& SelectedNodes = GraphEditor->GetSelectedNodes();
+        for (UObject* SelectedObject : SelectedNodes)
+        {
+            UEdGraphNode* GraphNode = Cast<UEdGraphNode>(SelectedObject);
+            if (!GraphNode)
+            {
+                continue;
+            }
+
+            CurrentSelection.Add(GraphNode);
+            if (!bHasPcgNodes)
+            {
+                const UClass* NodeClass = GraphNode->GetClass();
+                const FString NodeClassPath = NodeClass ? NodeClass->GetPathName() : FString();
+                bHasPcgNodes = NodeClassPath.Contains(TEXT("PCGEditorGraphNode"));
+            }
+        }
+
+        if (CurrentSelection.Num() == 0)
+        {
+            continue;
+        }
+
+        if (bHasPcgNodes)
+        {
+            BestPcgSelection = MoveTemp(CurrentSelection);
+            break;
+        }
+
+        if (BestAnySelection.Num() == 0)
+        {
+            BestAnySelection = MoveTemp(CurrentSelection);
+        }
+    }
+
+    OutNodes = (BestPcgSelection.Num() > 0) ? MoveTemp(BestPcgSelection) : MoveTemp(BestAnySelection);
+    return OutNodes.Num() > 0;
+}
+
+UPCGNode* ResolvePcgNodeFromEditorNode(UEdGraphNode* GraphNode)
+{
+    if (!GraphNode)
+    {
+        return nullptr;
+    }
+
+    FObjectPropertyBase* PcgNodeProperty = FindFProperty<FObjectPropertyBase>(GraphNode->GetClass(), TEXT("PCGNode"));
+    if (!PcgNodeProperty)
+    {
+        return nullptr;
+    }
+
+    UObject* PcgNodeObject = PcgNodeProperty->GetObjectPropertyValue_InContainer(GraphNode);
+    return Cast<UPCGNode>(PcgNodeObject);
+}
+
+bool BuildPcgSelectionSnapshot(TSharedPtr<FJsonObject>& OutSelection)
+{
+    OutSelection.Reset();
+
+    UObject* PcgAsset = FindEditedPcgAsset();
+    if (!PcgAsset)
+    {
+        return false;
+    }
+
+    TArray<UEdGraphNode*> SelectedGraphNodes;
+    if (!CollectSelectedGraphNodesFromActiveWindow(SelectedGraphNodes))
+    {
+        return false;
+    }
+
+    TArray<TSharedPtr<FJsonValue>> Items;
+    Items.Reserve(SelectedGraphNodes.Num());
+
+    for (UEdGraphNode* GraphNode : SelectedGraphNodes)
+    {
+        if (!GraphNode)
+        {
+            continue;
+        }
+
+        UPCGNode* PcgNode = ResolvePcgNodeFromEditorNode(GraphNode);
+        if (!PcgNode)
+        {
+            continue;
+        }
+
+        int32 NodePosX = GraphNode->NodePosX;
+        int32 NodePosY = GraphNode->NodePosY;
+        PcgNode->GetNodePosition(NodePosX, NodePosY);
+
+        const UClass* NodeClass = PcgNode->GetClass();
+        TSharedPtr<FJsonObject> Item = MakeShared<FJsonObject>();
+        Item->SetStringField(TEXT("id"), PcgNode->GetPathName());
+        Item->SetStringField(TEXT("name"), PcgNode->NodeTitle.IsNone() ? PcgNode->GetName() : PcgNode->NodeTitle.ToString());
+        Item->SetStringField(TEXT("class"), NodeClass ? NodeClass->GetPathName() : TEXT(""));
+        Item->SetStringField(TEXT("path"), PcgNode->GetPathName());
+        Item->SetNumberField(TEXT("nodePosX"), NodePosX);
+        Item->SetNumberField(TEXT("nodePosY"), NodePosY);
+        if (UEdGraph* Graph = GraphNode->GetGraph())
+        {
+            Item->SetStringField(TEXT("graphName"), Graph->GetName());
+            Item->SetStringField(TEXT("graphPath"), Graph->GetPathName());
+        }
+        Items.Add(MakeShared<FJsonValueObject>(Item));
+    }
+
+    if (Items.Num() == 0)
+    {
+        return false;
+    }
+
+    OutSelection = MakeShared<FJsonObject>();
+    OutSelection->SetBoolField(TEXT("isError"), false);
+    OutSelection->SetStringField(TEXT("editorType"), TEXT("pcg"));
+    OutSelection->SetStringField(TEXT("provider"), TEXT("pcg"));
+    OutSelection->SetStringField(TEXT("assetPath"), PcgAsset->GetPathName());
+    OutSelection->SetStringField(TEXT("selectionKind"), TEXT("graph_node"));
+    OutSelection->SetArrayField(TEXT("items"), Items);
+    OutSelection->SetNumberField(TEXT("count"), Items.Num());
     return true;
 }
 
@@ -4036,6 +4234,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildSelectionTransformToolResult()
     {
         MaterialSelection->SetStringField(TEXT("source"), TEXT("unified"));
         return MaterialSelection;
+    }
+
+    TSharedPtr<FJsonObject> PcgSelection;
+    if (BuildPcgSelectionSnapshot(PcgSelection) && PcgSelection.IsValid())
+    {
+        PcgSelection->SetStringField(TEXT("source"), TEXT("unified"));
+        return PcgSelection;
     }
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
