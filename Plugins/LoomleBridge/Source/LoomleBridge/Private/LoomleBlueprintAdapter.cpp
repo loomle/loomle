@@ -120,6 +120,43 @@ namespace LoomleBlueprintAdapterInternal
         return nullptr;
     }
 
+    static UEdGraph* ResolveTargetGraph(UBlueprint* Blueprint, const FString& GraphName)
+    {
+        if (!Blueprint)
+        {
+            return nullptr;
+        }
+
+        if (GraphName.IsEmpty())
+        {
+            return GetEventGraph(Blueprint);
+        }
+
+        if (UEdGraph* NamedGraph = FindGraphByName(Blueprint, GraphName))
+        {
+            return NamedGraph;
+        }
+
+        if (GraphName.Equals(TEXT("EventGraph"), ESearchCase::IgnoreCase))
+        {
+            return GetEventGraph(Blueprint);
+        }
+
+        return nullptr;
+    }
+
+    static bool ParsePayloadJson(const FString& PayloadJson, TSharedPtr<FJsonObject>& OutPayload)
+    {
+        OutPayload = MakeShared<FJsonObject>();
+        if (PayloadJson.IsEmpty())
+        {
+            return true;
+        }
+
+        TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(PayloadJson);
+        return FJsonSerializer::Deserialize(Reader, OutPayload) && OutPayload.IsValid();
+    }
+
     static void AppendGraphListEntries(const TArray<UEdGraph*>& Graphs, const FString& GraphKind, TArray<TSharedPtr<FJsonValue>>& OutGraphs)
     {
         for (UEdGraph* Graph : Graphs)
@@ -883,17 +920,17 @@ bool ULoomleBlueprintAdapter::SetPrimitiveComponentGenerateOverlapEvents(const F
     return true;
 }
 
-bool ULoomleBlueprintAdapter::AddEventNode(const FString& BlueprintAssetPath, const FString& EventName, const FString& EventClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool ULoomleBlueprintAdapter::AddEventNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& EventName, const FString& EventClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
 
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
     UClass* EventClass = LoomleBlueprintAdapterInternal::ResolveClass(EventClassPath);
     if (!Blueprint || !EventGraph || !EventClass)
     {
-        OutError = TEXT("Failed to resolve blueprint/event graph/event class.");
+        OutError = TEXT("Failed to resolve blueprint/target graph/event class.");
         return false;
     }
 
@@ -911,17 +948,17 @@ bool ULoomleBlueprintAdapter::AddEventNode(const FString& BlueprintAssetPath, co
     return true;
 }
 
-bool ULoomleBlueprintAdapter::AddCastNode(const FString& BlueprintAssetPath, const FString& TargetClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool ULoomleBlueprintAdapter::AddCastNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& TargetClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
 
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
     UClass* TargetClass = LoomleBlueprintAdapterInternal::ResolveClass(TargetClassPath);
     if (!Blueprint || !EventGraph || !TargetClass)
     {
-        OutError = TEXT("Failed to resolve blueprint/event graph/target class.");
+        OutError = TEXT("Failed to resolve blueprint/target graph/target class.");
         return false;
     }
 
@@ -938,18 +975,18 @@ bool ULoomleBlueprintAdapter::AddCastNode(const FString& BlueprintAssetPath, con
     return true;
 }
 
-bool ULoomleBlueprintAdapter::AddCallFunctionNode(const FString& BlueprintAssetPath, const FString& FunctionClassPath, const FString& FunctionName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool ULoomleBlueprintAdapter::AddCallFunctionNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& FunctionClassPath, const FString& FunctionName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
 
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
     UClass* FunctionClass = LoomleBlueprintAdapterInternal::ResolveClass(FunctionClassPath);
     UFunction* Function = FunctionClass ? FunctionClass->FindFunctionByName(*FunctionName) : nullptr;
     if (!Blueprint || !EventGraph || !Function)
     {
-        OutError = TEXT("Failed to resolve blueprint/event graph/function.");
+        OutError = TEXT("Failed to resolve blueprint/target graph/function.");
         return false;
     }
 
@@ -965,16 +1002,16 @@ bool ULoomleBlueprintAdapter::AddCallFunctionNode(const FString& BlueprintAssetP
     return true;
 }
 
-bool ULoomleBlueprintAdapter::AddBranchNode(const FString& BlueprintAssetPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool ULoomleBlueprintAdapter::AddBranchNode(const FString& BlueprintAssetPath, const FString& GraphName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
 
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
     if (!Blueprint || !EventGraph)
     {
-        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        OutError = TEXT("Failed to resolve blueprint/target graph.");
         return false;
     }
 
@@ -989,16 +1026,16 @@ bool ULoomleBlueprintAdapter::AddBranchNode(const FString& BlueprintAssetPath, i
     return true;
 }
 
-bool ULoomleBlueprintAdapter::AddCommentNode(const FString& BlueprintAssetPath, const FString& CommentText, int32 NodePosX, int32 NodePosY, int32 Width, int32 Height, FString& OutNodeGuid, FString& OutError)
+bool ULoomleBlueprintAdapter::AddCommentNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& CommentText, int32 NodePosX, int32 NodePosY, int32 Width, int32 Height, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
 
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
     if (!Blueprint || !EventGraph)
     {
-        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        OutError = TEXT("Failed to resolve blueprint/target graph.");
         return false;
     }
 
@@ -1015,16 +1052,16 @@ bool ULoomleBlueprintAdapter::AddCommentNode(const FString& BlueprintAssetPath, 
     return true;
 }
 
-bool ULoomleBlueprintAdapter::AddKnotNode(const FString& BlueprintAssetPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool ULoomleBlueprintAdapter::AddKnotNode(const FString& BlueprintAssetPath, const FString& GraphName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
 
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
     if (!Blueprint || !EventGraph)
     {
-        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        OutError = TEXT("Failed to resolve blueprint/target graph.");
         return false;
     }
 
@@ -1039,16 +1076,16 @@ bool ULoomleBlueprintAdapter::AddKnotNode(const FString& BlueprintAssetPath, int
     return true;
 }
 
-bool ULoomleBlueprintAdapter::AddVariableGetNode(const FString& BlueprintAssetPath, const FString& VariableName, const FString& VariableClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool ULoomleBlueprintAdapter::AddVariableGetNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& VariableName, const FString& VariableClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
 
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
     if (!Blueprint || !EventGraph)
     {
-        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        OutError = TEXT("Failed to resolve blueprint/target graph.");
         return false;
     }
 
@@ -1074,16 +1111,16 @@ bool ULoomleBlueprintAdapter::AddVariableGetNode(const FString& BlueprintAssetPa
     return true;
 }
 
-bool ULoomleBlueprintAdapter::AddVariableSetNode(const FString& BlueprintAssetPath, const FString& VariableName, const FString& VariableClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool ULoomleBlueprintAdapter::AddVariableSetNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& VariableName, const FString& VariableClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
 
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
     if (!Blueprint || !EventGraph)
     {
-        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        OutError = TEXT("Failed to resolve blueprint/target graph.");
         return false;
     }
 
@@ -1109,15 +1146,137 @@ bool ULoomleBlueprintAdapter::AddVariableSetNode(const FString& BlueprintAssetPa
     return true;
 }
 
-bool ULoomleBlueprintAdapter::ConnectPins(const FString& BlueprintAssetPath, const FString& FromNodeGuid, const FString& FromPinName, const FString& ToNodeGuid, const FString& ToPinName, FString& OutError)
+bool ULoomleBlueprintAdapter::AddNodeByClass(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeClassPath, const FString& PayloadJson, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+{
+    OutNodeGuid.Empty();
+    OutError.Empty();
+
+    TSharedPtr<FJsonObject> Payload;
+    if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Payload))
+    {
+        OutError = TEXT("Invalid payload JSON.");
+        return false;
+    }
+
+    const FString NormalizedClass = NodeClassPath.ToLower();
+    if (NormalizedClass.Contains(TEXT("k2node_event")))
+    {
+        FString EventName;
+        FString EventClassPath;
+        Payload->TryGetStringField(TEXT("eventName"), EventName);
+        Payload->TryGetStringField(TEXT("eventClassPath"), EventClassPath);
+        return AddEventNode(BlueprintAssetPath, GraphName, EventName, EventClassPath, NodePosX, NodePosY, OutNodeGuid, OutError);
+    }
+    if (NormalizedClass.Contains(TEXT("k2node_dynamiccast")))
+    {
+        FString TargetClassPath;
+        Payload->TryGetStringField(TEXT("targetClassPath"), TargetClassPath);
+        return AddCastNode(BlueprintAssetPath, GraphName, TargetClassPath, NodePosX, NodePosY, OutNodeGuid, OutError);
+    }
+    if (NormalizedClass.Contains(TEXT("k2node_callfunction")))
+    {
+        FString FunctionClassPath;
+        FString FunctionName;
+        Payload->TryGetStringField(TEXT("functionClassPath"), FunctionClassPath);
+        Payload->TryGetStringField(TEXT("functionName"), FunctionName);
+        return AddCallFunctionNode(BlueprintAssetPath, GraphName, FunctionClassPath, FunctionName, NodePosX, NodePosY, OutNodeGuid, OutError);
+    }
+    if (NormalizedClass.Contains(TEXT("k2node_ifthenelse")))
+    {
+        return AddBranchNode(BlueprintAssetPath, GraphName, NodePosX, NodePosY, OutNodeGuid, OutError);
+    }
+    if (NormalizedClass.Contains(TEXT("k2node_variableget")))
+    {
+        FString VariableName;
+        FString VariableClassPath;
+        Payload->TryGetStringField(TEXT("variableName"), VariableName);
+        Payload->TryGetStringField(TEXT("variableClassPath"), VariableClassPath);
+        return AddVariableGetNode(BlueprintAssetPath, GraphName, VariableName, VariableClassPath, NodePosX, NodePosY, OutNodeGuid, OutError);
+    }
+    if (NormalizedClass.Contains(TEXT("k2node_variableset")))
+    {
+        FString VariableName;
+        FString VariableClassPath;
+        Payload->TryGetStringField(TEXT("variableName"), VariableName);
+        Payload->TryGetStringField(TEXT("variableClassPath"), VariableClassPath);
+        return AddVariableSetNode(BlueprintAssetPath, GraphName, VariableName, VariableClassPath, NodePosX, NodePosY, OutNodeGuid, OutError);
+    }
+    if (NormalizedClass.Contains(TEXT("edgraphnode_comment")))
+    {
+        FString Text;
+        double WidthNumber = 0.0;
+        double HeightNumber = 0.0;
+        Payload->TryGetStringField(TEXT("text"), Text);
+        Payload->TryGetNumberField(TEXT("width"), WidthNumber);
+        Payload->TryGetNumberField(TEXT("height"), HeightNumber);
+        return AddCommentNode(BlueprintAssetPath, GraphName, Text, NodePosX, NodePosY, static_cast<int32>(WidthNumber), static_cast<int32>(HeightNumber), OutNodeGuid, OutError);
+    }
+    if (NormalizedClass.Contains(TEXT("k2node_knot")))
+    {
+        return AddKnotNode(BlueprintAssetPath, GraphName, NodePosX, NodePosY, OutNodeGuid, OutError);
+    }
+
+    OutError = FString::Printf(TEXT("Unsupported nodeClassPath for addNode.byClass: %s"), *NodeClassPath);
+    return false;
+}
+
+bool ULoomleBlueprintAdapter::AddNodeByAction(const FString& BlueprintAssetPath, const FString& GraphName, const FString& ActionId, const FString& PayloadJson, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+{
+    const FString Action = ActionId.ToLower();
+    if (Action.IsEmpty())
+    {
+        OutError = TEXT("ActionId is required.");
+        OutNodeGuid.Empty();
+        return false;
+    }
+
+    if (Action.Equals(TEXT("event")))
+    {
+        return AddNodeByClass(BlueprintAssetPath, GraphName, TEXT("/Script/BlueprintGraph.K2Node_Event"), PayloadJson, NodePosX, NodePosY, OutNodeGuid, OutError);
+    }
+    if (Action.Equals(TEXT("cast")))
+    {
+        return AddNodeByClass(BlueprintAssetPath, GraphName, TEXT("/Script/BlueprintGraph.K2Node_DynamicCast"), PayloadJson, NodePosX, NodePosY, OutNodeGuid, OutError);
+    }
+    if (Action.Equals(TEXT("callfunction")))
+    {
+        return AddNodeByClass(BlueprintAssetPath, GraphName, TEXT("/Script/BlueprintGraph.K2Node_CallFunction"), PayloadJson, NodePosX, NodePosY, OutNodeGuid, OutError);
+    }
+    if (Action.Equals(TEXT("branch")))
+    {
+        return AddNodeByClass(BlueprintAssetPath, GraphName, TEXT("/Script/BlueprintGraph.K2Node_IfThenElse"), PayloadJson, NodePosX, NodePosY, OutNodeGuid, OutError);
+    }
+    if (Action.Equals(TEXT("variableget")))
+    {
+        return AddNodeByClass(BlueprintAssetPath, GraphName, TEXT("/Script/BlueprintGraph.K2Node_VariableGet"), PayloadJson, NodePosX, NodePosY, OutNodeGuid, OutError);
+    }
+    if (Action.Equals(TEXT("variableset")))
+    {
+        return AddNodeByClass(BlueprintAssetPath, GraphName, TEXT("/Script/BlueprintGraph.K2Node_VariableSet"), PayloadJson, NodePosX, NodePosY, OutNodeGuid, OutError);
+    }
+    if (Action.Equals(TEXT("comment")))
+    {
+        return AddNodeByClass(BlueprintAssetPath, GraphName, TEXT("/Script/UnrealEd.EdGraphNode_Comment"), PayloadJson, NodePosX, NodePosY, OutNodeGuid, OutError);
+    }
+    if (Action.Equals(TEXT("knot")))
+    {
+        return AddNodeByClass(BlueprintAssetPath, GraphName, TEXT("/Script/BlueprintGraph.K2Node_Knot"), PayloadJson, NodePosX, NodePosY, OutNodeGuid, OutError);
+    }
+
+    OutError = FString::Printf(TEXT("Unsupported actionId for addNode.byAction: %s"), *ActionId);
+    OutNodeGuid.Empty();
+    return false;
+}
+
+bool ULoomleBlueprintAdapter::ConnectPins(const FString& BlueprintAssetPath, const FString& GraphName, const FString& FromNodeGuid, const FString& FromPinName, const FString& ToNodeGuid, const FString& ToPinName, FString& OutError)
 {
     OutError.Empty();
 
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
     if (!Blueprint || !EventGraph)
     {
-        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        OutError = TEXT("Failed to resolve blueprint/target graph.");
         return false;
     }
 
@@ -1141,15 +1300,15 @@ bool ULoomleBlueprintAdapter::ConnectPins(const FString& BlueprintAssetPath, con
     return true;
 }
 
-bool ULoomleBlueprintAdapter::DisconnectPins(const FString& BlueprintAssetPath, const FString& FromNodeGuid, const FString& FromPinName, const FString& ToNodeGuid, const FString& ToPinName, FString& OutError)
+bool ULoomleBlueprintAdapter::DisconnectPins(const FString& BlueprintAssetPath, const FString& GraphName, const FString& FromNodeGuid, const FString& FromPinName, const FString& ToNodeGuid, const FString& ToPinName, FString& OutError)
 {
     OutError.Empty();
 
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
     if (!Blueprint || !EventGraph)
     {
-        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        OutError = TEXT("Failed to resolve blueprint/target graph.");
         return false;
     }
 
@@ -1173,15 +1332,15 @@ bool ULoomleBlueprintAdapter::DisconnectPins(const FString& BlueprintAssetPath, 
     return true;
 }
 
-bool ULoomleBlueprintAdapter::BreakPinLinks(const FString& BlueprintAssetPath, const FString& NodeGuid, const FString& PinName, FString& OutError)
+bool ULoomleBlueprintAdapter::BreakPinLinks(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, const FString& PinName, FString& OutError)
 {
     OutError.Empty();
 
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
     if (!Blueprint || !EventGraph)
     {
-        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        OutError = TEXT("Failed to resolve blueprint/target graph.");
         return false;
     }
 
@@ -1197,15 +1356,15 @@ bool ULoomleBlueprintAdapter::BreakPinLinks(const FString& BlueprintAssetPath, c
     return true;
 }
 
-bool ULoomleBlueprintAdapter::RemoveNode(const FString& BlueprintAssetPath, const FString& NodeGuid, FString& OutError)
+bool ULoomleBlueprintAdapter::RemoveNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, FString& OutError)
 {
     OutError.Empty();
 
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
     if (!Blueprint || !EventGraph)
     {
-        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        OutError = TEXT("Failed to resolve blueprint/target graph.");
         return false;
     }
 
@@ -1220,15 +1379,15 @@ bool ULoomleBlueprintAdapter::RemoveNode(const FString& BlueprintAssetPath, cons
     return true;
 }
 
-bool ULoomleBlueprintAdapter::MoveNode(const FString& BlueprintAssetPath, const FString& NodeGuid, int32 NodePosX, int32 NodePosY, FString& OutError)
+bool ULoomleBlueprintAdapter::MoveNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, int32 NodePosX, int32 NodePosY, FString& OutError)
 {
     OutError.Empty();
 
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
     if (!Blueprint || !EventGraph)
     {
-        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        OutError = TEXT("Failed to resolve blueprint/target graph.");
         return false;
     }
 
@@ -1246,15 +1405,15 @@ bool ULoomleBlueprintAdapter::MoveNode(const FString& BlueprintAssetPath, const 
     return true;
 }
 
-bool ULoomleBlueprintAdapter::SetPinDefaultValue(const FString& BlueprintAssetPath, const FString& NodeGuid, const FString& PinName, const FString& Value, FString& OutError)
+bool ULoomleBlueprintAdapter::SetPinDefaultValue(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, const FString& PinName, const FString& Value, FString& OutError)
 {
     OutError.Empty();
 
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::GetEventGraph(Blueprint);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
     if (!Blueprint || !EventGraph)
     {
-        OutError = TEXT("Failed to resolve blueprint/event graph.");
+        OutError = TEXT("Failed to resolve blueprint/target graph.");
         return false;
     }
 
@@ -1387,9 +1546,10 @@ bool ULoomleBlueprintAdapter::FindNodesByClass(const FString& BlueprintAssetPath
     return true;
 }
 
-bool ULoomleBlueprintAdapter::CompileBlueprint(const FString& BlueprintAssetPath, FString& OutError)
+bool ULoomleBlueprintAdapter::CompileBlueprint(const FString& BlueprintAssetPath, const FString& GraphName, FString& OutError)
 {
     OutError.Empty();
+    (void)GraphName;
 
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
     if (!Blueprint)

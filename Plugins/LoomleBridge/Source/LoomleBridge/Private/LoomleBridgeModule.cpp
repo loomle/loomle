@@ -36,6 +36,7 @@
 #include "LoomleBlueprintAdapter.h"
 #include "LoomlePipeServer.h"
 #include "Misc/App.h"
+#include "Misc/Base64.h"
 #include "Misc/DateTime.h"
 #include "Misc/EngineVersion.h"
 #include "Misc/FileHelper.h"
@@ -1388,12 +1389,16 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphToolResult(const TSharedP
     Result->SetArrayField(TEXT("pinCoreFields"), ToStringArray({TEXT("name"), TEXT("direction"), TEXT("type"), TEXT("default"), TEXT("links")}));
     Result->SetArrayField(TEXT("nodeExtensions"), ToStringArray({TEXT("cast"), TEXT("macro"), TEXT("comment"), TEXT("timeline")}));
     Result->SetArrayField(TEXT("ops"), ToStringArray({
-        TEXT("addNode.event"), TEXT("addNode.cast"), TEXT("addNode.callFunction"), TEXT("addNode.branch"),
-        TEXT("addNode.variableGet"), TEXT("addNode.variableSet"),
+        TEXT("addNode.byClass"), TEXT("addNode.byAction"),
         TEXT("connectPins"), TEXT("disconnectPins"), TEXT("breakPinLinks"),
         TEXT("setPinDefault"), TEXT("removeNode"), TEXT("moveNode"),
-        TEXT("compile"), TEXT("spawnActor"), TEXT("addComponent")
+        TEXT("compile"), TEXT("runScript")
     }));
+    TSharedPtr<FJsonObject> Extensions = MakeShared<FJsonObject>();
+    Extensions->SetBoolField(TEXT("scriptOp"), true);
+    Extensions->SetArrayField(TEXT("scriptMode"), ToStringArray({TEXT("inlineCode"), TEXT("scriptId")}));
+    Extensions->SetStringField(TEXT("scriptInlineDefault"), TEXT("enabled"));
+    Result->SetObjectField(TEXT("extensions"), Extensions);
     return Result;
 }
 
@@ -1681,12 +1686,43 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
     bool bDryRun = false;
     Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
 
+    bool bStopOnError = true;
+    bool bContinueOnError = false;
+    Arguments->TryGetBoolField(TEXT("continueOnError"), bContinueOnError);
+    if (bContinueOnError)
+    {
+        bStopOnError = false;
+    }
+
+    int32 MaxOps = 200;
+    if (const TSharedPtr<FJsonObject>* ExecutionPolicy = nullptr;
+        Arguments->TryGetObjectField(TEXT("executionPolicy"), ExecutionPolicy) && ExecutionPolicy && (*ExecutionPolicy).IsValid())
+    {
+        bool StopOnErrorValue = true;
+        if ((*ExecutionPolicy)->TryGetBoolField(TEXT("stopOnError"), StopOnErrorValue))
+        {
+            bStopOnError = StopOnErrorValue;
+        }
+        double MaxOpsNumber = 0.0;
+        if ((*ExecutionPolicy)->TryGetNumberField(TEXT("maxOps"), MaxOpsNumber))
+        {
+            MaxOps = FMath::Clamp(static_cast<int32>(MaxOpsNumber), 1, 200);
+        }
+    }
+
     const TArray<TSharedPtr<FJsonValue>>* Ops = nullptr;
     if (!Arguments->TryGetArrayField(TEXT("ops"), Ops) || !Ops)
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
         Result->SetStringField(TEXT("message"), TEXT("arguments.ops must be an array."));
+        return Result;
+    }
+    if (Ops->Num() > MaxOps)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("LIMIT_EXCEEDED"));
+        Result->SetStringField(TEXT("message"), FString::Printf(TEXT("arguments.ops exceeds executionPolicy.maxOps (%d)."), MaxOps));
         return Result;
     }
 
@@ -1714,6 +1750,49 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         return false;
     };
 
+    auto GetPointFromObject = [](const TSharedPtr<FJsonObject>& Obj, int32& OutX, int32& OutY)
+    {
+        OutX = 0;
+        OutY = 0;
+        if (!Obj.IsValid())
+        {
+            return;
+        }
+
+        if (const TSharedPtr<FJsonObject>* Position = nullptr;
+            Obj->TryGetObjectField(TEXT("position"), Position) && Position && (*Position).IsValid())
+        {
+            double Xn = 0.0;
+            double Yn = 0.0;
+            (*Position)->TryGetNumberField(TEXT("x"), Xn);
+            (*Position)->TryGetNumberField(TEXT("y"), Yn);
+            OutX = static_cast<int32>(Xn);
+            OutY = static_cast<int32>(Yn);
+        }
+    };
+
+    auto SerializeJsonObject = [](const TSharedPtr<FJsonObject>& Obj) -> FString
+    {
+        if (!Obj.IsValid())
+        {
+            return TEXT("{}");
+        }
+        FString Out;
+        TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Out);
+        FJsonSerializer::Serialize(Obj.ToSharedRef(), Writer);
+        return Out;
+    };
+
+    auto EscapePythonSingleQuoted = [](const FString& In) -> FString
+    {
+        FString Out = In;
+        Out.ReplaceInline(TEXT("\\"), TEXT("\\\\"));
+        Out.ReplaceInline(TEXT("'"), TEXT("\\'"));
+        Out.ReplaceInline(TEXT("\r"), TEXT("\\r"));
+        Out.ReplaceInline(TEXT("\n"), TEXT("\\n"));
+        return Out;
+    };
+
     bGraphMutateInProgress = !bDryRun;
     for (int32 Index = 0; Index < Ops->Num(); ++Index)
     {
@@ -1725,6 +1804,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
 
         FString Op;
         (*OpObj)->TryGetStringField(TEXT("op"), Op);
+        Op = Op.ToLower();
+        FString OpGraphName = GraphName;
+        (*OpObj)->TryGetStringField(TEXT("targetGraphName"), OpGraphName);
 
         bool bOk = true;
         FString Error;
@@ -1732,159 +1814,68 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         FString ClientRef;
         FString GraphEventName;
         TSharedPtr<FJsonObject> GraphEventData = MakeShared<FJsonObject>();
+        TSharedPtr<FJsonObject> ScriptResultForOp;
         (*OpObj)->TryGetStringField(TEXT("clientRef"), ClientRef);
+
+        const TSharedPtr<FJsonObject>* ArgsObjPtr = nullptr;
+        const TSharedPtr<FJsonObject> ArgsObj =
+            ((*OpObj)->TryGetObjectField(TEXT("args"), ArgsObjPtr) && ArgsObjPtr && (*ArgsObjPtr).IsValid())
+                ? *ArgsObjPtr
+                : MakeShared<FJsonObject>();
 
         if (!bDryRun)
         {
-            if (Op.Equals(TEXT("addNode.event")))
+            if (Op.Equals(TEXT("addnode.byclass")))
             {
-                FString EventName, EventClassPath;
-                (*OpObj)->TryGetStringField(TEXT("eventName"), EventName);
-                (*OpObj)->TryGetStringField(TEXT("eventClassPath"), EventClassPath);
-                const TSharedPtr<FJsonObject>* Position = nullptr;
+                FString NodeClassPath;
+                ArgsObj->TryGetStringField(TEXT("nodeClassPath"), NodeClassPath);
                 int32 X = 0;
                 int32 Y = 0;
-                if ((*OpObj)->TryGetObjectField(TEXT("position"), Position) && Position && (*Position).IsValid())
-                {
-                    double Xn = 0.0, Yn = 0.0;
-                    (*Position)->TryGetNumberField(TEXT("x"), Xn);
-                    (*Position)->TryGetNumberField(TEXT("y"), Yn);
-                    X = static_cast<int32>(Xn);
-                    Y = static_cast<int32>(Yn);
-                }
-                bOk = ULoomleBlueprintAdapter::AddEventNode(AssetPath, EventName, EventClassPath, X, Y, NodeId, Error);
+                GetPointFromObject(ArgsObj, X, Y);
+                bOk = ULoomleBlueprintAdapter::AddNodeByClass(AssetPath, OpGraphName, NodeClassPath, SerializeJsonObject(ArgsObj), X, Y, NodeId, Error);
                 if (bOk)
                 {
                     GraphEventName = TEXT("graph.node_added");
                     GraphEventData->SetStringField(TEXT("nodeId"), NodeId);
-                    GraphEventData->SetStringField(TEXT("nodeType"), TEXT("event"));
+                    GraphEventData->SetStringField(TEXT("nodeType"), TEXT("by_class"));
+                    GraphEventData->SetStringField(TEXT("nodeClassPath"), NodeClassPath);
                     GraphEventData->SetStringField(TEXT("op"), Op);
                 }
             }
-            else if (Op.Equals(TEXT("addNode.cast")))
+            else if (Op.Equals(TEXT("addnode.byaction")))
             {
-                FString TargetClassPath;
-                (*OpObj)->TryGetStringField(TEXT("targetClassPath"), TargetClassPath);
-                const TSharedPtr<FJsonObject>* Position = nullptr;
+                FString ActionId;
+                ArgsObj->TryGetStringField(TEXT("actionId"), ActionId);
                 int32 X = 0;
                 int32 Y = 0;
-                if ((*OpObj)->TryGetObjectField(TEXT("position"), Position) && Position && (*Position).IsValid())
-                {
-                    double Xn = 0.0, Yn = 0.0;
-                    (*Position)->TryGetNumberField(TEXT("x"), Xn);
-                    (*Position)->TryGetNumberField(TEXT("y"), Yn);
-                    X = static_cast<int32>(Xn);
-                    Y = static_cast<int32>(Yn);
-                }
-                bOk = ULoomleBlueprintAdapter::AddCastNode(AssetPath, TargetClassPath, X, Y, NodeId, Error);
+                GetPointFromObject(ArgsObj, X, Y);
+                bOk = ULoomleBlueprintAdapter::AddNodeByAction(AssetPath, OpGraphName, ActionId, SerializeJsonObject(ArgsObj), X, Y, NodeId, Error);
                 if (bOk)
                 {
                     GraphEventName = TEXT("graph.node_added");
                     GraphEventData->SetStringField(TEXT("nodeId"), NodeId);
-                    GraphEventData->SetStringField(TEXT("nodeType"), TEXT("cast"));
+                    GraphEventData->SetStringField(TEXT("nodeType"), TEXT("by_action"));
+                    GraphEventData->SetStringField(TEXT("actionId"), ActionId);
                     GraphEventData->SetStringField(TEXT("op"), Op);
                 }
             }
-            else if (Op.Equals(TEXT("addNode.callFunction")))
-            {
-                FString FunctionClassPath, FunctionName;
-                (*OpObj)->TryGetStringField(TEXT("functionClassPath"), FunctionClassPath);
-                (*OpObj)->TryGetStringField(TEXT("functionName"), FunctionName);
-                const TSharedPtr<FJsonObject>* Position = nullptr;
-                int32 X = 0;
-                int32 Y = 0;
-                if ((*OpObj)->TryGetObjectField(TEXT("position"), Position) && Position && (*Position).IsValid())
-                {
-                    double Xn = 0.0, Yn = 0.0;
-                    (*Position)->TryGetNumberField(TEXT("x"), Xn);
-                    (*Position)->TryGetNumberField(TEXT("y"), Yn);
-                    X = static_cast<int32>(Xn);
-                    Y = static_cast<int32>(Yn);
-                }
-                bOk = ULoomleBlueprintAdapter::AddCallFunctionNode(AssetPath, FunctionClassPath, FunctionName, X, Y, NodeId, Error);
-                if (bOk)
-                {
-                    GraphEventName = TEXT("graph.node_added");
-                    GraphEventData->SetStringField(TEXT("nodeId"), NodeId);
-                    GraphEventData->SetStringField(TEXT("nodeType"), TEXT("call_function"));
-                    GraphEventData->SetStringField(TEXT("op"), Op);
-                }
-            }
-            else if (Op.Equals(TEXT("addNode.branch")))
-            {
-                const TSharedPtr<FJsonObject>* Position = nullptr;
-                int32 X = 0;
-                int32 Y = 0;
-                if ((*OpObj)->TryGetObjectField(TEXT("position"), Position) && Position && (*Position).IsValid())
-                {
-                    double Xn = 0.0, Yn = 0.0;
-                    (*Position)->TryGetNumberField(TEXT("x"), Xn);
-                    (*Position)->TryGetNumberField(TEXT("y"), Yn);
-                    X = static_cast<int32>(Xn);
-                    Y = static_cast<int32>(Yn);
-                }
-                bOk = ULoomleBlueprintAdapter::AddBranchNode(AssetPath, X, Y, NodeId, Error);
-                if (bOk)
-                {
-                    GraphEventName = TEXT("graph.node_added");
-                    GraphEventData->SetStringField(TEXT("nodeId"), NodeId);
-                    GraphEventData->SetStringField(TEXT("nodeType"), TEXT("branch"));
-                    GraphEventData->SetStringField(TEXT("op"), Op);
-                }
-            }
-            else if (Op.Equals(TEXT("addNode.variableGet")) || Op.Equals(TEXT("addNode.variableSet")))
-            {
-                FString VariableName;
-                FString VariableClassPath;
-                (*OpObj)->TryGetStringField(TEXT("variableName"), VariableName);
-                (*OpObj)->TryGetStringField(TEXT("variableClassPath"), VariableClassPath);
-                const TSharedPtr<FJsonObject>* Position = nullptr;
-                int32 X = 0;
-                int32 Y = 0;
-                if ((*OpObj)->TryGetObjectField(TEXT("position"), Position) && Position && (*Position).IsValid())
-                {
-                    double Xn = 0.0, Yn = 0.0;
-                    (*Position)->TryGetNumberField(TEXT("x"), Xn);
-                    (*Position)->TryGetNumberField(TEXT("y"), Yn);
-                    X = static_cast<int32>(Xn);
-                    Y = static_cast<int32>(Yn);
-                }
-
-                if (Op.Equals(TEXT("addNode.variableGet")))
-                {
-                    bOk = ULoomleBlueprintAdapter::AddVariableGetNode(AssetPath, VariableName, VariableClassPath, X, Y, NodeId, Error);
-                }
-                else
-                {
-                    bOk = ULoomleBlueprintAdapter::AddVariableSetNode(AssetPath, VariableName, VariableClassPath, X, Y, NodeId, Error);
-                }
-
-                if (bOk)
-                {
-                    GraphEventName = TEXT("graph.node_added");
-                    GraphEventData->SetStringField(TEXT("nodeId"), NodeId);
-                    GraphEventData->SetStringField(TEXT("nodeType"), Op.Equals(TEXT("addNode.variableGet")) ? TEXT("variable_get") : TEXT("variable_set"));
-                    GraphEventData->SetStringField(TEXT("variableName"), VariableName);
-                    GraphEventData->SetStringField(TEXT("op"), Op);
-                }
-            }
-            else if (Op.Equals(TEXT("connectPins")))
+            else if (Op.Equals(TEXT("connectpins")))
             {
                 const TSharedPtr<FJsonObject>* FromObj = nullptr;
                 const TSharedPtr<FJsonObject>* ToObj = nullptr;
                 FString FromNodeId, ToNodeId, FromPin, ToPin;
-                if ((*OpObj)->TryGetObjectField(TEXT("from"), FromObj) && FromObj && (*FromObj).IsValid())
+                if (ArgsObj->TryGetObjectField(TEXT("from"), FromObj) && FromObj && (*FromObj).IsValid())
                 {
                     ResolveNodeToken(*FromObj, FromNodeId);
                     (*FromObj)->TryGetStringField(TEXT("pin"), FromPin);
                 }
-                if ((*OpObj)->TryGetObjectField(TEXT("to"), ToObj) && ToObj && (*ToObj).IsValid())
+                if (ArgsObj->TryGetObjectField(TEXT("to"), ToObj) && ToObj && (*ToObj).IsValid())
                 {
                     ResolveNodeToken(*ToObj, ToNodeId);
                     (*ToObj)->TryGetStringField(TEXT("pin"), ToPin);
                 }
                 bOk = !FromNodeId.IsEmpty() && !ToNodeId.IsEmpty() && !FromPin.IsEmpty() && !ToPin.IsEmpty()
-                    && ULoomleBlueprintAdapter::ConnectPins(AssetPath, FromNodeId, FromPin, ToNodeId, ToPin, Error);
+                    && ULoomleBlueprintAdapter::ConnectPins(AssetPath, OpGraphName, FromNodeId, FromPin, ToNodeId, ToPin, Error);
                 if (!bOk && Error.IsEmpty())
                 {
                     Error = TEXT("Failed to resolve connectPins node ids/pins.");
@@ -1899,23 +1890,23 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     GraphEventData->SetStringField(TEXT("op"), Op);
                 }
             }
-            else if (Op.Equals(TEXT("disconnectPins")))
+            else if (Op.Equals(TEXT("disconnectpins")))
             {
                 const TSharedPtr<FJsonObject>* FromObj = nullptr;
                 const TSharedPtr<FJsonObject>* ToObj = nullptr;
                 FString FromNodeId, ToNodeId, FromPin, ToPin;
-                if ((*OpObj)->TryGetObjectField(TEXT("from"), FromObj) && FromObj && (*FromObj).IsValid())
+                if (ArgsObj->TryGetObjectField(TEXT("from"), FromObj) && FromObj && (*FromObj).IsValid())
                 {
                     ResolveNodeToken(*FromObj, FromNodeId);
                     (*FromObj)->TryGetStringField(TEXT("pin"), FromPin);
                 }
-                if ((*OpObj)->TryGetObjectField(TEXT("to"), ToObj) && ToObj && (*ToObj).IsValid())
+                if (ArgsObj->TryGetObjectField(TEXT("to"), ToObj) && ToObj && (*ToObj).IsValid())
                 {
                     ResolveNodeToken(*ToObj, ToNodeId);
                     (*ToObj)->TryGetStringField(TEXT("pin"), ToPin);
                 }
                 bOk = !FromNodeId.IsEmpty() && !ToNodeId.IsEmpty() && !FromPin.IsEmpty() && !ToPin.IsEmpty()
-                    && ULoomleBlueprintAdapter::DisconnectPins(AssetPath, FromNodeId, FromPin, ToNodeId, ToPin, Error);
+                    && ULoomleBlueprintAdapter::DisconnectPins(AssetPath, OpGraphName, FromNodeId, FromPin, ToNodeId, ToPin, Error);
                 if (!bOk && Error.IsEmpty())
                 {
                     Error = TEXT("Failed to resolve disconnectPins node ids/pins.");
@@ -1931,17 +1922,17 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     GraphEventData->SetStringField(TEXT("op"), Op);
                 }
             }
-            else if (Op.Equals(TEXT("breakPinLinks")))
+            else if (Op.Equals(TEXT("breakpinlinks")))
             {
                 const TSharedPtr<FJsonObject>* TargetObj = nullptr;
                 FString NodeToken, Pin;
-                if ((*OpObj)->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid())
+                if (ArgsObj->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid())
                 {
                     ResolveNodeToken(*TargetObj, NodeToken);
                     (*TargetObj)->TryGetStringField(TEXT("pin"), Pin);
                 }
                 bOk = !NodeToken.IsEmpty() && !Pin.IsEmpty()
-                    && ULoomleBlueprintAdapter::BreakPinLinks(AssetPath, NodeToken, Pin, Error);
+                    && ULoomleBlueprintAdapter::BreakPinLinks(AssetPath, OpGraphName, NodeToken, Pin, Error);
                 if (!bOk && Error.IsEmpty())
                 {
                     Error = TEXT("Failed to resolve breakPinLinks target.");
@@ -1955,18 +1946,18 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     GraphEventData->SetStringField(TEXT("op"), Op);
                 }
             }
-            else if (Op.Equals(TEXT("setPinDefault")))
+            else if (Op.Equals(TEXT("setpindefault")))
             {
                 const TSharedPtr<FJsonObject>* TargetObj = nullptr;
                 FString NodeToken, Pin, Value;
-                if ((*OpObj)->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid())
+                if (ArgsObj->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid())
                 {
                     ResolveNodeToken(*TargetObj, NodeToken);
                     (*TargetObj)->TryGetStringField(TEXT("pin"), Pin);
                 }
-                (*OpObj)->TryGetStringField(TEXT("value"), Value);
+                ArgsObj->TryGetStringField(TEXT("value"), Value);
                 bOk = !NodeToken.IsEmpty() && !Pin.IsEmpty()
-                    && ULoomleBlueprintAdapter::SetPinDefaultValue(AssetPath, NodeToken, Pin, Value, Error);
+                    && ULoomleBlueprintAdapter::SetPinDefaultValue(AssetPath, OpGraphName, NodeToken, Pin, Value, Error);
                 if (!bOk && Error.IsEmpty())
                 {
                     Error = TEXT("Failed to resolve setPinDefault target.");
@@ -1980,18 +1971,18 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     GraphEventData->SetStringField(TEXT("op"), Op);
                 }
             }
-            else if (Op.Equals(TEXT("removeNode")))
+            else if (Op.Equals(TEXT("removenode")))
             {
                 FString NodeToken;
-                if (const TSharedPtr<FJsonObject>* TargetObj = nullptr; (*OpObj)->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid())
+                if (const TSharedPtr<FJsonObject>* TargetObj = nullptr; ArgsObj->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid())
                 {
                     ResolveNodeToken(*TargetObj, NodeToken);
                 }
                 if (NodeToken.IsEmpty())
                 {
-                    (*OpObj)->TryGetStringField(TEXT("nodeId"), NodeToken);
+                    ArgsObj->TryGetStringField(TEXT("nodeId"), NodeToken);
                 }
-                bOk = !NodeToken.IsEmpty() && ULoomleBlueprintAdapter::RemoveNode(AssetPath, NodeToken, Error);
+                bOk = !NodeToken.IsEmpty() && ULoomleBlueprintAdapter::RemoveNode(AssetPath, OpGraphName, NodeToken, Error);
                 if (!bOk && Error.IsEmpty())
                 {
                     Error = TEXT("Failed to resolve removeNode target.");
@@ -2003,29 +1994,21 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     GraphEventData->SetStringField(TEXT("op"), Op);
                 }
             }
-            else if (Op.Equals(TEXT("moveNode")))
+            else if (Op.Equals(TEXT("movenode")))
             {
                 FString NodeToken;
-                if (const TSharedPtr<FJsonObject>* TargetObj = nullptr; (*OpObj)->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid())
+                if (const TSharedPtr<FJsonObject>* TargetObj = nullptr; ArgsObj->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid())
                 {
                     ResolveNodeToken(*TargetObj, NodeToken);
                 }
                 if (NodeToken.IsEmpty())
                 {
-                    (*OpObj)->TryGetStringField(TEXT("nodeId"), NodeToken);
+                    ArgsObj->TryGetStringField(TEXT("nodeId"), NodeToken);
                 }
-                const TSharedPtr<FJsonObject>* Position = nullptr;
                 int32 X = 0;
                 int32 Y = 0;
-                if ((*OpObj)->TryGetObjectField(TEXT("position"), Position) && Position && (*Position).IsValid())
-                {
-                    double Xn = 0.0, Yn = 0.0;
-                    (*Position)->TryGetNumberField(TEXT("x"), Xn);
-                    (*Position)->TryGetNumberField(TEXT("y"), Yn);
-                    X = static_cast<int32>(Xn);
-                    Y = static_cast<int32>(Yn);
-                }
-                bOk = !NodeToken.IsEmpty() && ULoomleBlueprintAdapter::MoveNode(AssetPath, NodeToken, X, Y, Error);
+                GetPointFromObject(ArgsObj, X, Y);
+                bOk = !NodeToken.IsEmpty() && ULoomleBlueprintAdapter::MoveNode(AssetPath, OpGraphName, NodeToken, X, Y, Error);
                 if (!bOk && Error.IsEmpty())
                 {
                     Error = TEXT("Failed to resolve moveNode target.");
@@ -2041,58 +2024,157 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             }
             else if (Op.Equals(TEXT("compile")))
             {
-                bOk = ULoomleBlueprintAdapter::CompileBlueprint(AssetPath, Error);
+                bOk = ULoomleBlueprintAdapter::CompileBlueprint(AssetPath, OpGraphName, Error);
                 if (bOk)
                 {
                     GraphEventName = TEXT("graph.compiled");
                     GraphEventData->SetStringField(TEXT("op"), Op);
                 }
             }
-            else if (Op.Equals(TEXT("spawnActor")))
+            else if (Op.Equals(TEXT("runscript")))
             {
-                const TSharedPtr<FJsonObject>* LocationObj = nullptr;
-                const TSharedPtr<FJsonObject>* RotationObj = nullptr;
-                FVector Location(0, 0, 0);
-                FRotator Rotation(0, 0, 0);
-                if ((*OpObj)->TryGetObjectField(TEXT("location"), LocationObj) && LocationObj && (*LocationObj).IsValid())
+                FString Mode = TEXT("inlineCode");
+                ArgsObj->TryGetStringField(TEXT("mode"), Mode);
+                const FString ModeNormalized = Mode.ToLower();
+                FString Entry = TEXT("run");
+                ArgsObj->TryGetStringField(TEXT("entry"), Entry);
+                FString ScriptCode;
+                ArgsObj->TryGetStringField(TEXT("code"), ScriptCode);
+                FString ScriptId;
+                ArgsObj->TryGetStringField(TEXT("scriptId"), ScriptId);
+
+                TSharedPtr<FJsonObject> ScriptInput = MakeShared<FJsonObject>();
+                if (const TSharedPtr<FJsonObject>* InputObj = nullptr;
+                    ArgsObj->TryGetObjectField(TEXT("input"), InputObj) && InputObj && (*InputObj).IsValid())
                 {
-                    double X = 0.0, Y = 0.0, Z = 0.0;
-                    (*LocationObj)->TryGetNumberField(TEXT("x"), X);
-                    (*LocationObj)->TryGetNumberField(TEXT("y"), Y);
-                    (*LocationObj)->TryGetNumberField(TEXT("z"), Z);
-                    Location = FVector(X, Y, Z);
+                    ScriptInput = *InputObj;
                 }
-                if ((*OpObj)->TryGetObjectField(TEXT("rotation"), RotationObj) && RotationObj && (*RotationObj).IsValid())
+
+                if (ModeNormalized.Equals(TEXT("inlinecode")) && ScriptCode.IsEmpty())
                 {
-                    double Pitch = 0.0, Yaw = 0.0, Roll = 0.0;
-                    (*RotationObj)->TryGetNumberField(TEXT("pitch"), Pitch);
-                    (*RotationObj)->TryGetNumberField(TEXT("yaw"), Yaw);
-                    (*RotationObj)->TryGetNumberField(TEXT("roll"), Roll);
-                    Rotation = FRotator(Pitch, Yaw, Roll);
+                    bOk = false;
+                    Error = TEXT("runScript requires args.code when mode=inlineCode.");
                 }
-                FString ActorPath;
-                bOk = ULoomleBlueprintAdapter::SpawnBlueprintActor(AssetPath, Location, Rotation, ActorPath, Error);
-                if (bOk)
+                else if (ModeNormalized.Equals(TEXT("scriptid")) && ScriptId.IsEmpty())
                 {
-                    GraphEventName = TEXT("graph.actor_spawned");
-                    GraphEventData->SetStringField(TEXT("actorPath"), ActorPath);
-                    GraphEventData->SetStringField(TEXT("op"), Op);
+                    bOk = false;
+                    Error = TEXT("runScript requires args.scriptId when mode=scriptId.");
                 }
-            }
-            else if (Op.Equals(TEXT("addComponent")))
-            {
-                FString ComponentClassPath, ComponentName, ParentComponentName;
-                (*OpObj)->TryGetStringField(TEXT("componentClassPath"), ComponentClassPath);
-                (*OpObj)->TryGetStringField(TEXT("componentName"), ComponentName);
-                (*OpObj)->TryGetStringField(TEXT("parentComponentName"), ParentComponentName);
-                bOk = ULoomleBlueprintAdapter::AddComponent(AssetPath, ComponentClassPath, ComponentName, ParentComponentName, Error);
-                if (bOk)
+                else
                 {
-                    GraphEventName = TEXT("graph.component_added");
-                    GraphEventData->SetStringField(TEXT("componentClassPath"), ComponentClassPath);
-                    GraphEventData->SetStringField(TEXT("componentName"), ComponentName);
-                    GraphEventData->SetStringField(TEXT("parentComponentName"), ParentComponentName);
-                    GraphEventData->SetStringField(TEXT("op"), Op);
+                    TSharedPtr<FJsonObject> ScriptContext = MakeShared<FJsonObject>();
+                    ScriptContext->SetStringField(TEXT("assetPath"), AssetPath);
+                    ScriptContext->SetStringField(TEXT("graphName"), OpGraphName);
+                    ScriptContext->SetNumberField(TEXT("opIndex"), Index);
+                    ScriptContext->SetBoolField(TEXT("dryRun"), bDryRun);
+                    ScriptContext->SetObjectField(TEXT("input"), ScriptInput);
+
+                    TSharedPtr<FJsonObject> NodeRefsObject = MakeShared<FJsonObject>();
+                    for (const TPair<FString, FString>& Pair : NodeRefs)
+                    {
+                        NodeRefsObject->SetStringField(Pair.Key, Pair.Value);
+                    }
+                    ScriptContext->SetObjectField(TEXT("nodeRefs"), NodeRefsObject);
+
+                    const FString ContextJson = SerializeJsonObject(ScriptContext);
+                    const FString ContextB64 = FBase64::Encode(ContextJson);
+                    const FString CodeB64 = FBase64::Encode(ScriptCode);
+                    const FString ScriptIdB64 = FBase64::Encode(ScriptId);
+                    const FString EntryEscaped = EscapePythonSingleQuoted(Entry);
+                    const FString ModeEscaped = EscapePythonSingleQuoted(Mode);
+
+                    FString PythonSource;
+                    PythonSource += TEXT("import base64, json, importlib\n");
+                    PythonSource += FString::Printf(TEXT("_ctx = json.loads(base64.b64decode('%s').decode('utf-8'))\n"), *ContextB64);
+                    PythonSource += FString::Printf(TEXT("_mode = '%s'\n"), *ModeEscaped);
+                    PythonSource += FString::Printf(TEXT("_entry = '%s'\n"), *EntryEscaped);
+                    PythonSource += TEXT("_fn = None\n");
+                    PythonSource += TEXT("if _mode.lower() == 'inlinecode':\n");
+                    PythonSource += FString::Printf(TEXT("    _src = base64.b64decode('%s').decode('utf-8')\n"), *CodeB64);
+                    PythonSource += TEXT("    _ns = {}\n");
+                    PythonSource += TEXT("    exec(_src, _ns)\n");
+                    PythonSource += TEXT("    _fn = _ns.get(_entry)\n");
+                    PythonSource += TEXT("else:\n");
+                    PythonSource += FString::Printf(TEXT("    _mod_name = base64.b64decode('%s').decode('utf-8')\n"), *ScriptIdB64);
+                    PythonSource += TEXT("    _mod = importlib.import_module(_mod_name)\n");
+                    PythonSource += TEXT("    _fn = getattr(_mod, _entry)\n");
+                    PythonSource += TEXT("if _fn is None:\n");
+                    PythonSource += TEXT("    raise RuntimeError(f'Entry not found: {_entry}')\n");
+                    PythonSource += TEXT("_out = _fn(_ctx)\n");
+                    PythonSource += TEXT("if _out is None:\n");
+                    PythonSource += TEXT("    _out = {}\n");
+                    PythonSource += TEXT("print('__LOOMLE_SCRIPT_RESULT__' + json.dumps(_out, ensure_ascii=False))\n");
+
+                    IPythonScriptPlugin* PythonScriptPlugin = IPythonScriptPlugin::Get();
+                    if (PythonScriptPlugin == nullptr)
+                    {
+                        bOk = false;
+                        Error = TEXT("PythonScriptPlugin module is not loaded.");
+                    }
+                    else
+                    {
+                        if (!PythonScriptPlugin->IsPythonInitialized())
+                        {
+                            PythonScriptPlugin->ForceEnablePythonAtRuntime();
+                        }
+                        if (!PythonScriptPlugin->IsPythonInitialized())
+                        {
+                            bOk = false;
+                            Error = TEXT("Python runtime is not initialized.");
+                        }
+                        else
+                        {
+                            FPythonCommandEx PythonCommand;
+                            PythonCommand.ExecutionMode = EPythonCommandExecutionMode::ExecuteFile;
+                            PythonCommand.Command = PythonSource;
+                            bOk = PythonScriptPlugin->ExecPythonCommandEx(PythonCommand);
+                            if (!bOk)
+                            {
+                                Error = PythonCommand.CommandResult.IsEmpty() ? TEXT("runScript execution failed.") : PythonCommand.CommandResult;
+                            }
+                            else
+                            {
+                                FString ScriptResultJson;
+                                for (const FPythonLogOutputEntry& EntryLine : PythonCommand.LogOutput)
+                                {
+                                    const FString Prefix = TEXT("__LOOMLE_SCRIPT_RESULT__");
+                                    if (EntryLine.Output.Contains(Prefix))
+                                    {
+                                        const int32 PrefixIndex = EntryLine.Output.Find(Prefix);
+                                        ScriptResultJson = EntryLine.Output.Mid(PrefixIndex + Prefix.Len()).TrimStartAndEnd();
+                                    }
+                                }
+
+                                if (ScriptResultJson.IsEmpty())
+                                {
+                                    bOk = false;
+                                    Error = TEXT("runScript did not emit structured result.");
+                                }
+                                else
+                                {
+                                    TSharedPtr<FJsonObject> ScriptResultObj;
+                                    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ScriptResultJson);
+                                    if (!FJsonSerializer::Deserialize(Reader, ScriptResultObj) || !ScriptResultObj.IsValid())
+                                    {
+                                        bOk = false;
+                                        Error = TEXT("runScript returned invalid JSON result.");
+                                    }
+                                    else
+                                    {
+                                        ScriptResultForOp = ScriptResultObj;
+                                        GraphEventName = TEXT("graph.script_executed");
+                                        GraphEventData->SetStringField(TEXT("mode"), Mode);
+                                        GraphEventData->SetStringField(TEXT("entry"), Entry);
+                                        if (!ScriptId.IsEmpty())
+                                        {
+                                            GraphEventData->SetStringField(TEXT("scriptId"), ScriptId);
+                                        }
+                                        GraphEventData->SetStringField(TEXT("op"), Op);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             else
@@ -2119,6 +2201,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         {
             OpResult->SetStringField(TEXT("error"), Error);
         }
+        if (ScriptResultForOp.IsValid())
+        {
+            OpResult->SetObjectField(TEXT("scriptResult"), ScriptResultForOp);
+        }
         OpResults.Add(MakeShared<FJsonValueObject>(OpResult));
 
         if (!bOk)
@@ -2128,14 +2214,17 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             {
                 FirstError = Error;
             }
-            break;
+            if (bStopOnError)
+            {
+                break;
+            }
         }
 
         if (!bDryRun && !GraphEventName.IsEmpty() && GraphEventData.IsValid())
         {
             GraphEventData->SetStringField(TEXT("graphType"), TEXT("blueprint"));
             GraphEventData->SetStringField(TEXT("assetPath"), AssetPath);
-            GraphEventData->SetStringField(TEXT("graphName"), GraphName);
+            GraphEventData->SetStringField(TEXT("graphName"), OpGraphName);
             GraphEventData->SetStringField(TEXT("sourceKind"), TEXT("graph.mutate"));
             SendEditorStreamEvent(GraphEventName, GraphEventData);
         }

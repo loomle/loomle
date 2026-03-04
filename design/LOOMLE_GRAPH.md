@@ -40,22 +40,22 @@ Response:
   "pinCoreFields": ["name","direction","category","subCategory","subCategoryObject","defaultValue","links"],
   "nodeExtensions": ["callFunction","dynamicCast","comment"],
   "ops": [
-    "addNode.event",
-    "addNode.cast",
-    "addNode.callFunction",
-    "addNode.branch",
-    "addNode.variableGet",
-    "addNode.variableSet",
+    "addNode.byClass",
+    "addNode.byAction",
     "connectPins",
     "disconnectPins",
     "breakPinLinks",
     "setPinDefault",
     "removeNode",
     "moveNode",
-    "addComponent",
     "compile",
-    "spawnActor"
-  ]
+    "runScript"
+  ],
+  "extensions": {
+    "scriptOp": true,
+    "scriptMode": ["inlineCode", "scriptId"],
+    "scriptInlineDefault": "enabled"
+  }
 }
 ```
 
@@ -148,6 +148,11 @@ Request:
     "idempotencyKey": "c2a7d7a8-8877-4d96-a522-f15ed1eb1d81",
     "dryRun": false,
     "continueOnError": false,
+    "executionPolicy": {
+      "stopOnError": true,
+      "maxOps": 200,
+      "timeoutMs": 10000
+    },
     "ops": []
   }
 }
@@ -241,6 +246,33 @@ Response:
 }
 ```
 
+### 3.4 Mutate Operation
+
+```json
+{
+  "op": "addNode.byClass|addNode.byAction|connectPins|disconnectPins|breakPinLinks|setPinDefault|removeNode|moveNode|compile|runScript",
+  "clientRef": "optional-stable-token",
+  "targetGraphName": "optional graph override",
+  "args": {},
+  "meta": {}
+}
+```
+
+`runScript` (script extension):
+
+```json
+{
+  "op": "runScript",
+  "args": {
+    "mode": "inlineCode|scriptId",
+    "code": "def run(ctx):\n  return {\"changed\": True, \"ops\": []}",
+    "scriptId": "",
+    "entry": "run",
+    "input": {}
+  }
+}
+```
+
 ## 4. Error Model
 
 Error shape:
@@ -288,3 +320,7 @@ Canonical codes:
 - `dryRun=true` must not persist graph changes.
 - `ops[]` execute in order.
 - `clientRef` may be used by later ops as `nodeRef`.
+- `addNode.byClass` and `addNode.byAction` are the canonical node-create paths.
+- Unknown op in `ops[]` returns `INVALID_ARGUMENT` with op index and supported op list.
+- `runScript` executes inline code or scriptId directly.
+- `runScript` output must be structured JSON; raw stdout is not a contract.

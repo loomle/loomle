@@ -62,7 +62,7 @@ From UE project root:
     - `graph.changed`
     - `graph.node_added`, `graph.node_connected`, `graph.pin_default_changed`
     - `graph.links_changed`, `graph.node_removed`, `graph.node_moved`
-    - `graph.compiled`, `graph.actor_spawned`, `graph.component_added`
+    - `graph.compiled`, `graph.script_executed`
     - `map_opened`
     - `actor_added`, `actor_deleted`, `actor_attached`, `actor_detached`, `actor_moved`
     - `pie_started`, `pie_stopped`, `pie_paused`, `pie_resumed`
@@ -91,6 +91,20 @@ From UE project root:
   - Required arguments: `assetPath`, `graphName`
   - Optional arguments: `graphType`, `filter`, `limit`
   - Returns semantic snapshot in `semanticSnapshot` (`signature`, `nodes[]`, `edges[]`).
+- `graph.mutate`
+  - Required arguments: `assetPath`, `ops`
+  - Optional arguments: `graphType`, `graphName`, `dryRun`, `continueOnError`, `executionPolicy`
+  - Supported ops:
+    - `addNode.byClass`
+    - `addNode.byAction`
+    - `connectPins`
+    - `disconnectPins`
+    - `breakPinLinks`
+    - `setPinDefault`
+    - `removeNode`
+    - `moveNode`
+    - `compile`
+    - `runScript`
 - `execute`
   - Required argument: `code` (inline Python string)
   - Optional argument: `mode` (`exec` default, or `eval`)
@@ -110,22 +124,24 @@ Exposed methods:
 - `set_primitive_component_collision_enabled(blueprint_asset_path, component_name, collision_mode)`
 - `set_box_component_extent(blueprint_asset_path, component_name, extent)`
 - `set_primitive_component_generate_overlap_events(blueprint_asset_path, component_name, b_generate)`
-- `add_event_node(blueprint_asset_path, event_name, event_class_path, node_pos_x, node_pos_y)`
-- `add_cast_node(blueprint_asset_path, target_class_path, node_pos_x, node_pos_y)`
-- `add_call_function_node(blueprint_asset_path, function_class_path, function_name, node_pos_x, node_pos_y)`
-- `add_branch_node(blueprint_asset_path, node_pos_x, node_pos_y)`
-- `connect_pins(blueprint_asset_path, from_node_guid, from_pin_name, to_node_guid, to_pin_name)`
-- `disconnect_pins(blueprint_asset_path, from_node_guid, from_pin_name, to_node_guid, to_pin_name)`
-- `break_pin_links(blueprint_asset_path, node_guid, pin_name)`
-- `set_pin_default_value(blueprint_asset_path, node_guid, pin_name, value)`
-- `remove_node(blueprint_asset_path, node_guid)`
-- `move_node(blueprint_asset_path, node_guid, node_pos_x, node_pos_y)`
+- `add_event_node(blueprint_asset_path, graph_name, event_name, event_class_path, node_pos_x, node_pos_y)`
+- `add_cast_node(blueprint_asset_path, graph_name, target_class_path, node_pos_x, node_pos_y)`
+- `add_call_function_node(blueprint_asset_path, graph_name, function_class_path, function_name, node_pos_x, node_pos_y)`
+- `add_branch_node(blueprint_asset_path, graph_name, node_pos_x, node_pos_y)`
+- `add_node_by_class(blueprint_asset_path, graph_name, node_class_path, payload_json, node_pos_x, node_pos_y)`
+- `add_node_by_action(blueprint_asset_path, graph_name, action_id, payload_json, node_pos_x, node_pos_y)`
+- `connect_pins(blueprint_asset_path, graph_name, from_node_guid, from_pin_name, to_node_guid, to_pin_name)`
+- `disconnect_pins(blueprint_asset_path, graph_name, from_node_guid, from_pin_name, to_node_guid, to_pin_name)`
+- `break_pin_links(blueprint_asset_path, graph_name, node_guid, pin_name)`
+- `set_pin_default_value(blueprint_asset_path, graph_name, node_guid, pin_name, value)`
+- `remove_node(blueprint_asset_path, graph_name, node_guid)`
+- `move_node(blueprint_asset_path, graph_name, node_guid, node_pos_x, node_pos_y)`
 - `list_event_graph_nodes(blueprint_asset_path)`
 - `list_blueprint_graphs(blueprint_asset_path)`
 - `list_graph_nodes(blueprint_asset_path, graph_name)`
 - `get_node_details(blueprint_asset_path, node_guid)`
 - `find_nodes_by_class(blueprint_asset_path, node_class_path_or_name)`
-- `compile_blueprint(blueprint_asset_path)`
+- `compile_blueprint(blueprint_asset_path, graph_name)`
 - `spawn_blueprint_actor(blueprint_asset_path, location, rotation)`
 
 ## Quick Python bridge example (via `execute`)
@@ -196,6 +212,7 @@ printf '{"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"name":"context
 printf '{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"live","arguments":{"cursor":0,"limit":20}}}\n' | nc -U "$SOCK"
 printf '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"execute","arguments":{"code":"import unreal\\nunreal.log(\\\"hello from bridge\\\")"}}}\n' | nc -U "$SOCK"
 printf '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"execute","arguments":{"mode":"eval","code":"1+2+3"}}}\n' | nc -U "$SOCK"
+printf '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"graph.mutate","arguments":{"graphType":"blueprint","assetPath":"/Game/Codex/BP_BridgeVerify","graphName":"EventGraph","ops":[{"op":"runScript","args":{"mode":"inlineCode","entry":"run","code":"def run(ctx):\\n  return {\\\"ok\\\": True, \\\"assetPath\\\": ctx.get(\\\"assetPath\\\", \\\"\\\")}"}}]}}}\n' | nc -U "$SOCK"
 ```
 
 ## Quick test (Windows PowerShell)

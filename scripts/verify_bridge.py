@@ -16,6 +16,19 @@ REQUIRED_TOOLS = {
     "execute",
 }
 
+EXPECTED_GRAPH_MUTATE_OPS = {
+    "addNode.byClass",
+    "addNode.byAction",
+    "connectPins",
+    "disconnectPins",
+    "breakPinLinks",
+    "setPinDefault",
+    "removeNode",
+    "moveNode",
+    "compile",
+    "runScript",
+}
+
 _SOCKET_BUFFERS: dict[int, bytes] = {}
 
 
@@ -157,6 +170,65 @@ def main() -> int:
         if graph_watch_payload.get("isError"):
             fail(f"graph.watch failed: {graph_watch_payload.get('message') or graph_watch_payload}")
         assert_cursor_fields(graph_watch_payload, "graph.watch")
+
+        graph_desc_resp = send_jsonrpc(
+            sock,
+            40,
+            "tools/call",
+            {
+                "name": "graph",
+                "arguments": {"graphType": "blueprint"},
+            },
+        )
+        graph_desc_payload = parse_tool_payload(graph_desc_resp, "tools/call.graph")
+        if graph_desc_payload.get("isError"):
+            fail(f"graph failed: {graph_desc_payload.get('message') or graph_desc_payload}")
+        ops = graph_desc_payload.get("ops")
+        if not isinstance(ops, list):
+            fail("graph payload missing ops[]")
+        ops_set = {op for op in ops if isinstance(op, str)}
+        if ops_set != EXPECTED_GRAPH_MUTATE_OPS:
+            fail(f"graph ops mismatch. expected={sorted(EXPECTED_GRAPH_MUTATE_OPS)} actual={sorted(ops_set)}")
+        print("[PASS] graph reports expected mutate ops")
+
+        run_script_resp = send_jsonrpc(
+            sock,
+            41,
+            "tools/call",
+            {
+                "name": "graph.mutate",
+                "arguments": {
+                    "graphType": "blueprint",
+                    "assetPath": "/Game/Codex/BP_BridgeVerify",
+                    "graphName": "EventGraph",
+                    "dryRun": False,
+                    "ops": [
+                        {
+                            "op": "runScript",
+                            "args": {
+                                "mode": "inlineCode",
+                                "entry": "run",
+                                "code": "def run(ctx):\n  return {'ok': True, 'assetPath': ctx.get('assetPath', '')}",
+                                "input": {"source": "verify_bridge"},
+                            },
+                        }
+                    ],
+                },
+            },
+        )
+        run_script_payload = parse_tool_payload(run_script_resp, "tools/call.graph.mutate")
+        if run_script_payload.get("isError"):
+            fail(f"graph.mutate runScript failed: {run_script_payload.get('message') or run_script_payload}")
+        op_results = run_script_payload.get("opResults", [])
+        if not isinstance(op_results, list) or not op_results:
+            fail("graph.mutate runScript missing opResults")
+        first_op = op_results[0] if isinstance(op_results[0], dict) else {}
+        if not first_op.get("ok"):
+            fail(f"graph.mutate runScript op failed: {first_op}")
+        script_result = first_op.get("scriptResult")
+        if not isinstance(script_result, dict) or script_result.get("ok") is not True:
+            fail(f"graph.mutate runScript missing/invalid scriptResult: {first_op}")
+        print("[PASS] graph.mutate runScript inline execution verified")
 
         live_resp = send_jsonrpc(
             sock,
