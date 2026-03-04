@@ -1415,9 +1415,41 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildToolCallResult(const TSharedPt
         return Error;
     }
 
+    TSharedPtr<FJsonObject> Arguments = MakeShared<FJsonObject>();
     const TSharedPtr<FJsonObject>* ArgumentsPtr = nullptr;
-    Params->TryGetObjectField(TEXT("arguments"), ArgumentsPtr);
-    TSharedPtr<FJsonObject> Arguments = ArgumentsPtr ? *ArgumentsPtr : MakeShared<FJsonObject>();
+    if (Params->TryGetObjectField(TEXT("arguments"), ArgumentsPtr) && ArgumentsPtr && (*ArgumentsPtr).IsValid())
+    {
+        Arguments = *ArgumentsPtr;
+    }
+    else
+    {
+        FString ArgumentsJson;
+        if (Params->TryGetStringField(TEXT("arguments"), ArgumentsJson) && !ArgumentsJson.IsEmpty())
+        {
+            const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ArgumentsJson);
+            TSharedPtr<FJsonObject> ParsedArguments;
+            if (FJsonSerializer::Deserialize(Reader, ParsedArguments) && ParsedArguments.IsValid())
+            {
+                Arguments = ParsedArguments;
+            }
+        }
+    }
+
+    // Some wrappers flatten execute arguments into params.{code,mode}; recover those fields.
+    if (Name.Equals(LoomleBridgeConstants::ExecuteToolName) && !Arguments->HasField(TEXT("code")))
+    {
+        FString FlatCode;
+        if (Params->TryGetStringField(TEXT("code"), FlatCode) && !FlatCode.IsEmpty())
+        {
+            Arguments->SetStringField(TEXT("code"), FlatCode);
+        }
+
+        FString FlatMode;
+        if (Params->TryGetStringField(TEXT("mode"), FlatMode) && !FlatMode.IsEmpty())
+        {
+            Arguments->SetStringField(TEXT("mode"), FlatMode);
+        }
+    }
 
     TSharedPtr<FJsonObject> Payload;
     bool bIsError = false;

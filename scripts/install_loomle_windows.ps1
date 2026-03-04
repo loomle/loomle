@@ -26,7 +26,7 @@ function Invoke-Cmd {
         }
         & cmd.exe /c $CommandLine
         if ($LASTEXITCODE -ne 0) {
-            Fail "Command failed with exit code $LASTEXITCODE: $CommandLine"
+            Fail "Command failed with exit code ${LASTEXITCODE}: $CommandLine"
         }
     }
     finally {
@@ -229,7 +229,7 @@ function Send-BridgeRequest {
         }
 
         if ($response.PSObject.Properties.Name -contains 'error' -and $null -ne $response.error) {
-            Fail "JSON-RPC error for $Method: $($response.error | ConvertTo-Json -Compress)"
+            Fail "JSON-RPC error for ${Method}: $($response.error | ConvertTo-Json -Compress)"
         }
 
         return $response
@@ -374,11 +374,12 @@ try {
     $pluginModules = Join-Path $pluginDir 'Binaries\Win64\UnrealEditor.modules'
 
     if (-not $SkipBuild) {
-        if (-not (Test-Path -LiteralPath $genScript)) {
-            Fail "GenerateProjectFiles script missing: $genScript"
-        }
         if (-not (Test-Path -LiteralPath $buildScript)) {
             Fail "Build script missing: $buildScript"
+        }
+        $canGenerateProjectFiles = Test-Path -LiteralPath $genScript
+        if (-not $canGenerateProjectFiles) {
+            Log "GenerateProjectFiles script missing; continuing without project file generation: $genScript"
         }
 
         $buildRequired = $true
@@ -392,10 +393,15 @@ try {
         }
 
         if ($buildRequired) {
-            Log 'Generating project files'
-            $genCmd = ('"{0}" -project="{1}" -game' -f $genScript, $uprojectPath)
-            Invoke-Cmd -CommandLine $genCmd -WorkingDirectory $projectRoot
-            Pass 'Project files generated'
+            if ($canGenerateProjectFiles) {
+                Log 'Generating project files'
+                $genCmd = ('"{0}" -project="{1}" -game' -f $genScript, $uprojectPath)
+                Invoke-Cmd -CommandLine $genCmd -WorkingDirectory $projectRoot
+                Pass 'Project files generated'
+            }
+            else {
+                Log 'Skipping project file generation; Build.bat path will be used directly'
+            }
 
             Log "Building target: $targetName (Win64 Development)"
             $buildCmd = ('"{0}" "{1}" Win64 Development "{2}" -WaitMutex' -f $buildScript, $targetName, $uprojectPath)
