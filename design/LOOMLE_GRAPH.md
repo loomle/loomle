@@ -5,7 +5,7 @@
 - Protocol: JSON-RPC 2.0 (bridge tools).
 - Graph types (v1): `blueprint`, `material` (`shader` alias), `pcg`.
 - Reserved graph types: `niagara`.
-- Tools: `graph`, `graph.list`, `graph.query`, `graph.addable`, `graph.mutate`, `graph.watch`.
+- Tools: `graph`, `graph.list`, `graph.query`, `graph.addable`, `graph.mutate`.
 - Capability matrix:
   - `blueprint`: full (`list/query/addable/mutate/watch`)
   - `material(shader)`: `list/query/addable/mutate/watch` (mutate supports node add/remove/move/connect/disconnect/compile)
@@ -244,35 +244,6 @@ Notes:
 - `actionToken` is required by `graph.mutate` `addNode.byAction` in V2 path.
 - `actionToken` is short-lived and graph-context bound.
 
-### 2.6 `graph.watch`
-
-Request:
-
-```json
-{
-  "name": "graph.watch",
-  "arguments": {
-    "graphType": "blueprint",
-    "assetPath": "/Game/Codex/BP_BouncyPad",
-    "cursor": 0,
-    "limit": 100
-  }
-}
-```
-
-Response:
-
-```json
-{
-  "cursor": 210,
-  "nextCursor": 224,
-  "count": 0,
-  "running": true,
-  "dropped": false,
-  "events": []
-}
-```
-
 ## 3. Data Schema
 
 ### 3.1 Node
@@ -377,12 +348,9 @@ Canonical codes:
 ## 5. Compatibility
 
 - `context` remains available.
-- `live` remains available.
 - `execute` remains available as fallback.
 - Internal mapping:
   - `context` -> `graph.query` (when explicit graph args are provided)
-  - `graph.watch` -> graph-scoped view from unified event bus
-  - `live` -> editor + graph scopes from unified event bus
 
 ## 6. Rules
 

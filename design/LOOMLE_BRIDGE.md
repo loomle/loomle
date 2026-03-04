@@ -22,8 +22,8 @@ Naming:
 - JSON-RPC parser, request validation, tool dispatch, error normalization.
 
 3. Tool Layer
-- Existing tools: `loomle`, `context`, `live`, `execute`.
-- New graph tools: `graph`, `graph.list`, `graph.query`, `graph.mutate`, `graph.watch`.
+- Existing tools: `loomle`, `context`, `execute`.
+- New graph tools: `graph`, `graph.list`, `graph.query`, `graph.mutate`.
 
 4. State Layer
 - Active editor window tracker.
@@ -53,14 +53,10 @@ Naming:
 - `graph.list` -> Adapter graph enumeration path (`blueprint/material/pcg`).
 - `graph.query` -> Adapter semantic snapshot query path (`blueprint/material/pcg`).
 - `graph.mutate` -> Adapter mutate path (`blueprint/material/pcg`, with graph-type-specific op coverage).
-- `graph.watch` -> Event layer pull.
 - `graph` -> static + runtime capability + schema descriptor.
 - `context` compatibility mode:
   - no graph args -> unified context detector behavior.
   - with `assetPath/graphName/includeNodes/...` -> internally delegate to `graph.query`.
-- `live` compatibility mode:
-  - reads from the same unified event bus as `graph.watch`.
-  - returns both editor-scope and graph-scope events.
 
 ## 4. Standard Request Flow
 
@@ -101,7 +97,7 @@ Graph mutate event coverage (blueprint):
 
 ## 7. Compatibility Policy
 
-- Keep `context/live/execute` available.
+- Keep `context/execute` available.
 - New feature work targets `graph.*` first.
 - `execute` remains fallback only.
 - No dual-source schemas: canonical graph schema is defined only in `LOOMLE_GRAPH.md`.
@@ -113,5 +109,4 @@ Graph mutate event coverage (blueprint):
 2. Ship `graph.query` for blueprint.
 3. Route compatible `context` graph args to `graph.query`.
 4. Ship `graph.mutate` backed by `LoomleBlueprintAdapter`.
-5. Ship `graph.watch` and align `live` source.
-6. Freeze new feature additions to legacy-only paths.
+5. Freeze new feature additions to legacy-only paths.

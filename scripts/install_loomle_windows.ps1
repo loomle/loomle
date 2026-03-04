@@ -224,7 +224,7 @@ function Send-BridgeRequest {
 
         $response = $responseLine | ConvertFrom-Json
         if ($response.PSObject.Properties.Name -contains 'id' -and $response.id -ne $Id) {
-            # Bridge may push notifications/live on the same connection.
+            # Bridge may push notifications on the same connection.
             continue
         }
 
@@ -473,7 +473,7 @@ try {
                     $toolNames[[string]$tool.name] = $true
                 }
             }
-            $requiredTools = @('loomle', 'graph', 'graph.query', 'graph.mutate', 'graph.watch', 'context', 'live', 'execute')
+            $requiredTools = @('loomle', 'graph', 'graph.query', 'graph.mutate', 'context', 'execute')
             $missing = @()
             foreach ($required in $requiredTools) {
                 if (-not $toolNames.ContainsKey($required)) {

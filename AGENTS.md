@@ -31,19 +31,18 @@ Human-oriented explanation lives in `./Loomle/README.md`.
   3. wait for bridge socket readiness: `/Users/xartest/Documents/UnrealProjects/Loomle/Intermediate/loomle.sock`
 
 ## User Command Handling Policy
-- Supported bridge commands: `loomle`, `context`, `live`, `execute`, `graph`, `graph.list`, `graph.query`, `graph.addable`, `graph.mutate`, `graph.watch`.
-- User-facing commands are usually `loomle`, `context`, `live`; `execute` is typically agent-operated.
+- Supported bridge commands: `loomle`, `context`, `execute`, `graph`, `graph.list`, `graph.query`, `graph.addable`, `graph.mutate`.
+- User-facing commands are usually `loomle`, `context`; `execute` is typically agent-operated.
 - For these commands, always call the corresponding bridge tool first, then return concise natural-language output.
 - Do not dump raw JSON by default; show raw payload only when explicitly requested.
 - JSON-RPC transport note:
-  - Bridge may actively push `notifications/live` on the same connection while handling `tools/call`.
   - Clients must match responses by `id` (demux), and must not treat the first received frame as the call response.
 - Output policy by command:
   - `loomle`:
     1. Summary line (core bridge status)
     2. Capability list with short descriptions
     3. Current status interpretation
-  - `context` / `live` / `execute`:
+  - `context` / `execute`:
     - Return only the current command result in natural language.
     - Do not repeat overall bridge status or capability list.
 - `execute` UX guardrail:
@@ -53,14 +52,6 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 - Only when abnormal/error:
   - Append transport/protocol/version diagnostics.
   - Append actionable recovery guidance (for example restart Unreal Editor).
-- Live policy (intent-based, not unconditional):
-  - If the user request depends on current editor state or recent user actions in UE (selection, actor/map/PIE/property changes, "I just did X in editor"), call `live` before reasoning.
-  - If the user request is pure knowledge/chat and does not depend on live editor state, skip `live`.
-  - Use incremental live cursor:
-    - first pull in a session: `cursor=0`
-    - subsequent pulls: use previous `nextCursor`
-  - Keep pull bounded (`limit` <= 100) and prefer small windows unless user asks for full history.
-- If live pull fails or cursor is stale, recover from `Loomle/runtime/live_events.jsonl` as fallback context.
 
 ## Bridge Interface Playbook
 
@@ -68,25 +59,17 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 
 - `loomle`: bridge health and capability summary.
 - `context`: active editor context + current selection snapshot.
-- `live`: incremental editor event stream pull.
 - `execute`: Python fallback for custom reads/writes.
 - `graph`: graph capability/schema descriptor.
 - `graph.list`: list readable graphs in an asset.
 - `graph.query`: read semantic graph snapshot (nodes/edges in `semanticSnapshot`).
 - `graph.addable`: list addable right-click actions in current graph/pin context.
 - `graph.mutate`: apply graph operations.
-- `graph.watch`: graph-oriented event pull.
 
 ### `loomle` Request Template
 
 ```json
 {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"loomle","arguments":{}}}
-```
-
-### `live` Request Template
-
-```json
-{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"live","arguments":{"cursor":0,"limit":20}}}
 ```
 
 ### `execute` Request Template
@@ -212,17 +195,6 @@ print(json.dumps({
 ```
 
 - Key response fields: `applied`, `opResults[]`, `previousRevision`, `newRevision`, `diagnostics[]`.
-
-### `graph.watch` (Event Pull)
-
-- Used for graph-focused event polling.
-- Request:
-
-```json
-{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"graph.watch","arguments":{"cursor":0,"limit":20}}}
-```
-
-- Key response fields: `events[]`, `cursor`, `nextCursor`, `count`, `dropped`, `running`.
 
 ### Hard Rules For Agents
 

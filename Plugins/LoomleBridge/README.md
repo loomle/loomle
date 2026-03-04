@@ -45,44 +45,6 @@ From UE project root:
 - `loomle`
   - No arguments.
   - Returns bridge health and a friendly list of currently callable capabilities (including readiness/reason).
-- `live`
-  - Optional arguments:
-    - `cursor` (last consumed seq, default `0`)
-    - `limit` (default `20`, max `100`)
-  - Returns incremental events after `cursor`.
-  - Returns both `editor` and `graph` scope events from the same event bus.
-  - Pull response filters out lifecycle noise events (`live_started`, `live_stopping`).
-  - Each event includes `params.origin` (`user` / `system` / `unknown`) and `params.scope` (`editor` / `graph`).
-  - If bridge runtime is abnormal, returns an error and asks user to restart Unreal Editor.
-  - Notifications method: `notifications/live`
-  - Event types:
-    - `live_started`, `live_stopping`
-    - `selection_changed`
-    - `graph.selection_changed`
-    - `graph.changed`
-    - `graph.node_added`, `graph.node_connected`, `graph.pin_default_changed`
-    - `graph.links_changed`, `graph.node_removed`, `graph.node_moved`
-    - `graph.compiled`, `graph.script_executed`
-    - `map_opened`
-    - `actor_added`, `actor_deleted`, `actor_attached`, `actor_detached`, `actor_moved`
-    - `pie_started`, `pie_stopped`, `pie_paused`, `pie_resumed`
-    - `object_property_changed`
-    - `undo_redo`
-  - Rich payloads for behavior analysis:
-    - `selection_changed` includes `paths`
-    - `graph.selection_changed` includes `selectionKind`, `editorType`, `assetPath`, `assetPaths`, and `items`
-    - `graph.changed` includes `summary.nodeCountDelta`, `summary.edgeCountDelta`, `summary.signatureBefore`, `summary.signatureAfter`, `summary.reason`
-    - `actor_moved` includes `previousTransform`, `currentTransform`, `delta`
-    - `object_property_changed` includes `newValue`; for scene components includes relative `previous/current/delta` transforms
-  - Events are appended to `Loomle/runtime/live_events.jsonl` and only latest 100 records are retained.
-  - Bridge module startup auto-enables live stream, and module shutdown auto-disables it.
-- `graph.watch`
-  - Optional arguments:
-    - `cursor` (last consumed seq, default `0`)
-    - `limit` (default `20`, max `100`)
-    - `graphType` (`blueprint`, default `blueprint`)
-    - `assetPath` (optional; only return events for this asset path)
-  - Returns only `scope=graph` events from the same event bus used by `live`.
 - `graph.list`
   - Required argument: `assetPath` (long package path)
   - Optional argument: `graphType` (`blueprint`, default `blueprint`)
@@ -217,7 +179,6 @@ printf '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n' | nc -U "$
 printf '{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"loomle","arguments":{}}}\n' | nc -U "$SOCK"
 printf '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"context","arguments":{}}}\n' | nc -U "$SOCK"
 printf '{"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"name":"context","arguments":{"resolveIds":["/Game/Map.Map:PersistentLevel.Actor_1"]}}}\n' | nc -U "$SOCK"
-printf '{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"live","arguments":{"cursor":0,"limit":20}}}\n' | nc -U "$SOCK"
 printf '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"execute","arguments":{"code":"import unreal\\nunreal.log(\\\"hello from bridge\\\")"}}}\n' | nc -U "$SOCK"
 printf '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"execute","arguments":{"mode":"eval","code":"1+2+3"}}}\n' | nc -U "$SOCK"
 printf '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"graph.mutate","arguments":{"graphType":"blueprint","assetPath":"/Game/Codex/BP_BridgeVerify","graphName":"EventGraph","ops":[{"op":"runScript","args":{"mode":"inlineCode","entry":"run","code":"def run(ctx):\\n  return {\\\"ok\\\": True, \\\"assetPath\\\": ctx.get(\\\"assetPath\\\", \\\"\\\")}"}}]}}}\n' | nc -U "$SOCK"

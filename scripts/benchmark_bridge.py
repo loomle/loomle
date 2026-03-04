@@ -163,7 +163,7 @@ class JsonRpcClient:
                         out = self._pending.get(req_id)
                     if out is not None:
                         out.put(frame)
-                # notifications/live are intentionally ignored for benchmark
+                # notifications are intentionally ignored for benchmark
         except Exception as exc:
             self._reader_error = str(exc)
             self._stop.set()
@@ -304,13 +304,7 @@ def main() -> int:
     parser.add_argument(
         "--tools",
         default="",
-        help="Comma-separated tool list for batch mode, e.g. loomle,context,live",
-    )
-    parser.add_argument(
-        "--live-limit",
-        type=int,
-        default=20,
-        help="Arguments.limit used when tool=live in batch mode (default: 20)",
+        help="Comma-separated tool list for batch mode, e.g. loomle,context,graph.query",
     )
     parser.add_argument(
         "--output",
@@ -341,9 +335,6 @@ def main() -> int:
         case_results: list[BenchCaseResult] = []
         for tool_name in batch_tools:
             per_args = dict(tool_args)
-            if tool_name == "live":
-                per_args.setdefault("cursor", 0)
-                per_args.setdefault("limit", max(1, args.live_limit))
             method = "tools/call"
             params = {"name": tool_name, "arguments": per_args}
             result = run_benchmark(
