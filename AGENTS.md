@@ -21,8 +21,8 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 - Before launching Unreal Editor, terminate any existing Unreal Editor processes for this project to avoid multiple concurrent editor instances.
 
 ## User Command Handling Policy
-- Supported user commands: `loomle`, `context`, `live`, `execute`.
-- Agent-internal tools that should be used when needed: `graph`, `graph.list`, `graph.query`, `graph.mutate`, `graph.watch`.
+- Supported bridge commands: `loomle`, `context`, `live`, `execute`, `graph`, `graph.list`, `graph.query`, `graph.addable`, `graph.mutate`, `graph.watch`.
+- User-facing commands are usually `loomle`, `context`, `live`; `execute` is typically agent-operated.
 - For these commands, always call the corresponding bridge tool first, then return concise natural-language output.
 - Do not dump raw JSON by default; show raw payload only when explicitly requested.
 - JSON-RPC transport note:
@@ -63,6 +63,7 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 - `graph`: graph capability/schema descriptor.
 - `graph.list`: list readable graphs in an asset.
 - `graph.query`: read semantic graph snapshot (nodes/edges in `semanticSnapshot`).
+- `graph.addable`: list addable right-click actions in current graph/pin context.
 - `graph.mutate`: apply graph operations.
 - `graph.watch`: graph-oriented event pull.
 
@@ -166,11 +167,34 @@ print(json.dumps({
 
 - Key response fields: `semanticSnapshot.signature`, `semanticSnapshot.nodes[]`, `semanticSnapshot.edges[]`, `graphName`, `meta`.
 
+### `graph.addable` (Action Enumeration)
+
+- Required: `arguments.assetPath`, `arguments.graphName`.
+- Optional: `arguments.graphType`, `arguments.context.fromPin`, `arguments.query`, `arguments.limit`.
+- Request:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"graph.addable","arguments":{"assetPath":"/Game/Codex/BP_BouncyPad","graphName":"EventGraph","graphType":"blueprint","limit":20}}}
+```
+
+- Key response fields: `items[]`, where each item can include `actionToken`, `title`, `categoryPath`, `tooltip`, `keywords`, `compatibility`, `spawn`.
+- `actionToken` is short-lived and should be passed as `args.actionToken` in `graph.mutate` `addNode.byAction`.
+
 ### `graph.mutate` (Write)
 
 - Required: `arguments.assetPath`, `arguments.ops[]`.
 - Optional: `dryRun` for non-committing validation path.
-- Typical ops in current bridge version include `compile`, `connectPins`, `setPinDefault`, `addNode.*`, and actor/component helpers.
+- Typical ops in current bridge version:
+  - `addNode.byClass`
+  - `addNode.byAction`
+  - `connectPins`
+  - `disconnectPins`
+  - `breakPinLinks`
+  - `setPinDefault`
+  - `removeNode`
+  - `moveNode`
+  - `compile`
+  - `runScript`
 - Dry-run compile template:
 
 ```json

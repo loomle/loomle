@@ -24,6 +24,12 @@ For Agent (single install entrypoint):
 - `loomle`: Show bridge health and capability summary.
 - `context`: Read current project context and selection snapshot.
 - `live`: Pull recent editor live events on demand.
+- `graph`: Return graph capability/schema descriptor.
+- `graph.list`: List readable graphs in a blueprint asset.
+- `graph.query`: Read semantic graph snapshot (`nodes`, `edges`, `signature`).
+- `graph.addable`: List addable right-click actions for graph/pin context.
+- `graph.mutate`: Apply graph write operations (`addNode.*`, `connectPins`, `compile`, `runScript`, etc.).
+- `graph.watch`: Pull graph-scope event stream with cursor.
 - `execute`: Run Codex-generated UE Python actions.
 
 ## How It Works
