@@ -6,6 +6,7 @@
 #include "HAL/RunnableThread.h"
 #include "Logging/LogMacros.h"
 #include "Misc/Paths.h"
+#include "Misc/ScopeExit.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 
@@ -227,23 +228,21 @@ uint32 FLoomlePipeServer::Run()
                     continue;
                 }
 
-                TWeakPtr<FLoomlePipeServer, ESPMode::ThreadSafe> WeakSelf = AsShared();
+                TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> SharedSelf = AsShared();
                 FRequestHandler HandlerSnapshot = RequestHandler;
-                AsyncTask(ENamedThreads::GameThread, [WeakSelf, HandlerSnapshot, RequestLine, ConnectionSerial]()
+                AsyncTask(ENamedThreads::GameThread, [SharedSelf, HandlerSnapshot, RequestLine, ConnectionSerial]()
                 {
-                    const TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> Self = WeakSelf.Pin();
-                    if (!Self.IsValid())
+                    ON_SCOPE_EXIT
                     {
-                        return;
-                    }
+                        SharedSelf->EndInFlight();
+                    };
 
                     const FString Response = HandlerSnapshot(RequestLine);
-                    if (!Response.IsEmpty() && !Self->WriteMessageForConnection(Response, ConnectionSerial))
+                    if (!Response.IsEmpty() && !SharedSelf->WriteMessageForConnection(Response, ConnectionSerial))
                     {
                         UE_LOG(LogLoomlePipe, Verbose, TEXT("Dropping response for stale or disconnected pipe client"));
+                        return;
                     }
-
-                    Self->EndInFlight();
                 });
             }
         }
@@ -357,23 +356,21 @@ uint32 FLoomlePipeServer::Run()
                     continue;
                 }
 
-                TWeakPtr<FLoomlePipeServer, ESPMode::ThreadSafe> WeakSelf = AsShared();
+                TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> SharedSelf = AsShared();
                 FRequestHandler HandlerSnapshot = RequestHandler;
-                AsyncTask(ENamedThreads::GameThread, [WeakSelf, HandlerSnapshot, RequestLine, ConnectionSerial]()
+                AsyncTask(ENamedThreads::GameThread, [SharedSelf, HandlerSnapshot, RequestLine, ConnectionSerial]()
                 {
-                    const TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> Self = WeakSelf.Pin();
-                    if (!Self.IsValid())
+                    ON_SCOPE_EXIT
                     {
-                        return;
-                    }
+                        SharedSelf->EndInFlight();
+                    };
 
                     const FString Response = HandlerSnapshot(RequestLine);
-                    if (!Response.IsEmpty() && !Self->WriteMessageForConnection(Response, ConnectionSerial))
+                    if (!Response.IsEmpty() && !SharedSelf->WriteMessageForConnection(Response, ConnectionSerial))
                     {
                         UE_LOG(LogLoomlePipe, Verbose, TEXT("Dropping response for stale or disconnected socket client"));
+                        return;
                     }
-
-                    Self->EndInFlight();
                 });
             }
         }
