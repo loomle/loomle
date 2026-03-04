@@ -228,22 +228,14 @@ uint32 FLoomlePipeServer::Run()
                     continue;
                 }
 
-                TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> SharedSelf = AsShared();
                 FRequestHandler HandlerSnapshot = RequestHandler;
-                AsyncTask(ENamedThreads::GameThread, [SharedSelf, HandlerSnapshot, RequestLine, ConnectionSerial]()
+                const FString Response = HandlerSnapshot(RequestLine);
+                EndInFlight();
+                if (!Response.IsEmpty() && !WriteMessageForConnection(Response, ConnectionSerial))
                 {
-                    ON_SCOPE_EXIT
-                    {
-                        SharedSelf->EndInFlight();
-                    };
-
-                    const FString Response = HandlerSnapshot(RequestLine);
-                    if (!Response.IsEmpty() && !SharedSelf->WriteMessageForConnection(Response, ConnectionSerial))
-                    {
-                        UE_LOG(LogLoomlePipe, Verbose, TEXT("Dropping response for stale or disconnected pipe client"));
-                        return;
-                    }
-                });
+                    UE_LOG(LogLoomlePipe, Display, TEXT("Dropping response for stale or disconnected pipe client"));
+                    break;
+                }
             }
         }
 
@@ -356,22 +348,14 @@ uint32 FLoomlePipeServer::Run()
                     continue;
                 }
 
-                TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> SharedSelf = AsShared();
                 FRequestHandler HandlerSnapshot = RequestHandler;
-                AsyncTask(ENamedThreads::GameThread, [SharedSelf, HandlerSnapshot, RequestLine, ConnectionSerial]()
+                const FString Response = HandlerSnapshot(RequestLine);
+                EndInFlight();
+                if (!Response.IsEmpty() && !WriteMessageForConnection(Response, ConnectionSerial))
                 {
-                    ON_SCOPE_EXIT
-                    {
-                        SharedSelf->EndInFlight();
-                    };
-
-                    const FString Response = HandlerSnapshot(RequestLine);
-                    if (!Response.IsEmpty() && !SharedSelf->WriteMessageForConnection(Response, ConnectionSerial))
-                    {
-                        UE_LOG(LogLoomlePipe, Verbose, TEXT("Dropping response for stale or disconnected socket client"));
-                        return;
-                    }
-                });
+                    UE_LOG(LogLoomlePipe, Display, TEXT("Dropping response for stale or disconnected socket client"));
+                    break;
+                }
             }
         }
 

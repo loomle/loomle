@@ -344,6 +344,52 @@ PY
   fi
 }
 
+should_sync_root_artifacts() {
+  [[ -f "$ROOT_BIN" ]] || return 1
+
+  if [[ ! -f "$PLUGIN_BIN" ]]; then
+    return 0
+  fi
+
+  if [[ "$ROOT_BIN" -nt "$PLUGIN_BIN" ]]; then
+    return 0
+  fi
+
+  local root_size plugin_size
+  root_size="$(wc -c < "$ROOT_BIN" | tr -d '[:space:]')"
+  plugin_size="$(wc -c < "$PLUGIN_BIN" | tr -d '[:space:]')"
+  if [[ "$root_size" != "$plugin_size" ]]; then
+    return 0
+  fi
+
+  if [[ -f "$ROOT_MODULES" ]]; then
+    if [[ ! -f "$PLUGIN_MODULES" ]]; then
+      return 0
+    fi
+
+    local ids root_build plugin_build
+    ids="$(
+      python3 - <<'PY' "$ROOT_MODULES" "$PLUGIN_MODULES"
+import json
+import pathlib
+import sys
+root_data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+plugin_data = json.loads(pathlib.Path(sys.argv[2]).read_text())
+print(str(root_data.get("BuildId", "")).strip())
+print(str(plugin_data.get("BuildId", "")).strip())
+PY
+    )" || return 0
+
+    root_build="$(printf '%s\n' "$ids" | sed -n '1p')"
+    plugin_build="$(printf '%s\n' "$ids" | sed -n '2p')"
+    if [[ "$root_build" != "$plugin_build" ]]; then
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
   [[ -x "$GEN_SCRIPT" ]] || fail "GenerateProjectFiles script missing: $GEN_SCRIPT"
   [[ -x "$BUILD_SCRIPT" ]] || fail "Build script missing: $BUILD_SCRIPT"
@@ -371,6 +417,13 @@ if [[ "$SKIP_BUILD" -eq 0 ]]; then
   fi
 else
   log "Skipping build (--skip-build)"
+fi
+
+if should_sync_root_artifacts; then
+  log "Synchronizing root build artifacts to plugin directory"
+  sync_built_plugin_artifacts
+else
+  log "Plugin binary artifacts already synchronized"
 fi
 
 if [[ "$SKIP_LAUNCH" -eq 0 ]]; then
