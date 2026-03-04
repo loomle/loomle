@@ -32,12 +32,11 @@ Naming:
 
 5. Context Detector Layer
 - Single in-module detector for active editor context/selection.
-- No provider registry fan-out for `context`.
-- Uses editor-type branches (for example blueprint/material) behind one unified tool path.
+- Uses editor-type branches (blueprint/material/pcg) behind one unified tool path.
 
 6. Adapter Layer
-- `LoomleBlueprintAdapter` (v1).
-- Future: material/niagara adapters.
+- `LoomleBlueprintAdapter` (full mutate/query path).
+- Material and PCG adapters (query/addable/mutate/watch path).
 
 7. Execution Layer
 - Operation transaction executor.
@@ -51,9 +50,9 @@ Naming:
 
 ## 3. Tool Routing
 
-- `graph.list` -> Adapter graph enumeration path.
-- `graph.query` -> Adapter semantic snapshot query path.
-- `graph.mutate` -> Adapter mutate path.
+- `graph.list` -> Adapter graph enumeration path (`blueprint/material/pcg`).
+- `graph.query` -> Adapter semantic snapshot query path (`blueprint/material/pcg`).
+- `graph.mutate` -> Adapter mutate path (`blueprint/material/pcg`, with graph-type-specific op coverage).
 - `graph.watch` -> Event layer pull.
 - `graph` -> static + runtime capability + schema descriptor.
 - `context` compatibility mode:

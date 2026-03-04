@@ -3,9 +3,13 @@
 ## 1. Scope
 
 - Protocol: JSON-RPC 2.0 (bridge tools).
-- Graph types (v1): `blueprint`.
-- Reserved graph types: `material`, `niagara`.
+- Graph types (v1): `blueprint`, `material` (`shader` alias), `pcg`.
+- Reserved graph types: `niagara`.
 - Tools: `graph`, `graph.list`, `graph.query`, `graph.addable`, `graph.mutate`, `graph.watch`.
+- Capability matrix:
+  - `blueprint`: full (`list/query/addable/mutate/watch`)
+  - `material(shader)`: `list/query/addable/mutate/watch` (mutate supports node add/remove/move/connect/disconnect/compile)
+  - `pcg`: `list/query/addable/mutate/watch` (mutate supports node add/remove/move/connect/disconnect/compile)
 
 ## 2. Tool Contracts
 

@@ -36,8 +36,14 @@
 #include "Engine/Blueprint.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpression.h"
+#include "MaterialEditingLibrary.h"
 #include "IMaterialEditor.h"
 #include "MaterialGraph/MaterialGraphNode.h"
+#include "PCGGraph.h"
+#include "PCGEdge.h"
+#include "PCGNode.h"
+#include "PCGPin.h"
+#include "PCGSettings.h"
 #include "LoomleBlueprintAdapter.h"
 #include "LoomlePipeServer.h"
 #include "Misc/App.h"
@@ -292,7 +298,38 @@ bool ShouldIncludeEventForAsset(const TSharedPtr<FJsonObject>& EventObject, cons
     return false;
 }
 
-FString NormalizeBlueprintAssetPath(const FString& InAssetPath)
+FString NormalizeGraphType(FString GraphType)
+{
+    GraphType = GraphType.TrimStartAndEnd().ToLower();
+    if (GraphType.IsEmpty())
+    {
+        return TEXT("blueprint");
+    }
+    if (GraphType.Equals(TEXT("shader")))
+    {
+        return TEXT("material");
+    }
+    return GraphType;
+}
+
+FString GetGraphTypeFromArgs(const TSharedPtr<FJsonObject>& Arguments)
+{
+    FString GraphType = TEXT("blueprint");
+    if (Arguments.IsValid())
+    {
+        Arguments->TryGetStringField(TEXT("graphType"), GraphType);
+    }
+    return NormalizeGraphType(GraphType);
+}
+
+bool IsSupportedGraphType(const FString& GraphType)
+{
+    return GraphType.Equals(TEXT("blueprint"))
+        || GraphType.Equals(TEXT("material"))
+        || GraphType.Equals(TEXT("pcg"));
+}
+
+FString NormalizeAssetPath(const FString& InAssetPath)
 {
     FString AssetPath = InAssetPath;
     const int32 DotIndex = AssetPath.Find(TEXT("."));
@@ -301,6 +338,11 @@ FString NormalizeBlueprintAssetPath(const FString& InAssetPath)
         AssetPath = AssetPath.Left(DotIndex);
     }
     return AssetPath;
+}
+
+FString NormalizeBlueprintAssetPath(const FString& InAssetPath)
+{
+    return NormalizeAssetPath(InAssetPath);
 }
 
 UBlueprint* LoadBlueprintByAssetPath(const FString& InAssetPath)
@@ -314,6 +356,180 @@ UBlueprint* LoadBlueprintByAssetPath(const FString& InAssetPath)
     const FString AssetName = FPackageName::GetLongPackageAssetName(AssetPath);
     const FString ObjectPath = FString::Printf(TEXT("%s.%s"), *AssetPath, *AssetName);
     return LoadObject<UBlueprint>(nullptr, *ObjectPath);
+}
+
+UMaterial* LoadMaterialByAssetPath(const FString& InAssetPath)
+{
+    const FString AssetPath = NormalizeAssetPath(InAssetPath);
+    if (!FPackageName::IsValidLongPackageName(AssetPath))
+    {
+        return nullptr;
+    }
+
+    const FString AssetName = FPackageName::GetLongPackageAssetName(AssetPath);
+    const FString ObjectPath = FString::Printf(TEXT("%s.%s"), *AssetPath, *AssetName);
+    return LoadObject<UMaterial>(nullptr, *ObjectPath);
+}
+
+UObject* LoadObjectByAssetPath(const FString& InAssetPath)
+{
+    const FString AssetPath = NormalizeAssetPath(InAssetPath);
+    if (!FPackageName::IsValidLongPackageName(AssetPath))
+    {
+        return nullptr;
+    }
+
+    const FString AssetName = FPackageName::GetLongPackageAssetName(AssetPath);
+    const FString ObjectPath = FString::Printf(TEXT("%s.%s"), *AssetPath, *AssetName);
+    return LoadObject<UObject>(nullptr, *ObjectPath);
+}
+
+bool IsLikelyPcgAsset(const UObject* Asset)
+{
+    if (Asset == nullptr || Asset->GetClass() == nullptr)
+    {
+        return false;
+    }
+
+    const FString ClassPath = Asset->GetClass()->GetPathName();
+    const FString ClassName = Asset->GetClass()->GetName();
+    return ClassPath.Contains(TEXT("PCGGraph"))
+        || ClassPath.Contains(TEXT("/PCG."))
+        || ClassName.Contains(TEXT("PCGGraph"));
+}
+
+UPCGGraph* ResolvePcgGraphFromAsset(UObject* Asset)
+{
+    if (Asset == nullptr)
+    {
+        return nullptr;
+    }
+
+    if (UPCGGraph* Graph = Cast<UPCGGraph>(Asset))
+    {
+        return Graph;
+    }
+
+    if (UPCGGraphInterface* GraphInterface = Cast<UPCGGraphInterface>(Asset))
+    {
+        return GraphInterface->GetMutablePCGGraph();
+    }
+
+    return nullptr;
+}
+
+UPCGGraph* LoadPcgGraphByAssetPath(const FString& InAssetPath)
+{
+    return ResolvePcgGraphFromAsset(LoadObjectByAssetPath(InAssetPath));
+}
+
+UPCGNode* FindPcgNodeById(UPCGGraph* Graph, const FString& NodeId)
+{
+    if (Graph == nullptr)
+    {
+        return nullptr;
+    }
+
+    for (UPCGNode* Node : Graph->GetNodes())
+    {
+        if (Node == nullptr)
+        {
+            continue;
+        }
+
+        if (Node->GetPathName().Equals(NodeId)
+            || Node->GetName().Equals(NodeId)
+            || Node->NodeTitle.ToString().Equals(NodeId, ESearchCase::IgnoreCase))
+        {
+            return Node;
+        }
+    }
+
+    return nullptr;
+}
+
+UPCGPin* FindPcgPin(UPCGNode* Node, const FString& PinName, bool bOutputPin)
+{
+    if (Node == nullptr || PinName.IsEmpty())
+    {
+        return nullptr;
+    }
+
+    const TArray<TObjectPtr<UPCGPin>>& Pins = bOutputPin ? Node->GetOutputPins() : Node->GetInputPins();
+    for (UPCGPin* Pin : Pins)
+    {
+        if (Pin == nullptr)
+        {
+            continue;
+        }
+
+        const FString Label = Pin->Properties.Label.ToString();
+        if (Label.Equals(PinName, ESearchCase::IgnoreCase))
+        {
+            return Pin;
+        }
+    }
+
+    return nullptr;
+}
+
+UMaterialExpression* FindMaterialExpressionById(UMaterial* Material, const FString& NodeId)
+{
+    if (Material == nullptr || NodeId.IsEmpty())
+    {
+        return nullptr;
+    }
+
+    for (UMaterialExpression* Expression : Material->GetExpressions())
+    {
+        if (Expression == nullptr)
+        {
+            continue;
+        }
+
+        if (Expression->GetPathName().Equals(NodeId)
+            || Expression->GetName().Equals(NodeId))
+        {
+            return Expression;
+        }
+    }
+    return nullptr;
+}
+
+FString MaterialExpressionId(const UMaterialExpression* Expression)
+{
+    return Expression ? Expression->GetPathName() : FString();
+}
+
+int32 FindMaterialInputIndexByName(UMaterialExpression* Expression, const FString& PinName)
+{
+    if (Expression == nullptr)
+    {
+        return INDEX_NONE;
+    }
+
+    if (PinName.IsEmpty())
+    {
+        return 0;
+    }
+
+    const int32 MaxInputs = 128;
+    for (int32 Index = 0; Index < MaxInputs; ++Index)
+    {
+        FExpressionInput* Input = Expression->GetInput(Index);
+        if (Input == nullptr)
+        {
+            break;
+        }
+
+        const FName InputName = Expression->GetInputName(Index);
+        if (InputName.ToString().Equals(PinName, ESearchCase::IgnoreCase))
+        {
+            return Index;
+        }
+    }
+
+    return INDEX_NONE;
 }
 
 UEdGraph* ResolveBlueprintGraph(UBlueprint* Blueprint, const FString& GraphName)
@@ -648,6 +864,44 @@ UMaterial* FindEditedMaterial()
     return ActiveWindowTitle.IsEmpty() ? FallbackMaterial : nullptr;
 }
 
+UObject* FindEditedPcgAsset()
+{
+    if (!GEditor)
+    {
+        return nullptr;
+    }
+
+    UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
+    if (!AssetEditorSubsystem)
+    {
+        return nullptr;
+    }
+
+    const FString ActiveWindowTitle = GetActiveWindowTitle();
+    UObject* FallbackAsset = nullptr;
+
+    const TArray<UObject*> EditedAssets = AssetEditorSubsystem->GetAllEditedAssets();
+    for (UObject* Asset : EditedAssets)
+    {
+        if (!IsLikelyPcgAsset(Asset))
+        {
+            continue;
+        }
+
+        if (!FallbackAsset)
+        {
+            FallbackAsset = Asset;
+        }
+
+        if (!ActiveWindowTitle.IsEmpty() && ActiveWindowTitle.Contains(Asset->GetName(), ESearchCase::IgnoreCase))
+        {
+            return Asset;
+        }
+    }
+
+    return ActiveWindowTitle.IsEmpty() ? FallbackAsset : nullptr;
+}
+
 bool CollectSelectedMaterialExpressions(TArray<UMaterialExpression*>& OutExpressions, UMaterial*& OutMaterial)
 {
     OutExpressions.Reset();
@@ -752,6 +1006,26 @@ bool BuildMaterialSelectionSnapshot(TSharedPtr<FJsonObject>& OutSelection)
 
     OutSelection->SetArrayField(TEXT("items"), Items);
     OutSelection->SetNumberField(TEXT("count"), Items.Num());
+    return true;
+}
+
+bool BuildPcgContextSnapshot(TSharedPtr<FJsonObject>& OutContext)
+{
+    OutContext.Reset();
+    UObject* PcgAsset = FindEditedPcgAsset();
+    if (!PcgAsset)
+    {
+        return false;
+    }
+
+    OutContext = MakeShared<FJsonObject>();
+    OutContext->SetBoolField(TEXT("isError"), false);
+    OutContext->SetStringField(TEXT("editorType"), TEXT("pcg"));
+    OutContext->SetStringField(TEXT("provider"), TEXT("pcg"));
+    OutContext->SetStringField(TEXT("assetName"), PcgAsset->GetName());
+    OutContext->SetStringField(TEXT("assetPath"), PcgAsset->GetPathName());
+    OutContext->SetStringField(TEXT("assetClass"), PcgAsset->GetClass() ? PcgAsset->GetClass()->GetPathName() : TEXT(""));
+    OutContext->SetStringField(TEXT("status"), TEXT("active"));
     return true;
 }
 
@@ -932,7 +1206,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildToolsListResult() const
         {
             TSharedPtr<FJsonObject> GraphTypeProperty = MakeShared<FJsonObject>();
             GraphTypeProperty->SetStringField(TEXT("type"), TEXT("string"));
-            GraphTypeProperty->SetStringField(TEXT("description"), TEXT("Graph type descriptor. Default: blueprint."));
+            GraphTypeProperty->SetStringField(TEXT("description"), TEXT("Graph type descriptor. Supported: blueprint, material(shader), pcg. Default: blueprint."));
             Properties->SetObjectField(TEXT("graphType"), GraphTypeProperty);
         }
         Schema->SetObjectField(TEXT("properties"), Properties);
@@ -955,7 +1229,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildToolsListResult() const
             Properties->SetObjectField(TEXT("assetPath"), AssetPathProperty);
         }
         Schema->SetObjectField(TEXT("properties"), Properties);
-        Tools.Add(MakeTool(LoomleBridgeConstants::GraphListToolName, TEXT("List readable graph names in a blueprint asset."), Schema));
+        Tools.Add(MakeTool(LoomleBridgeConstants::GraphListToolName, TEXT("List readable graph names in a graph asset."), Schema));
     }
 
     {
@@ -1267,6 +1541,15 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGetContextToolResult(const TSh
             Context = MaterialContext;
             Context->SetStringField(TEXT("source"), TEXT("unified"));
         }
+        else
+        {
+            TSharedPtr<FJsonObject> PcgContext;
+            if (BuildPcgContextSnapshot(PcgContext) && PcgContext.IsValid())
+            {
+                Context = PcgContext;
+                Context->SetStringField(TEXT("source"), TEXT("unified"));
+            }
+        }
     }
     Result->SetObjectField(TEXT("context"), Context);
 
@@ -1505,14 +1788,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphToolResult(const TSharedP
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
 
-    FString GraphType = TEXT("blueprint");
-    Arguments->TryGetStringField(TEXT("graphType"), GraphType);
-    GraphType = GraphType.ToLower();
-    if (!GraphType.Equals(TEXT("blueprint")))
+    const FString GraphType = GetGraphTypeFromArgs(Arguments);
+    if (!IsSupportedGraphType(GraphType))
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_GRAPH_TYPE"));
-        Result->SetStringField(TEXT("message"), TEXT("Only blueprint graphType is currently supported."));
+        Result->SetStringField(TEXT("message"), TEXT("Supported graphType values: blueprint, material(shader), pcg."));
         return Result;
     }
 
@@ -1520,14 +1801,18 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphToolResult(const TSharedP
     Result->SetStringField(TEXT("graphType"), GraphType);
 
     TSharedPtr<FJsonObject> Features = MakeShared<FJsonObject>();
+    const bool bBlueprint = GraphType.Equals(TEXT("blueprint"));
+    const bool bMaterial = GraphType.Equals(TEXT("material"));
+    const bool bPcg = GraphType.Equals(TEXT("pcg"));
+
     Features->SetBoolField(TEXT("list"), true);
     Features->SetBoolField(TEXT("query"), true);
-    Features->SetBoolField(TEXT("addable"), true);
-    Features->SetBoolField(TEXT("mutate"), true);
+    Features->SetBoolField(TEXT("addable"), bBlueprint || bMaterial || bPcg);
+    Features->SetBoolField(TEXT("mutate"), bBlueprint || bMaterial || bPcg);
     Features->SetBoolField(TEXT("watch"), true);
     Features->SetBoolField(TEXT("revision"), true);
     Features->SetBoolField(TEXT("dryRun"), true);
-    Features->SetBoolField(TEXT("transactions"), true);
+    Features->SetBoolField(TEXT("transactions"), bBlueprint || bMaterial || bPcg);
     Result->SetObjectField(TEXT("features"), Features);
 
     TSharedPtr<FJsonObject> Limits = MakeShared<FJsonObject>();
@@ -1546,19 +1831,45 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphToolResult(const TSharedP
         return Out;
     };
 
-    Result->SetArrayField(TEXT("nodeCoreFields"), ToStringArray({TEXT("id"), TEXT("nodeClassPath"), TEXT("title"), TEXT("graphName"), TEXT("position"), TEXT("enabled"), TEXT("pins"), TEXT("memberReference"), TEXT("functionReference"), TEXT("k2Extensions")}));
+    Result->SetArrayField(TEXT("nodeCoreFields"), ToStringArray({TEXT("id"), TEXT("nodeClassPath"), TEXT("title"), TEXT("graphName"), TEXT("position"), TEXT("enabled"), TEXT("pins")}));
     Result->SetArrayField(TEXT("pinCoreFields"), ToStringArray({TEXT("name"), TEXT("direction"), TEXT("type"), TEXT("default"), TEXT("links")}));
-    Result->SetArrayField(TEXT("nodeExtensions"), ToStringArray({TEXT("cast"), TEXT("macro"), TEXT("comment"), TEXT("timeline")}));
-    Result->SetArrayField(TEXT("ops"), ToStringArray({
-        TEXT("addNode.byClass"), TEXT("addNode.byAction"),
-        TEXT("connectPins"), TEXT("disconnectPins"), TEXT("breakPinLinks"),
-        TEXT("setPinDefault"), TEXT("removeNode"), TEXT("moveNode"),
-        TEXT("compile"), TEXT("runScript")
-    }));
+    if (bBlueprint)
+    {
+        Result->SetArrayField(TEXT("nodeExtensions"), ToStringArray({TEXT("memberReference"), TEXT("functionReference"), TEXT("k2Extensions"), TEXT("cast"), TEXT("macro"), TEXT("comment"), TEXT("timeline")}));
+        Result->SetArrayField(TEXT("ops"), ToStringArray({
+            TEXT("addNode.byClass"), TEXT("addNode.byAction"),
+            TEXT("connectPins"), TEXT("disconnectPins"), TEXT("breakPinLinks"),
+            TEXT("setPinDefault"), TEXT("removeNode"), TEXT("moveNode"),
+            TEXT("compile"), TEXT("runScript")
+        }));
+    }
+    else if (bMaterial)
+    {
+        Result->SetArrayField(TEXT("nodeExtensions"), ToStringArray({TEXT("materialExpression")}));
+        Result->SetArrayField(TEXT("ops"), ToStringArray({
+            TEXT("addNode.byClass"), TEXT("addNode.byAction"),
+            TEXT("connectPins"), TEXT("disconnectPins"), TEXT("breakPinLinks"),
+            TEXT("removeNode"), TEXT("moveNode"),
+            TEXT("compile")
+        }));
+    }
+    else if (bPcg)
+    {
+        Result->SetArrayField(TEXT("nodeExtensions"), ToStringArray({TEXT("pcgNode")}));
+        Result->SetArrayField(TEXT("ops"), ToStringArray({
+            TEXT("addNode.byClass"), TEXT("addNode.byAction"),
+            TEXT("connectPins"), TEXT("disconnectPins"), TEXT("breakPinLinks"),
+            TEXT("removeNode"), TEXT("moveNode"),
+            TEXT("compile")
+        }));
+    }
     TSharedPtr<FJsonObject> Extensions = MakeShared<FJsonObject>();
-    Extensions->SetBoolField(TEXT("scriptOp"), true);
-    Extensions->SetArrayField(TEXT("scriptMode"), ToStringArray({TEXT("inlineCode"), TEXT("scriptId")}));
-    Extensions->SetStringField(TEXT("scriptInlineDefault"), TEXT("enabled"));
+    Extensions->SetBoolField(TEXT("scriptOp"), bBlueprint);
+    if (bBlueprint)
+    {
+        Extensions->SetArrayField(TEXT("scriptMode"), ToStringArray({TEXT("inlineCode"), TEXT("scriptId")}));
+        Extensions->SetStringField(TEXT("scriptInlineDefault"), TEXT("enabled"));
+    }
     Result->SetObjectField(TEXT("extensions"), Extensions);
     return Result;
 }
@@ -1568,14 +1879,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
 
-    FString GraphType = TEXT("blueprint");
-    Arguments->TryGetStringField(TEXT("graphType"), GraphType);
-    GraphType = GraphType.ToLower();
-    if (!GraphType.Equals(TEXT("blueprint")))
+    const FString GraphType = GetGraphTypeFromArgs(Arguments);
+    if (!IsSupportedGraphType(GraphType))
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_GRAPH_TYPE"));
-        Result->SetStringField(TEXT("message"), TEXT("Only blueprint graphType is currently supported."));
+        Result->SetStringField(TEXT("message"), TEXT("Supported graphType values: blueprint, material(shader), pcg."));
         return Result;
     }
 
@@ -1587,7 +1896,56 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
         Result->SetStringField(TEXT("message"), TEXT("arguments.assetPath is required."));
         return Result;
     }
-    AssetPath = NormalizeBlueprintAssetPath(AssetPath);
+    AssetPath = NormalizeAssetPath(AssetPath);
+
+    if (GraphType.Equals(TEXT("material")))
+    {
+        if (LoadMaterialByAssetPath(AssetPath) == nullptr)
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("ASSET_NOT_FOUND"));
+            Result->SetStringField(TEXT("message"), TEXT("Material asset not found."));
+            return Result;
+        }
+
+        TArray<TSharedPtr<FJsonValue>> Graphs;
+        TSharedPtr<FJsonObject> GraphInfo = MakeShared<FJsonObject>();
+        GraphInfo->SetStringField(TEXT("graphName"), TEXT("MaterialGraph"));
+        GraphInfo->SetStringField(TEXT("graphKind"), TEXT("Material"));
+        GraphInfo->SetStringField(TEXT("graphClassPath"), TEXT("/Script/Engine.MaterialGraph"));
+        Graphs.Add(MakeShared<FJsonValueObject>(GraphInfo));
+
+        Result->SetStringField(TEXT("graphType"), GraphType);
+        Result->SetStringField(TEXT("assetPath"), AssetPath);
+        Result->SetArrayField(TEXT("graphs"), Graphs);
+        Result->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
+        return Result;
+    }
+
+    if (GraphType.Equals(TEXT("pcg")))
+    {
+        UObject* Asset = LoadObjectByAssetPath(AssetPath);
+        if (!IsLikelyPcgAsset(Asset))
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("ASSET_NOT_FOUND"));
+            Result->SetStringField(TEXT("message"), TEXT("PCG asset not found."));
+            return Result;
+        }
+
+        TArray<TSharedPtr<FJsonValue>> Graphs;
+        TSharedPtr<FJsonObject> GraphInfo = MakeShared<FJsonObject>();
+        GraphInfo->SetStringField(TEXT("graphName"), TEXT("PCGGraph"));
+        GraphInfo->SetStringField(TEXT("graphKind"), TEXT("PCG"));
+        GraphInfo->SetStringField(TEXT("graphClassPath"), Asset->GetClass() ? Asset->GetClass()->GetPathName() : TEXT(""));
+        Graphs.Add(MakeShared<FJsonValueObject>(GraphInfo));
+
+        Result->SetStringField(TEXT("graphType"), GraphType);
+        Result->SetStringField(TEXT("assetPath"), AssetPath);
+        Result->SetArrayField(TEXT("graphs"), Graphs);
+        Result->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
+        return Result;
+    }
 
     FString GraphsJson;
     FString Error;
@@ -1617,14 +1975,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
 
-    FString GraphType = TEXT("blueprint");
-    Arguments->TryGetStringField(TEXT("graphType"), GraphType);
-    GraphType = GraphType.ToLower();
-    if (!GraphType.Equals(TEXT("blueprint")))
+    const FString GraphType = GetGraphTypeFromArgs(Arguments);
+    if (!IsSupportedGraphType(GraphType))
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_GRAPH_TYPE"));
-        Result->SetStringField(TEXT("message"), TEXT("Only blueprint graphType is currently supported."));
+        Result->SetStringField(TEXT("message"), TEXT("Supported graphType values: blueprint, material(shader), pcg."));
         return Result;
     }
 
@@ -1643,6 +1999,385 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
         Result->SetStringField(TEXT("message"), TEXT("arguments.graphName is required."));
+        return Result;
+    }
+    AssetPath = NormalizeAssetPath(AssetPath);
+
+    auto BuildMinimalSnapshotResult = [&Result, &GraphType, &AssetPath, &GraphName](const FString& RevisionPrefix, const TArray<TSharedPtr<FJsonValue>>& Nodes, const TArray<TSharedPtr<FJsonValue>>& Edges, const TArray<TSharedPtr<FJsonValue>>& Diagnostics)
+    {
+        TArray<FString> SignatureNodeTokens;
+        TArray<FString> SignatureEdgeTokens;
+        SignatureNodeTokens.Reserve(Nodes.Num());
+        SignatureEdgeTokens.Reserve(Edges.Num());
+
+        for (const TSharedPtr<FJsonValue>& NodeValue : Nodes)
+        {
+            const TSharedPtr<FJsonObject>* NodeObj = nullptr;
+            if (NodeValue.IsValid() && NodeValue->TryGetObject(NodeObj) && NodeObj && (*NodeObj).IsValid())
+            {
+                FString Id;
+                if (!(*NodeObj)->TryGetStringField(TEXT("id"), Id))
+                {
+                    (*NodeObj)->TryGetStringField(TEXT("guid"), Id);
+                }
+                if (!Id.IsEmpty())
+                {
+                    SignatureNodeTokens.Add(Id);
+                }
+            }
+        }
+
+        for (const TSharedPtr<FJsonValue>& EdgeValue : Edges)
+        {
+            const TSharedPtr<FJsonObject>* EdgeObj = nullptr;
+            if (EdgeValue.IsValid() && EdgeValue->TryGetObject(EdgeObj) && EdgeObj && (*EdgeObj).IsValid())
+            {
+                FString FromNodeId;
+                FString FromPin;
+                FString ToNodeId;
+                FString ToPin;
+                (*EdgeObj)->TryGetStringField(TEXT("fromNodeId"), FromNodeId);
+                (*EdgeObj)->TryGetStringField(TEXT("fromPin"), FromPin);
+                (*EdgeObj)->TryGetStringField(TEXT("toNodeId"), ToNodeId);
+                (*EdgeObj)->TryGetStringField(TEXT("toPin"), ToPin);
+                SignatureEdgeTokens.Add(FromNodeId + TEXT("|") + FromPin + TEXT("->") + ToNodeId + TEXT("|") + ToPin);
+            }
+        }
+
+        Algo::Sort(SignatureNodeTokens);
+        Algo::Sort(SignatureEdgeTokens);
+        const FString Signature = FString::Join(SignatureNodeTokens, TEXT(";")) + TEXT("#") + FString::Join(SignatureEdgeTokens, TEXT(";"));
+        const FString Revision = FString::Printf(TEXT("%s:%08x"), *RevisionPrefix, GetTypeHash(AssetPath + TEXT("|") + GraphName + TEXT("|") + Signature));
+
+        TSharedPtr<FJsonObject> Snapshot = MakeShared<FJsonObject>();
+        Snapshot->SetStringField(TEXT("signature"), Signature);
+        Snapshot->SetArrayField(TEXT("nodes"), Nodes);
+        Snapshot->SetArrayField(TEXT("edges"), Edges);
+
+        TSharedPtr<FJsonObject> Meta = MakeShared<FJsonObject>();
+        Meta->SetNumberField(TEXT("totalNodes"), Nodes.Num());
+        Meta->SetNumberField(TEXT("returnedNodes"), Nodes.Num());
+        Meta->SetNumberField(TEXT("totalEdges"), Edges.Num());
+        Meta->SetNumberField(TEXT("returnedEdges"), Edges.Num());
+        Meta->SetBoolField(TEXT("truncated"), false);
+
+        Result->SetStringField(TEXT("graphType"), GraphType);
+        Result->SetStringField(TEXT("assetPath"), AssetPath);
+        Result->SetStringField(TEXT("graphName"), GraphName);
+        Result->SetStringField(TEXT("revision"), Revision);
+        Result->SetObjectField(TEXT("semanticSnapshot"), Snapshot);
+        Result->SetStringField(TEXT("nextCursor"), TEXT(""));
+        Result->SetObjectField(TEXT("meta"), Meta);
+        Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
+    };
+
+    if (GraphType.Equals(TEXT("material")))
+    {
+        UMaterial* Material = LoadMaterialByAssetPath(AssetPath);
+        if (Material == nullptr)
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("ASSET_NOT_FOUND"));
+            Result->SetStringField(TEXT("message"), TEXT("Material asset not found."));
+            return Result;
+        }
+
+        TArray<TSharedPtr<FJsonValue>> Nodes;
+        TArray<TSharedPtr<FJsonValue>> Diagnostics;
+        TArray<TSharedPtr<FJsonValue>> Edges;
+        for (UMaterialExpression* Expression : Material->GetExpressions())
+        {
+            if (Expression == nullptr)
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> Node = MakeShared<FJsonObject>();
+            const FString NodeId = MaterialExpressionId(Expression);
+            Node->SetStringField(TEXT("id"), NodeId);
+            Node->SetStringField(TEXT("guid"), NodeId);
+            Node->SetStringField(TEXT("nodeClassPath"), Expression->GetClass() ? Expression->GetClass()->GetPathName() : TEXT(""));
+            Node->SetStringField(TEXT("title"), Expression->GetName());
+            Node->SetStringField(TEXT("graphName"), GraphName);
+            TSharedPtr<FJsonObject> Position = MakeShared<FJsonObject>();
+            Position->SetNumberField(TEXT("x"), Expression->MaterialExpressionEditorX);
+            Position->SetNumberField(TEXT("y"), Expression->MaterialExpressionEditorY);
+            Node->SetObjectField(TEXT("position"), Position);
+            Node->SetBoolField(TEXT("enabled"), true);
+
+            TArray<TSharedPtr<FJsonValue>> Pins;
+            const int32 MaxInputs = 128;
+            for (int32 Index = 0; Index < MaxInputs; ++Index)
+            {
+                FExpressionInput* Input = Expression->GetInput(Index);
+                if (Input == nullptr)
+                {
+                    break;
+                }
+
+                const FString InputName = Expression->GetInputName(Index).ToString();
+                TSharedPtr<FJsonObject> PinObj = MakeShared<FJsonObject>();
+                PinObj->SetStringField(TEXT("name"), InputName);
+                PinObj->SetStringField(TEXT("direction"), TEXT("input"));
+                PinObj->SetStringField(TEXT("category"), TEXT("material"));
+                PinObj->SetStringField(TEXT("subCategory"), TEXT(""));
+                PinObj->SetStringField(TEXT("subCategoryObject"), TEXT(""));
+                PinObj->SetBoolField(TEXT("isReference"), false);
+                PinObj->SetBoolField(TEXT("isConst"), false);
+                PinObj->SetBoolField(TEXT("isArray"), false);
+                PinObj->SetStringField(TEXT("defaultValue"), TEXT(""));
+                PinObj->SetStringField(TEXT("defaultObject"), TEXT(""));
+                PinObj->SetStringField(TEXT("defaultText"), TEXT(""));
+                TSharedPtr<FJsonObject> PinTypeObject = MakeShared<FJsonObject>();
+                PinTypeObject->SetStringField(TEXT("category"), TEXT("material"));
+                PinTypeObject->SetStringField(TEXT("subCategory"), TEXT(""));
+                PinTypeObject->SetStringField(TEXT("object"), TEXT(""));
+                PinTypeObject->SetStringField(TEXT("container"), TEXT("none"));
+                PinObj->SetObjectField(TEXT("type"), PinTypeObject);
+                TSharedPtr<FJsonObject> PinDefaultObject = MakeShared<FJsonObject>();
+                PinDefaultObject->SetStringField(TEXT("value"), TEXT(""));
+                PinDefaultObject->SetStringField(TEXT("object"), TEXT(""));
+                PinDefaultObject->SetStringField(TEXT("text"), TEXT(""));
+                PinObj->SetObjectField(TEXT("default"), PinDefaultObject);
+
+                TArray<TSharedPtr<FJsonValue>> Links;
+                if (Input->Expression != nullptr)
+                {
+                    const FString FromNodeId = MaterialExpressionId(Input->Expression);
+                    const FString FromPinName = Input->InputName.ToString();
+
+                    TSharedPtr<FJsonObject> LinkObj = MakeShared<FJsonObject>();
+                    LinkObj->SetStringField(TEXT("toNodeId"), FromNodeId);
+                    LinkObj->SetStringField(TEXT("toPin"), FromPinName);
+                    LinkObj->SetStringField(TEXT("nodeName"), Input->Expression->GetName());
+                    LinkObj->SetStringField(TEXT("nodeGuid"), FromNodeId);
+                    LinkObj->SetStringField(TEXT("direction"), TEXT("input"));
+                    Links.Add(MakeShared<FJsonValueObject>(LinkObj));
+
+                    TSharedPtr<FJsonObject> EdgeObj = MakeShared<FJsonObject>();
+                    EdgeObj->SetStringField(TEXT("fromNodeId"), FromNodeId);
+                    EdgeObj->SetStringField(TEXT("fromPin"), FromPinName);
+                    EdgeObj->SetStringField(TEXT("toNodeId"), NodeId);
+                    EdgeObj->SetStringField(TEXT("toPin"), InputName);
+                    Edges.Add(MakeShared<FJsonValueObject>(EdgeObj));
+                }
+
+                PinObj->SetArrayField(TEXT("links"), Links);
+                PinObj->SetArrayField(TEXT("linkedTo"), Links);
+                Pins.Add(MakeShared<FJsonValueObject>(PinObj));
+            }
+
+            Node->SetArrayField(TEXT("pins"), Pins);
+            Nodes.Add(MakeShared<FJsonValueObject>(Node));
+        }
+
+        if (Nodes.Num() == 0)
+        {
+            TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
+            Diagnostic->SetStringField(TEXT("code"), TEXT("QUERY_DEGRADED"));
+            Diagnostic->SetStringField(TEXT("message"), TEXT("Material graph has no expressions."));
+            Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
+        }
+
+        BuildMinimalSnapshotResult(TEXT("mat"), Nodes, Edges, Diagnostics);
+        return Result;
+    }
+
+    if (GraphType.Equals(TEXT("pcg")))
+    {
+        UPCGGraph* PcgGraph = LoadPcgGraphByAssetPath(AssetPath);
+        if (PcgGraph == nullptr)
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("ASSET_NOT_FOUND"));
+            Result->SetStringField(TEXT("message"), TEXT("PCG asset not found."));
+            return Result;
+        }
+
+        TArray<FString> FilterClasses;
+        const TSharedPtr<FJsonObject>* FilterObj = nullptr;
+        if (Arguments->TryGetObjectField(TEXT("filter"), FilterObj) && FilterObj && (*FilterObj).IsValid())
+        {
+            const TArray<TSharedPtr<FJsonValue>>* NodeClasses = nullptr;
+            if ((*FilterObj)->TryGetArrayField(TEXT("nodeClasses"), NodeClasses) && NodeClasses)
+            {
+                for (const TSharedPtr<FJsonValue>& NodeClassValue : *NodeClasses)
+                {
+                    FString NodeClass;
+                    if (NodeClassValue.IsValid() && NodeClassValue->TryGetString(NodeClass) && !NodeClass.IsEmpty())
+                    {
+                        FilterClasses.Add(NodeClass);
+                    }
+                }
+            }
+        }
+
+        int32 Limit = 200;
+        double LimitNumber = 0.0;
+        if (Arguments->TryGetNumberField(TEXT("limit"), LimitNumber))
+        {
+            Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, 1000);
+        }
+
+        TArray<TSharedPtr<FJsonValue>> Nodes;
+        TArray<TSharedPtr<FJsonValue>> Edges;
+        TSet<FString> EmittedEdgeKeys;
+        int32 AddedCount = 0;
+        for (UPCGNode* NodeObj : PcgGraph->GetNodes())
+        {
+            if (NodeObj == nullptr)
+            {
+                continue;
+            }
+
+            const FString NodeClassPath = (NodeObj->GetSettings() && NodeObj->GetSettings()->GetClass())
+                ? NodeObj->GetSettings()->GetClass()->GetPathName()
+                : (NodeObj->GetClass() ? NodeObj->GetClass()->GetPathName() : TEXT(""));
+
+            if (FilterClasses.Num() > 0)
+            {
+                bool bClassMatched = false;
+                for (const FString& FilterClass : FilterClasses)
+                {
+                    if (NodeClassPath.Equals(FilterClass))
+                    {
+                        bClassMatched = true;
+                        break;
+                    }
+                }
+                if (!bClassMatched)
+                {
+                    continue;
+                }
+            }
+
+            if (AddedCount >= Limit)
+            {
+                break;
+            }
+            ++AddedCount;
+
+            int32 NodePosX = 0;
+            int32 NodePosY = 0;
+            NodeObj->GetNodePosition(NodePosX, NodePosY);
+
+            const FString NodeId = NodeObj->GetPathName();
+            TSharedPtr<FJsonObject> Node = MakeShared<FJsonObject>();
+            Node->SetStringField(TEXT("id"), NodeId);
+            Node->SetStringField(TEXT("guid"), NodeId);
+            Node->SetStringField(TEXT("nodeClassPath"), NodeClassPath);
+            Node->SetStringField(TEXT("title"), NodeObj->NodeTitle.IsNone() ? NodeObj->GetName() : NodeObj->NodeTitle.ToString());
+            Node->SetStringField(TEXT("graphName"), GraphName);
+            TSharedPtr<FJsonObject> Position = MakeShared<FJsonObject>();
+            Position->SetNumberField(TEXT("x"), NodePosX);
+            Position->SetNumberField(TEXT("y"), NodePosY);
+            Node->SetObjectField(TEXT("position"), Position);
+            Node->SetBoolField(TEXT("enabled"), true);
+
+            TArray<TSharedPtr<FJsonValue>> Pins;
+            auto SerializePcgPin = [&](UPCGPin* Pin, const FString& Direction)
+            {
+                if (Pin == nullptr)
+                {
+                    return;
+                }
+
+                TSharedPtr<FJsonObject> PinObj = MakeShared<FJsonObject>();
+                const FString PinLabel = Pin->Properties.Label.ToString();
+                PinObj->SetStringField(TEXT("name"), PinLabel);
+                PinObj->SetStringField(TEXT("direction"), Direction);
+                PinObj->SetStringField(TEXT("category"), TEXT("pcg"));
+                PinObj->SetStringField(TEXT("subCategory"), TEXT(""));
+                PinObj->SetStringField(TEXT("subCategoryObject"), TEXT(""));
+                PinObj->SetBoolField(TEXT("isReference"), false);
+                PinObj->SetBoolField(TEXT("isConst"), false);
+                PinObj->SetBoolField(TEXT("isArray"), Pin->Properties.bAllowMultipleData);
+                PinObj->SetStringField(TEXT("defaultValue"), TEXT(""));
+                PinObj->SetStringField(TEXT("defaultObject"), TEXT(""));
+                PinObj->SetStringField(TEXT("defaultText"), TEXT(""));
+
+                TSharedPtr<FJsonObject> PinTypeObject = MakeShared<FJsonObject>();
+                PinTypeObject->SetStringField(TEXT("category"), TEXT("pcg"));
+                PinTypeObject->SetStringField(TEXT("subCategory"), TEXT(""));
+                PinTypeObject->SetStringField(TEXT("object"), TEXT(""));
+                PinTypeObject->SetStringField(TEXT("container"), Pin->Properties.bAllowMultipleData ? TEXT("array") : TEXT("none"));
+                PinObj->SetObjectField(TEXT("type"), PinTypeObject);
+
+                TSharedPtr<FJsonObject> PinDefaultObject = MakeShared<FJsonObject>();
+                PinDefaultObject->SetStringField(TEXT("value"), TEXT(""));
+                PinDefaultObject->SetStringField(TEXT("object"), TEXT(""));
+                PinDefaultObject->SetStringField(TEXT("text"), TEXT(""));
+                PinObj->SetObjectField(TEXT("default"), PinDefaultObject);
+
+                TArray<TSharedPtr<FJsonValue>> Links;
+                for (UPCGEdge* Edge : Pin->Edges)
+                {
+                    if (Edge == nullptr)
+                    {
+                        continue;
+                    }
+
+                    const UPCGPin* OtherPin = Edge->GetOtherPin(Pin);
+                    if (OtherPin == nullptr || OtherPin->Node == nullptr)
+                    {
+                        continue;
+                    }
+
+                    const FString OtherNodeId = OtherPin->Node->GetPathName();
+                    const FString OtherPinName = OtherPin->Properties.Label.ToString();
+
+                    TSharedPtr<FJsonObject> LinkObj = MakeShared<FJsonObject>();
+                    LinkObj->SetStringField(TEXT("toNodeId"), OtherNodeId);
+                    LinkObj->SetStringField(TEXT("toPin"), OtherPinName);
+                    LinkObj->SetStringField(TEXT("nodeName"), OtherPin->Node->GetName());
+                    LinkObj->SetStringField(TEXT("nodeGuid"), OtherNodeId);
+                    LinkObj->SetStringField(TEXT("direction"), Direction);
+                    Links.Add(MakeShared<FJsonValueObject>(LinkObj));
+
+                    if (Direction.Equals(TEXT("output")))
+                    {
+                        const FString EdgeKey = NodeId + TEXT("|") + PinLabel + TEXT("->") + OtherNodeId + TEXT("|") + OtherPinName;
+                        if (!EmittedEdgeKeys.Contains(EdgeKey))
+                        {
+                            EmittedEdgeKeys.Add(EdgeKey);
+                            TSharedPtr<FJsonObject> EdgeObj = MakeShared<FJsonObject>();
+                            EdgeObj->SetStringField(TEXT("fromNodeId"), NodeId);
+                            EdgeObj->SetStringField(TEXT("fromPin"), PinLabel);
+                            EdgeObj->SetStringField(TEXT("toNodeId"), OtherNodeId);
+                            EdgeObj->SetStringField(TEXT("toPin"), OtherPinName);
+                            Edges.Add(MakeShared<FJsonValueObject>(EdgeObj));
+                        }
+                    }
+                }
+
+                PinObj->SetArrayField(TEXT("links"), Links);
+                PinObj->SetArrayField(TEXT("linkedTo"), Links);
+                Pins.Add(MakeShared<FJsonValueObject>(PinObj));
+            };
+
+            for (UPCGPin* InputPin : NodeObj->GetInputPins())
+            {
+                SerializePcgPin(InputPin, TEXT("input"));
+            }
+            for (UPCGPin* OutputPin : NodeObj->GetOutputPins())
+            {
+                SerializePcgPin(OutputPin, TEXT("output"));
+            }
+
+            Node->SetArrayField(TEXT("pins"), Pins);
+            Nodes.Add(MakeShared<FJsonValueObject>(Node));
+        }
+
+        TArray<TSharedPtr<FJsonValue>> Diagnostics;
+        if (Nodes.Num() == 0)
+        {
+            TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
+            Diagnostic->SetStringField(TEXT("code"), TEXT("QUERY_EMPTY"));
+            Diagnostic->SetStringField(TEXT("message"), TEXT("PCG graph has no nodes."));
+            Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
+        }
+
+        BuildMinimalSnapshotResult(TEXT("pcg"), Nodes, Edges, Diagnostics);
         return Result;
     }
 
@@ -1906,14 +2641,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphAddableToolResult(const T
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
 
-    FString GraphType = TEXT("blueprint");
-    Arguments->TryGetStringField(TEXT("graphType"), GraphType);
-    GraphType = GraphType.ToLower();
-    if (!GraphType.Equals(TEXT("blueprint")))
+    const FString GraphType = GetGraphTypeFromArgs(Arguments);
+    if (!IsSupportedGraphType(GraphType))
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_GRAPH_TYPE"));
-        Result->SetStringField(TEXT("message"), TEXT("Only blueprint graphType is currently supported."));
+        Result->SetStringField(TEXT("message"), TEXT("Supported graphType values: blueprint, material(shader), pcg."));
         return Result;
     }
 
@@ -1925,7 +2658,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphAddableToolResult(const T
         Result->SetStringField(TEXT("message"), TEXT("arguments.assetPath is required."));
         return Result;
     }
-    AssetPath = NormalizeBlueprintAssetPath(AssetPath);
+    AssetPath = NormalizeAssetPath(AssetPath);
 
     FString GraphName;
     if (!Arguments->TryGetStringField(TEXT("graphName"), GraphName) || GraphName.IsEmpty())
@@ -1933,6 +2666,112 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphAddableToolResult(const T
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
         Result->SetStringField(TEXT("message"), TEXT("arguments.graphName is required."));
+        return Result;
+    }
+
+    if (!GraphType.Equals(TEXT("blueprint")))
+    {
+        PruneGraphActionTokenRegistry();
+
+        int32 Limit = 100;
+        double LimitNumber = 0.0;
+        if (Arguments->TryGetNumberField(TEXT("limit"), LimitNumber))
+        {
+            Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, 1000);
+        }
+
+        struct FSimpleActionSpec
+        {
+            const TCHAR* ActionId;
+            const TCHAR* Title;
+            const TCHAR* Category;
+            const TCHAR* NodeClassPath;
+        };
+
+        TArray<FSimpleActionSpec> ActionSpecs;
+        if (GraphType.Equals(TEXT("material")))
+        {
+            ActionSpecs.Add({ TEXT("mat.constant"), TEXT("Constant"), TEXT("Material|Constants"), TEXT("/Script/Engine.MaterialExpressionConstant") });
+            ActionSpecs.Add({ TEXT("mat.constant3"), TEXT("Constant3Vector"), TEXT("Material|Constants"), TEXT("/Script/Engine.MaterialExpressionConstant3Vector") });
+            ActionSpecs.Add({ TEXT("mat.multiply"), TEXT("Multiply"), TEXT("Material|Math"), TEXT("/Script/Engine.MaterialExpressionMultiply") });
+            ActionSpecs.Add({ TEXT("mat.textureSample"), TEXT("Texture Sample"), TEXT("Material|Texture"), TEXT("/Script/Engine.MaterialExpressionTextureSample") });
+            ActionSpecs.Add({ TEXT("mat.scalarParameter"), TEXT("Scalar Parameter"), TEXT("Material|Parameters"), TEXT("/Script/Engine.MaterialExpressionScalarParameter") });
+            ActionSpecs.Add({ TEXT("mat.vectorParameter"), TEXT("Vector Parameter"), TEXT("Material|Parameters"), TEXT("/Script/Engine.MaterialExpressionVectorParameter") });
+        }
+        else if (GraphType.Equals(TEXT("pcg")))
+        {
+            ActionSpecs.Add({ TEXT("pcg.addTag"), TEXT("Add Tag"), TEXT("PCG|Metadata"), TEXT("/Script/PCG.PCGAddTagSettings") });
+            ActionSpecs.Add({ TEXT("pcg.filterByTag"), TEXT("Filter By Tag"), TEXT("PCG|Filter"), TEXT("/Script/PCG.PCGFilterByTagSettings") });
+            ActionSpecs.Add({ TEXT("pcg.createPoints"), TEXT("Create Points"), TEXT("PCG|Create"), TEXT("/Script/PCG.PCGCreatePointsSettings") });
+            ActionSpecs.Add({ TEXT("pcg.surfaceSampler"), TEXT("Surface Sampler"), TEXT("PCG|Sampling"), TEXT("/Script/PCG.PCGSurfaceSamplerSettings") });
+        }
+
+        TSharedPtr<FJsonObject> ContextEcho = MakeShared<FJsonObject>();
+        ContextEcho->SetStringField(TEXT("mode"), TEXT("graph"));
+
+        TArray<TSharedPtr<FJsonValue>> Actions;
+        int32 Total = 0;
+        for (const FSimpleActionSpec& Spec : ActionSpecs)
+        {
+            if (Actions.Num() >= Limit)
+            {
+                break;
+            }
+
+            UClass* NodeClass = LoadObject<UClass>(nullptr, Spec.NodeClassPath);
+            if (NodeClass == nullptr)
+            {
+                continue;
+            }
+            ++Total;
+
+            const FString ActionToken = FString::Printf(TEXT("act:%s:%s"), *GraphType, *FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
+            FGraphActionTokenEntry TokenEntry;
+            TokenEntry.GraphType = GraphType;
+            TokenEntry.AssetPath = AssetPath;
+            TokenEntry.GraphName = GraphName;
+            TokenEntry.LegacyActionId = Spec.NodeClassPath;
+            TokenEntry.CreatedAtSeconds = FPlatformTime::Seconds();
+            GraphActionTokenRegistry.Add(ActionToken, TokenEntry);
+
+            TSharedPtr<FJsonObject> ActionObject = MakeShared<FJsonObject>();
+            ActionObject->SetStringField(TEXT("actionToken"), ActionToken);
+            ActionObject->SetStringField(TEXT("title"), Spec.Title);
+            ActionObject->SetStringField(TEXT("categoryPath"), Spec.Category);
+            ActionObject->SetStringField(TEXT("tooltip"), TEXT(""));
+            ActionObject->SetStringField(TEXT("keywords"), TEXT(""));
+            TSharedPtr<FJsonObject> Compatibility = MakeShared<FJsonObject>();
+            Compatibility->SetBoolField(TEXT("isCompatible"), true);
+            Compatibility->SetArrayField(TEXT("reasons"), TArray<TSharedPtr<FJsonValue>>{});
+            ActionObject->SetObjectField(TEXT("compatibility"), Compatibility);
+            TSharedPtr<FJsonObject> SpawnObj = MakeShared<FJsonObject>();
+            SpawnObj->SetStringField(TEXT("nodeClassPath"), Spec.NodeClassPath);
+            ActionObject->SetObjectField(TEXT("spawn"), SpawnObj);
+            Actions.Add(MakeShared<FJsonValueObject>(ActionObject));
+        }
+
+        TSharedPtr<FJsonObject> Meta = MakeShared<FJsonObject>();
+        Meta->SetNumberField(TEXT("total"), Total);
+        Meta->SetNumberField(TEXT("returned"), Actions.Num());
+        Meta->SetBoolField(TEXT("truncated"), false);
+
+        TArray<TSharedPtr<FJsonValue>> Diagnostics;
+        if (Actions.Num() == 0)
+        {
+            TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
+            Diagnostic->SetStringField(TEXT("code"), TEXT("ADDABLE_EMPTY"));
+            Diagnostic->SetStringField(TEXT("message"), TEXT("No addable actions are available for current graph type in this editor build."));
+            Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
+        }
+
+        Result->SetStringField(TEXT("graphType"), GraphType);
+        Result->SetStringField(TEXT("assetPath"), AssetPath);
+        Result->SetStringField(TEXT("graphName"), GraphName);
+        Result->SetObjectField(TEXT("contextEcho"), ContextEcho);
+        Result->SetArrayField(TEXT("actions"), Actions);
+        Result->SetStringField(TEXT("nextCursor"), TEXT(""));
+        Result->SetObjectField(TEXT("meta"), Meta);
+        Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
         return Result;
     }
 
@@ -2299,14 +3138,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
 
-    FString GraphType = TEXT("blueprint");
-    Arguments->TryGetStringField(TEXT("graphType"), GraphType);
-    GraphType = GraphType.ToLower();
-    if (!GraphType.Equals(TEXT("blueprint")))
+    const FString GraphType = GetGraphTypeFromArgs(Arguments);
+    if (!IsSupportedGraphType(GraphType))
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_GRAPH_TYPE"));
-        Result->SetStringField(TEXT("message"), TEXT("Only blueprint graphType is currently supported."));
+        Result->SetStringField(TEXT("message"), TEXT("Supported graphType values: blueprint, material(shader), pcg."));
         return Result;
     }
 
@@ -2318,6 +3155,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         Result->SetStringField(TEXT("message"), TEXT("arguments.assetPath is required."));
         return Result;
     }
+    AssetPath = NormalizeAssetPath(AssetPath);
 
     FString GraphName = TEXT("EventGraph");
     Arguments->TryGetStringField(TEXT("graphName"), GraphName);
@@ -2362,6 +3200,698 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("LIMIT_EXCEEDED"));
         Result->SetStringField(TEXT("message"), FString::Printf(TEXT("arguments.ops exceeds executionPolicy.maxOps (%d)."), MaxOps));
+        return Result;
+    }
+
+    if (!GraphType.Equals(TEXT("blueprint")))
+    {
+        TMap<FString, FString> LocalNodeRefs;
+        TArray<TSharedPtr<FJsonValue>> LocalOpResults;
+        bool bAnyErrorLocal = false;
+        FString FirstErrorLocal;
+
+        auto ResolveNodeTokenLocal = [&LocalNodeRefs](const TSharedPtr<FJsonObject>& Obj, FString& OutNodeId) -> bool
+        {
+            if (!Obj.IsValid())
+            {
+                return false;
+            }
+            if (Obj->TryGetStringField(TEXT("nodeId"), OutNodeId) && !OutNodeId.IsEmpty())
+            {
+                return true;
+            }
+            FString NodeRef;
+            if (Obj->TryGetStringField(TEXT("nodeRef"), NodeRef) && LocalNodeRefs.Contains(NodeRef))
+            {
+                OutNodeId = LocalNodeRefs[NodeRef];
+                return !OutNodeId.IsEmpty();
+            }
+            return false;
+        };
+
+        auto GetPointFromObjectLocal = [](const TSharedPtr<FJsonObject>& Obj, int32& OutX, int32& OutY)
+        {
+            OutX = 0;
+            OutY = 0;
+            if (!Obj.IsValid())
+            {
+                return;
+            }
+            if (const TSharedPtr<FJsonObject>* Position = nullptr;
+                Obj->TryGetObjectField(TEXT("position"), Position) && Position && (*Position).IsValid())
+            {
+                double Xn = 0.0;
+                double Yn = 0.0;
+                (*Position)->TryGetNumberField(TEXT("x"), Xn);
+                (*Position)->TryGetNumberField(TEXT("y"), Yn);
+                OutX = static_cast<int32>(Xn);
+                OutY = static_cast<int32>(Yn);
+            }
+        };
+
+        UObject* MutableAsset = nullptr;
+        UMaterial* MaterialAsset = nullptr;
+        UPCGGraph* PcgGraph = nullptr;
+        if (GraphType.Equals(TEXT("material")))
+        {
+            MaterialAsset = LoadMaterialByAssetPath(AssetPath);
+            MutableAsset = MaterialAsset;
+            if (MaterialAsset == nullptr)
+            {
+                Result->SetBoolField(TEXT("isError"), true);
+                Result->SetStringField(TEXT("code"), TEXT("ASSET_NOT_FOUND"));
+                Result->SetStringField(TEXT("message"), TEXT("Material asset not found."));
+                return Result;
+            }
+        }
+        else if (GraphType.Equals(TEXT("pcg")))
+        {
+            PcgGraph = LoadPcgGraphByAssetPath(AssetPath);
+            MutableAsset = PcgGraph;
+            if (PcgGraph == nullptr)
+            {
+                Result->SetBoolField(TEXT("isError"), true);
+                Result->SetStringField(TEXT("code"), TEXT("ASSET_NOT_FOUND"));
+                Result->SetStringField(TEXT("message"), TEXT("PCG asset not found."));
+                return Result;
+            }
+        }
+
+        if (!bDryRun && MutableAsset != nullptr)
+        {
+            MutableAsset->Modify();
+        }
+
+        for (int32 Index = 0; Index < Ops->Num(); ++Index)
+        {
+            const TSharedPtr<FJsonObject>* OpObj = nullptr;
+            if (!(*Ops)[Index].IsValid() || !(*Ops)[Index]->TryGetObject(OpObj) || !OpObj || !(*OpObj).IsValid())
+            {
+                continue;
+            }
+
+            FString Op;
+            (*OpObj)->TryGetStringField(TEXT("op"), Op);
+            Op = Op.ToLower();
+
+            FString NodeId;
+            FString ClientRef;
+            FString Error;
+            bool bOk = true;
+            bool bChanged = false;
+            FString GraphEventName;
+            TSharedPtr<FJsonObject> GraphEventData = MakeShared<FJsonObject>();
+            (*OpObj)->TryGetStringField(TEXT("clientRef"), ClientRef);
+
+            const TSharedPtr<FJsonObject>* ArgsObjPtr = nullptr;
+            const TSharedPtr<FJsonObject> ArgsObj =
+                ((*OpObj)->TryGetObjectField(TEXT("args"), ArgsObjPtr) && ArgsObjPtr && (*ArgsObjPtr).IsValid())
+                    ? *ArgsObjPtr
+                    : MakeShared<FJsonObject>();
+
+            if (!bDryRun)
+            {
+                if (GraphType.Equals(TEXT("material")))
+                {
+                    if (Op.Equals(TEXT("addnode.byclass")) || Op.Equals(TEXT("addnode.byaction")))
+                    {
+                        FString NodeClassPath;
+                        if (Op.Equals(TEXT("addnode.byclass")))
+                        {
+                            ArgsObj->TryGetStringField(TEXT("nodeClassPath"), NodeClassPath);
+                        }
+                        else
+                        {
+                            FString ActionToken;
+                            ArgsObj->TryGetStringField(TEXT("actionToken"), ActionToken);
+                            ArgsObj->TryGetStringField(TEXT("actionId"), NodeClassPath);
+                            if (!ActionToken.IsEmpty())
+                            {
+                                FGraphActionTokenEntry TokenEntry;
+                                FString ErrorCode;
+                                if (ResolveGraphActionToken(ActionToken, GraphType, AssetPath, GraphName, TokenEntry, ErrorCode, Error))
+                                {
+                                    if (!TokenEntry.LegacyActionId.IsEmpty())
+                                    {
+                                        NodeClassPath = TokenEntry.LegacyActionId;
+                                    }
+                                }
+                                else
+                                {
+                                    bOk = false;
+                                }
+                            }
+                        }
+
+                        UClass* ExpressionClass = LoadObject<UClass>(nullptr, *NodeClassPath);
+                        if (bOk && (ExpressionClass == nullptr || !ExpressionClass->IsChildOf(UMaterialExpression::StaticClass())))
+                        {
+                            bOk = false;
+                            Error = TEXT("Invalid material expression class.");
+                        }
+
+                        int32 X = 0;
+                        int32 Y = 0;
+                        GetPointFromObjectLocal(ArgsObj, X, Y);
+                        if (bOk)
+                        {
+                            UMaterialExpression* NewExpression = UMaterialEditingLibrary::CreateMaterialExpression(MaterialAsset, ExpressionClass, X, Y);
+                            if (NewExpression == nullptr)
+                            {
+                                bOk = false;
+                                Error = TEXT("Failed to create material expression.");
+                            }
+                            else
+                            {
+                                NodeId = MaterialExpressionId(NewExpression);
+                                bChanged = true;
+                                GraphEventName = TEXT("graph.node_added");
+                                GraphEventData->SetStringField(TEXT("nodeId"), NodeId);
+                                GraphEventData->SetStringField(TEXT("nodeType"), Op.Equals(TEXT("addnode.byaction")) ? TEXT("by_action") : TEXT("by_class"));
+                                GraphEventData->SetStringField(TEXT("nodeClassPath"), NodeClassPath);
+                                GraphEventData->SetStringField(TEXT("op"), Op);
+                            }
+                        }
+                    }
+                    else if (Op.Equals(TEXT("removenode")))
+                    {
+                        FString TargetNodeId;
+                        bOk = ResolveNodeTokenLocal(ArgsObj, TargetNodeId);
+                        if (!bOk)
+                        {
+                            Error = TEXT("Missing target nodeId.");
+                        }
+                        else if (UMaterialExpression* Expression = FindMaterialExpressionById(MaterialAsset, TargetNodeId))
+                        {
+                            UMaterialEditingLibrary::DeleteMaterialExpression(MaterialAsset, Expression);
+                            bChanged = true;
+                            GraphEventName = TEXT("graph.node_removed");
+                            GraphEventData->SetStringField(TEXT("nodeId"), TargetNodeId);
+                            GraphEventData->SetStringField(TEXT("op"), Op);
+                        }
+                        else
+                        {
+                            bOk = false;
+                            Error = TEXT("Material expression not found.");
+                        }
+                    }
+                    else if (Op.Equals(TEXT("movenode")))
+                    {
+                        FString TargetNodeId;
+                        bOk = ResolveNodeTokenLocal(ArgsObj, TargetNodeId);
+                        if (!bOk)
+                        {
+                            Error = TEXT("Missing target nodeId.");
+                        }
+                        else if (UMaterialExpression* Expression = FindMaterialExpressionById(MaterialAsset, TargetNodeId))
+                        {
+                            int32 X = 0;
+                            int32 Y = 0;
+                            GetPointFromObjectLocal(ArgsObj, X, Y);
+                            Expression->MaterialExpressionEditorX = X;
+                            Expression->MaterialExpressionEditorY = Y;
+                            bChanged = true;
+                            GraphEventName = TEXT("graph.node_moved");
+                            GraphEventData->SetStringField(TEXT("nodeId"), TargetNodeId);
+                            GraphEventData->SetNumberField(TEXT("x"), X);
+                            GraphEventData->SetNumberField(TEXT("y"), Y);
+                            GraphEventData->SetStringField(TEXT("op"), Op);
+                        }
+                        else
+                        {
+                            bOk = false;
+                            Error = TEXT("Material expression not found.");
+                        }
+                    }
+                    else if (Op.Equals(TEXT("connectpins")))
+                    {
+                        const TSharedPtr<FJsonObject>* FromObj = nullptr;
+                        const TSharedPtr<FJsonObject>* ToObj = nullptr;
+                        FString FromNodeId;
+                        FString ToNodeId;
+                        FString FromPinName;
+                        FString ToPinName;
+                        if (!ArgsObj->TryGetObjectField(TEXT("from"), FromObj) || !FromObj || !(*FromObj).IsValid()
+                            || !ArgsObj->TryGetObjectField(TEXT("to"), ToObj) || !ToObj || !(*ToObj).IsValid()
+                            || !ResolveNodeTokenLocal(*FromObj, FromNodeId)
+                            || !ResolveNodeTokenLocal(*ToObj, ToNodeId))
+                        {
+                            bOk = false;
+                            Error = TEXT("connectPins requires from/to node references.");
+                        }
+                        else
+                        {
+                            (*FromObj)->TryGetStringField(TEXT("pinName"), FromPinName);
+                            (*ToObj)->TryGetStringField(TEXT("pinName"), ToPinName);
+                            UMaterialExpression* FromExpr = FindMaterialExpressionById(MaterialAsset, FromNodeId);
+                            UMaterialExpression* ToExpr = FindMaterialExpressionById(MaterialAsset, ToNodeId);
+                            if (FromExpr == nullptr || ToExpr == nullptr)
+                            {
+                                bOk = false;
+                                Error = TEXT("Material expression not found.");
+                            }
+                            else
+                            {
+                                bOk = UMaterialEditingLibrary::ConnectMaterialExpressions(FromExpr, FromPinName, ToExpr, ToPinName);
+                                if (!bOk)
+                                {
+                                    Error = TEXT("Failed to connect material expressions.");
+                                }
+                                else
+                                {
+                                    bChanged = true;
+                                    GraphEventName = TEXT("graph.node_connected");
+                                    GraphEventData->SetStringField(TEXT("fromNodeId"), FromNodeId);
+                                    GraphEventData->SetStringField(TEXT("fromPin"), FromPinName);
+                                    GraphEventData->SetStringField(TEXT("toNodeId"), ToNodeId);
+                                    GraphEventData->SetStringField(TEXT("toPin"), ToPinName);
+                                    GraphEventData->SetStringField(TEXT("op"), Op);
+                                }
+                            }
+                        }
+                    }
+                    else if (Op.Equals(TEXT("disconnectpins")) || Op.Equals(TEXT("breakpinlinks")))
+                    {
+                        FString TargetNodeId;
+                        FString TargetPinName;
+                        if (Op.Equals(TEXT("disconnectpins")))
+                        {
+                            const TSharedPtr<FJsonObject>* ToObj = nullptr;
+                            if (!ArgsObj->TryGetObjectField(TEXT("to"), ToObj) || !ToObj || !(*ToObj).IsValid() || !ResolveNodeTokenLocal(*ToObj, TargetNodeId))
+                            {
+                                bOk = false;
+                                Error = TEXT("disconnectPins requires args.to.");
+                            }
+                            else
+                            {
+                                (*ToObj)->TryGetStringField(TEXT("pinName"), TargetPinName);
+                            }
+                        }
+                        else
+                        {
+                            const TSharedPtr<FJsonObject>* TargetObj = nullptr;
+                            if (!ArgsObj->TryGetObjectField(TEXT("target"), TargetObj) || !TargetObj || !(*TargetObj).IsValid() || !ResolveNodeTokenLocal(*TargetObj, TargetNodeId))
+                            {
+                                bOk = false;
+                                Error = TEXT("breakPinLinks requires args.target.");
+                            }
+                            else
+                            {
+                                (*TargetObj)->TryGetStringField(TEXT("pinName"), TargetPinName);
+                            }
+                        }
+
+                        if (bOk)
+                        {
+                            UMaterialExpression* Expr = FindMaterialExpressionById(MaterialAsset, TargetNodeId);
+                            if (Expr == nullptr)
+                            {
+                                bOk = false;
+                                Error = TEXT("Material expression not found.");
+                            }
+                            else
+                            {
+                                bool bDisconnected = false;
+                                if (TargetPinName.IsEmpty())
+                                {
+                                    const int32 MaxInputs = 128;
+                                    for (int32 InputIndex = 0; InputIndex < MaxInputs; ++InputIndex)
+                                    {
+                                        if (FExpressionInput* Input = Expr->GetInput(InputIndex))
+                                        {
+                                            if (Input->Expression != nullptr)
+                                            {
+                                                Input->Expression = nullptr;
+                                                Input->OutputIndex = 0;
+                                                bDisconnected = true;
+                                            }
+                                        }
+                                        else
+                                        {
+                                            break;
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    const int32 InputIndex = FindMaterialInputIndexByName(Expr, TargetPinName);
+                                    if (InputIndex != INDEX_NONE)
+                                    {
+                                        if (FExpressionInput* Input = Expr->GetInput(InputIndex))
+                                        {
+                                            if (Input->Expression != nullptr)
+                                            {
+                                                Input->Expression = nullptr;
+                                                Input->OutputIndex = 0;
+                                                bDisconnected = true;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (!bDisconnected)
+                                {
+                                    bOk = false;
+                                    Error = TEXT("No links were removed.");
+                                }
+                                else
+                                {
+                                    bChanged = true;
+                                    GraphEventName = TEXT("graph.links_changed");
+                                    GraphEventData->SetStringField(TEXT("nodeId"), TargetNodeId);
+                                    GraphEventData->SetStringField(TEXT("pinName"), TargetPinName);
+                                    GraphEventData->SetStringField(TEXT("op"), Op);
+                                }
+                            }
+                        }
+                    }
+                    else if (Op.Equals(TEXT("compile")))
+                    {
+                        UMaterialEditingLibrary::RecompileMaterial(MaterialAsset);
+                        bChanged = true;
+                        GraphEventName = TEXT("graph.compiled");
+                        GraphEventData->SetStringField(TEXT("op"), Op);
+                    }
+                    else
+                    {
+                        bOk = false;
+                        Error = FString::Printf(TEXT("Unsupported op for material: %s"), *Op);
+                    }
+                }
+                else if (GraphType.Equals(TEXT("pcg")))
+                {
+                    if (Op.Equals(TEXT("addnode.byclass")) || Op.Equals(TEXT("addnode.byaction")))
+                    {
+                        FString SettingsClassPath;
+                        if (Op.Equals(TEXT("addnode.byclass")))
+                        {
+                            ArgsObj->TryGetStringField(TEXT("nodeClassPath"), SettingsClassPath);
+                        }
+                        else
+                        {
+                            FString ActionToken;
+                            ArgsObj->TryGetStringField(TEXT("actionToken"), ActionToken);
+                            ArgsObj->TryGetStringField(TEXT("actionId"), SettingsClassPath);
+                            if (!ActionToken.IsEmpty())
+                            {
+                                FGraphActionTokenEntry TokenEntry;
+                                FString ErrorCode;
+                                if (ResolveGraphActionToken(ActionToken, GraphType, AssetPath, GraphName, TokenEntry, ErrorCode, Error))
+                                {
+                                    if (!TokenEntry.LegacyActionId.IsEmpty())
+                                    {
+                                        SettingsClassPath = TokenEntry.LegacyActionId;
+                                    }
+                                }
+                                else
+                                {
+                                    bOk = false;
+                                }
+                            }
+                        }
+
+                        UClass* SettingsClass = LoadObject<UClass>(nullptr, *SettingsClassPath);
+                        if (bOk && (SettingsClass == nullptr || !SettingsClass->IsChildOf(UPCGSettings::StaticClass())))
+                        {
+                            bOk = false;
+                            Error = TEXT("Invalid PCG settings class.");
+                        }
+
+                        if (bOk)
+                        {
+                            UPCGSettings* DefaultSettings = nullptr;
+                            UPCGNode* NewNode = PcgGraph->AddNodeOfType(SettingsClass, DefaultSettings);
+                            if (NewNode == nullptr)
+                            {
+                                bOk = false;
+                                Error = TEXT("Failed to create PCG node.");
+                            }
+                            else
+                            {
+                                int32 X = 0;
+                                int32 Y = 0;
+                                GetPointFromObjectLocal(ArgsObj, X, Y);
+                                NewNode->SetNodePosition(X, Y);
+                                NodeId = NewNode->GetPathName();
+                                bChanged = true;
+                                GraphEventName = TEXT("graph.node_added");
+                                GraphEventData->SetStringField(TEXT("nodeId"), NodeId);
+                                GraphEventData->SetStringField(TEXT("nodeType"), Op.Equals(TEXT("addnode.byaction")) ? TEXT("by_action") : TEXT("by_class"));
+                                GraphEventData->SetStringField(TEXT("nodeClassPath"), SettingsClassPath);
+                                GraphEventData->SetStringField(TEXT("op"), Op);
+                            }
+                        }
+                    }
+                    else if (Op.Equals(TEXT("removenode")))
+                    {
+                        FString TargetNodeId;
+                        bOk = ResolveNodeTokenLocal(ArgsObj, TargetNodeId);
+                        if (!bOk)
+                        {
+                            Error = TEXT("Missing target nodeId.");
+                        }
+                        else if (UPCGNode* Node = FindPcgNodeById(PcgGraph, TargetNodeId))
+                        {
+                            PcgGraph->RemoveNode(Node);
+                            bChanged = true;
+                            GraphEventName = TEXT("graph.node_removed");
+                            GraphEventData->SetStringField(TEXT("nodeId"), TargetNodeId);
+                            GraphEventData->SetStringField(TEXT("op"), Op);
+                        }
+                        else
+                        {
+                            bOk = false;
+                            Error = TEXT("PCG node not found.");
+                        }
+                    }
+                    else if (Op.Equals(TEXT("movenode")))
+                    {
+                        FString TargetNodeId;
+                        bOk = ResolveNodeTokenLocal(ArgsObj, TargetNodeId);
+                        if (!bOk)
+                        {
+                            Error = TEXT("Missing target nodeId.");
+                        }
+                        else if (UPCGNode* Node = FindPcgNodeById(PcgGraph, TargetNodeId))
+                        {
+                            int32 X = 0;
+                            int32 Y = 0;
+                            GetPointFromObjectLocal(ArgsObj, X, Y);
+                            Node->SetNodePosition(X, Y);
+                            bChanged = true;
+                            GraphEventName = TEXT("graph.node_moved");
+                            GraphEventData->SetStringField(TEXT("nodeId"), TargetNodeId);
+                            GraphEventData->SetNumberField(TEXT("x"), X);
+                            GraphEventData->SetNumberField(TEXT("y"), Y);
+                            GraphEventData->SetStringField(TEXT("op"), Op);
+                        }
+                        else
+                        {
+                            bOk = false;
+                            Error = TEXT("PCG node not found.");
+                        }
+                    }
+                    else if (Op.Equals(TEXT("connectpins")) || Op.Equals(TEXT("disconnectpins")))
+                    {
+                        const TSharedPtr<FJsonObject>* FromObj = nullptr;
+                        const TSharedPtr<FJsonObject>* ToObj = nullptr;
+                        FString FromNodeId;
+                        FString ToNodeId;
+                        FString FromPinName;
+                        FString ToPinName;
+                        if (!ArgsObj->TryGetObjectField(TEXT("from"), FromObj) || !FromObj || !(*FromObj).IsValid()
+                            || !ArgsObj->TryGetObjectField(TEXT("to"), ToObj) || !ToObj || !(*ToObj).IsValid()
+                            || !ResolveNodeTokenLocal(*FromObj, FromNodeId)
+                            || !ResolveNodeTokenLocal(*ToObj, ToNodeId))
+                        {
+                            bOk = false;
+                            Error = FString::Printf(TEXT("%s requires from/to node references."), *Op);
+                        }
+                        else
+                        {
+                            (*FromObj)->TryGetStringField(TEXT("pinName"), FromPinName);
+                            (*ToObj)->TryGetStringField(TEXT("pinName"), ToPinName);
+                            UPCGNode* FromNode = FindPcgNodeById(PcgGraph, FromNodeId);
+                            UPCGNode* ToNode = FindPcgNodeById(PcgGraph, ToNodeId);
+                            if (FromNode == nullptr || ToNode == nullptr)
+                            {
+                                bOk = false;
+                                Error = TEXT("PCG node not found.");
+                            }
+                            else if (Op.Equals(TEXT("connectpins")))
+                            {
+                                bOk = (PcgGraph->AddEdge(FromNode, FName(*FromPinName), ToNode, FName(*ToPinName)) != nullptr);
+                                if (bOk)
+                                {
+                                    bChanged = true;
+                                    GraphEventName = TEXT("graph.node_connected");
+                                    GraphEventData->SetStringField(TEXT("fromNodeId"), FromNodeId);
+                                    GraphEventData->SetStringField(TEXT("fromPin"), FromPinName);
+                                    GraphEventData->SetStringField(TEXT("toNodeId"), ToNodeId);
+                                    GraphEventData->SetStringField(TEXT("toPin"), ToPinName);
+                                    GraphEventData->SetStringField(TEXT("op"), Op);
+                                }
+                                else
+                                {
+                                    Error = TEXT("Failed to add PCG edge.");
+                                }
+                            }
+                            else
+                            {
+                                bOk = PcgGraph->RemoveEdge(FromNode, FName(*FromPinName), ToNode, FName(*ToPinName));
+                                if (bOk)
+                                {
+                                    bChanged = true;
+                                    GraphEventName = TEXT("graph.links_changed");
+                                    GraphEventData->SetStringField(TEXT("fromNodeId"), FromNodeId);
+                                    GraphEventData->SetStringField(TEXT("fromPin"), FromPinName);
+                                    GraphEventData->SetStringField(TEXT("toNodeId"), ToNodeId);
+                                    GraphEventData->SetStringField(TEXT("toPin"), ToPinName);
+                                    GraphEventData->SetStringField(TEXT("op"), Op);
+                                }
+                                else
+                                {
+                                    Error = TEXT("Failed to remove PCG edge.");
+                                }
+                            }
+                        }
+                    }
+                    else if (Op.Equals(TEXT("breakpinlinks")))
+                    {
+                        const TSharedPtr<FJsonObject>* TargetObj = nullptr;
+                        FString TargetNodeId;
+                        FString TargetPinName;
+                        if (!ArgsObj->TryGetObjectField(TEXT("target"), TargetObj) || !TargetObj || !(*TargetObj).IsValid() || !ResolveNodeTokenLocal(*TargetObj, TargetNodeId))
+                        {
+                            bOk = false;
+                            Error = TEXT("breakPinLinks requires args.target.");
+                        }
+                        else
+                        {
+                            (*TargetObj)->TryGetStringField(TEXT("pinName"), TargetPinName);
+                            UPCGNode* Node = FindPcgNodeById(PcgGraph, TargetNodeId);
+                            if (Node == nullptr)
+                            {
+                                bOk = false;
+                                Error = TEXT("PCG node not found.");
+                            }
+                            else
+                            {
+                                UPCGPin* Pin = FindPcgPin(Node, TargetPinName, false);
+                                if (Pin == nullptr)
+                                {
+                                    Pin = FindPcgPin(Node, TargetPinName, true);
+                                }
+                                if (Pin == nullptr)
+                                {
+                                    bOk = false;
+                                    Error = TEXT("PCG pin not found.");
+                                }
+                                else
+                                {
+                                    bOk = Pin->BreakAllEdges();
+                                    if (bOk)
+                                    {
+                                        bChanged = true;
+                                        GraphEventName = TEXT("graph.links_changed");
+                                        GraphEventData->SetStringField(TEXT("nodeId"), TargetNodeId);
+                                        GraphEventData->SetStringField(TEXT("pinName"), TargetPinName);
+                                        GraphEventData->SetStringField(TEXT("op"), Op);
+                                    }
+                                    else
+                                    {
+                                        Error = TEXT("No links were removed.");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    else if (Op.Equals(TEXT("compile")))
+                    {
+                        bOk = PcgGraph->Recompile();
+                        if (bOk)
+                        {
+                            bChanged = true;
+                            GraphEventName = TEXT("graph.compiled");
+                            GraphEventData->SetStringField(TEXT("op"), Op);
+                        }
+                        else
+                        {
+                            Error = TEXT("PCG graph compile failed.");
+                        }
+                    }
+                    else
+                    {
+                        bOk = false;
+                        Error = FString::Printf(TEXT("Unsupported op for pcg: %s"), *Op);
+                    }
+                }
+            }
+
+            if (bChanged && MutableAsset != nullptr)
+            {
+                MutableAsset->MarkPackageDirty();
+            }
+
+            if (bChanged && MaterialAsset != nullptr)
+            {
+                MaterialAsset->PostEditChange();
+            }
+
+            if (!bDryRun && bChanged && !GraphEventName.IsEmpty() && GraphEventData.IsValid())
+            {
+                GraphEventData->SetStringField(TEXT("graphType"), GraphType);
+                GraphEventData->SetStringField(TEXT("assetPath"), AssetPath);
+                GraphEventData->SetStringField(TEXT("graphName"), GraphName);
+                GraphEventData->SetStringField(TEXT("sourceKind"), TEXT("graph.mutate"));
+                SendEditorStreamEvent(GraphEventName, GraphEventData);
+            }
+
+            if (bOk && !ClientRef.IsEmpty() && !NodeId.IsEmpty())
+            {
+                LocalNodeRefs.Add(ClientRef, NodeId);
+            }
+
+            TSharedPtr<FJsonObject> OpResult = MakeShared<FJsonObject>();
+            OpResult->SetNumberField(TEXT("index"), Index);
+            OpResult->SetStringField(TEXT("op"), Op);
+            OpResult->SetBoolField(TEXT("ok"), bOk);
+            if (!NodeId.IsEmpty())
+            {
+                OpResult->SetStringField(TEXT("nodeId"), NodeId);
+            }
+            OpResult->SetBoolField(TEXT("changed"), bChanged);
+            OpResult->SetStringField(TEXT("error"), bOk ? TEXT("") : Error);
+            LocalOpResults.Add(MakeShared<FJsonValueObject>(OpResult));
+
+            if (!bOk)
+            {
+                bAnyErrorLocal = true;
+                if (FirstErrorLocal.IsEmpty())
+                {
+                    FirstErrorLocal = Error;
+                }
+                if (bStopOnError)
+                {
+                    break;
+                }
+            }
+        }
+
+        Result->SetBoolField(TEXT("isError"), bAnyErrorLocal);
+        if (bAnyErrorLocal)
+        {
+            Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+            Result->SetStringField(TEXT("message"), FirstErrorLocal.IsEmpty() ? TEXT("graph.mutate failed") : FirstErrorLocal);
+        }
+        Result->SetBoolField(TEXT("applied"), !bAnyErrorLocal);
+        Result->SetStringField(TEXT("graphType"), GraphType);
+        Result->SetStringField(TEXT("assetPath"), AssetPath);
+        Result->SetStringField(TEXT("graphName"), GraphName);
+        Result->SetStringField(TEXT("previousRevision"), FString::Printf(TEXT("%s:%08x"), GraphType.Equals(TEXT("material")) ? TEXT("mat") : TEXT("pcg"), GetTypeHash(AssetPath + TEXT("|prev"))));
+        Result->SetStringField(TEXT("newRevision"), FString::Printf(TEXT("%s:%08x"), GraphType.Equals(TEXT("material")) ? TEXT("mat") : TEXT("pcg"), GetTypeHash(AssetPath + TEXT("|new") + FString::FromInt(LocalOpResults.Num()))));
+        Result->SetArrayField(TEXT("opResults"), LocalOpResults);
+        Result->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
         return Result;
     }
 
@@ -2959,20 +4489,19 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphWatchToolResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
-    FString GraphType = TEXT("blueprint");
-    Arguments->TryGetStringField(TEXT("graphType"), GraphType);
-    GraphType = GraphType.ToLower();
-    if (!GraphType.Equals(TEXT("blueprint")))
+    const FString GraphType = GetGraphTypeFromArgs(Arguments);
+    if (!IsSupportedGraphType(GraphType))
     {
         TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_GRAPH_TYPE"));
-        Result->SetStringField(TEXT("message"), TEXT("Only blueprint graphType is currently supported."));
+        Result->SetStringField(TEXT("message"), TEXT("Supported graphType values: blueprint, material(shader), pcg."));
         return Result;
     }
 
     FString AssetPath;
     Arguments->TryGetStringField(TEXT("assetPath"), AssetPath);
+    AssetPath = NormalizeAssetPath(AssetPath);
 
     TSharedPtr<FJsonObject> Result = BuildEventPullResult(Arguments, TEXT("graph"), AssetPath, false);
     Result->SetStringField(TEXT("graphType"), GraphType);

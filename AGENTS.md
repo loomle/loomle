@@ -20,6 +20,16 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 - Do not auto-upgrade without explicit user confirmation.
 - Before launching Unreal Editor, terminate any existing Unreal Editor processes for this project to avoid multiple concurrent editor instances.
 
+## Build/Load Reliability (Important)
+
+- `BuildPlugin -Package=...` is for packaging validation, not the runtime source of truth for this project.
+- To apply plugin code changes for this project, build against the project plugin path:
+  - `UnrealBuildTool ... -Project="/Users/xartest/Documents/UnrealProjects/Loomle/Loomle.uproject" -plugin="/Users/xartest/Documents/UnrealProjects/Loomle/Loomle/Plugins/LoomleBridge/LoomleBridge.uplugin" ...`
+- After plugin rebuild, always do a full editor restart (no hot-reload assumption):
+  1. terminate Unreal Editor process
+  2. relaunch project
+  3. wait for bridge socket readiness: `/Users/xartest/Documents/UnrealProjects/Loomle/Intermediate/loomle.sock`
+
 ## User Command Handling Policy
 - Supported bridge commands: `loomle`, `context`, `live`, `execute`, `graph`, `graph.list`, `graph.query`, `graph.addable`, `graph.mutate`, `graph.watch`.
 - User-facing commands are usually `loomle`, `context`, `live`; `execute` is typically agent-operated.

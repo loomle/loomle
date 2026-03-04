@@ -24,6 +24,7 @@ public class LoomleBridge : ModuleRules
                 "JsonUtilities",
                 "Kismet",
                 "MaterialEditor",
+                "PCG",
                 "PythonScriptPlugin",
                 "Projects",
                 "Slate",
