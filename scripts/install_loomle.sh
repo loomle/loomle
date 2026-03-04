@@ -2,11 +2,11 @@
 set -euo pipefail
 
 # Install contract (single entrypoint, idempotent):
-# 1) Ensure .uproject wiring (AdditionalPluginDirectories + LoomleMcpBridge Editor enablement)
+# 1) Ensure .uproject wiring (AdditionalPluginDirectories + LoomleBridge Editor enablement)
 # 2) Resolve plugin binary (compatible local prebuilt first, local build fallback)
 # 3) Launch Unreal Editor
 # 4) Verify bridge transport endpoint (socket / named pipe equivalent)
-# 5) Verify MCP baseline tools (loomle/context/selection/live/execute) and unreal.BlueprintGraphBridge
+# 5) Verify bridge baseline tools (loomle/graph/graph.query/graph.mutate/graph.watch/context/live/execute) and unreal.LoomleBlueprintAdapter
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOOMLE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -35,10 +35,17 @@ run_windows_installer_if_needed() {
   esac
 }
 
-UE_APP="/Users/Shared/Epic Games/UE_5.7/Engine/Binaries/Mac/UnrealEditor.app"
-UE_VERSION_FILE="/Users/Shared/Epic Games/UE_5.7/Engine/Binaries/Mac/UnrealEditor.version"
-GEN_SCRIPT="/Users/Shared/Epic Games/UE_5.7/Engine/Build/BatchFiles/Mac/GenerateProjectFiles.sh"
-BUILD_SCRIPT="/Users/Shared/Epic Games/UE_5.7/Engine/Build/BatchFiles/Mac/Build.sh"
+UE_ROOT="${UE_ROOT:-/Users/Shared/Epic Games/UE_5.7}"
+HOST_OS="$(uname -s 2>/dev/null || echo unknown)"
+
+UE_APP=""
+UE_BIN=""
+UE_VERSION_FILE=""
+GEN_SCRIPT=""
+BUILD_SCRIPT=""
+BUILD_PLATFORM=""
+PLATFORM_BIN_DIR=""
+MODULE_BINARY_NAME=""
 
 SKIP_BUILD=0
 SKIP_LAUNCH=0
@@ -79,11 +86,36 @@ UPROJECT_PATH="$(find "$PROJECT_ROOT" -maxdepth 1 -type f -name '*.uproject' | h
 UPROJECT_NAME="$(basename "$UPROJECT_PATH")"
 PROJECT_NAME="${UPROJECT_NAME%.uproject}"
 TARGET_NAME="${PROJECT_NAME}Editor"
-SOCKET_PATH="$PROJECT_ROOT/Intermediate/loomle-mcp.sock"
+SOCKET_PATH="$PROJECT_ROOT/Intermediate/loomle.sock"
 ROOT_AGENTS_PATH="$PROJECT_ROOT/AGENTS.md"
 ROOT_AGENTS_HINT="- Always read ./Loomle/AGENTS.md before starting work in this project."
-ROOT_BIN="$PROJECT_ROOT/Binaries/Mac/UnrealEditor-LoomleMcpBridge.dylib"
-ROOT_MODULES="$PROJECT_ROOT/Binaries/Mac/UnrealEditor.modules"
+
+case "$HOST_OS" in
+  Darwin)
+    UE_APP="${UE_APP:-$UE_ROOT/Engine/Binaries/Mac/UnrealEditor.app}"
+    UE_VERSION_FILE="${UE_VERSION_FILE:-$UE_ROOT/Engine/Binaries/Mac/UnrealEditor.version}"
+    GEN_SCRIPT="${GEN_SCRIPT:-$UE_ROOT/Engine/Build/BatchFiles/Mac/GenerateProjectFiles.sh}"
+    BUILD_SCRIPT="${BUILD_SCRIPT:-$UE_ROOT/Engine/Build/BatchFiles/Mac/Build.sh}"
+    BUILD_PLATFORM="Mac"
+    PLATFORM_BIN_DIR="Mac"
+    MODULE_BINARY_NAME="UnrealEditor-LoomleBridge.dylib"
+    ;;
+  Linux)
+    UE_BIN="${UE_BIN:-$UE_ROOT/Engine/Binaries/Linux/UnrealEditor}"
+    UE_VERSION_FILE="${UE_VERSION_FILE:-$UE_ROOT/Engine/Binaries/Linux/UnrealEditor.version}"
+    GEN_SCRIPT="${GEN_SCRIPT:-$UE_ROOT/Engine/Build/BatchFiles/Linux/GenerateProjectFiles.sh}"
+    BUILD_SCRIPT="${BUILD_SCRIPT:-$UE_ROOT/Engine/Build/BatchFiles/Linux/Build.sh}"
+    BUILD_PLATFORM="Linux"
+    PLATFORM_BIN_DIR="Linux"
+    MODULE_BINARY_NAME="UnrealEditor-LoomleBridge.so"
+    ;;
+  *)
+    fail "Unsupported non-Windows host OS: $HOST_OS"
+    ;;
+esac
+
+ROOT_BIN="$PROJECT_ROOT/Binaries/$PLATFORM_BIN_DIR/$MODULE_BINARY_NAME"
+ROOT_MODULES="$PROJECT_ROOT/Binaries/$PLATFORM_BIN_DIR/UnrealEditor.modules"
 
 PLUGIN_DIR="$(
 python3 - <<'PY' "$UPROJECT_PATH" "$PROJECT_ROOT"
@@ -119,23 +151,23 @@ for entry in candidates:
     base = pathlib.Path(entry)
     if not base.is_absolute():
         base = (project_root / base).resolve()
-    plugin_dir = base / "LoomleMcpBridge"
-    if (plugin_dir / "LoomleMcpBridge.uplugin").exists():
+    plugin_dir = base / "LoomleBridge"
+    if (plugin_dir / "LoomleBridge.uplugin").exists():
         print(str(plugin_dir))
         sys.exit(0)
 
-fallback = (project_root / "Loomle" / "Plugins" / "LoomleMcpBridge").resolve()
+fallback = (project_root / "Loomle" / "Plugins" / "LoomleBridge").resolve()
 print(str(fallback))
 PY
 )"
 
-PLUGIN_BIN="$PLUGIN_DIR/Binaries/Mac/UnrealEditor-LoomleMcpBridge.dylib"
-PLUGIN_MODULES="$PLUGIN_DIR/Binaries/Mac/UnrealEditor.modules"
+PLUGIN_BIN="$PLUGIN_DIR/Binaries/$PLATFORM_BIN_DIR/$MODULE_BINARY_NAME"
+PLUGIN_MODULES="$PLUGIN_DIR/Binaries/$PLATFORM_BIN_DIR/UnrealEditor.modules"
 
 [[ -d "$PLUGIN_DIR" ]] || fail "Plugin not found from project config/fallback: $PLUGIN_DIR"
 pass "Plugin directory resolved: $PLUGIN_DIR"
 
-log "Ensuring .uproject wiring for AdditionalPluginDirectories + LoomleMcpBridge"
+log "Ensuring .uproject wiring for AdditionalPluginDirectories + LoomleBridge"
 python3 - <<'PY' "$UPROJECT_PATH"
 import json
 import pathlib
@@ -160,11 +192,11 @@ if not isinstance(plugins, list):
 
 bridge = None
 for p in plugins:
-    if isinstance(p, dict) and p.get("Name") == "LoomleMcpBridge":
+    if isinstance(p, dict) and p.get("Name") == "LoomleBridge":
         bridge = p
         break
 if bridge is None:
-    bridge = {"Name": "LoomleMcpBridge"}
+    bridge = {"Name": "LoomleBridge"}
     plugins.append(bridge)
     changed = True
 if bridge.get("Enabled") is not True:
@@ -280,17 +312,19 @@ PY
 
 sync_built_plugin_artifacts() {
   [[ -f "$ROOT_BIN" ]] || fail "Built plugin binary not found at expected path: $ROOT_BIN"
+  mkdir -p "$(dirname "$PLUGIN_BIN")"
   cp -f "$ROOT_BIN" "$PLUGIN_BIN"
   pass "Synchronized built plugin binary to plugin directory"
 
   if [[ -f "$ROOT_MODULES" ]]; then
-    python3 - <<'PY' "$ROOT_MODULES" "$PLUGIN_MODULES"
+    python3 - <<'PY' "$ROOT_MODULES" "$PLUGIN_MODULES" "$MODULE_BINARY_NAME"
 import json
 import pathlib
 import sys
 
 root_modules = pathlib.Path(sys.argv[1])
 plugin_modules = pathlib.Path(sys.argv[2])
+module_binary_name = sys.argv[3]
 
 root_data = json.loads(root_modules.read_text())
 plugin_data = {}
@@ -301,7 +335,7 @@ plugin_data["BuildId"] = root_data.get("BuildId", plugin_data.get("BuildId", "")
 mods = plugin_data.get("Modules")
 if not isinstance(mods, dict):
     mods = {}
-mods["LoomleMcpBridge"] = "UnrealEditor-LoomleMcpBridge.dylib"
+mods["LoomleBridge"] = module_binary_name
 plugin_data["Modules"] = mods
 
 plugin_modules.write_text(json.dumps(plugin_data, indent=2) + "\n")
@@ -328,8 +362,8 @@ if [[ "$SKIP_BUILD" -eq 0 ]]; then
     "$GEN_SCRIPT" -project="$UPROJECT_PATH" -game >/dev/null
     pass "Project files generated"
 
-    log "Building target: $TARGET_NAME (Mac Development)"
-    "$BUILD_SCRIPT" "$TARGET_NAME" Mac Development "$UPROJECT_PATH" -WaitMutex
+    log "Building target: $TARGET_NAME ($BUILD_PLATFORM Development)"
+    "$BUILD_SCRIPT" "$TARGET_NAME" "$BUILD_PLATFORM" Development "$UPROJECT_PATH" -WaitMutex
     pass "Editor target built"
     sync_built_plugin_artifacts
   else
@@ -340,16 +374,24 @@ else
 fi
 
 if [[ "$SKIP_LAUNCH" -eq 0 ]]; then
-  [[ -d "$UE_APP" ]] || fail "UnrealEditor.app not found: $UE_APP"
   log "Launching Unreal Editor"
-  open -na "$UE_APP" --args "$UPROJECT_PATH"
+  case "$HOST_OS" in
+    Darwin)
+      [[ -d "$UE_APP" ]] || fail "UnrealEditor.app not found: $UE_APP"
+      open -na "$UE_APP" --args "$UPROJECT_PATH"
+      ;;
+    Linux)
+      [[ -x "$UE_BIN" ]] || fail "UnrealEditor binary not found/executable: $UE_BIN"
+      "$UE_BIN" "$UPROJECT_PATH" >/dev/null 2>&1 &
+      ;;
+  esac
   pass "Launch command sent"
 else
   log "Skipping launch (--skip-launch)"
 fi
 
 if [[ "$SKIP_VERIFY" -eq 0 ]]; then
-  log "Waiting for MCP socket: $SOCKET_PATH"
+  log "Waiting for bridge socket: $SOCKET_PATH"
   for _ in $(seq 1 60); do
     if [[ -S "$SOCKET_PATH" ]]; then
       break
@@ -357,8 +399,8 @@ if [[ "$SKIP_VERIFY" -eq 0 ]]; then
     sleep 1
   done
 
-  [[ -S "$SOCKET_PATH" ]] || fail "MCP socket not ready: $SOCKET_PATH"
-  pass "MCP socket is ready"
+  [[ -S "$SOCKET_PATH" ]] || fail "bridge socket not ready: $SOCKET_PATH"
+  pass "bridge socket is ready"
 
   log "Running bridge protocol checks"
   python3 "$SCRIPT_DIR/verify_bridge.py" --socket "$SOCKET_PATH"

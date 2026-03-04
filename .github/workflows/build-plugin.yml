@@ -8,7 +8,7 @@ on:
     tags:
       - 'v*'
     paths:
-      - 'Plugins/LoomleMcpBridge/**'
+      - 'Plugins/LoomleBridge/**'
       - '.github/workflows/build-plugin.yml'
 
 permissions:
@@ -50,13 +50,13 @@ jobs:
         id: build_win
         shell: pwsh
         run: |
-          $plugin = Join-Path $env:GITHUB_WORKSPACE 'Plugins\LoomleMcpBridge\LoomleMcpBridge.uplugin'
+          $plugin = Join-Path $env:GITHUB_WORKSPACE 'Plugins\LoomleBridge\LoomleBridge.uplugin'
           if (-not (Test-Path $plugin)) {
             Write-Error "Plugin descriptor not found: $plugin"
             exit 1
           }
 
-          $packageDir = Join-Path $env:RUNNER_TEMP 'LoomleMcpBridge_Win64'
+          $packageDir = Join-Path $env:RUNNER_TEMP 'LoomleBridge_Win64'
           if (Test-Path $packageDir) {
             Remove-Item -Recurse -Force $packageDir
           }
@@ -81,7 +81,7 @@ jobs:
           } | ConvertTo-Json -Depth 4
           $meta | Out-File -FilePath (Join-Path $packageDir 'build-metadata.json') -Encoding utf8
 
-          $zipPath = Join-Path $env:RUNNER_TEMP 'LoomleMcpBridge-Win64.zip'
+          $zipPath = Join-Path $env:RUNNER_TEMP 'LoomleBridge-Win64.zip'
           if (Test-Path $zipPath) {
             Remove-Item -Force $zipPath
           }
@@ -93,7 +93,7 @@ jobs:
       - name: Upload Artifact (Win64 Package)
         uses: actions/upload-artifact@v4
         with:
-          name: LoomleMcpBridge-Win64-${{ github.run_number }}
+          name: LoomleBridge-Win64-${{ github.run_number }}
           path: ${{ steps.build_win.outputs.package_dir }}
           if-no-files-found: error
 
@@ -143,10 +143,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          plugin="$GITHUB_WORKSPACE/Plugins/LoomleMcpBridge/LoomleMcpBridge.uplugin"
+          plugin="$GITHUB_WORKSPACE/Plugins/LoomleBridge/LoomleBridge.uplugin"
           [[ -f "$plugin" ]] || { echo "Plugin descriptor not found: $plugin" >&2; exit 1; }
 
-          package_dir="$RUNNER_TEMP/LoomleMcpBridge_Mac"
+          package_dir="$RUNNER_TEMP/LoomleBridge_Mac"
           rm -rf "$package_dir"
 
           "${{ steps.ue_root_mac.outputs.run_uat }}" BuildPlugin \
@@ -165,7 +165,7 @@ jobs:
           }
           JSON
 
-          zip_path="$RUNNER_TEMP/LoomleMcpBridge-Mac.zip"
+          zip_path="$RUNNER_TEMP/LoomleBridge-Mac.zip"
           rm -f "$zip_path"
           (
             cd "$package_dir"
@@ -178,7 +178,7 @@ jobs:
       - name: Upload Artifact (Mac Package)
         uses: actions/upload-artifact@v4
         with:
-          name: LoomleMcpBridge-Mac-${{ github.run_number }}
+          name: LoomleBridge-Mac-${{ github.run_number }}
           path: ${{ steps.build_mac.outputs.package_dir }}
           if-no-files-found: error
 
@@ -211,8 +211,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release-assets/LoomleMcpBridge-Win64.zip
-            release-assets/LoomleMcpBridge-Mac.zip
+            release-assets/LoomleBridge-Win64.zip
+            release-assets/LoomleBridge-Mac.zip
           generate_release_notes: true
           fail_on_unmatched_files: true
           draft: false

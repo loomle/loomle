@@ -18,11 +18,26 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 - At the start of each Codex thread/session, check Loomle source update status in `./Loomle` (git upstream compare).
 - If a newer upstream revision exists, remind the user they can ask in natural language (for example: "upgrade Loomle" / "update Loomle"), and Codex will run the upgrade flow.
 - Do not auto-upgrade without explicit user confirmation.
+- Before launching Unreal Editor, terminate any existing Unreal Editor processes for this project to avoid multiple concurrent editor instances.
+
+## Build/Load Reliability (Important)
+
+- `BuildPlugin -Package=...` is for packaging validation, not the runtime source of truth for this project.
+- To apply plugin code changes for this project, build against the project plugin path:
+  - `UnrealBuildTool ... -Project="/Users/xartest/Documents/UnrealProjects/Loomle/Loomle.uproject" -plugin="/Users/xartest/Documents/UnrealProjects/Loomle/Loomle/Plugins/LoomleBridge/LoomleBridge.uplugin" ...`
+- After plugin rebuild, always do a full editor restart (no hot-reload assumption):
+  1. terminate Unreal Editor process
+  2. relaunch project
+  3. wait for bridge socket readiness: `/Users/xartest/Documents/UnrealProjects/Loomle/Intermediate/loomle.sock`
 
 ## User Command Handling Policy
-- Supported user commands: `loomle`, `context`, `live`, `execute`.
-- For these commands, always call the corresponding MCP tool first, then return concise natural-language output.
+- Supported bridge commands: `loomle`, `context`, `live`, `execute`, `graph`, `graph.list`, `graph.query`, `graph.addable`, `graph.mutate`, `graph.watch`.
+- User-facing commands are usually `loomle`, `context`, `live`; `execute` is typically agent-operated.
+- For these commands, always call the corresponding bridge tool first, then return concise natural-language output.
 - Do not dump raw JSON by default; show raw payload only when explicitly requested.
+- JSON-RPC transport note:
+  - Bridge may actively push `notifications/live` on the same connection while handling `tools/call`.
+  - Clients must match responses by `id` (demux), and must not treat the first received frame as the call response.
 - Output policy by command:
   - `loomle`:
     1. Summary line (core bridge status)
@@ -45,16 +60,49 @@ Human-oriented explanation lives in `./Loomle/README.md`.
     - first pull in a session: `cursor=0`
     - subsequent pulls: use previous `nextCursor`
   - Keep pull bounded (`limit` <= 100) and prefer small windows unless user asks for full history.
-  - If live pull fails or cursor is stale, recover from `Loomle/runtime/live_events.jsonl` as fallback context.
+- If live pull fails or cursor is stale, recover from `Loomle/runtime/live_events.jsonl` as fallback context.
+
+## Bridge Interface Playbook
+
+### Tool Routing
+
+- `loomle`: bridge health and capability summary.
+- `context`: active editor context + current selection snapshot.
+- `live`: incremental editor event stream pull.
+- `execute`: Python fallback for custom reads/writes.
+- `graph`: graph capability/schema descriptor.
+- `graph.list`: list readable graphs in an asset.
+- `graph.query`: read semantic graph snapshot (nodes/edges in `semanticSnapshot`).
+- `graph.addable`: list addable right-click actions in current graph/pin context.
+- `graph.mutate`: apply graph operations.
+- `graph.watch`: graph-oriented event pull.
+
+### `loomle` Request Template
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"loomle","arguments":{}}}
+```
+
+### `live` Request Template
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"live","arguments":{"cursor":0,"limit":20}}}
+```
+
+### `execute` Request Template
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"execute","arguments":{"mode":"exec","code":"import unreal\nprint('ok')"}}}
+```
 
 ## Context Capability Playbook
 
 - Use `context` as the first read path for active editor state and current selection.
-- Keep `items` lightweight. Use `resolvedValues` for detail.
+- `context` is implemented as a single unified detector path (no provider registry).
+- Keep `items` lightweight (id/path/class/position).
+- Deep graph details should come from `graph.query` (preferred) or `execute`.
 - Call order:
   - `context {}` first
-  - then `context {"resolveIds":[...]}` for detail
-  - optionally add `resolveFields` to reduce payload
 
 ### `context` Request Templates
 
@@ -62,21 +110,9 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"context","arguments":{}}}
 ```
 
-```json
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"context","arguments":{"resolveIds":["<id1>","<id2>"]}}}
-```
-
-```json
-{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"context","arguments":{"resolveIds":["<id1>"],"resolveFields":["id","name","class","nodeTitle","pins","callFunction","dynamicCast"]}}}
-```
-
 ### `context` Response Shape (Selection)
 
 - `selection.items[]` (lightweight): `id,name,class,path,nodePosX,nodePosY,graphName,graphPath`
-- `selection.resolvedValues[id]` (detailed, when resolved):
-  - common: `nodeGuid,nodeTitle,nodeTitleFull,tooltip,isNodeEnabled,pins`
-  - `K2Node_CallFunction`: `callFunction{name,path,ownerClass,isPure,isConst,isStatic,isEvent}`
-  - `K2Node_DynamicCast`: `dynamicCast{sourcePin,resultPin,targetClass}`
 
 ### When To Use `execute` (Python)
 
@@ -99,6 +135,94 @@ print(json.dumps({
     "full_name": node.get_full_name()
 }, ensure_ascii=False))
 ```
+
+## Graph Capability Playbook
+
+### `graph` (Descriptor)
+
+- Use first when agent needs to confirm supported graph ops/fields.
+- Request:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"graph","arguments":{"graphType":"blueprint"}}}
+```
+
+### `graph.list` (Graph Enumeration)
+
+- Required: `arguments.assetPath`.
+- Request:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"graph.list","arguments":{"assetPath":"/Game/Codex/BP_BouncyPad","graphType":"blueprint"}}}
+```
+
+- Key response fields: `graphs[]`, `graphType`, `assetPath`, `diagnostics[]`.
+
+### `graph.query` (Read)
+
+- Required: `arguments.assetPath`, `arguments.graphName`.
+- `assetPath` must be long package path (example: `/Game/Codex/BP_BouncyPad`), not object path (`/Game/Codex/BP_BouncyPad.BP_BouncyPad`).
+- Optional: `filter.nodeClasses`, `limit` (or implementation-supported max node options).
+- Base request:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"graph.query","arguments":{"assetPath":"/Game/Codex/BP_BouncyPad","graphName":"EventGraph","graphType":"blueprint","limit":200}}}
+```
+
+- Filtered request:
+
+```json
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"graph.query","arguments":{"assetPath":"/Game/Codex/BP_BouncyPad","graphName":"EventGraph","filter":{"nodeClasses":["/Script/BlueprintGraph.K2Node_CallFunction"]}}}}
+```
+
+- Key response fields: `semanticSnapshot.signature`, `semanticSnapshot.nodes[]`, `semanticSnapshot.edges[]`, `graphName`, `meta`.
+
+### `graph.addable` (Action Enumeration)
+
+- Required: `arguments.assetPath`, `arguments.graphName`.
+- Optional: `arguments.graphType`, `arguments.context.fromPin`, `arguments.query`, `arguments.limit`.
+- Request:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"graph.addable","arguments":{"assetPath":"/Game/Codex/BP_BouncyPad","graphName":"EventGraph","graphType":"blueprint","limit":20}}}
+```
+
+- Key response fields: `items[]`, where each item can include `actionToken`, `title`, `categoryPath`, `tooltip`, `keywords`, `compatibility`, `spawn`.
+- `actionToken` is short-lived and should be passed as `args.actionToken` in `graph.mutate` `addNode.byAction`.
+
+### `graph.mutate` (Write)
+
+- Required: `arguments.assetPath`, `arguments.ops[]`.
+- Optional: `dryRun` for non-committing validation path.
+- Typical ops in current bridge version:
+  - `addNode.byClass`
+  - `addNode.byAction`
+  - `connectPins`
+  - `disconnectPins`
+  - `breakPinLinks`
+  - `setPinDefault`
+  - `removeNode`
+  - `moveNode`
+  - `compile`
+  - `runScript`
+- Dry-run compile template:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"graph.mutate","arguments":{"assetPath":"/Game/Codex/BP_BouncyPad","dryRun":true,"ops":[{"op":"compile"}]}}}
+```
+
+- Key response fields: `applied`, `opResults[]`, `previousRevision`, `newRevision`, `diagnostics[]`.
+
+### `graph.watch` (Event Pull)
+
+- Used for graph-focused event polling.
+- Request:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"graph.watch","arguments":{"cursor":0,"limit":20}}}
+```
+
+- Key response fields: `events[]`, `cursor`, `nextCursor`, `count`, `dropped`, `running`.
 
 ### Hard Rules For Agents
 

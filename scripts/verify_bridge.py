@@ -7,10 +7,31 @@ from pathlib import Path
 
 REQUIRED_TOOLS = {
     "loomle",
+    "graph",
+    "graph.list",
+    "graph.query",
+    "graph.addable",
+    "graph.mutate",
+    "graph.watch",
     "context",
     "live",
     "execute",
 }
+
+EXPECTED_GRAPH_MUTATE_OPS = {
+    "addNode.byClass",
+    "addNode.byAction",
+    "connectPins",
+    "disconnectPins",
+    "breakPinLinks",
+    "setPinDefault",
+    "removeNode",
+    "moveNode",
+    "compile",
+    "runScript",
+}
+
+_SOCKET_BUFFERS: dict[int, bytes] = {}
 
 
 def fail(msg: str) -> None:
@@ -27,23 +48,33 @@ def send_jsonrpc(sock: socket.socket, req_id: int, method: str, params: dict) ->
     }
     sock.sendall((json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8"))
 
-    data = b""
-    while b"\n" not in data:
-        chunk = sock.recv(4096)
-        if not chunk:
-            fail(f"Socket closed while waiting for response to {method}")
-        data += chunk
+    sock_key = sock.fileno()
+    pending = _SOCKET_BUFFERS.get(sock_key, b"")
 
-    line, _, _ = data.partition(b"\n")
-    try:
-        response = json.loads(line.decode("utf-8"))
-    except json.JSONDecodeError as exc:
-        fail(f"Invalid JSON response for {method}: {exc}")
+    while True:
+        while b"\n" not in pending:
+            chunk = sock.recv(4096)
+            if not chunk:
+                fail(f"Socket closed while waiting for response to {method}")
+            pending += chunk
 
-    if "error" in response:
-        fail(f"JSON-RPC error for {method}: {response['error']}")
+        line, _, pending = pending.partition(b"\n")
+        _SOCKET_BUFFERS[sock_key] = pending
 
-    return response
+        try:
+            frame = json.loads(line.decode("utf-8"))
+        except json.JSONDecodeError as exc:
+            fail(f"Invalid JSON response for {method}: {exc}")
+
+        frame_id = frame.get("id")
+        if frame_id != req_id:
+            # Bridge can push notifications/live while waiting for tools/call response.
+            continue
+
+        if "error" in frame:
+            fail(f"JSON-RPC error for {method}: {frame['error']}")
+
+        return frame
 
 
 def parse_tool_payload(response: dict, method: str) -> dict:
@@ -71,9 +102,16 @@ def parse_tool_payload(response: dict, method: str) -> dict:
     return payload
 
 
+def assert_cursor_fields(payload: dict, method: str) -> None:
+    for field in ("cursor", "nextCursor"):
+        value = payload.get(field)
+        if not isinstance(value, (int, float)):
+            fail(f"{method} payload {field} must be a number, got: {value!r}")
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Verify Loomle MCP bridge availability")
-    parser.add_argument("--socket", required=True, help="Path to loomle-mcp.sock")
+    parser = argparse.ArgumentParser(description="Verify Loomle bridge availability")
+    parser.add_argument("--socket", required=True, help="Path to loomle.sock")
     parser.add_argument("--timeout", type=float, default=3.0, help="Socket timeout seconds")
     args = parser.parse_args()
 
@@ -112,14 +150,120 @@ def main() -> int:
                 "name": "execute",
                 "arguments": {
                     "mode": "exec",
-                    "code": "import unreal\nassert hasattr(unreal, 'BlueprintGraphBridge')",
+                    "code": "import unreal\nassert hasattr(unreal, 'LoomleBlueprintAdapter')",
                 },
             },
         )
         exec_payload = parse_tool_payload(exec_resp, "tools/call.execute")
         if exec_payload.get("isError"):
             fail(f"execute failed: {exec_payload.get('message') or exec_payload}")
-        print("[PASS] unreal.BlueprintGraphBridge is available")
+        print("[PASS] unreal.LoomleBlueprintAdapter is available")
+
+        graph_watch_resp = send_jsonrpc(
+            sock,
+            4,
+            "tools/call",
+            {
+                "name": "graph.watch",
+                "arguments": {"graphType": "blueprint", "cursor": 0, "limit": 20},
+            },
+        )
+        graph_watch_payload = parse_tool_payload(graph_watch_resp, "tools/call.graph.watch")
+        if graph_watch_payload.get("isError"):
+            fail(f"graph.watch failed: {graph_watch_payload.get('message') or graph_watch_payload}")
+        assert_cursor_fields(graph_watch_payload, "graph.watch")
+
+        graph_desc_resp = send_jsonrpc(
+            sock,
+            40,
+            "tools/call",
+            {
+                "name": "graph",
+                "arguments": {"graphType": "blueprint"},
+            },
+        )
+        graph_desc_payload = parse_tool_payload(graph_desc_resp, "tools/call.graph")
+        if graph_desc_payload.get("isError"):
+            fail(f"graph failed: {graph_desc_payload.get('message') or graph_desc_payload}")
+        ops = graph_desc_payload.get("ops")
+        if not isinstance(ops, list):
+            fail("graph payload missing ops[]")
+        ops_set = {op for op in ops if isinstance(op, str)}
+        if ops_set != EXPECTED_GRAPH_MUTATE_OPS:
+            fail(f"graph ops mismatch. expected={sorted(EXPECTED_GRAPH_MUTATE_OPS)} actual={sorted(ops_set)}")
+        print("[PASS] graph reports expected mutate ops")
+
+        run_script_resp = send_jsonrpc(
+            sock,
+            41,
+            "tools/call",
+            {
+                "name": "graph.mutate",
+                "arguments": {
+                    "graphType": "blueprint",
+                    "assetPath": "/Game/Codex/BP_BridgeVerify",
+                    "graphName": "EventGraph",
+                    "dryRun": False,
+                    "ops": [
+                        {
+                            "op": "runScript",
+                            "args": {
+                                "mode": "inlineCode",
+                                "entry": "run",
+                                "code": "def run(ctx):\n  return {'ok': True, 'assetPath': ctx.get('assetPath', '')}",
+                                "input": {"source": "verify_bridge"},
+                            },
+                        }
+                    ],
+                },
+            },
+        )
+        run_script_payload = parse_tool_payload(run_script_resp, "tools/call.graph.mutate")
+        if run_script_payload.get("isError"):
+            fail(f"graph.mutate runScript failed: {run_script_payload.get('message') or run_script_payload}")
+        op_results = run_script_payload.get("opResults", [])
+        if not isinstance(op_results, list) or not op_results:
+            fail("graph.mutate runScript missing opResults")
+        first_op = op_results[0] if isinstance(op_results[0], dict) else {}
+        if not first_op.get("ok"):
+            fail(f"graph.mutate runScript op failed: {first_op}")
+        script_result = first_op.get("scriptResult")
+        if not isinstance(script_result, dict) or script_result.get("ok") is not True:
+            fail(f"graph.mutate runScript missing/invalid scriptResult: {first_op}")
+        print("[PASS] graph.mutate runScript inline execution verified")
+
+        live_resp = send_jsonrpc(
+            sock,
+            5,
+            "tools/call",
+            {
+                "name": "live",
+                "arguments": {"cursor": 0, "limit": 100},
+            },
+        )
+        live_payload = parse_tool_payload(live_resp, "tools/call.live")
+        if live_payload.get("isError"):
+            fail(f"live failed: {live_payload.get('message') or live_payload}")
+        assert_cursor_fields(live_payload, "live")
+
+        live_events = live_payload.get("events", [])
+        graph_watch_events = graph_watch_payload.get("events", [])
+        live_seq = set()
+        for event in live_events:
+            params = event.get("params", {}) if isinstance(event, dict) else {}
+            seq = params.get("seq")
+            if isinstance(seq, (int, float)):
+                live_seq.add(int(seq))
+
+        for event in graph_watch_events:
+            params = event.get("params", {}) if isinstance(event, dict) else {}
+            scope = params.get("scope")
+            if scope != "graph":
+                fail(f"graph.watch returned non-graph event scope: {scope!r}")
+            seq = params.get("seq")
+            if isinstance(seq, (int, float)) and int(seq) not in live_seq:
+                fail("graph.watch event seq not found in live mirror window")
+        print("[PASS] live/graph.watch cursor types and mirror consistency verified")
 
     print("[PASS] Bridge verification complete")
     return 0

@@ -84,14 +84,14 @@ function Resolve-PluginDir {
             $base = Join-Path $ProjectRoot $base
         }
         $base = [System.IO.Path]::GetFullPath($base)
-        $pluginDir = Join-Path $base 'LoomleMcpBridge'
-        $uplugin = Join-Path $pluginDir 'LoomleMcpBridge.uplugin'
+        $pluginDir = Join-Path $base 'LoomleBridge'
+        $uplugin = Join-Path $pluginDir 'LoomleBridge.uplugin'
         if (Test-Path -LiteralPath $uplugin) {
             return $pluginDir
         }
     }
 
-    return [System.IO.Path]::GetFullPath((Join-Path $ProjectRoot 'Loomle\Plugins\LoomleMcpBridge'))
+    return [System.IO.Path]::GetFullPath((Join-Path $ProjectRoot 'Loomle\Plugins\LoomleBridge'))
 }
 
 function Assert-RootAgentsHint {
@@ -187,7 +187,7 @@ function Sync-BuiltPluginArtifacts {
         if ($modules -isnot [System.Collections.IDictionary]) {
             $modules = @{}
         }
-        $modules['LoomleMcpBridge'] = 'UnrealEditor-LoomleMcpBridge.dll'
+        $modules['LoomleBridge'] = 'UnrealEditor-LoomleBridge.dll'
         $pluginObj.Modules = $modules
 
         $pluginModulesDir = Split-Path -Parent $PluginModules
@@ -216,17 +216,24 @@ function Send-BridgeRequest {
     $line = $payload | ConvertTo-Json -Depth 100 -Compress
     $Writer.WriteLine($line)
 
-    $responseLine = $Reader.ReadLine()
-    if ([string]::IsNullOrWhiteSpace($responseLine)) {
-        Fail "Empty JSON-RPC response for $Method"
-    }
+    while ($true) {
+        $responseLine = $Reader.ReadLine()
+        if ([string]::IsNullOrWhiteSpace($responseLine)) {
+            Fail "Empty JSON-RPC response for $Method"
+        }
 
-    $response = $responseLine | ConvertFrom-Json
-    if ($response.PSObject.Properties.Name -contains 'error' -and $null -ne $response.error) {
-        Fail "JSON-RPC error for $Method: $($response.error | ConvertTo-Json -Compress)"
-    }
+        $response = $responseLine | ConvertFrom-Json
+        if ($response.PSObject.Properties.Name -contains 'id' -and $response.id -ne $Id) {
+            # Bridge may push notifications/live on the same connection.
+            continue
+        }
 
-    return $response
+        if ($response.PSObject.Properties.Name -contains 'error' -and $null -ne $response.error) {
+            Fail "JSON-RPC error for $Method: $($response.error | ConvertTo-Json -Compress)"
+        }
+
+        return $response
+    }
 }
 
 function Parse-ToolPayload {
@@ -278,7 +285,7 @@ try {
     $genScript = Join-Path $engineBuildTools 'GenerateProjectFiles.bat'
     $buildScript = Join-Path $engineBuildTools 'Build.bat'
 
-    $rootBin = Join-Path $projectRoot 'Binaries\Win64\UnrealEditor-LoomleMcpBridge.dll'
+    $rootBin = Join-Path $projectRoot 'Binaries\Win64\UnrealEditor-LoomleBridge.dll'
     $rootModules = Join-Path $projectRoot 'Binaries\Win64\UnrealEditor.modules'
 
     if (-not (Test-Path -LiteralPath $unrealEditorExe)) {
@@ -290,7 +297,7 @@ try {
         Fail "Failed to parse uproject: $uprojectPath"
     }
 
-    Log 'Ensuring .uproject wiring for AdditionalPluginDirectories + LoomleMcpBridge'
+    Log 'Ensuring .uproject wiring for AdditionalPluginDirectories + LoomleBridge'
     $changed = $false
 
     if (-not ($uprojectData.PSObject.Properties.Name -contains 'AdditionalPluginDirectories') -or $uprojectData.AdditionalPluginDirectories -isnot [System.Collections.IList]) {
@@ -309,14 +316,14 @@ try {
 
     $bridge = $null
     foreach ($plugin in $uprojectData.Plugins) {
-        if ($plugin -and $plugin.PSObject.Properties.Name -contains 'Name' -and $plugin.Name -eq 'LoomleMcpBridge') {
+        if ($plugin -and $plugin.PSObject.Properties.Name -contains 'Name' -and $plugin.Name -eq 'LoomleBridge') {
             $bridge = $plugin
             break
         }
     }
     if ($null -eq $bridge) {
         $bridge = [pscustomobject]@{
-            Name = 'LoomleMcpBridge'
+            Name = 'LoomleBridge'
             Enabled = $true
             TargetAllowList = @('Editor')
         }
@@ -363,7 +370,7 @@ try {
     }
     Pass "Plugin directory resolved: $pluginDir"
 
-    $pluginBin = Join-Path $pluginDir 'Binaries\Win64\UnrealEditor-LoomleMcpBridge.dll'
+    $pluginBin = Join-Path $pluginDir 'Binaries\Win64\UnrealEditor-LoomleBridge.dll'
     $pluginModules = Join-Path $pluginDir 'Binaries\Win64\UnrealEditor.modules'
 
     if (-not $SkipBuild) {
@@ -415,8 +422,8 @@ try {
     }
 
     if (-not $SkipVerify) {
-        $pipeName = 'loomle-mcp'
-        Log "Waiting for MCP named pipe: \\.\pipe\$pipeName"
+        $pipeName = 'loomle'
+        Log "Waiting for bridge named pipe: \\.\pipe\$pipeName"
 
         $connected = $false
         for ($i = 0; $i -lt 60; $i++) {
@@ -434,9 +441,9 @@ try {
         }
 
         if (-not $connected) {
-            Fail "MCP named pipe not ready: \\.\pipe\$pipeName"
+            Fail "bridge named pipe not ready: \\.\pipe\$pipeName"
         }
-        Pass 'MCP named pipe is ready'
+        Pass 'bridge named pipe is ready'
 
         Log 'Running bridge protocol checks'
         $pipe = New-Object System.IO.Pipes.NamedPipeClientStream('.', $pipeName, [System.IO.Pipes.PipeDirection]::InOut)
@@ -460,7 +467,7 @@ try {
                     $toolNames[[string]$tool.name] = $true
                 }
             }
-            $requiredTools = @('loomle', 'context', 'selection', 'live', 'execute')
+            $requiredTools = @('loomle', 'graph', 'graph.query', 'graph.mutate', 'graph.watch', 'context', 'live', 'execute')
             $missing = @()
             foreach ($required in $requiredTools) {
                 if (-not $toolNames.ContainsKey($required)) {
@@ -476,14 +483,14 @@ try {
                 name = 'execute'
                 arguments = @{
                     mode = 'exec'
-                    code = "import unreal`nassert hasattr(unreal, 'BlueprintGraphBridge')"
+                    code = "import unreal`nassert hasattr(unreal, 'LoomleBlueprintAdapter')"
                 }
             }
             $execPayload = Parse-ToolPayload -Response $execResp -MethodName 'tools/call.execute'
             if ($execPayload.PSObject.Properties.Name -contains 'isError' -and (Convert-ToBool $execPayload.isError)) {
                 Fail ("execute failed: " + [string]$execPayload.message)
             }
-            Pass 'unreal.BlueprintGraphBridge is available'
+            Pass 'unreal.LoomleBlueprintAdapter is available'
         }
         finally {
             if ($null -ne $writer) { $writer.Dispose() }

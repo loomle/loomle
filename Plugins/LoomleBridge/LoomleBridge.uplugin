@@ -1,0 +1,28 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1.0",
+  "FriendlyName": "Loomle Bridge",
+  "Description": "Local bridge for UE5 Editor via named pipe.",
+  "Category": "Editor",
+  "CreatedBy": "Loomle",
+  "CanContainContent": false,
+  "IsBetaVersion": true,
+  "Plugins": [
+    {
+      "Name": "PythonScriptPlugin",
+      "Enabled": true
+    },
+    {
+      "Name": "PCG",
+      "Enabled": true
+    }
+  ],
+  "Modules": [
+    {
+      "Name": "LoomleBridge",
+      "Type": "Editor",
+      "LoadingPhase": "PostEngineInit"
+    }
+  ]
+}
