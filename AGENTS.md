@@ -20,6 +20,18 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 - Do not auto-upgrade without explicit user confirmation.
 - Before launching Unreal Editor, terminate any existing Unreal Editor processes for this project to avoid multiple concurrent editor instances.
 
+### Post-Install Performance Guardrail (Required)
+
+- After install/upgrade and editor launch, always disable UE background CPU throttling for this project:
+  - setting: `[/Script/UnrealEd.EditorPerformanceSettings] bThrottleCPUWhenNotForeground=False`
+  - source of truth file: `./Config/DefaultEditorSettings.ini`
+- Reason: when this is `True`, simple bridge calls can show high tail latency in background (for example `loomle` p95 around `~300ms+`).
+- Codex should proactively help the user apply/fix this setting right after install/upgrade.
+- Quick verify after applying:
+  1. keep UE in background (Codex in foreground)
+  2. run `python3 ./Loomle/scripts/benchmark_bridge.py --socket "/Users/xartest/Documents/UnrealProjects/Loomle/Intermediate/loomle.sock" --tool loomle --total 200 --concurrency 1 --warmup 20`
+  3. expect low-tail latency (typically single-digit milliseconds, not `~300ms+`)
+
 ## Build/Load Reliability (Important)
 
 - `BuildPlugin -Package=...` is for packaging validation, not the runtime source of truth for this project.
