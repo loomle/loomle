@@ -8,6 +8,7 @@ class FLoomlePipeServer;
 class AActor;
 class FJsonObject;
 class FJsonValue;
+struct FEdGraphSchemaAction;
 class UObject;
 struct FPropertyChangedEvent;
 class FTransactionObjectEvent;
@@ -28,6 +29,7 @@ private:
     TSharedPtr<FJsonObject> BuildGraphToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildGraphListToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildGraphQueryToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+    TSharedPtr<FJsonObject> BuildGraphAddableToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildGraphMutateToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildGraphWatchToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildEventPullResult(const TSharedPtr<FJsonObject>& Arguments, const FString& ScopeFilter, const FString& AssetPathFilter, bool bFilterLifecycle) const;
@@ -66,6 +68,22 @@ private:
     FString MakeJsonError(const TSharedPtr<FJsonValue>& Id, int32 Code, const FString& Message) const;
 
 private:
+    struct FGraphActionTokenEntry
+    {
+        FString GraphType;
+        FString AssetPath;
+        FString GraphName;
+        FString FromNodeId;
+        FString FromPinName;
+        FString LegacyActionId;
+        TSharedPtr<FEdGraphSchemaAction> Action;
+        double CreatedAtSeconds = 0.0;
+    };
+
+    void PruneGraphActionTokenRegistry();
+    bool ResolveGraphActionToken(const FString& ActionToken, const FString& GraphType, const FString& AssetPath, const FString& GraphName, FGraphActionTokenEntry& OutEntry, FString& OutErrorCode, FString& OutErrorMessage);
+
+private:
     TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> PipeServer;
     bool bEditorStreamEnabled = false;
     int64 NextLiveSequence = 1;
@@ -87,6 +105,7 @@ private:
     TMap<FString, int32> LastBlueprintGraphEdgeCountByAssetPath;
     TMap<FString, TArray<FString>> LastBlueprintGraphNodeTokensByAssetPath;
     TMap<FString, TArray<FString>> LastBlueprintGraphEdgeTokensByAssetPath;
+    TMap<FString, FGraphActionTokenEntry> GraphActionTokenRegistry;
     bool bGraphMutateInProgress = false;
     FDelegateHandle SelectionChangedHandle;
     FDelegateHandle MapOpenedHandle;

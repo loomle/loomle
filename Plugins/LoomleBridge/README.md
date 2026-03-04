@@ -91,6 +91,10 @@ From UE project root:
   - Required arguments: `assetPath`, `graphName`
   - Optional arguments: `graphType`, `filter`, `limit`
   - Returns semantic snapshot in `semanticSnapshot` (`signature`, `nodes[]`, `edges[]`).
+- `graph.addable`
+  - Required arguments: `assetPath`, `graphName`
+  - Optional arguments: `graphType`, `context.fromPin`, `query`, `limit`
+  - Returns addable right-click actions for current graph/pin context with short-lived `actionToken`.
 - `graph.mutate`
   - Required arguments: `assetPath`, `ops`
   - Optional arguments: `graphType`, `graphName`, `dryRun`, `continueOnError`, `executionPolicy`
@@ -105,6 +109,9 @@ From UE project root:
     - `moveNode`
     - `compile`
     - `runScript`
+  - `addNode.byAction` V2 path:
+    - use `args.actionToken` from `graph.addable` response
+    - `args.actionId` remains available as compatibility fallback
 - `execute`
   - Required argument: `code` (inline Python string)
   - Optional argument: `mode` (`exec` default, or `eval`)

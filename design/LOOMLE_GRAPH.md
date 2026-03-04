@@ -5,7 +5,7 @@
 - Protocol: JSON-RPC 2.0 (bridge tools).
 - Graph types (v1): `blueprint`.
 - Reserved graph types: `material`, `niagara`.
-- Tools: `graph`, `graph.list`, `graph.query`, `graph.mutate`, `graph.watch`.
+- Tools: `graph`, `graph.list`, `graph.query`, `graph.addable`, `graph.mutate`, `graph.watch`.
 
 ## 2. Tool Contracts
 
@@ -173,7 +173,74 @@ Response:
 }
 ```
 
-### 2.5 `graph.watch`
+### 2.5 `graph.addable`
+
+Request:
+
+```json
+{
+  "name": "graph.addable",
+  "arguments": {
+    "graphType": "blueprint",
+    "assetPath": "/Game/Codex/BP_BouncyPad",
+    "graphName": "EventGraph",
+    "context": {
+      "fromPin": {
+        "nodeId": "optional-guid",
+        "pinName": "optional-pin-name"
+      }
+    },
+    "query": "optional search text",
+    "limit": 100
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "graphType": "blueprint",
+  "assetPath": "/Game/Codex/BP_BouncyPad",
+  "graphName": "EventGraph",
+  "contextEcho": {
+    "mode": "graph|pin",
+    "fromNodeId": "",
+    "fromPinName": ""
+  },
+  "actions": [
+    {
+      "actionToken": "act:bp:...",
+      "title": "Launch Character",
+      "categoryPath": "Utilities|Gameplay",
+      "tooltip": "",
+      "keywords": "",
+      "spawn": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction"
+      },
+      "compatibility": {
+        "isCompatible": true,
+        "reasons": []
+      }
+    }
+  ],
+  "nextCursor": "",
+  "meta": {
+    "total": 0,
+    "returned": 0,
+    "truncated": false
+  },
+  "diagnostics": []
+}
+```
+
+Notes:
+
+- `graph.addable` is backed by graph schema context actions (same source as editor right-click menu).
+- `actionToken` is required by `graph.mutate` `addNode.byAction` in V2 path.
+- `actionToken` is short-lived and graph-context bound.
+
+### 2.6 `graph.watch`
 
 Request:
 
