@@ -157,6 +157,7 @@ Exposed methods:
 import unreal
 B = unreal.LoomleBlueprintAdapter
 asset = "/Game/Codex/BP_PyBridgePad_Visible"
+graph = "EventGraph"
 
 obj_path, err = B.create_blueprint(asset, "/Script/Engine.Actor")
 err = B.add_component(asset, "/Script/Engine.SceneComponent", "Root", "")
@@ -167,17 +168,17 @@ err = B.set_static_mesh_component_asset(asset, "PadMesh", "/Engine/BasicShapes/C
 err = B.set_scene_component_relative_scale3d(asset, "PadMesh", unreal.Vector(2.2, 2.2, 0.35))
 err = B.set_scene_component_relative_location(asset, "PadMesh", unreal.Vector(0, 0, 10))
 
-event_guid, err = B.add_event_node(asset, "ReceiveActorBeginOverlap", "/Script/Engine.Actor", -220, 0)
-cast_guid, err = B.add_cast_node(asset, "/Script/Engine.Character", 120, 0)
-launch_guid, err = B.add_call_function_node(asset, "/Script/Engine.Character", "LaunchCharacter", 520, 0)
+event_guid, err = B.add_event_node(asset, graph, "ReceiveActorBeginOverlap", "/Script/Engine.Actor", -220, 0)
+cast_guid, err = B.add_cast_node(asset, graph, "/Script/Engine.Character", 120, 0)
+launch_guid, err = B.add_call_function_node(asset, graph, "/Script/Engine.Character", "LaunchCharacter", 520, 0)
 
-err = B.connect_pins(asset, event_guid, "then", cast_guid, "execute")
-err = B.connect_pins(asset, event_guid, "OtherActor", cast_guid, "Object")
-err = B.connect_pins(asset, cast_guid, "cast_succeeded", launch_guid, "execute")
-err = B.connect_pins(asset, cast_guid, "As Character", launch_guid, "self")
-err = B.set_pin_default_value(asset, launch_guid, "LaunchVelocity", "(X=0.0,Y=0.0,Z=1700.0)")
+err = B.connect_pins(asset, graph, event_guid, "then", cast_guid, "execute")
+err = B.connect_pins(asset, graph, event_guid, "OtherActor", cast_guid, "Object")
+err = B.connect_pins(asset, graph, cast_guid, "cast_succeeded", launch_guid, "execute")
+err = B.connect_pins(asset, graph, cast_guid, "As Character", launch_guid, "self")
+err = B.set_pin_default_value(asset, graph, launch_guid, "LaunchVelocity", "(X=0.0,Y=0.0,Z=1700.0)")
 
-err = B.compile_blueprint(asset)
+err = B.compile_blueprint(asset, graph)
 ```
 
 ## Read graph data (via `execute`)

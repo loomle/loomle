@@ -8,7 +8,9 @@ from pathlib import Path
 REQUIRED_TOOLS = {
     "loomle",
     "graph",
+    "graph.list",
     "graph.query",
+    "graph.addable",
     "graph.mutate",
     "graph.watch",
     "context",

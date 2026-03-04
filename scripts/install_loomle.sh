@@ -35,10 +35,17 @@ run_windows_installer_if_needed() {
   esac
 }
 
-UE_APP="/Users/Shared/Epic Games/UE_5.7/Engine/Binaries/Mac/UnrealEditor.app"
-UE_VERSION_FILE="/Users/Shared/Epic Games/UE_5.7/Engine/Binaries/Mac/UnrealEditor.version"
-GEN_SCRIPT="/Users/Shared/Epic Games/UE_5.7/Engine/Build/BatchFiles/Mac/GenerateProjectFiles.sh"
-BUILD_SCRIPT="/Users/Shared/Epic Games/UE_5.7/Engine/Build/BatchFiles/Mac/Build.sh"
+UE_ROOT="${UE_ROOT:-/Users/Shared/Epic Games/UE_5.7}"
+HOST_OS="$(uname -s 2>/dev/null || echo unknown)"
+
+UE_APP=""
+UE_BIN=""
+UE_VERSION_FILE=""
+GEN_SCRIPT=""
+BUILD_SCRIPT=""
+BUILD_PLATFORM=""
+PLATFORM_BIN_DIR=""
+MODULE_BINARY_NAME=""
 
 SKIP_BUILD=0
 SKIP_LAUNCH=0
@@ -82,8 +89,33 @@ TARGET_NAME="${PROJECT_NAME}Editor"
 SOCKET_PATH="$PROJECT_ROOT/Intermediate/loomle.sock"
 ROOT_AGENTS_PATH="$PROJECT_ROOT/AGENTS.md"
 ROOT_AGENTS_HINT="- Always read ./Loomle/AGENTS.md before starting work in this project."
-ROOT_BIN="$PROJECT_ROOT/Binaries/Mac/UnrealEditor-LoomleBridge.dylib"
-ROOT_MODULES="$PROJECT_ROOT/Binaries/Mac/UnrealEditor.modules"
+
+case "$HOST_OS" in
+  Darwin)
+    UE_APP="${UE_APP:-$UE_ROOT/Engine/Binaries/Mac/UnrealEditor.app}"
+    UE_VERSION_FILE="${UE_VERSION_FILE:-$UE_ROOT/Engine/Binaries/Mac/UnrealEditor.version}"
+    GEN_SCRIPT="${GEN_SCRIPT:-$UE_ROOT/Engine/Build/BatchFiles/Mac/GenerateProjectFiles.sh}"
+    BUILD_SCRIPT="${BUILD_SCRIPT:-$UE_ROOT/Engine/Build/BatchFiles/Mac/Build.sh}"
+    BUILD_PLATFORM="Mac"
+    PLATFORM_BIN_DIR="Mac"
+    MODULE_BINARY_NAME="UnrealEditor-LoomleBridge.dylib"
+    ;;
+  Linux)
+    UE_BIN="${UE_BIN:-$UE_ROOT/Engine/Binaries/Linux/UnrealEditor}"
+    UE_VERSION_FILE="${UE_VERSION_FILE:-$UE_ROOT/Engine/Binaries/Linux/UnrealEditor.version}"
+    GEN_SCRIPT="${GEN_SCRIPT:-$UE_ROOT/Engine/Build/BatchFiles/Linux/GenerateProjectFiles.sh}"
+    BUILD_SCRIPT="${BUILD_SCRIPT:-$UE_ROOT/Engine/Build/BatchFiles/Linux/Build.sh}"
+    BUILD_PLATFORM="Linux"
+    PLATFORM_BIN_DIR="Linux"
+    MODULE_BINARY_NAME="UnrealEditor-LoomleBridge.so"
+    ;;
+  *)
+    fail "Unsupported non-Windows host OS: $HOST_OS"
+    ;;
+esac
+
+ROOT_BIN="$PROJECT_ROOT/Binaries/$PLATFORM_BIN_DIR/$MODULE_BINARY_NAME"
+ROOT_MODULES="$PROJECT_ROOT/Binaries/$PLATFORM_BIN_DIR/UnrealEditor.modules"
 
 PLUGIN_DIR="$(
 python3 - <<'PY' "$UPROJECT_PATH" "$PROJECT_ROOT"
@@ -129,8 +161,8 @@ print(str(fallback))
 PY
 )"
 
-PLUGIN_BIN="$PLUGIN_DIR/Binaries/Mac/UnrealEditor-LoomleBridge.dylib"
-PLUGIN_MODULES="$PLUGIN_DIR/Binaries/Mac/UnrealEditor.modules"
+PLUGIN_BIN="$PLUGIN_DIR/Binaries/$PLATFORM_BIN_DIR/$MODULE_BINARY_NAME"
+PLUGIN_MODULES="$PLUGIN_DIR/Binaries/$PLATFORM_BIN_DIR/UnrealEditor.modules"
 
 [[ -d "$PLUGIN_DIR" ]] || fail "Plugin not found from project config/fallback: $PLUGIN_DIR"
 pass "Plugin directory resolved: $PLUGIN_DIR"
@@ -285,13 +317,14 @@ sync_built_plugin_artifacts() {
   pass "Synchronized built plugin binary to plugin directory"
 
   if [[ -f "$ROOT_MODULES" ]]; then
-    python3 - <<'PY' "$ROOT_MODULES" "$PLUGIN_MODULES"
+    python3 - <<'PY' "$ROOT_MODULES" "$PLUGIN_MODULES" "$MODULE_BINARY_NAME"
 import json
 import pathlib
 import sys
 
 root_modules = pathlib.Path(sys.argv[1])
 plugin_modules = pathlib.Path(sys.argv[2])
+module_binary_name = sys.argv[3]
 
 root_data = json.loads(root_modules.read_text())
 plugin_data = {}
@@ -302,7 +335,7 @@ plugin_data["BuildId"] = root_data.get("BuildId", plugin_data.get("BuildId", "")
 mods = plugin_data.get("Modules")
 if not isinstance(mods, dict):
     mods = {}
-mods["LoomleBridge"] = "UnrealEditor-LoomleBridge.dylib"
+mods["LoomleBridge"] = module_binary_name
 plugin_data["Modules"] = mods
 
 plugin_modules.write_text(json.dumps(plugin_data, indent=2) + "\n")
@@ -329,8 +362,8 @@ if [[ "$SKIP_BUILD" -eq 0 ]]; then
     "$GEN_SCRIPT" -project="$UPROJECT_PATH" -game >/dev/null
     pass "Project files generated"
 
-    log "Building target: $TARGET_NAME (Mac Development)"
-    "$BUILD_SCRIPT" "$TARGET_NAME" Mac Development "$UPROJECT_PATH" -WaitMutex
+    log "Building target: $TARGET_NAME ($BUILD_PLATFORM Development)"
+    "$BUILD_SCRIPT" "$TARGET_NAME" "$BUILD_PLATFORM" Development "$UPROJECT_PATH" -WaitMutex
     pass "Editor target built"
     sync_built_plugin_artifacts
   else
@@ -341,9 +374,17 @@ else
 fi
 
 if [[ "$SKIP_LAUNCH" -eq 0 ]]; then
-  [[ -d "$UE_APP" ]] || fail "UnrealEditor.app not found: $UE_APP"
   log "Launching Unreal Editor"
-  open -na "$UE_APP" --args "$UPROJECT_PATH"
+  case "$HOST_OS" in
+    Darwin)
+      [[ -d "$UE_APP" ]] || fail "UnrealEditor.app not found: $UE_APP"
+      open -na "$UE_APP" --args "$UPROJECT_PATH"
+      ;;
+    Linux)
+      [[ -x "$UE_BIN" ]] || fail "UnrealEditor binary not found/executable: $UE_BIN"
+      "$UE_BIN" "$UPROJECT_PATH" >/dev/null 2>&1 &
+      ;;
+  esac
   pass "Launch command sent"
 else
   log "Skipping launch (--skip-launch)"
