@@ -3,10 +3,11 @@
 #include "CoreMinimal.h"
 #include "HAL/CriticalSection.h"
 #include "HAL/Runnable.h"
+#include "HAL/ThreadSafeCounter.h"
 
 class FRunnableThread;
 
-class FLoomlePipeServer : public FRunnable
+class FLoomlePipeServer : public FRunnable, public TSharedFromThis<FLoomlePipeServer, ESPMode::ThreadSafe>
 {
 public:
     using FRequestHandler = TFunction<FString(const FString&)>;
@@ -22,7 +23,10 @@ public:
     virtual void Stop() override;
 
 private:
+    bool TryBeginInFlight();
+    void EndInFlight();
     bool WriteMessage(const FString& Message);
+    bool WriteMessageForConnection(const FString& Message, int32 ExpectedConnectionSerial);
     FString GetSocketPath() const;
 
 private:
@@ -31,6 +35,10 @@ private:
 
     FRunnableThread* Thread = nullptr;
     FThreadSafeBool bStopRequested = false;
+    FThreadSafeCounter InFlightRequestCount;
+    FThreadSafeCounter NextConnectionSerial;
+    FThreadSafeCounter ActiveConnectionSerial;
+    static constexpr int32 MaxInFlightRequests = 128;
 
 #if PLATFORM_WINDOWS
     void* PipeHandle = nullptr;

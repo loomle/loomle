@@ -1,10 +1,13 @@
 #include "LoomlePipeServer.h"
 
 #include "Async/Async.h"
+#include "Dom/JsonObject.h"
 #include "HAL/PlatformProcess.h"
 #include "HAL/RunnableThread.h"
 #include "Logging/LogMacros.h"
 #include "Misc/Paths.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 
 #if PLATFORM_WINDOWS
 #include "Windows/AllowWindowsPlatformTypes.h"
@@ -17,6 +20,46 @@
 #endif
 
 DEFINE_LOG_CATEGORY_STATIC(LogLoomlePipe, Log, All);
+
+namespace
+{
+
+TSharedPtr<FJsonValue> ExtractRequestId(const FString& RequestLine)
+{
+    TSharedPtr<FJsonObject> RequestObject;
+    const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(RequestLine);
+    if (!FJsonSerializer::Deserialize(Reader, RequestObject) || !RequestObject.IsValid())
+    {
+        return MakeShared<FJsonValueNull>();
+    }
+
+    TSharedPtr<FJsonValue> IdValue = RequestObject->TryGetField(TEXT("id"));
+    if (!IdValue.IsValid())
+    {
+        IdValue = MakeShared<FJsonValueNull>();
+    }
+
+    return IdValue;
+}
+
+FString MakeBusyErrorResponse(const FString& RequestLine)
+{
+    TSharedPtr<FJsonObject> ErrorObject = MakeShared<FJsonObject>();
+    ErrorObject->SetNumberField(TEXT("code"), -32000);
+    ErrorObject->SetStringField(TEXT("message"), TEXT("Server busy: too many in-flight requests"));
+
+    TSharedPtr<FJsonObject> ResponseObject = MakeShared<FJsonObject>();
+    ResponseObject->SetStringField(TEXT("jsonrpc"), TEXT("2.0"));
+    ResponseObject->SetField(TEXT("id"), ExtractRequestId(RequestLine));
+    ResponseObject->SetObjectField(TEXT("error"), ErrorObject);
+
+    FString Output;
+    const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Output);
+    FJsonSerializer::Serialize(ResponseObject.ToSharedRef(), Writer);
+    return Output;
+}
+
+}
 
 FLoomlePipeServer::FLoomlePipeServer(const FString& InPipeName, FRequestHandler InHandler)
     : PipeName(InPipeName)
@@ -58,9 +101,27 @@ bool FLoomlePipeServer::SendServerNotification(const FString& JsonMessage)
     return WriteMessage(JsonMessage);
 }
 
+bool FLoomlePipeServer::TryBeginInFlight()
+{
+    const int32 NewCount = InFlightRequestCount.Increment();
+    if (NewCount > MaxInFlightRequests)
+    {
+        InFlightRequestCount.Decrement();
+        return false;
+    }
+
+    return true;
+}
+
+void FLoomlePipeServer::EndInFlight()
+{
+    InFlightRequestCount.Decrement();
+}
+
 void FLoomlePipeServer::Stop()
 {
     bStopRequested = true;
+    ActiveConnectionSerial.Set(0);
 
 #if PLATFORM_WINDOWS
     if (PipeHandle != nullptr && PipeHandle != INVALID_HANDLE_VALUE)
@@ -111,7 +172,6 @@ uint32 FLoomlePipeServer::Run()
         }
 
         PipeHandle = LocalPipe;
-
         const BOOL bConnected = ConnectNamedPipe(LocalPipe, nullptr) || (GetLastError() == ERROR_PIPE_CONNECTED);
         if (!bConnected)
         {
@@ -120,6 +180,8 @@ uint32 FLoomlePipeServer::Run()
             PipeHandle = nullptr;
             continue;
         }
+        const int32 ConnectionSerial = NextConnectionSerial.Increment();
+        ActiveConnectionSerial.Set(ConnectionSerial);
 
         UE_LOG(LogLoomlePipe, Display, TEXT("Loomle client connected on %s"), *FullPipePath);
 
@@ -155,25 +217,41 @@ uint32 FLoomlePipeServer::Run()
                     continue;
                 }
 
-                TSharedRef<TPromise<FString>, ESPMode::ThreadSafe> Promise = MakeShared<TPromise<FString>, ESPMode::ThreadSafe>();
-                TFuture<FString> Future = Promise->GetFuture();
-
-                AsyncTask(ENamedThreads::GameThread, [Promise, this, RequestLine]()
+                if (!TryBeginInFlight())
                 {
-                    Promise->SetValue(RequestHandler(RequestLine));
-                });
-
-                Future.Wait();
-                const FString Response = Future.Get();
-
-                if (!Response.IsEmpty() && !WriteMessage(Response))
-                {
-                    UE_LOG(LogLoomlePipe, Warning, TEXT("Failed writing response to client pipe"));
-                    break;
+                    if (!WriteMessageForConnection(MakeBusyErrorResponse(RequestLine), ConnectionSerial))
+                    {
+                        UE_LOG(LogLoomlePipe, Warning, TEXT("Failed writing busy response to client pipe"));
+                        break;
+                    }
+                    continue;
                 }
+
+                TWeakPtr<FLoomlePipeServer, ESPMode::ThreadSafe> WeakSelf = AsShared();
+                FRequestHandler HandlerSnapshot = RequestHandler;
+                AsyncTask(ENamedThreads::GameThread, [WeakSelf, HandlerSnapshot, RequestLine, ConnectionSerial]()
+                {
+                    const TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> Self = WeakSelf.Pin();
+                    if (!Self.IsValid())
+                    {
+                        return;
+                    }
+
+                    const FString Response = HandlerSnapshot(RequestLine);
+                    if (!Response.IsEmpty() && !Self->WriteMessageForConnection(Response, ConnectionSerial))
+                    {
+                        UE_LOG(LogLoomlePipe, Verbose, TEXT("Dropping response for stale or disconnected pipe client"));
+                    }
+
+                    Self->EndInFlight();
+                });
             }
         }
 
+        if (ActiveConnectionSerial.GetValue() == ConnectionSerial)
+        {
+            ActiveConnectionSerial.Set(0);
+        }
         FlushFileBuffers(LocalPipe);
         DisconnectNamedPipe(LocalPipe);
         CloseHandle(LocalPipe);
@@ -235,6 +313,8 @@ uint32 FLoomlePipeServer::Run()
         }
 
         ClientFd = LocalClientFd;
+        const int32 ConnectionSerial = NextConnectionSerial.Increment();
+        ActiveConnectionSerial.Set(ConnectionSerial);
         UE_LOG(LogLoomlePipe, Display, TEXT("Loomle client connected on unix socket %s"), *SocketPath);
 
         TArray<uint8> PendingBytes;
@@ -267,25 +347,41 @@ uint32 FLoomlePipeServer::Run()
                     continue;
                 }
 
-                TSharedRef<TPromise<FString>, ESPMode::ThreadSafe> Promise = MakeShared<TPromise<FString>, ESPMode::ThreadSafe>();
-                TFuture<FString> Future = Promise->GetFuture();
-
-                AsyncTask(ENamedThreads::GameThread, [Promise, this, RequestLine]()
+                if (!TryBeginInFlight())
                 {
-                    Promise->SetValue(RequestHandler(RequestLine));
-                });
-
-                Future.Wait();
-                const FString Response = Future.Get();
-
-                if (!Response.IsEmpty() && !WriteMessage(Response))
-                {
-                    UE_LOG(LogLoomlePipe, Warning, TEXT("Failed writing response to unix socket client"));
-                    break;
+                    if (!WriteMessageForConnection(MakeBusyErrorResponse(RequestLine), ConnectionSerial))
+                    {
+                        UE_LOG(LogLoomlePipe, Warning, TEXT("Failed writing busy response to unix socket client"));
+                        break;
+                    }
+                    continue;
                 }
+
+                TWeakPtr<FLoomlePipeServer, ESPMode::ThreadSafe> WeakSelf = AsShared();
+                FRequestHandler HandlerSnapshot = RequestHandler;
+                AsyncTask(ENamedThreads::GameThread, [WeakSelf, HandlerSnapshot, RequestLine, ConnectionSerial]()
+                {
+                    const TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> Self = WeakSelf.Pin();
+                    if (!Self.IsValid())
+                    {
+                        return;
+                    }
+
+                    const FString Response = HandlerSnapshot(RequestLine);
+                    if (!Response.IsEmpty() && !Self->WriteMessageForConnection(Response, ConnectionSerial))
+                    {
+                        UE_LOG(LogLoomlePipe, Verbose, TEXT("Dropping response for stale or disconnected socket client"));
+                    }
+
+                    Self->EndInFlight();
+                });
             }
         }
 
+        if (ActiveConnectionSerial.GetValue() == ConnectionSerial)
+        {
+            ActiveConnectionSerial.Set(0);
+        }
         close(LocalClientFd);
         ClientFd = -1;
         UE_LOG(LogLoomlePipe, Display, TEXT("Loomle client disconnected"));
@@ -304,7 +400,16 @@ uint32 FLoomlePipeServer::Run()
 
 bool FLoomlePipeServer::WriteMessage(const FString& Message)
 {
+    return WriteMessageForConnection(Message, ActiveConnectionSerial.GetValue());
+}
+
+bool FLoomlePipeServer::WriteMessageForConnection(const FString& Message, int32 ExpectedConnectionSerial)
+{
     FScopeLock ScopeLock(&WriteMutex);
+    if (ExpectedConnectionSerial == 0 || ActiveConnectionSerial.GetValue() != ExpectedConnectionSerial)
+    {
+        return false;
+    }
 
 #if PLATFORM_WINDOWS
     if (PipeHandle == nullptr || PipeHandle == INVALID_HANDLE_VALUE)
