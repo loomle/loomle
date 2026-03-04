@@ -197,6 +197,52 @@ function Sync-BuiltPluginArtifacts {
     }
 }
 
+function Test-ShouldSyncRootArtifacts {
+    param(
+        [Parameter(Mandatory = $true)][string]$RootBin,
+        [Parameter(Mandatory = $true)][string]$RootModules,
+        [Parameter(Mandatory = $true)][string]$PluginBin,
+        [Parameter(Mandatory = $true)][string]$PluginModules
+    )
+
+    if (-not (Test-Path -LiteralPath $RootBin)) {
+        return $false
+    }
+
+    if (-not (Test-Path -LiteralPath $PluginBin)) {
+        return $true
+    }
+
+    $rootItem = Get-Item -LiteralPath $RootBin
+    $pluginItem = Get-Item -LiteralPath $PluginBin
+    if ($rootItem.LastWriteTimeUtc -gt $pluginItem.LastWriteTimeUtc) {
+        return $true
+    }
+    if ($rootItem.Length -ne $pluginItem.Length) {
+        return $true
+    }
+
+    if (Test-Path -LiteralPath $RootModules) {
+        if (-not (Test-Path -LiteralPath $PluginModules)) {
+            return $true
+        }
+
+        $rootObj = Read-JsonFile -Path $RootModules
+        $pluginObj = Read-JsonFile -Path $PluginModules
+        if ($null -eq $rootObj -or $null -eq $pluginObj) {
+            return $true
+        }
+
+        $rootBuildId = [string]$rootObj.BuildId
+        $pluginBuildId = [string]$pluginObj.BuildId
+        if (-not [string]::Equals($rootBuildId, $pluginBuildId, [System.StringComparison]::Ordinal)) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 function Send-BridgeRequest {
     param(
         [Parameter(Mandatory = $true)][System.IO.StreamWriter]$Writer,
@@ -416,6 +462,14 @@ try {
     }
     else {
         Log 'Skipping build (--skip-build)'
+    }
+
+    if (Test-ShouldSyncRootArtifacts -RootBin $rootBin -RootModules $rootModules -PluginBin $pluginBin -PluginModules $pluginModules) {
+        Log 'Synchronizing root build artifacts to plugin directory'
+        Sync-BuiltPluginArtifacts -RootBin $rootBin -RootModules $rootModules -PluginBin $pluginBin -PluginModules $pluginModules
+    }
+    else {
+        Log 'Plugin binary artifacts already synchronized'
     }
 
     if (-not $SkipLaunch) {

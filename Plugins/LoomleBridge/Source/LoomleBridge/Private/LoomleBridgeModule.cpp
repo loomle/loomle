@@ -1,6 +1,7 @@
 #include "LoomleBridgeModule.h"
 
 #include "Async/Async.h"
+#include "Async/Future.h"
 #include "Editor.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Algo/Sort.h"
@@ -1110,6 +1111,17 @@ void FLoomleBridgeModule::ShutdownModule()
 
 FString FLoomleBridgeModule::HandleRequest(const FString& RequestLine)
 {
+    if (!IsInGameThread())
+    {
+        TPromise<FString> ResponsePromise;
+        TFuture<FString> ResponseFuture = ResponsePromise.GetFuture();
+        AsyncTask(ENamedThreads::GameThread, [this, RequestLine, Promise = MoveTemp(ResponsePromise)]() mutable
+        {
+            Promise.SetValue(HandleRequest(RequestLine));
+        });
+        return ResponseFuture.Get();
+    }
+
     TSharedPtr<FJsonObject> RequestObject;
     TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(RequestLine);
 
