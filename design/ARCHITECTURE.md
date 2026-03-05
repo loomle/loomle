@@ -1,0 +1,79 @@
+# Loomle vNext Architecture
+
+## 1. Objective
+
+Build a clean split where:
+
+- MCP is fully implemented in Rust as a standard MCP server.
+- Unreal C++ exposes only internal RPC interfaces.
+- MCP and Unreal runtime communicate through RPC Connector <-> RPC Listener.
+
+## 2. Topology
+
+1. MCP Client
+- Sends MCP requests.
+
+2. Loomle MCP Server (Rust)
+- Implements MCP lifecycle and tool contracts.
+- Validates tool inputs/outputs.
+- Handles MCP-only descriptor/status tools locally.
+- Uses RPC Connector for runtime-dependent tools.
+
+3. RPC Connector (Rust)
+- Owns connection lifecycle.
+- Sends RPC requests.
+- Routes responses by request id.
+
+4. RPC Listener (C++)
+- Owns listen/accept lifecycle.
+- Validates RPC envelopes.
+- Dispatches to runtime handlers.
+
+5. Unreal Runtime Handlers (C++)
+- Execute domain operations and return deterministic results.
+
+## 3. Boundary Policy
+
+1. MCP boundary
+- Standard MCP only.
+- No Unreal transport concepts leak outward.
+
+2. RPC boundary
+- JSON-RPC 2.0 + NDJSON framing.
+- Windows transport: Named Pipe.
+- macOS/Linux transport: Unix Socket.
+
+3. C++ design scope
+- This design specifies RPC method contracts only.
+- Internal classes/functions in C++ are out of scope.
+
+## 4. Minimal Name Mapping
+
+MCP tools:
+
+- `loomle`
+- `context`
+- `execute`
+- `graph`
+- `graph.list`
+- `graph.query`
+- `graph.actions`
+- `graph.mutate`
+
+Execution route:
+
+- `loomle`: MCP local response + required `rpc.health` probe on every call.
+- `context`: RPC `rpc.invoke` (`tool=context`).
+- `execute`: RPC `rpc.invoke` (`tool=execute`).
+- `graph`: MCP local descriptor response + required `rpc.health` probe on every call.
+- `graph.list`: RPC `rpc.invoke` (`tool=graph.list`).
+- `graph.query`: RPC `rpc.invoke` (`tool=graph.query`).
+- `graph.actions`: RPC `rpc.invoke` (`tool=graph.actions`).
+- `graph.mutate`: RPC `rpc.invoke` (`tool=graph.mutate`).
+
+## 5. Determinism Rules
+
+1. Request/response matching always uses `id`.
+2. `graph.mutate` executes operations in order.
+3. `dryRun=true` never persists state.
+4. All timestamps use UTC RFC3339.
