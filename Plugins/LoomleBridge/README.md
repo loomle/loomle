@@ -27,10 +27,18 @@ From UE project root:
 
 ## Implemented bridge methods
 
-- `initialize`
-- `tools/list`
-- `tools/call`
-- `notifications/initialized` (accepted as notification)
+- `rpc.health`
+- `rpc.capabilities`
+- `rpc.invoke`
+
+## Runtime tools (via `rpc.invoke tool=...`)
+
+- `context`
+- `execute`
+- `graph.list`
+- `graph.query`
+- `graph.actions`
+- `graph.mutate`
 
 ## Tools (Current)
 
@@ -53,10 +61,10 @@ From UE project root:
   - Required arguments: `assetPath`, `graphName`
   - Optional arguments: `graphType`, `filter`, `limit`
   - Returns semantic snapshot in `semanticSnapshot` (`signature`, `nodes[]`, `edges[]`).
-- `graph.addable`
+- `graph.actions`
   - Required arguments: `assetPath`, `graphName`
   - Optional arguments: `graphType`, `context.fromPin`, `query`, `limit`
-  - Returns addable right-click actions for current graph/pin context with short-lived `actionToken`.
+  - Returns right-click actions for current graph/pin context with short-lived `actionToken`.
 - `graph.mutate`
   - Required arguments: `assetPath`, `ops`
   - Optional arguments: `graphType`, `graphName`, `dryRun`, `continueOnError`, `executionPolicy`
@@ -72,7 +80,7 @@ From UE project root:
     - `compile`
     - `runScript`
   - `addNode.byAction` V2 path:
-    - use `args.actionToken` from `graph.addable` response
+    - use `args.actionToken` from `graph.actions` response
     - `args.actionId` remains available as compatibility fallback
 - `execute`
   - Required argument: `code` (inline Python string)
