@@ -7,3 +7,6 @@ Plugins/*/Intermediate/
 
 # Loomle runtime event logs
 runtime/*.jsonl
+
+# Rust test build artifacts
+runtime/mcp_protocol_tests/target/
