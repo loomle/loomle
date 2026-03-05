@@ -2,9 +2,9 @@
 
 ## Layout
 
-- `mcp_protocol/`: MCP protocol tests that do not depend on Unreal Editor.
+- `../mcp_server/`: MCP protocol and routing tests (UE-independent, Rust).
 
 ## Notes
 
-- These tests validate MCP tool contracts, MCP<->RPC mapping behavior, and deterministic request routing.
-- Keep UE-independent tests in this folder so they can run in CI without launching Unreal.
+- MCP contract tests moved to `./Loomle/mcp_server` as the single source of truth.
+- Keep Unreal-independent tests there so they can run in CI without launching Unreal Editor.

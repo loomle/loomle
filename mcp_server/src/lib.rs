@@ -1,9 +1,24 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+pub mod mcp;
+pub mod transport;
+
+pub const TOOL_NAMES: [&str; 8] = [
+    "loomle",
+    "context",
+    "execute",
+    "graph",
+    "graph.list",
+    "graph.query",
+    "graph.actions",
+    "graph.mutate",
+];
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcHealth {
     pub status: String,
+    #[serde(rename = "rpcVersion")]
     pub rpc_version: String,
     pub timestamp: String,
 }
@@ -44,32 +59,22 @@ impl<C: RpcConnector> McpService<C> {
     }
 
     pub fn tools_list() -> Vec<&'static str> {
-        vec![
-            "loomle",
-            "context",
-            "execute",
-            "graph",
-            "graph.list",
-            "graph.query",
-            "graph.actions",
-            "graph.mutate",
-        ]
+        TOOL_NAMES.to_vec()
     }
 
     pub fn call_tool(&self, name: &str, args: Value, meta: RpcMeta) -> McpToolResult {
         match name {
             "loomle" => self.call_loomle(),
             "graph" => self.call_graph(args),
-            "context" | "execute" | "graph.list" | "graph.query" | "graph.actions" | "graph.mutate" => {
-                self.call_runtime(name, args, meta)
-            }
+            "context" | "execute" | "graph.list" | "graph.query" | "graph.actions"
+            | "graph.mutate" => self.call_runtime(name, args, meta),
             _ => McpToolResult {
-                structured_content: json!({
-                    "domainCode": "TOOL_NOT_FOUND",
-                    "message": format!("unknown tool: {name}"),
-                    "retryable": false,
-                    "detail": ""
-                }),
+                structured_content: error_payload(
+                    1002,
+                    format!("unknown tool: {name}"),
+                    false,
+                    String::new(),
+                ),
                 is_error: true,
             },
         }
@@ -182,16 +187,20 @@ impl<C: RpcConnector> McpService<C> {
                 is_error: false,
             },
             Err(err) => McpToolResult {
-                structured_content: json!({
-                    "domainCode": map_error_code(err.code),
-                    "message": err.message,
-                    "retryable": err.retryable,
-                    "detail": err.detail
-                }),
+                structured_content: error_payload(err.code, err.message, err.retryable, err.detail),
                 is_error: true,
             },
         }
     }
+}
+
+fn error_payload(code: u16, message: String, retryable: bool, detail: String) -> Value {
+    json!({
+        "domainCode": map_error_code(code),
+        "message": message,
+        "retryable": retryable,
+        "detail": detail
+    })
 }
 
 fn map_error_code(code: u16) -> &'static str {
@@ -207,6 +216,7 @@ fn map_error_code(code: u16) -> &'static str {
         1008 => "REVISION_CONFLICT",
         1009 => "LIMIT_EXCEEDED",
         1010 => "EXECUTION_TIMEOUT",
+        1011 => "INTERNAL_ERROR",
         _ => "INTERNAL_ERROR",
     }
 }
@@ -279,7 +289,8 @@ mod tests {
         fn invoke(&self, tool: &str, args: Value, meta: RpcMeta) -> Result<Value, RpcError> {
             {
                 let mut st = self.state.lock().unwrap();
-                st.invoke_calls.push((tool.to_string(), args.clone(), meta.clone()));
+                st.invoke_calls
+                    .push((tool.to_string(), args.clone(), meta.clone()));
             }
 
             if self.state.lock().unwrap().out_of_order_ids {
@@ -288,14 +299,7 @@ mod tests {
                 return Ok(json!({ "requestId": meta.request_id }));
             }
 
-            if let Some(result) = self
-                .state
-                .lock()
-                .unwrap()
-                .by_tool_result
-                .get(tool)
-                .cloned()
-            {
+            if let Some(result) = self.state.lock().unwrap().by_tool_result.get(tool).cloned() {
                 return result;
             }
 

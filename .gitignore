@@ -9,4 +9,4 @@ Plugins/*/Intermediate/
 runtime/*.jsonl
 
 # Rust test build artifacts
-tests/mcp_protocol/target/
+mcp_server/target/
