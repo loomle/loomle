@@ -13,8 +13,8 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 
 ## Install And Upgrade
 
-- Install entrypoint: `./Loomle/scripts/install_loomle.sh`.
-- Upgrade entrypoint: `./Loomle/scripts/upgrade_loomle.sh`.
+- Install entrypoint: `./Loomle/scripts/install_loomle_bridge.sh`.
+- Upgrade entrypoint: `./Loomle/scripts/upgrade_loomle_bridge.sh`.
 - At the start of each Codex thread/session, check Loomle source update status in `./Loomle` (git upstream compare).
 - If a newer upstream revision exists, remind the user they can ask in natural language (for example: "upgrade Loomle" / "update Loomle"), and Codex will run the upgrade flow.
 - Do not auto-upgrade without explicit user confirmation.
@@ -29,7 +29,7 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 - Codex should proactively help the user apply/fix this setting right after install/upgrade.
 - Quick verify after applying:
   1. keep UE in background (Codex in foreground)
-  2. run `python3 ./Loomle/scripts/benchmark_bridge.py --socket "/Users/xartest/Documents/UnrealProjects/Loomle/Intermediate/loomle.sock" --tool loomle --total 200 --concurrency 1 --warmup 20`
+  2. run `python3 ./Loomle/scripts/benchmark_loomle_bridge.py --socket "/Users/xartest/Documents/UnrealProjects/Loomle/Intermediate/loomle.sock" --tool loomle --total 200 --concurrency 1 --warmup 20`
   3. expect low-tail latency (typically single-digit milliseconds, not `~300ms+`)
 
 ## Build/Load Reliability (Important)

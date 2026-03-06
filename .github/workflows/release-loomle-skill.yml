@@ -1,0 +1,45 @@
+name: Release Loomle Skill
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "skill-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release-loomle-skill:
+    runs-on: [self-hosted, macOS]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Package Skill
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_dir="$RUNNER_TEMP/release-skill-assets"
+          zip_path="$release_dir/loomle-skill.zip"
+          rm -rf "$release_dir"
+          mkdir -p "$release_dir"
+
+          "$GITHUB_WORKSPACE/scripts/package_loomle_skill.sh" \
+            --name loomle-skill \
+            --output "$zip_path"
+
+          echo "zip_path=$zip_path" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release (Skill)
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.package.outputs.zip_path }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
+          make_latest: false

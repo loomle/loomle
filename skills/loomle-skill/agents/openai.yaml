@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loomle Skill"
+  short_description: "Install, update, and operate Loomle workflows"
+  default_prompt: "Install or upgrade Loomle in this project using release artifacts, apply required runtime settings, verify bridge readiness, then run requested Loomle MCP operations."

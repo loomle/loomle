@@ -19,7 +19,7 @@ run_windows_installer_if_needed() {
 
   case "$uname_lc" in
     mingw*|msys*|cygwin*)
-      win_installer="$SCRIPT_DIR/install_loomle_windows.ps1"
+      win_installer="$SCRIPT_DIR/install_loomle_bridge_windows.ps1"
       [[ -f "$win_installer" ]] || fail "Windows installer not found: $win_installer"
       command -v powershell.exe >/dev/null 2>&1 || fail "powershell.exe is required on Windows shells"
 
@@ -28,7 +28,7 @@ run_windows_installer_if_needed() {
         win_installer_path="$(cygpath -w "$win_installer")"
       fi
 
-      log "Detected Windows shell ($uname_s); forwarding to install_loomle_windows.ps1"
+      log "Detected Windows shell ($uname_s); forwarding to install_loomle_bridge_windows.ps1"
       powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$win_installer_path" "$@"
       exit $?
       ;;
@@ -456,7 +456,7 @@ if [[ "$SKIP_VERIFY" -eq 0 ]]; then
   pass "bridge socket is ready"
 
   log "Running bridge protocol checks"
-  python3 "$SCRIPT_DIR/verify_bridge.py" --socket "$SOCKET_PATH"
+  python3 "$SCRIPT_DIR/verify_loomle_bridge.py" --socket "$SOCKET_PATH"
 else
   log "Skipping bridge verification (--skip-verify)"
 fi

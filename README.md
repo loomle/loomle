@@ -7,16 +7,22 @@ It combines editor control, automation, skills, and extensible modules.
 
 ## Quick Start
 
-For Human (paste this in Codex from your Unreal project root):
+Step 1: Ask Codex to install `loomle-skill` from release zip URL.
 
 ```text
-Install Loomle (https://github.com/loomle/loomle) by following ./Loomle/README.md.
+Install loomle-skill from https://github.com/loomle/loomle/releases/latest/download/loomle-skill.zip (overwrite if exists).
 ```
 
-For Agent (single install entrypoint):
+Step 2: Ask Codex to install or upgrade Loomle Bridge for the current Unreal project.
 
-```bash
-./Loomle/scripts/install_loomle.sh
+```text
+Install Loomle Bridge for this Unreal project.
+```
+
+or
+
+```text
+Upgrade Loomle Bridge for this Unreal project.
 ```
 
 ## What It Can Do
@@ -41,3 +47,8 @@ By default, Loomle returns interpreted results instead of raw JSON (unless expli
 ## Boundaries
 
 - Keep Loomle content under `./Loomle`.
+
+## Release Triggers
+
+- Plugin release (Mac): push tag `vX.Y.Z` -> workflow `release-loomle-bridge-mac.yml`
+- Skill release: push tag `skill-vA.B.C` -> workflow `release-loomle-skill.yml`

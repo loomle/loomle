@@ -1,0 +1,135 @@
+name: Release Loomle Plugin (Mac)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release-plugin-mac:
+    runs-on: [self-hosted, macOS]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve Unreal Engine Root (Mac)
+        id: ue_root_mac
+        shell: bash
+        env:
+          UE_FROM_VARS: ${{ vars.UE_5_7_ROOT_MAC }}
+        run: |
+          set -euo pipefail
+          candidate=""
+          if [[ -n "${UE_FROM_VARS:-}" ]]; then
+            candidate="$UE_FROM_VARS"
+          elif [[ -n "${UE_5_7_ROOT_MAC:-}" ]]; then
+            candidate="$UE_5_7_ROOT_MAC"
+          else
+            candidate="/Users/Shared/Epic Games/UE_5.7"
+          fi
+
+          run_uat="$candidate/Engine/Build/BatchFiles/RunUAT.sh"
+          if [[ ! -x "$run_uat" ]]; then
+            echo "RunUAT.sh not found. Set UE_5_7_ROOT_MAC (repo var or runner env). Tried: $run_uat" >&2
+            exit 1
+          fi
+
+          {
+            echo "ue_root=$candidate"
+            echo "run_uat=$run_uat"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and Package Plugin (Mac)
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          plugin="$GITHUB_WORKSPACE/Plugins/LoomleBridge/LoomleBridge.uplugin"
+          [[ -f "$plugin" ]] || { echo "Plugin descriptor not found: $plugin" >&2; exit 1; }
+
+          package_dir="$RUNNER_TEMP/LoomleBridge_Mac"
+          stage_dir="$RUNNER_TEMP/release-stage"
+          release_dir="$RUNNER_TEMP/release-assets"
+          zip_path="$release_dir/LoomleBridge-darwin.zip"
+          manifest_path="$release_dir/loomle-manifest.json"
+
+          rm -rf "$package_dir" "$stage_dir" "$release_dir"
+          mkdir -p "$stage_dir" "$release_dir"
+
+          "${{ steps.ue_root_mac.outputs.run_uat }}" BuildPlugin \
+            -Plugin="$plugin" \
+            -Package="$package_dir" \
+            -TargetPlatforms=Mac \
+            -Rocket
+
+          cat > "$package_dir/build-metadata.json" <<JSON
+          {
+            "platform": "darwin",
+            "built_at_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "ue_root": "${{ steps.ue_root_mac.outputs.ue_root }}",
+            "commit": "${{ github.sha }}",
+            "runner": "${{ runner.name }}"
+          }
+          JSON
+
+          mkdir -p "$stage_dir/LoomleBridge"
+          cp -R "$package_dir"/. "$stage_dir/LoomleBridge"/
+
+          (
+            cd "$stage_dir"
+            zip -r "$zip_path" LoomleBridge
+          )
+
+          sha256="$(shasum -a 256 "$zip_path" | awk '{print tolower($1)}')"
+          tag="${GITHUB_REF_NAME#v}"
+          asset_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/LoomleBridge-darwin.zip"
+
+          python3 - <<'PY' "$manifest_path" "$tag" "$asset_url" "$sha256"
+import json
+import pathlib
+import sys
+
+manifest_path = pathlib.Path(sys.argv[1])
+version = sys.argv[2]
+asset_url = sys.argv[3]
+sha256 = sys.argv[4]
+
+manifest = {
+    "latest": version,
+    "versions": {
+        version: {
+            "packages": {
+                "darwin": {
+                    "url": asset_url,
+                    "sha256": sha256,
+                    "format": "zip",
+                }
+            }
+        }
+    },
+}
+manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+PY
+
+          {
+            echo "zip_path=$zip_path"
+            echo "manifest_path=$manifest_path"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release (Plugin)
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.package.outputs.zip_path }}
+            ${{ steps.package.outputs.manifest_path }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
+          make_latest: true

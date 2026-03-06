@@ -7,7 +7,7 @@ This plugin exposes a local Loomle-compatible JSON-RPC endpoint from UE5 Editor 
 From UE project root:
 
 ```bash
-./Loomle/scripts/install_loomle.sh
+./Loomle/scripts/install_loomle_bridge.sh
 ```
 
 ## Upgrade (Source Mode)
@@ -15,7 +15,7 @@ From UE project root:
 From UE project root:
 
 ```bash
-./Loomle/scripts/upgrade_loomle.sh
+./Loomle/scripts/upgrade_loomle_bridge.sh
 ```
 
 ## Transport

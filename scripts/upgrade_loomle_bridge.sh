@@ -33,7 +33,7 @@ run_install_flow() {
 
   case "$uname_lc" in
     mingw*|msys*|cygwin*)
-      win_installer="$SCRIPT_DIR/install_loomle_windows.ps1"
+      win_installer="$SCRIPT_DIR/install_loomle_bridge_windows.ps1"
       [[ -f "$win_installer" ]] || fail "Windows installer not found: $win_installer"
       command -v powershell.exe >/dev/null 2>&1 || fail "powershell.exe is required on Windows shells"
 
@@ -42,11 +42,11 @@ run_install_flow() {
         win_installer_path="$(cygpath -w "$win_installer")"
       fi
 
-      log "Detected Windows shell ($uname_s); running install_loomle_windows.ps1"
+      log "Detected Windows shell ($uname_s); running install_loomle_bridge_windows.ps1"
       powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$win_installer_path" "${INSTALL_ARGS[@]}"
       ;;
     *)
-      "$SCRIPT_DIR/install_loomle.sh" "${INSTALL_ARGS[@]}"
+      "$SCRIPT_DIR/install_loomle_bridge.sh" "${INSTALL_ARGS[@]}"
       ;;
   esac
 }
