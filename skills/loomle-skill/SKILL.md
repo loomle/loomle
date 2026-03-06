@@ -28,12 +28,20 @@ Use this skill when requests match intents like:
 1. Install/Upgrade flow: user asks for install, update, or setup repair.
 2. Runtime usage flow: user asks for Loomle MCP operations (`loomle`, `context`, `execute`, `graph.*`).
 
+## Skill Version Check
+
+- Check latest published skill version from:
+  `https://github.com/loomle/loomle/releases/download/skill-latest/loomle-skill-version.json`
+- Use this endpoint when user asks whether local `loomle-skill` is up to date.
+
 ## Install/Upgrade Flow (Project-Local)
 
 1. Resolve project root from current workspace (`*.uproject` at root expected).
 2. Resolve target plugin path as `<ProjectRoot>/Loomle/Plugins/LoomleBridge`.
 3. Use release artifact mode:
 - Read a remote release manifest.
+- Use stable manifest URL:
+  `https://github.com/loomle/loomle/releases/download/bridge-latest/loomle-bridge-manifest.json`
 - Pick platform package (`windows`, `darwin`, `linux`).
 - Download package into local cache.
 - Verify `sha256` before unpack/install.

@@ -133,3 +133,28 @@ jobs:
           draft: false
           prerelease: false
           make_latest: true
+
+      - name: Update Stable Alias Release (bridge-latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          zip_path="${{ steps.package.outputs.zip_path }}"
+          manifest_path="${{ steps.package.outputs.manifest_path }}"
+
+          if ! gh release view bridge-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create bridge-latest \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Bridge Latest" \
+              --notes "Stable alias release for latest loomle bridge package and manifest." \
+              "$zip_path" \
+              "$manifest_path"
+          else
+            gh release upload bridge-latest "$zip_path" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            gh release upload bridge-latest "$manifest_path" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          fi
