@@ -43,3 +43,23 @@ jobs:
           draft: false
           prerelease: false
           make_latest: false
+
+      - name: Update Stable Alias Release (skill-latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          zip_path="${{ steps.package.outputs.zip_path }}"
+
+          if ! gh release view skill-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create skill-latest \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Skill Latest" \
+              --notes "Stable alias release for latest loomle-skill package." \
+              "$zip_path"
+          else
+            gh release upload skill-latest "$zip_path" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          fi
