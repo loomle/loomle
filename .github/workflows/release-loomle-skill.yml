@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   release-loomle-skill:
-    runs-on: [self-hosted, macOS]
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
