@@ -24,6 +24,7 @@ jobs:
           set -euo pipefail
           release_dir="$RUNNER_TEMP/release-skill-assets"
           zip_path="$release_dir/loomle-skill.zip"
+          version_path="$release_dir/loomle-skill-version.json"
           rm -rf "$release_dir"
           mkdir -p "$release_dir"
 
@@ -31,13 +32,32 @@ jobs:
             --name loomle-skill \
             --output "$zip_path"
 
+          python3 - <<'PY' "$version_path"
+          import json
+          import os
+          import pathlib
+          from datetime import datetime, timezone
+
+          out = pathlib.Path(os.sys.argv[1])
+          payload = {
+              "version": os.environ["GITHUB_REF_NAME"],
+              "tag": os.environ["GITHUB_REF_NAME"],
+              "commit": os.environ["GITHUB_SHA"],
+              "published_at_utc": datetime.now(timezone.utc).isoformat(),
+              "download_url": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{os.environ['GITHUB_REF_NAME']}/loomle-skill.zip",
+          }
+          out.write_text(json.dumps(payload, indent=2) + "\n")
+          PY
+
           echo "zip_path=$zip_path" >> "$GITHUB_OUTPUT"
+          echo "version_path=$version_path" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub Release (Skill)
         uses: softprops/action-gh-release@v2
         with:
           files: |
             ${{ steps.package.outputs.zip_path }}
+            ${{ steps.package.outputs.version_path }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           draft: false
@@ -57,9 +77,13 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --title "Skill Latest" \
               --notes "Stable alias release for latest loomle-skill package." \
-              "$zip_path"
+              "$zip_path" \
+              "${{ steps.package.outputs.version_path }}"
           else
             gh release upload skill-latest "$zip_path" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            gh release upload skill-latest "${{ steps.package.outputs.version_path }}" \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
           fi
