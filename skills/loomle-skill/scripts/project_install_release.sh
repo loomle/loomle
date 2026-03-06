@@ -100,7 +100,10 @@ MANIFEST_PATH="$TMP_DIR/manifest.json"
 log "Downloading manifest: $MANIFEST_URL"
 curl -fsSL "$MANIFEST_URL" -o "$MANIFEST_PATH"
 
-readarray -t SELECTED < <(python3 - <<'PY' "$MANIFEST_PATH" "$VERSION" "$PLATFORM_KEY"
+SELECTED=()
+while IFS= read -r line; do
+  SELECTED+=("$line")
+done < <(python3 - <<'PY' "$MANIFEST_PATH" "$VERSION" "$PLATFORM_KEY"
 import json
 import pathlib
 import sys
