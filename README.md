@@ -7,13 +7,13 @@ It combines editor control, automation, skills, and extensible modules.
 
 ## Quick Start
 
-Step 1: Ask Codex to install `loomle-skill` from release zip URL.
+Step 1: Ask Codex to install `loomle-skill` (no local repo needed).
 
 ```text
-Install loomle-skill from https://github.com/loomle/loomle/releases/latest/download/loomle-skill.zip (overwrite if exists).
+Install loomle-skill from https://loomle.ai/i (overwrite if exists).
 ```
 
-Step 2: Ask Codex to install or upgrade Loomle Bridge for the current Unreal project.
+Step 2: Ask Codex to install or upgrade Loomle Bridge for the current Unreal project (`<ProjectRoot>/Plugins/LoomleBridge`).
 
 ```text
 Install Loomle Bridge for this Unreal project.
