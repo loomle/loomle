@@ -20,17 +20,17 @@ Use this schema for release-based Loomle project install.
       "notes": "optional",
       "packages": {
         "darwin": {
-          "url": "https://example.com/loomle/1.2.3/loomlebridge-darwin.zip",
+          "url": "https://example.com/loomle/1.2.3/loomle-bridge-darwin.zip",
           "sha256": "...",
           "format": "zip"
         },
         "linux": {
-          "url": "https://example.com/loomle/1.2.3/loomlebridge-linux.tar.gz",
+          "url": "https://example.com/loomle/1.2.3/loomle-bridge-linux.tar.gz",
           "sha256": "...",
           "format": "tar.gz"
         },
         "windows": {
-          "url": "https://example.com/loomle/1.2.3/loomlebridge-windows.zip",
+          "url": "https://example.com/loomle/1.2.3/loomle-bridge-windows.zip",
           "sha256": "...",
           "format": "zip"
         }

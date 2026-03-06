@@ -56,8 +56,8 @@ jobs:
           package_dir="$RUNNER_TEMP/LoomleBridge_Mac"
           stage_dir="$RUNNER_TEMP/release-stage"
           release_dir="$RUNNER_TEMP/release-assets"
-          zip_path="$release_dir/LoomleBridge-darwin.zip"
-          manifest_path="$release_dir/loomle-manifest.json"
+          zip_path="$release_dir/loomle-bridge-darwin.zip"
+          manifest_path="$release_dir/loomle-bridge-manifest.json"
 
           rm -rf "$package_dir" "$stage_dir" "$release_dir"
           mkdir -p "$stage_dir" "$release_dir"
@@ -88,34 +88,34 @@ jobs:
 
           sha256="$(shasum -a 256 "$zip_path" | awk '{print tolower($1)}')"
           tag="${GITHUB_REF_NAME#v}"
-          asset_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/LoomleBridge-darwin.zip"
+          asset_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/loomle-bridge-darwin.zip"
 
           python3 - <<'PY' "$manifest_path" "$tag" "$asset_url" "$sha256"
-import json
-import pathlib
-import sys
+          import json
+          import pathlib
+          import sys
 
-manifest_path = pathlib.Path(sys.argv[1])
-version = sys.argv[2]
-asset_url = sys.argv[3]
-sha256 = sys.argv[4]
+          manifest_path = pathlib.Path(sys.argv[1])
+          version = sys.argv[2]
+          asset_url = sys.argv[3]
+          sha256 = sys.argv[4]
 
-manifest = {
-    "latest": version,
-    "versions": {
-        version: {
-            "packages": {
-                "darwin": {
-                    "url": asset_url,
-                    "sha256": sha256,
-                    "format": "zip",
-                }
-            }
-        }
-    },
-}
-manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-PY
+          manifest = {
+              "latest": version,
+              "versions": {
+                  version: {
+                      "packages": {
+                          "darwin": {
+                              "url": asset_url,
+                              "sha256": sha256,
+                              "format": "zip",
+                          }
+                      }
+                  }
+              },
+          }
+          manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+          PY
 
           {
             echo "zip_path=$zip_path"
