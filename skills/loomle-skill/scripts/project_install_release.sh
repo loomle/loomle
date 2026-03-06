@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Install LoomleBridge into project-local plugin path from a release manifest.
-# Expected target: <ProjectRoot>/Loomle/Plugins/LoomleBridge
+# Expected target: <ProjectRoot>/Plugins/LoomleBridge
 
 log() { printf '[INFO] %s\n' "$1"; }
 pass() { printf '[PASS] %s\n' "$1"; }
@@ -89,7 +89,7 @@ if [[ -z "$CACHE_DIR" ]]; then
 fi
 
 PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd)"
-PLUGIN_ROOT="$PROJECT_ROOT/Loomle/Plugins"
+PLUGIN_ROOT="$PROJECT_ROOT/Plugins"
 TARGET_PLUGIN_DIR="$PLUGIN_ROOT/LoomleBridge"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT

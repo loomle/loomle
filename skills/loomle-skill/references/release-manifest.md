@@ -56,7 +56,7 @@ LoomleBridge/
 
 The installer writes to:
 
-`<ProjectRoot>/Loomle/Plugins/LoomleBridge`
+`<ProjectRoot>/Plugins/LoomleBridge`
 
 ## Validation Rules
 

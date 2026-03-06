@@ -9,8 +9,6 @@ Use this skill as the single operational playbook for Loomle inside a project.
 
 ## Enforce Single Source Of Truth
 
-- Read `/Users/xartest/Documents/UnrealProjects/Loomle/Loomle/AGENTS.md` before any Loomle action.
-- Keep Loomle content under `./Loomle`.
 - Use one install mode by default: project-local install only.
 - Do not use UE global plugin install unless the user explicitly asks for global mode.
 
@@ -37,7 +35,7 @@ Use this skill when requests match intents like:
 ## Install/Upgrade Flow (Project-Local)
 
 1. Resolve project root from current workspace (`*.uproject` at root expected).
-2. Resolve target plugin path as `<ProjectRoot>/Loomle/Plugins/LoomleBridge`.
+2. Resolve target plugin path as `<ProjectRoot>/Plugins/LoomleBridge`.
 3. Use release artifact mode:
 - Read a remote release manifest.
 - Use stable manifest URL:

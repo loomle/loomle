@@ -88,8 +88,6 @@ UPROJECT_NAME="$(basename "$UPROJECT_PATH")"
 PROJECT_NAME="${UPROJECT_NAME%.uproject}"
 TARGET_NAME="${PROJECT_NAME}Editor"
 SOCKET_PATH="$PROJECT_ROOT/Intermediate/loomle.sock"
-ROOT_AGENTS_PATH="$PROJECT_ROOT/AGENTS.md"
-ROOT_AGENTS_HINT="- Always read ./Loomle/AGENTS.md before starting work in this project."
 
 case "$HOST_OS" in
   Darwin)
@@ -136,7 +134,6 @@ if isinstance(addl, list):
 
 # Keep project-local plugins as a fallback lookup root.
 candidates.append("./Plugins")
-candidates.append("./Loomle/Plugins")
 
 seen = set()
 for entry in candidates:
@@ -157,7 +154,7 @@ for entry in candidates:
         print(str(plugin_dir))
         sys.exit(0)
 
-fallback = (project_root / "Loomle" / "Plugins" / "LoomleBridge").resolve()
+fallback = (project_root / "Plugins" / "LoomleBridge").resolve()
 print(str(fallback))
 PY
 )"
@@ -183,7 +180,7 @@ seed_plugin_from_source_if_missing
 [[ -d "$PLUGIN_DIR" ]] || fail "Plugin not found from project config/fallback: $PLUGIN_DIR"
 pass "Plugin directory resolved: $PLUGIN_DIR"
 
-log "Ensuring .uproject wiring for AdditionalPluginDirectories + LoomleBridge"
+log "Ensuring .uproject wiring for Plugins + LoomleBridge"
 python3 - <<'PY' "$UPROJECT_PATH"
 import json
 import pathlib
@@ -197,8 +194,8 @@ addl = data.get("AdditionalPluginDirectories")
 if not isinstance(addl, list):
     addl = []
     data["AdditionalPluginDirectories"] = addl
-if "./Loomle/Plugins" not in addl:
-    addl.append("./Loomle/Plugins")
+if "./Plugins" not in addl:
+    addl.append("./Plugins")
     changed = True
 
 plugins = data.get("Plugins")
@@ -229,79 +226,6 @@ else:
     print("unchanged")
 PY
 pass ".uproject wiring is correct"
-
-log "Ensuring root AGENTS.md includes Loomle guidance"
-AGENTS_WRITE_RESULT="$(
-python3 - <<'PY' "$PROJECT_ROOT" "$ROOT_AGENTS_PATH" "$ROOT_AGENTS_HINT"
-from pathlib import Path
-import sys
-
-project_root = Path(sys.argv[1])
-default_agents_path = Path(sys.argv[2])
-hint = sys.argv[3]
-
-try:
-    candidates = []
-    if project_root.exists():
-        for p in project_root.iterdir():
-            if p.is_file() and p.name.lower() == "agents.md":
-                candidates.append(p)
-
-    target = default_agents_path
-    if candidates:
-        exact = [p for p in candidates if p.name == "AGENTS.md"]
-        target = exact[0] if exact else sorted(candidates, key=lambda x: x.name.lower())[0]
-
-    existed = target.exists()
-    text = target.read_text(encoding="utf-8", errors="replace") if existed else ""
-    lines = text.splitlines()
-
-    if hint in lines:
-        state = "unchanged"
-    else:
-        updated = text
-        if updated and not updated.endswith("\n"):
-            updated += "\n"
-        if updated and not updated.endswith("\n\n"):
-            updated += "\n"
-        updated += hint + "\n"
-        target.write_text(updated, encoding="utf-8")
-        state = "updated" if existed else "created"
-
-    print(state)
-    print(str(target))
-except Exception as exc:
-    print(f"failed: {exc}", file=sys.stderr)
-    raise
-PY
-)" || fail "Failed to write root AGENTS.md guidance"
-
-AGENTS_WRITE_STATE="$(printf '%s\n' "$AGENTS_WRITE_RESULT" | sed -n '1p')"
-AGENTS_TARGET_PATH="$(printf '%s\n' "$AGENTS_WRITE_RESULT" | sed -n '2p')"
-[[ -n "$AGENTS_TARGET_PATH" ]] || fail "Root AGENTS.md write result is missing target path"
-
-python3 - <<'PY' "$AGENTS_TARGET_PATH" "$ROOT_AGENTS_HINT"
-from pathlib import Path
-import sys
-
-path = Path(sys.argv[1])
-hint = sys.argv[2]
-
-if not path.exists():
-    raise SystemExit(f"target file not found: {path}")
-lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-if hint not in lines:
-    raise SystemExit(f"guidance line missing in {path}")
-PY
-[[ "$AGENTS_WRITE_STATE" =~ ^(created|updated|unchanged)$ ]] || fail "Unexpected root AGENTS.md state: $AGENTS_WRITE_STATE"
-
-if [[ "$AGENTS_WRITE_STATE" == "created" ]]; then
-  pass "Created root AGENTS guidance at $AGENTS_TARGET_PATH"
-elif [[ "$AGENTS_WRITE_STATE" == "updated" ]]; then
-  pass "Updated root AGENTS guidance at $AGENTS_TARGET_PATH"
-else
-  pass "Root AGENTS guidance already up to date at $AGENTS_TARGET_PATH"
-fi
 
 check_local_prebuilt_compatibility() {
   [[ -f "$PLUGIN_BIN" ]] || return 1

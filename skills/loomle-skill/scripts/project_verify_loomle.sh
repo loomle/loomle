@@ -52,7 +52,7 @@ done
 PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd)"
 [[ -f "$PROJECT_ROOT"/*.uproject ]] || warn "No .uproject found at project root: $PROJECT_ROOT"
 
-PLUGIN_DIR="$PROJECT_ROOT/Loomle/Plugins/LoomleBridge"
+PLUGIN_DIR="$PROJECT_ROOT/Plugins/LoomleBridge"
 [[ -d "$PLUGIN_DIR" ]] || fail "Missing plugin directory: $PLUGIN_DIR"
 pass "Plugin exists: $PLUGIN_DIR"
 

@@ -71,7 +71,6 @@ function Resolve-PluginDir {
         }
     }
     $candidates.Add('./Plugins')
-    $candidates.Add('./Loomle/Plugins')
 
     $seen = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($entry in $candidates) {
@@ -91,7 +90,7 @@ function Resolve-PluginDir {
         }
     }
 
-    return [System.IO.Path]::GetFullPath((Join-Path $ProjectRoot 'Loomle\Plugins\LoomleBridge'))
+    return [System.IO.Path]::GetFullPath((Join-Path $ProjectRoot 'Plugins\LoomleBridge'))
 }
 
 function Seed-PluginFromSourceIfMissing {
@@ -114,41 +113,6 @@ function Seed-PluginFromSourceIfMissing {
     New-Item -ItemType Directory -Path $PluginDir -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $SourcePluginDir '*') -Destination $PluginDir -Recurse -Force
     Pass 'Seeded plugin install directory from source'
-}
-
-function Assert-RootAgentsHint {
-    param(
-        [Parameter(Mandatory = $true)][string]$ProjectRoot,
-        [Parameter(Mandatory = $true)][string]$Hint
-    )
-
-    $agentsPath = Join-Path $ProjectRoot 'AGENTS.md'
-    $state = 'unchanged'
-
-    if (Test-Path -LiteralPath $agentsPath) {
-        $existing = Get-Content -LiteralPath $agentsPath -Raw -Encoding UTF8
-        $lines = @()
-        if ($existing.Length -gt 0) {
-            $lines = $existing -split "`r?`n"
-        }
-        if (-not ($lines -contains $Hint)) {
-            if ($existing.Length -gt 0 -and -not $existing.EndsWith("`n")) {
-                $existing += "`n"
-            }
-            if ($existing.Length -gt 0 -and -not $existing.EndsWith("`n`n")) {
-                $existing += "`n"
-            }
-            $existing += ($Hint + "`n")
-            [System.IO.File]::WriteAllText($agentsPath, $existing, [System.Text.Encoding]::UTF8)
-            $state = 'updated'
-        }
-    }
-    else {
-        [System.IO.File]::WriteAllText($agentsPath, ($Hint + "`n"), [System.Text.Encoding]::UTF8)
-        $state = 'created'
-    }
-
-    return @{ State = $state; Path = $agentsPath }
 }
 
 function Test-LocalPrebuiltCompatibility {
@@ -344,8 +308,6 @@ try {
     $projectName = [System.IO.Path]::GetFileNameWithoutExtension($uprojectPath)
     $targetName = "${projectName}Editor"
 
-    $hintLine = '- Always read ./Loomle/AGENTS.md before starting work in this project.'
-
     $engineBinaries = Join-Path $EngineRoot 'Engine\Binaries\Win64'
     $engineBuildTools = Join-Path $EngineRoot 'Engine\Build\BatchFiles'
     $unrealEditorExe = Join-Path $engineBinaries 'UnrealEditor.exe'
@@ -365,15 +327,15 @@ try {
         Fail "Failed to parse uproject: $uprojectPath"
     }
 
-    Log 'Ensuring .uproject wiring for AdditionalPluginDirectories + LoomleBridge'
+    Log 'Ensuring .uproject wiring for Plugins + LoomleBridge'
     $changed = $false
 
     if (-not ($uprojectData.PSObject.Properties.Name -contains 'AdditionalPluginDirectories') -or $uprojectData.AdditionalPluginDirectories -isnot [System.Collections.IList]) {
         $uprojectData | Add-Member -NotePropertyName AdditionalPluginDirectories -NotePropertyValue @() -Force
         $changed = $true
     }
-    if (-not ($uprojectData.AdditionalPluginDirectories -contains './Loomle/Plugins')) {
-        $uprojectData.AdditionalPluginDirectories += './Loomle/Plugins'
+    if (-not ($uprojectData.AdditionalPluginDirectories -contains './Plugins')) {
+        $uprojectData.AdditionalPluginDirectories += './Plugins'
         $changed = $true
     }
 
@@ -420,17 +382,6 @@ try {
         Write-JsonFile -Path $uprojectPath -Object $uprojectData
     }
     Pass '.uproject wiring is correct'
-
-    $agentsResult = Assert-RootAgentsHint -ProjectRoot $projectRoot -Hint $hintLine
-    if ($agentsResult.State -eq 'created') {
-        Pass "Created root AGENTS guidance at $($agentsResult.Path)"
-    }
-    elseif ($agentsResult.State -eq 'updated') {
-        Pass "Updated root AGENTS guidance at $($agentsResult.Path)"
-    }
-    else {
-        Pass "Root AGENTS guidance already up to date at $($agentsResult.Path)"
-    }
 
     $pluginDir = Resolve-PluginDir -ProjectRoot $projectRoot -UprojectData $uprojectData
     $sourcePluginDir = Join-Path $loomleDir 'bridge'

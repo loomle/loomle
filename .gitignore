@@ -2,6 +2,7 @@
 Plugins/*/Binaries/
 Plugins/*/Intermediate/
 Plugins/LoomleBridge/
+AGENTS.md
 
 # macOS
 .DS_Store
