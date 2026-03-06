@@ -11,7 +11,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--adapter-cpp",
-        default="Loomle/bridge/Source/LoomleBridge/Private/LoomleBlueprintAdapter.cpp",
+        default="Loomle/Source/LoomleBridge/Private/LoomleBlueprintAdapter.cpp",
         help="Path to LoomleBlueprintAdapter.cpp",
     )
     parser.add_argument(

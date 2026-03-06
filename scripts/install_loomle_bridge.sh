@@ -11,7 +11,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOOMLE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_ROOT="$(cd "$LOOMLE_DIR/.." && pwd)"
-SOURCE_PLUGIN_DIR="$LOOMLE_DIR/bridge"
+SOURCE_PLUGIN_DIR="$LOOMLE_DIR"
 
 run_windows_installer_if_needed() {
   local uname_s uname_lc win_installer win_installer_path

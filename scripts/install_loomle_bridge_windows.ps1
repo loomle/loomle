@@ -384,7 +384,7 @@ try {
     Pass '.uproject wiring is correct'
 
     $pluginDir = Resolve-PluginDir -ProjectRoot $projectRoot -UprojectData $uprojectData
-    $sourcePluginDir = Join-Path $loomleDir 'bridge'
+    $sourcePluginDir = $loomleDir
     Seed-PluginFromSourceIfMissing -PluginDir $pluginDir -SourcePluginDir $sourcePluginDir
     if (-not (Test-Path -LiteralPath $pluginDir)) {
         Fail "Plugin not found from project config/fallback: $pluginDir"
