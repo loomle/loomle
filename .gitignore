@@ -1,12 +1,14 @@
 # Unreal plugin build artifacts
 Plugins/*/Binaries/
 Plugins/*/Intermediate/
+Plugins/LoomleBridge/
 
 # macOS
 .DS_Store
 
 # Loomle runtime event logs
 runtime/*.jsonl
+runtime/*.json
 
 # Rust test build artifacts
 mcp_server/target/

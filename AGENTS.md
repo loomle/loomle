@@ -36,7 +36,7 @@ Human-oriented explanation lives in `./Loomle/README.md`.
 
 - `BuildPlugin -Package=...` is for packaging validation, not the runtime source of truth for this project.
 - To apply plugin code changes for this project, build against the project plugin path:
-  - `UnrealBuildTool ... -Project="/Users/xartest/Documents/UnrealProjects/Loomle/Loomle.uproject" -plugin="/Users/xartest/Documents/UnrealProjects/Loomle/Loomle/Plugins/LoomleBridge/LoomleBridge.uplugin" ...`
+  - `UnrealBuildTool ... -Project="/Users/xartest/Documents/UnrealProjects/Loomle/Loomle.uproject" -plugin="/Users/xartest/Documents/UnrealProjects/Loomle/Loomle/bridge/LoomleBridge.uplugin" ...`
 - After plugin rebuild, always do a full editor restart (no hot-reload assumption):
   1. terminate Unreal Editor process
   2. relaunch project

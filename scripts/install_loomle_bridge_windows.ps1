@@ -94,6 +94,28 @@ function Resolve-PluginDir {
     return [System.IO.Path]::GetFullPath((Join-Path $ProjectRoot 'Loomle\Plugins\LoomleBridge'))
 }
 
+function Seed-PluginFromSourceIfMissing {
+    param(
+        [Parameter(Mandatory = $true)][string]$PluginDir,
+        [Parameter(Mandatory = $true)][string]$SourcePluginDir
+    )
+
+    $targetUplugin = Join-Path $PluginDir 'LoomleBridge.uplugin'
+    if (Test-Path -LiteralPath $targetUplugin) {
+        return
+    }
+
+    $sourceUplugin = Join-Path $SourcePluginDir 'LoomleBridge.uplugin'
+    if (-not (Test-Path -LiteralPath $sourceUplugin)) {
+        Fail "Plugin not found at install path ($PluginDir) and source seed path ($SourcePluginDir)"
+    }
+
+    Log "Plugin install directory missing; seeding from source: $SourcePluginDir -> $PluginDir"
+    New-Item -ItemType Directory -Path $PluginDir -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $SourcePluginDir '*') -Destination $PluginDir -Recurse -Force
+    Pass 'Seeded plugin install directory from source'
+}
+
 function Assert-RootAgentsHint {
     param(
         [Parameter(Mandatory = $true)][string]$ProjectRoot,
@@ -411,6 +433,8 @@ try {
     }
 
     $pluginDir = Resolve-PluginDir -ProjectRoot $projectRoot -UprojectData $uprojectData
+    $sourcePluginDir = Join-Path $loomleDir 'bridge'
+    Seed-PluginFromSourceIfMissing -PluginDir $pluginDir -SourcePluginDir $sourcePluginDir
     if (-not (Test-Path -LiteralPath $pluginDir)) {
         Fail "Plugin not found from project config/fallback: $pluginDir"
     }

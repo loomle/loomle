@@ -11,6 +11,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOOMLE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_ROOT="$(cd "$LOOMLE_DIR/.." && pwd)"
+SOURCE_PLUGIN_DIR="$LOOMLE_DIR/bridge"
 
 run_windows_installer_if_needed() {
   local uname_s uname_lc win_installer win_installer_path
@@ -164,6 +165,21 @@ PY
 PLUGIN_BIN="$PLUGIN_DIR/Binaries/$PLATFORM_BIN_DIR/$MODULE_BINARY_NAME"
 PLUGIN_MODULES="$PLUGIN_DIR/Binaries/$PLATFORM_BIN_DIR/UnrealEditor.modules"
 
+seed_plugin_from_source_if_missing() {
+  if [[ -f "$PLUGIN_DIR/LoomleBridge.uplugin" ]]; then
+    return 0
+  fi
+
+  [[ -f "$SOURCE_PLUGIN_DIR/LoomleBridge.uplugin" ]] || \
+    fail "Plugin not found at install path ($PLUGIN_DIR) and source seed path ($SOURCE_PLUGIN_DIR)"
+
+  log "Plugin install directory missing; seeding from source: $SOURCE_PLUGIN_DIR -> $PLUGIN_DIR"
+  mkdir -p "$PLUGIN_DIR"
+  cp -R "$SOURCE_PLUGIN_DIR"/. "$PLUGIN_DIR"/
+  pass "Seeded plugin install directory from source"
+}
+
+seed_plugin_from_source_if_missing
 [[ -d "$PLUGIN_DIR" ]] || fail "Plugin not found from project config/fallback: $PLUGIN_DIR"
 pass "Plugin directory resolved: $PLUGIN_DIR"
 

@@ -50,7 +50,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          plugin="$GITHUB_WORKSPACE/Plugins/LoomleBridge/LoomleBridge.uplugin"
+          plugin="$GITHUB_WORKSPACE/bridge/LoomleBridge.uplugin"
           [[ -f "$plugin" ]] || { echo "Plugin descriptor not found: $plugin" >&2; exit 1; }
 
           package_dir="$RUNNER_TEMP/LoomleBridge_Mac"
