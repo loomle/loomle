@@ -53,7 +53,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\test_bridge_windows.ps1 -Projec
 
 ```bash
 python3 tools/perf_bridge_latency.py \
-  --socket "/Users/xartest/Documents/UnrealProjects/Loomle/Intermediate/loomle.sock" \
+  --project-root "/Users/xartest/Documents/UnrealProjects/Loombed" \
   --tool loomle --total 200 --concurrency 1 --warmup 20
 ```
 

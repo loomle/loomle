@@ -5,6 +5,7 @@ import os
 import queue
 import socket
 import statistics
+import subprocess
 import sys
 import threading
 import time
@@ -44,94 +45,71 @@ class BridgeConnection:
         raise NotImplementedError
 
 
-class UnixBridgeConnection(BridgeConnection):
-    def __init__(self, socket_path: str, timeout_s: float) -> None:
-        sock_path = Path(socket_path)
-        if not sock_path.exists():
-            fail(f"Socket not found: {sock_path}")
+class McpStdioConnection(BridgeConnection):
+    def __init__(self, project_root: str, manifest_path: str, timeout_s: float) -> None:
+        project = Path(project_root).resolve()
+        manifest = Path(manifest_path).resolve()
+        if not project.exists():
+            fail(f"Project root not found: {project}")
+        if not any(project.glob("*.uproject")):
+            fail(f"No .uproject found under: {project}")
+        if not manifest.exists():
+            fail(f"mcp_server manifest not found: {manifest}")
 
-        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.settimeout(timeout_s)
-        try:
-            self.sock.connect(str(sock_path))
-        except OSError as exc:
-            fail(f"Failed to connect unix socket {sock_path}: {exc}")
-        self._pending = b""
+        env = os.environ.copy()
+        env["LOOMLE_PROJECT_ROOT"] = str(project)
+        self.proc = subprocess.Popen(
+            ["cargo", "run", "-q", "--manifest-path", str(manifest)],
+            cwd=str(project),
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        self.timeout_s = timeout_s
         self._send_lock = threading.Lock()
 
     def send(self, payload: dict[str, Any]) -> None:
-        wire = (json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8")
+        if self.proc.stdin is None:
+            raise RuntimeError("mcp stdio stdin is not available")
+        wire = json.dumps(payload, separators=(",", ":")) + "\n"
         with self._send_lock:
-            self.sock.sendall(wire)
+            self.proc.stdin.write(wire)
+            self.proc.stdin.flush()
 
     def recv_frame(self) -> dict[str, Any]:
-        while b"\n" not in self._pending:
-            chunk = self.sock.recv(4096)
-            if not chunk:
-                raise RuntimeError("socket closed while receiving")
-            self._pending += chunk
+        if self.proc.stdout is None:
+            raise RuntimeError("mcp stdio stdout is not available")
+        deadline = time.time() + self.timeout_s
+        while time.time() < deadline:
+            if self.proc.poll() is not None:
+                err = ""
+                if self.proc.stderr is not None:
+                    err = self.proc.stderr.read().strip()
+                raise RuntimeError(f"mcp_server exited early: {err}")
 
-        line, _, self._pending = self._pending.partition(b"\n")
-        try:
-            return json.loads(line.decode("utf-8"))
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(f"invalid json frame: {exc}") from exc
-
-    def close(self) -> None:
-        try:
-            self.sock.close()
-        except OSError:
-            pass
-
-
-class WindowsPipeConnection(BridgeConnection):
-    def __init__(self, pipe_name: str, timeout_s: float) -> None:
-        import msvcrt
-        import ctypes
-
-        self.msvcrt = msvcrt
-        self.kernel32 = ctypes.windll.kernel32
-        self.kernel32.WaitNamedPipeW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32]
-        self.kernel32.WaitNamedPipeW.restype = ctypes.c_int
-
-        full_name = f"\\\\.\\pipe\\{pipe_name}"
-        timeout_ms = int(timeout_s * 1000)
-        if self.kernel32.WaitNamedPipeW(full_name, timeout_ms) == 0:
-            fail(f"Named pipe not ready: {full_name}")
-
-        try:
-            self.fh = open(full_name, "r+b", buffering=0)
-        except OSError as exc:
-            fail(f"Failed to open named pipe {full_name}: {exc}")
-
-        self.fd = self.fh.fileno()
-        self._pending = b""
-        self._send_lock = threading.Lock()
-
-    def send(self, payload: dict[str, Any]) -> None:
-        wire = (json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8")
-        with self._send_lock:
-            self.fh.write(wire)
-            self.fh.flush()
-
-    def recv_frame(self) -> dict[str, Any]:
-        while b"\n" not in self._pending:
-            chunk = os.read(self.fd, 4096)
-            if not chunk:
-                raise RuntimeError("named pipe closed while receiving")
-            self._pending += chunk
-
-        line, _, self._pending = self._pending.partition(b"\n")
-        try:
-            return json.loads(line.decode("utf-8"))
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(f"invalid json frame: {exc}") from exc
+            line = self.proc.stdout.readline()
+            if not line:
+                time.sleep(0.01)
+                continue
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                return json.loads(line)
+            except json.JSONDecodeError:
+                continue
+        raise RuntimeError("timeout waiting for mcp stdio frame")
 
     def close(self) -> None:
-        try:
-            self.fh.close()
-        except OSError:
-            pass
+        if self.proc.poll() is None:
+            try:
+                self.proc.terminate()
+                self.proc.wait(timeout=2)
+            except Exception:
+                self.proc.kill()
 
 
 class JsonRpcClient:
@@ -266,27 +244,25 @@ def run_benchmark(
 
 
 def choose_connection(args: argparse.Namespace) -> BridgeConnection:
-    if args.transport == "unix":
-        if not args.socket:
-            fail("--socket is required for --transport unix")
-        return UnixBridgeConnection(args.socket, args.timeout)
-    if args.transport == "pipe":
-        if sys.platform != "win32":
-            fail("--transport pipe is only supported on Windows")
-        return WindowsPipeConnection(args.pipe_name, args.timeout)
-
-    if sys.platform == "win32":
-        return WindowsPipeConnection(args.pipe_name, args.timeout)
-    if not args.socket:
-        fail("On macOS/Linux please provide --socket")
-    return UnixBridgeConnection(args.socket, args.timeout)
+    return McpStdioConnection(
+        project_root=args.project_root,
+        manifest_path=args.mcp_manifest,
+        timeout_s=args.timeout,
+    )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Benchmark Loomle bridge latency (p50/p95/p99)")
-    parser.add_argument("--transport", choices=["auto", "unix", "pipe"], default="auto")
-    parser.add_argument("--socket", help="Unix socket path, e.g. /.../Intermediate/loomle.sock")
-    parser.add_argument("--pipe-name", default="loomle", help="Windows named pipe name (default: loomle)")
+    parser.add_argument(
+        "--project-root",
+        required=True,
+        help="UE project root for stdio mode, e.g. /.../UnrealProjects/Loombed",
+    )
+    parser.add_argument(
+        "--mcp-manifest",
+        default=str(Path(__file__).resolve().parents[1] / "mcp_server" / "Cargo.toml"),
+        help="Path to mcp_server Cargo.toml for stdio mode",
+    )
     parser.add_argument("--timeout", type=float, default=5.0, help="Per-request timeout in seconds")
     parser.add_argument("--total", type=int, default=200, help="Measured request count")
     parser.add_argument("--concurrency", type=int, default=8, help="Concurrent workers")
@@ -312,6 +288,7 @@ def main() -> int:
         help="Optional CSV output file path",
     )
     args = parser.parse_args()
+
 
     try:
         tool_args = json.loads(args.arguments)

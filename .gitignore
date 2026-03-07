@@ -12,6 +12,7 @@ AGENTS.md
 # Loomle runtime event logs
 runtime/*.jsonl
 runtime/*.json
+runtime/benchmarks/*.csv
 
 # Rust test build artifacts
 mcp_server/target/

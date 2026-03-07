@@ -33,3 +33,25 @@ powershell -ExecutionPolicy Bypass -File .\tools\test_bridge_windows.ps1 -Projec
 
 - Runtime artifacts and benchmark outputs belong in `runtime/`.
 - `runtime/` is output-only; do not store tooling source there.
+
+## Benchmark Standard
+
+- Use `--project-root` (stdio MCP mode only). Legacy socket/pipe benchmark mode is removed.
+- Export CSV with `--output` for reproducible comparison across runs.
+
+Example latency benchmark:
+
+```bash
+python3 tools/perf_bridge_latency.py \
+  --project-root "/Users/xartest/Documents/UnrealProjects/Loombed" \
+  --tool loomle --total 200 --concurrency 1 --warmup 20 \
+  --output runtime/benchmarks/bridge-latency.csv
+```
+
+Example graph RW benchmark:
+
+```bash
+python3 tools/perf_graph_rw_temp_asset.py \
+  --project-root "/Users/xartest/Documents/UnrealProjects/Loombed" \
+  --output runtime/benchmarks/graph-rw.csv
+```

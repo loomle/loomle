@@ -5,6 +5,7 @@ import os
 import queue
 import socket
 import statistics
+import subprocess
 import sys
 import threading
 import time
@@ -43,87 +44,70 @@ class BridgeConnection:
         raise NotImplementedError
 
 
-class UnixBridgeConnection(BridgeConnection):
-    def __init__(self, socket_path: str, timeout_s: float) -> None:
-        sock_path = Path(socket_path)
-        if not sock_path.exists():
-            fail(f"Socket not found: {sock_path}")
-        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.settimeout(timeout_s)
-        try:
-            self.sock.connect(str(sock_path))
-        except OSError as exc:
-            fail(f"Failed to connect unix socket {sock_path}: {exc}")
-        self._pending = b""
+class McpStdioConnection(BridgeConnection):
+    def __init__(self, project_root: str, manifest_path: str, timeout_s: float) -> None:
+        project = Path(project_root).resolve()
+        manifest = Path(manifest_path).resolve()
+        if not project.exists():
+            fail(f"Project root not found: {project}")
+        if not any(project.glob("*.uproject")):
+            fail(f"No .uproject found under: {project}")
+        if not manifest.exists():
+            fail(f"mcp_server manifest not found: {manifest}")
+
+        env = os.environ.copy()
+        env["LOOMLE_PROJECT_ROOT"] = str(project)
+        self.proc = subprocess.Popen(
+            ["cargo", "run", "-q", "--manifest-path", str(manifest)],
+            cwd=str(project),
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        self.timeout_s = timeout_s
         self._send_lock = threading.Lock()
 
     def send(self, payload: dict[str, Any]) -> None:
-        wire = (json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8")
+        if self.proc.stdin is None:
+            raise RuntimeError("mcp stdio stdin is not available")
+        wire = json.dumps(payload, separators=(",", ":")) + "\n"
         with self._send_lock:
-            self.sock.sendall(wire)
+            self.proc.stdin.write(wire)
+            self.proc.stdin.flush()
 
     def recv_frame(self) -> dict[str, Any]:
-        while b"\n" not in self._pending:
-            chunk = self.sock.recv(4096)
-            if not chunk:
-                raise RuntimeError("socket closed while receiving")
-            self._pending += chunk
-        line, _, self._pending = self._pending.partition(b"\n")
-        try:
-            return json.loads(line.decode("utf-8"))
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(f"invalid json frame: {exc}") from exc
+        if self.proc.stdout is None:
+            raise RuntimeError("mcp stdio stdout is not available")
+        deadline = time.time() + self.timeout_s
+        while time.time() < deadline:
+            if self.proc.poll() is not None:
+                err = ""
+                if self.proc.stderr is not None:
+                    err = self.proc.stderr.read().strip()
+                raise RuntimeError(f"mcp_server exited early: {err}")
+            line = self.proc.stdout.readline()
+            if not line:
+                time.sleep(0.01)
+                continue
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                return json.loads(line)
+            except json.JSONDecodeError:
+                continue
+        raise RuntimeError("timeout waiting for mcp stdio frame")
 
     def close(self) -> None:
-        try:
-            self.sock.close()
-        except OSError:
-            pass
-
-
-class WindowsPipeConnection(BridgeConnection):
-    def __init__(self, pipe_name: str, timeout_s: float) -> None:
-        import ctypes
-
-        self.kernel32 = ctypes.windll.kernel32
-        self.kernel32.WaitNamedPipeW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32]
-        self.kernel32.WaitNamedPipeW.restype = ctypes.c_int
-
-        full_name = f"\\\\.\\pipe\\{pipe_name}"
-        timeout_ms = int(timeout_s * 1000)
-        if self.kernel32.WaitNamedPipeW(full_name, timeout_ms) == 0:
-            fail(f"Named pipe not ready: {full_name}")
-        try:
-            self.fh = open(full_name, "r+b", buffering=0)
-        except OSError as exc:
-            fail(f"Failed to open named pipe {full_name}: {exc}")
-        self.fd = self.fh.fileno()
-        self._pending = b""
-        self._send_lock = threading.Lock()
-
-    def send(self, payload: dict[str, Any]) -> None:
-        wire = (json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8")
-        with self._send_lock:
-            self.fh.write(wire)
-            self.fh.flush()
-
-    def recv_frame(self) -> dict[str, Any]:
-        while b"\n" not in self._pending:
-            chunk = os.read(self.fd, 4096)
-            if not chunk:
-                raise RuntimeError("named pipe closed while receiving")
-            self._pending += chunk
-        line, _, self._pending = self._pending.partition(b"\n")
-        try:
-            return json.loads(line.decode("utf-8"))
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(f"invalid json frame: {exc}") from exc
-
-    def close(self) -> None:
-        try:
-            self.fh.close()
-        except OSError:
-            pass
+        if self.proc.poll() is None:
+            try:
+                self.proc.terminate()
+                self.proc.wait(timeout=2)
+            except Exception:
+                self.proc.kill()
 
 
 class JsonRpcClient:
@@ -192,6 +176,9 @@ class JsonRpcClient:
         result = response.get("result")
         if not isinstance(result, dict):
             raise RuntimeError(f"Malformed tools/call response for {name}: missing result")
+        structured = result.get("structuredContent")
+        if isinstance(structured, dict):
+            return structured
         content = result.get("content")
         if not isinstance(content, list) or not content:
             raise RuntimeError(f"Malformed tools/call response for {name}: missing content")
@@ -203,19 +190,11 @@ class JsonRpcClient:
 
 
 def choose_connection(args: argparse.Namespace) -> BridgeConnection:
-    if args.transport == "unix":
-        if not args.socket:
-            fail("--socket is required for --transport unix")
-        return UnixBridgeConnection(args.socket, args.timeout)
-    if args.transport == "pipe":
-        if sys.platform != "win32":
-            fail("--transport pipe is only supported on Windows")
-        return WindowsPipeConnection(args.pipe_name, args.timeout)
-    if sys.platform == "win32":
-        return WindowsPipeConnection(args.pipe_name, args.timeout)
-    if not args.socket:
-        fail("On macOS/Linux please provide --socket")
-    return UnixBridgeConnection(args.socket, args.timeout)
+    return McpStdioConnection(
+        project_root=args.project_root,
+        manifest_path=args.mcp_manifest,
+        timeout_s=args.timeout,
+    )
 
 
 @dataclass
@@ -310,10 +289,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Create temporary Blueprint asset, stress graph.query/graph.mutate, and clean up."
     )
-    parser.add_argument("--transport", choices=["auto", "unix", "pipe"], default="auto")
-    parser.add_argument("--socket", help="Unix socket path, e.g. /.../Intermediate/loomle.sock")
-    parser.add_argument("--pipe-name", default="loomle", help="Windows named pipe name")
+    parser.add_argument(
+        "--project-root",
+        required=True,
+        help="UE project root for stdio mode, e.g. /.../UnrealProjects/Loombed",
+    )
+    parser.add_argument(
+        "--mcp-manifest",
+        default=str(Path(__file__).resolve().parents[1] / "mcp_server" / "Cargo.toml"),
+        help="Path to mcp_server Cargo.toml for stdio mode",
+    )
     parser.add_argument("--timeout", type=float, default=8.0, help="Per-request timeout seconds")
+    parser.add_argument("--output", default="", help="Optional CSV output file path")
     parser.add_argument("--query-total", type=int, default=1500)
     parser.add_argument("--query-concurrency", type=int, default=16)
     parser.add_argument("--query-warmup", type=int, default=80)
@@ -341,7 +328,9 @@ def main() -> int:
     graph_name = "EventGraph"
 
     print(f"temp_asset={asset_path}")
-    print("case,total,ok,errors,error_rate_pct,min_ms,p50_ms,p95_ms,p99_ms,max_ms,mean_ms,throughput_rps,wall_s")
+    header = "tool,total,ok,errors,error_rate_pct,min_ms,p50_ms,p95_ms,p99_ms,max_ms,mean_ms,throughput_rps,wall_s"
+    csv_lines: list[str] = [header]
+    print(header)
 
     try:
         init = client.request("initialize", {})
@@ -523,6 +512,18 @@ def main() -> int:
             warmup=max(0, args.query_warmup),
         )
         print_result(query_result)
+        csv_lines.append(
+            f"{query_result.name},{query_result.ok + query_result.errors},{query_result.ok},{query_result.errors},"
+            f"{(query_result.errors / (query_result.ok + query_result.errors) * 100.0) if (query_result.ok + query_result.errors) else 0.0:.2f}%,"
+            f"{f'{sorted(query_result.latencies_ms)[0]:.2f}' if query_result.latencies_ms else 'n/a'},"
+            f"{f'{percentile(sorted(query_result.latencies_ms), 50):.2f}' if query_result.latencies_ms else 'n/a'},"
+            f"{f'{percentile(sorted(query_result.latencies_ms), 95):.2f}' if query_result.latencies_ms else 'n/a'},"
+            f"{f'{percentile(sorted(query_result.latencies_ms), 99):.2f}' if query_result.latencies_ms else 'n/a'},"
+            f"{f'{sorted(query_result.latencies_ms)[-1]:.2f}' if query_result.latencies_ms else 'n/a'},"
+            f"{f'{statistics.fmean(query_result.latencies_ms):.2f}' if query_result.latencies_ms else 'n/a'},"
+            f"{((query_result.ok + query_result.errors) / query_result.wall_s) if query_result.wall_s > 0 else 0.0:.2f},"
+            f"{query_result.wall_s:.3f}"
+        )
 
         mutate_result = run_case(
             client=client,
@@ -534,6 +535,18 @@ def main() -> int:
             warmup=max(0, args.mutate_warmup),
         )
         print_result(mutate_result)
+        csv_lines.append(
+            f"{mutate_result.name},{mutate_result.ok + mutate_result.errors},{mutate_result.ok},{mutate_result.errors},"
+            f"{(mutate_result.errors / (mutate_result.ok + mutate_result.errors) * 100.0) if (mutate_result.ok + mutate_result.errors) else 0.0:.2f}%,"
+            f"{f'{sorted(mutate_result.latencies_ms)[0]:.2f}' if mutate_result.latencies_ms else 'n/a'},"
+            f"{f'{percentile(sorted(mutate_result.latencies_ms), 50):.2f}' if mutate_result.latencies_ms else 'n/a'},"
+            f"{f'{percentile(sorted(mutate_result.latencies_ms), 95):.2f}' if mutate_result.latencies_ms else 'n/a'},"
+            f"{f'{percentile(sorted(mutate_result.latencies_ms), 99):.2f}' if mutate_result.latencies_ms else 'n/a'},"
+            f"{f'{sorted(mutate_result.latencies_ms)[-1]:.2f}' if mutate_result.latencies_ms else 'n/a'},"
+            f"{f'{statistics.fmean(mutate_result.latencies_ms):.2f}' if mutate_result.latencies_ms else 'n/a'},"
+            f"{((mutate_result.ok + mutate_result.errors) / mutate_result.wall_s) if mutate_result.wall_s > 0 else 0.0:.2f},"
+            f"{mutate_result.wall_s:.3f}"
+        )
 
         add_result = run_case(
             client=client,
@@ -545,6 +558,18 @@ def main() -> int:
             warmup=max(0, args.add_warmup),
         )
         print_result(add_result)
+        csv_lines.append(
+            f"{add_result.name},{add_result.ok + add_result.errors},{add_result.ok},{add_result.errors},"
+            f"{(add_result.errors / (add_result.ok + add_result.errors) * 100.0) if (add_result.ok + add_result.errors) else 0.0:.2f}%,"
+            f"{f'{sorted(add_result.latencies_ms)[0]:.2f}' if add_result.latencies_ms else 'n/a'},"
+            f"{f'{percentile(sorted(add_result.latencies_ms), 50):.2f}' if add_result.latencies_ms else 'n/a'},"
+            f"{f'{percentile(sorted(add_result.latencies_ms), 95):.2f}' if add_result.latencies_ms else 'n/a'},"
+            f"{f'{percentile(sorted(add_result.latencies_ms), 99):.2f}' if add_result.latencies_ms else 'n/a'},"
+            f"{f'{sorted(add_result.latencies_ms)[-1]:.2f}' if add_result.latencies_ms else 'n/a'},"
+            f"{f'{statistics.fmean(add_result.latencies_ms):.2f}' if add_result.latencies_ms else 'n/a'},"
+            f"{((add_result.ok + add_result.errors) / add_result.wall_s) if add_result.wall_s > 0 else 0.0:.2f},"
+            f"{add_result.wall_s:.3f}"
+        )
 
         connect_result = run_case(
             client=client,
@@ -556,6 +581,18 @@ def main() -> int:
             warmup=max(0, args.connect_warmup),
         )
         print_result(connect_result)
+        csv_lines.append(
+            f"{connect_result.name},{connect_result.ok + connect_result.errors},{connect_result.ok},{connect_result.errors},"
+            f"{(connect_result.errors / (connect_result.ok + connect_result.errors) * 100.0) if (connect_result.ok + connect_result.errors) else 0.0:.2f}%,"
+            f"{f'{sorted(connect_result.latencies_ms)[0]:.2f}' if connect_result.latencies_ms else 'n/a'},"
+            f"{f'{percentile(sorted(connect_result.latencies_ms), 50):.2f}' if connect_result.latencies_ms else 'n/a'},"
+            f"{f'{percentile(sorted(connect_result.latencies_ms), 95):.2f}' if connect_result.latencies_ms else 'n/a'},"
+            f"{f'{percentile(sorted(connect_result.latencies_ms), 99):.2f}' if connect_result.latencies_ms else 'n/a'},"
+            f"{f'{sorted(connect_result.latencies_ms)[-1]:.2f}' if connect_result.latencies_ms else 'n/a'},"
+            f"{f'{statistics.fmean(connect_result.latencies_ms):.2f}' if connect_result.latencies_ms else 'n/a'},"
+            f"{((connect_result.ok + connect_result.errors) / connect_result.wall_s) if connect_result.wall_s > 0 else 0.0:.2f},"
+            f"{connect_result.wall_s:.3f}"
+        )
 
         remove_result = run_case(
             client=client,
@@ -567,6 +604,18 @@ def main() -> int:
             warmup=max(0, args.remove_warmup),
         )
         print_result(remove_result)
+        csv_lines.append(
+            f"{remove_result.name},{remove_result.ok + remove_result.errors},{remove_result.ok},{remove_result.errors},"
+            f"{(remove_result.errors / (remove_result.ok + remove_result.errors) * 100.0) if (remove_result.ok + remove_result.errors) else 0.0:.2f}%,"
+            f"{f'{sorted(remove_result.latencies_ms)[0]:.2f}' if remove_result.latencies_ms else 'n/a'},"
+            f"{f'{percentile(sorted(remove_result.latencies_ms), 50):.2f}' if remove_result.latencies_ms else 'n/a'},"
+            f"{f'{percentile(sorted(remove_result.latencies_ms), 95):.2f}' if remove_result.latencies_ms else 'n/a'},"
+            f"{f'{percentile(sorted(remove_result.latencies_ms), 99):.2f}' if remove_result.latencies_ms else 'n/a'},"
+            f"{f'{sorted(remove_result.latencies_ms)[-1]:.2f}' if remove_result.latencies_ms else 'n/a'},"
+            f"{f'{statistics.fmean(remove_result.latencies_ms):.2f}' if remove_result.latencies_ms else 'n/a'},"
+            f"{((remove_result.ok + remove_result.errors) / remove_result.wall_s) if remove_result.wall_s > 0 else 0.0:.2f},"
+            f"{remove_result.wall_s:.3f}"
+        )
 
         compile_result = run_case(
             client=client,
@@ -578,6 +627,18 @@ def main() -> int:
             warmup=max(0, args.compile_warmup),
         )
         print_result(compile_result)
+        csv_lines.append(
+            f"{compile_result.name},{compile_result.ok + compile_result.errors},{compile_result.ok},{compile_result.errors},"
+            f"{(compile_result.errors / (compile_result.ok + compile_result.errors) * 100.0) if (compile_result.ok + compile_result.errors) else 0.0:.2f}%,"
+            f"{f'{sorted(compile_result.latencies_ms)[0]:.2f}' if compile_result.latencies_ms else 'n/a'},"
+            f"{f'{percentile(sorted(compile_result.latencies_ms), 50):.2f}' if compile_result.latencies_ms else 'n/a'},"
+            f"{f'{percentile(sorted(compile_result.latencies_ms), 95):.2f}' if compile_result.latencies_ms else 'n/a'},"
+            f"{f'{percentile(sorted(compile_result.latencies_ms), 99):.2f}' if compile_result.latencies_ms else 'n/a'},"
+            f"{f'{sorted(compile_result.latencies_ms)[-1]:.2f}' if compile_result.latencies_ms else 'n/a'},"
+            f"{f'{statistics.fmean(compile_result.latencies_ms):.2f}' if compile_result.latencies_ms else 'n/a'},"
+            f"{((compile_result.ok + compile_result.errors) / compile_result.wall_s) if compile_result.wall_s > 0 else 0.0:.2f},"
+            f"{compile_result.wall_s:.3f}"
+        )
 
         all_errors = (
             query_result.errors
@@ -587,6 +648,12 @@ def main() -> int:
             + remove_result.errors
             + compile_result.errors
         )
+        if args.output:
+            out_path = Path(args.output)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text("\n".join(csv_lines) + "\n", encoding="utf-8")
+            print(f"saved_csv={out_path}")
+
         return 0 if all_errors == 0 else 2
     finally:
         try:
