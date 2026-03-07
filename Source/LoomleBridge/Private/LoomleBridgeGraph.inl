@@ -74,7 +74,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
 
     FString GraphsJson;
     FString Error;
-    if (!ULoomleBlueprintAdapter::ListBlueprintGraphs(AssetPath, GraphsJson, Error))
+    if (!FLoomleBlueprintAdapter::ListBlueprintGraphs(AssetPath, GraphsJson, Error))
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
@@ -526,7 +526,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
 
     FString NodesJson;
     FString Error;
-    const bool bOk = ULoomleBlueprintAdapter::ListGraphNodes(AssetPath, GraphName, NodesJson, Error);
+    const bool bOk = FLoomleBlueprintAdapter::ListGraphNodes(AssetPath, GraphName, NodesJson, Error);
 
     if (!bOk)
     {
@@ -2117,7 +2117,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 int32 X = 0;
                 int32 Y = 0;
                 GetPointFromObject(ArgsObj, X, Y);
-                bOk = ULoomleBlueprintAdapter::AddNodeByClass(AssetPath, OpGraphName, NodeClassPath, SerializeJsonObject(ArgsObj), X, Y, NodeId, Error);
+                bOk = FLoomleBlueprintAdapter::AddNodeByClass(AssetPath, OpGraphName, NodeClassPath, SerializeJsonObject(ArgsObj), X, Y, NodeId, Error);
                 if (bOk)
                 {
                     GraphEventName = TEXT("graph.node_added");
@@ -2176,7 +2176,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                             {
                                 if (!TokenEntry.LegacyActionId.IsEmpty())
                                 {
-                                    bOk = ULoomleBlueprintAdapter::AddNodeByAction(AssetPath, OpGraphName, TokenEntry.LegacyActionId, SerializeJsonObject(ArgsObj), X, Y, NodeId, Error);
+                                    bOk = FLoomleBlueprintAdapter::AddNodeByAction(AssetPath, OpGraphName, TokenEntry.LegacyActionId, SerializeJsonObject(ArgsObj), X, Y, NodeId, Error);
                                     if (bOk && ActionId.IsEmpty())
                                     {
                                         ActionId = TokenEntry.LegacyActionId;
@@ -2197,7 +2197,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 }
                 else
                 {
-                    bOk = ULoomleBlueprintAdapter::AddNodeByAction(AssetPath, OpGraphName, ActionId, SerializeJsonObject(ArgsObj), X, Y, NodeId, Error);
+                    bOk = FLoomleBlueprintAdapter::AddNodeByAction(AssetPath, OpGraphName, ActionId, SerializeJsonObject(ArgsObj), X, Y, NodeId, Error);
                 }
 
                 if (bOk)
@@ -2229,7 +2229,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     (*ToObj)->TryGetStringField(TEXT("pin"), ToPin);
                 }
                 bOk = !FromNodeId.IsEmpty() && !ToNodeId.IsEmpty() && !FromPin.IsEmpty() && !ToPin.IsEmpty()
-                    && ULoomleBlueprintAdapter::ConnectPins(AssetPath, OpGraphName, FromNodeId, FromPin, ToNodeId, ToPin, Error);
+                    && FLoomleBlueprintAdapter::ConnectPins(AssetPath, OpGraphName, FromNodeId, FromPin, ToNodeId, ToPin, Error);
                 if (!bOk && Error.IsEmpty())
                 {
                     Error = TEXT("Failed to resolve connectPins node ids/pins.");
@@ -2260,7 +2260,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     (*ToObj)->TryGetStringField(TEXT("pin"), ToPin);
                 }
                 bOk = !FromNodeId.IsEmpty() && !ToNodeId.IsEmpty() && !FromPin.IsEmpty() && !ToPin.IsEmpty()
-                    && ULoomleBlueprintAdapter::DisconnectPins(AssetPath, OpGraphName, FromNodeId, FromPin, ToNodeId, ToPin, Error);
+                    && FLoomleBlueprintAdapter::DisconnectPins(AssetPath, OpGraphName, FromNodeId, FromPin, ToNodeId, ToPin, Error);
                 if (!bOk && Error.IsEmpty())
                 {
                     Error = TEXT("Failed to resolve disconnectPins node ids/pins.");
@@ -2286,7 +2286,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     (*TargetObj)->TryGetStringField(TEXT("pin"), Pin);
                 }
                 bOk = !NodeToken.IsEmpty() && !Pin.IsEmpty()
-                    && ULoomleBlueprintAdapter::BreakPinLinks(AssetPath, OpGraphName, NodeToken, Pin, Error);
+                    && FLoomleBlueprintAdapter::BreakPinLinks(AssetPath, OpGraphName, NodeToken, Pin, Error);
                 if (!bOk && Error.IsEmpty())
                 {
                     Error = TEXT("Failed to resolve breakPinLinks target.");
@@ -2311,7 +2311,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 }
                 ArgsObj->TryGetStringField(TEXT("value"), Value);
                 bOk = !NodeToken.IsEmpty() && !Pin.IsEmpty()
-                    && ULoomleBlueprintAdapter::SetPinDefaultValue(AssetPath, OpGraphName, NodeToken, Pin, Value, Error);
+                    && FLoomleBlueprintAdapter::SetPinDefaultValue(AssetPath, OpGraphName, NodeToken, Pin, Value, Error);
                 if (!bOk && Error.IsEmpty())
                 {
                     Error = TEXT("Failed to resolve setPinDefault target.");
@@ -2336,7 +2336,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 {
                     ArgsObj->TryGetStringField(TEXT("nodeId"), NodeToken);
                 }
-                bOk = !NodeToken.IsEmpty() && ULoomleBlueprintAdapter::RemoveNode(AssetPath, OpGraphName, NodeToken, Error);
+                bOk = !NodeToken.IsEmpty() && FLoomleBlueprintAdapter::RemoveNode(AssetPath, OpGraphName, NodeToken, Error);
                 if (!bOk && Error.IsEmpty())
                 {
                     Error = TEXT("Failed to resolve removeNode target.");
@@ -2362,7 +2362,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 int32 X = 0;
                 int32 Y = 0;
                 GetPointFromObject(ArgsObj, X, Y);
-                bOk = !NodeToken.IsEmpty() && ULoomleBlueprintAdapter::MoveNode(AssetPath, OpGraphName, NodeToken, X, Y, Error);
+                bOk = !NodeToken.IsEmpty() && FLoomleBlueprintAdapter::MoveNode(AssetPath, OpGraphName, NodeToken, X, Y, Error);
                 if (!bOk && Error.IsEmpty())
                 {
                     Error = TEXT("Failed to resolve moveNode target.");
@@ -2378,7 +2378,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             }
             else if (Op.Equals(TEXT("compile")))
             {
-                bOk = ULoomleBlueprintAdapter::CompileBlueprint(AssetPath, OpGraphName, Error);
+                bOk = FLoomleBlueprintAdapter::CompileBlueprint(AssetPath, OpGraphName, Error);
                 if (bOk)
                 {
                     GraphEventName = TEXT("graph.compiled");

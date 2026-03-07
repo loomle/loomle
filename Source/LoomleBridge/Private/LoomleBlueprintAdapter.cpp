@@ -692,7 +692,7 @@ namespace LoomleBlueprintAdapterInternal
     }
 }
 
-bool ULoomleBlueprintAdapter::CreateBlueprint(const FString& AssetPath, const FString& ParentClassPath, FString& OutBlueprintObjectPath, FString& OutError)
+bool FLoomleBlueprintAdapter::CreateBlueprint(const FString& AssetPath, const FString& ParentClassPath, FString& OutBlueprintObjectPath, FString& OutError)
 {
     OutBlueprintObjectPath.Empty();
     OutError.Empty();
@@ -747,7 +747,7 @@ bool ULoomleBlueprintAdapter::CreateBlueprint(const FString& AssetPath, const FS
     return true;
 }
 
-bool ULoomleBlueprintAdapter::AddComponent(const FString& BlueprintAssetPath, const FString& ComponentClassPath, const FString& ComponentName, const FString& ParentComponentName, FString& OutError)
+bool FLoomleBlueprintAdapter::AddComponent(const FString& BlueprintAssetPath, const FString& ComponentClassPath, const FString& ComponentName, const FString& ParentComponentName, FString& OutError)
 {
     OutError.Empty();
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
@@ -799,7 +799,7 @@ bool ULoomleBlueprintAdapter::AddComponent(const FString& BlueprintAssetPath, co
     return true;
 }
 
-bool ULoomleBlueprintAdapter::SetStaticMeshComponentAsset(const FString& BlueprintAssetPath, const FString& ComponentName, const FString& MeshAssetPath, FString& OutError)
+bool FLoomleBlueprintAdapter::SetStaticMeshComponentAsset(const FString& BlueprintAssetPath, const FString& ComponentName, const FString& MeshAssetPath, FString& OutError)
 {
     OutError.Empty();
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
@@ -817,7 +817,7 @@ bool ULoomleBlueprintAdapter::SetStaticMeshComponentAsset(const FString& Bluepri
     return true;
 }
 
-bool ULoomleBlueprintAdapter::SetSceneComponentRelativeLocation(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Location, FString& OutError)
+bool FLoomleBlueprintAdapter::SetSceneComponentRelativeLocation(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Location, FString& OutError)
 {
     OutError.Empty();
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
@@ -834,7 +834,7 @@ bool ULoomleBlueprintAdapter::SetSceneComponentRelativeLocation(const FString& B
     return true;
 }
 
-bool ULoomleBlueprintAdapter::SetSceneComponentRelativeScale3D(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Scale3D, FString& OutError)
+bool FLoomleBlueprintAdapter::SetSceneComponentRelativeScale3D(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Scale3D, FString& OutError)
 {
     OutError.Empty();
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
@@ -851,7 +851,7 @@ bool ULoomleBlueprintAdapter::SetSceneComponentRelativeScale3D(const FString& Bl
     return true;
 }
 
-bool ULoomleBlueprintAdapter::SetPrimitiveComponentCollisionEnabled(const FString& BlueprintAssetPath, const FString& ComponentName, const FString& CollisionMode, FString& OutError)
+bool FLoomleBlueprintAdapter::SetPrimitiveComponentCollisionEnabled(const FString& BlueprintAssetPath, const FString& ComponentName, const FString& CollisionMode, FString& OutError)
 {
     OutError.Empty();
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
@@ -886,7 +886,7 @@ bool ULoomleBlueprintAdapter::SetPrimitiveComponentCollisionEnabled(const FStrin
     return true;
 }
 
-bool ULoomleBlueprintAdapter::SetBoxComponentExtent(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Extent, FString& OutError)
+bool FLoomleBlueprintAdapter::SetBoxComponentExtent(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Extent, FString& OutError)
 {
     OutError.Empty();
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
@@ -903,7 +903,7 @@ bool ULoomleBlueprintAdapter::SetBoxComponentExtent(const FString& BlueprintAsse
     return true;
 }
 
-bool ULoomleBlueprintAdapter::SetPrimitiveComponentGenerateOverlapEvents(const FString& BlueprintAssetPath, const FString& ComponentName, bool bGenerate, FString& OutError)
+bool FLoomleBlueprintAdapter::SetPrimitiveComponentGenerateOverlapEvents(const FString& BlueprintAssetPath, const FString& ComponentName, bool bGenerate, FString& OutError)
 {
     OutError.Empty();
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
@@ -920,7 +920,7 @@ bool ULoomleBlueprintAdapter::SetPrimitiveComponentGenerateOverlapEvents(const F
     return true;
 }
 
-bool ULoomleBlueprintAdapter::AddEventNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& EventName, const FString& EventClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool FLoomleBlueprintAdapter::AddEventNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& EventName, const FString& EventClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
@@ -948,7 +948,7 @@ bool ULoomleBlueprintAdapter::AddEventNode(const FString& BlueprintAssetPath, co
     return true;
 }
 
-bool ULoomleBlueprintAdapter::AddCastNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& TargetClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool FLoomleBlueprintAdapter::AddCastNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& TargetClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
@@ -975,7 +975,7 @@ bool ULoomleBlueprintAdapter::AddCastNode(const FString& BlueprintAssetPath, con
     return true;
 }
 
-bool ULoomleBlueprintAdapter::AddCallFunctionNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& FunctionClassPath, const FString& FunctionName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool FLoomleBlueprintAdapter::AddCallFunctionNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& FunctionClassPath, const FString& FunctionName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
@@ -1002,7 +1002,7 @@ bool ULoomleBlueprintAdapter::AddCallFunctionNode(const FString& BlueprintAssetP
     return true;
 }
 
-bool ULoomleBlueprintAdapter::AddBranchNode(const FString& BlueprintAssetPath, const FString& GraphName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool FLoomleBlueprintAdapter::AddBranchNode(const FString& BlueprintAssetPath, const FString& GraphName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
@@ -1026,7 +1026,7 @@ bool ULoomleBlueprintAdapter::AddBranchNode(const FString& BlueprintAssetPath, c
     return true;
 }
 
-bool ULoomleBlueprintAdapter::AddCommentNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& CommentText, int32 NodePosX, int32 NodePosY, int32 Width, int32 Height, FString& OutNodeGuid, FString& OutError)
+bool FLoomleBlueprintAdapter::AddCommentNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& CommentText, int32 NodePosX, int32 NodePosY, int32 Width, int32 Height, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
@@ -1052,7 +1052,7 @@ bool ULoomleBlueprintAdapter::AddCommentNode(const FString& BlueprintAssetPath, 
     return true;
 }
 
-bool ULoomleBlueprintAdapter::AddKnotNode(const FString& BlueprintAssetPath, const FString& GraphName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool FLoomleBlueprintAdapter::AddKnotNode(const FString& BlueprintAssetPath, const FString& GraphName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
@@ -1076,7 +1076,7 @@ bool ULoomleBlueprintAdapter::AddKnotNode(const FString& BlueprintAssetPath, con
     return true;
 }
 
-bool ULoomleBlueprintAdapter::AddVariableGetNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& VariableName, const FString& VariableClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool FLoomleBlueprintAdapter::AddVariableGetNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& VariableName, const FString& VariableClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
@@ -1111,7 +1111,7 @@ bool ULoomleBlueprintAdapter::AddVariableGetNode(const FString& BlueprintAssetPa
     return true;
 }
 
-bool ULoomleBlueprintAdapter::AddVariableSetNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& VariableName, const FString& VariableClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool FLoomleBlueprintAdapter::AddVariableSetNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& VariableName, const FString& VariableClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
@@ -1146,7 +1146,7 @@ bool ULoomleBlueprintAdapter::AddVariableSetNode(const FString& BlueprintAssetPa
     return true;
 }
 
-bool ULoomleBlueprintAdapter::AddNodeByClass(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeClassPath, const FString& PayloadJson, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool FLoomleBlueprintAdapter::AddNodeByClass(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeClassPath, const FString& PayloadJson, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
@@ -1220,7 +1220,7 @@ bool ULoomleBlueprintAdapter::AddNodeByClass(const FString& BlueprintAssetPath, 
     return false;
 }
 
-bool ULoomleBlueprintAdapter::AddNodeByAction(const FString& BlueprintAssetPath, const FString& GraphName, const FString& ActionId, const FString& PayloadJson, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool FLoomleBlueprintAdapter::AddNodeByAction(const FString& BlueprintAssetPath, const FString& GraphName, const FString& ActionId, const FString& PayloadJson, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     const FString Action = ActionId.ToLower();
     if (Action.IsEmpty())
@@ -1268,7 +1268,7 @@ bool ULoomleBlueprintAdapter::AddNodeByAction(const FString& BlueprintAssetPath,
     return false;
 }
 
-bool ULoomleBlueprintAdapter::ConnectPins(const FString& BlueprintAssetPath, const FString& GraphName, const FString& FromNodeGuid, const FString& FromPinName, const FString& ToNodeGuid, const FString& ToPinName, FString& OutError)
+bool FLoomleBlueprintAdapter::ConnectPins(const FString& BlueprintAssetPath, const FString& GraphName, const FString& FromNodeGuid, const FString& FromPinName, const FString& ToNodeGuid, const FString& ToPinName, FString& OutError)
 {
     OutError.Empty();
 
@@ -1300,7 +1300,7 @@ bool ULoomleBlueprintAdapter::ConnectPins(const FString& BlueprintAssetPath, con
     return true;
 }
 
-bool ULoomleBlueprintAdapter::DisconnectPins(const FString& BlueprintAssetPath, const FString& GraphName, const FString& FromNodeGuid, const FString& FromPinName, const FString& ToNodeGuid, const FString& ToPinName, FString& OutError)
+bool FLoomleBlueprintAdapter::DisconnectPins(const FString& BlueprintAssetPath, const FString& GraphName, const FString& FromNodeGuid, const FString& FromPinName, const FString& ToNodeGuid, const FString& ToPinName, FString& OutError)
 {
     OutError.Empty();
 
@@ -1332,7 +1332,7 @@ bool ULoomleBlueprintAdapter::DisconnectPins(const FString& BlueprintAssetPath, 
     return true;
 }
 
-bool ULoomleBlueprintAdapter::BreakPinLinks(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, const FString& PinName, FString& OutError)
+bool FLoomleBlueprintAdapter::BreakPinLinks(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, const FString& PinName, FString& OutError)
 {
     OutError.Empty();
 
@@ -1356,7 +1356,7 @@ bool ULoomleBlueprintAdapter::BreakPinLinks(const FString& BlueprintAssetPath, c
     return true;
 }
 
-bool ULoomleBlueprintAdapter::RemoveNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, FString& OutError)
+bool FLoomleBlueprintAdapter::RemoveNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, FString& OutError)
 {
     OutError.Empty();
 
@@ -1379,7 +1379,7 @@ bool ULoomleBlueprintAdapter::RemoveNode(const FString& BlueprintAssetPath, cons
     return true;
 }
 
-bool ULoomleBlueprintAdapter::MoveNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, int32 NodePosX, int32 NodePosY, FString& OutError)
+bool FLoomleBlueprintAdapter::MoveNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, int32 NodePosX, int32 NodePosY, FString& OutError)
 {
     OutError.Empty();
 
@@ -1405,7 +1405,7 @@ bool ULoomleBlueprintAdapter::MoveNode(const FString& BlueprintAssetPath, const 
     return true;
 }
 
-bool ULoomleBlueprintAdapter::SetPinDefaultValue(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, const FString& PinName, const FString& Value, FString& OutError)
+bool FLoomleBlueprintAdapter::SetPinDefaultValue(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, const FString& PinName, const FString& Value, FString& OutError)
 {
     OutError.Empty();
 
@@ -1429,12 +1429,12 @@ bool ULoomleBlueprintAdapter::SetPinDefaultValue(const FString& BlueprintAssetPa
     return true;
 }
 
-bool ULoomleBlueprintAdapter::ListEventGraphNodes(const FString& BlueprintAssetPath, FString& OutNodesJson, FString& OutError)
+bool FLoomleBlueprintAdapter::ListEventGraphNodes(const FString& BlueprintAssetPath, FString& OutNodesJson, FString& OutError)
 {
     return ListGraphNodes(BlueprintAssetPath, TEXT("EventGraph"), OutNodesJson, OutError);
 }
 
-bool ULoomleBlueprintAdapter::ListBlueprintGraphs(const FString& BlueprintAssetPath, FString& OutGraphsJson, FString& OutError)
+bool FLoomleBlueprintAdapter::ListBlueprintGraphs(const FString& BlueprintAssetPath, FString& OutGraphsJson, FString& OutError)
 {
     OutGraphsJson = TEXT("[]");
     OutError.Empty();
@@ -1459,7 +1459,7 @@ bool ULoomleBlueprintAdapter::ListBlueprintGraphs(const FString& BlueprintAssetP
     return true;
 }
 
-bool ULoomleBlueprintAdapter::ListGraphNodes(const FString& BlueprintAssetPath, const FString& GraphName, FString& OutNodesJson, FString& OutError)
+bool FLoomleBlueprintAdapter::ListGraphNodes(const FString& BlueprintAssetPath, const FString& GraphName, FString& OutNodesJson, FString& OutError)
 {
     OutNodesJson = TEXT("[]");
     OutError.Empty();
@@ -1490,7 +1490,7 @@ bool ULoomleBlueprintAdapter::ListGraphNodes(const FString& BlueprintAssetPath, 
     return true;
 }
 
-bool ULoomleBlueprintAdapter::GetNodeDetails(const FString& BlueprintAssetPath, const FString& NodeGuid, FString& OutNodeJson, FString& OutError)
+bool FLoomleBlueprintAdapter::GetNodeDetails(const FString& BlueprintAssetPath, const FString& NodeGuid, FString& OutNodeJson, FString& OutError)
 {
     OutNodeJson = TEXT("{}");
     OutError.Empty();
@@ -1514,7 +1514,7 @@ bool ULoomleBlueprintAdapter::GetNodeDetails(const FString& BlueprintAssetPath, 
     return true;
 }
 
-bool ULoomleBlueprintAdapter::FindNodesByClass(const FString& BlueprintAssetPath, const FString& NodeClassPathOrName, FString& OutNodesJson, FString& OutError)
+bool FLoomleBlueprintAdapter::FindNodesByClass(const FString& BlueprintAssetPath, const FString& NodeClassPathOrName, FString& OutNodesJson, FString& OutError)
 {
     OutNodesJson = TEXT("[]");
     OutError.Empty();
@@ -1546,7 +1546,7 @@ bool ULoomleBlueprintAdapter::FindNodesByClass(const FString& BlueprintAssetPath
     return true;
 }
 
-bool ULoomleBlueprintAdapter::CompileBlueprint(const FString& BlueprintAssetPath, const FString& GraphName, FString& OutError)
+bool FLoomleBlueprintAdapter::CompileBlueprint(const FString& BlueprintAssetPath, const FString& GraphName, FString& OutError)
 {
     OutError.Empty();
     (void)GraphName;
@@ -1572,7 +1572,7 @@ bool ULoomleBlueprintAdapter::CompileBlueprint(const FString& BlueprintAssetPath
     return true;
 }
 
-bool ULoomleBlueprintAdapter::SpawnBlueprintActor(const FString& BlueprintAssetPath, FVector Location, FRotator Rotation, FString& OutActorPath, FString& OutError)
+bool FLoomleBlueprintAdapter::SpawnBlueprintActor(const FString& BlueprintAssetPath, FVector Location, FRotator Rotation, FString& OutActorPath, FString& OutError)
 {
     OutActorPath.Empty();
     OutError.Empty();

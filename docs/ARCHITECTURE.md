@@ -1,12 +1,12 @@
-# Loomle vNext Architecture
+# Loomle Bridge Architecture
 
 ## 1. Objective
 
 Build a clean split where:
 
-- MCP is fully implemented in Rust as a standard MCP server.
-- Unreal C++ exposes only internal RPC interfaces.
-- MCP and Unreal runtime communicate through RPC Connector <-> RPC Listener.
+- MCP server is implemented in Rust.
+- Unreal plugin exposes internal RPC interfaces.
+- MCP server and Unreal runtime communicate through RPC Connector <-> RPC Listener.
 
 ## 2. Topology
 

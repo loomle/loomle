@@ -3,6 +3,7 @@ use loomle_mcp_server::transport::{NdjsonRpcConnector, RpcEndpoint};
 use loomle_mcp_server::McpService;
 use serde_json::{json, Value};
 use std::env;
+use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 
@@ -65,23 +66,36 @@ fn write_response(stdout: &mut impl Write, response: &Value) -> io::Result<()> {
 fn detect_project_root() -> PathBuf {
     if let Ok(v) = env::var("LOOMLE_PROJECT_ROOT") {
         let p = PathBuf::from(v);
-        if p.join("Loomle.uproject").exists() {
+        if has_uproject_file(&p) {
             return p;
         }
     }
 
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    if let Some(found) = find_upwards(&cwd, "Loomle.uproject") {
+    if let Some(found) = find_upwards_with_uproject(&cwd) {
         return found;
     }
 
     cwd
 }
 
-fn find_upwards(start: &Path, marker_file: &str) -> Option<PathBuf> {
+fn has_uproject_file(dir: &Path) -> bool {
+    match fs::read_dir(dir) {
+        Ok(entries) => entries.flatten().any(|entry| {
+            entry
+                .path()
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("uproject"))
+        }),
+        Err(_) => false,
+    }
+}
+
+fn find_upwards_with_uproject(start: &Path) -> Option<PathBuf> {
     let mut current = Some(start.to_path_buf());
     while let Some(path) = current {
-        if path.join(marker_file).exists() {
+        if has_uproject_file(&path) {
             return Some(path);
         }
         current = path.parent().map(Path::to_path_buf);

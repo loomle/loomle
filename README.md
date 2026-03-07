@@ -1,54 +1,72 @@
 # Loomle
 
-## What It Is
+`Loomle Bridge` is a single project composed of:
 
-Loomle is an AI-native toolkit for building AAA Unreal projects with natural language.  
-It combines editor control, automation, skills, and extensible modules.
+- Unreal Editor plugin (`LoomleBridge`)
+- External MCP server (`mcp_server`)
 
-## Quick Start
+This repository keeps only two operational tracks: local testing and online release.
 
-Step 1: Ask Codex to install `loomle-skill` (no local repo needed).
+## Documentation
 
-```text
-Install loomle-skill from https://loomle.ai/i (overwrite if exists).
+- Full project docs and interface specs: `docs/README.md`
+- Developer tooling and local checks: `tools/README.md`
+
+## Local Testing
+
+### 1) MCP server tests (UE-independent)
+
+```bash
+cd mcp_server
+cargo test
 ```
 
-Step 2: Ask Codex to install or upgrade Loomle Bridge for the current Unreal project (`<ProjectRoot>/Plugins/LoomleBridge`).
+### 2) Bridge protocol smoke test (requires UE Editor)
 
-```text
-Install Loomle Bridge for this Unreal project.
+macOS/Linux:
+
+```bash
+python3 tools/test_bridge_smoke.py \
+  --project-root "/Users/xartest/Documents/UnrealProjects/Loombed"
 ```
 
-or
+Windows:
 
-```text
-Upgrade Loomle Bridge for this Unreal project.
+```powershell
+python tools/test_bridge_smoke.py --project-root "D:\\UnrealProjects\\Loombed"
 ```
 
-## What It Can Do
+### 3) Bridge functional regression (deeper coverage)
 
-- `loomle`: Show bridge health and capability summary.
-- `context`: Read current project context and selection snapshot.
-- `graph`: Return graph capability/schema descriptor.
-- `graph.list`: List readable graphs in a graph asset (`blueprint`, `material`/`shader`, `pcg`).
-- `graph.query`: Read semantic graph snapshot (`nodes`, `edges`, `signature`) with graph-type specific diagnostics.
-- `graph.actions`: List addable actions for graph/pin context (`blueprint`, `material`/`shader`, `pcg`).
-- `graph.mutate`: Apply graph write operations (`blueprint`, `material`/`shader`, `pcg`; op coverage varies by graph type).
-- `execute`: Run Codex-generated UE Python actions.
+```bash
+python3 tools/test_bridge_regression.py \
+  --project-root "/Users/xartest/Documents/UnrealProjects/Loombed"
+```
 
-## How It Works
+### 4) Optional performance diagnostics
 
-You describe intent in natural language. Codex calls the matching bridge tool, `LoomleBridge` executes or reads state inside UE Editor, and Codex returns concise human-readable results.
+```bash
+python3 tools/perf_bridge_latency.py \
+  --socket "/Users/xartest/Documents/UnrealProjects/Loomle/Intermediate/loomle.sock" \
+  --tool loomle --total 200 --concurrency 1 --warmup 20
+```
 
-Transport is local IPC (socket / named pipe), not remote editor control.  
-`execute` is an internal execution channel, so users usually describe intent instead of writing low-level parameters.  
-By default, Loomle returns interpreted results instead of raw JSON (unless explicitly requested).
+## Online Release
 
-## Boundaries
+- Trigger: push tag `vX.Y.Z`
+- Workflow: `.github/workflows/release-loomle-bridge-mac.yml`
+- Outputs:
+  - `loomle-bridge-darwin.zip`
+  - `loomle-bridge-manifest.json`
+  - stable alias release: `bridge-latest`
 
-- Keep Loomle content under `./Loomle`.
+## Runtime Tools
 
-## Release Triggers
-
-- Plugin release (Mac): push tag `vX.Y.Z` -> workflow `release-loomle-bridge-mac.yml`
-- Skill release: push tag `skill-vA.B.C` -> workflow `release-loomle-skill.yml`
+- `loomle`
+- `context`
+- `execute`
+- `graph`
+- `graph.list`
+- `graph.query`
+- `graph.actions`
+- `graph.mutate`

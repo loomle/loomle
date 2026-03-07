@@ -351,9 +351,14 @@ def main() -> int:
 
         create_code = (
             "import unreal, json\n"
-            "B = unreal.LoomleBlueprintAdapter\n"
             f"asset = '{asset_path}'\n"
-            "obj_path, err = B.create_blueprint(asset, '/Script/Engine.Actor')\n"
+            "pkg_path, asset_name = asset.rsplit('/', 1)\n"
+            "asset_tools = unreal.AssetToolsHelpers.get_asset_tools()\n"
+            "factory = unreal.BlueprintFactory()\n"
+            "factory.set_editor_property('ParentClass', unreal.Actor)\n"
+            "bp = asset_tools.create_asset(asset_name, pkg_path, unreal.Blueprint, factory)\n"
+            "obj_path = bp.get_path_name() if bp else ''\n"
+            "err = '' if bp else 'create_asset returned None'\n"
             "exists = unreal.EditorAssetLibrary.does_asset_exist(asset)\n"
             "print(json.dumps({'objPath': obj_path, 'err': err, 'exists': exists}, ensure_ascii=False))\n"
         )

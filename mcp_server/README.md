@@ -1,10 +1,10 @@
-# Loomle MCP Server (vNext)
+# Loomle MCP Server
 
 Rust implementation of Loomle MCP protocol defined in:
 
-- `../design/MCP_PROTOCOL.md`
-- `../design/RPC_INTERFACE.md`
-- `../design/ARCHITECTURE.md`
+- `../docs/MCP_PROTOCOL.md`
+- `../docs/RPC_INTERFACE.md`
+- `../docs/ARCHITECTURE.md`
 
 ## Current status
 
@@ -19,14 +19,14 @@ Rust implementation of Loomle MCP protocol defined in:
 ## Run tests
 
 ```bash
-cd ./Loomle/mcp_server
+cd mcp_server
 cargo test
 ```
 
 ## Run server (stdio MCP)
 
 ```bash
-cd ./Loomle/mcp_server
+cd mcp_server
 LOOMLE_PROJECT_ROOT="/Users/xartest/Documents/UnrealProjects/Loomle" cargo run
 ```
 

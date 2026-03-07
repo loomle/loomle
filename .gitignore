@@ -1,4 +1,6 @@
 # Unreal plugin build artifacts
+Binaries/
+Intermediate/
 Plugins/*/Binaries/
 Plugins/*/Intermediate/
 Plugins/LoomleBridge/
