@@ -91,3 +91,26 @@ Source-of-truth location in the UE project:
 Reason:
 
 - If Unreal throttles CPU in background, bridge tail latency can increase significantly during agent-driven workflows.
+
+## 7. MCP Server Packaging Contract
+
+- Release packages embed MCP server binary under plugin path:
+  - `LoomleBridge/Tools/mcp/darwin/loomle_mcp_server`
+  - `LoomleBridge/Tools/mcp/linux/loomle_mcp_server`
+  - `LoomleBridge/Tools/mcp/windows/loomle_mcp_server.exe`
+- Runtime client config uses:
+  - `command=<ProjectRoot>/Plugins/LoomleBridge/<server_binary_relpath>`
+  - `args=["--project-root","<ProjectRoot>"]`
+- Runtime path policy:
+  - `--project-root` is required for server startup.
+  - Server does not auto-detect project root from current working directory.
+
+## 8. Release Runtime Notes
+
+- Release runtime is source-independent:
+  - do not require `cargo`, source tree, or local Rust toolchain.
+- Client/runtime launcher must provide:
+  - `command=<ProjectRoot>/Plugins/LoomleBridge/<server_binary_relpath>`
+  - `args=["--project-root","<ProjectRoot>"]`
+- Minimum liveness check sequence:
+  - `initialize` -> `loomle` -> `context`

@@ -27,9 +27,11 @@ cargo test
 
 ```bash
 cd mcp_server
-LOOMLE_PROJECT_ROOT="/Users/xartest/Documents/UnrealProjects/Loomle" cargo run
+cargo run -- --project-root "/Users/xartest/Documents/UnrealProjects/Loomle"
 ```
 
+- `--project-root` is required.
+- The directory must contain at least one `.uproject` file.
 - Transport endpoint is selected by platform:
   - Windows: `\\\\.\\pipe\\loomle`
   - macOS/Linux: `<Project>/Intermediate/loomle.sock`

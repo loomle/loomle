@@ -7,25 +7,12 @@ from test_bridge_smoke import (
     EXPECTED_GRAPH_MUTATE_OPS,
     REQUIRED_TOOLS,
     McpStdioClient,
+    call_tool,
     fail,
     make_temp_asset_path,
-    parse_tool_payload,
+    resolve_project_root,
+    resolve_default_server_binary,
 )
-
-
-def call_tool(client: McpStdioClient, req_id: int, name: str, arguments: dict, expect_error: bool = False) -> dict:
-    response = client.request(req_id, "tools/call", {"name": name, "arguments": arguments})
-    payload = parse_tool_payload(response, f"tools/call.{name}")
-    is_error = bool(payload.get("isError")) or ("domainCode" in payload) or (
-        isinstance(payload.get("message"), str) and bool(payload.get("message"))
-    )
-    if expect_error:
-        if not is_error:
-            fail(f"expected error for {name}, got success payload={payload}")
-    else:
-        if is_error:
-            fail(f"{name} failed: {payload.get('message') or payload}")
-    return payload
 
 
 def op_ok(payload: dict) -> dict:
@@ -40,7 +27,16 @@ def op_ok(payload: dict) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Deep regression validation for Loomle bridge through MCP stdio")
-    parser.add_argument("--project-root", required=True, help="UE project root, e.g. /.../UnrealProjects/Loombed")
+    parser.add_argument(
+        "--project-root",
+        default="",
+        help="UE project root, e.g. /.../UnrealProjects/Loombed. If omitted, read from tools/dev.project-root.local.json",
+    )
+    parser.add_argument(
+        "--dev-config",
+        default="",
+        help="Optional path to dev project-root config JSON (default: tools/dev.project-root.local.json)",
+    )
     parser.add_argument("--timeout", type=float, default=10.0, help="Per-request timeout seconds")
     parser.add_argument(
         "--asset-prefix",
@@ -48,21 +44,23 @@ def main() -> int:
         help="Temporary blueprint asset prefix",
     )
     parser.add_argument(
-        "--mcp-manifest",
-        default=str(Path(__file__).resolve().parents[1] / "mcp_server" / "Cargo.toml"),
-        help="Path to mcp_server Cargo.toml",
+        "--mcp-server-bin",
+        default="",
+        help="Override path to MCP server binary. Defaults to <project>/Plugins/LoomleBridge/Tools/mcp/<platform>/...",
     )
     args = parser.parse_args()
 
-    project_root = Path(args.project_root).resolve()
-    manifest_path = Path(args.mcp_manifest).resolve()
+    project_root = resolve_project_root(args.project_root, args.dev_config)
+    server_binary = (
+        Path(args.mcp_server_bin).resolve() if args.mcp_server_bin else resolve_default_server_binary(project_root)
+    )
 
     if not project_root.exists():
         fail(f"project root not found: {project_root}")
     if not any(project_root.glob("*.uproject")):
         fail(f"no .uproject found under: {project_root}")
 
-    client = McpStdioClient(project_root=project_root, manifest_path=manifest_path, timeout_s=args.timeout)
+    client = McpStdioClient(project_root=project_root, server_binary=server_binary, timeout_s=args.timeout)
     temp_asset = make_temp_asset_path(args.asset_prefix)
 
     try:

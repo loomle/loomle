@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import argparse
 import json
-import os
 import queue
 import socket
 import statistics
@@ -56,12 +55,18 @@ class McpStdioConnection(BridgeConnection):
         if not manifest.exists():
             fail(f"mcp_server manifest not found: {manifest}")
 
-        env = os.environ.copy()
-        env["LOOMLE_PROJECT_ROOT"] = str(project)
         self.proc = subprocess.Popen(
-            ["cargo", "run", "-q", "--manifest-path", str(manifest)],
+            [
+                "cargo",
+                "run",
+                "-q",
+                "--manifest-path",
+                str(manifest),
+                "--",
+                "--project-root",
+                str(project),
+            ],
             cwd=str(project),
-            env=env,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

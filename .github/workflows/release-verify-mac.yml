@@ -88,6 +88,21 @@ jobs:
           cd "$GITHUB_WORKSPACE/mcp_server"
           cargo test
 
+      - name: Build MCP Server Binary (Release) And Sync To Test Project Plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/mcp_server"
+          cargo build --release
+
+          server_src="$GITHUB_WORKSPACE/mcp_server/target/release/loomle_mcp_server"
+          [[ -x "$server_src" ]] || { echo "MCP server binary missing or not executable: $server_src" >&2; exit 1; }
+
+          plugin_server="${{ steps.test_project.outputs.test_root }}/Plugins/LoomleBridge/Tools/mcp/darwin/loomle_mcp_server"
+          mkdir -p "$(dirname "$plugin_server")"
+          cp "$server_src" "$plugin_server"
+          chmod +x "$plugin_server"
+
       - name: Restart Unreal Editor For Verification
         shell: bash
         run: |

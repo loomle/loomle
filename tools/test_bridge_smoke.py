@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import argparse
 import json
-import os
 import subprocess
 import sys
 import time
@@ -38,18 +37,37 @@ def fail(msg: str) -> None:
     raise SystemExit(1)
 
 
-class McpStdioClient:
-    def __init__(self, project_root: Path, manifest_path: Path, timeout_s: float) -> None:
-        if not manifest_path.exists():
-            fail(f"mcp_server manifest not found: {manifest_path}")
+def _compact_json(value: Any, limit: int = 2000) -> str:
+    text = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
 
-        env = os.environ.copy()
-        env["LOOMLE_PROJECT_ROOT"] = str(project_root)
+
+def is_tool_error_payload(payload: dict[str, Any]) -> bool:
+    if bool(payload.get("isError")):
+        return True
+    if "domainCode" in payload:
+        return True
+    message = payload.get("message")
+    if isinstance(message, str) and message.strip():
+        return True
+    return False
+
+
+class McpStdioClient:
+    def __init__(self, project_root: Path, server_binary: Path, timeout_s: float) -> None:
+        if not server_binary.exists():
+            fail(f"mcp_server binary not found: {server_binary}")
+        if not server_binary.is_file():
+            fail(f"mcp_server binary path is not a file: {server_binary}")
+        plugin_root = project_root / "Plugins" / "LoomleBridge"
+        if not plugin_root.is_dir():
+            fail(f"LoomleBridge plugin root not found: {plugin_root}")
 
         self.proc = subprocess.Popen(
-            ["cargo", "run", "-q", "--manifest-path", str(manifest_path)],
-            cwd=str(project_root),
-            env=env,
+            [str(server_binary), "--project-root", str(project_root)],
+            cwd=str(plugin_root),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -114,7 +132,7 @@ class McpStdioClient:
 def parse_tool_payload(response: dict[str, Any], method: str) -> dict[str, Any]:
     result = response.get("result")
     if not isinstance(result, dict):
-        fail(f"Invalid {method} response: missing result object")
+        fail(f"Invalid {method} response: missing result object raw={_compact_json(response)}")
 
     structured = result.get("structuredContent")
     if isinstance(structured, dict):
@@ -122,20 +140,20 @@ def parse_tool_payload(response: dict[str, Any], method: str) -> dict[str, Any]:
 
     content = result.get("content")
     if not isinstance(content, list) or not content:
-        fail(f"Invalid {method} response: missing content")
+        fail(f"Invalid {method} response: missing content raw={_compact_json(response)}")
 
     first = content[0]
     if not isinstance(first, dict):
-        fail(f"Invalid {method} response: malformed content item")
+        fail(f"Invalid {method} response: malformed content item raw={_compact_json(response)}")
 
     text = first.get("text")
     if not isinstance(text, str):
-        fail(f"Invalid {method} response: missing text payload")
+        fail(f"Invalid {method} response: missing text payload raw={_compact_json(response)}")
 
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:
-        fail(f"Invalid tool payload JSON for {method}: {exc}")
+        fail(f"Invalid tool payload JSON for {method}: {exc} raw={_compact_json(response)}")
 
     return payload
 
@@ -145,9 +163,79 @@ def make_temp_asset_path(prefix: str) -> str:
     return f"{prefix}_{suffix}"
 
 
+def resolve_project_root(project_root_arg: str, dev_config_path_arg: str) -> Path:
+    if project_root_arg:
+        return Path(project_root_arg).resolve()
+
+    default_path = Path(__file__).resolve().parent / "dev.project-root.local.json"
+    config_path = Path(dev_config_path_arg).resolve() if dev_config_path_arg else default_path
+    if not config_path.exists():
+        fail(
+            "missing --project-root and dev config not found. "
+            f"expected config at {config_path}. copy tools/dev.project-root.example.json "
+            "to tools/dev.project-root.local.json and set project_root."
+        )
+
+    try:
+        raw = json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        fail(f"failed to read dev config {config_path}: {exc}")
+
+    value = raw.get("project_root") if isinstance(raw, dict) else None
+    if not isinstance(value, str) or not value.strip():
+        fail(f"invalid dev config {config_path}: missing string field 'project_root'")
+    return Path(value).resolve()
+
+
+def resolve_default_server_binary(project_root: Path) -> Path:
+    platform_key = sys.platform
+    if platform_key == "darwin":
+        platform_dir = "darwin"
+        binary_name = "loomle_mcp_server"
+    elif platform_key.startswith("linux"):
+        platform_dir = "linux"
+        binary_name = "loomle_mcp_server"
+    elif platform_key.startswith("win"):
+        platform_dir = "windows"
+        binary_name = "loomle_mcp_server.exe"
+    else:
+        fail(f"unsupported platform for mcp_server binary: {platform_key}")
+        raise RuntimeError("unreachable")
+
+    return project_root / "Plugins" / "LoomleBridge" / "Tools" / "mcp" / platform_dir / binary_name
+
+
+def call_tool(
+    client: McpStdioClient,
+    req_id: int,
+    name: str,
+    arguments: dict[str, Any],
+    expect_error: bool = False,
+) -> dict[str, Any]:
+    response = client.request(req_id, "tools/call", {"name": name, "arguments": arguments})
+    payload = parse_tool_payload(response, f"tools/call.{name}")
+    has_error = is_tool_error_payload(payload)
+    if expect_error:
+        if not has_error:
+            fail(f"expected error for {name}, got payload={_compact_json(payload)} raw={_compact_json(response)}")
+        return payload
+    if has_error:
+        fail(f"{name} failed payload={_compact_json(payload)} raw={_compact_json(response)}")
+    return payload
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify Loomle bridge through MCP stdio server")
-    parser.add_argument("--project-root", required=True, help="UE project root, e.g. /.../UnrealProjects/Loombed")
+    parser.add_argument(
+        "--project-root",
+        default="",
+        help="UE project root, e.g. /.../UnrealProjects/Loombed. If omitted, read from tools/dev.project-root.local.json",
+    )
+    parser.add_argument(
+        "--dev-config",
+        default="",
+        help="Optional path to dev project-root config JSON (default: tools/dev.project-root.local.json)",
+    )
     parser.add_argument("--timeout", type=float, default=8.0, help="Per-request timeout seconds")
     parser.add_argument(
         "--asset-prefix",
@@ -155,14 +243,16 @@ def main() -> int:
         help="Temporary blueprint asset prefix",
     )
     parser.add_argument(
-        "--mcp-manifest",
-        default=str(Path(__file__).resolve().parents[1] / "mcp_server" / "Cargo.toml"),
-        help="Path to mcp_server Cargo.toml",
+        "--mcp-server-bin",
+        default="",
+        help="Override path to MCP server binary. Defaults to <project>/Plugins/LoomleBridge/Tools/mcp/<platform>/...",
     )
     args = parser.parse_args()
 
-    project_root = Path(args.project_root).resolve()
-    manifest_path = Path(args.mcp_manifest).resolve()
+    project_root = resolve_project_root(args.project_root, args.dev_config)
+    server_binary = (
+        Path(args.mcp_server_bin).resolve() if args.mcp_server_bin else resolve_default_server_binary(project_root)
+    )
 
     if not project_root.exists():
         fail(f"project root not found: {project_root}")
@@ -170,7 +260,7 @@ def main() -> int:
     if not any(project_root.glob("*.uproject")):
         fail(f"no .uproject found under: {project_root}")
 
-    client = McpStdioClient(project_root=project_root, manifest_path=manifest_path, timeout_s=args.timeout)
+    client = McpStdioClient(project_root=project_root, server_binary=server_binary, timeout_s=args.timeout)
     temp_asset = make_temp_asset_path(args.asset_prefix)
 
     try:
@@ -190,67 +280,47 @@ def main() -> int:
             fail(f"tools/list missing required tools: {', '.join(missing)}")
         print(f"[PASS] tools/list includes required baseline tools ({len(REQUIRED_TOOLS)})")
 
-        loomle_resp = client.request(3, "tools/call", {"name": "loomle", "arguments": {}})
-        loomle_payload = parse_tool_payload(loomle_resp, "tools/call.loomle")
-        if loomle_payload.get("isError"):
-            fail(f"loomle failed: {loomle_payload.get('message') or loomle_payload}")
+        loomle_payload = call_tool(client, 3, "loomle", {})
         if loomle_payload.get("status") not in {"ok", "degraded"}:
             fail(f"loomle unexpected status: {loomle_payload}")
+        rpc_health = loomle_payload.get("runtime", {}).get("rpcHealth", {})
+        if rpc_health.get("status") != "ok":
+            fail(f"loomle rpc health not ready: {loomle_payload}")
         print("[PASS] loomle status query succeeded")
 
-        exec_resp = client.request(
+        _ = call_tool(
+            client,
             4,
-            "tools/call",
+            "execute",
             {
-                "name": "execute",
-                "arguments": {
-                    "mode": "exec",
-                    "code": "import unreal\nunreal.log('loomle execute verify')",
-                },
+                "mode": "exec",
+                "code": "import unreal\nunreal.log('loomle execute verify')",
             },
         )
-        exec_payload = parse_tool_payload(exec_resp, "tools/call.execute")
-        if exec_payload.get("isError"):
-            fail(f"execute failed: {exec_payload.get('message') or exec_payload}")
         print("[PASS] execute channel is available")
 
-        create_resp = client.request(
+        _ = call_tool(
+            client,
             5,
-            "tools/call",
+            "execute",
             {
-                "name": "execute",
-                "arguments": {
-                    "mode": "exec",
-                    "code": (
-                        "import unreal, json\n"
-                        f"asset='{temp_asset}'\n"
-                        "pkg_path, asset_name = asset.rsplit('/', 1)\n"
-                        "asset_tools = unreal.AssetToolsHelpers.get_asset_tools()\n"
-                        "factory = unreal.BlueprintFactory()\n"
-                        "factory.set_editor_property('ParentClass', unreal.Actor)\n"
-                        "bp = asset_tools.create_asset(asset_name, pkg_path, unreal.Blueprint, factory)\n"
-                        "exists = unreal.EditorAssetLibrary.does_asset_exist(asset)\n"
-                        "print(json.dumps({'created': bp is not None, 'exists': exists}, ensure_ascii=False))\n"
-                    ),
-                },
+                "mode": "exec",
+                "code": (
+                    "import unreal, json\n"
+                    f"asset='{temp_asset}'\n"
+                    "pkg_path, asset_name = asset.rsplit('/', 1)\n"
+                    "asset_tools = unreal.AssetToolsHelpers.get_asset_tools()\n"
+                    "factory = unreal.BlueprintFactory()\n"
+                    "factory.set_editor_property('ParentClass', unreal.Actor)\n"
+                    "bp = asset_tools.create_asset(asset_name, pkg_path, unreal.Blueprint, factory)\n"
+                    "exists = unreal.EditorAssetLibrary.does_asset_exist(asset)\n"
+                    "print(json.dumps({'created': bp is not None, 'exists': exists}, ensure_ascii=False))\n"
+                ),
             },
         )
-        create_payload = parse_tool_payload(create_resp, "tools/call.execute.create")
-        if create_payload.get("isError"):
-            fail(f"temporary asset creation failed: {create_payload.get('message') or create_payload}")
         print(f"[PASS] temporary blueprint created: {temp_asset}")
 
-        graph_desc_resp = client.request(
-            6,
-            "tools/call",
-            {
-                "name": "graph",
-                "arguments": {"graphType": "k2"},
-            },
-        )
-        graph_desc_payload = parse_tool_payload(graph_desc_resp, "tools/call.graph")
-        if graph_desc_payload.get("isError"):
-            fail(f"graph failed: {graph_desc_payload.get('message') or graph_desc_payload}")
+        graph_desc_payload = call_tool(client, 6, "graph", {"graphType": "k2"})
         ops = graph_desc_payload.get("ops")
         if not isinstance(ops, list):
             fail("graph payload missing ops[]")
@@ -259,41 +329,39 @@ def main() -> int:
             fail(f"graph ops mismatch. expected={sorted(EXPECTED_GRAPH_MUTATE_OPS)} actual={sorted(ops_set)}")
         print("[PASS] graph reports expected mutate ops")
 
-        run_script_resp = client.request(
-            7,
-            "tools/call",
-            {
-                "name": "graph.mutate",
-                "arguments": {
-                    "graphType": "blueprint",
-                    "assetPath": temp_asset,
-                    "graphName": "EventGraph",
-                    "ops": [
-                        {
-                            "op": "runScript",
-                            "args": {
-                                "mode": "inlineCode",
-                                "entry": "run",
-                                "code": "def run(ctx):\n  return {'ok': True, 'assetPath': ctx.get('assetPath', '')}",
-                                "input": {"source": "verify_bridge"},
-                            },
-                        }
-                    ],
-                },
-            },
-        )
-        run_script_payload = parse_tool_payload(run_script_resp, "tools/call.graph.mutate")
-        if run_script_payload.get("isError"):
-            fail(f"graph.mutate runScript failed: {run_script_payload.get('message') or run_script_payload}")
-        op_results = run_script_payload.get("opResults", [])
-        if not isinstance(op_results, list) or not op_results:
-            fail("graph.mutate runScript missing opResults")
-        first_op = op_results[0] if isinstance(op_results[0], dict) else {}
-        if not first_op.get("ok"):
-            fail(f"graph.mutate runScript op failed: {first_op}")
-        script_result = first_op.get("scriptResult")
-        if not isinstance(script_result, dict) or script_result.get("ok") is not True:
-            fail(f"graph.mutate runScript missing/invalid scriptResult: {first_op}")
+        run_script_args = {
+            "graphType": "blueprint",
+            "assetPath": temp_asset,
+            "graphName": "EventGraph",
+            "ops": [
+                {
+                    "op": "runScript",
+                    "args": {
+                        "mode": "inlineCode",
+                        "entry": "run",
+                        "code": "def run(ctx):\n  return {'ok': True, 'assetPath': ctx.get('assetPath', '')}",
+                        "input": {"source": "verify_bridge"},
+                    },
+                }
+            ],
+        }
+        run_script_payload: dict[str, Any] | None = None
+        for attempt in range(1, 4):
+            payload = call_tool(client, 7, "graph.mutate", run_script_args)
+            op_results = payload.get("opResults")
+            if isinstance(op_results, list) and op_results:
+                first_op = op_results[0] if isinstance(op_results[0], dict) else {}
+                script_result = first_op.get("scriptResult")
+                if first_op.get("ok") and isinstance(script_result, dict) and script_result.get("ok") is True:
+                    run_script_payload = payload
+                    break
+            if attempt < 3:
+                print(f"[WARN] graph.mutate runScript response incomplete (attempt {attempt}/3), retrying...")
+                time.sleep(0.3)
+                continue
+            fail(f"graph.mutate runScript invalid payload={_compact_json(payload)}")
+        if run_script_payload is None:
+            fail("graph.mutate runScript retry loop ended without payload")
         print("[PASS] graph.mutate runScript inline execution verified")
 
         print("[PASS] Bridge verification complete")

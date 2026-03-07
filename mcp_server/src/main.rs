@@ -8,7 +8,13 @@ use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 
 fn main() {
-    let project_root = detect_project_root();
+    let project_root = match parse_project_root_arg() {
+        Ok(path) => path,
+        Err(msg) => {
+            eprintln!("project-root configuration error: {msg}");
+            std::process::exit(2);
+        }
+    };
     let connector = NdjsonRpcConnector::new(RpcEndpoint::for_project_root(&project_root));
     let service = McpService::new(connector);
 
@@ -63,20 +69,29 @@ fn write_response(stdout: &mut impl Write, response: &Value) -> io::Result<()> {
     stdout.flush()
 }
 
-fn detect_project_root() -> PathBuf {
-    if let Ok(v) = env::var("LOOMLE_PROJECT_ROOT") {
-        let p = PathBuf::from(v);
-        if has_uproject_file(&p) {
-            return p;
-        }
+fn parse_project_root_arg() -> Result<PathBuf, String> {
+    let mut args = env::args().skip(1);
+    let key = args.next();
+    let value = args.next();
+    if args.next().is_some() {
+        return Err(String::from(
+            "unexpected extra arguments; usage: loomle_mcp_server --project-root <ProjectRoot>",
+        ));
     }
-
-    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    if let Some(found) = find_upwards_with_uproject(&cwd) {
-        return found;
+    if key.as_deref() != Some("--project-root") {
+        return Err(String::from(
+            "missing required --project-root argument; usage: loomle_mcp_server --project-root <ProjectRoot>",
+        ));
     }
-
-    cwd
+    let raw = value.ok_or_else(|| String::from("missing value for --project-root"))?;
+    let p = PathBuf::from(raw);
+    if !p.is_dir() {
+        return Err(format!("path is not a directory: {}", p.display()));
+    }
+    if !has_uproject_file(&p) {
+        return Err(format!("no .uproject found under: {}", p.display()));
+    }
+    Ok(p)
 }
 
 fn has_uproject_file(dir: &Path) -> bool {
@@ -90,15 +105,4 @@ fn has_uproject_file(dir: &Path) -> bool {
         }),
         Err(_) => false,
     }
-}
-
-fn find_upwards_with_uproject(start: &Path) -> Option<PathBuf> {
-    let mut current = Some(start.to_path_buf());
-    while let Some(path) = current {
-        if has_uproject_file(&path) {
-            return Some(path);
-        }
-        current = path.parent().map(Path::to_path_buf);
-    }
-    None
 }

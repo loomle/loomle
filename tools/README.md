@@ -21,7 +21,15 @@ Unified local tooling for testing and diagnostics.
 
 - UE-independent MCP server tests stay in `mcp_server`:
   - `cd mcp_server && cargo test`
+- UE-dependent smoke/regression launch MCP server from plugin path only:
+  - `<ProjectRoot>/Plugins/LoomleBridge/Tools/mcp/<platform>/loomle_mcp_server(.exe)`
 - UE-dependent bridge checks and benchmarks stay in this `tools/` directory.
+
+### Dev Project Root Config (optional)
+
+- Template: `tools/dev.project-root.example.json`
+- Local file: `tools/dev.project-root.local.json` (gitignored)
+- If `--project-root` is omitted, `test_bridge_smoke.py` and `test_bridge_regression.py` read `project_root` from this local file.
 
 ### Windows quick run
 

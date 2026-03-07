@@ -79,6 +79,21 @@ jobs:
           cd "$GITHUB_WORKSPACE/mcp_server"
           cargo test
 
+      - name: Build MCP Server Binary (Release) And Sync To Test Project Plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/mcp_server"
+          cargo build --release
+
+          server_src="$GITHUB_WORKSPACE/mcp_server/target/release/loomle_mcp_server"
+          [[ -x "$server_src" ]] || { echo "MCP server binary missing or not executable: $server_src" >&2; exit 1; }
+
+          plugin_server="${{ steps.test_project.outputs.test_root }}/Plugins/LoomleBridge/Tools/mcp/darwin/loomle_mcp_server"
+          mkdir -p "$(dirname "$plugin_server")"
+          cp "$server_src" "$plugin_server"
+          chmod +x "$plugin_server"
+
       - name: Restart Unreal Editor For Release Gating
         shell: bash
         run: |
@@ -162,6 +177,15 @@ jobs:
             -TargetPlatforms=Mac \
             -Rocket
 
+          server_src="$GITHUB_WORKSPACE/mcp_server/target/release/loomle_mcp_server"
+          [[ -x "$server_src" ]] || { echo "MCP server binary missing or not executable: $server_src" >&2; exit 1; }
+          server_relpath="Tools/mcp/darwin/loomle_mcp_server"
+          server_dst="$package_dir/$server_relpath"
+          mkdir -p "$(dirname "$server_dst")"
+          cp "$server_src" "$server_dst"
+          chmod +x "$server_dst"
+          server_sha256="$(shasum -a 256 "$server_dst" | awk '{print tolower($1)}')"
+
           cat > "$package_dir/build-metadata.json" <<JSON
           {
             "platform": "darwin",
@@ -184,7 +208,7 @@ jobs:
           tag="${GITHUB_REF_NAME#v}"
           asset_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/loomle-bridge-darwin.zip"
 
-          python3 - <<'PY' "$manifest_path" "$tag" "$asset_url" "$sha256"
+          python3 - <<'PY' "$manifest_path" "$tag" "$asset_url" "$sha256" "$server_relpath" "$server_sha256"
           import json
           import pathlib
           import sys
@@ -193,6 +217,8 @@ jobs:
           version = sys.argv[2]
           asset_url = sys.argv[3]
           sha256 = sys.argv[4]
+          server_relpath = sys.argv[5]
+          server_sha256 = sys.argv[6]
 
           manifest = {
               "latest": version,
@@ -203,6 +229,8 @@ jobs:
                               "url": asset_url,
                               "sha256": sha256,
                               "format": "zip",
+                              "server_binary_relpath": server_relpath,
+                              "server_sha256": server_sha256,
                           }
                       }
                   }
