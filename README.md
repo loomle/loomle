@@ -43,6 +43,12 @@ python3 tools/test_bridge_regression.py \
   --project-root "/Users/xartest/Documents/UnrealProjects/Loombed"
 ```
 
+Windows one-shot:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\test_bridge_windows.ps1 -ProjectRoot "D:\UnrealProjects\Loombed"
+```
+
 ### 4) Optional performance diagnostics
 
 ```bash
