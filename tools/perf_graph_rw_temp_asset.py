@@ -57,6 +57,8 @@ class McpStdioConnection(BridgeConnection):
             fail(f"mcp_server binary path is not a file: {server_binary}")
 
         plugin_root = project / "Plugins" / "LoomleBridge"
+        if not plugin_root.is_dir():
+            fail(f"LoomleBridge plugin root not found: {plugin_root}")
         self.proc = subprocess.Popen(
             [str(server_binary), "--project-root", str(project)],
             cwd=str(plugin_root),
