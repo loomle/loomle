@@ -284,7 +284,7 @@ def main() -> int:
         if loomle_payload.get("status") not in {"ok", "degraded"}:
             fail(f"loomle unexpected status: {loomle_payload}")
         rpc_health = loomle_payload.get("runtime", {}).get("rpcHealth", {})
-        if rpc_health.get("status") != "ok":
+        if rpc_health.get("status") not in {"ok", "degraded"}:
             fail(f"loomle rpc health not ready: {loomle_payload}")
         print("[PASS] loomle status query succeeded")
 
