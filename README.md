@@ -12,6 +12,18 @@ This repository keeps only two operational tracks: local testing and online rele
 - Full project docs and interface specs: `docs/README.md`
 - Developer tooling and local checks: `tools/README.md`
 
+## Performance Requirement (Project-Wide)
+
+For all projects using Loomle Bridge, disable Unreal Editor background CPU throttling:
+
+`[/Script/UnrealEd.EditorPerformanceSettings] bThrottleCPUWhenNotForeground=False`
+
+Set this in the UE project file:
+
+- `Config/DefaultEditorSettings.ini`
+
+Without this setting, bridge tail latency can degrade significantly when Unreal Editor is in background.
+
 ## Local Testing
 
 ### 1) MCP server tests (UE-independent)

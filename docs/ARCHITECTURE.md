@@ -77,3 +77,17 @@ Execution route:
 2. `graph.mutate` executes operations in order.
 3. `dryRun=true` never persists state.
 4. All timestamps use UTC RFC3339.
+
+## 6. Runtime Performance Guardrail
+
+For any Unreal project integrating Loomle Bridge, set:
+
+`[/Script/UnrealEd.EditorPerformanceSettings] bThrottleCPUWhenNotForeground=False`
+
+Source-of-truth location in the UE project:
+
+- `Config/DefaultEditorSettings.ini`
+
+Reason:
+
+- If Unreal throttles CPU in background, bridge tail latency can increase significantly during agent-driven workflows.
