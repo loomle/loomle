@@ -1,0 +1,167 @@
+name: Verify Loomle Bridge (Mac)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - "main"
+  push:
+    branches:
+      - "main"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-mac:
+    runs-on: [self-hosted, macOS]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve Unreal Engine Root (Mac)
+        id: ue_root_mac
+        shell: bash
+        env:
+          UE_FROM_VARS: ${{ vars.UE_5_7_ROOT_MAC }}
+        run: |
+          set -euo pipefail
+          candidate=""
+          if [[ -n "${UE_FROM_VARS:-}" ]]; then
+            candidate="$UE_FROM_VARS"
+          elif [[ -n "${UE_5_7_ROOT_MAC:-}" ]]; then
+            candidate="$UE_5_7_ROOT_MAC"
+          else
+            candidate="/Users/Shared/Epic Games/UE_5.7"
+          fi
+
+          run_uat="$candidate/Engine/Build/BatchFiles/RunUAT.sh"
+          if [[ ! -x "$run_uat" ]]; then
+            echo "RunUAT.sh not found. Set UE_5_7_ROOT_MAC (repo var or runner env). Tried: $run_uat" >&2
+            exit 1
+          fi
+
+          ue_app="$candidate/Engine/Binaries/Mac/UnrealEditor.app"
+          if [[ ! -d "$ue_app" ]]; then
+            echo "UnrealEditor.app not found: $ue_app" >&2
+            exit 1
+          fi
+
+          {
+            echo "ue_root=$candidate"
+            echo "run_uat=$run_uat"
+            echo "ue_app=$ue_app"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve Test Project Root
+        id: test_project
+        shell: bash
+        env:
+          TEST_ROOT_FROM_VARS: ${{ vars.LOOMLE_TEST_PROJECT_ROOT_MAC }}
+        run: |
+          set -euo pipefail
+          test_root=""
+          if [[ -n "${TEST_ROOT_FROM_VARS:-}" ]]; then
+            test_root="$TEST_ROOT_FROM_VARS"
+          elif [[ -n "${LOOMLE_TEST_PROJECT_ROOT_MAC:-}" ]]; then
+            test_root="$LOOMLE_TEST_PROJECT_ROOT_MAC"
+          else
+            test_root="/Users/xartest/Documents/UnrealProjects/Loombed"
+          fi
+
+          [[ -d "$test_root" ]] || { echo "Test project root not found: $test_root" >&2; exit 1; }
+          uproject="$(find "$test_root" -maxdepth 1 -type f -name '*.uproject' | head -n 1)"
+          [[ -n "$uproject" ]] || { echo "No .uproject found under $test_root" >&2; exit 1; }
+
+          socket="$test_root/Intermediate/loomle.sock"
+          {
+            echo "test_root=$test_root"
+            echo "uproject=$uproject"
+            echo "socket=$socket"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run Rust Unit Tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/mcp_server"
+          cargo test
+
+      - name: Restart Unreal Editor For Verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          pkill -f "UnrealEditor.*${{ steps.test_project.outputs.uproject }}" || true
+          sleep 2
+          open -na "${{ steps.ue_root_mac.outputs.ue_app }}" --args "${{ steps.test_project.outputs.uproject }}"
+
+      - name: Wait For Bridge Socket
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' "${{ steps.test_project.outputs.socket }}"
+          import os
+          import socket
+          import sys
+          import time
+
+          sock = sys.argv[1]
+          deadline = time.time() + 240
+          while time.time() < deadline:
+              if os.path.exists(sock):
+                  try:
+                      s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                      s.settimeout(0.5)
+                      s.connect(sock)
+                      s.close()
+                      print("READY")
+                      raise SystemExit(0)
+                  except Exception:
+                      pass
+              time.sleep(1)
+          print(f"TIMEOUT waiting for socket: {sock}")
+          raise SystemExit(1)
+          PY
+
+      - name: Run Smoke Integration Test
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          python3 tools/test_bridge_smoke.py \
+            --project-root "${{ steps.test_project.outputs.test_root }}"
+
+      - name: Run Regression Integration Test
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          python3 tools/test_bridge_regression.py \
+            --project-root "${{ steps.test_project.outputs.test_root }}"
+
+      - name: Run Non-Blocking Latency Benchmark
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          python3 tools/perf_bridge_latency.py \
+            --project-root "${{ steps.test_project.outputs.test_root }}" \
+            --tool loomle --total 200 --concurrency 1 --warmup 20 \
+            --output runtime/benchmarks/release-verify-latency.csv
+
+      - name: Upload Benchmark Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-verify-benchmarks
+          path: runtime/benchmarks/*.csv
+          if-no-files-found: ignore
+
+      - name: Stop Unreal Editor
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          pkill -f "UnrealEditor.*${{ steps.test_project.outputs.uproject }}" || true

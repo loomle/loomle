@@ -71,12 +71,17 @@ python3 tools/perf_bridge_latency.py \
 
 ## Online Release
 
-- Trigger: push tag `vX.Y.Z`
-- Workflow: `.github/workflows/release-loomle-bridge-mac.yml`
+- Verify workflow (no publish): `.github/workflows/release-verify-mac.yml`
+- Release trigger: push tag `vX.Y.Z`
+- Release workflow: `.github/workflows/release-loomle-bridge-mac.yml`
+- Release gate: `cargo test` + `test_bridge_smoke.py` + `test_bridge_regression.py`
 - Outputs:
   - `loomle-bridge-darwin.zip`
   - `loomle-bridge-manifest.json`
   - stable alias release: `bridge-latest`
+- Stable download links:
+  - `https://github.com/loomle/loomle/releases/latest/download/loomle-bridge-darwin.zip`
+  - `https://github.com/loomle/loomle/releases/latest/download/loomle-bridge-manifest.json`
 
 ## Runtime Tools
 
