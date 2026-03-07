@@ -45,28 +45,22 @@ class BridgeConnection:
 
 
 class McpStdioConnection(BridgeConnection):
-    def __init__(self, project_root: str, manifest_path: str, timeout_s: float) -> None:
+    def __init__(self, project_root: str, server_binary_path: str, timeout_s: float) -> None:
         project = Path(project_root).resolve()
-        manifest = Path(manifest_path).resolve()
+        server_binary = Path(server_binary_path).resolve()
         if not project.exists():
             fail(f"Project root not found: {project}")
         if not any(project.glob("*.uproject")):
             fail(f"No .uproject found under: {project}")
-        if not manifest.exists():
-            fail(f"mcp_server manifest not found: {manifest}")
+        if not server_binary.exists():
+            fail(f"mcp_server binary not found: {server_binary}")
+        if not server_binary.is_file():
+            fail(f"mcp_server binary path is not a file: {server_binary}")
 
+        plugin_root = project / "Plugins" / "LoomleBridge"
         self.proc = subprocess.Popen(
-            [
-                "cargo",
-                "run",
-                "-q",
-                "--manifest-path",
-                str(manifest),
-                "--",
-                "--project-root",
-                str(project),
-            ],
-            cwd=str(project),
+            [str(server_binary), "--project-root", str(project)],
+            cwd=str(plugin_root),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -249,9 +243,27 @@ def run_benchmark(
 
 
 def choose_connection(args: argparse.Namespace) -> BridgeConnection:
+    project_root = Path(args.project_root).resolve()
+    if args.mcp_server_bin:
+        server_binary = Path(args.mcp_server_bin).resolve()
+    else:
+        if sys.platform == "darwin":
+            platform_dir = "darwin"
+            binary_name = "loomle_mcp_server"
+        elif sys.platform.startswith("linux"):
+            platform_dir = "linux"
+            binary_name = "loomle_mcp_server"
+        elif sys.platform.startswith("win"):
+            platform_dir = "windows"
+            binary_name = "loomle_mcp_server.exe"
+        else:
+            fail(f"unsupported platform for mcp_server binary: {sys.platform}")
+            raise RuntimeError("unreachable")
+        server_binary = project_root / "Plugins" / "LoomleBridge" / "Tools" / "mcp" / platform_dir / binary_name
+
     return McpStdioConnection(
-        project_root=args.project_root,
-        manifest_path=args.mcp_manifest,
+        project_root=str(project_root),
+        server_binary_path=str(server_binary),
         timeout_s=args.timeout,
     )
 
@@ -264,9 +276,9 @@ def main() -> int:
         help="UE project root for stdio mode, e.g. /.../UnrealProjects/Loombed",
     )
     parser.add_argument(
-        "--mcp-manifest",
-        default=str(Path(__file__).resolve().parents[1] / "mcp_server" / "Cargo.toml"),
-        help="Path to mcp_server Cargo.toml for stdio mode",
+        "--mcp-server-bin",
+        default="",
+        help="Override path to mcp_server binary. Defaults to <project>/Plugins/LoomleBridge/Tools/mcp/<platform>/...",
     )
     parser.add_argument("--timeout", type=float, default=5.0, help="Per-request timeout in seconds")
     parser.add_argument("--total", type=int, default=200, help="Measured request count")

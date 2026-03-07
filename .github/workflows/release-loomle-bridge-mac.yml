@@ -79,6 +79,26 @@ jobs:
           cd "$GITHUB_WORKSPACE/mcp_server"
           cargo test
 
+      - name: Build Plugin From Current Commit And Sync To Test Project
+        shell: bash
+        run: |
+          set -euo pipefail
+          plugin="$GITHUB_WORKSPACE/LoomleBridge.uplugin"
+          [[ -f "$plugin" ]] || { echo "Plugin descriptor not found: $plugin" >&2; exit 1; }
+
+          package_dir="$RUNNER_TEMP/LoomleBridge_Gating"
+          plugin_dst="${{ steps.test_project.outputs.test_root }}/Plugins/LoomleBridge"
+          rm -rf "$package_dir"
+
+          "${{ steps.ue_root_mac.outputs.run_uat }}" BuildPlugin \
+            -Plugin="$plugin" \
+            -Package="$package_dir" \
+            -TargetPlatforms=Mac \
+            -Rocket
+
+          mkdir -p "$plugin_dst"
+          rsync -a --delete "$package_dir"/ "$plugin_dst"/
+
       - name: Build MCP Server Binary (Release) And Sync To Test Project Plugin
         shell: bash
         run: |
