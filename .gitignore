@@ -19,3 +19,6 @@ mcp_server/target/
 
 # Local developer project-root config
 tools/dev.project-root.local.json
+
+# Generated MCP binaries synced for local runs (never commit)
+tools/mcp/

@@ -224,6 +224,37 @@ def call_tool(
     return payload
 
 
+def call_execute_exec_with_retry(
+    client: McpStdioClient,
+    req_id_base: int,
+    code: str,
+    max_attempts: int = 20,
+    retry_delay_s: float = 1.0,
+) -> dict[str, Any]:
+    for attempt in range(1, max_attempts + 1):
+        req_id = req_id_base + (attempt - 1)
+        response = client.request(
+            req_id,
+            "tools/call",
+            {"name": "execute", "arguments": {"mode": "exec", "code": code}},
+        )
+        payload = parse_tool_payload(response, "tools/call.execute")
+        if not is_tool_error_payload(payload):
+            return payload
+
+        message = str(payload.get("message", ""))
+        detail = str(payload.get("detail", ""))
+        if "Python runtime is not initialized" in (message + " " + detail) and attempt < max_attempts:
+            print(f"[WARN] execute waiting for Python runtime (attempt {attempt}/{max_attempts})...")
+            time.sleep(retry_delay_s)
+            continue
+
+        fail(f"execute failed payload={_compact_json(payload)} raw={_compact_json(response)}")
+
+    fail("execute retry loop ended without success")
+    raise RuntimeError("unreachable")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify Loomle bridge through MCP stdio server")
     parser.add_argument(
@@ -288,35 +319,27 @@ def main() -> int:
             fail(f"loomle rpc health not ready: {loomle_payload}")
         print("[PASS] loomle status query succeeded")
 
-        _ = call_tool(
-            client,
-            4,
-            "execute",
-            {
-                "mode": "exec",
-                "code": "import unreal\nunreal.log('loomle execute verify')",
-            },
+        _ = call_execute_exec_with_retry(
+            client=client,
+            req_id_base=4,
+            code="import unreal\nunreal.log('loomle execute verify')",
         )
         print("[PASS] execute channel is available")
 
-        _ = call_tool(
-            client,
-            5,
-            "execute",
-            {
-                "mode": "exec",
-                "code": (
-                    "import unreal, json\n"
-                    f"asset='{temp_asset}'\n"
-                    "pkg_path, asset_name = asset.rsplit('/', 1)\n"
-                    "asset_tools = unreal.AssetToolsHelpers.get_asset_tools()\n"
-                    "factory = unreal.BlueprintFactory()\n"
-                    "factory.set_editor_property('ParentClass', unreal.Actor)\n"
-                    "bp = asset_tools.create_asset(asset_name, pkg_path, unreal.Blueprint, factory)\n"
-                    "exists = unreal.EditorAssetLibrary.does_asset_exist(asset)\n"
-                    "print(json.dumps({'created': bp is not None, 'exists': exists}, ensure_ascii=False))\n"
-                ),
-            },
+        _ = call_execute_exec_with_retry(
+            client=client,
+            req_id_base=50,
+            code=(
+                "import unreal, json\n"
+                f"asset='{temp_asset}'\n"
+                "pkg_path, asset_name = asset.rsplit('/', 1)\n"
+                "asset_tools = unreal.AssetToolsHelpers.get_asset_tools()\n"
+                "factory = unreal.BlueprintFactory()\n"
+                "factory.set_editor_property('ParentClass', unreal.Actor)\n"
+                "bp = asset_tools.create_asset(asset_name, pkg_path, unreal.Blueprint, factory)\n"
+                "exists = unreal.EditorAssetLibrary.does_asset_exist(asset)\n"
+                "print(json.dumps({'created': bp is not None, 'exists': exists}, ensure_ascii=False))\n"
+            ),
         )
         print(f"[PASS] temporary blueprint created: {temp_asset}")
 
