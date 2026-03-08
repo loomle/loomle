@@ -1,17 +1,6 @@
 // RPC entrypoints and tool dispatch for Loomle Bridge.
 FString FLoomleBridgeModule::HandleRequest(const FString& RequestLine)
 {
-    if (!IsInGameThread())
-    {
-        TPromise<FString> ResponsePromise;
-        TFuture<FString> ResponseFuture = ResponsePromise.GetFuture();
-        AsyncTask(ENamedThreads::GameThread, [this, RequestLine, Promise = MoveTemp(ResponsePromise)]() mutable
-        {
-            Promise.SetValue(HandleRequest(RequestLine));
-        });
-        return ResponseFuture.Get();
-    }
-
     TSharedPtr<FJsonObject> RequestObject;
     TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(RequestLine);
 
@@ -46,6 +35,17 @@ FString FLoomleBridgeModule::HandleRequest(const FString& RequestLine)
         return MakeJsonResponse(IdValue, BuildRpcCapabilitiesResult());
     }
 
+    if (!IsInGameThread())
+    {
+        TPromise<FString> ResponsePromise;
+        TFuture<FString> ResponseFuture = ResponsePromise.GetFuture();
+        AsyncTask(ENamedThreads::GameThread, [this, RequestLine, Promise = MoveTemp(ResponsePromise)]() mutable
+        {
+            Promise.SetValue(HandleRequest(RequestLine));
+        });
+        return ResponseFuture.Get();
+    }
+
     if (Method.Equals(TEXT("rpc.invoke")))
     {
         bool bInvokeError = false;
@@ -66,9 +66,8 @@ FString FLoomleBridgeModule::HandleRequest(const FString& RequestLine)
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcHealthResult() const
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    const bool bBridgeRunning = PipeServer.IsValid();
-    const IPythonScriptPlugin* PythonScriptPlugin = IPythonScriptPlugin::Get();
-    const bool bPythonReady = PythonScriptPlugin != nullptr && PythonScriptPlugin->IsPythonInitialized();
+    const bool bBridgeRunning = bBridgeRunningSnapshot.Load();
+    const bool bPythonReady = bPythonReadySnapshot.Load();
 
     FString Health = TEXT("error");
     if (bBridgeRunning && bPythonReady)
@@ -325,4 +324,3 @@ FString FLoomleBridgeModule::MakeJsonErrorEx(
     FJsonSerializer::Serialize(Response.ToSharedRef(), Writer);
     return Output;
 }
-

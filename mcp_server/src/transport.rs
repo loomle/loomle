@@ -2,7 +2,9 @@ use crate::{RpcConnector, RpcError, RpcHealth, RpcMeta};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RpcEndpoint {
@@ -74,6 +76,15 @@ impl NdjsonRpcConnector {
     }
 
     fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
+        self.call_with_timeout(method, params, None)
+    }
+
+    fn call_with_timeout(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Option<Duration>,
+    ) -> Result<Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed).to_string();
         let request = json!({
             "jsonrpc": "2.0",
@@ -82,6 +93,10 @@ impl NdjsonRpcConnector {
             "params": params,
         });
 
+        if let Some(timeout) = timeout {
+            return call_with_deadline(self.endpoint.clone(), request, id, timeout);
+        }
+
         let response = send_and_wait(&self.endpoint, &request)?;
         parse_response(response, &id)
     }
@@ -89,7 +104,11 @@ impl NdjsonRpcConnector {
 
 impl RpcConnector for NdjsonRpcConnector {
     fn health(&self) -> Result<RpcHealth, RpcError> {
-        let value = self.call("rpc.health", json!({}))?;
+        let value = self.call_with_timeout(
+            "rpc.health",
+            json!({}),
+            Some(Duration::from_millis(200)),
+        )?;
         serde_json::from_value::<RpcHealth>(value).map_err(|e| RpcError {
             code: 1011,
             message: String::from("INTERNAL_ERROR"),
@@ -167,6 +186,28 @@ fn parse_response(response: Value, expected_id: &str) -> Result<Value, RpcError>
         message: String::from("INTERNAL_ERROR"),
         retryable: false,
         detail: String::from("missing result in RPC response"),
+    })
+}
+
+fn call_with_deadline(
+    endpoint: RpcEndpoint,
+    request: Value,
+    expected_id: String,
+    timeout: Duration,
+) -> Result<Value, RpcError> {
+    let (tx, rx) = mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        let result = send_and_wait(&endpoint, &request).and_then(|response| parse_response(response, &expected_id));
+        let _ = tx.send(result);
+    });
+
+    rx.recv_timeout(timeout).unwrap_or_else(|_| {
+        Err(RpcError {
+            code: 1010,
+            message: String::from("EXECUTION_TIMEOUT"),
+            retryable: true,
+            detail: format!("rpc.health timeout after {}ms", timeout.as_millis()),
+        })
     })
 }
 

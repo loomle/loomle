@@ -13,6 +13,7 @@ Unified local tooling for testing and diagnostics.
 
 - `test_bridge_smoke.py`: fast MCP end-to-end availability check
 - `test_bridge_regression.py`: deeper functional regression for graph/tool behavior
+- `test_loomle_latency.py`: validates `loomle` fast-return behavior at idle and under slow execute load
 - `test_bridge_windows.ps1`: Windows wrapper to run rust + smoke + regression in one command
 - `perf_bridge_latency.py`: latency benchmark for a selected tool call
 - `perf_graph_rw_temp_asset.py`: temporary-asset graph read/write benchmark
@@ -55,6 +56,14 @@ python3 tools/perf_bridge_latency.py \
   --project-root "/Users/xartest/dev/LoomleDevHost" \
   --tool loomle --total 200 --concurrency 1 --warmup 20 \
   --output runtime/benchmarks/bridge-latency.csv
+```
+
+Example `loomle` fast-return validation:
+
+```bash
+python3 tools/test_loomle_latency.py \
+  --project-root "/Users/xartest/dev/LoomleDevHost" \
+  --samples 30
 ```
 
 Example graph RW benchmark:

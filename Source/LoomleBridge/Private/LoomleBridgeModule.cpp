@@ -1121,6 +1121,23 @@ bool BuildPcgSelectionSnapshot(TSharedPtr<FJsonObject>& OutSelection)
 
 }
 
+bool FLoomleBridgeModule::TickHealthSnapshot(float DeltaTime)
+{
+    (void)DeltaTime;
+    UpdateHealthSnapshot();
+    return true;
+}
+
+void FLoomleBridgeModule::UpdateHealthSnapshot()
+{
+    const bool bBridgeRunning = PipeServer.IsValid();
+    const IPythonScriptPlugin* PythonScriptPlugin = IPythonScriptPlugin::Get();
+    const bool bPythonReady = PythonScriptPlugin != nullptr && PythonScriptPlugin->IsPythonInitialized();
+
+    bBridgeRunningSnapshot.Store(bBridgeRunning);
+    bPythonReadySnapshot.Store(bPythonReady);
+}
+
 void FLoomleBridgeModule::StartupModule()
 {
 #if PLATFORM_WINDOWS
@@ -1141,8 +1158,15 @@ void FLoomleBridgeModule::StartupModule()
     {
         UE_LOG(LogLoomleBridge, Error, TEXT("Failed to start Loomle pipe server."));
         PipeServer.Reset();
+        bBridgeRunningSnapshot.Store(false);
+        bPythonReadySnapshot.Store(false);
         return;
     }
+
+    UpdateHealthSnapshot();
+    HealthSnapshotTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+        FTickerDelegate::CreateRaw(this, &FLoomleBridgeModule::TickHealthSnapshot),
+        0.1f);
 
 #if PLATFORM_WINDOWS
     UE_LOG(LogLoomleBridge, Display, TEXT("Loomle bridge started on named pipe \\\\.\\pipe\\%s"), *PipeName);
@@ -1155,11 +1179,20 @@ void FLoomleBridgeModule::StartupModule()
 
 void FLoomleBridgeModule::ShutdownModule()
 {
+    if (HealthSnapshotTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(HealthSnapshotTickerHandle);
+        HealthSnapshotTickerHandle.Reset();
+    }
+
     if (PipeServer.IsValid())
     {
         PipeServer->StopServer();
         PipeServer.Reset();
     }
+
+    bBridgeRunningSnapshot.Store(false);
+    bPythonReadySnapshot.Store(false);
 }
 
 #include "LoomleBridgeRpc.inl"

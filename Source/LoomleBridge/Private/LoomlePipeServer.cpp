@@ -95,6 +95,11 @@ void FLoomlePipeServer::StopServer()
         delete Thread;
         Thread = nullptr;
     }
+
+    while (ActiveWorkerCount.GetValue() > 0)
+    {
+        FPlatformProcess::Sleep(0.01f);
+    }
 }
 
 bool FLoomlePipeServer::SendServerNotification(const FString& JsonMessage)
@@ -119,26 +124,72 @@ void FLoomlePipeServer::EndInFlight()
     InFlightRequestCount.Decrement();
 }
 
+void FLoomlePipeServer::RegisterConnection(int32 ConnectionSerial, void* NativeHandle)
+{
+    FScopeLock ScopeLock(&WriteMutex);
+    ActiveConnectionSerial.Set(ConnectionSerial);
+#if PLATFORM_WINDOWS
+    ActivePipeHandles.Add(ConnectionSerial, NativeHandle);
+#else
+    ActiveClientFds.Add(ConnectionSerial, static_cast<int32>(reinterpret_cast<UPTRINT>(NativeHandle)));
+#endif
+}
+
+void FLoomlePipeServer::UnregisterConnection(int32 ConnectionSerial)
+{
+    FScopeLock ScopeLock(&WriteMutex);
+#if PLATFORM_WINDOWS
+    ActivePipeHandles.Remove(ConnectionSerial);
+#else
+    ActiveClientFds.Remove(ConnectionSerial);
+#endif
+    if (ActiveConnectionSerial.GetValue() == ConnectionSerial)
+    {
+        ActiveConnectionSerial.Set(0);
+    }
+}
+
+void FLoomlePipeServer::CloseAllConnections()
+{
+    FScopeLock ScopeLock(&WriteMutex);
+#if PLATFORM_WINDOWS
+    for (TPair<int32, void*>& Pair : ActivePipeHandles)
+    {
+        HANDLE LocalHandle = static_cast<HANDLE>(Pair.Value);
+        if (LocalHandle != nullptr && LocalHandle != INVALID_HANDLE_VALUE)
+        {
+            CancelIoEx(LocalHandle, nullptr);
+            DisconnectNamedPipe(LocalHandle);
+        }
+    }
+#else
+    for (const TPair<int32, int32>& Pair : ActiveClientFds)
+    {
+        const int32 LocalClientFd = Pair.Value;
+        if (LocalClientFd >= 0)
+        {
+            shutdown(LocalClientFd, SHUT_RDWR);
+        }
+    }
+#endif
+}
+
 void FLoomlePipeServer::Stop()
 {
     bStopRequested = true;
     ActiveConnectionSerial.Set(0);
 
 #if PLATFORM_WINDOWS
-    if (PipeHandle != nullptr && PipeHandle != INVALID_HANDLE_VALUE)
     {
-        HANDLE LocalHandle = static_cast<HANDLE>(PipeHandle);
-        CancelIoEx(LocalHandle, nullptr);
-        DisconnectNamedPipe(LocalHandle);
+        FScopeLock ScopeLock(&WriteMutex);
+        if (PendingPipeHandle != nullptr && PendingPipeHandle != INVALID_HANDLE_VALUE)
+        {
+            HANDLE LocalHandle = static_cast<HANDLE>(PendingPipeHandle);
+            CancelIoEx(LocalHandle, nullptr);
+            DisconnectNamedPipe(LocalHandle);
+        }
     }
 #else
-    if (ClientFd >= 0)
-    {
-        shutdown(ClientFd, SHUT_RDWR);
-        close(ClientFd);
-        ClientFd = -1;
-    }
-
     if (ServerFd >= 0)
     {
         shutdown(ServerFd, SHUT_RDWR);
@@ -146,6 +197,8 @@ void FLoomlePipeServer::Stop()
         ServerFd = -1;
     }
 #endif
+
+    CloseAllConnections();
 }
 
 uint32 FLoomlePipeServer::Run()
@@ -159,7 +212,7 @@ uint32 FLoomlePipeServer::Run()
             *FullPipePath,
             PIPE_ACCESS_DUPLEX,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-            1,
+            PIPE_UNLIMITED_INSTANCES,
             64 * 1024,
             64 * 1024,
             0,
@@ -172,83 +225,33 @@ uint32 FLoomlePipeServer::Run()
             continue;
         }
 
-        PipeHandle = LocalPipe;
+        {
+            FScopeLock ScopeLock(&WriteMutex);
+            PendingPipeHandle = LocalPipe;
+        }
+
         const BOOL bConnected = ConnectNamedPipe(LocalPipe, nullptr) || (GetLastError() == ERROR_PIPE_CONNECTED);
+        {
+            FScopeLock ScopeLock(&WriteMutex);
+            if (PendingPipeHandle == LocalPipe)
+            {
+                PendingPipeHandle = nullptr;
+            }
+        }
         if (!bConnected)
         {
             UE_LOG(LogLoomlePipe, Warning, TEXT("ConnectNamedPipe failed, error=%lu"), GetLastError());
             CloseHandle(LocalPipe);
-            PipeHandle = nullptr;
             continue;
         }
         const int32 ConnectionSerial = NextConnectionSerial.Increment();
-        ActiveConnectionSerial.Set(ConnectionSerial);
-
+        RegisterConnection(ConnectionSerial, LocalPipe);
+        ActiveWorkerCount.Increment();
         UE_LOG(LogLoomlePipe, Display, TEXT("Loomle client connected on %s"), *FullPipePath);
-
-        TArray<uint8> PendingBytes;
-        PendingBytes.Reserve(64 * 1024);
-
-        while (!bStopRequested)
+        Async(EAsyncExecution::Thread, [this, LocalPipe, ConnectionSerial]()
         {
-            uint8 Buffer[4096];
-            DWORD BytesRead = 0;
-            const BOOL bReadOk = ReadFile(LocalPipe, Buffer, sizeof(Buffer), &BytesRead, nullptr);
-
-            if (!bReadOk || BytesRead == 0)
-            {
-                break;
-            }
-
-            PendingBytes.Append(Buffer, static_cast<int32>(BytesRead));
-
-            int32 NewlineIndex = INDEX_NONE;
-            while (PendingBytes.Find(static_cast<uint8>('\n'), NewlineIndex))
-            {
-                TArray<uint8> LineBytes;
-                LineBytes.Append(PendingBytes.GetData(), NewlineIndex);
-                PendingBytes.RemoveAt(0, NewlineIndex + 1, EAllowShrinking::No);
-
-                LineBytes.Add('\0');
-                FString RequestLine = FString(UTF8_TO_TCHAR(reinterpret_cast<const char*>(LineBytes.GetData())));
-                RequestLine.TrimStartAndEndInline();
-
-                if (RequestLine.IsEmpty())
-                {
-                    continue;
-                }
-
-                if (!TryBeginInFlight())
-                {
-                    if (!WriteMessageForConnection(MakeBusyErrorResponse(RequestLine), ConnectionSerial))
-                    {
-                        UE_LOG(LogLoomlePipe, Warning, TEXT("Failed writing busy response to client pipe"));
-                        break;
-                    }
-                    continue;
-                }
-
-                FRequestHandler HandlerSnapshot = RequestHandler;
-                const FString Response = HandlerSnapshot(RequestLine);
-                EndInFlight();
-                if (!Response.IsEmpty() && !WriteMessageForConnection(Response, ConnectionSerial))
-                {
-                    UE_LOG(LogLoomlePipe, Display, TEXT("Dropping response for stale or disconnected pipe client"));
-                    break;
-                }
-            }
-        }
-
-        if (ActiveConnectionSerial.GetValue() == ConnectionSerial)
-        {
-            ActiveConnectionSerial.Set(0);
-        }
-        FlushFileBuffers(LocalPipe);
-        DisconnectNamedPipe(LocalPipe);
-        CloseHandle(LocalPipe);
-        PipeHandle = nullptr;
-
-        UE_LOG(LogLoomlePipe, Display, TEXT("Loomle client disconnected"));
+            HandleWindowsClient(LocalPipe, ConnectionSerial);
+        });
     }
 #else
     const FString SocketPath = GetSocketPath();
@@ -297,75 +300,17 @@ uint32 FLoomlePipeServer::Run()
             {
                 UE_LOG(LogLoomlePipe, Warning, TEXT("Failed to accept unix socket client on %s"), *SocketPath);
             }
-
-            close(LocalServerFd);
-            ServerFd = -1;
             continue;
         }
 
-        ClientFd = LocalClientFd;
         const int32 ConnectionSerial = NextConnectionSerial.Increment();
-        ActiveConnectionSerial.Set(ConnectionSerial);
+        RegisterConnection(ConnectionSerial, reinterpret_cast<void*>(static_cast<UPTRINT>(LocalClientFd)));
+        ActiveWorkerCount.Increment();
         UE_LOG(LogLoomlePipe, Display, TEXT("Loomle client connected on unix socket %s"), *SocketPath);
-
-        TArray<uint8> PendingBytes;
-        PendingBytes.Reserve(64 * 1024);
-
-        while (!bStopRequested)
+        Async(EAsyncExecution::Thread, [this, LocalClientFd, ConnectionSerial]()
         {
-            uint8 Buffer[4096];
-            const ssize_t BytesRead = read(LocalClientFd, Buffer, sizeof(Buffer));
-            if (BytesRead <= 0)
-            {
-                break;
-            }
-
-            PendingBytes.Append(Buffer, static_cast<int32>(BytesRead));
-
-            int32 NewlineIndex = INDEX_NONE;
-            while (PendingBytes.Find(static_cast<uint8>('\n'), NewlineIndex))
-            {
-                TArray<uint8> LineBytes;
-                LineBytes.Append(PendingBytes.GetData(), NewlineIndex);
-                PendingBytes.RemoveAt(0, NewlineIndex + 1, EAllowShrinking::No);
-
-                LineBytes.Add('\0');
-                FString RequestLine = FString(UTF8_TO_TCHAR(reinterpret_cast<const char*>(LineBytes.GetData())));
-                RequestLine.TrimStartAndEndInline();
-
-                if (RequestLine.IsEmpty())
-                {
-                    continue;
-                }
-
-                if (!TryBeginInFlight())
-                {
-                    if (!WriteMessageForConnection(MakeBusyErrorResponse(RequestLine), ConnectionSerial))
-                    {
-                        UE_LOG(LogLoomlePipe, Warning, TEXT("Failed writing busy response to unix socket client"));
-                        break;
-                    }
-                    continue;
-                }
-
-                FRequestHandler HandlerSnapshot = RequestHandler;
-                const FString Response = HandlerSnapshot(RequestLine);
-                EndInFlight();
-                if (!Response.IsEmpty() && !WriteMessageForConnection(Response, ConnectionSerial))
-                {
-                    UE_LOG(LogLoomlePipe, Display, TEXT("Dropping response for stale or disconnected socket client"));
-                    break;
-                }
-            }
-        }
-
-        if (ActiveConnectionSerial.GetValue() == ConnectionSerial)
-        {
-            ActiveConnectionSerial.Set(0);
-        }
-        close(LocalClientFd);
-        ClientFd = -1;
-        UE_LOG(LogLoomlePipe, Display, TEXT("Loomle client disconnected"));
+            HandleUnixClient(LocalClientFd, ConnectionSerial);
+        });
     }
 
     if (LocalServerFd >= 0)
@@ -387,13 +332,14 @@ bool FLoomlePipeServer::WriteMessage(const FString& Message)
 bool FLoomlePipeServer::WriteMessageForConnection(const FString& Message, int32 ExpectedConnectionSerial)
 {
     FScopeLock ScopeLock(&WriteMutex);
-    if (ExpectedConnectionSerial == 0 || ActiveConnectionSerial.GetValue() != ExpectedConnectionSerial)
+    if (ExpectedConnectionSerial == 0)
     {
         return false;
     }
 
 #if PLATFORM_WINDOWS
-    if (PipeHandle == nullptr || PipeHandle == INVALID_HANDLE_VALUE)
+    void** HandlePtr = ActivePipeHandles.Find(ExpectedConnectionSerial);
+    if (HandlePtr == nullptr || *HandlePtr == nullptr || *HandlePtr == INVALID_HANDLE_VALUE)
     {
         return false;
     }
@@ -402,7 +348,7 @@ bool FLoomlePipeServer::WriteMessageForConnection(const FString& Message, int32 
     FTCHARToUTF8 Utf8(*MessageWithNewline);
     DWORD BytesWritten = 0;
     const BOOL bOk = WriteFile(
-        static_cast<HANDLE>(PipeHandle),
+        static_cast<HANDLE>(*HandlePtr),
         Utf8.Get(),
         static_cast<DWORD>(Utf8.Length()),
         &BytesWritten,
@@ -410,15 +356,148 @@ bool FLoomlePipeServer::WriteMessageForConnection(const FString& Message, int32 
 
     return bOk && BytesWritten == static_cast<DWORD>(Utf8.Length());
 #else
-    if (ClientFd < 0)
+    int32* ClientFdPtr = ActiveClientFds.Find(ExpectedConnectionSerial);
+    if (ClientFdPtr == nullptr || *ClientFdPtr < 0)
     {
         return false;
     }
 
     const FString MessageWithNewline = Message + TEXT("\n");
     FTCHARToUTF8 Utf8(*MessageWithNewline);
-    const ssize_t BytesWritten = write(ClientFd, Utf8.Get(), static_cast<size_t>(Utf8.Length()));
+    const ssize_t BytesWritten = write(*ClientFdPtr, Utf8.Get(), static_cast<size_t>(Utf8.Length()));
     return BytesWritten == Utf8.Length();
+#endif
+}
+
+void FLoomlePipeServer::HandleWindowsClient(void* NativeHandle, int32 ConnectionSerial)
+{
+#if PLATFORM_WINDOWS
+    ON_SCOPE_EXIT
+    {
+        ActiveWorkerCount.Decrement();
+    };
+
+    HANDLE LocalPipe = static_cast<HANDLE>(NativeHandle);
+    TArray<uint8> PendingBytes;
+    PendingBytes.Reserve(64 * 1024);
+
+    while (!bStopRequested)
+    {
+        uint8 Buffer[4096];
+        DWORD BytesRead = 0;
+        const BOOL bReadOk = ReadFile(LocalPipe, Buffer, sizeof(Buffer), &BytesRead, nullptr);
+        if (!bReadOk || BytesRead == 0)
+        {
+            break;
+        }
+
+        PendingBytes.Append(Buffer, static_cast<int32>(BytesRead));
+
+        int32 NewlineIndex = INDEX_NONE;
+        while (PendingBytes.Find(static_cast<uint8>('\n'), NewlineIndex))
+        {
+            TArray<uint8> LineBytes;
+            LineBytes.Append(PendingBytes.GetData(), NewlineIndex);
+            PendingBytes.RemoveAt(0, NewlineIndex + 1, EAllowShrinking::No);
+
+            LineBytes.Add('\0');
+            FString RequestLine = FString(UTF8_TO_TCHAR(reinterpret_cast<const char*>(LineBytes.GetData())));
+            RequestLine.TrimStartAndEndInline();
+            if (RequestLine.IsEmpty())
+            {
+                continue;
+            }
+
+            if (!TryBeginInFlight())
+            {
+                if (!WriteMessageForConnection(MakeBusyErrorResponse(RequestLine), ConnectionSerial))
+                {
+                    UE_LOG(LogLoomlePipe, Warning, TEXT("Failed writing busy response to client pipe"));
+                    break;
+                }
+                continue;
+            }
+
+            FRequestHandler HandlerSnapshot = RequestHandler;
+            const FString Response = HandlerSnapshot(RequestLine);
+            EndInFlight();
+            if (!Response.IsEmpty() && !WriteMessageForConnection(Response, ConnectionSerial))
+            {
+                UE_LOG(LogLoomlePipe, Display, TEXT("Dropping response for stale or disconnected pipe client"));
+                break;
+            }
+        }
+    }
+
+    UnregisterConnection(ConnectionSerial);
+    FlushFileBuffers(LocalPipe);
+    DisconnectNamedPipe(LocalPipe);
+    CloseHandle(LocalPipe);
+    UE_LOG(LogLoomlePipe, Display, TEXT("Loomle client disconnected"));
+#endif
+}
+
+void FLoomlePipeServer::HandleUnixClient(int32 LocalClientFd, int32 ConnectionSerial)
+{
+#if !PLATFORM_WINDOWS
+    ON_SCOPE_EXIT
+    {
+        ActiveWorkerCount.Decrement();
+    };
+
+    TArray<uint8> PendingBytes;
+    PendingBytes.Reserve(64 * 1024);
+
+    while (!bStopRequested)
+    {
+        uint8 Buffer[4096];
+        const ssize_t BytesRead = read(LocalClientFd, Buffer, sizeof(Buffer));
+        if (BytesRead <= 0)
+        {
+            break;
+        }
+
+        PendingBytes.Append(Buffer, static_cast<int32>(BytesRead));
+
+        int32 NewlineIndex = INDEX_NONE;
+        while (PendingBytes.Find(static_cast<uint8>('\n'), NewlineIndex))
+        {
+            TArray<uint8> LineBytes;
+            LineBytes.Append(PendingBytes.GetData(), NewlineIndex);
+            PendingBytes.RemoveAt(0, NewlineIndex + 1, EAllowShrinking::No);
+
+            LineBytes.Add('\0');
+            FString RequestLine = FString(UTF8_TO_TCHAR(reinterpret_cast<const char*>(LineBytes.GetData())));
+            RequestLine.TrimStartAndEndInline();
+            if (RequestLine.IsEmpty())
+            {
+                continue;
+            }
+
+            if (!TryBeginInFlight())
+            {
+                if (!WriteMessageForConnection(MakeBusyErrorResponse(RequestLine), ConnectionSerial))
+                {
+                    UE_LOG(LogLoomlePipe, Warning, TEXT("Failed writing busy response to unix socket client"));
+                    break;
+                }
+                continue;
+            }
+
+            FRequestHandler HandlerSnapshot = RequestHandler;
+            const FString Response = HandlerSnapshot(RequestLine);
+            EndInFlight();
+            if (!Response.IsEmpty() && !WriteMessageForConnection(Response, ConnectionSerial))
+            {
+                UE_LOG(LogLoomlePipe, Display, TEXT("Dropping response for stale or disconnected socket client"));
+                break;
+            }
+        }
+    }
+
+    UnregisterConnection(ConnectionSerial);
+    close(LocalClientFd);
+    UE_LOG(LogLoomlePipe, Display, TEXT("Loomle client disconnected"));
 #endif
 }
 

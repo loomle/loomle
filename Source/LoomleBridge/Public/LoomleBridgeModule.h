@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Containers/Ticker.h"
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
 
@@ -16,6 +17,8 @@ public:
 
 private:
     FString HandleRequest(const FString& RequestLine);
+    bool TickHealthSnapshot(float DeltaTime);
+    void UpdateHealthSnapshot();
 
     TSharedPtr<FJsonObject> BuildRpcHealthResult() const;
     TSharedPtr<FJsonObject> BuildRpcCapabilitiesResult() const;
@@ -55,4 +58,7 @@ private:
     TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> PipeServer;
     TMap<FString, FGraphActionTokenEntry> GraphActionTokenRegistry;
     bool bGraphMutateInProgress = false;
+    TAtomic<bool> bBridgeRunningSnapshot { false };
+    TAtomic<bool> bPythonReadySnapshot { false };
+    FTSTicker::FDelegateHandle HealthSnapshotTickerHandle;
 };

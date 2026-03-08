@@ -25,8 +25,13 @@ public:
 private:
     bool TryBeginInFlight();
     void EndInFlight();
+    void RegisterConnection(int32 ConnectionSerial, void* NativeHandle);
+    void UnregisterConnection(int32 ConnectionSerial);
+    void CloseAllConnections();
     bool WriteMessage(const FString& Message);
     bool WriteMessageForConnection(const FString& Message, int32 ExpectedConnectionSerial);
+    void HandleWindowsClient(void* NativeHandle, int32 ConnectionSerial);
+    void HandleUnixClient(int32 LocalClientFd, int32 ConnectionSerial);
     FString GetSocketPath() const;
 
 private:
@@ -38,13 +43,15 @@ private:
     FThreadSafeCounter InFlightRequestCount;
     FThreadSafeCounter NextConnectionSerial;
     FThreadSafeCounter ActiveConnectionSerial;
+    FThreadSafeCounter ActiveWorkerCount;
     static constexpr int32 MaxInFlightRequests = 128;
 
 #if PLATFORM_WINDOWS
-    void* PipeHandle = nullptr;
+    void* PendingPipeHandle = nullptr;
+    TMap<int32, void*> ActivePipeHandles;
 #else
     int32 ServerFd = -1;
-    int32 ClientFd = -1;
+    TMap<int32, int32> ActiveClientFds;
 #endif
     FCriticalSection WriteMutex;
 };
