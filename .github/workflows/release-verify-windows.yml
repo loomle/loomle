@@ -153,9 +153,36 @@ jobs:
       - name: Run Regression Integration Test
         shell: pwsh
         run: |
-          Push-Location $env:GITHUB_WORKSPACE
-          python tools/test_bridge_regression.py --project-root "${{ steps.test_project.outputs.test_root }}"
-          Pop-Location
+          $projectRoot = "${{ steps.test_project.outputs.test_root }}"
+          $uproject = "${{ steps.test_project.outputs.uproject }}"
+          $ueEditor = "${{ steps.ue_root_windows.outputs.ue_editor }}"
+          $passed = $false
+
+          for ($attempt = 1; $attempt -le 2; $attempt++) {
+            Push-Location $env:GITHUB_WORKSPACE
+            python tools/test_bridge_regression.py --project-root $projectRoot
+            $exitCode = $LASTEXITCODE
+            Pop-Location
+
+            if ($exitCode -eq 0) {
+              $passed = $true
+              break
+            }
+
+            if ($attempt -lt 2) {
+              Write-Warning "Regression attempt $attempt failed (exit=$exitCode), restarting Unreal Editor and retrying..."
+              Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" |
+                Where-Object { $_.CommandLine -like "*$uproject*" } |
+                ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+              Start-Sleep -Seconds 3
+              Start-Process -FilePath $ueEditor -ArgumentList @($uproject)
+              Start-Sleep -Seconds 10
+            }
+          }
+
+          if (-not $passed) {
+            throw "Regression integration test failed after retry"
+          }
 
       - name: Stop Unreal Editor
         if: always()

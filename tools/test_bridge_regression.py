@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import time
 from pathlib import Path
 
 from test_bridge_smoke import (
@@ -23,6 +24,35 @@ def op_ok(payload: dict) -> dict:
     if not first.get("ok"):
         fail(f"graph.mutate op failed: {first}")
     return first
+
+
+def wait_for_bridge_ready(client: McpStdioClient, timeout_s: float = 120.0, interval_s: float = 2.0) -> None:
+    deadline = time.time() + timeout_s
+    attempt = 0
+    while time.time() < deadline:
+        attempt += 1
+        try:
+            loomle = call_tool(client, 9000 + attempt, "loomle", {})
+            status = loomle.get("status")
+            rpc_health = loomle.get("runtime", {}).get("rpcHealth", {})
+            if status not in {"ok", "degraded"} or rpc_health.get("status") not in {"ok", "degraded"}:
+                print(f"[WARN] bridge not ready yet (attempt {attempt}): status={status}, rpc={rpc_health}")
+                time.sleep(interval_s)
+                continue
+
+            call_tool(
+                client,
+                9500 + attempt,
+                "execute",
+                {"mode": "exec", "code": "import unreal\nunreal.log('loomle regression warmup')"},
+            )
+            print(f"[PASS] bridge ready after {attempt} attempt(s)")
+            return
+        except Exception as exc:
+            print(f"[WARN] bridge readiness probe failed (attempt {attempt}): {exc}")
+            time.sleep(interval_s)
+
+    fail(f"bridge did not become ready within {timeout_s:.0f}s")
 
 
 def main() -> int:
@@ -64,6 +94,8 @@ def main() -> int:
     temp_asset = make_temp_asset_path(args.asset_prefix)
 
     try:
+        wait_for_bridge_ready(client)
+
         init = client.request(1, "initialize", {})
         protocol = init.get("result", {}).get("protocolVersion")
         if not protocol:
