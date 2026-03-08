@@ -67,7 +67,7 @@ Minimal health probe sequence:
 Optional dev convenience (source checkout only):
 
 1. Copy `tools/dev.project-root.example.json` to `tools/dev.project-root.local.json`.
-2. Set `"project_root"` to your UE project root.
+2. Set `"project_root"` to your dev host project root, recommended: `/Users/xartest/dev/LoomleDevHost`.
 3. Then `tools/test_bridge_smoke.py` and `tools/test_bridge_regression.py` can run without `--project-root`.
 
 Before UE-dependent tests, build and sync the MCP server binary into the plugin runtime path:
@@ -79,6 +79,20 @@ mkdir -p "<ProjectRoot>/Plugins/LoomleBridge/Tools/mcp/darwin"
 cp target/release/loomle_mcp_server "<ProjectRoot>/Plugins/LoomleBridge/Tools/mcp/darwin/loomle_mcp_server"
 chmod +x "<ProjectRoot>/Plugins/LoomleBridge/Tools/mcp/darwin/loomle_mcp_server"
 ```
+
+## Runner Isolation
+
+Self-hosted runner verification uses a dedicated Unreal project separate from personal dev/test projects.
+
+- Default runner-owned test project path: `/Users/xartest/actions-runner/_work/lrh/LoomleRunnerHost`
+- Provisioning entrypoint: `tools/runner_init_host_project.sh`
+- Workflow override remains available through `LOOMLE_TEST_PROJECT_ROOT_MAC`
+
+Recommended local development host project:
+
+- `/Users/xartest/dev/LoomleDevHost`
+
+This keeps CI/release gating isolated from local projects and keeps plugin development verification on a separate dev host from business or sandbox projects.
 
 ### 1) MCP server tests (UE-independent)
 
@@ -93,33 +107,33 @@ macOS/Linux:
 
 ```bash
 python3 tools/test_bridge_smoke.py \
-  --project-root "/Users/xartest/Documents/UnrealProjects/Loombed"
+  --project-root "/Users/xartest/dev/LoomleDevHost"
 ```
 
 Windows:
 
 ```powershell
-python tools/test_bridge_smoke.py --project-root "D:\\UnrealProjects\\Loombed"
+python tools/test_bridge_smoke.py --project-root "D:\\LoomleDevHost"
 ```
 
 ### 3) Bridge functional regression (deeper coverage)
 
 ```bash
 python3 tools/test_bridge_regression.py \
-  --project-root "/Users/xartest/Documents/UnrealProjects/Loombed"
+  --project-root "/Users/xartest/dev/LoomleDevHost"
 ```
 
 Windows one-shot:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\test_bridge_windows.ps1 -ProjectRoot "D:\UnrealProjects\Loombed"
+powershell -ExecutionPolicy Bypass -File .\tools\test_bridge_windows.ps1 -ProjectRoot "D:\LoomleDevHost"
 ```
 
 ### 4) Optional performance diagnostics
 
 ```bash
 python3 tools/perf_bridge_latency.py \
-  --project-root "/Users/xartest/Documents/UnrealProjects/Loombed" \
+  --project-root "/Users/xartest/dev/LoomleDevHost" \
   --tool loomle --total 200 --concurrency 1 --warmup 20
 ```
 

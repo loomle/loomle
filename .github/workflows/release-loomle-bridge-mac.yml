@@ -58,8 +58,11 @@ jobs:
           elif [[ -n "${LOOMLE_TEST_PROJECT_ROOT_MAC:-}" ]]; then
             test_root="$LOOMLE_TEST_PROJECT_ROOT_MAC"
           else
-            test_root="/Users/xartest/Documents/UnrealProjects/Loombed"
+            runner_work_root="$(cd "$GITHUB_WORKSPACE/../.." && pwd)"
+            test_root="$runner_work_root/lrh/LoomleRunnerHost"
           fi
+
+          "$GITHUB_WORKSPACE/tools/runner_init_host_project.sh" "$test_root"
 
           [[ -d "$test_root" ]] || { echo "Test project root not found: $test_root" >&2; exit 1; }
           uproject="$(find "$test_root" -maxdepth 1 -type f -name '*.uproject' | head -n 1)"

@@ -311,7 +311,7 @@ def main() -> int:
     parser.add_argument(
         "--project-root",
         required=True,
-        help="UE project root for stdio mode, e.g. /.../UnrealProjects/Loombed",
+        help="UE project root for stdio mode, e.g. /Users/xartest/dev/LoomleDevHost",
     )
     parser.add_argument(
         "--mcp-server-bin",

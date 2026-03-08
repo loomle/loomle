@@ -29,12 +29,13 @@ Unified local tooling for testing and diagnostics.
 
 - Template: `tools/dev.project-root.example.json`
 - Local file: `tools/dev.project-root.local.json` (gitignored)
+- Recommended dev host: `/Users/xartest/dev/LoomleDevHost`
 - If `--project-root` is omitted, `test_bridge_smoke.py` and `test_bridge_regression.py` read `project_root` from this local file.
 
 ### Windows quick run
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\test_bridge_windows.ps1 -ProjectRoot "D:\UnrealProjects\Loombed"
+powershell -ExecutionPolicy Bypass -File .\tools\test_bridge_windows.ps1 -ProjectRoot "D:\LoomleDevHost"
 ```
 
 ## Runtime Output
@@ -51,7 +52,7 @@ Example latency benchmark:
 
 ```bash
 python3 tools/perf_bridge_latency.py \
-  --project-root "/Users/xartest/Documents/UnrealProjects/Loombed" \
+  --project-root "/Users/xartest/dev/LoomleDevHost" \
   --tool loomle --total 200 --concurrency 1 --warmup 20 \
   --output runtime/benchmarks/bridge-latency.csv
 ```
@@ -60,6 +61,6 @@ Example graph RW benchmark:
 
 ```bash
 python3 tools/perf_graph_rw_temp_asset.py \
-  --project-root "/Users/xartest/Documents/UnrealProjects/Loombed" \
+  --project-root "/Users/xartest/dev/LoomleDevHost" \
   --output runtime/benchmarks/graph-rw.csv
 ```
