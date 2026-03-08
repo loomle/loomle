@@ -1,175 +1,47 @@
-# Loomle
+# LOOMLE
 
-`Loomle Bridge` is a single project composed of:
+LOOMLE brings Unreal Engine 5 runtime and graph context into AI-native workflows. It combines `LoomleBridge`, a standard MCP surface, and a companion Loomle Skill so agents can collaborate with users directly inside real UE5 projects instead of working from partial context.
 
-- Unreal Editor plugin (`LoomleBridge`)
-- External MCP server (`mcp_server`)
+## Core Features
 
-This repository keeps only two operational tracks: local testing and online release.
+- Real UE5 runtime context for AI: expose live editor, asset, selection, and runtime health data instead of relying on static guesses.
+- Standard MCP integration: present LOOMLE capabilities through a clean MCP tool surface that works naturally with agent workflows.
+- Graph-aware collaboration: support graph discovery, inspection, action planning, and mutation for UE graph-driven workflows.
+- End-to-end automation with Loomle Skill: install, configure, upgrade, verify, and operate LOOMLE from inside a project-local Codex session.
+- Built for practical UE development: help users and agents work together on Blueprint, Material, PCG, and related editor tasks with the right runtime context available.
 
-## Documentation
+## Quick Start
 
-- Full project docs and interface specs: `docs/README.md`
-- Developer tooling and local checks: `tools/README.md`
+The fastest way to start with LOOMLE is from the root of your local UE5 project.
 
-## Performance Requirement (Project-Wide)
+1. Open Codex in your UE5 project root.
+2. Tell Codex:
 
-For all projects using Loomle Bridge, disable Unreal Editor background CPU throttling:
-
-`[/Script/UnrealEd.EditorPerformanceSettings] bThrottleCPUWhenNotForeground=False`
-
-Set this in the UE project file:
-
-- `Config/DefaultEditorSettings.ini`
-
-Without this setting, bridge tail latency can degrade significantly when Unreal Editor is in background.
-
-## Release Runtime (Source-Independent, Minimal)
-
-This section is for release package usage only. No source checkout or `cargo` is required.
-
-1. Prepare `ProjectRoot` (directory containing `*.uproject`).
-2. Ensure plugin package is installed under `<ProjectRoot>/Plugins/LoomleBridge`.
-3. Start Unreal Editor with that project so bridge listener is available.
-4. Launch MCP server binary from plugin path:
-
-macOS:
-```bash
-"<ProjectRoot>/Plugins/LoomleBridge/Tools/mcp/darwin/loomle_mcp_server" \
-  --project-root "<ProjectRoot>"
+```text
+install Loomle Skill from loomle.ai/i
 ```
 
-Linux:
-```bash
-"<ProjectRoot>/Plugins/LoomleBridge/Tools/mcp/linux/loomle_mcp_server" \
-  --project-root "<ProjectRoot>"
-```
+That flow installs or updates the Loomle Skill, sets up `LoomleBridge`, applies the required project configuration, starts the service path, and runs the basic verification checks so the MCP connection is ready to use.
 
-Windows (PowerShell):
-```powershell
-& "<ProjectRoot>\Plugins\LoomleBridge\Tools\mcp\windows\loomle_mcp_server.exe" `
-  --project-root "<ProjectRoot>"
-```
+Once setup is complete, you do not need to call MCP tools yourself. You can simply talk to Codex in natural language and ask it to do UE5 work for you through LOOMLE.
 
-Transport facts:
-- MCP server uses stdio JSON-RPC.
-- Unreal bridge endpoint is derived from `--project-root`.
-- macOS/Linux RPC socket: `<ProjectRoot>/Intermediate/loomle.sock`.
-- Windows RPC endpoint: `\\.\pipe\loomle-<fnv64(project_root)>`.
+Example requests:
 
-Minimal health probe sequence:
-1. send `initialize`
-2. send `tools/call` with `name="loomle"`
-3. send `tools/call` with `name="context"`
+- `Look at the current Blueprint, explain why this logic is failing, and fix it.`
+- `Inspect the selected material graph and clean up unnecessary nodes and connections.`
+- `Create a Blueprint that opens a door when the player enters a trigger box.`
 
-## Local Testing
+## Agent-Facing MCP Tools
 
-Optional dev convenience (source checkout only):
+LOOMLE currently exposes these MCP tools for the agent. These are the tools Codex uses behind the scenes; end users normally just work through natural-language requests.
 
-1. Copy `tools/dev.project-root.example.json` to `tools/dev.project-root.local.json`.
-2. Set `"project_root"` to your dev host project root, recommended: `/Users/xartest/dev/LoomleDevHost`.
-3. Then `tools/test_bridge_smoke.py` and `tools/test_bridge_regression.py` can run without `--project-root`.
+- `loomle`: Check Bridge health, runtime status, and MCP-side availability.
+- `context`: Read the current Unreal editor context, including asset and selection information.
+- `execute`: Run UE-side code or commands through the Bridge.
+- `graph`: Read graph capability metadata, supported operations, and runtime status.
+- `graph.list`: List graphs available in the current target asset or context.
+- `graph.query`: Inspect graph structure such as nodes, pins, and connections.
+- `graph.actions`: Retrieve actionable graph operation candidates for the current graph context.
+- `graph.mutate`: Apply graph changes through ordered mutation operations.
 
-Before UE-dependent tests, build and sync the MCP server binary into the plugin runtime path:
-
-```bash
-cd mcp_server
-cargo build --release
-mkdir -p "<ProjectRoot>/Plugins/LoomleBridge/Tools/mcp/darwin"
-cp target/release/loomle_mcp_server "<ProjectRoot>/Plugins/LoomleBridge/Tools/mcp/darwin/loomle_mcp_server"
-chmod +x "<ProjectRoot>/Plugins/LoomleBridge/Tools/mcp/darwin/loomle_mcp_server"
-```
-
-## Runner Isolation
-
-Self-hosted runner verification uses a dedicated Unreal project separate from personal dev/test projects.
-
-- Default runner-owned test project path: `/Users/xartest/actions-runner/_work/lrh/LoomleRunnerHost`
-- Provisioning entrypoint: `tools/runner_init_host_project.sh`
-- Workflow override remains available through `LOOMLE_TEST_PROJECT_ROOT_MAC`
-
-Recommended local development host project:
-
-- `/Users/xartest/dev/LoomleDevHost`
-
-This keeps CI/release gating isolated from local projects and keeps plugin development verification on a separate dev host from business or sandbox projects.
-
-### 1) MCP server tests (UE-independent)
-
-```bash
-cd mcp_server
-cargo test
-```
-
-### 2) Bridge protocol smoke test (requires UE Editor)
-
-macOS/Linux:
-
-```bash
-python3 tools/test_bridge_smoke.py \
-  --project-root "/Users/xartest/dev/LoomleDevHost"
-```
-
-Windows:
-
-```powershell
-python tools/test_bridge_smoke.py --project-root "D:\\LoomleDevHost"
-```
-
-### 3) Bridge functional regression (deeper coverage)
-
-```bash
-python3 tools/test_bridge_regression.py \
-  --project-root "/Users/xartest/dev/LoomleDevHost"
-```
-
-Windows one-shot:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\test_bridge_windows.ps1 -ProjectRoot "D:\LoomleDevHost"
-```
-
-### 4) Optional performance diagnostics
-
-```bash
-python3 tools/perf_bridge_latency.py \
-  --project-root "/Users/xartest/dev/LoomleDevHost" \
-  --tool loomle --total 200 --concurrency 1 --warmup 20
-```
-
-## Online Release
-
-- Verify workflow (no publish): `.github/workflows/release-verify-mac.yml`
-- Verify workflow (Windows): `.github/workflows/release-verify-windows.yml`
-- Release trigger: push tag `vX.Y.Z`
-- Release workflows:
-  - `.github/workflows/release-loomle-bridge-mac.yml`
-  - `.github/workflows/release-loomle-bridge-windows.yml`
-- Release gate: `cargo test` + `test_bridge_smoke.py` + `test_bridge_regression.py`
-- Outputs:
-  - `loomle-bridge-darwin.zip`
-  - `loomle-bridge-windows.zip`
-  - `loomle-bridge-manifest.json`
-  - package-internal MCP server: `LoomleBridge/Tools/mcp/darwin/loomle_mcp_server`
-  - package-internal MCP server: `LoomleBridge/Tools/mcp/windows/loomle_mcp_server.exe`
-- stable alias release: `bridge-latest`
-- manifest package metadata includes:
-  - `server_binary_relpath`
-  - `server_sha256`
-- runtime startup requirement:
-  - pass `--project-root <ProjectRoot>` when launching `loomle_mcp_server`
-- Stable download links:
-  - `https://github.com/loomle/loomle/releases/latest/download/loomle-bridge-darwin.zip`
-  - `https://github.com/loomle/loomle/releases/latest/download/loomle-bridge-windows.zip`
-  - `https://github.com/loomle/loomle/releases/latest/download/loomle-bridge-manifest.json`
-
-## Runtime Tools
-
-- `loomle`
-- `context`
-- `execute`
-- `graph`
-- `graph.list`
-- `graph.query`
-- `graph.actions`
-- `graph.mutate`
+For protocol details and deeper technical documentation, see [docs/README.md](/Users/xartest/dev/loomle/docs/README.md).
