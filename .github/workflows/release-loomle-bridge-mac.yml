@@ -250,15 +250,20 @@ jobs:
             manifest_args+=(--base-manifest "$base_manifest")
           fi
 
-          python3 "$GITHUB_WORKSPACE/tools/build_release_manifest.py" \
-            --manifest-path "$manifest_path" \
-            --version "$tag" \
-            --platform darwin \
-            --asset-url "$asset_url" \
-            --sha256 "$sha256" \
-            --server-binary-relpath "$server_relpath" \
-            --server-sha256 "$server_sha256" \
-            "${manifest_args[@]}"
+          manifest_cmd=(
+            python3 "$GITHUB_WORKSPACE/tools/build_release_manifest.py"
+            --manifest-path "$manifest_path"
+            --version "$tag"
+            --platform darwin
+            --asset-url "$asset_url"
+            --sha256 "$sha256"
+            --server-binary-relpath "$server_relpath"
+            --server-sha256 "$server_sha256"
+          )
+          if [[ ${#manifest_args[@]} -gt 0 ]]; then
+            manifest_cmd+=("${manifest_args[@]}")
+          fi
+          "${manifest_cmd[@]}"
 
           {
             echo "zip_path=$zip_path"
