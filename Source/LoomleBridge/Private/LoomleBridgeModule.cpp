@@ -69,7 +69,7 @@ using FCondensedJsonWriter = TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>
 
 namespace LoomleBridgeConstants
 {
-    static const TCHAR* PipeName = TEXT("loomle");
+    static const TCHAR* PipeNamePrefix = TEXT("loomle");
     static const TCHAR* RpcVersion = TEXT("1.0");
     static const TCHAR* ExecuteToolName = TEXT("execute");
     static const TCHAR* GraphListToolName = TEXT("graph.list");
@@ -82,6 +82,48 @@ namespace LoomleBridgeConstants
 
 namespace
 {
+#if PLATFORM_WINDOWS
+uint64 StableFnv1a64(const FString& Input)
+{
+    constexpr uint64 OffsetBasis = 0xcbf29ce484222325ull;
+    constexpr uint64 Prime = 0x100000001b3ull;
+
+    FTCHARToUTF8 Utf8(*Input);
+    const uint8* Bytes = reinterpret_cast<const uint8*>(Utf8.Get());
+    uint64 Hash = OffsetBasis;
+    for (int32 Index = 0; Index < Utf8.Length(); ++Index)
+    {
+        Hash ^= static_cast<uint64>(Bytes[Index]);
+        Hash *= Prime;
+    }
+    return Hash;
+}
+
+FString NormalizeProjectRootForPipeName()
+{
+    FString ProjectRoot = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
+    FPaths::NormalizeFilename(ProjectRoot);
+    while (ProjectRoot.EndsWith(TEXT("/")))
+    {
+        ProjectRoot.LeftChopInline(1, EAllowShrinking::No);
+    }
+
+    if (ProjectRoot.IsEmpty())
+    {
+        ProjectRoot = TEXT("/");
+    }
+
+    ProjectRoot.ToLowerInline();
+    return ProjectRoot;
+}
+
+FString GetRpcPipeNameForCurrentProject()
+{
+    const uint64 Hash = StableFnv1a64(NormalizeProjectRootForPipeName());
+    return FString::Printf(TEXT("%s-%016llx"), LoomleBridgeConstants::PipeNamePrefix, static_cast<unsigned long long>(Hash));
+}
+#endif
+
 FString NormalizeGraphType(FString GraphType)
 {
     GraphType = GraphType.TrimStartAndEnd().ToLower();
@@ -1081,8 +1123,15 @@ bool BuildPcgSelectionSnapshot(TSharedPtr<FJsonObject>& OutSelection)
 
 void FLoomleBridgeModule::StartupModule()
 {
+#if PLATFORM_WINDOWS
+    const FString PipeName = GetRpcPipeNameForCurrentProject();
+#endif
     PipeServer = MakeShared<FLoomlePipeServer, ESPMode::ThreadSafe>(
-        LoomleBridgeConstants::PipeName,
+#if PLATFORM_WINDOWS
+        PipeName,
+#else
+        LoomleBridgeConstants::PipeNamePrefix,
+#endif
         [this](const FString& RequestLine)
         {
             return HandleRequest(RequestLine);
@@ -1096,7 +1145,7 @@ void FLoomleBridgeModule::StartupModule()
     }
 
 #if PLATFORM_WINDOWS
-    UE_LOG(LogLoomleBridge, Display, TEXT("Loomle bridge started on named pipe \\\\.\\pipe\\%s"), LoomleBridgeConstants::PipeName);
+    UE_LOG(LogLoomleBridge, Display, TEXT("Loomle bridge started on named pipe \\\\.\\pipe\\%s"), *PipeName);
 #else
     UE_LOG(LogLoomleBridge, Display, TEXT("Loomle bridge started on unix socket %s"), *FPaths::Combine(FPaths::ProjectIntermediateDir(), TEXT("loomle.sock")));
 #endif

@@ -8,7 +8,7 @@ if [[ -z "$project_root" ]]; then
 fi
 
 project_name="LoomleRunnerHost"
-project_description="Dedicated isolated Unreal project for Loomle runner verification."
+project_description="Dedicated isolated Unreal project for LOOMLE runner verification."
 uproject_path="$project_root/${project_name}.uproject"
 config_dir="$project_root/Config"
 content_dir="$project_root/Content"

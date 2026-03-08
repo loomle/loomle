@@ -3,7 +3,7 @@
   "Version": 4,
   "VersionName": "0.2.2",
   "FriendlyName": "Loomle Bridge",
-  "Description": "Local bridge for UE5 Editor via named pipe.",
+  "Description": "Local bridge for UE5 Editor via platform-native local RPC transport.",
   "Category": "Editor",
   "CreatedBy": "Loomle",
   "CanContainContent": false,

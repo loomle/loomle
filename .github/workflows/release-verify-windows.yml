@@ -1,0 +1,167 @@
+name: Verify LOOMLE Bridge (Windows)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - "main"
+  push:
+    branches:
+      - "main"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-windows:
+    runs-on: [self-hosted, Windows]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve Unreal Engine Root (Windows)
+        id: ue_root_windows
+        shell: pwsh
+        env:
+          UE_FROM_VARS: ${{ vars.UE_5_7_ROOT_WINDOWS }}
+        run: |
+          $candidate = ""
+          if ($env:UE_FROM_VARS) {
+            $candidate = $env:UE_FROM_VARS
+          } elseif ($env:UE_5_7_ROOT_WINDOWS) {
+            $candidate = $env:UE_5_7_ROOT_WINDOWS
+          } else {
+            $candidate = "C:\Program Files\Epic Games\UE_5.7"
+          }
+
+          $runUat = Join-Path $candidate "Engine\Build\BatchFiles\RunUAT.bat"
+          if (-not (Test-Path -LiteralPath $runUat)) {
+            throw "RunUAT.bat not found. Set UE_5_7_ROOT_WINDOWS (repo var or runner env). Tried: $runUat"
+          }
+
+          $ueEditor = Join-Path $candidate "Engine\Binaries\Win64\UnrealEditor.exe"
+          if (-not (Test-Path -LiteralPath $ueEditor)) {
+            throw "UnrealEditor.exe not found: $ueEditor"
+          }
+
+          "ue_root=$candidate" >> $env:GITHUB_OUTPUT
+          "run_uat=$runUat" >> $env:GITHUB_OUTPUT
+          "ue_editor=$ueEditor" >> $env:GITHUB_OUTPUT
+
+      - name: Resolve Test Project Root
+        id: test_project
+        shell: pwsh
+        env:
+          TEST_ROOT_FROM_VARS: ${{ vars.LOOMLE_TEST_PROJECT_ROOT_WINDOWS }}
+        run: |
+          if ($env:TEST_ROOT_FROM_VARS) {
+            $testRoot = $env:TEST_ROOT_FROM_VARS
+          } elseif ($env:LOOMLE_TEST_PROJECT_ROOT_WINDOWS) {
+            $testRoot = $env:LOOMLE_TEST_PROJECT_ROOT_WINDOWS
+          } else {
+            $workspaceRoot = (Resolve-Path (Join-Path $env:GITHUB_WORKSPACE "..\..")).Path
+            $testRoot = Join-Path $workspaceRoot "lrh\LoomleRunnerHostWin"
+          }
+
+          & (Join-Path $env:GITHUB_WORKSPACE "tools\runner_init_host_project.ps1") -ProjectRoot $testRoot -ProjectName "LoomleRunnerHostWin"
+
+          if (-not (Test-Path -LiteralPath $testRoot)) {
+            throw "Test project root not found: $testRoot"
+          }
+
+          $uproject = Get-ChildItem -LiteralPath $testRoot -Filter *.uproject | Select-Object -First 1
+          if ($null -eq $uproject) {
+            throw "No .uproject found under $testRoot"
+          }
+
+          "test_root=$testRoot" >> $env:GITHUB_OUTPUT
+          "uproject=$($uproject.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Run Rust Unit Tests
+        shell: pwsh
+        run: |
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp_server")
+          cargo test
+          Pop-Location
+
+      - name: Build Plugin From Current Commit And Sync To Test Project
+        shell: pwsh
+        run: |
+          $plugin = Join-Path $env:GITHUB_WORKSPACE "LoomleBridge.uplugin"
+          if (-not (Test-Path -LiteralPath $plugin)) {
+            throw "Plugin descriptor not found: $plugin"
+          }
+
+          $packageDir = Join-Path $env:RUNNER_TEMP "LoomleBridge_Gating_Windows"
+          $pluginDst = Join-Path "${{ steps.test_project.outputs.test_root }}" "Plugins\LoomleBridge"
+          if (Test-Path -LiteralPath $packageDir) {
+            Remove-Item -LiteralPath $packageDir -Recurse -Force
+          }
+          if (Test-Path -LiteralPath $pluginDst) {
+            Remove-Item -LiteralPath $pluginDst -Recurse -Force
+          }
+
+          & "${{ steps.ue_root_windows.outputs.run_uat }}" BuildPlugin "-Plugin=$plugin" "-Package=$packageDir" "-TargetPlatforms=Win64" -Rocket
+          if ($LASTEXITCODE -ne 0) {
+            throw "BuildPlugin failed with exit code $LASTEXITCODE"
+          }
+
+          New-Item -ItemType Directory -Force -Path $pluginDst | Out-Null
+          Copy-Item -Path (Join-Path $packageDir "*") -Destination $pluginDst -Recurse -Force
+
+      - name: Build MCP Server Binary (Release) And Sync To Test Project Plugin
+        shell: pwsh
+        run: |
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp_server")
+          cargo build --release
+          Pop-Location
+
+          $serverSrc = Join-Path $env:GITHUB_WORKSPACE "mcp_server\target\release\loomle_mcp_server.exe"
+          if (-not (Test-Path -LiteralPath $serverSrc)) {
+            throw "MCP server binary missing: $serverSrc"
+          }
+
+          $pluginServer = Join-Path "${{ steps.test_project.outputs.test_root }}" "Plugins\LoomleBridge\Tools\mcp\windows\loomle_mcp_server.exe"
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $pluginServer) | Out-Null
+          Copy-Item -LiteralPath $serverSrc -Destination $pluginServer -Force
+
+      - name: Restart Unreal Editor For Verification
+        shell: pwsh
+        run: |
+          $uproject = "${{ steps.test_project.outputs.uproject }}"
+          Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" |
+            Where-Object { $_.CommandLine -like "*$uproject*" } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+          Start-Sleep -Seconds 2
+          Start-Process -FilePath "${{ steps.ue_root_windows.outputs.ue_editor }}" -ArgumentList @($uproject)
+
+      - name: Wait For Bridge And Run Smoke Test
+        shell: pwsh
+        run: |
+          $deadline = (Get-Date).AddMinutes(4)
+          while ((Get-Date) -lt $deadline) {
+            python tools/test_bridge_smoke.py --project-root "${{ steps.test_project.outputs.test_root }}"
+            if ($LASTEXITCODE -eq 0) {
+              exit 0
+            }
+            Start-Sleep -Seconds 5
+          }
+
+          throw "TIMEOUT waiting for bridge smoke test to pass"
+
+      - name: Run Regression Integration Test
+        shell: pwsh
+        run: |
+          Push-Location $env:GITHUB_WORKSPACE
+          python tools/test_bridge_regression.py --project-root "${{ steps.test_project.outputs.test_root }}"
+          Pop-Location
+
+      - name: Stop Unreal Editor
+        if: always()
+        shell: pwsh
+        run: |
+          $uproject = "${{ steps.test_project.outputs.uproject }}"
+          Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" |
+            Where-Object { $_.CommandLine -like "*$uproject*" } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force }

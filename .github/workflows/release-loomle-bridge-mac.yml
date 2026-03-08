@@ -1,10 +1,14 @@
-name: Release Loomle Plugin (Mac)
+name: Release LOOMLE Plugin (Mac)
 
 on:
   workflow_dispatch:
   push:
     tags:
       - "v*"
+
+concurrency:
+  group: loomle-release-${{ github.ref_name }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -179,6 +183,8 @@ jobs:
       - name: Build and Package Plugin (Mac)
         id: package
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -190,8 +196,9 @@ jobs:
           release_dir="$RUNNER_TEMP/release-assets"
           zip_path="$release_dir/loomle-bridge-darwin.zip"
           manifest_path="$release_dir/loomle-bridge-manifest.json"
+          existing_manifest_dir="$RUNNER_TEMP/existing-tag-manifest"
 
-          rm -rf "$package_dir" "$stage_dir" "$release_dir"
+          rm -rf "$package_dir" "$stage_dir" "$release_dir" "$existing_manifest_dir"
           mkdir -p "$stage_dir" "$release_dir"
 
           "${{ steps.ue_root_mac.outputs.run_uat }}" BuildPlugin \
@@ -231,53 +238,52 @@ jobs:
           tag="${GITHUB_REF_NAME#v}"
           asset_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/loomle-bridge-darwin.zip"
 
-          python3 - <<'PY' "$manifest_path" "$tag" "$asset_url" "$sha256" "$server_relpath" "$server_sha256"
-          import json
-          import pathlib
-          import sys
+          mkdir -p "$existing_manifest_dir"
+          gh release download "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "loomle-bridge-manifest.json" \
+            --dir "$existing_manifest_dir" >/dev/null 2>&1 || true
 
-          manifest_path = pathlib.Path(sys.argv[1])
-          version = sys.argv[2]
-          asset_url = sys.argv[3]
-          sha256 = sys.argv[4]
-          server_relpath = sys.argv[5]
-          server_sha256 = sys.argv[6]
+          manifest_args=()
+          base_manifest="$existing_manifest_dir/loomle-bridge-manifest.json"
+          if [[ -f "$base_manifest" ]]; then
+            manifest_args+=(--base-manifest "$base_manifest")
+          fi
 
-          manifest = {
-              "latest": version,
-              "versions": {
-                  version: {
-                      "packages": {
-                          "darwin": {
-                              "url": asset_url,
-                              "sha256": sha256,
-                              "format": "zip",
-                              "server_binary_relpath": server_relpath,
-                              "server_sha256": server_sha256,
-                          }
-                      }
-                  }
-              },
-          }
-          manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-          PY
+          python3 "$GITHUB_WORKSPACE/tools/build_release_manifest.py" \
+            --manifest-path "$manifest_path" \
+            --version "$tag" \
+            --platform darwin \
+            --asset-url "$asset_url" \
+            --sha256 "$sha256" \
+            --server-binary-relpath "$server_relpath" \
+            --server-sha256 "$server_sha256" \
+            "${manifest_args[@]}"
 
           {
             echo "zip_path=$zip_path"
             echo "manifest_path=$manifest_path"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Publish GitHub Release (Plugin)
+      - name: Publish GitHub Release Zip (Plugin)
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            ${{ steps.package.outputs.zip_path }}
-            ${{ steps.package.outputs.manifest_path }}
+          files: ${{ steps.package.outputs.zip_path }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           draft: false
           prerelease: false
           make_latest: true
+
+      - name: Upload Merged Manifest To Tag Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$GITHUB_REF_NAME" "${{ steps.package.outputs.manifest_path }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
 
       - name: Update Stable Alias Release (bridge-latest)
         env:
@@ -292,7 +298,7 @@ jobs:
             gh release create bridge-latest \
               --repo "$GITHUB_REPOSITORY" \
               --title "Bridge Latest" \
-              --notes "Stable alias release for latest loomle bridge package and manifest." \
+              --notes "Stable alias release for latest LOOMLE bridge package and manifest." \
               "$zip_path" \
               "$manifest_path"
           else

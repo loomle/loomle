@@ -1,0 +1,278 @@
+name: Release LOOMLE Plugin (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: loomle-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release-plugin-windows:
+    runs-on: [self-hosted, Windows]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve Unreal Engine Root (Windows)
+        id: ue_root_windows
+        shell: pwsh
+        env:
+          UE_FROM_VARS: ${{ vars.UE_5_7_ROOT_WINDOWS }}
+        run: |
+          $candidate = ""
+          if ($env:UE_FROM_VARS) {
+            $candidate = $env:UE_FROM_VARS
+          } elseif ($env:UE_5_7_ROOT_WINDOWS) {
+            $candidate = $env:UE_5_7_ROOT_WINDOWS
+          } else {
+            $candidate = "C:\Program Files\Epic Games\UE_5.7"
+          }
+
+          $runUat = Join-Path $candidate "Engine\Build\BatchFiles\RunUAT.bat"
+          if (-not (Test-Path -LiteralPath $runUat)) {
+            throw "RunUAT.bat not found. Set UE_5_7_ROOT_WINDOWS (repo var or runner env). Tried: $runUat"
+          }
+
+          $ueEditor = Join-Path $candidate "Engine\Binaries\Win64\UnrealEditor.exe"
+          if (-not (Test-Path -LiteralPath $ueEditor)) {
+            throw "UnrealEditor.exe not found: $ueEditor"
+          }
+
+          "ue_root=$candidate" >> $env:GITHUB_OUTPUT
+          "run_uat=$runUat" >> $env:GITHUB_OUTPUT
+          "ue_editor=$ueEditor" >> $env:GITHUB_OUTPUT
+
+      - name: Resolve Test Project Root
+        id: test_project
+        shell: pwsh
+        env:
+          TEST_ROOT_FROM_VARS: ${{ vars.LOOMLE_TEST_PROJECT_ROOT_WINDOWS }}
+        run: |
+          if ($env:TEST_ROOT_FROM_VARS) {
+            $testRoot = $env:TEST_ROOT_FROM_VARS
+          } elseif ($env:LOOMLE_TEST_PROJECT_ROOT_WINDOWS) {
+            $testRoot = $env:LOOMLE_TEST_PROJECT_ROOT_WINDOWS
+          } else {
+            $workspaceRoot = (Resolve-Path (Join-Path $env:GITHUB_WORKSPACE "..\..")).Path
+            $testRoot = Join-Path $workspaceRoot "lrh\LoomleRunnerHostWin"
+          }
+
+          & (Join-Path $env:GITHUB_WORKSPACE "tools\runner_init_host_project.ps1") -ProjectRoot $testRoot -ProjectName "LoomleRunnerHostWin"
+
+          if (-not (Test-Path -LiteralPath $testRoot)) {
+            throw "Test project root not found: $testRoot"
+          }
+
+          $uproject = Get-ChildItem -LiteralPath $testRoot -Filter *.uproject | Select-Object -First 1
+          if ($null -eq $uproject) {
+            throw "No .uproject found under $testRoot"
+          }
+
+          "test_root=$testRoot" >> $env:GITHUB_OUTPUT
+          "uproject=$($uproject.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Run Rust Unit Tests
+        shell: pwsh
+        run: |
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp_server")
+          cargo test
+          Pop-Location
+
+      - name: Build Plugin From Current Commit And Sync To Test Project
+        shell: pwsh
+        run: |
+          $plugin = Join-Path $env:GITHUB_WORKSPACE "LoomleBridge.uplugin"
+          if (-not (Test-Path -LiteralPath $plugin)) {
+            throw "Plugin descriptor not found: $plugin"
+          }
+
+          $packageDir = Join-Path $env:RUNNER_TEMP "LoomleBridge_Gating_Windows"
+          $pluginDst = Join-Path "${{ steps.test_project.outputs.test_root }}" "Plugins\LoomleBridge"
+          if (Test-Path -LiteralPath $packageDir) {
+            Remove-Item -LiteralPath $packageDir -Recurse -Force
+          }
+          if (Test-Path -LiteralPath $pluginDst) {
+            Remove-Item -LiteralPath $pluginDst -Recurse -Force
+          }
+
+          & "${{ steps.ue_root_windows.outputs.run_uat }}" BuildPlugin "-Plugin=$plugin" "-Package=$packageDir" "-TargetPlatforms=Win64" -Rocket
+          if ($LASTEXITCODE -ne 0) {
+            throw "BuildPlugin failed with exit code $LASTEXITCODE"
+          }
+
+          New-Item -ItemType Directory -Force -Path $pluginDst | Out-Null
+          Copy-Item -Path (Join-Path $packageDir "*") -Destination $pluginDst -Recurse -Force
+
+      - name: Build MCP Server Binary (Release) And Sync To Test Project Plugin
+        shell: pwsh
+        run: |
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp_server")
+          cargo build --release
+          Pop-Location
+
+          $serverSrc = Join-Path $env:GITHUB_WORKSPACE "mcp_server\target\release\loomle_mcp_server.exe"
+          if (-not (Test-Path -LiteralPath $serverSrc)) {
+            throw "MCP server binary missing: $serverSrc"
+          }
+
+          $pluginServer = Join-Path "${{ steps.test_project.outputs.test_root }}" "Plugins\LoomleBridge\Tools\mcp\windows\loomle_mcp_server.exe"
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $pluginServer) | Out-Null
+          Copy-Item -LiteralPath $serverSrc -Destination $pluginServer -Force
+
+      - name: Restart Unreal Editor For Release Gating
+        shell: pwsh
+        run: |
+          $uproject = "${{ steps.test_project.outputs.uproject }}"
+          Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" |
+            Where-Object { $_.CommandLine -like "*$uproject*" } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+          Start-Sleep -Seconds 2
+          Start-Process -FilePath "${{ steps.ue_root_windows.outputs.ue_editor }}" -ArgumentList @($uproject)
+
+      - name: Wait For Bridge And Run Smoke Test
+        shell: pwsh
+        run: |
+          $deadline = (Get-Date).AddMinutes(4)
+          while ((Get-Date) -lt $deadline) {
+            python tools/test_bridge_smoke.py --project-root "${{ steps.test_project.outputs.test_root }}"
+            if ($LASTEXITCODE -eq 0) {
+              exit 0
+            }
+            Start-Sleep -Seconds 5
+          }
+
+          throw "TIMEOUT waiting for bridge smoke test to pass"
+
+      - name: Run Regression Integration Test
+        shell: pwsh
+        run: |
+          Push-Location $env:GITHUB_WORKSPACE
+          python tools/test_bridge_regression.py --project-root "${{ steps.test_project.outputs.test_root }}"
+          Pop-Location
+
+      - name: Stop Unreal Editor After Gating
+        if: always()
+        shell: pwsh
+        run: |
+          $uproject = "${{ steps.test_project.outputs.uproject }}"
+          Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" |
+            Where-Object { $_.CommandLine -like "*$uproject*" } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+
+      - name: Build and Package Plugin (Windows)
+        id: package
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $plugin = Join-Path $env:GITHUB_WORKSPACE "LoomleBridge.uplugin"
+          if (-not (Test-Path -LiteralPath $plugin)) {
+            throw "Plugin descriptor not found: $plugin"
+          }
+
+          $packageDir = Join-Path $env:RUNNER_TEMP "LoomleBridge_Windows"
+          $stageDir = Join-Path $env:RUNNER_TEMP "release-stage-windows"
+          $releaseDir = Join-Path $env:RUNNER_TEMP "release-assets-windows"
+          $zipPath = Join-Path $releaseDir "loomle-bridge-windows.zip"
+          $manifestPath = Join-Path $releaseDir "loomle-bridge-manifest.json"
+
+          Remove-Item -LiteralPath $packageDir, $stageDir, $releaseDir -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $stageDir, $releaseDir | Out-Null
+
+          & "${{ steps.ue_root_windows.outputs.run_uat }}" BuildPlugin "-Plugin=$plugin" "-Package=$packageDir" "-TargetPlatforms=Win64" -Rocket
+          if ($LASTEXITCODE -ne 0) {
+            throw "BuildPlugin failed with exit code $LASTEXITCODE"
+          }
+
+          $serverSrc = Join-Path $env:GITHUB_WORKSPACE "mcp_server\target\release\loomle_mcp_server.exe"
+          if (-not (Test-Path -LiteralPath $serverSrc)) {
+            throw "MCP server binary missing: $serverSrc"
+          }
+          $serverRelPath = "Tools/mcp/windows/loomle_mcp_server.exe"
+          $serverDst = Join-Path $packageDir $serverRelPath
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $serverDst) | Out-Null
+          Copy-Item -LiteralPath $serverSrc -Destination $serverDst -Force
+          $serverSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $serverDst).Hash.ToLower()
+
+          $metadata = @{
+            platform = "windows"
+            built_at_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            ue_root = "${{ steps.ue_root_windows.outputs.ue_root }}"
+            commit = "${{ github.sha }}"
+            runner = "${{ runner.name }}"
+          } | ConvertTo-Json
+          Set-Content -LiteralPath (Join-Path $packageDir "build-metadata.json") -Value $metadata -Encoding utf8NoBOM
+
+          $stagePluginDir = Join-Path $stageDir "LoomleBridge"
+          New-Item -ItemType Directory -Force -Path $stagePluginDir | Out-Null
+          Copy-Item -Path (Join-Path $packageDir "*") -Destination $stagePluginDir -Recurse -Force
+
+          Compress-Archive -Path $stagePluginDir -DestinationPath $zipPath -Force
+
+          $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash.ToLower()
+          $version = "${{ github.ref_name }}".Substring(1)
+          $assetUrl = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/loomle-bridge-windows.zip"
+
+          $existingManifestDir = Join-Path $env:RUNNER_TEMP "existing-tag-manifest"
+          Remove-Item -LiteralPath $existingManifestDir -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $existingManifestDir | Out-Null
+          gh release download "${{ github.ref_name }}" --repo "${{ github.repository }}" --pattern "loomle-bridge-manifest.json" --dir $existingManifestDir 2>$null
+          $downloadedManifest = Join-Path $existingManifestDir "loomle-bridge-manifest.json"
+          $baseManifestArg = @()
+          if (Test-Path -LiteralPath $downloadedManifest) {
+            $baseManifestArg = @("--base-manifest", $downloadedManifest)
+          }
+
+          python (Join-Path $env:GITHUB_WORKSPACE "tools\build_release_manifest.py") `
+            --manifest-path $manifestPath `
+            --version $version `
+            --platform windows `
+            --asset-url $assetUrl `
+            --sha256 $sha256 `
+            --server-binary-relpath $serverRelPath `
+            --server-sha256 $serverSha256 `
+            @baseManifestArg
+
+          "zip_path=$zipPath" >> $env:GITHUB_OUTPUT
+          "manifest_path=$manifestPath" >> $env:GITHUB_OUTPUT
+
+      - name: Publish GitHub Release Zip (Plugin)
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package.outputs.zip_path }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
+          make_latest: true
+
+      - name: Upload Merged Manifest To Tag Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release upload "${{ github.ref_name }}" "${{ steps.package.outputs.manifest_path }}" --repo "${{ github.repository }}" --clobber
+
+      - name: Update Stable Alias Release (bridge-latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $zipPath = "${{ steps.package.outputs.zip_path }}"
+          $manifestPath = "${{ steps.package.outputs.manifest_path }}"
+
+          gh release view bridge-latest --repo "${{ github.repository }}" *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create bridge-latest --repo "${{ github.repository }}" --title "Bridge Latest" --notes "Stable alias release for latest LOOMLE bridge package and manifest." $zipPath $manifestPath
+          } else {
+            gh release upload bridge-latest $zipPath --repo "${{ github.repository }}" --clobber
+            gh release upload bridge-latest $manifestPath --repo "${{ github.repository }}" --clobber
+          }

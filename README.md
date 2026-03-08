@@ -55,7 +55,7 @@ Transport facts:
 - MCP server uses stdio JSON-RPC.
 - Unreal bridge endpoint is derived from `--project-root`.
 - macOS/Linux RPC socket: `<ProjectRoot>/Intermediate/loomle.sock`.
-- Windows RPC endpoint: `\\.\pipe\loomle`.
+- Windows RPC endpoint: `\\.\pipe\loomle-<fnv64(project_root)>`.
 
 Minimal health probe sequence:
 1. send `initialize`
@@ -140,13 +140,18 @@ python3 tools/perf_bridge_latency.py \
 ## Online Release
 
 - Verify workflow (no publish): `.github/workflows/release-verify-mac.yml`
+- Verify workflow (Windows): `.github/workflows/release-verify-windows.yml`
 - Release trigger: push tag `vX.Y.Z`
-- Release workflow: `.github/workflows/release-loomle-bridge-mac.yml`
+- Release workflows:
+  - `.github/workflows/release-loomle-bridge-mac.yml`
+  - `.github/workflows/release-loomle-bridge-windows.yml`
 - Release gate: `cargo test` + `test_bridge_smoke.py` + `test_bridge_regression.py`
 - Outputs:
   - `loomle-bridge-darwin.zip`
+  - `loomle-bridge-windows.zip`
   - `loomle-bridge-manifest.json`
   - package-internal MCP server: `LoomleBridge/Tools/mcp/darwin/loomle_mcp_server`
+  - package-internal MCP server: `LoomleBridge/Tools/mcp/windows/loomle_mcp_server.exe`
 - stable alias release: `bridge-latest`
 - manifest package metadata includes:
   - `server_binary_relpath`
@@ -155,6 +160,7 @@ python3 tools/perf_bridge_latency.py \
   - pass `--project-root <ProjectRoot>` when launching `loomle_mcp_server`
 - Stable download links:
   - `https://github.com/loomle/loomle/releases/latest/download/loomle-bridge-darwin.zip`
+  - `https://github.com/loomle/loomle/releases/latest/download/loomle-bridge-windows.zip`
   - `https://github.com/loomle/loomle/releases/latest/download/loomle-bridge-manifest.json`
 
 ## Runtime Tools

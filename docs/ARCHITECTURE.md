@@ -40,7 +40,7 @@ Build a clean split where:
 
 2. RPC boundary
 - JSON-RPC 2.0 + NDJSON framing.
-- Windows transport: Named Pipe.
+- Windows transport: project-scoped Named Pipe derived from normalized `project_root`.
 - macOS/Linux transport: Unix Socket.
 
 3. C++ design scope

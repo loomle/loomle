@@ -16,9 +16,8 @@ impl RpcEndpoint {
     pub fn for_project_root(project_root: &Path) -> Self {
         #[cfg(windows)]
         {
-            let _ = project_root;
             return Self::NamedPipe {
-                pipe_name: String::from("loomle"),
+                pipe_name: windows_pipe_name_for_project_root(project_root),
             };
         }
 
@@ -29,6 +28,36 @@ impl RpcEndpoint {
             };
         }
     }
+}
+
+#[cfg(any(windows, test))]
+fn normalize_project_root(project_root: &Path) -> String {
+    let raw = project_root.to_string_lossy().replace('\\', "/");
+    let trimmed = raw.trim_end_matches('/');
+    if trimmed.is_empty() {
+        String::from("/")
+    } else {
+        trimmed.to_ascii_lowercase()
+    }
+}
+
+#[cfg(any(windows, test))]
+fn stable_fnv1a_64(input: &str) -> u64 {
+    const OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+    const PRIME: u64 = 0x100000001b3;
+
+    let mut hash = OFFSET_BASIS;
+    for byte in input.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(PRIME);
+    }
+    hash
+}
+
+#[cfg(any(windows, test))]
+fn windows_pipe_name_for_project_root(project_root: &Path) -> String {
+    let normalized = normalize_project_root(project_root);
+    format!("loomle-{:016x}", stable_fnv1a_64(&normalized))
 }
 
 pub struct NdjsonRpcConnector {
@@ -255,4 +284,26 @@ fn send_and_wait(endpoint: &RpcEndpoint, request: &Value) -> Result<Value, RpcEr
         retryable: false,
         detail: format!("invalid rpc response json: {e}"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_pipe_name_is_stable_across_path_separators_and_case() {
+        let a = windows_pipe_name_for_project_root(Path::new(r"D:\LoomleDevHost\"));
+        let b = windows_pipe_name_for_project_root(Path::new("d:/loomledevhost"));
+
+        assert_eq!(a, b);
+        assert!(a.starts_with("loomle-"));
+    }
+
+    #[test]
+    fn windows_pipe_name_changes_per_project_root() {
+        let a = windows_pipe_name_for_project_root(Path::new("D:/LoomleDevHost"));
+        let b = windows_pipe_name_for_project_root(Path::new("D:/OtherProject"));
+
+        assert_ne!(a, b);
+    }
 }

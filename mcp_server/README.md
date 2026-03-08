@@ -33,5 +33,5 @@ cargo run -- --project-root "/Users/xartest/Documents/UnrealProjects/Loomle"
 - `--project-root` is required.
 - The directory must contain at least one `.uproject` file.
 - Transport endpoint is selected by platform:
-  - Windows: `\\\\.\\pipe\\loomle`
+  - Windows: `\\\\.\\pipe\\loomle-<fnv64(project_root)>`
   - macOS/Linux: `<Project>/Intermediate/loomle.sock`
