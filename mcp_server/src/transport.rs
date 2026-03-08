@@ -37,7 +37,7 @@ fn normalize_project_root(project_root: &Path) -> String {
     if trimmed.is_empty() {
         String::from("/")
     } else {
-        trimmed.to_ascii_lowercase()
+        trimmed.chars().flat_map(char::to_lowercase).collect()
     }
 }
 

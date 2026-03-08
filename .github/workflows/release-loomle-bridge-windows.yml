@@ -79,6 +79,14 @@ jobs:
           "test_root=$testRoot" >> $env:GITHUB_OUTPUT
           "uproject=$($uproject.FullName)" >> $env:GITHUB_OUTPUT
 
+      - name: Stop Stale Unreal Editor Before Plugin Sync
+        shell: pwsh
+        run: |
+          $uproject = "${{ steps.test_project.outputs.uproject }}"
+          Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" |
+            Where-Object { $_.CommandLine -like "*$uproject*" } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+
       - name: Run Rust Unit Tests
         shell: pwsh
         run: |
