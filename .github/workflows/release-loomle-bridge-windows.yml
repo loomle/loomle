@@ -262,6 +262,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          function Get-Sha256([string]$Path) {
+            $output = & certutil -hashfile $Path SHA256
+            if ($LASTEXITCODE -ne 0) {
+              throw "certutil failed for $Path with exit code $LASTEXITCODE"
+            }
+
+            foreach ($line in $output) {
+              if ($line -match '^[0-9A-Fa-f ]+$') {
+                return ($line -replace ' ', '').ToLower()
+              }
+            }
+
+            throw "Failed to parse SHA256 from certutil output for $Path"
+          }
+
           $plugin = Join-Path $env:GITHUB_WORKSPACE "LoomleBridge.uplugin"
           if (-not (Test-Path -LiteralPath $plugin)) {
             throw "Plugin descriptor not found: $plugin"
@@ -289,7 +304,7 @@ jobs:
           $serverDst = Join-Path $packageDir $serverRelPath
           New-Item -ItemType Directory -Force -Path (Split-Path -Parent $serverDst) | Out-Null
           Copy-Item -LiteralPath $serverSrc -Destination $serverDst -Force
-          $serverSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $serverDst).Hash.ToLower()
+          $serverSha256 = Get-Sha256 $serverDst
 
           $metadata = @{
             platform = "windows"
@@ -306,7 +321,7 @@ jobs:
 
           Compress-Archive -Path $stagePluginDir -DestinationPath $zipPath -Force
 
-          $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash.ToLower()
+          $sha256 = Get-Sha256 $zipPath
           $version = "${{ github.ref_name }}".Substring(1)
           $assetUrl = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/loomle-bridge-windows.zip"
 
