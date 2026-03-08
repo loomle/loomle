@@ -4,11 +4,9 @@ LOOMLE brings Unreal Engine 5 runtime and graph context into AI-native workflows
 
 ## Core Features
 
-- Real UE5 runtime context for AI: expose live editor, asset, selection, and runtime health data instead of relying on static guesses.
-- Standard MCP integration: present LOOMLE capabilities through a clean MCP tool surface that works naturally with agent workflows.
-- Graph-aware collaboration: support graph discovery, inspection, action planning, and mutation for UE graph-driven workflows.
-- End-to-end automation with Loomle Skill: install, configure, upgrade, verify, and operate LOOMLE from inside a project-local Codex session.
-- Built for practical UE development: help users and agents work together on Blueprint, Material, PCG, and related editor tasks with the right runtime context available.
+- Live UE5 context for AI: expose real-time editor, asset, selection, and runtime health data so agents act on facts, not snapshots.
+- MCP-native integration: deliver LOOMLE through a clean, standard MCP surface that plugs directly into agent workflows.
+- Graph-to-runtime collaboration: support graph inspection and mutation for Blueprint, Material, and PCG workflows with end-to-end project-local operation via Loomle Skill.
 
 ## Quick Start
 
