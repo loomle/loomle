@@ -23,7 +23,7 @@ jobs:
 
       - name: Resolve Unreal Engine Root (Windows)
         id: ue_root_windows
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         env:
           UE_FROM_VARS: ${{ vars.UE_5_7_ROOT_WINDOWS }}
         run: |
@@ -52,7 +52,7 @@ jobs:
 
       - name: Resolve Test Project Root
         id: test_project
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         env:
           TEST_ROOT_FROM_VARS: ${{ vars.LOOMLE_TEST_PROJECT_ROOT_WINDOWS }}
         run: |
@@ -80,7 +80,7 @@ jobs:
           "uproject=$($uproject.FullName)" >> $env:GITHUB_OUTPUT
 
       - name: Stop Stale Unreal Editor Before Plugin Sync
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           $uproject = "${{ steps.test_project.outputs.uproject }}"
           Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" |
@@ -88,14 +88,14 @@ jobs:
             ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 
       - name: Run Rust Unit Tests
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp_server")
           cargo test
           Pop-Location
 
       - name: Build Plugin From Current Commit And Sync To Test Project
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           $plugin = Join-Path $env:GITHUB_WORKSPACE "LoomleBridge.uplugin"
           if (-not (Test-Path -LiteralPath $plugin)) {
@@ -120,7 +120,7 @@ jobs:
           Copy-Item -Path (Join-Path $packageDir "*") -Destination $pluginDst -Recurse -Force
 
       - name: Build MCP Server Binary (Release) And Sync To Test Project Plugin
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp_server")
           cargo build --release
@@ -136,7 +136,7 @@ jobs:
           Copy-Item -LiteralPath $serverSrc -Destination $pluginServer -Force
 
       - name: Restart Unreal Editor For Release Gating
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           $uproject = "${{ steps.test_project.outputs.uproject }}"
           Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" |
@@ -146,7 +146,7 @@ jobs:
           Start-Process -FilePath "${{ steps.ue_root_windows.outputs.ue_editor }}" -ArgumentList @($uproject)
 
       - name: Wait For Bridge And Run Smoke Test
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           $deadline = (Get-Date).AddMinutes(4)
           while ((Get-Date) -lt $deadline) {
@@ -160,7 +160,7 @@ jobs:
           throw "TIMEOUT waiting for bridge smoke test to pass"
 
       - name: Run Regression Integration Test
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           $projectRoot = "${{ steps.test_project.outputs.test_root }}"
           $uproject = "${{ steps.test_project.outputs.uproject }}"
@@ -195,7 +195,7 @@ jobs:
 
       - name: Stop Unreal Editor After Gating
         if: always()
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           $uproject = "${{ steps.test_project.outputs.uproject }}"
           Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" |
@@ -204,7 +204,7 @@ jobs:
 
       - name: Build and Package Plugin (Windows)
         id: package
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -292,14 +292,14 @@ jobs:
       - name: Upload Merged Manifest To Tag Release
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           gh release upload "${{ github.ref_name }}" "${{ steps.package.outputs.manifest_path }}" --repo "${{ github.repository }}" --clobber
 
       - name: Update Stable Alias Release (bridge-latest)
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           $zipPath = "${{ steps.package.outputs.zip_path }}"
           $manifestPath = "${{ steps.package.outputs.manifest_path }}"
