@@ -313,7 +313,8 @@ jobs:
             commit = "${{ github.sha }}"
             runner = "${{ runner.name }}"
           } | ConvertTo-Json
-          Set-Content -LiteralPath (Join-Path $packageDir "build-metadata.json") -Value $metadata -Encoding utf8NoBOM
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText((Join-Path $packageDir "build-metadata.json"), $metadata, $utf8NoBom)
 
           $stagePluginDir = Join-Path $stageDir "LoomleBridge"
           New-Item -ItemType Directory -Force -Path $stagePluginDir | Out-Null
