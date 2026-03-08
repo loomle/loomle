@@ -8,6 +8,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Write-Utf8NoBom([string]$Path, [string]$Value) {
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Path, $Value, $utf8NoBom)
+}
+
 $projectDescription = "Dedicated isolated Unreal project for LOOMLE runner verification."
 $uprojectPath = Join-Path $ProjectRoot "$ProjectName.uproject"
 $configDir = Join-Path $ProjectRoot "Config"
@@ -36,14 +41,14 @@ if (-not (Test-Path -LiteralPath $uprojectPath)) {
   ]
 }
 "@
-    Set-Content -LiteralPath $uprojectPath -Value $uproject -Encoding utf8NoBOM
+    Write-Utf8NoBom -Path $uprojectPath -Value $uproject
 }
 
 $defaultEditorSettings = @"
 [/Script/UnrealEd.EditorPerformanceSettings]
 bThrottleCPUWhenNotForeground=False
 "@
-Set-Content -LiteralPath (Join-Path $configDir "DefaultEditorSettings.ini") -Value $defaultEditorSettings -Encoding utf8NoBOM
+Write-Utf8NoBom -Path (Join-Path $configDir "DefaultEditorSettings.ini") -Value $defaultEditorSettings
 
 $defaultGame = @"
 [/Script/EngineSettings.GeneralProjectSettings]
@@ -53,7 +58,7 @@ ProjectDebugTitleInfo=NSLOCTEXT("[/Script/EngineSettings]", "D0092C914D6E40B4BBD
 ProjectID=8F90A338441B4774861DDEDE1005B8F9
 Description=$projectDescription
 "@
-Set-Content -LiteralPath (Join-Path $configDir "DefaultGame.ini") -Value $defaultGame -Encoding utf8NoBOM
+Write-Utf8NoBom -Path (Join-Path $configDir "DefaultGame.ini") -Value $defaultGame
 
 $defaultEngine = @"
 [/Script/EngineSettings.GameMapsSettings]
@@ -73,12 +78,12 @@ AppliedTargetedHardwareClass=Desktop
 DefaultGraphicsPerformance=Scalable
 AppliedDefaultGraphicsPerformance=Scalable
 "@
-Set-Content -LiteralPath (Join-Path $configDir "DefaultEngine.ini") -Value $defaultEngine -Encoding utf8NoBOM
+Write-Utf8NoBom -Path (Join-Path $configDir "DefaultEngine.ini") -Value $defaultEngine
 
 $defaultEditor = @"
 [UnrealEd.SimpleMap]
 SimpleMapName=/Engine/Maps/Entry
 "@
-Set-Content -LiteralPath (Join-Path $configDir "DefaultEditor.ini") -Value $defaultEditor -Encoding utf8NoBOM
+Write-Utf8NoBom -Path (Join-Path $configDir "DefaultEditor.ini") -Value $defaultEditor
 
 Write-Output "READY:$ProjectRoot"
