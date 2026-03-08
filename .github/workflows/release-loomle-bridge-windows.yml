@@ -20,6 +20,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure Tag Commit Is On Main
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
+        run: |
+          git fetch origin main --no-tags
+          $tagCommit = (git rev-parse HEAD).Trim()
+          git merge-base --is-ancestor $tagCommit origin/main
+          if ($LASTEXITCODE -ne 0) {
+            throw "Release tag commit $tagCommit is not reachable from origin/main"
+          }
 
       - name: Resolve Unreal Engine Root (Windows)
         id: ue_root_windows

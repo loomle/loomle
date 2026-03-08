@@ -20,6 +20,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure Tag Commit Is On Main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --no-tags
+          tag_commit="$(git rev-parse HEAD)"
+          git merge-base --is-ancestor "$tag_commit" origin/main || {
+            echo "Release tag commit $tag_commit is not reachable from origin/main" >&2
+            exit 1
+          }
 
       - name: Resolve Unreal Engine Root (Mac)
         id: ue_root_mac
