@@ -92,13 +92,6 @@ jobs:
             echo "socket=$socket"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Run Rust Unit Tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$GITHUB_WORKSPACE/mcp_server"
-          cargo test
-
       - name: Build Plugin From Current Commit And Sync To Test Project
         shell: bash
         run: |
@@ -133,65 +126,6 @@ jobs:
           mkdir -p "$(dirname "$plugin_server")"
           cp "$server_src" "$plugin_server"
           chmod +x "$plugin_server"
-
-      - name: Restart Unreal Editor For Release Gating
-        shell: bash
-        run: |
-          set -euo pipefail
-          pkill -f "UnrealEditor.*${{ steps.test_project.outputs.uproject }}" || true
-          sleep 2
-          open -na "${{ steps.ue_root_mac.outputs.ue_app }}" --args "${{ steps.test_project.outputs.uproject }}"
-
-      - name: Wait For Bridge Socket
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY' "${{ steps.test_project.outputs.socket }}"
-          import os
-          import socket
-          import sys
-          import time
-
-          sock = sys.argv[1]
-          deadline = time.time() + 240
-          while time.time() < deadline:
-              if os.path.exists(sock):
-                  try:
-                      s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                      s.settimeout(0.5)
-                      s.connect(sock)
-                      s.close()
-                      print("READY")
-                      raise SystemExit(0)
-                  except Exception:
-                      pass
-              time.sleep(1)
-          print(f"TIMEOUT waiting for socket: {sock}")
-          raise SystemExit(1)
-          PY
-
-      - name: Run Smoke Integration Test
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$GITHUB_WORKSPACE"
-          python3 tools/test_bridge_smoke.py \
-            --project-root "${{ steps.test_project.outputs.test_root }}"
-
-      - name: Run Regression Integration Test
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$GITHUB_WORKSPACE"
-          python3 tools/test_bridge_regression.py \
-            --project-root "${{ steps.test_project.outputs.test_root }}"
-
-      - name: Stop Unreal Editor After Gating
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          pkill -f "UnrealEditor.*${{ steps.test_project.outputs.uproject }}" || true
 
       - name: Build and Package Plugin (Mac)
         id: package

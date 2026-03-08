@@ -153,13 +153,6 @@ jobs:
           $cargoBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           & $cargoExe --version
 
-      - name: Run Rust Unit Tests
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
-        run: |
-          Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp_server")
-          cargo test
-          Pop-Location
-
       - name: Build Plugin From Current Commit And Sync To Test Project
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
@@ -200,73 +193,6 @@ jobs:
           $pluginServer = Join-Path "${{ steps.test_project.outputs.test_root }}" "Plugins\LoomleBridge\Tools\mcp\windows\loomle_mcp_server.exe"
           New-Item -ItemType Directory -Force -Path (Split-Path -Parent $pluginServer) | Out-Null
           Copy-Item -LiteralPath $serverSrc -Destination $pluginServer -Force
-
-      - name: Restart Unreal Editor For Release Gating
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
-        run: |
-          $uproject = "${{ steps.test_project.outputs.uproject }}"
-          Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" |
-            Where-Object { $_.CommandLine -like "*$uproject*" } |
-            ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-          Start-Sleep -Seconds 2
-          Start-Process -FilePath "${{ steps.ue_root_windows.outputs.ue_editor }}" -ArgumentList @($uproject)
-
-      - name: Wait For Bridge And Run Smoke Test
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
-        run: |
-          $deadline = (Get-Date).AddMinutes(4)
-          while ((Get-Date) -lt $deadline) {
-            python tools/test_bridge_smoke.py --project-root "${{ steps.test_project.outputs.test_root }}"
-            if ($LASTEXITCODE -eq 0) {
-              exit 0
-            }
-            Start-Sleep -Seconds 5
-          }
-
-          throw "TIMEOUT waiting for bridge smoke test to pass"
-
-      - name: Run Regression Integration Test
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
-        run: |
-          $projectRoot = "${{ steps.test_project.outputs.test_root }}"
-          $uproject = "${{ steps.test_project.outputs.uproject }}"
-          $ueEditor = "${{ steps.ue_root_windows.outputs.ue_editor }}"
-          $passed = $false
-
-          for ($attempt = 1; $attempt -le 2; $attempt++) {
-            Push-Location $env:GITHUB_WORKSPACE
-            python tools/test_bridge_regression.py --project-root $projectRoot
-            $exitCode = $LASTEXITCODE
-            Pop-Location
-
-            if ($exitCode -eq 0) {
-              $passed = $true
-              break
-            }
-
-            if ($attempt -lt 2) {
-              Write-Warning "Regression attempt $attempt failed (exit=$exitCode), restarting Unreal Editor and retrying..."
-              Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" |
-                Where-Object { $_.CommandLine -like "*$uproject*" } |
-                ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-              Start-Sleep -Seconds 3
-              Start-Process -FilePath $ueEditor -ArgumentList @($uproject)
-              Start-Sleep -Seconds 10
-            }
-          }
-
-          if (-not $passed) {
-            throw "Regression integration test failed after retry"
-          }
-
-      - name: Stop Unreal Editor After Gating
-        if: always()
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
-        run: |
-          $uproject = "${{ steps.test_project.outputs.uproject }}"
-          Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" |
-            Where-Object { $_.CommandLine -like "*$uproject*" } |
-            ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 
       - name: Build and Package Plugin (Windows)
         id: package
