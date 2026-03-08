@@ -5,13 +5,21 @@ on:
   pull_request:
     branches:
       - "main"
-    paths-ignore:
-      - "**/*.md"
+    paths:
+      - "Source/**"
+      - "mcp_server/**"
+      - "tools/**"
+      - "LoomleBridge.uplugin"
+      - ".github/workflows/**"
   push:
     branches:
       - "main"
-    paths-ignore:
-      - "**/*.md"
+    paths:
+      - "Source/**"
+      - "mcp_server/**"
+      - "tools/**"
+      - "LoomleBridge.uplugin"
+      - ".github/workflows/**"
 
 permissions:
   contents: read
