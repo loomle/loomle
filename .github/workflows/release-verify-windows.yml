@@ -98,6 +98,34 @@ jobs:
             Where-Object { $_.CommandLine -like "*$uproject*" } |
             ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 
+      - name: Ensure Rust Toolchain
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
+        run: |
+          $cargoCmd = Get-Command cargo -ErrorAction SilentlyContinue
+          if (-not $cargoCmd) {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            $rustupInit = Join-Path $env:RUNNER_TEMP "rustup-init.exe"
+            Invoke-WebRequest -Uri "https://win.rustup.rs/x86_64" -OutFile $rustupInit
+            & $rustupInit -y --profile minimal --default-toolchain stable
+            if ($LASTEXITCODE -ne 0) {
+              throw "rustup-init failed with exit code $LASTEXITCODE"
+            }
+          }
+
+          $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE ".cargo" }
+          $cargoBin = Join-Path $cargoHome "bin"
+          if (-not (Test-Path -LiteralPath $cargoBin)) {
+            throw "Cargo bin path not found after Rust setup: $cargoBin"
+          }
+
+          $cargoExe = Join-Path $cargoBin "cargo.exe"
+          if (-not (Test-Path -LiteralPath $cargoExe)) {
+            throw "cargo.exe not found after Rust setup: $cargoExe"
+          }
+
+          $cargoBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & $cargoExe --version
+
       - name: Run Rust Unit Tests
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
