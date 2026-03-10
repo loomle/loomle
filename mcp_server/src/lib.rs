@@ -21,6 +21,10 @@ pub struct RpcHealth {
     #[serde(rename = "rpcVersion")]
     pub rpc_version: String,
     pub timestamp: String,
+    #[serde(default, rename = "isPIE")]
+    pub is_pie: bool,
+    #[serde(default, rename = "editorBusyReason")]
+    pub editor_busy_reason: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -82,21 +86,35 @@ impl<C: RpcConnector> McpService<C> {
 
     fn call_loomle(&self) -> McpToolResult {
         match self.connector.health() {
-            Ok(h) => McpToolResult {
-                structured_content: json!({
-                    "status": h.status,
-                    "runtime": {
-                        "rpcConnected": true,
-                        "listenerReady": true,
-                        "rpcHealth": {
-                            "status": h.status,
-                            "rpcVersion": h.rpc_version,
-                            "timestamp": h.timestamp
+            Ok(h) => {
+                let status = if h.is_pie {
+                    "blocked"
+                } else {
+                    h.status.as_str()
+                };
+                McpToolResult {
+                    structured_content: json!({
+                        "status": status,
+                        "domainCode": if h.is_pie { "EDITOR_BUSY" } else { "" },
+                        "message": if h.is_pie { "Unreal Editor is currently in Play In Editor (PIE)." } else { "" },
+                        "runtime": {
+                            "rpcConnected": true,
+                            "listenerReady": true,
+                            "isPIE": h.is_pie,
+                            "editorBusyReason": h.editor_busy_reason,
+                            "acceptsRuntimeTools": !h.is_pie,
+                            "rpcHealth": {
+                                "status": h.status,
+                                "rpcVersion": h.rpc_version,
+                                "timestamp": h.timestamp,
+                                "isPIE": h.is_pie,
+                                "editorBusyReason": h.editor_busy_reason
+                            }
                         }
-                    }
-                }),
-                is_error: false,
-            },
+                    }),
+                    is_error: false,
+                }
+            }
             Err(e) => McpToolResult {
                 structured_content: json!({
                     "status": "error",
@@ -123,38 +141,52 @@ impl<C: RpcConnector> McpService<C> {
             .unwrap_or("k2");
 
         match self.connector.health() {
-            Ok(h) => McpToolResult {
-                structured_content: json!({
-                    "status": h.status,
-                    "graphType": graph_type,
-                    "version": "1.0",
-                    "ops": [
-                        "addNode.byClass",
-                        "addNode.byAction",
-                        "connectPins",
-                        "disconnectPins",
-                        "breakPinLinks",
-                        "setPinDefault",
-                        "removeNode",
-                        "moveNode",
-                        "compile",
-                        "runScript"
-                    ],
-                    "limits": {
-                        "defaultLimit": 200,
-                        "maxLimit": 1000,
-                        "maxOpsPerMutate": 200
-                    },
-                    "runtime": {
-                        "rpcHealth": {
-                            "status": h.status,
-                            "rpcVersion": h.rpc_version,
-                            "timestamp": h.timestamp
+            Ok(h) => {
+                let status = if h.is_pie {
+                    "blocked"
+                } else {
+                    h.status.as_str()
+                };
+                McpToolResult {
+                    structured_content: json!({
+                        "status": status,
+                        "graphType": graph_type,
+                        "version": "1.0",
+                        "domainCode": if h.is_pie { "EDITOR_BUSY" } else { "" },
+                        "message": if h.is_pie { "Unreal Editor is currently in Play In Editor (PIE)." } else { "" },
+                        "ops": [
+                            "addNode.byClass",
+                            "addNode.byAction",
+                            "connectPins",
+                            "disconnectPins",
+                            "breakPinLinks",
+                            "setPinDefault",
+                            "removeNode",
+                            "moveNode",
+                            "compile",
+                            "runScript"
+                        ],
+                        "limits": {
+                            "defaultLimit": 200,
+                            "maxLimit": 1000,
+                            "maxOpsPerMutate": 200
+                        },
+                        "runtime": {
+                            "isPIE": h.is_pie,
+                            "editorBusyReason": h.editor_busy_reason,
+                            "acceptsRuntimeTools": !h.is_pie,
+                            "rpcHealth": {
+                                "status": h.status,
+                                "rpcVersion": h.rpc_version,
+                                "timestamp": h.timestamp,
+                                "isPIE": h.is_pie,
+                                "editorBusyReason": h.editor_busy_reason
+                            }
                         }
-                    }
-                }),
-                is_error: false,
-            },
+                    }),
+                    is_error: false,
+                }
+            }
             Err(e) => McpToolResult {
                 structured_content: json!({
                     "status": "error",
@@ -181,6 +213,15 @@ impl<C: RpcConnector> McpService<C> {
     }
 
     fn call_runtime(&self, tool: &str, args: Value, meta: RpcMeta) -> McpToolResult {
+        if let Ok(h) = self.connector.health() {
+            if h.is_pie {
+                return McpToolResult {
+                    structured_content: editor_busy_payload(tool, &h),
+                    is_error: true,
+                };
+            }
+        }
+
         match self.connector.invoke(tool, args, meta) {
             Ok(payload) => McpToolResult {
                 structured_content: payload,
@@ -192,6 +233,33 @@ impl<C: RpcConnector> McpService<C> {
             },
         }
     }
+}
+
+fn editor_busy_payload(tool: &str, health: &RpcHealth) -> Value {
+    let busy_reason = if health.editor_busy_reason.is_empty() {
+        "PIE_ACTIVE"
+    } else {
+        health.editor_busy_reason.as_str()
+    };
+
+    json!({
+        "domainCode": "EDITOR_BUSY",
+        "message": "Unreal Editor is currently in Play In Editor (PIE).",
+        "retryable": true,
+        "detail": format!("Tool `{tool}` was blocked because the editor reported {busy_reason}. Retry after PIE stops."),
+        "busyReason": busy_reason,
+        "runtime": {
+            "isPIE": health.is_pie,
+            "editorBusyReason": busy_reason,
+            "rpcHealth": {
+                "status": health.status,
+                "rpcVersion": health.rpc_version,
+                "timestamp": health.timestamp,
+                "isPIE": health.is_pie,
+                "editorBusyReason": busy_reason
+            }
+        }
+    })
 }
 
 fn error_payload(code: u16, message: String, retryable: bool, detail: String) -> Value {
@@ -236,6 +304,7 @@ mod tests {
 
     struct State {
         health_calls: usize,
+        health_result: RpcHealth,
         invoke_calls: Vec<(String, Value, RpcMeta)>,
         by_tool_result: HashMap<String, Result<Value, RpcError>>,
         out_of_order_ids: bool,
@@ -246,6 +315,13 @@ mod tests {
             Self {
                 state: Arc::new(Mutex::new(State {
                     health_calls: 0,
+                    health_result: RpcHealth {
+                        status: "ok".to_string(),
+                        rpc_version: "1.0".to_string(),
+                        timestamp: "2026-03-05T12:00:00Z".to_string(),
+                        is_pie: false,
+                        editor_busy_reason: String::new(),
+                    },
                     invoke_calls: Vec::new(),
                     by_tool_result: HashMap::new(),
                     out_of_order_ids: false,
@@ -270,6 +346,10 @@ mod tests {
             self.state.lock().unwrap().health_calls
         }
 
+        fn set_health_result(&self, health_result: RpcHealth) {
+            self.state.lock().unwrap().health_result = health_result;
+        }
+
         fn last_invoke(&self) -> Option<(String, Value, RpcMeta)> {
             self.state.lock().unwrap().invoke_calls.last().cloned()
         }
@@ -279,11 +359,7 @@ mod tests {
         fn health(&self) -> Result<RpcHealth, RpcError> {
             let mut st = self.state.lock().unwrap();
             st.health_calls += 1;
-            Ok(RpcHealth {
-                status: "ok".to_string(),
-                rpc_version: "1.0".to_string(),
-                timestamp: "2026-03-05T12:00:00Z".to_string(),
-            })
+            Ok(st.health_result.clone())
         }
 
         fn invoke(&self, tool: &str, args: Value, meta: RpcMeta) -> Result<Value, RpcError> {
@@ -345,6 +421,29 @@ mod tests {
     }
 
     #[test]
+    fn loomle_reports_blocked_during_pie() {
+        let connector = FakeConnector::new();
+        connector.set_health_result(RpcHealth {
+            status: "ok".to_string(),
+            rpc_version: "1.0".to_string(),
+            timestamp: "2026-03-10T12:00:00Z".to_string(),
+            is_pie: true,
+            editor_busy_reason: "PIE_ACTIVE".to_string(),
+        });
+
+        let service = McpService::new(connector);
+        let result = service.call_tool("loomle", json!({}), meta("3"));
+
+        assert!(!result.is_error);
+        assert_eq!(result.structured_content["status"], "blocked");
+        assert_eq!(result.structured_content["runtime"]["isPIE"], true);
+        assert_eq!(
+            result.structured_content["runtime"]["acceptsRuntimeTools"],
+            false
+        );
+    }
+
+    #[test]
     fn context_maps_to_rpc_invoke_with_context_tool() {
         let connector = FakeConnector::new();
         let service = McpService::new(connector.clone());
@@ -355,6 +454,25 @@ mod tests {
         assert_eq!(tool, "context");
         assert_eq!(args["resolveIds"][0], "A");
         assert_eq!(call_meta.request_id, "9");
+    }
+
+    #[test]
+    fn runtime_tools_fail_fast_during_pie_without_invoke() {
+        let connector = FakeConnector::new();
+        connector.set_health_result(RpcHealth {
+            status: "ok".to_string(),
+            rpc_version: "1.0".to_string(),
+            timestamp: "2026-03-10T12:00:00Z".to_string(),
+            is_pie: true,
+            editor_busy_reason: "PIE_ACTIVE".to_string(),
+        });
+
+        let service = McpService::new(connector.clone());
+        let result = service.call_tool("context", json!({}), meta("10"));
+
+        assert!(result.is_error);
+        assert_eq!(result.structured_content["domainCode"], "EDITOR_BUSY");
+        assert!(connector.last_invoke().is_none());
     }
 
     #[test]

@@ -26,6 +26,33 @@ def op_ok(payload: dict) -> dict:
     return first
 
 
+def query_nodes(client: McpStdioClient, request_id: int, asset_path: str, graph_name: str) -> list[dict]:
+    payload = call_tool(
+        client,
+        request_id,
+        "graph.query",
+        {"assetPath": asset_path, "graphName": graph_name, "graphType": "blueprint", "limit": 200},
+    )
+    snapshot = payload.get("semanticSnapshot", {})
+    nodes = snapshot.get("nodes")
+    if not isinstance(nodes, list):
+        fail(f"graph.query missing nodes[]: {payload}")
+    return [node for node in nodes if isinstance(node, dict)]
+
+
+def require_node(nodes: list[dict], node_id: str) -> dict:
+    for node in nodes:
+        if node.get("id") == node_id:
+            return node
+    fail(f"graph.query did not return node {node_id}: {nodes}")
+
+
+def require_node_absent(nodes: list[dict], node_id: str) -> None:
+    for node in nodes:
+        if node.get("id") == node_id:
+            fail(f"graph.query still returned removed node {node_id}: {node}")
+
+
 def wait_for_bridge_ready(client: McpStdioClient, timeout_s: float = 120.0, interval_s: float = 2.0) -> None:
     deadline = time.time() + timeout_s
     attempt = 0
@@ -371,25 +398,17 @@ def main() -> int:
         )
         op_ok(compile_payload)
 
-        remove_a = call_tool(
-            client,
-            19,
-            "graph.mutate",
-            {
-                "assetPath": temp_asset,
-                "graphName": "EventGraph",
-                "graphType": "blueprint",
-                "ops": [
-                    {
-                        "op": "removeNode",
-                        "args": {"target": {"nodeId": node_a}},
-                    }
-                ],
-            },
-        )
-        op_ok(remove_a)
+        nodes_before_remove = query_nodes(client, 19, temp_asset, "EventGraph")
+        node_a_info = require_node(nodes_before_remove, node_a)
+        node_b_info = require_node(nodes_before_remove, node_b)
+        node_a_path = node_a_info.get("path")
+        node_b_name = node_b_info.get("name")
+        if not isinstance(node_a_path, str) or not node_a_path:
+            fail(f"graph.query did not return path for {node_a}: {node_a_info}")
+        if not isinstance(node_b_name, str) or not node_b_name:
+            fail(f"graph.query did not return name for {node_b}: {node_b_info}")
 
-        remove_b = call_tool(
+        remove_a = call_tool(
             client,
             20,
             "graph.mutate",
@@ -400,13 +419,79 @@ def main() -> int:
                 "ops": [
                     {
                         "op": "removeNode",
-                        "args": {"target": {"nodeId": node_b}},
+                        "args": {"target": {"nodePath": node_a_path}},
+                    }
+                ],
+            },
+        )
+        op_ok(remove_a)
+        nodes_after_remove_a = query_nodes(client, 21, temp_asset, "EventGraph")
+        require_node_absent(nodes_after_remove_a, node_a)
+
+        remove_b = call_tool(
+            client,
+            22,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "ops": [
+                    {
+                        "op": "removeNode",
+                        "args": {"target": {"nodeName": node_b_name}},
                     }
                 ],
             },
         )
         op_ok(remove_b)
+        nodes_after_remove_b = query_nodes(client, 23, temp_asset, "EventGraph")
+        require_node_absent(nodes_after_remove_b, node_b)
 
+        add_c = call_tool(
+            client,
+            24,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "ops": [
+                    {
+                        "op": "addNode.byClass",
+                        "args": {
+                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
+                            "position": {"x": 960, "y": 0},
+                        },
+                    }
+                ],
+            },
+        )
+        node_c = op_ok(add_c).get("nodeId")
+        if not isinstance(node_c, str) or not node_c:
+            fail(f"addNode.byClass did not return nodeId for third node: {add_c}")
+
+        remove_c = call_tool(
+            client,
+            25,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "ops": [
+                    {
+                        "op": "removeNode",
+                        "args": {"target": {"nodeId": node_c}},
+                    }
+                ],
+            },
+        )
+        op_ok(remove_c)
+        nodes_after_remove_c = query_nodes(client, 26, temp_asset, "EventGraph")
+        require_node_absent(nodes_after_remove_c, node_c)
+
+        print("[PASS] graph.mutate removeNode validated for nodeId/nodePath/nodeName")
         print("[PASS] graph.mutate core ops validated")
         print("[PASS] Bridge regression complete")
         return 0

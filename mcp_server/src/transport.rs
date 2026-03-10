@@ -2,8 +2,8 @@ use crate::{RpcConnector, RpcError, RpcHealth, RpcMeta};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -104,11 +104,8 @@ impl NdjsonRpcConnector {
 
 impl RpcConnector for NdjsonRpcConnector {
     fn health(&self) -> Result<RpcHealth, RpcError> {
-        let value = self.call_with_timeout(
-            "rpc.health",
-            json!({}),
-            Some(Duration::from_millis(200)),
-        )?;
+        let value =
+            self.call_with_timeout("rpc.health", json!({}), Some(Duration::from_millis(200)))?;
         serde_json::from_value::<RpcHealth>(value).map_err(|e| RpcError {
             code: 1011,
             message: String::from("INTERNAL_ERROR"),
@@ -197,7 +194,8 @@ fn call_with_deadline(
 ) -> Result<Value, RpcError> {
     let (tx, rx) = mpsc::sync_channel(1);
     std::thread::spawn(move || {
-        let result = send_and_wait(&endpoint, &request).and_then(|response| parse_response(response, &expected_id));
+        let result = send_and_wait(&endpoint, &request)
+            .and_then(|response| parse_response(response, &expected_id));
         let _ = tx.send(result);
     });
 

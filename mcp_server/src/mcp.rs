@@ -279,6 +279,8 @@ mod tests {
                 status: String::from("ok"),
                 rpc_version: String::from("1.0"),
                 timestamp: String::from("2026-03-05T12:00:00Z"),
+                is_pie: false,
+                editor_busy_reason: String::new(),
             })
         }
 

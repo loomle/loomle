@@ -214,6 +214,60 @@ namespace LoomleBlueprintAdapterInternal
         return nullptr;
     }
 
+    static UEdGraphNode* FindNodeByPath(UEdGraph* Graph, const FString& NodePath)
+    {
+        if (!Graph || NodePath.IsEmpty())
+        {
+            return nullptr;
+        }
+
+        for (UEdGraphNode* Node : Graph->Nodes)
+        {
+            if (Node && Node->GetPathName().Equals(NodePath, ESearchCase::IgnoreCase))
+            {
+                return Node;
+            }
+        }
+        return nullptr;
+    }
+
+    static UEdGraphNode* FindNodeByName(UEdGraph* Graph, const FString& NodeName)
+    {
+        if (!Graph || NodeName.IsEmpty())
+        {
+            return nullptr;
+        }
+
+        for (UEdGraphNode* Node : Graph->Nodes)
+        {
+            if (Node && Node->GetName().Equals(NodeName, ESearchCase::IgnoreCase))
+            {
+                return Node;
+            }
+        }
+        return nullptr;
+    }
+
+    static UEdGraphNode* ResolveNodeByToken(UEdGraph* Graph, const FString& NodeToken)
+    {
+        if (NodeToken.IsEmpty())
+        {
+            return nullptr;
+        }
+
+        if (UEdGraphNode* Node = FindNodeByGuid(Graph, NodeToken))
+        {
+            return Node;
+        }
+
+        if (UEdGraphNode* Node = FindNodeByPath(Graph, NodeToken))
+        {
+            return Node;
+        }
+
+        return FindNodeByName(Graph, NodeToken);
+    }
+
     static FString NormalizePinToken(FString Value)
     {
         Value = Value.ToLower();
@@ -1368,14 +1422,36 @@ bool FLoomleBlueprintAdapter::RemoveNode(const FString& BlueprintAssetPath, cons
         return false;
     }
 
-    UEdGraphNode* Node = LoomleBlueprintAdapterInternal::FindNodeByGuid(EventGraph, NodeGuid);
+    UEdGraphNode* Node = LoomleBlueprintAdapterInternal::ResolveNodeByToken(EventGraph, NodeGuid);
     if (!Node)
     {
-        OutError = FString::Printf(TEXT("Node not found by guid: %s"), *NodeGuid);
+        OutError = FString::Printf(TEXT("Node not found in graph by id/path/name: %s"), *NodeGuid);
         return false;
     }
 
+    Blueprint->Modify();
+    EventGraph->Modify();
     Node->DestroyNode();
+
+    if (LoomleBlueprintAdapterInternal::ResolveNodeByToken(EventGraph, NodeGuid) != nullptr)
+    {
+        UEdGraphNode* FallbackNode = LoomleBlueprintAdapterInternal::ResolveNodeByToken(EventGraph, NodeGuid);
+        if (FallbackNode)
+        {
+            FallbackNode->Modify();
+            FallbackNode->BreakAllNodeLinks();
+            EventGraph->RemoveNode(FallbackNode);
+        }
+    }
+
+    if (LoomleBlueprintAdapterInternal::ResolveNodeByToken(EventGraph, NodeGuid) != nullptr)
+    {
+        OutError = FString::Printf(TEXT("Node remained in graph after removal attempt: %s"), *NodeGuid);
+        return false;
+    }
+
+    FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+    Blueprint->MarkPackageDirty();
     return true;
 }
 

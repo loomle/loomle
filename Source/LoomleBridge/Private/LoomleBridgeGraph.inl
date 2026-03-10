@@ -2331,15 +2331,47 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 if (const TSharedPtr<FJsonObject>* TargetObj = nullptr; ArgsObj->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid())
                 {
                     ResolveNodeToken(*TargetObj, NodeToken);
+                    if (NodeToken.IsEmpty())
+                    {
+                        (*TargetObj)->TryGetStringField(TEXT("nodePath"), NodeToken);
+                    }
+                    if (NodeToken.IsEmpty())
+                    {
+                        (*TargetObj)->TryGetStringField(TEXT("path"), NodeToken);
+                    }
+                    if (NodeToken.IsEmpty())
+                    {
+                        (*TargetObj)->TryGetStringField(TEXT("nodeName"), NodeToken);
+                    }
+                    if (NodeToken.IsEmpty())
+                    {
+                        (*TargetObj)->TryGetStringField(TEXT("name"), NodeToken);
+                    }
                 }
                 if (NodeToken.IsEmpty())
                 {
                     ArgsObj->TryGetStringField(TEXT("nodeId"), NodeToken);
                 }
+                if (NodeToken.IsEmpty())
+                {
+                    ArgsObj->TryGetStringField(TEXT("nodePath"), NodeToken);
+                }
+                if (NodeToken.IsEmpty())
+                {
+                    ArgsObj->TryGetStringField(TEXT("path"), NodeToken);
+                }
+                if (NodeToken.IsEmpty())
+                {
+                    ArgsObj->TryGetStringField(TEXT("nodeName"), NodeToken);
+                }
+                if (NodeToken.IsEmpty())
+                {
+                    ArgsObj->TryGetStringField(TEXT("name"), NodeToken);
+                }
                 bOk = !NodeToken.IsEmpty() && FLoomleBlueprintAdapter::RemoveNode(AssetPath, OpGraphName, NodeToken, Error);
                 if (!bOk && Error.IsEmpty())
                 {
-                    Error = TEXT("Failed to resolve removeNode target.");
+                    Error = TEXT("Failed to resolve removeNode target. Provide nodeId, nodeRef, nodePath, path, nodeName, or name.");
                 }
                 if (bOk)
                 {
@@ -2594,4 +2626,3 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
     Result->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
     return Result;
 }
-

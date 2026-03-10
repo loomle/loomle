@@ -68,6 +68,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcHealthResult() const
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     const bool bBridgeRunning = bBridgeRunningSnapshot.Load();
     const bool bPythonReady = bPythonReadySnapshot.Load();
+    const bool bIsPIE = bIsPIESnapshot.Load();
 
     FString Health = TEXT("error");
     if (bBridgeRunning && bPythonReady)
@@ -83,6 +84,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcHealthResult() const
     Result->SetStringField(TEXT("service"), TEXT("loomle-rpc-listener"));
     Result->SetStringField(TEXT("rpcVersion"), LoomleBridgeConstants::RpcVersion);
     Result->SetStringField(TEXT("timestamp"), FDateTime::UtcNow().ToIso8601());
+    Result->SetBoolField(TEXT("isPIE"), bIsPIE);
+    Result->SetStringField(TEXT("editorBusyReason"), bIsPIE ? TEXT("PIE_ACTIVE") : TEXT(""));
     return Result;
 }
 

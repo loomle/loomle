@@ -60,5 +60,6 @@ private:
     bool bGraphMutateInProgress = false;
     TAtomic<bool> bBridgeRunningSnapshot { false };
     TAtomic<bool> bPythonReadySnapshot { false };
+    TAtomic<bool> bIsPIESnapshot { false };
     FTSTicker::FDelegateHandle HealthSnapshotTickerHandle;
 };

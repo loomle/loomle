@@ -1133,9 +1133,11 @@ void FLoomleBridgeModule::UpdateHealthSnapshot()
     const bool bBridgeRunning = PipeServer.IsValid();
     const IPythonScriptPlugin* PythonScriptPlugin = IPythonScriptPlugin::Get();
     const bool bPythonReady = PythonScriptPlugin != nullptr && PythonScriptPlugin->IsPythonInitialized();
+    const bool bIsPIE = GEditor != nullptr && GEditor->IsPlayingSessionInEditor();
 
     bBridgeRunningSnapshot.Store(bBridgeRunning);
     bPythonReadySnapshot.Store(bPythonReady);
+    bIsPIESnapshot.Store(bIsPIE);
 }
 
 void FLoomleBridgeModule::StartupModule()
@@ -1160,6 +1162,7 @@ void FLoomleBridgeModule::StartupModule()
         PipeServer.Reset();
         bBridgeRunningSnapshot.Store(false);
         bPythonReadySnapshot.Store(false);
+        bIsPIESnapshot.Store(false);
         return;
     }
 
@@ -1193,6 +1196,7 @@ void FLoomleBridgeModule::ShutdownModule()
 
     bBridgeRunningSnapshot.Store(false);
     bPythonReadySnapshot.Store(false);
+    bIsPIESnapshot.Store(false);
 }
 
 #include "LoomleBridgeRpc.inl"
