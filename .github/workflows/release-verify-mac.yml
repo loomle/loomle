@@ -120,6 +120,8 @@ jobs:
             -TargetPlatforms=Mac \
             -Rocket
 
+          rm -rf "$package_dir/Source"
+
           mkdir -p "$plugin_dst"
           rsync -a --delete "$package_dir"/ "$plugin_dst"/
 

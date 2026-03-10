@@ -109,6 +109,8 @@ jobs:
             -TargetPlatforms=Mac \
             -Rocket
 
+          rm -rf "$package_dir/Source"
+
           mkdir -p "$plugin_dst"
           rsync -a --delete "$package_dir"/ "$plugin_dst"/
 
@@ -153,6 +155,8 @@ jobs:
             -Package="$package_dir" \
             -TargetPlatforms=Mac \
             -Rocket
+
+          rm -rf "$package_dir/Source"
 
           server_src="$GITHUB_WORKSPACE/mcp_server/target/release/loomle_mcp_server"
           [[ -x "$server_src" ]] || { echo "MCP server binary missing or not executable: $server_src" >&2; exit 1; }
