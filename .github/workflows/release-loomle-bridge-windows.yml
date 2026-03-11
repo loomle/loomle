@@ -7,7 +7,7 @@ on:
       - "v*"
 
 concurrency:
-  group: loomle-release-windows-${{ github.ref_name }}
+  group: loomle-release-${{ github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -305,7 +305,16 @@ jobs:
           $existingManifestDir = Join-Path $env:RUNNER_TEMP "existing-tag-manifest"
           Remove-Item -LiteralPath $existingManifestDir -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $existingManifestDir | Out-Null
-          gh release download "${{ github.ref_name }}" --repo "${{ github.repository }}" --pattern "loomle-bridge-manifest.json" --dir $existingManifestDir 2>$null
+          $downloadExit = 0
+          try {
+            gh release download "${{ github.ref_name }}" --repo "${{ github.repository }}" --pattern "loomle-bridge-manifest.json" --dir $existingManifestDir 2>$null
+            $downloadExit = $LASTEXITCODE
+          } catch {
+            $downloadExit = 1
+          }
+          if ($downloadExit -ne 0) {
+            Write-Host "No existing tag manifest found yet for ${{ github.ref_name }}; continuing with platform-only manifest."
+          }
           $downloadedManifest = Join-Path $existingManifestDir "loomle-bridge-manifest.json"
           $baseManifestArg = @()
           if (Test-Path -LiteralPath $downloadedManifest) {
