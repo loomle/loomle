@@ -280,6 +280,34 @@ fn graph_type_schema() -> Value {
     })
 }
 
+fn graph_ref_schema() -> Value {
+    json!({
+        "type": "object",
+        "description": "Self-contained subgraph locator emitted by graph.list and graph.query. Pass back verbatim — do not construct manually.",
+        "required": ["kind"],
+        "oneOf": [
+            {
+                "properties": {
+                    "kind": { "type": "string", "enum": ["inline"] },
+                    "nodeGuid": { "type": "string", "minLength": 1, "description": "FGuid of the composite/subgraph node that owns this subgraph." },
+                    "assetPath": { "type": "string", "minLength": 1, "description": "Asset that contains the node (embedded for self-containment)." }
+                },
+                "required": ["kind", "nodeGuid", "assetPath"],
+                "additionalProperties": false
+            },
+            {
+                "properties": {
+                    "kind": { "type": "string", "enum": ["asset"] },
+                    "assetPath": { "type": "string", "minLength": 1, "description": "Unreal asset path of the graph asset." },
+                    "graphName": { "type": "string", "minLength": 1, "description": "Graph name within the asset. Required for multi-graph assets such as Blueprint; omit for single-graph assets (Material, PCG)." }
+                },
+                "required": ["kind", "assetPath"],
+                "additionalProperties": false
+            }
+        ]
+    })
+}
+
 fn graph_list_input_schema() -> Value {
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -291,7 +319,19 @@ fn graph_list_input_schema() -> Value {
                 "minLength": 1,
                 "description": "Unreal asset path, for example /Game/MyFolder/MyAsset."
             },
-            "graphType": graph_type_schema()
+            "graphType": graph_type_schema(),
+            "includeSubgraphs": {
+                "type": "boolean",
+                "default": false,
+                "description": "When true, recursively enumerate subgraphs owned by composite/subgraph nodes."
+            },
+            "maxDepth": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8,
+                "default": 1,
+                "description": "Maximum recursion depth when includeSubgraphs is true. 0 disables recursion; 1 returns direct children only."
+            }
         },
         "additionalProperties": false
     })
@@ -301,19 +341,40 @@ fn graph_query_input_schema() -> Value {
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
-        "required": ["assetPath", "graphName"],
         "properties": {
             "assetPath": {
                 "type": "string",
                 "minLength": 1,
-                "description": "Unreal asset path, for example /Game/MyFolder/MyAsset."
+                "description": "Unreal asset path (Mode A). Required when graphName is used; omit when graphRef is provided."
             },
             "graphName": {
                 "type": "string",
                 "minLength": 1,
-                "description": "Graph name within the asset, for example EventGraph."
+                "description": "Graph name within the asset (Mode A), for example EventGraph. Mutually exclusive with graphRef."
             },
+            "graphRef": graph_ref_schema(),
             "graphType": graph_type_schema(),
+            "filter": {
+                "type": "object",
+                "description": "Optional filters to narrow returned nodes.",
+                "properties": {
+                    "nodeClasses": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Restrict to nodes whose class path matches any entry."
+                    },
+                    "nodeIds": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Restrict to nodes with these IDs."
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Fuzzy text search across node titles and comments."
+                    }
+                },
+                "additionalProperties": false
+            },
             "limit": {
                 "type": "integer",
                 "minimum": 1,
@@ -334,13 +395,14 @@ fn graph_actions_input_schema() -> Value {
             "assetPath": {
                 "type": "string",
                 "minLength": 1,
-                "description": "Unreal asset path, for example /Game/MyFolder/MyAsset."
+                "description": "Unreal asset path (Mode A). Required when graphName is used; omit when graphRef is provided."
             },
             "graphName": {
                 "type": "string",
                 "minLength": 1,
-                "description": "Graph name within the asset, for example EventGraph."
+                "description": "Graph name within the asset (Mode A). Mutually exclusive with graphRef."
             },
+            "graphRef": graph_ref_schema(),
             "graphType": graph_type_schema(),
             "query": {
                 "type": "string",
@@ -382,19 +444,20 @@ fn graph_mutate_input_schema() -> Value {
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
-        "required": ["assetPath", "ops"],
+        "required": ["ops"],
         "properties": {
             "assetPath": {
                 "type": "string",
                 "minLength": 1,
-                "description": "Unreal asset path, for example /Game/MyFolder/MyAsset."
+                "description": "Unreal asset path (Mode A). Required when graphName is used; omit when graphRef is provided."
             },
             "graphName": {
                 "type": "string",
                 "minLength": 1,
                 "default": "EventGraph",
-                "description": "Target graph name. Defaults to EventGraph when omitted."
+                "description": "Target graph name (Mode A). Defaults to EventGraph when omitted. Mutually exclusive with graphRef."
             },
+            "graphRef": graph_ref_schema(),
             "graphType": graph_type_schema(),
             "expectedRevision": {
                 "type": "string",
@@ -531,16 +594,22 @@ mod tests {
         .expect("response");
 
         let tools = response["result"]["tools"].as_array().expect("array");
+
+        // graph.query: flexible addressing — no required fields at the schema level.
         let graph_query = tools
             .iter()
             .find(|v| v.get("name") == Some(&Value::String(String::from("graph.query"))))
             .expect("graph.query descriptor");
-        let query_required = graph_query["inputSchema"]["required"]
-            .as_array()
-            .expect("required array");
-        assert!(query_required.contains(&Value::String(String::from("assetPath"))));
-        assert!(query_required.contains(&Value::String(String::from("graphName"))));
+        assert!(
+            graph_query["inputSchema"]["properties"]["graphRef"].is_object(),
+            "graph.query should expose graphRef property"
+        );
+        assert!(
+            graph_query["inputSchema"]["properties"]["graphName"].is_object(),
+            "graph.query should expose graphName property"
+        );
 
+        // graph.mutate: only ops is required; assetPath is optional when graphRef is supplied.
         let graph_mutate = tools
             .iter()
             .find(|v| v.get("name") == Some(&Value::String(String::from("graph.mutate"))))
@@ -548,8 +617,11 @@ mod tests {
         let mutate_required = graph_mutate["inputSchema"]["required"]
             .as_array()
             .expect("required array");
-        assert!(mutate_required.contains(&Value::String(String::from("assetPath"))));
         assert!(mutate_required.contains(&Value::String(String::from("ops"))));
+        assert!(
+            graph_mutate["inputSchema"]["properties"]["graphRef"].is_object(),
+            "graph.mutate should expose graphRef property"
+        );
     }
 
     #[test]
