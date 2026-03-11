@@ -285,6 +285,9 @@ fn map_error_code(code: u16) -> &'static str {
         1009 => "LIMIT_EXCEEDED",
         1010 => "EXECUTION_TIMEOUT",
         1011 => "INTERNAL_ERROR",
+        1012 => "GRAPH_REF_INVALID",
+        1013 => "GRAPH_REF_ASSET_NOT_LOADED",
+        1014 => "GRAPH_REF_NOT_COMPOSITE",
         _ => "INTERNAL_ERROR",
     }
 }
