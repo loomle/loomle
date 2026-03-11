@@ -75,10 +75,6 @@ impl NdjsonRpcConnector {
         }
     }
 
-    fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
-        self.call_with_timeout(method, params, None)
-    }
-
     fn call_with_timeout(
         &self,
         method: &str,
@@ -126,7 +122,12 @@ impl RpcConnector for NdjsonRpcConnector {
             }
         });
 
-        let value = self.call("rpc.invoke", params)?;
+        let timeout = if meta.deadline_ms > 0 {
+            Some(Duration::from_millis(meta.deadline_ms))
+        } else {
+            None
+        };
+        let value = self.call_with_timeout("rpc.invoke", params, timeout)?;
         if value.get("ok").and_then(Value::as_bool) == Some(true) {
             Ok(value.get("payload").cloned().unwrap_or_else(|| json!({})))
         } else {
@@ -141,11 +142,11 @@ impl RpcConnector for NdjsonRpcConnector {
 }
 
 fn parse_response(response: Value, expected_id: &str) -> Result<Value, RpcError> {
-    let id_matches = response
-        .get("id")
-        .and_then(Value::as_str)
-        .map(|id| id == expected_id)
-        .unwrap_or(false);
+    let id_matches = response.get("id").map_or(false, |id| match id {
+        Value::String(s) => s == expected_id,
+        Value::Number(n) => n.to_string() == expected_id,
+        _ => false,
+    });
 
     if !id_matches {
         return Err(RpcError {

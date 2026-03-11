@@ -326,7 +326,43 @@ uint32 FLoomlePipeServer::Run()
 
 bool FLoomlePipeServer::WriteMessage(const FString& Message)
 {
-    return WriteMessageForConnection(Message, ActiveConnectionSerial.GetValue());
+    FScopeLock ScopeLock(&WriteMutex);
+    const int32 Serial = ActiveConnectionSerial.GetValue();
+    if (Serial == 0)
+    {
+        return false;
+    }
+
+#if PLATFORM_WINDOWS
+    void** HandlePtr = ActivePipeHandles.Find(Serial);
+    if (HandlePtr == nullptr || *HandlePtr == nullptr || *HandlePtr == INVALID_HANDLE_VALUE)
+    {
+        return false;
+    }
+
+    const FString MessageWithNewline = Message + TEXT("\n");
+    FTCHARToUTF8 Utf8(*MessageWithNewline);
+    DWORD BytesWritten = 0;
+    const BOOL bOk = WriteFile(
+        static_cast<HANDLE>(*HandlePtr),
+        Utf8.Get(),
+        static_cast<DWORD>(Utf8.Length()),
+        &BytesWritten,
+        nullptr);
+
+    return bOk && BytesWritten == static_cast<DWORD>(Utf8.Length());
+#else
+    int32* ClientFdPtr = ActiveClientFds.Find(Serial);
+    if (ClientFdPtr == nullptr || *ClientFdPtr < 0)
+    {
+        return false;
+    }
+
+    const FString MessageWithNewline = Message + TEXT("\n");
+    FTCHARToUTF8 Utf8(*MessageWithNewline);
+    const ssize_t BytesWritten = write(*ClientFdPtr, Utf8.Get(), static_cast<size_t>(Utf8.Length()));
+    return BytesWritten == Utf8.Length();
+#endif
 }
 
 bool FLoomlePipeServer::WriteMessageForConnection(const FString& Message, int32 ExpectedConnectionSerial)

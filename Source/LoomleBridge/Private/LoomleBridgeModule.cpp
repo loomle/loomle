@@ -47,6 +47,7 @@
 #include "PCGSettings.h"
 #include "LoomleBlueprintAdapter.h"
 #include "LoomlePipeServer.h"
+#include "ScopedTransaction.h"
 #include "Misc/App.h"
 #include "Misc/Base64.h"
 #include "Misc/DateTime.h"
@@ -1169,7 +1170,7 @@ void FLoomleBridgeModule::StartupModule()
     UE_LOG(LogLoomleBridge, Display, TEXT("Loomle bridge started on unix socket %s"), *FPaths::Combine(FPaths::ProjectIntermediateDir(), TEXT("loomle.sock")));
 #endif
 
-    bGraphMutateInProgress = false;
+    bGraphMutateInProgress.Store(false);
 }
 
 void FLoomleBridgeModule::ShutdownModule()

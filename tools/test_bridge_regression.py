@@ -199,7 +199,95 @@ def main() -> int:
             items = actions.get("actions")
         if not isinstance(items, list):
             fail(f"graph.actions missing actions/items[]: {actions}")
-        print("[PASS] graph.actions response validated")
+        if len(items) == 0:
+            fail(f"graph.actions returned empty actions list: {actions}")
+
+        for idx, item in enumerate(items):
+            if not isinstance(item, dict):
+                fail(f"graph.actions item[{idx}] is not a dict: {item}")
+            action_token = item.get("actionToken")
+            if not isinstance(action_token, str) or not action_token.startswith("act:"):
+                fail(f"graph.actions item[{idx}] missing valid actionToken: {item}")
+
+        if not isinstance(actions.get("graphType"), str):
+            fail(f"graph.actions missing graphType echo: {actions}")
+        if not isinstance(actions.get("assetPath"), str):
+            fail(f"graph.actions missing assetPath echo: {actions}")
+        if not isinstance(actions.get("graphName"), str):
+            fail(f"graph.actions missing graphName echo: {actions}")
+        meta = actions.get("meta")
+        if not isinstance(meta, dict) or "total" not in meta or "returned" not in meta:
+            fail(f"graph.actions missing or invalid meta: {actions}")
+        print(f"[PASS] graph.actions response validated ({len(items)} actions returned)")
+
+        first_token = items[0].get("actionToken", "")
+        add_by_action = call_tool(
+            client,
+            9007,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "ops": [
+                    {
+                        "op": "addNode.byAction",
+                        "args": {
+                            "actionToken": first_token,
+                            "position": {"x": 1200, "y": 0},
+                        },
+                    }
+                ],
+            },
+        )
+        by_action_result = op_ok(add_by_action)
+        by_action_node = by_action_result.get("nodeId")
+        if not isinstance(by_action_node, str) or not by_action_node:
+            fail(f"addNode.byAction did not return nodeId: {add_by_action}")
+        print(f"[PASS] graph.actions addNode.byAction via actionToken succeeded (nodeId={by_action_node})")
+
+        call_tool(
+            client,
+            9008,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "ops": [{"op": "removeNode", "args": {"target": {"nodeId": by_action_node}}}],
+            },
+        )
+
+        bad_actions = call_tool(
+            client,
+            9009,
+            "graph.actions",
+            {"assetPath": temp_asset, "graphName": "EventGraph", "graphType": "notreal", "limit": 5},
+            expect_error=True,
+        )
+        _ = bad_actions
+        print("[PASS] graph.actions error path validated (unsupported graphType)")
+
+        stale_token_mutate = call_tool(
+            client,
+            9010,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "ops": [
+                    {
+                        "op": "addNode.byAction",
+                        "args": {"actionToken": "act:blueprint:00000000-0000-0000-0000-000000000000", "position": {"x": 0, "y": 0}},
+                    }
+                ],
+            },
+        )
+        stale_results = stale_token_mutate.get("opResults", [])
+        if stale_results and isinstance(stale_results[0], dict) and stale_results[0].get("ok"):
+            fail("addNode.byAction with stale actionToken should have failed")
+        print("[PASS] graph.actions stale actionToken correctly rejected")
 
         bad_query = call_tool(
             client,

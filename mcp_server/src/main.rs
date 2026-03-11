@@ -4,30 +4,79 @@ use loomle_mcp_server::McpService;
 use serde_json::{json, Value};
 use std::env;
 use std::fs;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
+
+/// Maximum allowed line length (16 MiB). Requests exceeding this are rejected
+/// with a parse error to prevent unbounded memory allocation.
+const MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
+
+fn log(level: &str, msg: &str) {
+    eprintln!("[loomle-mcp][{level}] {msg}");
+}
 
 fn main() {
     let project_root = match parse_project_root_arg() {
         Ok(path) => path,
         Err(msg) => {
-            eprintln!("project-root configuration error: {msg}");
+            log("ERROR", &format!("project-root configuration error: {msg}"));
             std::process::exit(2);
         }
     };
+
+    log(
+        "INFO",
+        &format!(
+            "starting loomle-mcp-server v{} project-root={}",
+            env!("CARGO_PKG_VERSION"),
+            project_root.display()
+        ),
+    );
+
     let connector = NdjsonRpcConnector::new(RpcEndpoint::for_project_root(&project_root));
     let service = McpService::new(connector);
 
     let stdin = io::stdin();
+    let mut reader = BufReader::new(stdin.lock());
     let mut stdout = io::stdout();
+    let mut buf = Vec::new();
+    let mut request_count: u64 = 0;
 
-    for line_result in stdin.lock().lines() {
-        let line = match line_result {
-            Ok(v) => v,
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) => break,
+            Ok(_) => {}
             Err(_) => break,
-        };
+        }
 
-        let trimmed = line.trim();
+        if buf.len() > MAX_LINE_BYTES {
+            log(
+                "WARN",
+                &format!("rejecting oversized request ({} bytes)", buf.len()),
+            );
+            let response = json!({
+                "jsonrpc": "2.0",
+                "id": null,
+                "error": {
+                    "code": -32700,
+                    "message": "Parse error",
+                    "data": {
+                        "detail": format!("request exceeds maximum line length of {} bytes", MAX_LINE_BYTES)
+                    }
+                }
+            });
+            if write_response(&mut stdout, &response).is_err() {
+                break;
+            }
+            continue;
+        }
+
+        let trimmed = match std::str::from_utf8(&buf) {
+            Ok(s) => s.trim(),
+            Err(_) => continue,
+        };
         if trimmed.is_empty() {
             continue;
         }
@@ -35,6 +84,7 @@ fn main() {
         let request = match serde_json::from_str::<Value>(trimmed) {
             Ok(v) => v,
             Err(e) => {
+                log("WARN", &format!("parse error: {e}"));
                 let response = json!({
                     "jsonrpc": "2.0",
                     "id": null,
@@ -53,12 +103,43 @@ fn main() {
             }
         };
 
+        request_count += 1;
+        let method = request
+            .get("method")
+            .and_then(Value::as_str)
+            .unwrap_or("?")
+            .to_owned();
+        let id_str = request
+            .get("id")
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| String::from("null"));
+        log(
+            "DEBUG",
+            &format!("req#{request_count} method={method} id={id_str}"),
+        );
+
+        let start = Instant::now();
         if let Some(response) = handle_request(&service, request) {
+            let elapsed_ms = start.elapsed().as_millis();
+            let has_error = response.get("error").is_some();
+            if has_error {
+                log(
+                    "WARN",
+                    &format!("req#{request_count} method={method} error elapsed={elapsed_ms}ms"),
+                );
+            } else {
+                log(
+                    "DEBUG",
+                    &format!("req#{request_count} method={method} ok elapsed={elapsed_ms}ms"),
+                );
+            }
             if write_response(&mut stdout, &response).is_err() {
                 break;
             }
         }
     }
+
+    log("INFO", &format!("shutting down after {request_count} requests"));
 }
 
 fn write_response(stdout: &mut impl Write, response: &Value) -> io::Result<()> {

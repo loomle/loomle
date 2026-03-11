@@ -43,7 +43,14 @@ FString FLoomleBridgeModule::HandleRequest(const FString& RequestLine)
         {
             Promise.SetValue(HandleRequest(RequestLine));
         });
-        return ResponseFuture.Get();
+
+        static constexpr uint32 GameThreadTimeoutMs = 30000;
+        if (ResponseFuture.WaitFor(FTimespan::FromMilliseconds(GameThreadTimeoutMs)))
+        {
+            return ResponseFuture.Get();
+        }
+
+        return MakeJsonError(IdValue, 1010, TEXT("EXECUTION_TIMEOUT"));
     }
 
     if (Method.Equals(TEXT("rpc.invoke")))
