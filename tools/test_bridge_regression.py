@@ -283,10 +283,12 @@ def main() -> int:
                     }
                 ],
             },
+            expect_error=True,
         )
-        stale_results = stale_token_mutate.get("opResults", [])
-        if stale_results and isinstance(stale_results[0], dict) and stale_results[0].get("ok"):
-            fail("addNode.byAction with stale actionToken should have failed")
+        stale_message = str(stale_token_mutate.get("message", ""))
+        stale_detail = str(stale_token_mutate.get("detail", ""))
+        if "ACTION_TOKEN_INVALID" not in (stale_message + " " + stale_detail):
+            fail(f"stale actionToken error missing ACTION_TOKEN_INVALID marker: {stale_token_mutate}")
         print("[PASS] graph.actions stale actionToken correctly rejected")
 
         bad_query = call_tool(
