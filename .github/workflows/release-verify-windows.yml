@@ -99,7 +99,7 @@ jobs:
             ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 
       - name: Ensure Rust Toolchain
-        timeout-minutes: 8
+        timeout-minutes: 20
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           Write-Host "Checking cargo availability..."
