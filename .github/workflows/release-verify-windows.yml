@@ -244,7 +244,8 @@ jobs:
             Where-Object { $_.CommandLine -like "*$uproject*" } |
             ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
           Start-Sleep -Seconds 2
-          Start-Process -FilePath "${{ steps.ue_root_windows.outputs.ue_editor }}" -ArgumentList @($uproject)
+          $ueArgs = @($uproject, "-nullrhi", "-unattended", "-nosplash", "-nop4", "-NoSound")
+          Start-Process -FilePath "${{ steps.ue_root_windows.outputs.ue_editor }}" -ArgumentList $ueArgs
 
       - name: Wait For Bridge And Run Smoke Test
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
@@ -285,7 +286,8 @@ jobs:
                 Where-Object { $_.CommandLine -like "*$uproject*" } |
                 ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
               Start-Sleep -Seconds 3
-              Start-Process -FilePath $ueEditor -ArgumentList @($uproject)
+              $ueArgs = @($uproject, "-nullrhi", "-unattended", "-nosplash", "-nop4", "-NoSound")
+              Start-Process -FilePath $ueEditor -ArgumentList $ueArgs
               Start-Sleep -Seconds 10
             }
           }
