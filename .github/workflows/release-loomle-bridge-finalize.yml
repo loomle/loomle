@@ -1,0 +1,158 @@
+name: Finalize LOOMLE Release Manifest
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to finalize (for example v0.2.12)"
+        required: true
+        type: string
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: loomle-release-finalize-${{ github.ref_name || github.event.inputs.tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  finalize-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve Target Tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            tag="${{ github.event.inputs.tag }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+          [[ "$tag" == v* ]] || { echo "Tag must start with v: $tag" >&2; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait For Platform Assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.tag.outputs.tag }}"
+          required=(
+            "loomle-bridge-darwin.zip"
+            "loomle-bridge-windows.zip"
+            "loomle-bridge-manifest-darwin.json"
+            "loomle-bridge-manifest-windows.json"
+          )
+
+          for _ in $(seq 1 90); do
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              mapfile -t names < <(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+              missing=0
+              for req in "${required[@]}"; do
+                found=0
+                for n in "${names[@]}"; do
+                  if [[ "$n" == "$req" ]]; then
+                    found=1
+                    break
+                  fi
+                done
+                if [[ $found -eq 0 ]]; then
+                  missing=1
+                  break
+                fi
+              done
+              if [[ $missing -eq 0 ]]; then
+                exit 0
+              fi
+            fi
+            sleep 20
+          done
+
+          echo "Timed out waiting for platform assets on $tag" >&2
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets || true
+          exit 1
+
+      - name: Download Platform Assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.tag.outputs.tag }}"
+          mkdir -p release-finalize
+          gh release download "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "loomle-bridge-darwin.zip" \
+            --pattern "loomle-bridge-windows.zip" \
+            --pattern "loomle-bridge-manifest-darwin.json" \
+            --pattern "loomle-bridge-manifest-windows.json" \
+            --dir release-finalize
+
+      - name: Merge Manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          out = {
+              "latest": "${{ steps.tag.outputs.version }}",
+              "versions": {"${{ steps.tag.outputs.version }}": {"packages": {}}},
+          }
+
+          for name in ("loomle-bridge-manifest-darwin.json", "loomle-bridge-manifest-windows.json"):
+              data = json.loads(Path("release-finalize", name).read_text(encoding="utf-8"))
+              versions = data.get("versions", {})
+              entry = versions.get("${{ steps.tag.outputs.version }}", {})
+              packages = entry.get("packages", {})
+              out["versions"]["${{ steps.tag.outputs.version }}"]["packages"].update(packages)
+
+          Path("release-finalize/loomle-bridge-manifest.json").write_text(
+              json.dumps(out, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload Final Manifest To Tag Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.tag.outputs.tag }}"
+          gh release upload "$tag" release-finalize/loomle-bridge-manifest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
+      - name: Update Stable Alias Release (bridge-latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view bridge-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create bridge-latest \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Bridge Latest" \
+              --notes "Stable alias release for latest LOOMLE bridge package and manifest." \
+              release-finalize/loomle-bridge-darwin.zip \
+              release-finalize/loomle-bridge-windows.zip \
+              release-finalize/loomle-bridge-manifest.json
+          else
+            gh release upload bridge-latest release-finalize/loomle-bridge-darwin.zip \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            gh release upload bridge-latest release-finalize/loomle-bridge-windows.zip \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            gh release upload bridge-latest release-finalize/loomle-bridge-manifest.json \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          fi

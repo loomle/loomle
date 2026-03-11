@@ -260,7 +260,7 @@ jobs:
           $stageDir = Join-Path $env:RUNNER_TEMP "release-stage-windows"
           $releaseDir = Join-Path $env:RUNNER_TEMP "release-assets-windows"
           $zipPath = Join-Path $releaseDir "loomle-bridge-windows.zip"
-          $manifestPath = Join-Path $releaseDir "loomle-bridge-manifest.json"
+          $manifestPath = Join-Path $releaseDir "loomle-bridge-manifest-windows.json"
 
           Remove-Item -LiteralPath $packageDir, $stageDir, $releaseDir -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $stageDir, $releaseDir | Out-Null
@@ -302,25 +302,6 @@ jobs:
           $version = "${{ github.ref_name }}".Substring(1)
           $assetUrl = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/loomle-bridge-windows.zip"
 
-          $existingManifestDir = Join-Path $env:RUNNER_TEMP "existing-tag-manifest"
-          Remove-Item -LiteralPath $existingManifestDir -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path $existingManifestDir | Out-Null
-          $downloadExit = 0
-          try {
-            gh release download "${{ github.ref_name }}" --repo "${{ github.repository }}" --pattern "loomle-bridge-manifest.json" --dir $existingManifestDir 2>$null
-            $downloadExit = $LASTEXITCODE
-          } catch {
-            $downloadExit = 1
-          }
-          if ($downloadExit -ne 0) {
-            Write-Host "No existing tag manifest found yet for ${{ github.ref_name }}; continuing with platform-only manifest."
-          }
-          $downloadedManifest = Join-Path $existingManifestDir "loomle-bridge-manifest.json"
-          $baseManifestArg = @()
-          if (Test-Path -LiteralPath $downloadedManifest) {
-            $baseManifestArg = @("--base-manifest", $downloadedManifest)
-          }
-
           python (Join-Path $env:GITHUB_WORKSPACE "tools\build_release_manifest.py") `
             --manifest-path $manifestPath `
             --version $version `
@@ -328,8 +309,7 @@ jobs:
             --asset-url $assetUrl `
             --sha256 $sha256 `
             --server-binary-relpath $serverRelPath `
-            --server-sha256 $serverSha256 `
-            @baseManifestArg
+            --server-sha256 $serverSha256
 
           "zip_path=$zipPath" >> $env:GITHUB_OUTPUT
           "manifest_path=$manifestPath" >> $env:GITHUB_OUTPUT
@@ -344,25 +324,9 @@ jobs:
           prerelease: false
           make_latest: true
 
-      - name: Upload Merged Manifest To Tag Release
+      - name: Upload Platform Manifest To Tag Release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           gh release upload "${{ github.ref_name }}" "${{ steps.package.outputs.manifest_path }}" --repo "${{ github.repository }}" --clobber
-
-      - name: Update Stable Alias Release (bridge-latest)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
-        run: |
-          $zipPath = "${{ steps.package.outputs.zip_path }}"
-          $manifestPath = "${{ steps.package.outputs.manifest_path }}"
-
-          gh release view bridge-latest --repo "${{ github.repository }}" *> $null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create bridge-latest --repo "${{ github.repository }}" --title "Bridge Latest" --notes "Stable alias release for latest LOOMLE bridge package and manifest." $zipPath $manifestPath
-          } else {
-            gh release upload bridge-latest $zipPath --repo "${{ github.repository }}" --clobber
-            gh release upload bridge-latest $manifestPath --repo "${{ github.repository }}" --clobber
-          }
