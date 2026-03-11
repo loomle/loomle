@@ -47,7 +47,8 @@ def _compact_json(value: Any, limit: int = 2000) -> str:
 def is_tool_error_payload(payload: dict[str, Any]) -> bool:
     if bool(payload.get("isError")):
         return True
-    if "domainCode" in payload:
+    domain_code = payload.get("domainCode")
+    if isinstance(domain_code, str) and domain_code.strip():
         return True
     message = payload.get("message")
     if isinstance(message, str) and message.strip():
