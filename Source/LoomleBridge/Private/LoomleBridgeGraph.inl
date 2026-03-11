@@ -153,7 +153,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
                     const FString NodeClassPath = NodeSettings->GetClass()->GetPathName();
                     if (!NodeClassPath.Contains(TEXT("Subgraph"))) { continue; }
 
+                    // Resolve the referenced PCG subgraph: try hard ref first, then soft ref.
                     UObject* SubgraphAsset = nullptr;
+                    FString SubgraphSoftPath;
                     for (TFieldIterator<FObjectPropertyBase> PropIt(NodeSettings->GetClass()); PropIt; ++PropIt)
                     {
                         FObjectPropertyBase* Prop = *PropIt;
@@ -164,24 +166,50 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
                             break;
                         }
                     }
-                    if (!SubgraphAsset) { continue; }
-
-                    UPackage* SubPkg = SubgraphAsset->GetPackage();
-                    FString SubAssetPath = SubPkg ? SubPkg->GetPathName() : SubgraphAsset->GetPathName();
-                    if (!SubPkg)
+                    if (SubgraphAsset == nullptr)
                     {
-                        int32 DotIdx;
-                        if (SubAssetPath.FindLastChar(TEXT('.'), DotIdx)) { SubAssetPath = SubAssetPath.Left(DotIdx); }
+                        for (TFieldIterator<FSoftObjectProperty> PropIt(NodeSettings->GetClass()); PropIt; ++PropIt)
+                        {
+                            FSoftObjectProperty* SoftProp = *PropIt;
+                            if (!SoftProp->PropertyClass || !SoftProp->PropertyClass->GetPathName().Contains(TEXT("PCGGraph"))) { continue; }
+                            const FSoftObjectPath SoftPath = SoftProp->GetPropertyValue_InContainer(NodeSettings);
+                            if (SoftPath.IsNull()) { continue; }
+                            UObject* Resolved = SoftPath.ResolveObject();
+                            if (Resolved) { SubgraphAsset = Resolved; }
+                            else
+                            {
+                                SubgraphSoftPath = SoftPath.GetAssetPathString();
+                                int32 DotIdx;
+                                if (SubgraphSoftPath.FindLastChar(TEXT('.'), DotIdx)) { SubgraphSoftPath = SubgraphSoftPath.Left(DotIdx); }
+                            }
+                            break;
+                        }
+                    }
+                    if (!SubgraphAsset && SubgraphSoftPath.IsEmpty()) { continue; }
+
+                    FString SubAssetPath;
+                    FString SubLoadStatus;
+                    if (SubgraphAsset)
+                    {
+                        UPackage* SubPkg = SubgraphAsset->GetPackage();
+                        SubAssetPath = SubPkg ? SubPkg->GetPathName() : SubgraphAsset->GetPathName();
+                        if (!SubPkg) { int32 DotIdx; if (SubAssetPath.FindLastChar(TEXT('.'), DotIdx)) { SubAssetPath = SubAssetPath.Left(DotIdx); } }
+                        SubLoadStatus = TEXT("loaded");
+                    }
+                    else
+                    {
+                        SubAssetPath = SubgraphSoftPath;
+                        SubLoadStatus = TEXT("not_found");
                     }
 
                     TSharedPtr<FJsonObject> SubEntry = MakeShared<FJsonObject>();
-                    SubEntry->SetStringField(TEXT("graphName"), SubgraphAsset->GetName());
+                    SubEntry->SetStringField(TEXT("graphName"), SubgraphAsset ? SubgraphAsset->GetName() : FPaths::GetBaseFilename(SubAssetPath));
                     SubEntry->SetStringField(TEXT("graphKind"), TEXT("subgraph"));
-                    SubEntry->SetStringField(TEXT("graphClassPath"), SubgraphAsset->GetClass() ? SubgraphAsset->GetClass()->GetPathName() : TEXT(""));
+                    SubEntry->SetStringField(TEXT("graphClassPath"), (SubgraphAsset && SubgraphAsset->GetClass()) ? SubgraphAsset->GetClass()->GetPathName() : TEXT(""));
                     SubEntry->SetObjectField(TEXT("graphRef"), MakeAssetGraphRef(SubAssetPath, TEXT("")));
                     SubEntry->SetObjectField(TEXT("parentGraphRef"), ParentRef);
                     SubEntry->SetStringField(TEXT("ownerNodeId"), NodeObj->GetPathName());
-                    SubEntry->SetStringField(TEXT("loadStatus"), TEXT("loaded"));
+                    SubEntry->SetStringField(TEXT("loadStatus"), SubLoadStatus);
                     Graphs.Add(MakeShared<FJsonValueObject>(SubEntry));
                 }
             }
@@ -852,7 +880,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
                 UPCGSettings* NodeSettings = NodeObj->GetSettings();
                 if (NodeSettings)
                 {
+                    // Resolve the referenced PCG subgraph: try hard ref first, then soft ref.
                     UObject* SubgraphAsset = nullptr;
+                    FString SubgraphSoftPath;
                     for (TFieldIterator<FObjectPropertyBase> PropIt(NodeSettings->GetClass()); PropIt; ++PropIt)
                     {
                         FObjectPropertyBase* Prop = *PropIt;
@@ -863,20 +893,46 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
                             break;
                         }
                     }
-                    if (SubgraphAsset)
+                    if (SubgraphAsset == nullptr)
                     {
-                        UPackage* SubPkg = SubgraphAsset->GetPackage();
-                        FString SubAssetPath = SubPkg ? SubPkg->GetPathName() : SubgraphAsset->GetPathName();
-                        if (!SubPkg)
+                        for (TFieldIterator<FSoftObjectProperty> PropIt(NodeSettings->GetClass()); PropIt; ++PropIt)
                         {
-                            int32 DotIdx;
-                            if (SubAssetPath.FindLastChar(TEXT('.'), DotIdx)) { SubAssetPath = SubAssetPath.Left(DotIdx); }
+                            FSoftObjectProperty* SoftProp = *PropIt;
+                            if (!SoftProp->PropertyClass || !SoftProp->PropertyClass->GetPathName().Contains(TEXT("PCGGraph"))) { continue; }
+                            const FSoftObjectPath SoftPath = SoftProp->GetPropertyValue_InContainer(NodeSettings);
+                            if (SoftPath.IsNull()) { continue; }
+                            UObject* Resolved = SoftPath.ResolveObject();
+                            if (Resolved) { SubgraphAsset = Resolved; }
+                            else
+                            {
+                                SubgraphSoftPath = SoftPath.GetAssetPathString();
+                                int32 DotIdx;
+                                if (SubgraphSoftPath.FindLastChar(TEXT('.'), DotIdx)) { SubgraphSoftPath = SubgraphSoftPath.Left(DotIdx); }
+                            }
+                            break;
+                        }
+                    }
+                    if (SubgraphAsset || !SubgraphSoftPath.IsEmpty())
+                    {
+                        FString SubAssetPath;
+                        FString ChildLoadStatus;
+                        if (SubgraphAsset)
+                        {
+                            UPackage* SubPkg = SubgraphAsset->GetPackage();
+                            SubAssetPath = SubPkg ? SubPkg->GetPathName() : SubgraphAsset->GetPathName();
+                            if (!SubPkg) { int32 DotIdx; if (SubAssetPath.FindLastChar(TEXT('.'), DotIdx)) { SubAssetPath = SubAssetPath.Left(DotIdx); } }
+                            ChildLoadStatus = TEXT("loaded");
+                        }
+                        else
+                        {
+                            SubAssetPath = SubgraphSoftPath;
+                            ChildLoadStatus = TEXT("not_found");
                         }
                         TSharedPtr<FJsonObject> ChildRef = MakeShared<FJsonObject>();
                         ChildRef->SetStringField(TEXT("kind"), TEXT("asset"));
                         ChildRef->SetStringField(TEXT("assetPath"), SubAssetPath);
                         Node->SetObjectField(TEXT("childGraphRef"), ChildRef);
-                        Node->SetStringField(TEXT("childLoadStatus"), TEXT("loaded"));
+                        Node->SetStringField(TEXT("childLoadStatus"), ChildLoadStatus);
                     }
                 }
             }

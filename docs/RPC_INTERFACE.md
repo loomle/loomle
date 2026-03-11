@@ -341,7 +341,7 @@ Note: `graphType: "material"` accepts both `UMaterial` and `UMaterialFunction` a
           "nodeGuid": "A1B2C3D4-E5F6-7890-ABCD-EF1234567890",
           "assetPath": "/Game/BP_Foo"
         },
-        "childLoadStatus": "loaded|loading|not_found"
+        "childLoadStatus": "loaded|not_found"
       }
     ],
     "edges": []
