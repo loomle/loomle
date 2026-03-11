@@ -77,6 +77,39 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
         GraphInfo->SetStringField(TEXT("loadStatus"), TEXT("loaded"));
         Graphs.Add(MakeShared<FJsonValueObject>(GraphInfo));
 
+        if (bIncludeSubgraphs && MaxDepth > 0)
+        {
+            UMaterial* Material = LoadMaterialByAssetPath(AssetPath);
+            if (Material)
+            {
+                TSharedPtr<FJsonObject> ParentRef = MakeAssetGraphRef(AssetPath, TEXT(""));
+                for (UMaterialExpression* Expression : Material->GetExpressions())
+                {
+                    if (Expression == nullptr) { continue; }
+                    UMaterialExpressionMaterialFunctionCall* FuncCall = Cast<UMaterialExpressionMaterialFunctionCall>(Expression);
+                    if (!FuncCall || !FuncCall->MaterialFunction) { continue; }
+
+                    UPackage* FuncPkg = FuncCall->MaterialFunction->GetPackage();
+                    FString FuncAssetPath = FuncPkg ? FuncPkg->GetPathName() : FuncCall->MaterialFunction->GetPathName();
+                    if (!FuncPkg)
+                    {
+                        int32 DotIdx;
+                        if (FuncAssetPath.FindLastChar(TEXT('.'), DotIdx)) { FuncAssetPath = FuncAssetPath.Left(DotIdx); }
+                    }
+
+                    TSharedPtr<FJsonObject> SubEntry = MakeShared<FJsonObject>();
+                    SubEntry->SetStringField(TEXT("graphName"), FuncCall->MaterialFunction->GetName());
+                    SubEntry->SetStringField(TEXT("graphKind"), TEXT("subgraph"));
+                    SubEntry->SetStringField(TEXT("graphClassPath"), FuncCall->MaterialFunction->GetClass() ? FuncCall->MaterialFunction->GetClass()->GetPathName() : TEXT(""));
+                    SubEntry->SetObjectField(TEXT("graphRef"), MakeAssetGraphRef(FuncAssetPath, TEXT("")));
+                    SubEntry->SetObjectField(TEXT("parentGraphRef"), ParentRef);
+                    SubEntry->SetStringField(TEXT("ownerNodeId"), MaterialExpressionId(Expression));
+                    SubEntry->SetStringField(TEXT("loadStatus"), TEXT("loaded"));
+                    Graphs.Add(MakeShared<FJsonValueObject>(SubEntry));
+                }
+            }
+        }
+
         Result->SetStringField(TEXT("graphType"), GraphType);
         Result->SetStringField(TEXT("assetPath"), AssetPath);
         Result->SetArrayField(TEXT("graphs"), Graphs);
@@ -105,6 +138,54 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
         GraphInfo->SetField(TEXT("ownerNodeId"), MakeShared<FJsonValueNull>());
         GraphInfo->SetStringField(TEXT("loadStatus"), TEXT("loaded"));
         Graphs.Add(MakeShared<FJsonValueObject>(GraphInfo));
+
+        if (bIncludeSubgraphs && MaxDepth > 0)
+        {
+            UPCGGraph* PcgGraph = LoadPcgGraphByAssetPath(AssetPath);
+            if (PcgGraph)
+            {
+                TSharedPtr<FJsonObject> ParentRef = MakeAssetGraphRef(AssetPath, TEXT(""));
+                for (UPCGNode* NodeObj : PcgGraph->GetNodes())
+                {
+                    if (NodeObj == nullptr) { continue; }
+                    UPCGSettings* NodeSettings = NodeObj->GetSettings();
+                    if (!NodeSettings || !NodeSettings->GetClass()) { continue; }
+                    const FString NodeClassPath = NodeSettings->GetClass()->GetPathName();
+                    if (!NodeClassPath.Contains(TEXT("Subgraph"))) { continue; }
+
+                    UObject* SubgraphAsset = nullptr;
+                    for (TFieldIterator<FObjectPropertyBase> PropIt(NodeSettings->GetClass()); PropIt; ++PropIt)
+                    {
+                        FObjectPropertyBase* Prop = *PropIt;
+                        UObject* PropVal = Prop->GetObjectPropertyValue_InContainer(NodeSettings);
+                        if (PropVal && PropVal->GetClass() && PropVal->GetClass()->GetPathName().Contains(TEXT("PCGGraph")))
+                        {
+                            SubgraphAsset = PropVal;
+                            break;
+                        }
+                    }
+                    if (!SubgraphAsset) { continue; }
+
+                    UPackage* SubPkg = SubgraphAsset->GetPackage();
+                    FString SubAssetPath = SubPkg ? SubPkg->GetPathName() : SubgraphAsset->GetPathName();
+                    if (!SubPkg)
+                    {
+                        int32 DotIdx;
+                        if (SubAssetPath.FindLastChar(TEXT('.'), DotIdx)) { SubAssetPath = SubAssetPath.Left(DotIdx); }
+                    }
+
+                    TSharedPtr<FJsonObject> SubEntry = MakeShared<FJsonObject>();
+                    SubEntry->SetStringField(TEXT("graphName"), SubgraphAsset->GetName());
+                    SubEntry->SetStringField(TEXT("graphKind"), TEXT("subgraph"));
+                    SubEntry->SetStringField(TEXT("graphClassPath"), SubgraphAsset->GetClass() ? SubgraphAsset->GetClass()->GetPathName() : TEXT(""));
+                    SubEntry->SetObjectField(TEXT("graphRef"), MakeAssetGraphRef(SubAssetPath, TEXT("")));
+                    SubEntry->SetObjectField(TEXT("parentGraphRef"), ParentRef);
+                    SubEntry->SetStringField(TEXT("ownerNodeId"), NodeObj->GetPathName());
+                    SubEntry->SetStringField(TEXT("loadStatus"), TEXT("loaded"));
+                    Graphs.Add(MakeShared<FJsonValueObject>(SubEntry));
+                }
+            }
+        }
 
         Result->SetStringField(TEXT("graphType"), GraphType);
         Result->SetStringField(TEXT("assetPath"), AssetPath);
@@ -411,25 +492,37 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
 
     if (GraphType.Equals(TEXT("material")))
     {
+        // Try UMaterial first; fall back to UMaterialFunction (for asset-kind graphRef pointing to a function asset).
         UMaterial* Material = LoadMaterialByAssetPath(AssetPath);
+        UMaterialFunction* MatFunc = nullptr;
         if (Material == nullptr)
+        {
+            MatFunc = Cast<UMaterialFunction>(LoadObjectByAssetPath(AssetPath));
+        }
+        if (Material == nullptr && MatFunc == nullptr)
         {
             Result->SetBoolField(TEXT("isError"), true);
             Result->SetStringField(TEXT("code"), TEXT("ASSET_NOT_FOUND"));
-            Result->SetStringField(TEXT("message"), TEXT("Material asset not found."));
+            Result->SetStringField(TEXT("message"), TEXT("Material or MaterialFunction asset not found."));
             return Result;
+        }
+
+        // Collect all expressions from whichever asset was loaded.
+        TArray<UMaterialExpression*> AllExpressions;
+        if (Material)
+        {
+            for (UMaterialExpression* E : Material->GetExpressions()) { if (E) AllExpressions.Add(E); }
+        }
+        else
+        {
+            for (UMaterialExpression* E : MatFunc->GetFunctionExpressions()) { if (E) AllExpressions.Add(E); }
         }
 
         TArray<TSharedPtr<FJsonValue>> Nodes;
         TArray<TSharedPtr<FJsonValue>> Diagnostics;
         TArray<TSharedPtr<FJsonValue>> Edges;
-        for (UMaterialExpression* Expression : Material->GetExpressions())
+        for (UMaterialExpression* Expression : AllExpressions)
         {
-            if (Expression == nullptr)
-            {
-                continue;
-            }
-
             TSharedPtr<FJsonObject> Node = MakeShared<FJsonObject>();
             const FString NodeId = MaterialExpressionId(Expression);
             Node->SetStringField(TEXT("id"), NodeId);
@@ -505,6 +598,26 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
                 Pins.Add(MakeShared<FJsonValueObject>(PinObj));
             }
 
+            // Annotate MaterialFunctionCall nodes with childGraphRef.
+            if (UMaterialExpressionMaterialFunctionCall* FuncCall = Cast<UMaterialExpressionMaterialFunctionCall>(Expression))
+            {
+                if (FuncCall->MaterialFunction)
+                {
+                    UPackage* FuncPkg = FuncCall->MaterialFunction->GetPackage();
+                    FString FuncAssetPath = FuncPkg ? FuncPkg->GetPathName() : FuncCall->MaterialFunction->GetPathName();
+                    if (!FuncPkg)
+                    {
+                        int32 DotIdx;
+                        if (FuncAssetPath.FindLastChar(TEXT('.'), DotIdx)) { FuncAssetPath = FuncAssetPath.Left(DotIdx); }
+                    }
+                    TSharedPtr<FJsonObject> ChildRef = MakeShared<FJsonObject>();
+                    ChildRef->SetStringField(TEXT("kind"), TEXT("asset"));
+                    ChildRef->SetStringField(TEXT("assetPath"), FuncAssetPath);
+                    Node->SetObjectField(TEXT("childGraphRef"), ChildRef);
+                    Node->SetStringField(TEXT("childLoadStatus"), TEXT("loaded"));
+                }
+            }
+
             Node->SetArrayField(TEXT("pins"), Pins);
             Nodes.Add(MakeShared<FJsonValueObject>(Node));
         }
@@ -518,6 +631,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
         }
 
         BuildMinimalSnapshotResult(TEXT("mat"), Nodes, Edges, Diagnostics);
+        // Echo effective graphRef at response root.
+        {
+            TSharedPtr<FJsonObject> ResponseGraphRef = MakeShared<FJsonObject>();
+            ResponseGraphRef->SetStringField(TEXT("kind"), TEXT("asset"));
+            ResponseGraphRef->SetStringField(TEXT("assetPath"), AssetPath);
+            Result->SetObjectField(TEXT("graphRef"), ResponseGraphRef);
+        }
         return Result;
     }
 
@@ -702,6 +822,41 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
                 SerializePcgPin(OutputPin, TEXT("output"));
             }
 
+            // Annotate PCG subgraph nodes with childGraphRef via reflection.
+            if (NodeClassPath.Contains(TEXT("Subgraph")))
+            {
+                UPCGSettings* NodeSettings = NodeObj->GetSettings();
+                if (NodeSettings)
+                {
+                    UObject* SubgraphAsset = nullptr;
+                    for (TFieldIterator<FObjectPropertyBase> PropIt(NodeSettings->GetClass()); PropIt; ++PropIt)
+                    {
+                        FObjectPropertyBase* Prop = *PropIt;
+                        UObject* PropVal = Prop->GetObjectPropertyValue_InContainer(NodeSettings);
+                        if (PropVal && PropVal->GetClass() && PropVal->GetClass()->GetPathName().Contains(TEXT("PCGGraph")))
+                        {
+                            SubgraphAsset = PropVal;
+                            break;
+                        }
+                    }
+                    if (SubgraphAsset)
+                    {
+                        UPackage* SubPkg = SubgraphAsset->GetPackage();
+                        FString SubAssetPath = SubPkg ? SubPkg->GetPathName() : SubgraphAsset->GetPathName();
+                        if (!SubPkg)
+                        {
+                            int32 DotIdx;
+                            if (SubAssetPath.FindLastChar(TEXT('.'), DotIdx)) { SubAssetPath = SubAssetPath.Left(DotIdx); }
+                        }
+                        TSharedPtr<FJsonObject> ChildRef = MakeShared<FJsonObject>();
+                        ChildRef->SetStringField(TEXT("kind"), TEXT("asset"));
+                        ChildRef->SetStringField(TEXT("assetPath"), SubAssetPath);
+                        Node->SetObjectField(TEXT("childGraphRef"), ChildRef);
+                        Node->SetStringField(TEXT("childLoadStatus"), TEXT("loaded"));
+                    }
+                }
+            }
+
             Node->SetArrayField(TEXT("pins"), Pins);
             Nodes.Add(MakeShared<FJsonValueObject>(Node));
         }
@@ -716,6 +871,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
         }
 
         BuildMinimalSnapshotResult(TEXT("pcg"), Nodes, Edges, Diagnostics);
+        // Echo effective graphRef at response root.
+        {
+            TSharedPtr<FJsonObject> ResponseGraphRef = MakeShared<FJsonObject>();
+            ResponseGraphRef->SetStringField(TEXT("kind"), TEXT("asset"));
+            ResponseGraphRef->SetStringField(TEXT("assetPath"), AssetPath);
+            Result->SetObjectField(TEXT("graphRef"), ResponseGraphRef);
+        }
         return Result;
     }
 

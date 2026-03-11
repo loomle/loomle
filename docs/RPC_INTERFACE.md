@@ -229,7 +229,10 @@ Naming note:
 }
 ```
 
-- `includeSubgraphs` (optional, default `false`): recursively enumerate subgraphs contained within composite/subgraph nodes.
+- `includeSubgraphs` (optional, default `false`): recursively enumerate subgraphs contained within composite/subgraph nodes. Supported across all three graph types:
+  - `blueprint`: enumerates `K2Node_Composite` inline subgraphs (emits `kind: "inline"` refs).
+  - `pcg`: enumerates PCG subgraph nodes and emits `kind: "asset"` refs to the external `UPCGGraph` assets.
+  - `material`: enumerates `MaterialFunctionCall` expressions and emits `kind: "asset"` refs to the referenced `MaterialFunction` assets.
 - `maxDepth` (optional, default `1`, max `8`): maximum recursion depth when `includeSubgraphs` is `true`. Depth `1` returns only direct children; `0` is equivalent to `includeSubgraphs: false`.
 
 `payload`:
@@ -284,22 +287,33 @@ Two mutually exclusive addressing modes:
 
 **Mode B — GraphRef:** supply `graphRef` obtained from a prior `graph.list` or `graph.query` response. `assetPath` and `graphName` must be omitted.
 
+Inline ref (Blueprint `K2Node_Composite`):
 ```json
 {
-  "graphType": "blueprint|material|pcg",
+  "graphType": "blueprint",
   "graphRef": {
     "kind": "inline",
     "nodeGuid": "A1B2C3D4-E5F6-7890-ABCD-EF1234567890",
     "assetPath": "/Game/BP_Foo"
   },
-  "filter": {
-    "nodeClasses": ["optional-class"],
-    "nodeIds": ["optional-id"],
-    "text": "optional-text"
+  "filter": { "nodeClasses": ["optional-class"], "nodeIds": ["optional-id"], "text": "optional-text" },
+  "limit": 200
+}
+```
+
+Asset ref (external PCG graph, MaterialFunction, or another Blueprint graph):
+```json
+{
+  "graphType": "pcg|material",
+  "graphRef": {
+    "kind": "asset",
+    "assetPath": "/Game/PCG/MySubgraph"
   },
   "limit": 200
 }
 ```
+
+Note: `graphType: "material"` accepts both `UMaterial` and `UMaterialFunction` asset paths.
 
 - If both `graphRef` and `graphName` are present, the server returns `1000 INVALID_ARGUMENT`.
 - If neither is present, the server returns `1000 INVALID_ARGUMENT`.
@@ -342,9 +356,12 @@ Two mutually exclusive addressing modes:
 
 Node field notes:
 
-- `childGraphRef`: present only on nodes that own or reference a subgraph (e.g. `K2Node_Composite`, `UPCGSubgraphNode`, `UMaterialExpressionMaterialFunctionCall`). Absent on ordinary nodes.
-- `childLoadStatus`: present only when `childGraphRef.kind == "asset"`. Indicates whether the referenced asset is currently loaded in the editor.
-- The `graphRef` at the response root mirrors the effective locator used to resolve this query — clients can store it for later use without reconstructing it.
+- `childGraphRef`: present only on nodes that own or reference a subgraph. Absent on ordinary nodes.
+  - Blueprint `K2Node_Composite` → `kind: "inline"` (subgraph is embedded in the same asset)
+  - PCG subgraph nodes (`UPCGSubgraphSettings`) → `kind: "asset"` (points to an external `UPCGGraph` asset)
+  - Material `UMaterialExpressionMaterialFunctionCall` → `kind: "asset"` (points to an external `UMaterialFunction` asset)
+- `childLoadStatus`: present when `childGraphRef` is set. `"loaded"` if the referenced asset is currently in memory; `"not_found"` if it could not be resolved.
+- The `graphRef` at the response root mirrors the effective locator used to resolve this query — clients can store it for later use without reconstructing it. Present on all three graph types.
 
 ## 5.5 tool=`graph.actions`
 
