@@ -380,6 +380,13 @@ fn graph_query_input_schema() -> Value {
                 "minimum": 1,
                 "maximum": 1000,
                 "description": "Maximum number of nodes/edges to return when truncation is supported."
+            },
+            "path": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 },
+                "minItems": 1,
+                "maxItems": 8,
+                "description": "Blueprint only. Ordered list of composite node GUIDs to traverse into before querying. Each entry must be a K2Node_Composite nodeId. The server resolves the subgraph of the final GUID in a single round-trip, avoiding multiple graph.query calls for deeply nested composites. Mutually exclusive with graphRef.kind=inline at the same level — supply path instead."
             }
         },
         "additionalProperties": false

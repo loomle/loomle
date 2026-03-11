@@ -281,9 +281,12 @@ Two mutually exclusive addressing modes:
     "nodeIds": ["optional-id"],
     "text": "optional-text"
   },
-  "limit": 200
+  "limit": 200,
+  "path": ["CompositeA_Guid", "CompositeB_Guid"]
 }
 ```
+
+`path` (optional, Blueprint only, 1–8 entries): ordered `K2Node_Composite` GUIDs to traverse before querying. The server resolves the subgraph of the **last** GUID in a single round-trip. Use this to reach deeply nested composites without chaining multiple `graph.query` calls. Compatible with both Mode A and Mode B (asset-kind `graphRef`). The response `graphRef` reflects the effective leaf subgraph.
 
 **Mode B — GraphRef:** supply `graphRef` obtained from a prior `graph.list` or `graph.query` response. `assetPath` and `graphName` must be omitted.
 

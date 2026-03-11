@@ -422,6 +422,30 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
         AssetPath = NormalizeAssetPath(AssetPath);
     }
 
+    // Path traversal (Blueprint only): an ordered array of composite node GUIDs to drill into.
+    // Because ListCompositeSubgraphNodes searches all Blueprint graphs by GUID, only the final
+    // element is needed — no manual step-by-step resolution required.
+    if (GraphType.Equals(TEXT("blueprint")))
+    {
+        const TArray<TSharedPtr<FJsonValue>>* PathArray = nullptr;
+        if (Arguments->TryGetArrayField(TEXT("path"), PathArray) && PathArray && PathArray->Num() > 0)
+        {
+            FString LastGuid;
+            for (const TSharedPtr<FJsonValue>& PathVal : *PathArray)
+            {
+                FString Guid;
+                if (PathVal.IsValid() && PathVal->TryGetString(Guid) && !Guid.IsEmpty())
+                {
+                    LastGuid = Guid;
+                }
+            }
+            if (!LastGuid.IsEmpty())
+            {
+                InlineNodeGuid = LastGuid;
+            }
+        }
+    }
+
     auto BuildMinimalSnapshotResult = [&Result, &GraphType, &AssetPath, &GraphName](const FString& RevisionPrefix, const TArray<TSharedPtr<FJsonValue>>& Nodes, const TArray<TSharedPtr<FJsonValue>>& Edges, const TArray<TSharedPtr<FJsonValue>>& Diagnostics)
     {
         TArray<FString> SignatureNodeTokens;
