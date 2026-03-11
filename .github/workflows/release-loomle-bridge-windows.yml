@@ -105,6 +105,32 @@ jobs:
         run: |
           Write-Host "Checking cargo availability..."
 
+          function Test-Cargo([string]$CargoPath) {
+            & $CargoPath --version
+            return ($LASTEXITCODE -eq 0)
+          }
+
+          function Ensure-DefaultRustToolchain([string]$CargoPath) {
+            $cargoBin = Split-Path -Parent $CargoPath
+            $rustupExe = Join-Path $cargoBin "rustup.exe"
+            if (-not (Test-Path -LiteralPath $rustupExe)) {
+              return $false
+            }
+
+            & $rustupExe show active-toolchain *> $null
+            if ($LASTEXITCODE -eq 0) {
+              return $true
+            }
+
+            Write-Host "cargo exists but no active default Rust toolchain is configured; running rustup default stable..."
+            & $rustupExe default stable
+            if ($LASTEXITCODE -ne 0) {
+              throw "rustup default stable failed with exit code $LASTEXITCODE"
+            }
+
+            return $true
+          }
+
           $candidateBins = @()
           if ($env:CARGO_HOME) {
             $candidateBins += (Join-Path $env:CARGO_HOME "bin")
@@ -122,16 +148,24 @@ jobs:
             if (Test-Path -LiteralPath $cargoExe) {
               Write-Host "Using existing cargo at $cargoExe"
               $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-              & $cargoExe --version
-              exit 0
+              if (Test-Cargo $cargoExe) {
+                exit 0
+              }
+              if ((Ensure-DefaultRustToolchain $cargoExe) -and (Test-Cargo $cargoExe)) {
+                exit 0
+              }
             }
           }
 
           $cargoCmd = Get-Command cargo -ErrorAction SilentlyContinue
           if ($cargoCmd) {
             Write-Host "Using cargo from PATH: $($cargoCmd.Source)"
-            & $cargoCmd.Source --version
-            exit 0
+            if (Test-Cargo $cargoCmd.Source) {
+              exit 0
+            }
+            if ((Ensure-DefaultRustToolchain $cargoCmd.Source) -and (Test-Cargo $cargoCmd.Source)) {
+              exit 0
+            }
           }
 
           Write-Host "cargo not found; installing Rust toolchain..."
