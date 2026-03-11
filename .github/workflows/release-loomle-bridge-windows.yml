@@ -117,11 +117,6 @@ jobs:
               return $false
             }
 
-            & $rustupExe show active-toolchain *> $null
-            if ($LASTEXITCODE -eq 0) {
-              return $true
-            }
-
             Write-Host "cargo exists but no active default Rust toolchain is configured; running rustup default stable..."
             & $rustupExe default stable
             if ($LASTEXITCODE -ne 0) {
