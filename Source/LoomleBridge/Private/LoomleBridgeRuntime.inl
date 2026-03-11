@@ -235,11 +235,35 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildExecutePythonToolResult(const 
         }
     }
 
+    static constexpr int32 ExecuteTimeoutSeconds = 30;
+
+    FString WrappedCode;
+    if (Mode.Equals(TEXT("exec")))
+    {
+        WrappedCode += TEXT("import signal, platform\n");
+        WrappedCode += FString::Printf(TEXT("_LOOMLE_TIMEOUT = %d\n"), ExecuteTimeoutSeconds);
+        WrappedCode += TEXT("def _loomle_timeout_handler(signum, frame):\n");
+        WrappedCode += TEXT("    raise TimeoutError(f'execute exceeded {_LOOMLE_TIMEOUT}s timeout')\n");
+        WrappedCode += TEXT("if platform.system() != 'Windows' and hasattr(signal, 'SIGALRM'):\n");
+        WrappedCode += TEXT("    signal.signal(signal.SIGALRM, _loomle_timeout_handler)\n");
+        WrappedCode += TEXT("    signal.alarm(_LOOMLE_TIMEOUT)\n");
+        WrappedCode += TEXT("try:\n");
+        TArray<FString> CodeLines;
+        Code.ParseIntoArrayLines(CodeLines, false);
+        for (const FString& Line : CodeLines)
+        {
+            WrappedCode += TEXT("    ") + Line + TEXT("\n");
+        }
+        WrappedCode += TEXT("finally:\n");
+        WrappedCode += TEXT("    if platform.system() != 'Windows' and hasattr(signal, 'SIGALRM'):\n");
+        WrappedCode += TEXT("        signal.alarm(0)\n");
+    }
+
     FPythonCommandEx PythonCommand;
     PythonCommand.ExecutionMode = Mode.Equals(TEXT("eval"))
         ? EPythonCommandExecutionMode::EvaluateStatement
         : EPythonCommandExecutionMode::ExecuteFile;
-    PythonCommand.Command = Code;
+    PythonCommand.Command = Mode.Equals(TEXT("exec")) ? WrappedCode : Code;
 
     const bool bSuccess = PythonScriptPlugin->ExecPythonCommandEx(PythonCommand);
     Result->SetBoolField(TEXT("isError"), !bSuccess);

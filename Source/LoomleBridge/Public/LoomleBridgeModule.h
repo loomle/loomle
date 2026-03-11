@@ -2,6 +2,7 @@
 
 #include "Containers/Ticker.h"
 #include "CoreMinimal.h"
+#include "HAL/CriticalSection.h"
 #include "Modules/ModuleManager.h"
 
 class FLoomlePipeServer;
@@ -57,7 +58,8 @@ private:
 private:
     TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> PipeServer;
     TMap<FString, FGraphActionTokenEntry> GraphActionTokenRegistry;
-    bool bGraphMutateInProgress = false;
+    FCriticalSection GraphActionTokenRegistryMutex;
+    TAtomic<bool> bGraphMutateInProgress { false };
     TAtomic<bool> bBridgeRunningSnapshot { false };
     TAtomic<bool> bPythonReadySnapshot { false };
     TAtomic<bool> bIsPIESnapshot { false };

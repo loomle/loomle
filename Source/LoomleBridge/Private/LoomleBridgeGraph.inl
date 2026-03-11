@@ -679,6 +679,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
 
 void FLoomleBridgeModule::PruneGraphActionTokenRegistry()
 {
+    // Caller must hold GraphActionTokenRegistryMutex.
     const double NowSeconds = FPlatformTime::Seconds();
     TArray<FString> KeysToRemove;
     KeysToRemove.Reserve(GraphActionTokenRegistry.Num());
@@ -731,6 +732,8 @@ bool FLoomleBridgeModule::ResolveGraphActionToken(const FString& ActionToken, co
     OutErrorCode.Empty();
     OutErrorMessage.Empty();
     OutEntry = FGraphActionTokenEntry();
+
+    FScopeLock ScopeLock(&GraphActionTokenRegistryMutex);
     PruneGraphActionTokenRegistry();
 
     const FGraphActionTokenEntry* Found = GraphActionTokenRegistry.Find(ActionToken);
@@ -857,7 +860,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphActionsToolResult(const T
             TokenEntry.GraphName = GraphName;
             TokenEntry.LegacyActionId = Spec.NodeClassPath;
             TokenEntry.CreatedAtSeconds = FPlatformTime::Seconds();
-            GraphActionTokenRegistry.Add(ActionToken, TokenEntry);
+            {
+                FScopeLock ScopeLock(&GraphActionTokenRegistryMutex);
+                GraphActionTokenRegistry.Add(ActionToken, TokenEntry);
+            }
 
             TSharedPtr<FJsonObject> ActionObject = MakeShared<FJsonObject>();
             ActionObject->SetStringField(TEXT("actionToken"), ActionToken);
@@ -1145,7 +1151,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphActionsToolResult(const T
         TokenEntry.FromPinName = FromPinName;
         TokenEntry.Action = Candidate.Action;
         TokenEntry.CreatedAtSeconds = FPlatformTime::Seconds();
-        GraphActionTokenRegistry.Add(ActionToken, TokenEntry);
+        {
+            FScopeLock ScopeLock(&GraphActionTokenRegistryMutex);
+            GraphActionTokenRegistry.Add(ActionToken, TokenEntry);
+        }
 
         TSharedPtr<FJsonObject> ActionObject = MakeShared<FJsonObject>();
         ActionObject->SetStringField(TEXT("actionToken"), ActionToken);
@@ -1208,7 +1217,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphActionsToolResult(const T
             TokenEntry.FromPinName = FromPinName;
             TokenEntry.LegacyActionId = Fallback.ActionId;
             TokenEntry.CreatedAtSeconds = FPlatformTime::Seconds();
-            GraphActionTokenRegistry.Add(ActionToken, TokenEntry);
+            {
+                FScopeLock ScopeLock(&GraphActionTokenRegistryMutex);
+                GraphActionTokenRegistry.Add(ActionToken, TokenEntry);
+            }
 
             TSharedPtr<FJsonObject> ActionObject = MakeShared<FJsonObject>();
             ActionObject->SetStringField(TEXT("actionToken"), ActionToken);
@@ -1229,7 +1241,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphActionsToolResult(const T
         Diagnostic->SetStringField(TEXT("message"), TEXT("Schema returned no actions, fallback action set was used."));
         Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
     }
-    PruneGraphActionTokenRegistry();
+    {
+        FScopeLock ScopeLock(&GraphActionTokenRegistryMutex);
+        PruneGraphActionTokenRegistry();
+    }
 
     TSharedPtr<FJsonObject> ContextEcho = MakeShared<FJsonObject>();
     ContextEcho->SetStringField(TEXT("mode"), FromPin != nullptr ? TEXT("pin") : TEXT("graph"));
@@ -2078,7 +2093,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         return Out;
     };
 
-    bGraphMutateInProgress = !bDryRun;
+    TUniquePtr<FScopedTransaction> Transaction;
+    if (!bDryRun && GraphType.Equals(TEXT("blueprint")))
+    {
+        Transaction = MakeUnique<FScopedTransaction>(FText::FromString(FString::Printf(TEXT("Loomle graph.mutate %s"), *GraphName)));
+    }
+
+    bGraphMutateInProgress.Store(!bDryRun);
     for (int32 Index = 0; Index < Ops->Num(); ++Index)
     {
         const TSharedPtr<FJsonObject>* OpObj = nullptr;
@@ -2469,27 +2490,39 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     const FString EntryEscaped = EscapePythonSingleQuoted(Entry);
                     const FString ModeEscaped = EscapePythonSingleQuoted(Mode);
 
+                    static constexpr int32 ScriptTimeoutSeconds = 30;
+
                     FString PythonSource;
-                    PythonSource += TEXT("import base64, json, importlib\n");
-                    PythonSource += FString::Printf(TEXT("_ctx = json.loads(base64.b64decode('%s').decode('utf-8'))\n"), *ContextB64);
-                    PythonSource += FString::Printf(TEXT("_mode = '%s'\n"), *ModeEscaped);
-                    PythonSource += FString::Printf(TEXT("_entry = '%s'\n"), *EntryEscaped);
-                    PythonSource += TEXT("_fn = None\n");
-                    PythonSource += TEXT("if _mode.lower() == 'inlinecode':\n");
-                    PythonSource += FString::Printf(TEXT("    _src = base64.b64decode('%s').decode('utf-8')\n"), *CodeB64);
-                    PythonSource += TEXT("    _ns = {}\n");
-                    PythonSource += TEXT("    exec(_src, _ns)\n");
-                    PythonSource += TEXT("    _fn = _ns.get(_entry)\n");
-                    PythonSource += TEXT("else:\n");
-                    PythonSource += FString::Printf(TEXT("    _mod_name = base64.b64decode('%s').decode('utf-8')\n"), *ScriptIdB64);
-                    PythonSource += TEXT("    _mod = importlib.import_module(_mod_name)\n");
-                    PythonSource += TEXT("    _fn = getattr(_mod, _entry)\n");
-                    PythonSource += TEXT("if _fn is None:\n");
-                    PythonSource += TEXT("    raise RuntimeError(f'Entry not found: {_entry}')\n");
-                    PythonSource += TEXT("_out = _fn(_ctx)\n");
-                    PythonSource += TEXT("if _out is None:\n");
-                    PythonSource += TEXT("    _out = {}\n");
-                    PythonSource += TEXT("print('__LOOMLE_SCRIPT_RESULT__' + json.dumps(_out, ensure_ascii=False))\n");
+                    PythonSource += TEXT("import base64, json, importlib, signal, sys, platform\n");
+                    PythonSource += FString::Printf(TEXT("_LOOMLE_TIMEOUT = %d\n"), ScriptTimeoutSeconds);
+                    PythonSource += TEXT("def _loomle_timeout_handler(signum, frame):\n");
+                    PythonSource += TEXT("    raise TimeoutError(f'runScript exceeded {_LOOMLE_TIMEOUT}s timeout')\n");
+                    PythonSource += TEXT("if platform.system() != 'Windows' and hasattr(signal, 'SIGALRM'):\n");
+                    PythonSource += TEXT("    signal.signal(signal.SIGALRM, _loomle_timeout_handler)\n");
+                    PythonSource += TEXT("    signal.alarm(_LOOMLE_TIMEOUT)\n");
+                    PythonSource += TEXT("try:\n");
+                    PythonSource += FString::Printf(TEXT("    _ctx = json.loads(base64.b64decode('%s').decode('utf-8'))\n"), *ContextB64);
+                    PythonSource += FString::Printf(TEXT("    _mode = '%s'\n"), *ModeEscaped);
+                    PythonSource += FString::Printf(TEXT("    _entry = '%s'\n"), *EntryEscaped);
+                    PythonSource += TEXT("    _fn = None\n");
+                    PythonSource += TEXT("    if _mode.lower() == 'inlinecode':\n");
+                    PythonSource += FString::Printf(TEXT("        _src = base64.b64decode('%s').decode('utf-8')\n"), *CodeB64);
+                    PythonSource += TEXT("        _ns = {}\n");
+                    PythonSource += TEXT("        exec(_src, _ns)\n");
+                    PythonSource += TEXT("        _fn = _ns.get(_entry)\n");
+                    PythonSource += TEXT("    else:\n");
+                    PythonSource += FString::Printf(TEXT("        _mod_name = base64.b64decode('%s').decode('utf-8')\n"), *ScriptIdB64);
+                    PythonSource += TEXT("        _mod = importlib.import_module(_mod_name)\n");
+                    PythonSource += TEXT("        _fn = getattr(_mod, _entry)\n");
+                    PythonSource += TEXT("    if _fn is None:\n");
+                    PythonSource += TEXT("        raise RuntimeError(f'Entry not found: {_entry}')\n");
+                    PythonSource += TEXT("    _out = _fn(_ctx)\n");
+                    PythonSource += TEXT("    if _out is None:\n");
+                    PythonSource += TEXT("        _out = {}\n");
+                    PythonSource += TEXT("    print('__LOOMLE_SCRIPT_RESULT__' + json.dumps(_out, ensure_ascii=False))\n");
+                    PythonSource += TEXT("finally:\n");
+                    PythonSource += TEXT("    if platform.system() != 'Windows' and hasattr(signal, 'SIGALRM'):\n");
+                    PythonSource += TEXT("        signal.alarm(0)\n");
 
                     IPythonScriptPlugin* PythonScriptPlugin = IPythonScriptPlugin::Get();
                     if (PythonScriptPlugin == nullptr)
@@ -2607,7 +2640,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         }
 
     }
-    bGraphMutateInProgress = false;
+    bGraphMutateInProgress.Store(false);
 
     Result->SetBoolField(TEXT("isError"), bAnyError);
     if (bAnyError)
