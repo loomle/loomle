@@ -109,7 +109,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
         TEXT("context"), TEXT("execute"),
         TEXT("graph.list"), TEXT("graph.query"), TEXT("graph.actions"), TEXT("graph.mutate")
     }));
-    Result->SetArrayField(TEXT("graphTypes"), MakeStringArray({TEXT("k2"), TEXT("material"), TEXT("pcg")}));
+    Result->SetArrayField(TEXT("graphTypes"), MakeStringArray({TEXT("blueprint"), TEXT("material"), TEXT("pcg")}));
 
     TSharedPtr<FJsonObject> Features = MakeShared<FJsonObject>();
     Features->SetBoolField(TEXT("revision"), true);

@@ -22,6 +22,10 @@ Protocol baseline: MCP specification `2025-11-05` tools semantics.
 4. Tool name style
 - Minimal names kept as project convention.
 
+5. Schema discovery
+- `tools/list` is the runtime source of truth for MCP tool names, descriptions, and `inputSchema`.
+- Clients should prefer `tools/list` over hardcoded argument examples when validating or rendering tool call shapes.
+
 ## 3. Tool Catalog
 
 - `loomle`
@@ -56,13 +60,18 @@ Output schema:
   "type": "object",
   "required": ["status", "runtime"],
   "properties": {
-    "status": { "type": "string", "enum": ["ok", "degraded", "error"] },
+    "status": { "type": "string", "enum": ["ok", "degraded", "blocked", "error"] },
+    "domainCode": { "type": "string" },
+    "message": { "type": "string" },
     "runtime": {
       "type": "object",
       "required": ["rpcConnected", "listenerReady", "rpcHealth"],
       "properties": {
         "rpcConnected": { "type": "boolean" },
         "listenerReady": { "type": "boolean" },
+        "isPIE": { "type": "boolean" },
+        "editorBusyReason": { "type": "string" },
+        "acceptsRuntimeTools": { "type": "boolean" },
         "rpcHealth": {
           "type": "object",
           "required": ["status", "rpcVersion", "timestamp"],
@@ -70,7 +79,9 @@ Output schema:
             "status": { "type": "string", "enum": ["ok", "degraded", "error"] },
             "rpcVersion": { "type": "string" },
             "timestamp": { "type": "string" },
-            "probeError": { "type": "string" }
+            "probeError": { "type": "string" },
+            "isPIE": { "type": "boolean" },
+            "editorBusyReason": { "type": "string" }
           },
           "additionalProperties": false
         }
@@ -117,7 +128,7 @@ Output schema:
       "type": "object",
       "required": ["editorType"],
       "properties": {
-        "editorType": { "type": "string", "enum": ["k2", "material", "pcg", "unknown"] },
+        "editorType": { "type": "string", "enum": ["blueprint", "material", "pcg", "unknown"] },
         "assetPath": { "type": "string" }
       },
       "additionalProperties": false
@@ -188,7 +199,7 @@ Input schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
-    "graphType": { "type": "string", "enum": ["k2", "material", "pcg"], "default": "k2" }
+    "graphType": { "type": "string", "enum": ["blueprint", "material", "pcg"], "default": "blueprint" }
   },
   "additionalProperties": false
 }
@@ -202,9 +213,11 @@ Output schema:
   "type": "object",
   "required": ["status", "graphType", "version", "ops", "limits", "runtime"],
   "properties": {
-    "status": { "type": "string", "enum": ["ok", "degraded", "error"] },
-    "graphType": { "type": "string", "enum": ["k2", "material", "pcg"] },
+    "status": { "type": "string", "enum": ["ok", "degraded", "blocked", "error"] },
+    "graphType": { "type": "string", "enum": ["blueprint", "material", "pcg"] },
     "version": { "type": "string" },
+    "domainCode": { "type": "string" },
+    "message": { "type": "string" },
     "ops": { "type": "array", "items": { "type": "string" } },
     "limits": {
       "type": "object",
@@ -220,6 +233,9 @@ Output schema:
       "type": "object",
       "required": ["rpcHealth"],
       "properties": {
+        "isPIE": { "type": "boolean" },
+        "editorBusyReason": { "type": "string" },
+        "acceptsRuntimeTools": { "type": "boolean" },
         "rpcHealth": {
           "type": "object",
           "required": ["status", "rpcVersion", "timestamp"],
@@ -227,7 +243,9 @@ Output schema:
             "status": { "type": "string", "enum": ["ok", "degraded", "error"] },
             "rpcVersion": { "type": "string" },
             "timestamp": { "type": "string" },
-            "probeError": { "type": "string" }
+            "probeError": { "type": "string" },
+            "isPIE": { "type": "boolean" },
+            "editorBusyReason": { "type": "string" }
           },
           "additionalProperties": false
         }
@@ -249,8 +267,14 @@ Execution rule:
 
 For `graph.list`, `graph.query`, `graph.actions`, `graph.mutate`:
 
-- Input/output schemas are the same as `RPC_INTERFACE.md` section 5 for corresponding tool payloads.
+- Input/output schemas are exposed directly through MCP `tools/list` and should be treated as the live contract.
+- `RPC_INTERFACE.md` section 5 documents the same tool payloads at the Unreal RPC boundary.
 - Execution uses `rpc.invoke` with `tool` equal to MCP tool name.
+
+Practical client rule:
+
+- Use `tools/list` when you need the current accepted `inputSchema`.
+- Use `RPC_INTERFACE.md` when you need lower-level transport and payload shape details.
 
 ## 5. MCP <-> RPC Error Mapping
 

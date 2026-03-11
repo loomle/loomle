@@ -9,7 +9,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_GRAPH_TYPE"));
-        Result->SetStringField(TEXT("message"), TEXT("Supported graphType values: blueprint, material(shader), pcg."));
+        Result->SetStringField(TEXT("message"), TEXT("Supported graphType values: blueprint, material, pcg."));
         return Result;
     }
 
@@ -105,7 +105,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_GRAPH_TYPE"));
-        Result->SetStringField(TEXT("message"), TEXT("Supported graphType values: blueprint, material(shader), pcg."));
+        Result->SetStringField(TEXT("message"), TEXT("Supported graphType values: blueprint, material, pcg."));
         return Result;
     }
 
@@ -771,7 +771,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphActionsToolResult(const T
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_GRAPH_TYPE"));
-        Result->SetStringField(TEXT("message"), TEXT("Supported graphType values: blueprint, material(shader), pcg."));
+        Result->SetStringField(TEXT("message"), TEXT("Supported graphType values: blueprint, material, pcg."));
         return Result;
     }
 
@@ -1268,7 +1268,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_GRAPH_TYPE"));
-        Result->SetStringField(TEXT("message"), TEXT("Supported graphType values: blueprint, material(shader), pcg."));
+        Result->SetStringField(TEXT("message"), TEXT("Supported graphType values: blueprint, material, pcg."));
         return Result;
     }
 

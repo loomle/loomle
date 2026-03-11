@@ -138,7 +138,7 @@ impl<C: RpcConnector> McpService<C> {
         let graph_type = args
             .get("graphType")
             .and_then(Value::as_str)
-            .unwrap_or("k2");
+            .unwrap_or("blueprint");
 
         match self.connector.health() {
             Ok(h) => {
@@ -414,7 +414,7 @@ mod tests {
         let connector = FakeConnector::new();
         let service = McpService::new(connector.clone());
 
-        let _ = service.call_tool("graph", json!({ "graphType": "k2" }), meta("1"));
+        let _ = service.call_tool("graph", json!({ "graphType": "blueprint" }), meta("1"));
         let _ = service.call_tool("graph", json!({ "graphType": "material" }), meta("2"));
 
         assert_eq!(connector.health_calls(), 2);
@@ -489,7 +489,7 @@ mod tests {
         let _ = service.call_tool(
             "graph.mutate",
             json!({
-                "graphType": "k2",
+                "graphType": "blueprint",
                 "assetPath": "/Game/X",
                 "graphName": "EventGraph",
                 "expectedRevision": "r1",
@@ -522,7 +522,7 @@ mod tests {
         let result = service.call_tool(
             "graph.mutate",
             json!({
-                "graphType": "k2",
+                "graphType": "blueprint",
                 "assetPath": "/Game/X",
                 "graphName": "EventGraph",
                 "expectedRevision": "r2",

@@ -217,7 +217,7 @@ fn tool_descriptors() -> Vec<Value> {
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "type": "object",
                 "properties": {
-                    "graphType": { "type": "string", "enum": ["k2", "material", "pcg"], "default": "k2" }
+                    "graphType": graph_type_schema()
                 },
                 "additionalProperties": false
             },
@@ -230,38 +230,242 @@ fn tool_descriptors() -> Vec<Value> {
             "graph.list",
             "Graph List",
             "List readable graphs in an asset.",
+            graph_list_input_schema(),
         ),
         runtime_tool_descriptor(
             "graph.query",
             "Graph Query",
             "Query semantic graph snapshot.",
+            graph_query_input_schema(),
         ),
         runtime_tool_descriptor(
             "graph.actions",
             "Graph Actions",
             "List addable actions for graph context.",
+            graph_actions_input_schema(),
         ),
         runtime_tool_descriptor(
             "graph.mutate",
             "Graph Mutate",
             "Apply graph write operations in order.",
+            graph_mutate_input_schema(),
         ),
     ]
 }
 
-fn runtime_tool_descriptor(name: &str, title: &str, description: &str) -> Value {
+fn runtime_tool_descriptor(
+    name: &str,
+    title: &str,
+    description: &str,
+    input_schema: Value,
+) -> Value {
     json!({
         "name": name,
         "title": title,
         "description": description,
-        "inputSchema": {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "type": "object"
-        },
+        "inputSchema": input_schema,
         "outputSchema": {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object"
         }
+    })
+}
+
+fn graph_type_schema() -> Value {
+    json!({
+        "type": "string",
+        "enum": ["blueprint", "material", "pcg"],
+        "default": "blueprint",
+        "description": "Graph domain."
+    })
+}
+
+fn graph_list_input_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["assetPath"],
+        "properties": {
+            "assetPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Unreal asset path, for example /Game/MyFolder/MyAsset."
+            },
+            "graphType": graph_type_schema()
+        },
+        "additionalProperties": false
+    })
+}
+
+fn graph_query_input_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["assetPath", "graphName"],
+        "properties": {
+            "assetPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Unreal asset path, for example /Game/MyFolder/MyAsset."
+            },
+            "graphName": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Graph name within the asset, for example EventGraph."
+            },
+            "graphType": graph_type_schema(),
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000,
+                "description": "Maximum number of nodes/edges to return when truncation is supported."
+            }
+        },
+        "additionalProperties": false
+    })
+}
+
+fn graph_actions_input_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["assetPath", "graphName"],
+        "properties": {
+            "assetPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Unreal asset path, for example /Game/MyFolder/MyAsset."
+            },
+            "graphName": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Graph name within the asset, for example EventGraph."
+            },
+            "graphType": graph_type_schema(),
+            "query": {
+                "type": "string",
+                "description": "Optional fuzzy search text used to filter available actions."
+            },
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000,
+                "description": "Maximum number of actions to return."
+            },
+            "context": {
+                "type": "object",
+                "description": "Optional graph context used to scope returned actions.",
+                "properties": {
+                    "fromPin": {
+                        "type": "object",
+                        "properties": {
+                            "nodeId": {
+                                "type": "string",
+                                "minLength": 1
+                            },
+                            "pinName": {
+                                "type": "string",
+                                "minLength": 1
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                "additionalProperties": false
+            }
+        },
+        "additionalProperties": false
+    })
+}
+
+fn graph_mutate_input_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["assetPath", "ops"],
+        "properties": {
+            "assetPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Unreal asset path, for example /Game/MyFolder/MyAsset."
+            },
+            "graphName": {
+                "type": "string",
+                "minLength": 1,
+                "default": "EventGraph",
+                "description": "Target graph name. Defaults to EventGraph when omitted."
+            },
+            "graphType": graph_type_schema(),
+            "expectedRevision": {
+                "type": "string",
+                "description": "Optional optimistic concurrency token from a prior graph read."
+            },
+            "idempotencyKey": {
+                "type": "string",
+                "description": "Optional client-supplied idempotency token."
+            },
+            "dryRun": {
+                "type": "boolean",
+                "default": false
+            },
+            "continueOnError": {
+                "type": "boolean",
+                "default": false,
+                "description": "Continue applying later ops after an op failure."
+            },
+            "executionPolicy": {
+                "type": "object",
+                "properties": {
+                    "stopOnError": {
+                        "type": "boolean",
+                        "default": true
+                    },
+                    "maxOps": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 200
+                    }
+                },
+                "additionalProperties": false
+            },
+            "ops": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 200,
+                "items": {
+                    "type": "object",
+                    "required": ["op", "args"],
+                    "properties": {
+                        "op": {
+                            "type": "string",
+                            "enum": [
+                                "addNode.byClass",
+                                "addNode.byAction",
+                                "connectPins",
+                                "disconnectPins",
+                                "breakPinLinks",
+                                "setPinDefault",
+                                "removeNode",
+                                "moveNode",
+                                "compile",
+                                "runScript"
+                            ]
+                        },
+                        "clientRef": {
+                            "type": "string",
+                            "description": "Optional client-side reference name for later ops in the same request."
+                        },
+                        "args": {
+                            "type": "object",
+                            "description": "Operation-specific arguments. Required keys depend on op.",
+                            "additionalProperties": true
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            }
+        },
+        "additionalProperties": false
     })
 }
 
@@ -315,6 +519,68 @@ mod tests {
         assert!(tools
             .iter()
             .any(|v| v.get("name") == Some(&Value::String(String::from("graph.actions")))));
+    }
+
+    #[test]
+    fn graph_runtime_tool_schemas_expose_required_fields() {
+        let svc = McpService::new(StubConnector);
+        let response = handle_request(
+            &svc,
+            json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}),
+        )
+        .expect("response");
+
+        let tools = response["result"]["tools"].as_array().expect("array");
+        let graph_query = tools
+            .iter()
+            .find(|v| v.get("name") == Some(&Value::String(String::from("graph.query"))))
+            .expect("graph.query descriptor");
+        let query_required = graph_query["inputSchema"]["required"]
+            .as_array()
+            .expect("required array");
+        assert!(query_required.contains(&Value::String(String::from("assetPath"))));
+        assert!(query_required.contains(&Value::String(String::from("graphName"))));
+
+        let graph_mutate = tools
+            .iter()
+            .find(|v| v.get("name") == Some(&Value::String(String::from("graph.mutate"))))
+            .expect("graph.mutate descriptor");
+        let mutate_required = graph_mutate["inputSchema"]["required"]
+            .as_array()
+            .expect("required array");
+        assert!(mutate_required.contains(&Value::String(String::from("assetPath"))));
+        assert!(mutate_required.contains(&Value::String(String::from("ops"))));
+    }
+
+    #[test]
+    fn graph_runtime_tool_schemas_include_structured_op_and_graph_type_metadata() {
+        let svc = McpService::new(StubConnector);
+        let response = handle_request(
+            &svc,
+            json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}),
+        )
+        .expect("response");
+
+        let tools = response["result"]["tools"].as_array().expect("array");
+        let graph_list = tools
+            .iter()
+            .find(|v| v.get("name") == Some(&Value::String(String::from("graph.list"))))
+            .expect("graph.list descriptor");
+        assert_eq!(
+            graph_list["inputSchema"]["properties"]["graphType"]["default"],
+            Value::String(String::from("blueprint"))
+        );
+
+        let graph_mutate = tools
+            .iter()
+            .find(|v| v.get("name") == Some(&Value::String(String::from("graph.mutate"))))
+            .expect("graph.mutate descriptor");
+        let op_enum = graph_mutate["inputSchema"]["properties"]["ops"]["items"]["properties"]["op"]
+            ["enum"]
+            .as_array()
+            .expect("op enum array");
+        assert!(op_enum.contains(&Value::String(String::from("runScript"))));
+        assert!(op_enum.contains(&Value::String(String::from("removeNode"))));
     }
 
     #[test]

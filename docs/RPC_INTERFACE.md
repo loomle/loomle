@@ -65,7 +65,9 @@ Result:
   "status": "ok|degraded|error",
   "service": "loomle-rpc-listener",
   "rpcVersion": "1.0",
-  "timestamp": "2026-03-05T12:00:00Z"
+  "timestamp": "2026-03-05T12:00:00Z",
+  "isPIE": false,
+  "editorBusyReason": ""
 }
 ```
 
@@ -84,7 +86,7 @@ Result:
   "rpcVersion": "1.0",
   "methods": ["rpc.health", "rpc.capabilities", "rpc.invoke"],
   "tools": ["context", "execute", "graph.list", "graph.query", "graph.actions", "graph.mutate"],
-  "graphTypes": ["k2", "material", "pcg"],
+  "graphTypes": ["blueprint", "material", "pcg"],
   "features": {
     "revision": true,
     "idempotency": true,
@@ -124,6 +126,11 @@ Success result:
 
 ## 5. Tool Payload Contracts (via `rpc.invoke`)
 
+Naming note:
+
+- Runtime graph domains are `blueprint`, `material`, and `pcg`.
+- Historical aliases such as `k2` and `shader` are no longer part of the public contract and should not be emitted by clients or docs.
+
 ## 5.1 tool=`context`
 
 `args`:
@@ -141,7 +148,7 @@ Success result:
 {
   "timestamp": "RFC3339",
   "context": {
-    "editorType": "k2|material|pcg|unknown",
+    "editorType": "blueprint|material|pcg|unknown",
     "assetPath": "string"
   },
   "selection": {
@@ -180,7 +187,7 @@ Success result:
 
 ```json
 {
-  "graphType": "k2|material|pcg",
+  "graphType": "blueprint|material|pcg",
   "assetPath": "/Game/..."
 }
 ```
@@ -189,7 +196,7 @@ Success result:
 
 ```json
 {
-  "graphType": "k2|material|pcg",
+  "graphType": "blueprint|material|pcg",
   "assetPath": "/Game/...",
   "graphs": [
     {
@@ -208,7 +215,7 @@ Success result:
 
 ```json
 {
-  "graphType": "k2|material|pcg",
+  "graphType": "blueprint|material|pcg",
   "assetPath": "/Game/...",
   "graphName": "EventGraph",
   "filter": {
@@ -224,7 +231,7 @@ Success result:
 
 ```json
 {
-  "graphType": "k2|material|pcg",
+  "graphType": "blueprint|material|pcg",
   "assetPath": "/Game/...",
   "graphName": "EventGraph",
   "revision": "opaque-token",
@@ -250,7 +257,7 @@ Success result:
 
 ```json
 {
-  "graphType": "k2|material|pcg",
+  "graphType": "blueprint|material|pcg",
   "assetPath": "/Game/...",
   "graphName": "EventGraph",
   "context": {
@@ -268,7 +275,7 @@ Success result:
 
 ```json
 {
-  "graphType": "k2|material|pcg",
+  "graphType": "blueprint|material|pcg",
   "assetPath": "/Game/...",
   "graphName": "EventGraph",
   "actions": [
@@ -297,7 +304,7 @@ Success result:
 
 ```json
 {
-  "graphType": "k2|material|pcg",
+  "graphType": "blueprint|material|pcg",
   "assetPath": "/Game/...",
   "graphName": "EventGraph",
   "expectedRevision": "opaque-token",
@@ -319,7 +326,7 @@ Success result:
 ```json
 {
   "applied": true,
-  "graphType": "k2|material|pcg",
+  "graphType": "blueprint|material|pcg",
   "assetPath": "/Game/...",
   "graphName": "EventGraph",
   "previousRevision": "opaque-token",

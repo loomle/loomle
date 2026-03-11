@@ -131,14 +131,6 @@ FString NormalizeGraphType(FString GraphType)
     {
         return TEXT("blueprint");
     }
-    if (GraphType.Equals(TEXT("k2")))
-    {
-        return TEXT("blueprint");
-    }
-    if (GraphType.Equals(TEXT("shader")))
-    {
-        return TEXT("material");
-    }
     return GraphType;
 }
 
