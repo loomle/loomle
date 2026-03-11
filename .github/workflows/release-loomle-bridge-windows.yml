@@ -117,7 +117,12 @@ jobs:
               return $false
             }
 
-            Write-Host "cargo exists but no active default Rust toolchain is configured; running rustup default stable..."
+            Write-Host "cargo exists but no active default Rust toolchain is configured; installing stable with minimal profile..."
+            & $rustupExe toolchain install stable --profile minimal
+            if ($LASTEXITCODE -ne 0) {
+              throw "rustup toolchain install stable --profile minimal failed with exit code $LASTEXITCODE"
+            }
+
             & $rustupExe default stable
             if ($LASTEXITCODE -ne 0) {
               throw "rustup default stable failed with exit code $LASTEXITCODE"
