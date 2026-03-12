@@ -215,8 +215,6 @@ jobs:
             throw "BuildPlugin failed with exit code $LASTEXITCODE"
           }
 
-          Remove-Item -LiteralPath (Join-Path $packageDir "Source") -Recurse -Force -ErrorAction SilentlyContinue
-
           New-Item -ItemType Directory -Force -Path $pluginDst | Out-Null
           Copy-Item -Path (Join-Path $packageDir "*") -Destination $pluginDst -Recurse -Force
 
