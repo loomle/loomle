@@ -399,18 +399,18 @@ fn graph_actions_input_schema() -> Value {
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
-        "required": ["assetPath", "graphName"],
         "properties": {
             "assetPath": {
                 "type": "string",
                 "minLength": 1,
-                "description": "Unreal asset path."
+                "description": "Unreal asset path (Mode A). Required when graphName is used; omit when graphRef is provided."
             },
             "graphName": {
                 "type": "string",
                 "minLength": 1,
-                "description": "Graph name within the asset."
+                "description": "Graph name within the asset (Mode A), for example EventGraph. Mutually exclusive with graphRef."
             },
+            "graphRef": graph_ref_schema(),
             "graphType": graph_type_schema(),
             "query": {
                 "type": "string",
@@ -585,11 +585,12 @@ fn graph_actions_output_schema() -> Value {
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
-        "required": ["graphType", "assetPath", "graphName", "actions", "meta", "diagnostics"],
+        "required": ["graphType", "assetPath", "graphName", "graphRef", "actions", "meta", "diagnostics"],
         "properties": {
             "graphType": graph_type_schema(),
             "assetPath": { "type": "string" },
             "graphName": { "type": "string" },
+            "graphRef": graph_ref_schema(),
             "contextEcho": { "type": "object", "additionalProperties": true },
             "actions": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
             "nextCursor": { "type": "string" },
@@ -715,6 +716,19 @@ mod tests {
         assert!(
             graph_query["inputSchema"]["properties"]["graphName"].is_object(),
             "graph.query should expose graphName property"
+        );
+
+        let graph_actions = tools
+            .iter()
+            .find(|v| v.get("name") == Some(&Value::String(String::from("graph.actions"))))
+            .expect("graph.actions descriptor");
+        assert!(
+            graph_actions["inputSchema"]["properties"]["graphRef"].is_object(),
+            "graph.actions should expose graphRef property"
+        );
+        assert!(
+            graph_actions["outputSchema"]["properties"]["graphRef"].is_object(),
+            "graph.actions output should expose graphRef property"
         );
 
         // graph.mutate: only ops is required; assetPath is optional when graphRef is supplied.

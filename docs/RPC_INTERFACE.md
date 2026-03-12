@@ -370,13 +370,14 @@ Node field notes:
 
 `args`:
 
-Current implementation supports Mode A only (`assetPath` + `graphName`).
+Accepts the same two addressing modes as `graph.query` (Mode A: `assetPath` + `graphName`; Mode B: `graphRef`).
 
 ```json
 {
   "graphType": "blueprint|material|pcg",
   "assetPath": "/Game/...",
   "graphName": "EventGraph",
+  "graphRef": { "kind": "inline|asset", "...": "..." },
   "context": {
     "fromPin": {
       "nodeId": "optional-id",
@@ -388,6 +389,11 @@ Current implementation supports Mode A only (`assetPath` + `graphName`).
 }
 ```
 
+Notes:
+
+- `graphRef` and `graphName` are mutually exclusive.
+- For `graphRef.kind="inline"`, `graphType` must be `blueprint`.
+
 `payload`:
 
 ```json
@@ -395,6 +401,7 @@ Current implementation supports Mode A only (`assetPath` + `graphName`).
   "graphType": "blueprint|material|pcg",
   "assetPath": "/Game/...",
   "graphName": "EventGraph",
+  "graphRef": { "kind": "inline|asset", "...": "..." },
   "contextEcho": {
     "mode": "graph|pin",
     "fromNodeId": "optional",

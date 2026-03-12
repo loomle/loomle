@@ -1327,23 +1327,107 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphActionsToolResult(const T
         return Result;
     }
 
+    auto ResolveInlineBlueprintGraphName = [](const FString& InAssetPath, const FString& InNodeGuid, FString& OutGraphName, FString& OutError) -> bool
+    {
+        FString NodesJson;
+        OutGraphName.Empty();
+        OutError.Empty();
+        return FLoomleBlueprintAdapter::ListCompositeSubgraphNodes(InAssetPath, InNodeGuid, OutGraphName, NodesJson, OutError)
+            && !OutGraphName.IsEmpty();
+    };
+
     FString AssetPath;
-    if (!Arguments->TryGetStringField(TEXT("assetPath"), AssetPath) || AssetPath.IsEmpty())
+    FString GraphName = GraphType.Equals(TEXT("blueprint"))
+        ? TEXT("EventGraph")
+        : (GraphType.Equals(TEXT("pcg")) ? TEXT("PCGGraph") : TEXT("MaterialGraph"));
+    FString InlineNodeGuid;
+    bool bUsedGraphRef = false;
+
+    const TSharedPtr<FJsonObject>* GraphRefObj = nullptr;
+    const bool bHasGraphRef = Arguments->TryGetObjectField(TEXT("graphRef"), GraphRefObj) && GraphRefObj && (*GraphRefObj).IsValid();
+    const bool bHasGraphName = Arguments->HasTypedField<EJson::String>(TEXT("graphName"));
+    if (bHasGraphRef && bHasGraphName)
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Result->SetStringField(TEXT("message"), TEXT("arguments.assetPath is required."));
+        Result->SetStringField(TEXT("message"), TEXT("Supply either graphRef (Mode B) or graphName (Mode A), not both."));
         return Result;
     }
-    AssetPath = NormalizeAssetPath(AssetPath);
 
-    FString GraphName;
-    if (!Arguments->TryGetStringField(TEXT("graphName"), GraphName) || GraphName.IsEmpty())
+    if (bHasGraphRef)
     {
-        Result->SetBoolField(TEXT("isError"), true);
-        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Result->SetStringField(TEXT("message"), TEXT("arguments.graphName is required."));
-        return Result;
+        bUsedGraphRef = true;
+        FString Kind;
+        if (!(*GraphRefObj)->TryGetStringField(TEXT("kind"), Kind) || Kind.IsEmpty())
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("GRAPH_REF_INVALID"));
+            Result->SetStringField(TEXT("message"), TEXT("graphRef.kind is required."));
+            return Result;
+        }
+        Kind = Kind.ToLower();
+
+        FString RefAssetPath;
+        if (!(*GraphRefObj)->TryGetStringField(TEXT("assetPath"), RefAssetPath) || RefAssetPath.IsEmpty())
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("GRAPH_REF_INVALID"));
+            Result->SetStringField(TEXT("message"), TEXT("graphRef.assetPath is required."));
+            return Result;
+        }
+        AssetPath = NormalizeAssetPath(RefAssetPath);
+
+        if (Kind.Equals(TEXT("asset")))
+        {
+            (*GraphRefObj)->TryGetStringField(TEXT("graphName"), GraphName);
+        }
+        else if (Kind.Equals(TEXT("inline")))
+        {
+            if (!GraphType.Equals(TEXT("blueprint")))
+            {
+                Result->SetBoolField(TEXT("isError"), true);
+                Result->SetStringField(TEXT("code"), TEXT("GRAPH_REF_INVALID"));
+                Result->SetStringField(TEXT("message"), TEXT("graphRef.kind=inline is only supported for blueprint graphType."));
+                return Result;
+            }
+            if (!(*GraphRefObj)->TryGetStringField(TEXT("nodeGuid"), InlineNodeGuid) || InlineNodeGuid.IsEmpty())
+            {
+                Result->SetBoolField(TEXT("isError"), true);
+                Result->SetStringField(TEXT("code"), TEXT("GRAPH_REF_INVALID"));
+                Result->SetStringField(TEXT("message"), TEXT("graphRef.nodeGuid is required for kind=inline."));
+                return Result;
+            }
+
+            FString ResolvedGraphName;
+            FString ResolveError;
+            if (!ResolveInlineBlueprintGraphName(AssetPath, InlineNodeGuid, ResolvedGraphName, ResolveError))
+            {
+                Result->SetBoolField(TEXT("isError"), true);
+                Result->SetStringField(TEXT("code"), TEXT("GRAPH_NOT_FOUND"));
+                Result->SetStringField(TEXT("message"), ResolveError.IsEmpty() ? TEXT("Failed to resolve inline graphRef.") : ResolveError);
+                return Result;
+            }
+            GraphName = ResolvedGraphName;
+        }
+        else
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("GRAPH_REF_INVALID"));
+            Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Unsupported graphRef.kind: %s"), *Kind));
+            return Result;
+        }
+    }
+    else
+    {
+        if (!Arguments->TryGetStringField(TEXT("assetPath"), AssetPath) || AssetPath.IsEmpty())
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Result->SetStringField(TEXT("message"), TEXT("arguments.assetPath is required (Mode A) or supply graphRef (Mode B)."));
+            return Result;
+        }
+        AssetPath = NormalizeAssetPath(AssetPath);
+        Arguments->TryGetStringField(TEXT("graphName"), GraphName);
     }
 
     if (!GraphType.Equals(TEXT("blueprint")))
@@ -1447,6 +1531,25 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphActionsToolResult(const T
         Result->SetStringField(TEXT("graphType"), GraphType);
         Result->SetStringField(TEXT("assetPath"), AssetPath);
         Result->SetStringField(TEXT("graphName"), GraphName);
+        {
+            TSharedPtr<FJsonObject> ResponseGraphRef = MakeShared<FJsonObject>();
+            if (bUsedGraphRef && !InlineNodeGuid.IsEmpty())
+            {
+                ResponseGraphRef->SetStringField(TEXT("kind"), TEXT("inline"));
+                ResponseGraphRef->SetStringField(TEXT("nodeGuid"), InlineNodeGuid);
+                ResponseGraphRef->SetStringField(TEXT("assetPath"), AssetPath);
+            }
+            else
+            {
+                ResponseGraphRef->SetStringField(TEXT("kind"), TEXT("asset"));
+                ResponseGraphRef->SetStringField(TEXT("assetPath"), AssetPath);
+                if (!GraphName.IsEmpty())
+                {
+                    ResponseGraphRef->SetStringField(TEXT("graphName"), GraphName);
+                }
+            }
+            Result->SetObjectField(TEXT("graphRef"), ResponseGraphRef);
+        }
         Result->SetObjectField(TEXT("contextEcho"), ContextEcho);
         Result->SetArrayField(TEXT("actions"), Actions);
         Result->SetStringField(TEXT("nextCursor"), TEXT(""));
@@ -1814,6 +1917,25 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphActionsToolResult(const T
     Result->SetStringField(TEXT("graphType"), GraphType);
     Result->SetStringField(TEXT("assetPath"), AssetPath);
     Result->SetStringField(TEXT("graphName"), GraphName);
+    {
+        TSharedPtr<FJsonObject> ResponseGraphRef = MakeShared<FJsonObject>();
+        if (bUsedGraphRef && !InlineNodeGuid.IsEmpty())
+        {
+            ResponseGraphRef->SetStringField(TEXT("kind"), TEXT("inline"));
+            ResponseGraphRef->SetStringField(TEXT("nodeGuid"), InlineNodeGuid);
+            ResponseGraphRef->SetStringField(TEXT("assetPath"), AssetPath);
+        }
+        else
+        {
+            ResponseGraphRef->SetStringField(TEXT("kind"), TEXT("asset"));
+            ResponseGraphRef->SetStringField(TEXT("assetPath"), AssetPath);
+            if (!GraphName.IsEmpty())
+            {
+                ResponseGraphRef->SetStringField(TEXT("graphName"), GraphName);
+            }
+        }
+        Result->SetObjectField(TEXT("graphRef"), ResponseGraphRef);
+    }
     Result->SetObjectField(TEXT("contextEcho"), ContextEcho);
     Result->SetArrayField(TEXT("actions"), Actions);
     Result->SetStringField(TEXT("nextCursor"), TEXT(""));

@@ -173,6 +173,15 @@ def main() -> int:
             fail(f"graph.list missing graphs[]: {graph_list}")
         if not any(isinstance(g, dict) and g.get("graphName") == "EventGraph" for g in graphs):
             fail(f"graph.list did not include EventGraph: {graph_list}")
+        event_graph = next(
+            (g for g in graphs if isinstance(g, dict) and g.get("graphName") == "EventGraph"),
+            None,
+        )
+        if not isinstance(event_graph, dict):
+            fail(f"graph.list event graph entry missing: {graph_list}")
+        event_graph_ref = event_graph.get("graphRef")
+        if not isinstance(event_graph_ref, dict) or event_graph_ref.get("kind") != "asset":
+            fail(f"graph.list event graph graphRef missing/invalid: {event_graph}")
         print("[PASS] graph.list validated")
 
         graph_query = call_tool(
@@ -219,6 +228,22 @@ def main() -> int:
         if not isinstance(meta, dict) or "total" not in meta or "returned" not in meta:
             fail(f"graph.actions missing or invalid meta: {actions}")
         print(f"[PASS] graph.actions response validated ({len(items)} actions returned)")
+
+        actions_by_ref = call_tool(
+            client,
+            7001,
+            "graph.actions",
+            {"graphRef": event_graph_ref, "graphType": "blueprint", "limit": 5},
+        )
+        by_ref_items = actions_by_ref.get("items")
+        if not isinstance(by_ref_items, list):
+            by_ref_items = actions_by_ref.get("actions")
+        if not isinstance(by_ref_items, list) or len(by_ref_items) == 0:
+            fail(f"graph.actions(graphRef) returned no actions/items: {actions_by_ref}")
+        by_ref_echo = actions_by_ref.get("graphRef")
+        if not isinstance(by_ref_echo, dict) or by_ref_echo.get("kind") != "asset":
+            fail(f"graph.actions(graphRef) missing graphRef echo: {actions_by_ref}")
+        print("[PASS] graph.actions graphRef(asset) addressing validated")
 
         first_token = items[0].get("actionToken", "")
         add_by_action = call_tool(
