@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import queue
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -78,6 +80,19 @@ class McpStdioClient:
             bufsize=1,
         )
         self.timeout_s = timeout_s
+        self._stdout_queue: queue.Queue[str] = queue.Queue()
+        self._reader_error: Exception | None = None
+        self._reader_thread = threading.Thread(target=self._stdout_reader, name="loomle-mcp-stdout-reader", daemon=True)
+        self._reader_thread.start()
+
+    def _stdout_reader(self) -> None:
+        try:
+            if self.proc.stdout is None:
+                return
+            for line in self.proc.stdout:
+                self._stdout_queue.put(line)
+        except Exception as exc:
+            self._reader_error = exc
 
     def close(self) -> None:
         if self.proc.poll() is None:
@@ -86,9 +101,11 @@ class McpStdioClient:
                 self.proc.wait(timeout=2)
             except Exception:
                 self.proc.kill()
+        if self._reader_thread.is_alive():
+            self._reader_thread.join(timeout=1)
 
     def request(self, req_id: int, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        if self.proc.stdin is None or self.proc.stdout is None:
+        if self.proc.stdin is None:
             fail("mcp stdio is not available")
 
         payload = {
@@ -107,10 +124,12 @@ class McpStdioClient:
                 if self.proc.stderr is not None:
                     err = self.proc.stderr.read().strip()
                 fail(f"mcp_server exited early: {err}")
-
-            line = self.proc.stdout.readline()
-            if not line:
-                time.sleep(0.01)
+            if self._reader_error is not None:
+                fail(f"mcp_server stdout reader failed: {self._reader_error}")
+            wait_s = max(0.0, deadline - time.time())
+            try:
+                line = self._stdout_queue.get(timeout=min(0.1, wait_s))
+            except queue.Empty:
                 continue
 
             line = line.strip()

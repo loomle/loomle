@@ -10,6 +10,40 @@ Defines the RPC methods exposed by Unreal-side `RPC Listener`.
 
 ## 2. Common Envelope
 
+## 2.1 Shared Types
+
+### GraphRef
+
+`GraphRef` is a self-contained subgraph locator. Two variants:
+
+**Inline** — identifies a subgraph owned by a node within an already-loaded asset (e.g. Blueprint `K2Node_Composite`, inline PCG subgraph node):
+
+```json
+{
+  "kind": "inline",
+  "nodeGuid": "A1B2C3D4-E5F6-7890-ABCD-EF1234567890",
+  "assetPath": "/Game/BP_Foo"
+}
+```
+
+**Asset** — identifies a graph that is a standalone UE asset or a named root graph within a multi-graph asset (Blueprint):
+
+```json
+// Single-graph asset (Material, external PCG)
+{ "kind": "asset", "assetPath": "/Game/FX/MyMaterialFunction" }
+
+// Multi-graph asset (Blueprint — graphName required)
+{ "kind": "asset", "assetPath": "/Game/BP_Foo", "graphName": "EventGraph" }
+```
+
+Key contract rules:
+
+- `GraphRef` is always emitted by the server (in `graph.list` and `graph.query` responses) with all fields filled in. Clients treat it as an opaque token and pass it back verbatim.
+- When a client supplies a `GraphRef` as input, it replaces the `assetPath` + `graphName` pair entirely — no separate `assetPath` field is needed.
+- `assetPath` embedded inside `GraphRef.inline` is the asset that contains the composite node, not the subgraph itself (subgraphs are not standalone assets).
+
+
+
 Request:
 
 ```json
@@ -90,7 +124,8 @@ Result:
   "features": {
     "revision": true,
     "idempotency": true,
-    "dryRun": true
+    "dryRun": true,
+    "subgraphRef": true
   }
 }
 ```
@@ -188,9 +223,17 @@ Naming note:
 ```json
 {
   "graphType": "blueprint|material|pcg",
-  "assetPath": "/Game/..."
+  "assetPath": "/Game/...",
+  "includeSubgraphs": false,
+  "maxDepth": 1
 }
 ```
+
+- `includeSubgraphs` (optional, default `false`): recursively enumerate subgraphs contained within composite/subgraph nodes. Supported across all three graph types:
+  - `blueprint`: enumerates `K2Node_Composite` inline subgraphs (emits `kind: "inline"` refs).
+  - `pcg`: enumerates PCG subgraph nodes and emits `kind: "asset"` refs to the external `UPCGGraph` assets.
+  - `material`: enumerates `MaterialFunctionCall` expressions and emits `kind: "asset"` refs to the referenced `MaterialFunction` assets.
+- `maxDepth` (optional, default `1`, max `8`): maximum recursion depth when `includeSubgraphs` is `true`. Depth `1` returns only direct children; `0` is equivalent to `includeSubgraphs: false`.
 
 `payload`:
 
@@ -201,17 +244,32 @@ Naming note:
   "graphs": [
     {
       "graphName": "string",
-      "graphKind": "string",
-      "graphClassPath": "string"
+      "graphKind": "root|function|macro|subgraph",
+      "graphClassPath": "string",
+      "graphRef": { "kind": "inline|asset", "..." : "..." },
+      "parentGraphRef": null,
+      "ownerNodeId": "string",
+      "loadStatus": "loaded|loading|not_found"
     }
   ],
   "diagnostics": []
 }
 ```
 
+Field notes:
+
+- `graphRef`: present on all entries. For root graphs the server emits an `asset`-kind ref; for inline subgraphs an `inline`-kind ref. Use this value as input to `graph.query`, `graph.actions`, or `graph.mutate` for direct addressing.
+- `parentGraphRef`: `null` for root-level graphs; set to the parent's `graphRef` for subgraphs when `includeSubgraphs` is `true`.
+- `ownerNodeId`: the `nodeId` of the composite/subgraph node that contains this graph. `null` for root graphs.
+- `loadStatus`: present on `kind: "asset"` entries only. `"loaded"` means the asset is in memory; `"loading"` means an async load is in progress; `"not_found"` means the asset path could not be resolved.
+
 ## 5.4 tool=`graph.query`
 
 `args`:
+
+Two mutually exclusive addressing modes:
+
+**Mode A — explicit (existing, unchanged):** `assetPath` + `graphName` both required.
 
 ```json
 {
@@ -223,9 +281,45 @@ Naming note:
     "nodeIds": ["optional-id"],
     "text": "optional-text"
   },
+  "limit": 200,
+  "path": ["CompositeA_Guid", "CompositeB_Guid"]
+}
+```
+
+`path` (optional, Blueprint only, 1–8 entries): ordered `K2Node_Composite` GUIDs to traverse before querying. The server resolves the subgraph of the **last** GUID in a single round-trip. Use this to reach deeply nested composites without chaining multiple `graph.query` calls. Compatible with both Mode A and Mode B (asset-kind `graphRef`). The response `graphRef` reflects the effective leaf subgraph.
+
+**Mode B — GraphRef:** supply `graphRef` obtained from a prior `graph.list` or `graph.query` response. `assetPath` and `graphName` must be omitted.
+
+Inline ref (Blueprint `K2Node_Composite`):
+```json
+{
+  "graphType": "blueprint",
+  "graphRef": {
+    "kind": "inline",
+    "nodeGuid": "A1B2C3D4-E5F6-7890-ABCD-EF1234567890",
+    "assetPath": "/Game/BP_Foo"
+  },
+  "filter": { "nodeClasses": ["optional-class"], "nodeIds": ["optional-id"], "text": "optional-text" },
   "limit": 200
 }
 ```
+
+Asset ref (external PCG graph, MaterialFunction, or another Blueprint graph):
+```json
+{
+  "graphType": "pcg|material",
+  "graphRef": {
+    "kind": "asset",
+    "assetPath": "/Game/PCG/MySubgraph"
+  },
+  "limit": 200
+}
+```
+
+Note: `graphType: "material"` accepts both `UMaterial` and `UMaterialFunction` asset paths.
+
+- If both `graphRef` and `graphName` are present, the server returns `1000 INVALID_ARGUMENT`.
+- If neither is present, the server returns `1000 INVALID_ARGUMENT`.
 
 `payload`:
 
@@ -234,10 +328,22 @@ Naming note:
   "graphType": "blueprint|material|pcg",
   "assetPath": "/Game/...",
   "graphName": "EventGraph",
+  "graphRef": { "kind": "inline|asset", "...": "..." },
   "revision": "opaque-token",
   "semanticSnapshot": {
     "signature": "string",
-    "nodes": [],
+    "nodes": [
+      {
+        "nodeId": "string",
+        "type": "string",
+        "childGraphRef": {
+          "kind": "inline",
+          "nodeGuid": "A1B2C3D4-E5F6-7890-ABCD-EF1234567890",
+          "assetPath": "/Game/BP_Foo"
+        },
+        "childLoadStatus": "loaded|not_found"
+      }
+    ],
     "edges": []
   },
   "meta": {
@@ -251,15 +357,27 @@ Naming note:
 }
 ```
 
+Node field notes:
+
+- `childGraphRef`: present only on nodes that own or reference a subgraph. Absent on ordinary nodes.
+  - Blueprint `K2Node_Composite` → `kind: "inline"` (subgraph is embedded in the same asset)
+  - PCG subgraph nodes (`UPCGSubgraphSettings`) → `kind: "asset"` (points to an external `UPCGGraph` asset)
+  - Material `UMaterialExpressionMaterialFunctionCall` → `kind: "asset"` (points to an external `UMaterialFunction` asset)
+- `childLoadStatus`: present when `childGraphRef` is set. `"loaded"` if the referenced asset is currently in memory; `"not_found"` if it could not be resolved.
+- The `graphRef` at the response root mirrors the effective locator used to resolve this query — clients can store it for later use without reconstructing it. Present on all three graph types.
+
 ## 5.5 tool=`graph.actions`
 
 `args`:
+
+Accepts the same two addressing modes as `graph.query` (Mode A: `assetPath` + `graphName`; Mode B: `graphRef`).
 
 ```json
 {
   "graphType": "blueprint|material|pcg",
   "assetPath": "/Game/...",
   "graphName": "EventGraph",
+  "graphRef": { "kind": "inline|asset", "...": "..." },
   "context": {
     "fromPin": {
       "nodeId": "optional-id",
@@ -271,6 +389,11 @@ Naming note:
 }
 ```
 
+Notes:
+
+- `graphRef` and `graphName` are mutually exclusive.
+- For `graphRef.kind="inline"`, `graphType` must be `blueprint`.
+
 `payload`:
 
 ```json
@@ -278,6 +401,12 @@ Naming note:
   "graphType": "blueprint|material|pcg",
   "assetPath": "/Game/...",
   "graphName": "EventGraph",
+  "graphRef": { "kind": "inline|asset", "...": "..." },
+  "contextEcho": {
+    "mode": "graph|pin",
+    "fromNodeId": "optional",
+    "fromPinName": "optional"
+  },
   "actions": [
     {
       "actionToken": "opaque-token",
@@ -289,6 +418,7 @@ Naming note:
       }
     }
   ],
+  "nextCursor": "",
   "meta": {
     "total": 0,
     "returned": 0,
@@ -302,24 +432,39 @@ Naming note:
 
 `args`:
 
+Accepts the same two addressing modes as `graph.query` (Mode A: `assetPath` + `graphName`; Mode B: `graphRef`).
+
 ```json
 {
   "graphType": "blueprint|material|pcg",
   "assetPath": "/Game/...",
   "graphName": "EventGraph",
+  "graphRef": { "kind": "inline|asset", "...": "..." },
   "expectedRevision": "opaque-token",
   "idempotencyKey": "uuid",
   "dryRun": false,
   "continueOnError": false,
+  "executionPolicy": {
+    "stopOnError": true,
+    "maxOps": 200
+  },
   "ops": [
     {
       "op": "connectPins",
       "clientRef": "optional",
+      "targetGraphName": "optional-override",
+      "targetGraphRef": { "kind": "inline|asset", "...": "..." },
       "args": {}
     }
   ]
 }
 ```
+
+Notes:
+
+- At the request root, `graphRef` and `graphName` are mutually exclusive.
+- At the op level, `targetGraphRef`/`args.graphRef` and `targetGraphName` are mutually exclusive.
+- `targetGraphRef.assetPath` must match the request-level `assetPath` (or the `assetPath` resolved from request-level `graphRef`) for the current mutate call.
 
 `payload`:
 
@@ -329,6 +474,7 @@ Naming note:
   "graphType": "blueprint|material|pcg",
   "assetPath": "/Game/...",
   "graphName": "EventGraph",
+  "graphRef": { "kind": "inline|asset", "...": "..." },
   "previousRevision": "opaque-token",
   "newRevision": "opaque-token",
   "opResults": [
@@ -338,12 +484,19 @@ Naming note:
       "ok": true,
       "changed": true,
       "nodeId": "optional",
-      "error": ""
+      "error": "",
+      "errorCode": "",
+      "errorMessage": ""
     }
   ],
   "diagnostics": []
 }
 ```
+
+When `applied=false`:
+
+- top-level `code` mirrors the first failing operation's `opResults[*].errorCode` (falls back to `INTERNAL_ERROR` only when classification is unavailable).
+- top-level `message` mirrors the first failing operation's `opResults[*].errorMessage`.
 
 ## 6. Error Codes
 
@@ -359,3 +512,6 @@ Naming note:
 - `1009 LIMIT_EXCEEDED`
 - `1010 EXECUTION_TIMEOUT`
 - `1011 INTERNAL_ERROR`
+- `1012 GRAPH_REF_INVALID` — the supplied `GraphRef` is malformed, missing required fields, or specifies an unrecognized `kind`. Not retryable.
+- `1013 GRAPH_REF_ASSET_NOT_LOADED` — the asset referenced by a `kind: "asset"` `GraphRef` is not currently loaded in the editor. Retryable after the asset is opened.
+- `1014 GRAPH_REF_NOT_COMPOSITE` — the `nodeGuid` in a `kind: "inline"` `GraphRef` resolves to a node that does not own a subgraph. Not retryable.

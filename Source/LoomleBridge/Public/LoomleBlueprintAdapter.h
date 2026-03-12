@@ -33,6 +33,7 @@ public:
     static bool ListEventGraphNodes(const FString& BlueprintAssetPath, FString& OutNodesJson, FString& OutError);
     static bool ListBlueprintGraphs(const FString& BlueprintAssetPath, FString& OutGraphsJson, FString& OutError);
     static bool ListGraphNodes(const FString& BlueprintAssetPath, const FString& GraphName, FString& OutNodesJson, FString& OutError);
+    static bool ListCompositeSubgraphNodes(const FString& BlueprintAssetPath, const FString& CompositeNodeGuid, FString& OutSubgraphName, FString& OutNodesJson, FString& OutError);
     static bool GetNodeDetails(const FString& BlueprintAssetPath, const FString& NodeGuid, FString& OutNodeJson, FString& OutError);
     static bool FindNodesByClass(const FString& BlueprintAssetPath, const FString& NodeClassPathOrName, FString& OutNodesJson, FString& OutError);
     static bool CompileBlueprint(const FString& BlueprintAssetPath, const FString& GraphName, FString& OutError);

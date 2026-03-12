@@ -37,6 +37,8 @@
 #include "Engine/Blueprint.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionMaterialFunctionCall.h"
+#include "Materials/MaterialFunction.h"
 #include "MaterialEditingLibrary.h"
 #include "IMaterialEditor.h"
 #include "MaterialGraph/MaterialGraphNode.h"

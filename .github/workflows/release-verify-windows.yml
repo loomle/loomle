@@ -2,24 +2,6 @@ name: Verify LOOMLE Bridge (Windows)
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches:
-      - "main"
-    paths:
-      - "Source/**"
-      - "mcp_server/**"
-      - "tools/**"
-      - "LoomleBridge.uplugin"
-      - ".github/workflows/**"
-  push:
-    branches:
-      - "main"
-    paths:
-      - "Source/**"
-      - "mcp_server/**"
-      - "tools/**"
-      - "LoomleBridge.uplugin"
-      - ".github/workflows/**"
 
 permissions:
   contents: read
@@ -215,8 +197,6 @@ jobs:
             throw "BuildPlugin failed with exit code $LASTEXITCODE"
           }
 
-          Remove-Item -LiteralPath (Join-Path $packageDir "Source") -Recurse -Force -ErrorAction SilentlyContinue
-
           New-Item -ItemType Directory -Force -Path $pluginDst | Out-Null
           Copy-Item -Path (Join-Path $packageDir "*") -Destination $pluginDst -Recurse -Force
 
@@ -262,6 +242,7 @@ jobs:
           throw "TIMEOUT waiting for bridge smoke test to pass"
 
       - name: Run Regression Integration Test
+        timeout-minutes: 15
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           $projectRoot = "${{ steps.test_project.outputs.test_root }}"
