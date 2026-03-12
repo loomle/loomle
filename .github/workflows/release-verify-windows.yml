@@ -260,6 +260,7 @@ jobs:
           throw "TIMEOUT waiting for bridge smoke test to pass"
 
       - name: Run Regression Integration Test
+        timeout-minutes: 15
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           $projectRoot = "${{ steps.test_project.outputs.test_root }}"
