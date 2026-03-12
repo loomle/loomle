@@ -370,14 +370,13 @@ Node field notes:
 
 `args`:
 
-Accepts the same two addressing modes as `graph.query` (Mode A: `assetPath` + `graphName`; Mode B: `graphRef`).
+Current implementation supports Mode A only (`assetPath` + `graphName`).
 
 ```json
 {
   "graphType": "blueprint|material|pcg",
   "assetPath": "/Game/...",
   "graphName": "EventGraph",
-  "graphRef": { "kind": "inline|asset", "...": "..." },
   "context": {
     "fromPin": {
       "nodeId": "optional-id",
@@ -396,6 +395,11 @@ Accepts the same two addressing modes as `graph.query` (Mode A: `assetPath` + `g
   "graphType": "blueprint|material|pcg",
   "assetPath": "/Game/...",
   "graphName": "EventGraph",
+  "contextEcho": {
+    "mode": "graph|pin",
+    "fromNodeId": "optional",
+    "fromPinName": "optional"
+  },
   "actions": [
     {
       "actionToken": "opaque-token",
@@ -407,6 +411,7 @@ Accepts the same two addressing modes as `graph.query` (Mode A: `assetPath` + `g
       }
     }
   ],
+  "nextCursor": "",
   "meta": {
     "total": 0,
     "returned": 0,
@@ -432,15 +437,27 @@ Accepts the same two addressing modes as `graph.query` (Mode A: `assetPath` + `g
   "idempotencyKey": "uuid",
   "dryRun": false,
   "continueOnError": false,
+  "executionPolicy": {
+    "stopOnError": true,
+    "maxOps": 200
+  },
   "ops": [
     {
       "op": "connectPins",
       "clientRef": "optional",
+      "targetGraphName": "optional-override",
+      "targetGraphRef": { "kind": "inline|asset", "...": "..." },
       "args": {}
     }
   ]
 }
 ```
+
+Notes:
+
+- At the request root, `graphRef` and `graphName` are mutually exclusive.
+- At the op level, `targetGraphRef`/`args.graphRef` and `targetGraphName` are mutually exclusive.
+- `targetGraphRef.assetPath` must match the request-level `assetPath` (or the `assetPath` resolved from request-level `graphRef`) for the current mutate call.
 
 `payload`:
 
@@ -450,6 +467,7 @@ Accepts the same two addressing modes as `graph.query` (Mode A: `assetPath` + `g
   "graphType": "blueprint|material|pcg",
   "assetPath": "/Game/...",
   "graphName": "EventGraph",
+  "graphRef": { "kind": "inline|asset", "...": "..." },
   "previousRevision": "opaque-token",
   "newRevision": "opaque-token",
   "opResults": [
@@ -459,12 +477,19 @@ Accepts the same two addressing modes as `graph.query` (Mode A: `assetPath` + `g
       "ok": true,
       "changed": true,
       "nodeId": "optional",
-      "error": ""
+      "error": "",
+      "errorCode": "",
+      "errorMessage": ""
     }
   ],
   "diagnostics": []
 }
 ```
+
+When `applied=false`:
+
+- top-level `code` mirrors the first failing operation's `opResults[*].errorCode` (falls back to `INTERNAL_ERROR` only when classification is unavailable).
+- top-level `message` mirrors the first failing operation's `opResults[*].errorMessage`.
 
 ## 6. Error Codes
 

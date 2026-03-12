@@ -231,24 +231,28 @@ fn tool_descriptors() -> Vec<Value> {
             "Graph List",
             "List readable graphs in an asset.",
             graph_list_input_schema(),
+            graph_list_output_schema(),
         ),
         runtime_tool_descriptor(
             "graph.query",
             "Graph Query",
             "Query semantic graph snapshot.",
             graph_query_input_schema(),
+            graph_query_output_schema(),
         ),
         runtime_tool_descriptor(
             "graph.actions",
             "Graph Actions",
             "List addable actions for graph context.",
             graph_actions_input_schema(),
+            graph_actions_output_schema(),
         ),
         runtime_tool_descriptor(
             "graph.mutate",
             "Graph Mutate",
             "Apply graph write operations in order.",
             graph_mutate_input_schema(),
+            graph_mutate_output_schema(),
         ),
     ]
 }
@@ -258,16 +262,14 @@ fn runtime_tool_descriptor(
     title: &str,
     description: &str,
     input_schema: Value,
+    output_schema: Value,
 ) -> Value {
     json!({
         "name": name,
         "title": title,
         "description": description,
         "inputSchema": input_schema,
-        "outputSchema": {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "type": "object"
-        }
+        "outputSchema": output_schema
     })
 }
 
@@ -402,14 +404,13 @@ fn graph_actions_input_schema() -> Value {
             "assetPath": {
                 "type": "string",
                 "minLength": 1,
-                "description": "Unreal asset path (Mode A). Required when graphName is used; omit when graphRef is provided."
+                "description": "Unreal asset path."
             },
             "graphName": {
                 "type": "string",
                 "minLength": 1,
-                "description": "Graph name within the asset (Mode A). Mutually exclusive with graphRef."
+                "description": "Graph name within the asset."
             },
-            "graphRef": graph_ref_schema(),
             "graphType": graph_type_schema(),
             "query": {
                 "type": "string",
@@ -525,9 +526,15 @@ fn graph_mutate_input_schema() -> Value {
                             "type": "string",
                             "description": "Optional client-side reference name for later ops in the same request."
                         },
+                        "targetGraphName": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Optional per-op graph override by graph name. Mutually exclusive with targetGraphRef (or args.graphRef)."
+                        },
+                        "targetGraphRef": graph_ref_schema(),
                         "args": {
                             "type": "object",
-                            "description": "Operation-specific arguments. Required keys depend on op.",
+                            "description": "Operation-specific arguments. Required keys depend on op. For mutate graph-addressing, args.graphRef is also accepted as an alias of targetGraphRef.",
                             "additionalProperties": true
                         }
                     },
@@ -536,6 +543,100 @@ fn graph_mutate_input_schema() -> Value {
             }
         },
         "additionalProperties": false
+    })
+}
+
+fn graph_list_output_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["graphType", "assetPath", "graphs", "diagnostics"],
+        "properties": {
+            "graphType": graph_type_schema(),
+            "assetPath": { "type": "string" },
+            "graphs": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+            "diagnostics": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+        },
+        "additionalProperties": true
+    })
+}
+
+fn graph_query_output_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["graphType", "assetPath", "graphName", "graphRef", "semanticSnapshot", "meta", "diagnostics"],
+        "properties": {
+            "graphType": graph_type_schema(),
+            "assetPath": { "type": "string" },
+            "graphName": { "type": "string" },
+            "graphRef": graph_ref_schema(),
+            "revision": { "type": "string" },
+            "semanticSnapshot": { "type": "object", "additionalProperties": true },
+            "nextCursor": { "type": "string" },
+            "meta": { "type": "object", "additionalProperties": true },
+            "diagnostics": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+        },
+        "additionalProperties": true
+    })
+}
+
+fn graph_actions_output_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["graphType", "assetPath", "graphName", "actions", "meta", "diagnostics"],
+        "properties": {
+            "graphType": graph_type_schema(),
+            "assetPath": { "type": "string" },
+            "graphName": { "type": "string" },
+            "contextEcho": { "type": "object", "additionalProperties": true },
+            "actions": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+            "nextCursor": { "type": "string" },
+            "meta": { "type": "object", "additionalProperties": true },
+            "diagnostics": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+        },
+        "additionalProperties": true
+    })
+}
+
+fn graph_mutate_output_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["applied", "graphType", "assetPath", "graphName", "graphRef", "opResults", "diagnostics"],
+        "properties": {
+            "applied": { "type": "boolean" },
+            "graphType": graph_type_schema(),
+            "assetPath": { "type": "string" },
+            "graphName": { "type": "string" },
+            "graphRef": graph_ref_schema(),
+            "previousRevision": { "type": "string" },
+            "newRevision": { "type": "string" },
+            "code": { "type": "string" },
+            "message": { "type": "string" },
+            "opResults": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["index", "op", "ok", "changed", "errorCode", "errorMessage"],
+                    "properties": {
+                        "index": { "type": "integer" },
+                        "op": { "type": "string" },
+                        "ok": { "type": "boolean" },
+                        "changed": { "type": "boolean" },
+                        "nodeId": { "type": "string" },
+                        "error": { "type": "string" },
+                        "errorCode": { "type": "string" },
+                        "errorMessage": { "type": "string" },
+                        "scriptResult": { "type": "object", "additionalProperties": true }
+                    },
+                    "additionalProperties": true
+                }
+            },
+            "diagnostics": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+        },
+        "additionalProperties": true
     })
 }
 
@@ -660,6 +761,26 @@ mod tests {
             .expect("op enum array");
         assert!(op_enum.contains(&Value::String(String::from("runScript"))));
         assert!(op_enum.contains(&Value::String(String::from("removeNode"))));
+        assert!(
+            graph_mutate["inputSchema"]["properties"]["ops"]["items"]["properties"]["targetGraphRef"]
+                .is_object(),
+            "graph.mutate op schema should expose targetGraphRef"
+        );
+        assert!(
+            graph_mutate["inputSchema"]["properties"]["ops"]["items"]["properties"]["targetGraphName"]
+                .is_object(),
+            "graph.mutate op schema should expose targetGraphName"
+        );
+        assert!(
+            graph_mutate["outputSchema"]["properties"]["opResults"]["items"]["properties"]["errorCode"]
+                .is_object(),
+            "graph.mutate output schema should expose opResults[].errorCode"
+        );
+        assert!(
+            graph_mutate["outputSchema"]["properties"]["opResults"]["items"]["properties"]["errorMessage"]
+                .is_object(),
+            "graph.mutate output schema should expose opResults[].errorMessage"
+        );
     }
 
     #[test]
