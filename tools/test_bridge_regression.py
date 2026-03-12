@@ -301,6 +301,37 @@ def main() -> int:
         _ = bad_query
         print("[PASS] graph.query error path validated")
 
+        bad_remove = call_tool(
+            client,
+            8008,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "ops": [{"op": "removeNode", "args": {"target": {}}}],
+            },
+            expect_error=True,
+        )
+        bad_remove_detail = bad_remove.get("detail")
+        if not isinstance(bad_remove_detail, str):
+            fail(f"graph.mutate error payload missing detail JSON: {bad_remove}")
+        try:
+            bad_remove_struct = json.loads(bad_remove_detail)
+        except Exception as exc:
+            fail(f"graph.mutate error detail is not valid JSON: {exc} payload={bad_remove}")
+        bad_remove_results = bad_remove_struct.get("opResults")
+        if not isinstance(bad_remove_results, list) or not bad_remove_results:
+            fail(f"graph.mutate error detail missing opResults: {bad_remove_struct}")
+        first_bad_remove = bad_remove_results[0] if isinstance(bad_remove_results[0], dict) else {}
+        error_code = first_bad_remove.get("errorCode")
+        error_message = first_bad_remove.get("errorMessage")
+        if not isinstance(error_code, str) or not error_code:
+            fail(f"graph.mutate opResults[0] missing errorCode: {bad_remove_struct}")
+        if not isinstance(error_message, str) or not error_message:
+            fail(f"graph.mutate opResults[0] missing errorMessage: {bad_remove_struct}")
+        print("[PASS] graph.mutate structured op error fields validated")
+
         add_a = call_tool(
             client,
             10,
@@ -581,7 +612,51 @@ def main() -> int:
         nodes_after_remove_c = query_nodes(client, 26, temp_asset, "EventGraph")
         require_node_absent(nodes_after_remove_c, node_c)
 
+        add_via_graph_ref = call_tool(
+            client,
+            27,
+            "graph.mutate",
+            {
+                "graphRef": {"kind": "asset", "assetPath": temp_asset, "graphName": "EventGraph"},
+                "graphType": "blueprint",
+                "ops": [
+                    {
+                        "op": "addNode.byClass",
+                        "args": {
+                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
+                            "position": {"x": 1280, "y": 0},
+                        },
+                    }
+                ],
+            },
+        )
+        node_d = op_ok(add_via_graph_ref).get("nodeId")
+        if not isinstance(node_d, str) or not node_d:
+            fail(f"graphRef(asset) mutate addNode.byClass did not return nodeId: {add_via_graph_ref}")
+
+        remove_via_target_graph_ref = call_tool(
+            client,
+            28,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "ops": [
+                    {
+                        "op": "removeNode",
+                        "targetGraphRef": {"kind": "asset", "assetPath": temp_asset, "graphName": "EventGraph"},
+                        "args": {"target": {"nodeId": node_d}},
+                    }
+                ],
+            },
+        )
+        op_ok(remove_via_target_graph_ref)
+        nodes_after_remove_d = query_nodes(client, 29, temp_asset, "EventGraph")
+        require_node_absent(nodes_after_remove_d, node_d)
+
         print("[PASS] graph.mutate removeNode validated for nodeId/nodePath/nodeName")
+        print("[PASS] graph.mutate graphRef(asset) and targetGraphRef(asset) validated")
         print("[PASS] graph.mutate core ops validated")
         print("[PASS] Bridge regression complete")
         return 0

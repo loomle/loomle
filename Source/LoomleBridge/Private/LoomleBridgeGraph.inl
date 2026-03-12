@@ -172,7 +172,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
                         {
                             FSoftObjectProperty* SoftProp = *PropIt;
                             if (!SoftProp->PropertyClass || !SoftProp->PropertyClass->GetPathName().Contains(TEXT("PCGGraph"))) { continue; }
-                            const FSoftObjectPath SoftPath = SoftProp->GetPropertyValue_InContainer(NodeSettings);
+                            const FSoftObjectPtr SoftPtr = SoftProp->GetPropertyValue_InContainer(NodeSettings);
+                            const FSoftObjectPath SoftPath = SoftPtr.ToSoftObjectPath();
                             if (SoftPath.IsNull()) { continue; }
                             UObject* Resolved = SoftPath.ResolveObject();
                             if (Resolved) { SubgraphAsset = Resolved; }
@@ -567,7 +568,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
         }
         else
         {
-            for (UMaterialExpression* E : MatFunc->GetFunctionExpressions()) { if (E) AllExpressions.Add(E); }
+            for (const TObjectPtr<UMaterialExpression>& E : MatFunc->GetExpressions()) { if (E) AllExpressions.Add(E.Get()); }
         }
 
         TArray<TSharedPtr<FJsonValue>> Nodes;
@@ -899,7 +900,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
                         {
                             FSoftObjectProperty* SoftProp = *PropIt;
                             if (!SoftProp->PropertyClass || !SoftProp->PropertyClass->GetPathName().Contains(TEXT("PCGGraph"))) { continue; }
-                            const FSoftObjectPath SoftPath = SoftProp->GetPropertyValue_InContainer(NodeSettings);
+                            const FSoftObjectPtr SoftPtr = SoftProp->GetPropertyValue_InContainer(NodeSettings);
+                            const FSoftObjectPath SoftPath = SoftPtr.ToSoftObjectPath();
                             if (SoftPath.IsNull()) { continue; }
                             UObject* Resolved = SoftPath.ResolveObject();
                             if (Resolved) { SubgraphAsset = Resolved; }
@@ -1834,18 +1836,108 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         return Result;
     }
 
+    auto ResolveInlineBlueprintGraphName = [](const FString& InAssetPath, const FString& InNodeGuid, FString& OutGraphName, FString& OutError) -> bool
+    {
+        FString NodesJson;
+        OutGraphName.Empty();
+        OutError.Empty();
+        return FLoomleBlueprintAdapter::ListCompositeSubgraphNodes(InAssetPath, InNodeGuid, OutGraphName, NodesJson, OutError)
+            && !OutGraphName.IsEmpty();
+    };
+
     FString AssetPath;
-    if (!Arguments->TryGetStringField(TEXT("assetPath"), AssetPath) || AssetPath.IsEmpty())
+    FString GraphName = GraphType.Equals(TEXT("blueprint"))
+        ? TEXT("EventGraph")
+        : (GraphType.Equals(TEXT("pcg")) ? TEXT("PCGGraph") : TEXT("MaterialGraph"));
+    FString InlineNodeGuid;
+    bool bUsedGraphRef = false;
+
+    const TSharedPtr<FJsonObject>* GraphRefObj = nullptr;
+    const bool bHasGraphRef = Arguments->TryGetObjectField(TEXT("graphRef"), GraphRefObj) && GraphRefObj && (*GraphRefObj).IsValid();
+    const bool bHasGraphName = Arguments->TryGetStringField(TEXT("graphName"), GraphName) && !GraphName.IsEmpty();
+
+    if (bHasGraphRef && bHasGraphName)
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Result->SetStringField(TEXT("message"), TEXT("arguments.assetPath is required."));
+        Result->SetStringField(TEXT("message"), TEXT("Supply either graphRef or graphName, not both."));
         return Result;
     }
-    AssetPath = NormalizeAssetPath(AssetPath);
 
-    FString GraphName = TEXT("EventGraph");
-    Arguments->TryGetStringField(TEXT("graphName"), GraphName);
+    if (bHasGraphRef)
+    {
+        bUsedGraphRef = true;
+        FString Kind;
+        if (!(*GraphRefObj)->TryGetStringField(TEXT("kind"), Kind) || Kind.IsEmpty())
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("GRAPH_REF_INVALID"));
+            Result->SetStringField(TEXT("message"), TEXT("graphRef.kind is required."));
+            return Result;
+        }
+        Kind = Kind.ToLower();
+
+        FString RefAssetPath;
+        if (!(*GraphRefObj)->TryGetStringField(TEXT("assetPath"), RefAssetPath) || RefAssetPath.IsEmpty())
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("GRAPH_REF_INVALID"));
+            Result->SetStringField(TEXT("message"), TEXT("graphRef.assetPath is required."));
+            return Result;
+        }
+        AssetPath = NormalizeAssetPath(RefAssetPath);
+
+        if (Kind.Equals(TEXT("asset")))
+        {
+            (*GraphRefObj)->TryGetStringField(TEXT("graphName"), GraphName);
+        }
+        else if (Kind.Equals(TEXT("inline")))
+        {
+            if (!GraphType.Equals(TEXT("blueprint")))
+            {
+                Result->SetBoolField(TEXT("isError"), true);
+                Result->SetStringField(TEXT("code"), TEXT("GRAPH_REF_INVALID"));
+                Result->SetStringField(TEXT("message"), TEXT("graphRef.kind=inline is only supported for blueprint graphType."));
+                return Result;
+            }
+            if (!(*GraphRefObj)->TryGetStringField(TEXT("nodeGuid"), InlineNodeGuid) || InlineNodeGuid.IsEmpty())
+            {
+                Result->SetBoolField(TEXT("isError"), true);
+                Result->SetStringField(TEXT("code"), TEXT("GRAPH_REF_INVALID"));
+                Result->SetStringField(TEXT("message"), TEXT("graphRef.nodeGuid is required for kind=inline."));
+                return Result;
+            }
+
+            FString ResolvedGraphName;
+            FString ResolveError;
+            if (!ResolveInlineBlueprintGraphName(AssetPath, InlineNodeGuid, ResolvedGraphName, ResolveError))
+            {
+                Result->SetBoolField(TEXT("isError"), true);
+                Result->SetStringField(TEXT("code"), TEXT("GRAPH_NOT_FOUND"));
+                Result->SetStringField(TEXT("message"), ResolveError.IsEmpty() ? TEXT("Failed to resolve inline graphRef.") : ResolveError);
+                return Result;
+            }
+            GraphName = ResolvedGraphName;
+        }
+        else
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("GRAPH_REF_INVALID"));
+            Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Unsupported graphRef.kind: %s"), *Kind));
+            return Result;
+        }
+    }
+    else
+    {
+        if (!Arguments->TryGetStringField(TEXT("assetPath"), AssetPath) || AssetPath.IsEmpty())
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Result->SetStringField(TEXT("message"), TEXT("arguments.assetPath is required (or supply graphRef)."));
+            return Result;
+        }
+        AssetPath = NormalizeAssetPath(AssetPath);
+    }
 
     bool bDryRun = false;
     Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
@@ -1890,12 +1982,65 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         return Result;
     }
 
+    auto InferMutateErrorCode = [](const FString& Op, const FString& Error) -> FString
+    {
+        const FString OpLower = Op.ToLower();
+        const FString ErrorLower = Error.ToLower();
+
+        if (Error.StartsWith(TEXT("ACTION_TOKEN_INVALID:")))
+        {
+            return TEXT("ACTION_TOKEN_INVALID");
+        }
+        if (Error.StartsWith(TEXT("GRAPH_REF_INVALID:")))
+        {
+            return TEXT("GRAPH_REF_INVALID");
+        }
+        if (ErrorLower.Contains(TEXT("unsupported")) && ErrorLower.Contains(TEXT("op")))
+        {
+            return TEXT("UNSUPPORTED_OP");
+        }
+        if (ErrorLower.Contains(TEXT("invalid")))
+        {
+            return TEXT("INVALID_ARGUMENT");
+        }
+        if (ErrorLower.Contains(TEXT("requires")) || ErrorLower.Contains(TEXT("missing")))
+        {
+            return TEXT("INVALID_ARGUMENT");
+        }
+        if (ErrorLower.Contains(TEXT("graph not found")))
+        {
+            return TEXT("GRAPH_NOT_FOUND");
+        }
+        if (ErrorLower.Contains(TEXT("node not found")) || ErrorLower.Contains(TEXT("pin not found")))
+        {
+            return TEXT("TARGET_NOT_FOUND");
+        }
+        if (ErrorLower.Contains(TEXT("failed to resolve")))
+        {
+            return OpLower.Equals(TEXT("removenode")) || OpLower.Equals(TEXT("movenode"))
+                || OpLower.Equals(TEXT("connectpins")) || OpLower.Equals(TEXT("disconnectpins"))
+                || OpLower.Equals(TEXT("breakpinlinks")) || OpLower.Equals(TEXT("setpindefault"))
+                ? TEXT("TARGET_NOT_FOUND")
+                : TEXT("INTERNAL_ERROR");
+        }
+        if (ErrorLower.Contains(TEXT("timeout")))
+        {
+            return TEXT("TIMEOUT");
+        }
+        if (ErrorLower.Contains(TEXT("python runtime is not initialized")) || ErrorLower.Contains(TEXT("module is not loaded")))
+        {
+            return TEXT("RUNTIME_UNAVAILABLE");
+        }
+        return TEXT("INTERNAL_ERROR");
+    };
+
     if (!GraphType.Equals(TEXT("blueprint")))
     {
         TMap<FString, FString> LocalNodeRefs;
         TArray<TSharedPtr<FJsonValue>> LocalOpResults;
         bool bAnyErrorLocal = false;
         FString FirstErrorLocal;
+        FString FirstErrorCodeLocal;
 
         auto ResolveNodeTokenLocal = [&LocalNodeRefs](const TSharedPtr<FJsonObject>& Obj, FString& OutNodeId) -> bool
         {
@@ -1913,7 +2058,56 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 OutNodeId = LocalNodeRefs[NodeRef];
                 return !OutNodeId.IsEmpty();
             }
+            if (Obj->TryGetStringField(TEXT("nodePath"), OutNodeId) && !OutNodeId.IsEmpty())
+            {
+                return true;
+            }
+            if (Obj->TryGetStringField(TEXT("path"), OutNodeId) && !OutNodeId.IsEmpty())
+            {
+                return true;
+            }
+            if (Obj->TryGetStringField(TEXT("nodeName"), OutNodeId) && !OutNodeId.IsEmpty())
+            {
+                return true;
+            }
+            if (Obj->TryGetStringField(TEXT("name"), OutNodeId) && !OutNodeId.IsEmpty())
+            {
+                return true;
+            }
             return false;
+        };
+
+        auto ResolveNodeTokenFromArgsLocal = [&ResolveNodeTokenLocal](const TSharedPtr<FJsonObject>& ArgsObj, FString& OutNodeId) -> bool
+        {
+            OutNodeId.Empty();
+            if (!ArgsObj.IsValid())
+            {
+                return false;
+            }
+
+            const TSharedPtr<FJsonObject>* TargetObj = nullptr;
+            if (ArgsObj->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid()
+                && ResolveNodeTokenLocal(*TargetObj, OutNodeId))
+            {
+                return true;
+            }
+
+            return ResolveNodeTokenLocal(ArgsObj, OutNodeId);
+        };
+
+        auto ResolvePinName = [](const TSharedPtr<FJsonObject>& Obj, FString& OutPinName) -> bool
+        {
+            OutPinName.Empty();
+            if (!Obj.IsValid())
+            {
+                return false;
+            }
+
+            if (Obj->TryGetStringField(TEXT("pin"), OutPinName) && !OutPinName.IsEmpty())
+            {
+                return true;
+            }
+            return Obj->TryGetStringField(TEXT("pinName"), OutPinName) && !OutPinName.IsEmpty();
         };
 
         auto GetPointFromObjectLocal = [](const TSharedPtr<FJsonObject>& Obj, int32& OutX, int32& OutY)
@@ -2063,10 +2257,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     else if (Op.Equals(TEXT("removenode")))
                     {
                         FString TargetNodeId;
-                        bOk = ResolveNodeTokenLocal(ArgsObj, TargetNodeId);
+                        bOk = ResolveNodeTokenFromArgsLocal(ArgsObj, TargetNodeId);
                         if (!bOk)
                         {
-                            Error = TEXT("Missing target nodeId.");
+                            Error = TEXT("Missing target nodeId/path/name.");
                         }
                         else if (UMaterialExpression* Expression = FindMaterialExpressionById(MaterialAsset, TargetNodeId))
                         {
@@ -2085,10 +2279,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     else if (Op.Equals(TEXT("movenode")))
                     {
                         FString TargetNodeId;
-                        bOk = ResolveNodeTokenLocal(ArgsObj, TargetNodeId);
+                        bOk = ResolveNodeTokenFromArgsLocal(ArgsObj, TargetNodeId);
                         if (!bOk)
                         {
-                            Error = TEXT("Missing target nodeId.");
+                            Error = TEXT("Missing target nodeId/path/name.");
                         }
                         else if (UMaterialExpression* Expression = FindMaterialExpressionById(MaterialAsset, TargetNodeId))
                         {
@@ -2128,8 +2322,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                         }
                         else
                         {
-                            (*FromObj)->TryGetStringField(TEXT("pinName"), FromPinName);
-                            (*ToObj)->TryGetStringField(TEXT("pinName"), ToPinName);
+                            ResolvePinName(*FromObj, FromPinName);
+                            ResolvePinName(*ToObj, ToPinName);
                             UMaterialExpression* FromExpr = FindMaterialExpressionById(MaterialAsset, FromNodeId);
                             UMaterialExpression* ToExpr = FindMaterialExpressionById(MaterialAsset, ToNodeId);
                             if (FromExpr == nullptr || ToExpr == nullptr)
@@ -2171,7 +2365,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                             }
                             else
                             {
-                                (*ToObj)->TryGetStringField(TEXT("pinName"), TargetPinName);
+                                ResolvePinName(*ToObj, TargetPinName);
                             }
                         }
                         else
@@ -2184,7 +2378,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                             }
                             else
                             {
-                                (*TargetObj)->TryGetStringField(TEXT("pinName"), TargetPinName);
+                                ResolvePinName(*TargetObj, TargetPinName);
                             }
                         }
 
@@ -2332,10 +2526,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     else if (Op.Equals(TEXT("removenode")))
                     {
                         FString TargetNodeId;
-                        bOk = ResolveNodeTokenLocal(ArgsObj, TargetNodeId);
+                        bOk = ResolveNodeTokenFromArgsLocal(ArgsObj, TargetNodeId);
                         if (!bOk)
                         {
-                            Error = TEXT("Missing target nodeId.");
+                            Error = TEXT("Missing target nodeId/path/name.");
                         }
                         else if (UPCGNode* Node = FindPcgNodeById(PcgGraph, TargetNodeId))
                         {
@@ -2354,10 +2548,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     else if (Op.Equals(TEXT("movenode")))
                     {
                         FString TargetNodeId;
-                        bOk = ResolveNodeTokenLocal(ArgsObj, TargetNodeId);
+                        bOk = ResolveNodeTokenFromArgsLocal(ArgsObj, TargetNodeId);
                         if (!bOk)
                         {
-                            Error = TEXT("Missing target nodeId.");
+                            Error = TEXT("Missing target nodeId/path/name.");
                         }
                         else if (UPCGNode* Node = FindPcgNodeById(PcgGraph, TargetNodeId))
                         {
@@ -2396,8 +2590,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                         }
                         else
                         {
-                            (*FromObj)->TryGetStringField(TEXT("pinName"), FromPinName);
-                            (*ToObj)->TryGetStringField(TEXT("pinName"), ToPinName);
+                            ResolvePinName(*FromObj, FromPinName);
+                            ResolvePinName(*ToObj, ToPinName);
                             UPCGNode* FromNode = FindPcgNodeById(PcgGraph, FromNodeId);
                             UPCGNode* ToNode = FindPcgNodeById(PcgGraph, ToNodeId);
                             if (FromNode == nullptr || ToNode == nullptr)
@@ -2455,7 +2649,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                         }
                         else
                         {
-                            (*TargetObj)->TryGetStringField(TEXT("pinName"), TargetPinName);
+                            ResolvePinName(*TargetObj, TargetPinName);
                             UPCGNode* Node = FindPcgNodeById(PcgGraph, TargetNodeId);
                             if (Node == nullptr)
                             {
@@ -2531,6 +2725,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             }
 
             TSharedPtr<FJsonObject> OpResult = MakeShared<FJsonObject>();
+            const FString OpErrorCode = bOk ? TEXT("") : InferMutateErrorCode(Op, Error);
             OpResult->SetNumberField(TEXT("index"), Index);
             OpResult->SetStringField(TEXT("op"), Op);
             OpResult->SetBoolField(TEXT("ok"), bOk);
@@ -2540,6 +2735,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             }
             OpResult->SetBoolField(TEXT("changed"), bChanged);
             OpResult->SetStringField(TEXT("error"), bOk ? TEXT("") : Error);
+            OpResult->SetStringField(TEXT("errorCode"), OpErrorCode);
+            OpResult->SetStringField(TEXT("errorMessage"), bOk ? TEXT("") : Error);
             LocalOpResults.Add(MakeShared<FJsonValueObject>(OpResult));
 
             if (!bOk)
@@ -2548,6 +2745,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 if (FirstErrorLocal.IsEmpty())
                 {
                     FirstErrorLocal = Error;
+                }
+                if (FirstErrorCodeLocal.IsEmpty())
+                {
+                    FirstErrorCodeLocal = OpErrorCode;
                 }
                 if (bStopOnError)
                 {
@@ -2559,13 +2760,32 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         Result->SetBoolField(TEXT("isError"), bAnyErrorLocal);
         if (bAnyErrorLocal)
         {
-            Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+            Result->SetStringField(TEXT("code"), FirstErrorCodeLocal.IsEmpty() ? TEXT("INTERNAL_ERROR") : FirstErrorCodeLocal);
             Result->SetStringField(TEXT("message"), FirstErrorLocal.IsEmpty() ? TEXT("graph.mutate failed") : FirstErrorLocal);
         }
         Result->SetBoolField(TEXT("applied"), !bAnyErrorLocal);
         Result->SetStringField(TEXT("graphType"), GraphType);
         Result->SetStringField(TEXT("assetPath"), AssetPath);
         Result->SetStringField(TEXT("graphName"), GraphName);
+        {
+            TSharedPtr<FJsonObject> ResponseGraphRef = MakeShared<FJsonObject>();
+            if (bUsedGraphRef && !InlineNodeGuid.IsEmpty())
+            {
+                ResponseGraphRef->SetStringField(TEXT("kind"), TEXT("inline"));
+                ResponseGraphRef->SetStringField(TEXT("nodeGuid"), InlineNodeGuid);
+                ResponseGraphRef->SetStringField(TEXT("assetPath"), AssetPath);
+            }
+            else
+            {
+                ResponseGraphRef->SetStringField(TEXT("kind"), TEXT("asset"));
+                ResponseGraphRef->SetStringField(TEXT("assetPath"), AssetPath);
+                if (!GraphName.IsEmpty())
+                {
+                    ResponseGraphRef->SetStringField(TEXT("graphName"), GraphName);
+                }
+            }
+            Result->SetObjectField(TEXT("graphRef"), ResponseGraphRef);
+        }
         Result->SetStringField(TEXT("previousRevision"), FString::Printf(TEXT("%s:%08x"), GraphType.Equals(TEXT("material")) ? TEXT("mat") : TEXT("pcg"), GetTypeHash(AssetPath + TEXT("|prev"))));
         Result->SetStringField(TEXT("newRevision"), FString::Printf(TEXT("%s:%08x"), GraphType.Equals(TEXT("material")) ? TEXT("mat") : TEXT("pcg"), GetTypeHash(AssetPath + TEXT("|new") + FString::FromInt(LocalOpResults.Num()))));
         Result->SetArrayField(TEXT("opResults"), LocalOpResults);
@@ -2577,6 +2797,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
     TArray<TSharedPtr<FJsonValue>> OpResults;
     bool bAnyError = false;
     FString FirstError;
+    FString FirstErrorCode;
 
     auto ResolveNodeToken = [&NodeRefs](const TSharedPtr<FJsonObject>& Obj, FString& OutNodeId) -> bool
     {
@@ -2594,7 +2815,56 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             OutNodeId = NodeRefs[NodeRef];
             return !OutNodeId.IsEmpty();
         }
+        if (Obj->TryGetStringField(TEXT("nodePath"), OutNodeId) && !OutNodeId.IsEmpty())
+        {
+            return true;
+        }
+        if (Obj->TryGetStringField(TEXT("path"), OutNodeId) && !OutNodeId.IsEmpty())
+        {
+            return true;
+        }
+        if (Obj->TryGetStringField(TEXT("nodeName"), OutNodeId) && !OutNodeId.IsEmpty())
+        {
+            return true;
+        }
+        if (Obj->TryGetStringField(TEXT("name"), OutNodeId) && !OutNodeId.IsEmpty())
+        {
+            return true;
+        }
         return false;
+    };
+
+    auto ResolveNodeTokenFromArgs = [&ResolveNodeToken](const TSharedPtr<FJsonObject>& ArgsObj, FString& OutNodeId) -> bool
+    {
+        OutNodeId.Empty();
+        if (!ArgsObj.IsValid())
+        {
+            return false;
+        }
+
+        const TSharedPtr<FJsonObject>* TargetObj = nullptr;
+        if (ArgsObj->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid()
+            && ResolveNodeToken(*TargetObj, OutNodeId))
+        {
+            return true;
+        }
+
+        return ResolveNodeToken(ArgsObj, OutNodeId);
+    };
+
+    auto ResolvePinName = [](const TSharedPtr<FJsonObject>& Obj, FString& OutPinName) -> bool
+    {
+        OutPinName.Empty();
+        if (!Obj.IsValid())
+        {
+            return false;
+        }
+
+        if (Obj->TryGetStringField(TEXT("pin"), OutPinName) && !OutPinName.IsEmpty())
+        {
+            return true;
+        }
+        return Obj->TryGetStringField(TEXT("pinName"), OutPinName) && !OutPinName.IsEmpty();
     };
 
     auto GetPointFromObject = [](const TSharedPtr<FJsonObject>& Obj, int32& OutX, int32& OutY)
@@ -2659,9 +2929,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         (*OpObj)->TryGetStringField(TEXT("op"), Op);
         Op = Op.ToLower();
         FString OpGraphName = GraphName;
-        (*OpObj)->TryGetStringField(TEXT("targetGraphName"), OpGraphName);
 
         bool bOk = true;
+        bool bChanged = false;
         FString Error;
         FString NodeId;
         FString ClientRef;
@@ -2676,7 +2946,82 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 ? *ArgsObjPtr
                 : MakeShared<FJsonObject>();
 
-        if (!bDryRun)
+        const bool bHasTargetGraphName = (*OpObj)->TryGetStringField(TEXT("targetGraphName"), OpGraphName) && !OpGraphName.IsEmpty();
+        const TSharedPtr<FJsonObject>* TargetGraphRefObj = nullptr;
+        bool bHasTargetGraphRef = (*OpObj)->TryGetObjectField(TEXT("targetGraphRef"), TargetGraphRefObj)
+            && TargetGraphRefObj && (*TargetGraphRefObj).IsValid();
+        if (!bHasTargetGraphRef)
+        {
+            bHasTargetGraphRef = ArgsObj->TryGetObjectField(TEXT("graphRef"), TargetGraphRefObj)
+                && TargetGraphRefObj && (*TargetGraphRefObj).IsValid();
+        }
+
+        if (bHasTargetGraphRef && bHasTargetGraphName)
+        {
+            bOk = false;
+            Error = TEXT("Supply either targetGraphRef/args.graphRef or targetGraphName, not both.");
+        }
+        else if (bHasTargetGraphRef)
+        {
+            FString TargetKind;
+            if (!(*TargetGraphRefObj)->TryGetStringField(TEXT("kind"), TargetKind) || TargetKind.IsEmpty())
+            {
+                bOk = false;
+                Error = TEXT("targetGraphRef.kind is required.");
+            }
+            else
+            {
+                TargetKind = TargetKind.ToLower();
+                FString TargetAssetPath;
+                if (!(*TargetGraphRefObj)->TryGetStringField(TEXT("assetPath"), TargetAssetPath) || TargetAssetPath.IsEmpty())
+                {
+                    bOk = false;
+                    Error = TEXT("targetGraphRef.assetPath is required.");
+                }
+                else if (!NormalizeAssetPath(TargetAssetPath).Equals(AssetPath, ESearchCase::CaseSensitive))
+                {
+                    bOk = false;
+                    Error = TEXT("targetGraphRef.assetPath must match request assetPath for this mutate call.");
+                }
+                else if (TargetKind.Equals(TEXT("asset")))
+                {
+                    if (!(*TargetGraphRefObj)->TryGetStringField(TEXT("graphName"), OpGraphName) || OpGraphName.IsEmpty())
+                    {
+                        OpGraphName = GraphName;
+                    }
+                }
+                else if (TargetKind.Equals(TEXT("inline")))
+                {
+                    FString TargetNodeGuid;
+                    if (!(*TargetGraphRefObj)->TryGetStringField(TEXT("nodeGuid"), TargetNodeGuid) || TargetNodeGuid.IsEmpty())
+                    {
+                        bOk = false;
+                        Error = TEXT("targetGraphRef.nodeGuid is required for kind=inline.");
+                    }
+                    else
+                    {
+                        FString ResolvedOpGraphName;
+                        FString ResolveError;
+                        if (!ResolveInlineBlueprintGraphName(AssetPath, TargetNodeGuid, ResolvedOpGraphName, ResolveError))
+                        {
+                            bOk = false;
+                            Error = ResolveError.IsEmpty() ? TEXT("Failed to resolve targetGraphRef inline node.") : ResolveError;
+                        }
+                        else
+                        {
+                            OpGraphName = ResolvedOpGraphName;
+                        }
+                    }
+                }
+                else
+                {
+                    bOk = false;
+                    Error = FString::Printf(TEXT("Unsupported targetGraphRef.kind: %s"), *TargetKind);
+                }
+            }
+        }
+
+        if (bOk && !bDryRun)
         {
             if (Op.Equals(TEXT("addnode.byclass")))
             {
@@ -2789,12 +3134,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 if (ArgsObj->TryGetObjectField(TEXT("from"), FromObj) && FromObj && (*FromObj).IsValid())
                 {
                     ResolveNodeToken(*FromObj, FromNodeId);
-                    (*FromObj)->TryGetStringField(TEXT("pin"), FromPin);
+                    ResolvePinName(*FromObj, FromPin);
                 }
                 if (ArgsObj->TryGetObjectField(TEXT("to"), ToObj) && ToObj && (*ToObj).IsValid())
                 {
                     ResolveNodeToken(*ToObj, ToNodeId);
-                    (*ToObj)->TryGetStringField(TEXT("pin"), ToPin);
+                    ResolvePinName(*ToObj, ToPin);
                 }
                 bOk = !FromNodeId.IsEmpty() && !ToNodeId.IsEmpty() && !FromPin.IsEmpty() && !ToPin.IsEmpty()
                     && FLoomleBlueprintAdapter::ConnectPins(AssetPath, OpGraphName, FromNodeId, FromPin, ToNodeId, ToPin, Error);
@@ -2820,12 +3165,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 if (ArgsObj->TryGetObjectField(TEXT("from"), FromObj) && FromObj && (*FromObj).IsValid())
                 {
                     ResolveNodeToken(*FromObj, FromNodeId);
-                    (*FromObj)->TryGetStringField(TEXT("pin"), FromPin);
+                    ResolvePinName(*FromObj, FromPin);
                 }
                 if (ArgsObj->TryGetObjectField(TEXT("to"), ToObj) && ToObj && (*ToObj).IsValid())
                 {
                     ResolveNodeToken(*ToObj, ToNodeId);
-                    (*ToObj)->TryGetStringField(TEXT("pin"), ToPin);
+                    ResolvePinName(*ToObj, ToPin);
                 }
                 bOk = !FromNodeId.IsEmpty() && !ToNodeId.IsEmpty() && !FromPin.IsEmpty() && !ToPin.IsEmpty()
                     && FLoomleBlueprintAdapter::DisconnectPins(AssetPath, OpGraphName, FromNodeId, FromPin, ToNodeId, ToPin, Error);
@@ -2851,7 +3196,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 if (ArgsObj->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid())
                 {
                     ResolveNodeToken(*TargetObj, NodeToken);
-                    (*TargetObj)->TryGetStringField(TEXT("pin"), Pin);
+                    ResolvePinName(*TargetObj, Pin);
                 }
                 bOk = !NodeToken.IsEmpty() && !Pin.IsEmpty()
                     && FLoomleBlueprintAdapter::BreakPinLinks(AssetPath, OpGraphName, NodeToken, Pin, Error);
@@ -2875,7 +3220,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 if (ArgsObj->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid())
                 {
                     ResolveNodeToken(*TargetObj, NodeToken);
-                    (*TargetObj)->TryGetStringField(TEXT("pin"), Pin);
+                    ResolvePinName(*TargetObj, Pin);
                 }
                 ArgsObj->TryGetStringField(TEXT("value"), Value);
                 bOk = !NodeToken.IsEmpty() && !Pin.IsEmpty()
@@ -2896,46 +3241,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             else if (Op.Equals(TEXT("removenode")))
             {
                 FString NodeToken;
-                if (const TSharedPtr<FJsonObject>* TargetObj = nullptr; ArgsObj->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid())
-                {
-                    ResolveNodeToken(*TargetObj, NodeToken);
-                    if (NodeToken.IsEmpty())
-                    {
-                        (*TargetObj)->TryGetStringField(TEXT("nodePath"), NodeToken);
-                    }
-                    if (NodeToken.IsEmpty())
-                    {
-                        (*TargetObj)->TryGetStringField(TEXT("path"), NodeToken);
-                    }
-                    if (NodeToken.IsEmpty())
-                    {
-                        (*TargetObj)->TryGetStringField(TEXT("nodeName"), NodeToken);
-                    }
-                    if (NodeToken.IsEmpty())
-                    {
-                        (*TargetObj)->TryGetStringField(TEXT("name"), NodeToken);
-                    }
-                }
-                if (NodeToken.IsEmpty())
-                {
-                    ArgsObj->TryGetStringField(TEXT("nodeId"), NodeToken);
-                }
-                if (NodeToken.IsEmpty())
-                {
-                    ArgsObj->TryGetStringField(TEXT("nodePath"), NodeToken);
-                }
-                if (NodeToken.IsEmpty())
-                {
-                    ArgsObj->TryGetStringField(TEXT("path"), NodeToken);
-                }
-                if (NodeToken.IsEmpty())
-                {
-                    ArgsObj->TryGetStringField(TEXT("nodeName"), NodeToken);
-                }
-                if (NodeToken.IsEmpty())
-                {
-                    ArgsObj->TryGetStringField(TEXT("name"), NodeToken);
-                }
+                ResolveNodeTokenFromArgs(ArgsObj, NodeToken);
                 bOk = !NodeToken.IsEmpty() && FLoomleBlueprintAdapter::RemoveNode(AssetPath, OpGraphName, NodeToken, Error);
                 if (!bOk && Error.IsEmpty())
                 {
@@ -2951,14 +3257,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             else if (Op.Equals(TEXT("movenode")))
             {
                 FString NodeToken;
-                if (const TSharedPtr<FJsonObject>* TargetObj = nullptr; ArgsObj->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid())
-                {
-                    ResolveNodeToken(*TargetObj, NodeToken);
-                }
-                if (NodeToken.IsEmpty())
-                {
-                    ArgsObj->TryGetStringField(TEXT("nodeId"), NodeToken);
-                }
+                ResolveNodeTokenFromArgs(ArgsObj, NodeToken);
                 int32 X = 0;
                 int32 Y = 0;
                 GetPointFromObject(ArgsObj, X, Y);
@@ -3150,12 +3449,18 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             }
         }
 
+        if (!bDryRun && bOk && !Op.Equals(TEXT("runscript")))
+        {
+            bChanged = true;
+        }
+
         if (!ClientRef.IsEmpty() && !NodeId.IsEmpty())
         {
             NodeRefs.Add(ClientRef, NodeId);
         }
 
         TSharedPtr<FJsonObject> OpResult = MakeShared<FJsonObject>();
+        const FString OpErrorCode = bOk ? TEXT("") : InferMutateErrorCode(Op, Error);
         OpResult->SetNumberField(TEXT("index"), Index);
         OpResult->SetStringField(TEXT("op"), Op);
         OpResult->SetBoolField(TEXT("ok"), bOk);
@@ -3163,10 +3468,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         {
             OpResult->SetStringField(TEXT("nodeId"), NodeId);
         }
+        OpResult->SetBoolField(TEXT("changed"), bChanged);
         if (!Error.IsEmpty())
         {
             OpResult->SetStringField(TEXT("error"), Error);
         }
+        OpResult->SetStringField(TEXT("errorCode"), OpErrorCode);
+        OpResult->SetStringField(TEXT("errorMessage"), bOk ? TEXT("") : Error);
         if (ScriptResultForOp.IsValid())
         {
             OpResult->SetObjectField(TEXT("scriptResult"), ScriptResultForOp);
@@ -3180,6 +3488,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             {
                 FirstError = Error;
             }
+            if (FirstErrorCode.IsEmpty())
+            {
+                FirstErrorCode = OpErrorCode;
+            }
             if (bStopOnError)
             {
                 break;
@@ -3192,7 +3504,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
     Result->SetBoolField(TEXT("isError"), bAnyError);
     if (bAnyError)
     {
-        Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+        Result->SetStringField(TEXT("code"), FirstErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : FirstErrorCode);
         Result->SetStringField(TEXT("message"), FirstError.IsEmpty() ? TEXT("graph.mutate failed") : FirstError);
     }
 
@@ -3200,6 +3512,25 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
     Result->SetStringField(TEXT("graphType"), GraphType);
     Result->SetStringField(TEXT("assetPath"), AssetPath);
     Result->SetStringField(TEXT("graphName"), GraphName);
+    {
+        TSharedPtr<FJsonObject> ResponseGraphRef = MakeShared<FJsonObject>();
+        if (bUsedGraphRef && !InlineNodeGuid.IsEmpty())
+        {
+            ResponseGraphRef->SetStringField(TEXT("kind"), TEXT("inline"));
+            ResponseGraphRef->SetStringField(TEXT("nodeGuid"), InlineNodeGuid);
+            ResponseGraphRef->SetStringField(TEXT("assetPath"), AssetPath);
+        }
+        else
+        {
+            ResponseGraphRef->SetStringField(TEXT("kind"), TEXT("asset"));
+            ResponseGraphRef->SetStringField(TEXT("assetPath"), AssetPath);
+            if (!GraphName.IsEmpty())
+            {
+                ResponseGraphRef->SetStringField(TEXT("graphName"), GraphName);
+            }
+        }
+        Result->SetObjectField(TEXT("graphRef"), ResponseGraphRef);
+    }
     Result->SetStringField(TEXT("previousRevision"), FString::Printf(TEXT("bp:%08x"), GetTypeHash(AssetPath + TEXT("|prev"))));
     Result->SetStringField(TEXT("newRevision"), FString::Printf(TEXT("bp:%08x"), GetTypeHash(AssetPath + TEXT("|new") + FString::FromInt(OpResults.Num()))));
     Result->SetArrayField(TEXT("opResults"), OpResults);
