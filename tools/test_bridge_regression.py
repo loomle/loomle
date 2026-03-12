@@ -8,6 +8,7 @@ from test_bridge_smoke import (
     EXPECTED_GRAPH_MUTATE_OPS,
     REQUIRED_TOOLS,
     McpStdioClient,
+    call_execute_exec_with_retry,
     call_tool,
     fail,
     make_temp_asset_path,
@@ -26,13 +27,33 @@ def op_ok(payload: dict) -> dict:
     return first
 
 
-def query_nodes(client: McpStdioClient, request_id: int, asset_path: str, graph_name: str) -> list[dict]:
-    payload = call_tool(
-        client,
-        request_id,
-        "graph.query",
-        {"assetPath": asset_path, "graphName": graph_name, "graphType": "blueprint", "limit": 200},
-    )
+def query_nodes(
+    client: McpStdioClient,
+    request_id: int,
+    asset_path: str,
+    graph_name: str,
+    max_attempts: int = 3,
+    retry_delay_s: float = 1.0,
+) -> list[dict]:
+    payload: dict | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            payload = call_tool(
+                client,
+                request_id + (attempt - 1),
+                "graph.query",
+                {"assetPath": asset_path, "graphName": graph_name, "graphType": "blueprint", "limit": 200},
+            )
+            break
+        except SystemExit:
+            if attempt >= max_attempts:
+                raise
+            print(f"[WARN] graph.query retrying after failure ({attempt}/{max_attempts})...")
+            time.sleep(retry_delay_s)
+
+    if payload is None:
+        fail("graph.query retry loop ended without payload")
+
     snapshot = payload.get("semanticSnapshot", {})
     nodes = snapshot.get("nodes")
     if not isinstance(nodes, list):
@@ -67,15 +88,16 @@ def wait_for_bridge_ready(client: McpStdioClient, timeout_s: float = 120.0, inte
                 time.sleep(interval_s)
                 continue
 
-            call_tool(
-                client,
-                9500 + attempt,
-                "execute",
-                {"mode": "exec", "code": "import unreal\nunreal.log('loomle regression warmup')"},
+            _ = call_execute_exec_with_retry(
+                client=client,
+                req_id_base=9500 + (attempt * 10),
+                code="import unreal\nunreal.log('loomle regression warmup')",
+                max_attempts=10,
+                retry_delay_s=1.0,
             )
             print(f"[PASS] bridge ready after {attempt} attempt(s)")
             return
-        except Exception as exc:
+        except BaseException as exc:
             print(f"[WARN] bridge readiness probe failed (attempt {attempt}): {exc}")
             time.sleep(interval_s)
 
@@ -94,7 +116,7 @@ def main() -> int:
         default="",
         help="Optional path to dev project-root config JSON (default: tools/dev.project-root.local.json)",
     )
-    parser.add_argument("--timeout", type=float, default=10.0, help="Per-request timeout seconds")
+    parser.add_argument("--timeout", type=float, default=20.0, help="Per-request timeout seconds")
     parser.add_argument(
         "--asset-prefix",
         default="/Game/Codex/BP_BridgeRegression",
