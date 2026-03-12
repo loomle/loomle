@@ -686,23 +686,9 @@ def main() -> int:
         print("[PASS] Bridge regression complete")
         return 0
     finally:
-        try:
-            _ = call_tool(
-                client,
-                99,
-                "execute",
-                {
-                    "mode": "exec",
-                    "code": (
-                        "import unreal\n"
-                        f"asset='{temp_asset}'\n"
-                        "if unreal.EditorAssetLibrary.does_asset_exist(asset):\n"
-                        "  unreal.EditorAssetLibrary.delete_asset(asset)\n"
-                    ),
-                },
-            )
-        except Exception:
-            pass
+        # Cleanup is intentionally skipped to avoid flaky teardown timeouts
+        # masking a fully successful regression run.
+        print(f"[WARN] cleanup skipped for temporary asset: {temp_asset}")
         client.close()
 
 
