@@ -36,6 +36,38 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve Tag Commit
+        id: tag_commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.tag.outputs.tag }}"
+          ref_json="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag")"
+          object_type="$(jq -r '.object.type' <<<"$ref_json")"
+          object_sha="$(jq -r '.object.sha' <<<"$ref_json")"
+
+          case "$object_type" in
+            commit)
+              tag_commit="$object_sha"
+              ;;
+            tag)
+              tag_json="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object_sha")"
+              tag_commit="$(jq -r '.object.sha' <<<"$tag_json")"
+              ;;
+            *)
+              echo "Unsupported tag object type for $tag: $object_type" >&2
+              exit 1
+              ;;
+          esac
+
+          [[ -n "$tag_commit" && "$tag_commit" != "null" ]] || {
+            echo "Failed to resolve commit for tag $tag" >&2
+            exit 1
+          }
+          echo "tag_commit=$tag_commit" >> "$GITHUB_OUTPUT"
+
       - name: Wait For Platform Assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -43,6 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           tag="${{ steps.tag.outputs.tag }}"
+          tag_commit="${{ steps.tag_commit.outputs.tag_commit }}"
           required=(
             "loomle-bridge-darwin.zip"
             "loomle-bridge-windows.zip"
@@ -50,7 +83,50 @@ jobs:
             "loomle-bridge-manifest-windows.json"
           )
 
+          resolve_workflow_state() {
+            local workflow_name="$1"
+            gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow "$workflow_name" \
+              --event push \
+              --limit 50 \
+              --json databaseId,headSha,status,conclusion,createdAt,url \
+              --jq '
+                map(select(.headSha == "'"$tag_commit"'"))
+                | sort_by(.createdAt)
+                | reverse
+                | .[0] // {}
+                | {
+                    id: (.databaseId // 0),
+                    status: (.status // "missing"),
+                    conclusion: (.conclusion // ""),
+                    url: (.url // "")
+                  }
+              '
+          }
+
           for _ in $(seq 1 90); do
+            mac_state="$(resolve_workflow_state 'Release LOOMLE Plugin (Mac)')"
+            win_state="$(resolve_workflow_state 'Release LOOMLE Plugin (Windows)')"
+
+            mac_status="$(jq -r '.status' <<<"$mac_state")"
+            mac_conclusion="$(jq -r '.conclusion' <<<"$mac_state")"
+            mac_url="$(jq -r '.url' <<<"$mac_state")"
+            win_status="$(jq -r '.status' <<<"$win_state")"
+            win_conclusion="$(jq -r '.conclusion' <<<"$win_state")"
+            win_url="$(jq -r '.url' <<<"$win_state")"
+
+            if [[ "$mac_status" == "completed" && "$mac_conclusion" != "success" ]]; then
+              echo "Mac release workflow failed for tag $tag: $mac_conclusion" >&2
+              [[ -n "$mac_url" ]] && echo "Mac run: $mac_url" >&2
+              exit 1
+            fi
+            if [[ "$win_status" == "completed" && "$win_conclusion" != "success" ]]; then
+              echo "Windows release workflow failed for tag $tag: $win_conclusion" >&2
+              [[ -n "$win_url" ]] && echo "Windows run: $win_url" >&2
+              exit 1
+            fi
+
             if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
               mapfile -t names < <(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
               missing=0
