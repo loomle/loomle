@@ -40,7 +40,7 @@ def query_nodes(
         try:
             payload = call_tool(
                 client,
-                request_id + (attempt - 1),
+                request_id,
                 "graph.query",
                 {"assetPath": asset_path, "graphName": graph_name, "graphType": "blueprint", "limit": 200},
             )
@@ -116,7 +116,7 @@ def main() -> int:
         default="",
         help="Optional path to dev project-root config JSON (default: tools/dev.project-root.local.json)",
     )
-    parser.add_argument("--timeout", type=float, default=20.0, help="Per-request timeout seconds")
+    parser.add_argument("--timeout", type=float, default=45.0, help="Per-request timeout seconds")
     parser.add_argument(
         "--asset-prefix",
         default="/Game/Codex/BP_BridgeRegression",

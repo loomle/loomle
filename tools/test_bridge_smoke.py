@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +85,12 @@ class McpStdioClient:
         self._reader_error: Exception | None = None
         self._reader_thread = threading.Thread(target=self._stdout_reader, name="loomle-mcp-stdout-reader", daemon=True)
         self._reader_thread.start()
+        self._stderr_tail: deque[str] = deque(maxlen=200)
+        self._stderr_reader_error: Exception | None = None
+        self._stderr_lock = threading.Lock()
+        self._stderr_thread = threading.Thread(target=self._stderr_reader, name="loomle-mcp-stderr-reader", daemon=True)
+        self._stderr_thread.start()
+        self._pending_responses: dict[int, dict[str, Any]] = {}
 
     def _stdout_reader(self) -> None:
         try:
@@ -94,6 +101,25 @@ class McpStdioClient:
         except Exception as exc:
             self._reader_error = exc
 
+    def _stderr_reader(self) -> None:
+        try:
+            if self.proc.stderr is None:
+                return
+            for line in self.proc.stderr:
+                text = line.rstrip()
+                if not text:
+                    continue
+                with self._stderr_lock:
+                    self._stderr_tail.append(text)
+        except Exception as exc:
+            self._stderr_reader_error = exc
+
+    def _stderr_snapshot(self) -> str:
+        with self._stderr_lock:
+            if not self._stderr_tail:
+                return ""
+            return "\n".join(self._stderr_tail)
+
     def close(self) -> None:
         if self.proc.poll() is None:
             try:
@@ -103,10 +129,18 @@ class McpStdioClient:
                 self.proc.kill()
         if self._reader_thread.is_alive():
             self._reader_thread.join(timeout=1)
+        if self._stderr_thread.is_alive():
+            self._stderr_thread.join(timeout=1)
 
     def request(self, req_id: int, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if self.proc.stdin is None:
             fail("mcp stdio is not available")
+
+        pending = self._pending_responses.pop(req_id, None)
+        if pending is not None:
+            if "error" in pending:
+                fail(f"JSON-RPC error for {method}: {pending['error']}")
+            return pending
 
         payload = {
             "jsonrpc": "2.0",
@@ -120,12 +154,12 @@ class McpStdioClient:
         deadline = time.time() + self.timeout_s
         while time.time() < deadline:
             if self.proc.poll() is not None:
-                err = ""
-                if self.proc.stderr is not None:
-                    err = self.proc.stderr.read().strip()
+                err = self._stderr_snapshot()
                 fail(f"mcp_server exited early: {err}")
             if self._reader_error is not None:
                 fail(f"mcp_server stdout reader failed: {self._reader_error}")
+            if self._stderr_reader_error is not None:
+                fail(f"mcp_server stderr reader failed: {self._stderr_reader_error}")
             wait_s = max(0.0, deadline - time.time())
             try:
                 line = self._stdout_queue.get(timeout=min(0.1, wait_s))
@@ -141,13 +175,21 @@ class McpStdioClient:
             except json.JSONDecodeError:
                 continue
 
-            if frame.get("id") != req_id:
+            frame_id = frame.get("id")
+            if frame_id != req_id:
+                if isinstance(frame_id, int):
+                    self._pending_responses[frame_id] = frame
+                    while len(self._pending_responses) > 128:
+                        self._pending_responses.pop(next(iter(self._pending_responses)))
                 continue
 
             if "error" in frame:
                 fail(f"JSON-RPC error for {method}: {frame['error']}")
             return frame
 
+        stderr_tail = self._stderr_snapshot()
+        if stderr_tail:
+            fail(f"timeout waiting for {method} id={req_id}; recent stderr:\n{stderr_tail}")
         fail(f"timeout waiting for {method} id={req_id}")
 
 
