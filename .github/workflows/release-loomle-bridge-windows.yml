@@ -23,6 +23,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Mark Workspace As Git Safe Directory
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
+        run: |
+          git config --global --add safe.directory "$env:GITHUB_WORKSPACE"
+
       - name: Ensure Tag Commit Is On Main
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
