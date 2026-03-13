@@ -220,6 +220,20 @@ Output schema:
     "domainCode": { "type": "string" },
     "message": { "type": "string" },
     "ops": { "type": "array", "items": { "type": "string" } },
+    "layoutCapabilities": {
+      "type": "object",
+      "properties": {
+        "canReadPosition": { "type": "boolean" },
+        "canReadSize": { "type": "boolean" },
+        "canReadBounds": { "type": "boolean" },
+        "canMoveNode": { "type": "boolean" },
+        "canBatchMove": { "type": "boolean" },
+        "supportsMeasuredGeometry": { "type": "boolean" },
+        "positionSource": { "type": "string" },
+        "sizeSource": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
     "limits": {
       "type": "object",
       "required": ["defaultLimit", "maxLimit", "maxOpsPerMutate"],
@@ -279,6 +293,10 @@ Practical client rule:
 
 - Use `tools/list` when you need the current accepted `inputSchema`.
 - Use `RPC_INTERFACE.md` when you need lower-level transport and payload shape details.
+- For `graph.mutate`, individual `opResults[]` entries may include operation-specific `details` objects on failure; clients should preserve and inspect them rather than relying only on top-level `message`.
+- For `graph.actions`, clients should inspect `meta.actionSource` before assuming results came from typed schema discovery; fallback and curated catalog paths may include `meta.fallbackReason`, `meta.recommendedRecovery`, and matching diagnostics.
+- For graph layout-aware flows, prefer `graph.layoutCapabilities` and `graph.query.meta.layoutCapabilities` over hardcoded assumptions. Current runtime support focuses on position reads plus basic move operations.
+- `graph.query` accepts `layoutDetail=basic|measured`. Callers may request `measured`, but should inspect `meta.layoutDetailApplied` and diagnostics before assuming measured geometry was actually returned.
 
 ## 4.6 `diag.tail`
 

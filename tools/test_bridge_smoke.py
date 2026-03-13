@@ -31,6 +31,8 @@ EXPECTED_GRAPH_MUTATE_OPS = {
     "setPinDefault",
     "removeNode",
     "moveNode",
+    "moveNodeBy",
+    "moveNodes",
     "compile",
     "runScript",
 }

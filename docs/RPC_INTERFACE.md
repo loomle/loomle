@@ -276,6 +276,7 @@ Two mutually exclusive addressing modes:
   "graphType": "blueprint|material|pcg",
   "assetPath": "/Game/...",
   "graphName": "EventGraph",
+  "layoutDetail": "basic|measured",
   "filter": {
     "nodeClasses": ["optional-class"],
     "nodeIds": ["optional-id"],
@@ -299,6 +300,7 @@ Inline ref (Blueprint `K2Node_Composite`):
     "nodeGuid": "A1B2C3D4-E5F6-7890-ABCD-EF1234567890",
     "assetPath": "/Game/BP_Foo"
   },
+  "layoutDetail": "basic|measured",
   "filter": { "nodeClasses": ["optional-class"], "nodeIds": ["optional-id"], "text": "optional-text" },
   "limit": 200
 }
@@ -312,6 +314,7 @@ Asset ref (external PCG graph, MaterialFunction, or another Blueprint graph):
     "kind": "asset",
     "assetPath": "/Game/PCG/MySubgraph"
   },
+  "layoutDetail": "basic|measured",
   "limit": 200
 }
 ```
@@ -336,6 +339,13 @@ Note: `graphType: "material"` accepts both `UMaterial` and `UMaterialFunction` a
       {
         "nodeId": "string",
         "type": "string",
+        "layout": {
+          "position": { "x": 0, "y": 0 },
+          "source": "model|estimated|unsupported",
+          "reliable": true,
+          "sizeSource": "model|estimated|unsupported",
+          "boundsSource": "model|estimated|unsupported"
+        },
         "childGraphRef": {
           "kind": "inline",
           "nodeGuid": "A1B2C3D4-E5F6-7890-ABCD-EF1234567890",
@@ -351,7 +361,19 @@ Note: `graphType: "material"` accepts both `UMaterial` and `UMaterialFunction` a
     "returnedNodes": 0,
     "totalEdges": 0,
     "returnedEdges": 0,
-    "truncated": false
+    "truncated": false,
+    "layoutCapabilities": {
+      "canReadPosition": true,
+      "canReadSize": false,
+      "canReadBounds": false,
+      "canMoveNode": true,
+      "canBatchMove": true,
+      "supportsMeasuredGeometry": false,
+      "positionSource": "model",
+      "sizeSource": "partial|unsupported"
+    },
+    "layoutDetailRequested": "basic|measured",
+    "layoutDetailApplied": "basic|measured"
   },
   "diagnostics": []
 }
@@ -365,6 +387,10 @@ Node field notes:
   - Material `UMaterialExpressionMaterialFunctionCall` → `kind: "asset"` (points to an external `UMaterialFunction` asset)
 - `childLoadStatus`: present when `childGraphRef` is set. `"loaded"` if the referenced asset is currently in memory; `"not_found"` if it could not be resolved.
 - The `graphRef` at the response root mirrors the effective locator used to resolve this query — clients can store it for later use without reconstructing it. Present on all three graph types.
+- `layoutDetail`: optional query hint. `basic` requests lightweight geometry that should be cheap to compute. `measured` asks the runtime for richer layout data when supported.
+- `meta.layoutDetailRequested` / `meta.layoutDetailApplied`: let callers distinguish what they asked for from what the runtime actually returned.
+- If the runtime downgrades a measured request to basic layout data, diagnostics may include `LAYOUT_DETAIL_DOWNGRADED`.
+- Current LOOMLE support guarantees node positions and move operations. Size/bounds support is partial today; for Blueprint, comment nodes may include model-derived size/bounds even when ordinary nodes do not.
 
 ## 5.5 tool=`graph.actions`
 
@@ -422,11 +448,22 @@ Notes:
   "meta": {
     "total": 0,
     "returned": 0,
-    "truncated": false
+    "truncated": false,
+    "actionSource": "typed|generic_fallback|curated_catalog",
+    "fallbackReason": "optional",
+    "recommendedRecovery": "optional"
   },
   "diagnostics": []
 }
 ```
+
+`meta.actionSource` notes:
+
+- `typed`: returned from the graph schema's typed action discovery path.
+- `generic_fallback`: schema returned no typed actions, so LOOMLE emitted a generic fallback action set.
+- `curated_catalog`: LOOMLE returned its built-in catalog for non-Blueprint graph types.
+
+When fallback is used or no catalog actions are available, `meta.fallbackReason`, `meta.recommendedRecovery`, and diagnostic entries may explain what happened and suggest a next step.
 
 ## 5.6 tool=`graph.mutate`
 
@@ -465,6 +502,9 @@ Notes:
 - At the request root, `graphRef` and `graphName` are mutually exclusive.
 - At the op level, `targetGraphRef`/`args.graphRef` and `targetGraphName` are mutually exclusive.
 - `targetGraphRef.assetPath` must match the request-level `assetPath` (or the `assetPath` resolved from request-level `graphRef`) for the current mutate call.
+- Runtime move ops currently include `moveNode`, `moveNodeBy`, and `moveNodes`.
+- `moveNodeBy` accepts a single target plus either `dx`/`dy` or `delta.{x,y}`.
+- `moveNodes` accepts `nodeIds` or `nodes` plus either `dx`/`dy` or `delta.{x,y}` and applies the same delta to every resolved node.
 
 `payload`:
 
@@ -486,12 +526,19 @@ Notes:
       "nodeId": "optional",
       "error": "",
       "errorCode": "",
-      "errorMessage": ""
+      "errorMessage": "",
+      "details": {}
     }
   ],
   "diagnostics": []
 }
 ```
+
+`setPinDefault` target notes:
+
+- `args.target` accepts the same node token forms used elsewhere in Blueprint mutate flows: `nodeId`, `nodeRef`, `nodePath`, `path`, `nodeName`, or `name`.
+- Pin name may be supplied as either `pin` or `pinName`.
+- When `setPinDefault` fails with `TARGET_NOT_FOUND`, `opResults[*].details` may include `expectedTargetForms`, `requestedTarget`, `matchedNode`, and `candidatePins` to help callers repair the request automatically.
 
 When `applied=false`:
 

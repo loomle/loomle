@@ -370,6 +370,12 @@ fn graph_query_input_schema() -> Value {
             },
             "graphRef": graph_ref_schema(),
             "graphType": graph_type_schema(),
+            "layoutDetail": {
+                "type": "string",
+                "enum": ["basic", "measured"],
+                "default": "basic",
+                "description": "Requested layout detail level. `basic` returns lightweight geometry; `measured` asks the runtime to provide richer layout data when supported."
+            },
             "filter": {
                 "type": "object",
                 "description": "Optional filters to narrow returned nodes.",
@@ -608,6 +614,8 @@ fn graph_mutate_input_schema() -> Value {
                                 "setPinDefault",
                                 "removeNode",
                                 "moveNode",
+                                "moveNodeBy",
+                                "moveNodes",
                                 "compile",
                                 "runScript"
                             ]
@@ -720,6 +728,7 @@ fn graph_mutate_output_schema() -> Value {
                         "error": { "type": "string" },
                         "errorCode": { "type": "string" },
                         "errorMessage": { "type": "string" },
+                        "details": { "type": "object", "additionalProperties": true },
                         "scriptResult": { "type": "object", "additionalProperties": true }
                     },
                     "additionalProperties": true
@@ -860,6 +869,10 @@ mod tests {
             graph_query["inputSchema"]["properties"]["graphName"].is_object(),
             "graph.query should expose graphName property"
         );
+        assert!(
+            graph_query["inputSchema"]["properties"]["layoutDetail"].is_object(),
+            "graph.query should expose layoutDetail property"
+        );
 
         let graph_resolve = tools
             .iter()
@@ -944,23 +957,29 @@ mod tests {
             .expect("op enum array");
         assert!(op_enum.contains(&Value::String(String::from("runScript"))));
         assert!(op_enum.contains(&Value::String(String::from("removeNode"))));
+        assert!(op_enum.contains(&Value::String(String::from("moveNodeBy"))));
+        assert!(op_enum.contains(&Value::String(String::from("moveNodes"))));
         assert!(
-            graph_mutate["inputSchema"]["properties"]["ops"]["items"]["properties"]["targetGraphRef"]
+            graph_mutate["inputSchema"]["properties"]["ops"]["items"]["properties"]
+                ["targetGraphRef"]
                 .is_object(),
             "graph.mutate op schema should expose targetGraphRef"
         );
         assert!(
-            graph_mutate["inputSchema"]["properties"]["ops"]["items"]["properties"]["targetGraphName"]
+            graph_mutate["inputSchema"]["properties"]["ops"]["items"]["properties"]
+                ["targetGraphName"]
                 .is_object(),
             "graph.mutate op schema should expose targetGraphName"
         );
         assert!(
-            graph_mutate["outputSchema"]["properties"]["opResults"]["items"]["properties"]["errorCode"]
+            graph_mutate["outputSchema"]["properties"]["opResults"]["items"]["properties"]
+                ["errorCode"]
                 .is_object(),
             "graph.mutate output schema should expose opResults[].errorCode"
         );
         assert!(
-            graph_mutate["outputSchema"]["properties"]["opResults"]["items"]["properties"]["errorMessage"]
+            graph_mutate["outputSchema"]["properties"]["opResults"]["items"]["properties"]
+                ["errorMessage"]
                 .is_object(),
             "graph.mutate output schema should expose opResults[].errorMessage"
         );

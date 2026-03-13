@@ -86,8 +86,8 @@ impl<C: RpcConnector> McpService<C> {
         match name {
             "loomle" => self.call_loomle(),
             "graph" => self.call_graph(args),
-            "context" | "execute" | "graph.list" | "graph.resolve" | "graph.query" | "graph.actions"
-            | "graph.mutate" | "diag.tail" => self.call_runtime(name, args, meta),
+            "context" | "execute" | "graph.list" | "graph.resolve" | "graph.query"
+            | "graph.actions" | "graph.mutate" | "diag.tail" => self.call_runtime(name, args, meta),
             _ => McpToolResult {
                 structured_content: error_payload(
                     1002,
@@ -155,6 +155,7 @@ impl<C: RpcConnector> McpService<C> {
             .get("graphType")
             .and_then(Value::as_str)
             .unwrap_or("blueprint");
+        let layout_capabilities = graph_layout_capabilities(graph_type);
 
         match self.connector.health() {
             Ok(h) => {
@@ -179,6 +180,8 @@ impl<C: RpcConnector> McpService<C> {
                             "setPinDefault",
                             "removeNode",
                             "moveNode",
+                            "moveNodeBy",
+                            "moveNodes",
                             "compile",
                             "runScript"
                         ],
@@ -187,6 +190,7 @@ impl<C: RpcConnector> McpService<C> {
                             "maxLimit": 1000,
                             "maxOpsPerMutate": 200
                         },
+                        "layoutCapabilities": layout_capabilities,
                         "runtime": {
                             "isPIE": h.is_pie,
                             "editorBusyReason": h.editor_busy_reason,
@@ -214,6 +218,7 @@ impl<C: RpcConnector> McpService<C> {
                         "maxLimit": 1000,
                         "maxOpsPerMutate": 200
                     },
+                    "layoutCapabilities": layout_capabilities,
                     "runtime": {
                         "rpcHealth": {
                             "status": "error",
@@ -265,6 +270,26 @@ impl<C: RpcConnector> McpService<C> {
         });
         Ok(health)
     }
+}
+
+fn graph_layout_capabilities(graph_type: &str) -> Value {
+    let can_move_node = matches!(graph_type, "blueprint" | "material" | "pcg");
+    let size_source = if graph_type == "blueprint" {
+        "partial"
+    } else {
+        "unsupported"
+    };
+
+    json!({
+        "canReadPosition": true,
+        "canReadSize": false,
+        "canReadBounds": false,
+        "canMoveNode": can_move_node,
+        "canBatchMove": can_move_node,
+        "supportsMeasuredGeometry": false,
+        "positionSource": "model",
+        "sizeSource": size_source
+    })
 }
 
 fn editor_busy_payload(tool: &str, health: &RpcHealth) -> Value {
@@ -459,6 +484,32 @@ mod tests {
         let _ = service.call_tool("graph", json!({ "graphType": "material" }), meta("2"));
 
         assert_eq!(connector.health_calls(), 2);
+    }
+
+    #[test]
+    fn graph_reports_layout_capabilities() {
+        let connector = FakeConnector::new();
+        let service = McpService::new(connector);
+
+        let result = service.call_tool("graph", json!({ "graphType": "blueprint" }), meta("2a"));
+
+        assert!(!result.is_error);
+        assert_eq!(
+            result.structured_content["layoutCapabilities"]["canReadPosition"],
+            true
+        );
+        assert_eq!(
+            result.structured_content["layoutCapabilities"]["canMoveNode"],
+            true
+        );
+        assert_eq!(
+            result.structured_content["layoutCapabilities"]["canBatchMove"],
+            true
+        );
+        assert_eq!(
+            result.structured_content["layoutCapabilities"]["sizeSource"],
+            "partial"
+        );
     }
 
     #[test]

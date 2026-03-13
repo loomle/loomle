@@ -30,6 +30,7 @@ public:
     static bool RemoveNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, FString& OutError);
     static bool MoveNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, int32 NodePosX, int32 NodePosY, FString& OutError);
     static bool SetPinDefaultValue(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, const FString& PinName, const FString& Value, FString& OutError);
+    static bool DescribePinTarget(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeToken, const FString& PinName, FString& OutDetailsJson, FString& OutError);
     static bool ListEventGraphNodes(const FString& BlueprintAssetPath, FString& OutNodesJson, FString& OutError);
     static bool ListBlueprintGraphs(const FString& BlueprintAssetPath, FString& OutGraphsJson, FString& OutError);
     static bool ListGraphNodes(const FString& BlueprintAssetPath, const FString& GraphName, FString& OutNodesJson, FString& OutError);

@@ -75,6 +75,24 @@ def require_node_absent(nodes: list[dict], node_id: str) -> None:
             fail(f"graph.query still returned removed node {node_id}: {node}")
 
 
+def require_layout(node: dict) -> dict:
+    layout = node.get("layout")
+    if not isinstance(layout, dict):
+        fail(f"graph.query node missing layout object: {node}")
+    position = layout.get("position")
+    if not isinstance(position, dict):
+        fail(f"graph.query node layout missing position: {node}")
+    if not isinstance(position.get("x"), (int, float)) or not isinstance(position.get("y"), (int, float)):
+        fail(f"graph.query node layout position invalid: {node}")
+    if not isinstance(layout.get("source"), str) or not layout.get("source"):
+        fail(f"graph.query node layout missing source: {node}")
+    if not isinstance(layout.get("reliable"), bool):
+        fail(f"graph.query node layout missing reliable flag: {node}")
+    if not isinstance(layout.get("sizeSource"), str) or not isinstance(layout.get("boundsSource"), str):
+        fail(f"graph.query node layout missing source metadata: {node}")
+    return layout
+
+
 def wait_for_bridge_ready(client: McpStdioClient, timeout_s: float = 120.0, interval_s: float = 2.0) -> None:
     deadline = time.time() + timeout_s
     attempt = 0
@@ -230,13 +248,36 @@ def main() -> int:
             client,
             6,
             "graph.query",
-            {"assetPath": temp_asset, "graphName": "EventGraph", "graphType": "blueprint", "limit": 200},
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "limit": 200,
+                "layoutDetail": "measured",
+            },
         )
         snapshot = graph_query.get("semanticSnapshot")
         if not isinstance(snapshot, dict):
             fail(f"graph.query missing semanticSnapshot: {graph_query}")
         if not isinstance(snapshot.get("nodes"), list) or not isinstance(snapshot.get("edges"), list):
             fail(f"graph.query invalid semanticSnapshot shape: {snapshot}")
+        query_meta = graph_query.get("meta")
+        if not isinstance(query_meta, dict):
+            fail(f"graph.query missing meta: {graph_query}")
+        layout_caps = query_meta.get("layoutCapabilities")
+        if not isinstance(layout_caps, dict):
+            fail(f"graph.query missing layoutCapabilities: {graph_query}")
+        if layout_caps.get("canReadPosition") is not True:
+            fail(f"graph.query layoutCapabilities missing canReadPosition=true: {query_meta}")
+        if query_meta.get("layoutDetailRequested") != "measured":
+            fail(f"graph.query layoutDetailRequested mismatch: {query_meta}")
+        if query_meta.get("layoutDetailApplied") != "basic":
+            fail(f"graph.query layoutDetailApplied mismatch: {query_meta}")
+        query_diagnostics = graph_query.get("diagnostics")
+        if not isinstance(query_diagnostics, list):
+            fail(f"graph.query diagnostics missing or invalid: {graph_query}")
+        if not any(isinstance(d, dict) and d.get("code") == "LAYOUT_DETAIL_DOWNGRADED" for d in query_diagnostics):
+            fail(f"graph.query missing LAYOUT_DETAIL_DOWNGRADED diagnostic: {graph_query}")
         print("[PASS] graph.query structure validated")
 
         actions = call_tool(
@@ -269,6 +310,17 @@ def main() -> int:
         meta = actions.get("meta")
         if not isinstance(meta, dict) or "total" not in meta or "returned" not in meta:
             fail(f"graph.actions missing or invalid meta: {actions}")
+        action_source = meta.get("actionSource")
+        if action_source not in {"typed", "generic_fallback", "curated_catalog"}:
+            fail(f"graph.actions meta missing valid actionSource: {meta}")
+        diagnostics = actions.get("diagnostics")
+        if not isinstance(diagnostics, list):
+            fail(f"graph.actions diagnostics missing or invalid: {actions}")
+        if any(isinstance(d, dict) and d.get("code") == "ADDABLE_FALLBACK_USED" for d in diagnostics):
+            if not isinstance(meta.get("fallbackReason"), str) or not meta.get("fallbackReason"):
+                fail(f"graph.actions fallback meta missing fallbackReason: {meta}")
+            if not isinstance(meta.get("recommendedRecovery"), str) or not meta.get("recommendedRecovery"):
+                fail(f"graph.actions fallback meta missing recommendedRecovery: {meta}")
         print(f"[PASS] graph.actions response validated ({len(items)} actions returned)")
 
         actions_by_ref = call_tool(
@@ -634,9 +686,48 @@ def main() -> int:
         )
         op_ok(set_default_payload)
 
-        move_payload = call_tool(
+        bad_set_default_payload = call_tool(
             client,
             17,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "ops": [
+                    {
+                        "op": "setPinDefault",
+                        "args": {
+                            "target": {"nodeId": node_b, "pinName": "DefinitelyMissingPin"},
+                            "value": "true",
+                        },
+                    }
+                ],
+            },
+            expect_error=True,
+        )
+        bad_set_default_results = bad_set_default_payload.get("opResults")
+        if not isinstance(bad_set_default_results, list) or not bad_set_default_results:
+            fail(f"graph.mutate bad setPinDefault missing opResults: {bad_set_default_payload}")
+        bad_set_default_first = bad_set_default_results[0] if isinstance(bad_set_default_results[0], dict) else {}
+        if bad_set_default_first.get("errorCode") != "TARGET_NOT_FOUND":
+            fail(f"graph.mutate bad setPinDefault wrong errorCode: {bad_set_default_first}")
+        details = bad_set_default_first.get("details")
+        if not isinstance(details, dict):
+            fail(f"graph.mutate bad setPinDefault missing details object: {bad_set_default_first}")
+        expected_target_forms = details.get("expectedTargetForms")
+        if not isinstance(expected_target_forms, list) or not expected_target_forms:
+            fail(f"graph.mutate bad setPinDefault missing expectedTargetForms: {details}")
+        candidate_pins = details.get("candidatePins")
+        if not isinstance(candidate_pins, list) or not candidate_pins:
+            fail(f"graph.mutate bad setPinDefault missing candidatePins: {details}")
+        if not any(isinstance(pin, dict) and pin.get("pinName") == "Condition" for pin in candidate_pins):
+            fail(f"graph.mutate bad setPinDefault candidatePins missing Condition: {candidate_pins}")
+        print("[PASS] graph.mutate setPinDefault diagnostics validated")
+
+        move_payload = call_tool(
+            client,
+            18,
             "graph.mutate",
             {
                 "assetPath": temp_asset,
@@ -655,9 +746,54 @@ def main() -> int:
         )
         op_ok(move_payload)
 
+        move_by_payload = call_tool(
+            client,
+            1801,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "ops": [
+                    {
+                        "op": "moveNodeBy",
+                        "args": {
+                            "target": {"nodeId": node_b},
+                            "dx": 16,
+                            "dy": 32,
+                        },
+                    }
+                ],
+            },
+        )
+        op_ok(move_by_payload)
+
+        move_nodes_payload = call_tool(
+            client,
+            1802,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "ops": [
+                    {
+                        "op": "moveNodes",
+                        "args": {
+                            "nodeIds": [node_a, node_b],
+                            "delta": {"x": 16, "y": 0},
+                        },
+                    }
+                ],
+            },
+        )
+        move_nodes_first = op_ok(move_nodes_payload)
+        if move_nodes_first.get("op") != "movenodes":
+            fail(f"graph.mutate moveNodes wrong op echo: {move_nodes_first}")
+
         compile_payload = call_tool(
             client,
-            18,
+            19,
             "graph.mutate",
             {
                 "assetPath": temp_asset,
@@ -670,19 +806,25 @@ def main() -> int:
         )
         op_ok(compile_payload)
 
-        nodes_before_remove = query_nodes(client, 19, temp_asset, "EventGraph")
+        nodes_before_remove = query_nodes(client, 20, temp_asset, "EventGraph")
         node_a_info = require_node(nodes_before_remove, node_a)
         node_b_info = require_node(nodes_before_remove, node_b)
+        node_a_layout = require_layout(node_a_info)
+        node_b_layout = require_layout(node_b_info)
         node_a_path = node_a_info.get("path")
         node_b_name = node_b_info.get("name")
         if not isinstance(node_a_path, str) or not node_a_path:
             fail(f"graph.query did not return path for {node_a}: {node_a_info}")
         if not isinstance(node_b_name, str) or not node_b_name:
             fail(f"graph.query did not return name for {node_b}: {node_b_info}")
+        if node_a_layout.get("position", {}).get("x") != 16 or node_a_layout.get("position", {}).get("y") != 0:
+            fail(f"graph.mutate moveNodes did not update node_a layout as expected: {node_a_info}")
+        if node_b_layout.get("position", {}).get("x") != 672 or node_b_layout.get("position", {}).get("y") != 160:
+            fail(f"graph.mutate moveNode/moveNodeBy/moveNodes did not update node_b layout as expected: {node_b_info}")
 
         remove_a = call_tool(
             client,
-            20,
+            21,
             "graph.mutate",
             {
                 "assetPath": temp_asset,
@@ -697,12 +839,12 @@ def main() -> int:
             },
         )
         op_ok(remove_a)
-        nodes_after_remove_a = query_nodes(client, 21, temp_asset, "EventGraph")
+        nodes_after_remove_a = query_nodes(client, 22, temp_asset, "EventGraph")
         require_node_absent(nodes_after_remove_a, node_a)
 
         remove_b = call_tool(
             client,
-            22,
+            23,
             "graph.mutate",
             {
                 "assetPath": temp_asset,
@@ -717,12 +859,12 @@ def main() -> int:
             },
         )
         op_ok(remove_b)
-        nodes_after_remove_b = query_nodes(client, 23, temp_asset, "EventGraph")
+        nodes_after_remove_b = query_nodes(client, 24, temp_asset, "EventGraph")
         require_node_absent(nodes_after_remove_b, node_b)
 
         add_c = call_tool(
             client,
-            24,
+            25,
             "graph.mutate",
             {
                 "assetPath": temp_asset,
@@ -745,7 +887,7 @@ def main() -> int:
 
         remove_c = call_tool(
             client,
-            25,
+            26,
             "graph.mutate",
             {
                 "assetPath": temp_asset,
@@ -760,12 +902,12 @@ def main() -> int:
             },
         )
         op_ok(remove_c)
-        nodes_after_remove_c = query_nodes(client, 26, temp_asset, "EventGraph")
+        nodes_after_remove_c = query_nodes(client, 27, temp_asset, "EventGraph")
         require_node_absent(nodes_after_remove_c, node_c)
 
         add_via_graph_ref = call_tool(
             client,
-            27,
+            28,
             "graph.mutate",
             {
                 "graphRef": {"kind": "asset", "assetPath": temp_asset, "graphName": "EventGraph"},
@@ -787,7 +929,7 @@ def main() -> int:
 
         remove_via_target_graph_ref = call_tool(
             client,
-            28,
+            29,
             "graph.mutate",
             {
                 "assetPath": temp_asset,
@@ -803,7 +945,7 @@ def main() -> int:
             },
         )
         op_ok(remove_via_target_graph_ref)
-        nodes_after_remove_d = query_nodes(client, 29, temp_asset, "EventGraph")
+        nodes_after_remove_d = query_nodes(client, 30, temp_asset, "EventGraph")
         require_node_absent(nodes_after_remove_d, node_d)
 
         print("[PASS] graph.mutate removeNode validated for nodeId/nodePath/nodeName")

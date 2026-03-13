@@ -34,6 +34,44 @@
 
 namespace LoomleBlueprintAdapterInternal
 {
+    static TSharedPtr<FJsonObject> MakeLayoutObject(
+        int32 PositionX,
+        int32 PositionY,
+        const FString& Source,
+        bool bReliable,
+        const TOptional<FVector2D>& Size = TOptional<FVector2D>())
+    {
+        TSharedPtr<FJsonObject> Layout = MakeShared<FJsonObject>();
+
+        TSharedPtr<FJsonObject> Position = MakeShared<FJsonObject>();
+        Position->SetNumberField(TEXT("x"), PositionX);
+        Position->SetNumberField(TEXT("y"), PositionY);
+        Layout->SetObjectField(TEXT("position"), Position);
+
+        if (Size.IsSet())
+        {
+            const FVector2D SizeValue = Size.GetValue();
+
+            TSharedPtr<FJsonObject> SizeObject = MakeShared<FJsonObject>();
+            SizeObject->SetNumberField(TEXT("width"), SizeValue.X);
+            SizeObject->SetNumberField(TEXT("height"), SizeValue.Y);
+            Layout->SetObjectField(TEXT("size"), SizeObject);
+
+            TSharedPtr<FJsonObject> Bounds = MakeShared<FJsonObject>();
+            Bounds->SetNumberField(TEXT("left"), PositionX);
+            Bounds->SetNumberField(TEXT("top"), PositionY);
+            Bounds->SetNumberField(TEXT("right"), PositionX + SizeValue.X);
+            Bounds->SetNumberField(TEXT("bottom"), PositionY + SizeValue.Y);
+            Layout->SetObjectField(TEXT("bounds"), Bounds);
+        }
+
+        Layout->SetStringField(TEXT("source"), Source);
+        Layout->SetBoolField(TEXT("reliable"), bReliable);
+        Layout->SetStringField(TEXT("sizeSource"), Size.IsSet() ? TEXT("model") : TEXT("unsupported"));
+        Layout->SetStringField(TEXT("boundsSource"), Size.IsSet() ? TEXT("model") : TEXT("unsupported"));
+        return Layout;
+    }
+
     static UBlueprint* LoadBlueprintByAssetPath(const FString& AssetPath)
     {
         if (!FPackageName::IsValidLongPackageName(AssetPath))
@@ -517,6 +555,9 @@ namespace LoomleBlueprintAdapterInternal
         Position->SetNumberField(TEXT("x"), Node->NodePosX);
         Position->SetNumberField(TEXT("y"), Node->NodePosY);
         NodeObject->SetObjectField(TEXT("position"), Position);
+        NodeObject->SetObjectField(
+            TEXT("layout"),
+            MakeLayoutObject(Node->NodePosX, Node->NodePosY, TEXT("model"), true));
 
         TSharedPtr<FJsonObject> MemberReference = MakeShared<FJsonObject>();
         MemberReference->SetStringField(TEXT("memberKind"), TEXT(""));
@@ -607,6 +648,14 @@ namespace LoomleBlueprintAdapterInternal
             CommentExt->SetNumberField(TEXT("width"), CommentNode->NodeWidth);
             CommentExt->SetNumberField(TEXT("height"), CommentNode->NodeHeight);
             K2Extensions->SetObjectField(TEXT("comment"), CommentExt);
+            NodeObject->SetObjectField(
+                TEXT("layout"),
+                MakeLayoutObject(
+                    Node->NodePosX,
+                    Node->NodePosY,
+                    TEXT("model"),
+                    true,
+                    FVector2D(CommentNode->NodeWidth, CommentNode->NodeHeight)));
         }
         if (const UK2Node_Timeline* TimelineNode = Cast<UK2Node_Timeline>(Node))
         {
@@ -1474,10 +1523,30 @@ bool FLoomleBlueprintAdapter::MoveNode(const FString& BlueprintAssetPath, const 
         return false;
     }
 
+    EventGraph->Modify();
     Node->Modify();
+    const int32 OriginalX = Node->NodePosX;
+    const int32 OriginalY = Node->NodePosY;
     Node->NodePosX = NodePosX;
     Node->NodePosY = NodePosY;
     Node->SnapToGrid(16);
+    EventGraph->NotifyGraphChanged();
+    FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+    Blueprint->MarkPackageDirty();
+
+    if ((OriginalX != NodePosX || OriginalY != NodePosY)
+        && Node->NodePosX == OriginalX
+        && Node->NodePosY == OriginalY)
+    {
+        OutError = FString::Printf(
+            TEXT("Node move verification failed. Requested (%d, %d), observed no movement from (%d, %d)."),
+            NodePosX,
+            NodePosY,
+            OriginalX,
+            OriginalY);
+        return false;
+    }
+
     return true;
 }
 
@@ -1493,15 +1562,103 @@ bool FLoomleBlueprintAdapter::SetPinDefaultValue(const FString& BlueprintAssetPa
         return false;
     }
 
-    UEdGraphNode* Node = LoomleBlueprintAdapterInternal::FindNodeByGuid(EventGraph, NodeGuid);
+    UEdGraphNode* Node = LoomleBlueprintAdapterInternal::ResolveNodeByToken(EventGraph, NodeGuid);
     UEdGraphPin* Pin = LoomleBlueprintAdapterInternal::ResolvePin(Node, PinName);
-    if (!Node || !Pin)
+    if (!Node)
     {
-        OutError = TEXT("Failed to resolve node or pin.");
+        OutError = FString::Printf(TEXT("Node not found in graph by id/path/name: %s"), *NodeGuid);
+        return false;
+    }
+    if (!Pin)
+    {
+        OutError = FString::Printf(TEXT("Pin not found on node %s: %s"), *Node->GetName(), *PinName);
         return false;
     }
 
     Pin->DefaultValue = Value;
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::DescribePinTarget(
+    const FString& BlueprintAssetPath,
+    const FString& GraphName,
+    const FString& NodeToken,
+    const FString& PinName,
+    FString& OutDetailsJson,
+    FString& OutError)
+{
+    OutDetailsJson = TEXT("{}");
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
+    if (!Blueprint || !EventGraph)
+    {
+        OutError = TEXT("Failed to resolve blueprint/target graph.");
+        return false;
+    }
+
+    TSharedPtr<FJsonObject> Details = MakeShared<FJsonObject>();
+    Details->SetStringField(TEXT("assetPath"), BlueprintAssetPath);
+    Details->SetStringField(TEXT("graphName"), GraphName);
+
+    TSharedPtr<FJsonObject> RequestedTarget = MakeShared<FJsonObject>();
+    RequestedTarget->SetStringField(TEXT("nodeToken"), NodeToken);
+    RequestedTarget->SetStringField(TEXT("pinName"), PinName);
+    Details->SetObjectField(TEXT("requestedTarget"), RequestedTarget);
+
+    TArray<TSharedPtr<FJsonValue>> ExpectedTargetForms;
+    auto AddExpectedTargetForm = [&ExpectedTargetForms](const FString& NodeField, const FString& PinField)
+    {
+        TSharedPtr<FJsonObject> Form = MakeShared<FJsonObject>();
+        TSharedPtr<FJsonObject> Target = MakeShared<FJsonObject>();
+        Target->SetStringField(NodeField, FString::Printf(TEXT("<%s>"), *NodeField));
+        Target->SetStringField(PinField, FString::Printf(TEXT("<%s>"), *PinField));
+        Form->SetObjectField(TEXT("target"), Target);
+        ExpectedTargetForms.Add(MakeShared<FJsonValueObject>(Form));
+    };
+    AddExpectedTargetForm(TEXT("nodeId"), TEXT("pinName"));
+    AddExpectedTargetForm(TEXT("nodeId"), TEXT("pin"));
+    AddExpectedTargetForm(TEXT("nodePath"), TEXT("pinName"));
+    AddExpectedTargetForm(TEXT("nodeName"), TEXT("pin"));
+    AddExpectedTargetForm(TEXT("nodeRef"), TEXT("pin"));
+    Details->SetArrayField(TEXT("expectedTargetForms"), ExpectedTargetForms);
+
+    UEdGraphNode* Node = LoomleBlueprintAdapterInternal::ResolveNodeByToken(EventGraph, NodeToken);
+    Details->SetBoolField(TEXT("nodeFound"), Node != nullptr);
+    if (Node)
+    {
+        TSharedPtr<FJsonObject> NodeSummary = MakeShared<FJsonObject>();
+        NodeSummary->SetStringField(TEXT("nodeId"), Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens));
+        NodeSummary->SetStringField(TEXT("nodeName"), Node->GetName());
+        NodeSummary->SetStringField(TEXT("nodePath"), Node->GetPathName());
+        NodeSummary->SetStringField(TEXT("nodeTitle"), Node->GetNodeTitle(ENodeTitleType::ListView).ToString());
+        Details->SetObjectField(TEXT("matchedNode"), NodeSummary);
+
+        TArray<TSharedPtr<FJsonValue>> CandidatePins;
+        for (const UEdGraphPin* CandidatePin : Node->Pins)
+        {
+            if (!CandidatePin)
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> PinSummary = MakeShared<FJsonObject>();
+            PinSummary->SetStringField(TEXT("pinName"), CandidatePin->PinName.ToString());
+            PinSummary->SetStringField(TEXT("direction"), LoomleBlueprintAdapterInternal::PinDirectionToString(CandidatePin->Direction));
+            PinSummary->SetStringField(TEXT("category"), CandidatePin->PinType.PinCategory.ToString());
+            PinSummary->SetStringField(TEXT("subCategory"), CandidatePin->PinType.PinSubCategory.ToString());
+            PinSummary->SetStringField(TEXT("defaultValue"), CandidatePin->DefaultValue);
+            CandidatePins.Add(MakeShared<FJsonValueObject>(PinSummary));
+        }
+        Details->SetArrayField(TEXT("candidatePins"), CandidatePins);
+    }
+    else
+    {
+        Details->SetArrayField(TEXT("candidatePins"), TArray<TSharedPtr<FJsonValue>>{});
+    }
+
+    OutDetailsJson = LoomleBlueprintAdapterInternal::JsonObjectToString(Details);
     return true;
 }
 
