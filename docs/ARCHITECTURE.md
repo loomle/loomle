@@ -64,14 +64,18 @@ MCP tools:
 Execution route:
 
 - `loomle`: MCP local response + required `rpc.health` probe on every call.
-- `context`: RPC `rpc.invoke` (`tool=context`).
-- `execute`: RPC `rpc.invoke` (`tool=execute`).
+- `context`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=context`).
+- `execute`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=execute`).
 - `graph`: MCP local descriptor response + required `rpc.health` probe on every call.
-- `graph.list`: RPC `rpc.invoke` (`tool=graph.list`).
-- `graph.query`: RPC `rpc.invoke` (`tool=graph.query`).
-- `graph.actions`: RPC `rpc.invoke` (`tool=graph.actions`).
-- `graph.mutate`: RPC `rpc.invoke` (`tool=graph.mutate`).
-- `diag.tail`: RPC `rpc.invoke` (`tool=diag.tail`).
+- `graph.list`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.list`).
+- `graph.query`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.query`).
+- `graph.actions`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.actions`).
+- `graph.mutate`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.mutate`).
+- `diag.tail`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=diag.tail`).
+
+Windows transport contention handling:
+
+- Named-pipe open failures with OS error `231` are treated as transient and retried with bounded backoff (+ small jitter) before surfacing an error.
 
 ## 5. Determinism Rules
 

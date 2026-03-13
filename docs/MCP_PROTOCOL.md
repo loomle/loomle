@@ -271,6 +271,9 @@ For `graph.list`, `graph.query`, `graph.actions`, `graph.mutate`, `diag.tail`:
 - Input/output schemas are exposed directly through MCP `tools/list` and should be treated as the live contract.
 - `RPC_INTERFACE.md` section 5 documents the same tool payloads at the Unreal RPC boundary.
 - Execution uses `rpc.invoke` with `tool` equal to MCP tool name.
+- Current server behavior performs a runtime preflight using `rpc.health` with a short cache TTL (`200ms`) shared across runtime-tool calls.
+- If preflight reports PIE, runtime tools fail fast with `EDITOR_BUSY` (`retryable=true`) and skip `rpc.invoke`.
+- On Windows named-pipe transport, open failures with OS error `231` (`all pipe instances are busy`) are treated as transient and retried with bounded backoff before returning an error.
 
 Practical client rule:
 

@@ -4,7 +4,9 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+#[cfg(windows)]
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RpcEndpoint {
@@ -93,7 +95,7 @@ impl NdjsonRpcConnector {
             return call_with_deadline(self.endpoint.clone(), request, id, timeout);
         }
 
-        let response = send_and_wait(&self.endpoint, &request)?;
+        let response = send_and_wait(&self.endpoint, &request, None)?;
         parse_response(response, &id)
     }
 }
@@ -193,9 +195,15 @@ fn call_with_deadline(
     expected_id: String,
     timeout: Duration,
 ) -> Result<Value, RpcError> {
+    let method = request
+        .get("method")
+        .and_then(Value::as_str)
+        .unwrap_or("rpc.call")
+        .to_string();
+    let deadline = Instant::now().checked_add(timeout);
     let (tx, rx) = mpsc::sync_channel(1);
     std::thread::spawn(move || {
-        let result = send_and_wait(&endpoint, &request)
+        let result = send_and_wait(&endpoint, &request, deadline)
             .and_then(|response| parse_response(response, &expected_id));
         let _ = tx.send(result);
     });
@@ -205,13 +213,17 @@ fn call_with_deadline(
             code: 1010,
             message: String::from("EXECUTION_TIMEOUT"),
             retryable: true,
-            detail: format!("rpc.health timeout after {}ms", timeout.as_millis()),
+            detail: format!("{method} timeout after {}ms", timeout.as_millis()),
         })
     })
 }
 
 #[cfg(unix)]
-fn send_and_wait(endpoint: &RpcEndpoint, request: &Value) -> Result<Value, RpcError> {
+fn send_and_wait(
+    endpoint: &RpcEndpoint,
+    request: &Value,
+    _deadline: Option<Instant>,
+) -> Result<Value, RpcError> {
     use std::os::unix::net::UnixStream;
 
     let path = match endpoint {
@@ -267,23 +279,59 @@ fn send_and_wait(endpoint: &RpcEndpoint, request: &Value) -> Result<Value, RpcEr
 }
 
 #[cfg(windows)]
-fn send_and_wait(endpoint: &RpcEndpoint, request: &Value) -> Result<Value, RpcError> {
+fn send_and_wait(
+    endpoint: &RpcEndpoint,
+    request: &Value,
+    deadline: Option<Instant>,
+) -> Result<Value, RpcError> {
     use std::fs::OpenOptions;
+
+    const PIPE_BUSY_OS_ERROR: i32 = 231;
+    const PIPE_BUSY_RETRY_BACKOFF_MS: [u64; 5] = [20, 40, 80, 120, 160];
 
     let pipe_path = match endpoint {
         RpcEndpoint::NamedPipe { pipe_name } => format!("\\\\.\\pipe\\{pipe_name}"),
     };
 
-    let mut pipe = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(&pipe_path)
-        .map_err(|e| RpcError {
-            code: 1011,
-            message: String::from("INTERNAL_ERROR"),
-            retryable: true,
-            detail: format!("failed to open named pipe {pipe_path}: {e}"),
-        })?;
+    let mut busy_retries: usize = 0;
+    let mut total_wait = Duration::from_millis(0);
+
+    let mut pipe = loop {
+        match OpenOptions::new().read(true).write(true).open(&pipe_path) {
+            Ok(pipe) => break pipe,
+            Err(e) => {
+                if e.raw_os_error() != Some(PIPE_BUSY_OS_ERROR) {
+                    return Err(RpcError {
+                        code: 1011,
+                        message: String::from("INTERNAL_ERROR"),
+                        retryable: true,
+                        detail: format!("failed to open named pipe {pipe_path}: {e}"),
+                    });
+                }
+
+                let Some(base_backoff_ms) = PIPE_BUSY_RETRY_BACKOFF_MS.get(busy_retries).copied()
+                else {
+                    return Err(pipe_busy_after_retries_error(
+                        &pipe_path,
+                        busy_retries,
+                        total_wait,
+                        PIPE_BUSY_OS_ERROR,
+                    ));
+                };
+
+                busy_retries += 1;
+                let sleep_for = Duration::from_millis(base_backoff_ms + pipe_busy_jitter_ms());
+                if !sleep_before_retry(deadline, &mut total_wait, sleep_for) {
+                    return Err(pipe_busy_after_retries_error(
+                        &pipe_path,
+                        busy_retries,
+                        total_wait,
+                        PIPE_BUSY_OS_ERROR,
+                    ));
+                }
+            }
+        }
+    };
 
     let mut line = serde_json::to_string(request).map_err(|e| RpcError {
         code: 1011,
@@ -324,6 +372,56 @@ fn send_and_wait(endpoint: &RpcEndpoint, request: &Value) -> Result<Value, RpcEr
         retryable: false,
         detail: format!("invalid rpc response json: {e}"),
     })
+}
+
+#[cfg(windows)]
+fn sleep_before_retry(
+    deadline: Option<Instant>,
+    total_wait: &mut Duration,
+    sleep_for: Duration,
+) -> bool {
+    if let Some(deadline) = deadline {
+        let now = Instant::now();
+        if now >= deadline {
+            return false;
+        }
+        let remaining = deadline.saturating_duration_since(now);
+        if remaining < sleep_for {
+            *total_wait += remaining;
+            std::thread::sleep(remaining);
+            return false;
+        }
+    }
+
+    *total_wait += sleep_for;
+    std::thread::sleep(sleep_for);
+    true
+}
+
+#[cfg(windows)]
+fn pipe_busy_after_retries_error(
+    pipe_path: &str,
+    retries: usize,
+    total_wait: Duration,
+    os_error: i32,
+) -> RpcError {
+    RpcError {
+        code: 1011,
+        message: String::from("INTERNAL_ERROR"),
+        retryable: true,
+        detail: format!(
+            "PIPE_BUSY_AFTER_RETRIES pipe={pipe_path} retries={retries} waitedMs={} osError={os_error}",
+            total_wait.as_millis()
+        ),
+    }
+}
+
+#[cfg(windows)]
+fn pipe_busy_jitter_ms() -> u64 {
+    // Keep jitter tiny to avoid thundering herd without inflating tail latency.
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| (d.subsec_nanos() % 8) as u64)
 }
 
 #[cfg(test)]
