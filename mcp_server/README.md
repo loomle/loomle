@@ -1,6 +1,6 @@
-# Loomle MCP Server
+# LOOMLE MCP Server
 
-Rust implementation of Loomle MCP protocol defined in:
+Rust implementation of LOOMLE MCP protocol defined in:
 
 - `../docs/MCP_PROTOCOL.md`
 - `../docs/RPC_INTERFACE.md`
@@ -8,7 +8,7 @@ Rust implementation of Loomle MCP protocol defined in:
 
 ## Current status
 
-- MCP service routing implemented (`loomle`, `context`, `execute`, `graph`, `graph.list`, `graph.query`, `graph.actions`, `graph.mutate`).
+- MCP service routing implemented (`loomle`, `context`, `execute`, `graph`, `graph.list`, `graph.query`, `graph.actions`, `graph.mutate`, `diag.tail`).
 - `loomle` and `graph` enforce per-call `rpc.health` probe.
 - Runtime tools forward through `rpc.invoke`.
 - `tools/list` is the supported schema discovery surface for current tool argument contracts.

@@ -254,6 +254,13 @@ fn tool_descriptors() -> Vec<Value> {
             graph_mutate_input_schema(),
             graph_mutate_output_schema(),
         ),
+        runtime_tool_descriptor(
+            "diag.tail",
+            "Diagnostics Tail",
+            "Read persisted diagnostics incrementally by sequence cursor.",
+            diag_tail_input_schema(),
+            diag_tail_output_schema(),
+        ),
     ]
 }
 
@@ -641,6 +648,53 @@ fn graph_mutate_output_schema() -> Value {
     })
 }
 
+fn diag_tail_input_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+            "fromSeq": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Return events with seq > fromSeq. Defaults to 0."
+            },
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000,
+                "default": 200,
+                "description": "Maximum number of events to return."
+            },
+            "filters": {
+                "type": "object",
+                "properties": {
+                    "severity": { "type": "string", "enum": ["error", "warning", "info"] },
+                    "category": { "type": "string", "minLength": 1 },
+                    "source": { "type": "string", "minLength": 1 },
+                    "assetPathPrefix": { "type": "string", "minLength": 1 }
+                },
+                "additionalProperties": false
+            }
+        },
+        "additionalProperties": false
+    })
+}
+
+fn diag_tail_output_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["items", "nextSeq", "hasMore", "highWatermark"],
+        "properties": {
+            "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+            "nextSeq": { "type": "integer", "minimum": 0 },
+            "hasMore": { "type": "boolean" },
+            "highWatermark": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -678,7 +732,7 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_contains_graph_actions() {
+    fn tools_list_contains_graph_actions_and_diag_tail() {
         let svc = McpService::new(StubConnector);
         let response = handle_request(
             &svc,
@@ -687,10 +741,13 @@ mod tests {
         .expect("response");
 
         let tools = response["result"]["tools"].as_array().expect("array");
-        assert_eq!(tools.len(), 8);
+        assert_eq!(tools.len(), 9);
         assert!(tools
             .iter()
             .any(|v| v.get("name") == Some(&Value::String(String::from("graph.actions")))));
+        assert!(tools
+            .iter()
+            .any(|v| v.get("name") == Some(&Value::String(String::from("diag.tail")))));
     }
 
     #[test]
@@ -743,6 +800,19 @@ mod tests {
         assert!(
             graph_mutate["inputSchema"]["properties"]["graphRef"].is_object(),
             "graph.mutate should expose graphRef property"
+        );
+
+        let diag_tail = tools
+            .iter()
+            .find(|v| v.get("name") == Some(&Value::String(String::from("diag.tail"))))
+            .expect("diag.tail descriptor");
+        assert!(
+            diag_tail["inputSchema"]["properties"]["fromSeq"].is_object(),
+            "diag.tail should expose fromSeq property"
+        );
+        assert!(
+            diag_tail["outputSchema"]["properties"]["nextSeq"].is_object(),
+            "diag.tail output should expose nextSeq property"
         );
     }
 

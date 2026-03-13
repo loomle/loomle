@@ -58,8 +58,11 @@
 #include "Misc/Guid.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
+#include "Misc/ScopeLock.h"
+#include "Misc/OutputDevice.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "UObject/UObjectGlobals.h"
+#include "UObject/UObjectIterator.h"
 #include "UObject/UnrealType.h"
 #include "Misc/TransactionObjectEvent.h"
 #include "Widgets/SWidget.h"
@@ -79,12 +82,48 @@ namespace LoomleBridgeConstants
     static const TCHAR* GraphQueryToolName = TEXT("graph.query");
     static const TCHAR* GraphActionsToolName = TEXT("graph.actions");
     static const TCHAR* GraphMutateToolName = TEXT("graph.mutate");
+    static const TCHAR* DiagTailToolName = TEXT("diag.tail");
     constexpr double GraphActionTokenTtlSeconds = 300.0;
     constexpr int32 MaxGraphActionTokenRegistryEntries = 2048;
 }
 
 namespace
 {
+class FLoomleDiagLogCaptureOutputDevice final : public FOutputDevice
+{
+public:
+    explicit FLoomleDiagLogCaptureOutputDevice(TFunction<void(const FString&, ELogVerbosity::Type, const FName&)>&& InOnLine)
+        : OnLine(MoveTemp(InOnLine))
+    {
+    }
+
+    virtual bool CanBeUsedOnAnyThread() const override
+    {
+        return true;
+    }
+
+    virtual void Serialize(const TCHAR* V, ELogVerbosity::Type Verbosity, const FName& Category) override
+    {
+        if (!OnLine || V == nullptr)
+        {
+            return;
+        }
+
+        const ELogVerbosity::Type VerbosityMask = static_cast<ELogVerbosity::Type>(Verbosity & ELogVerbosity::VerbosityMask);
+        if (VerbosityMask != ELogVerbosity::Warning
+            && VerbosityMask != ELogVerbosity::Error
+            && VerbosityMask != ELogVerbosity::Fatal)
+        {
+            return;
+        }
+
+        OnLine(FString(V).TrimStartAndEnd(), VerbosityMask, Category);
+    }
+
+private:
+    TFunction<void(const FString&, ELogVerbosity::Type, const FName&)> OnLine;
+};
+
 #if PLATFORM_WINDOWS
 uint64 StableFnv1a64(const FString& Input)
 {
@@ -1162,6 +1201,20 @@ void FLoomleBridgeModule::StartupModule()
     }
 
     UpdateHealthSnapshot();
+    InitializeDiagStore();
+    if (GLog != nullptr && DiagLogOutputDevice == nullptr)
+    {
+        DiagLogOutputDevice = new FLoomleDiagLogCaptureOutputDevice(
+            [this](const FString& Message, ELogVerbosity::Type Verbosity, const FName& Category)
+            {
+                HandleLogLine(Message, Verbosity, Category);
+            });
+        GLog->AddOutputDevice(DiagLogOutputDevice);
+    }
+    if (GEditor != nullptr && !BlueprintCompiledHandle.IsValid())
+    {
+        BlueprintCompiledHandle = GEditor->OnBlueprintCompiled().AddRaw(this, &FLoomleBridgeModule::HandleBlueprintCompiled);
+    }
     HealthSnapshotTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
         FTickerDelegate::CreateRaw(this, &FLoomleBridgeModule::TickHealthSnapshot),
         0.1f);
@@ -1177,6 +1230,24 @@ void FLoomleBridgeModule::StartupModule()
 
 void FLoomleBridgeModule::ShutdownModule()
 {
+    if (BlueprintCompiledHandle.IsValid())
+    {
+        if (GEditor != nullptr)
+        {
+            GEditor->OnBlueprintCompiled().Remove(BlueprintCompiledHandle);
+        }
+        BlueprintCompiledHandle.Reset();
+    }
+    if (DiagLogOutputDevice != nullptr)
+    {
+        if (GLog != nullptr)
+        {
+            GLog->RemoveOutputDevice(DiagLogOutputDevice);
+        }
+        delete DiagLogOutputDevice;
+        DiagLogOutputDevice = nullptr;
+    }
+
     if (HealthSnapshotTickerHandle.IsValid())
     {
         FTSTicker::GetCoreTicker().RemoveTicker(HealthSnapshotTickerHandle);

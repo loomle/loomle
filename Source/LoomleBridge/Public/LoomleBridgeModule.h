@@ -8,6 +8,7 @@
 class FLoomlePipeServer;
 class FJsonObject;
 class FJsonValue;
+class FOutputDevice;
 struct FEdGraphSchemaAction;
 
 class FLoomleBridgeModule : public IModuleInterface
@@ -31,9 +32,19 @@ private:
     TSharedPtr<FJsonObject> BuildGraphMutateToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildGetContextToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildSelectionTransformToolResult() const;
-    TSharedPtr<FJsonObject> BuildExecutePythonToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+    TSharedPtr<FJsonObject> BuildExecutePythonToolResult(const TSharedPtr<FJsonObject>& Arguments);
+    TSharedPtr<FJsonObject> BuildDiagTailToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> DispatchTool(const FString& Name, const TSharedPtr<FJsonObject>& Arguments, bool& bOutIsError);
     int32 MapToolErrorCode(const FString& DomainCode) const;
+    void InitializeDiagStore();
+    void HandleLogLine(const FString& Message, ELogVerbosity::Type Verbosity, const FName& Category);
+    void HandleBlueprintCompiled();
+    void AppendDiagEvent(
+        const FString& Severity,
+        const FString& Category,
+        const FString& Source,
+        const FString& Message,
+        const TSharedPtr<FJsonObject>& Context = nullptr);
 
     FString MakeJsonResponse(const TSharedPtr<FJsonValue>& Id, const TSharedPtr<FJsonObject>& Result) const;
     FString MakeJsonErrorEx(const TSharedPtr<FJsonValue>& Id, int32 Code, const FString& Message, const TSharedPtr<FJsonObject>& ErrorData) const;
@@ -59,6 +70,14 @@ private:
     TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> PipeServer;
     TMap<FString, FGraphActionTokenEntry> GraphActionTokenRegistry;
     FCriticalSection GraphActionTokenRegistryMutex;
+    FCriticalSection DiagStoreMutex;
+    FString DiagStoreDirPath;
+    FString DiagStoreFilePath;
+    uint64 NextDiagSeq = 1;
+    bool bDiagStoreInitialized = false;
+    FOutputDevice* DiagLogOutputDevice = nullptr;
+    FDelegateHandle BlueprintCompiledHandle;
+    TSet<FString> BlueprintCompileErrorAssets;
     TAtomic<bool> bGraphMutateInProgress { false };
     TAtomic<bool> bBridgeRunningSnapshot { false };
     TAtomic<bool> bPythonReadySnapshot { false };

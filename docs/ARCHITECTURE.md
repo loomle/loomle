@@ -1,4 +1,4 @@
-# Loomle Bridge Architecture
+# LOOMLE Bridge Architecture
 
 ## 1. Objective
 
@@ -13,7 +13,7 @@ Build a clean split where:
 1. MCP Client
 - Sends MCP requests.
 
-2. Loomle MCP Server (Rust)
+2. LOOMLE MCP Server (Rust)
 - Implements MCP lifecycle and tool contracts.
 - Validates tool inputs/outputs.
 - Handles MCP-only descriptor/status tools locally.
@@ -59,6 +59,7 @@ MCP tools:
 - `graph.query`
 - `graph.actions`
 - `graph.mutate`
+- `diag.tail`
 
 Execution route:
 
@@ -70,6 +71,7 @@ Execution route:
 - `graph.query`: RPC `rpc.invoke` (`tool=graph.query`).
 - `graph.actions`: RPC `rpc.invoke` (`tool=graph.actions`).
 - `graph.mutate`: RPC `rpc.invoke` (`tool=graph.mutate`).
+- `diag.tail`: RPC `rpc.invoke` (`tool=diag.tail`).
 
 ## 5. Determinism Rules
 
@@ -80,7 +82,7 @@ Execution route:
 
 ## 6. Runtime Performance Guardrail
 
-For any Unreal project integrating Loomle Bridge, set:
+For any Unreal project integrating LOOMLE Bridge, set:
 
 `[/Script/UnrealEd.EditorPerformanceSettings] bThrottleCPUWhenNotForeground=False`
 

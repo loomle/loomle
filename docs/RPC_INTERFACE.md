@@ -1,4 +1,4 @@
-# Loomle RPC Interface (C++ External Boundary)
+# LOOMLE RPC Interface (C++ External Boundary)
 
 ## 1. Scope
 
@@ -119,7 +119,7 @@ Result:
 {
   "rpcVersion": "1.0",
   "methods": ["rpc.health", "rpc.capabilities", "rpc.invoke"],
-  "tools": ["context", "execute", "graph.list", "graph.query", "graph.actions", "graph.mutate"],
+  "tools": ["context", "execute", "graph.list", "graph.query", "graph.actions", "graph.mutate", "diag.tail"],
   "graphTypes": ["blueprint", "material", "pcg"],
   "features": {
     "revision": true,
@@ -138,7 +138,7 @@ Request params:
 
 ```json
 {
-  "tool": "context|execute|graph.list|graph.query|graph.actions|graph.mutate",
+  "tool": "context|execute|graph.list|graph.query|graph.actions|graph.mutate|diag.tail",
   "args": {},
   "meta": {
     "requestId": "external-id",
@@ -497,6 +497,48 @@ When `applied=false`:
 
 - top-level `code` mirrors the first failing operation's `opResults[*].errorCode` (falls back to `INTERNAL_ERROR` only when classification is unavailable).
 - top-level `message` mirrors the first failing operation's `opResults[*].errorMessage`.
+
+## 5.7 tool=`diag.tail`
+
+`args`:
+
+```json
+{
+  "fromSeq": 0,
+  "limit": 200,
+  "filters": {
+    "severity": "error",
+    "category": "runtime",
+    "source": "execute",
+    "assetPathPrefix": "/Game/UI"
+  }
+}
+```
+
+`payload`:
+
+```json
+{
+  "items": [],
+  "nextSeq": 0,
+  "hasMore": false,
+  "highWatermark": 0
+}
+```
+
+Storage note:
+
+- Events are persisted under `<ProjectRoot>/Saved/Loomle/diag/diag.jsonl`.
+- Current v1 sources include UE log warnings/errors and Blueprint compile failures.
+
+Cursor semantics:
+
+- `fromSeq` is exclusive (`seq > fromSeq`).
+- `fromSeq` must be a non-negative integer, otherwise returns `1000 INVALID_ARGUMENT`.
+- `limit` must be `>= 1`; values above `1000` are capped to `1000`.
+- `nextSeq` equals the last returned event `seq`, or echoes `fromSeq` when `items` is empty.
+- `hasMore=true` means more matching events are available after the returned page.
+- `highWatermark` is the latest observed sequence at read time.
 
 ## 6. Error Codes
 

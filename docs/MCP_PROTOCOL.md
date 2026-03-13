@@ -1,8 +1,8 @@
-# Loomle MCP Protocol (Standard-Aligned, Minimal Naming)
+# LOOMLE MCP Protocol (Standard-Aligned, Minimal Naming)
 
 ## 1. Scope
 
-Defines the MCP-facing contract exposed by `Loomle MCP Server`.
+Defines the MCP-facing contract exposed by `LOOMLE MCP Server`.
 
 Protocol baseline: MCP specification `2025-11-05` tools semantics.
 
@@ -36,6 +36,7 @@ Protocol baseline: MCP specification `2025-11-05` tools semantics.
 - `graph.query`
 - `graph.actions`
 - `graph.mutate`
+- `diag.tail`
 
 ## 4. MCP Tool Contracts
 
@@ -263,9 +264,9 @@ Execution rule:
 - `rpc.health` probe is mandatory on every `graph` call.
 - Returned payload must include probe data in `runtime.rpcHealth` so callers can see real runtime status.
 
-## 4.5 Graph Runtime Tools
+## 4.5 Runtime Tools
 
-For `graph.list`, `graph.query`, `graph.actions`, `graph.mutate`:
+For `graph.list`, `graph.query`, `graph.actions`, `graph.mutate`, `diag.tail`:
 
 - Input/output schemas are exposed directly through MCP `tools/list` and should be treated as the live contract.
 - `RPC_INTERFACE.md` section 5 documents the same tool payloads at the Unreal RPC boundary.
@@ -275,6 +276,58 @@ Practical client rule:
 
 - Use `tools/list` when you need the current accepted `inputSchema`.
 - Use `RPC_INTERFACE.md` when you need lower-level transport and payload shape details.
+
+## 4.6 `diag.tail`
+
+Input schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "fromSeq": { "type": "integer", "minimum": 0 },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 200 },
+    "filters": {
+      "type": "object",
+      "properties": {
+        "severity": { "type": "string", "enum": ["error", "warning", "info"] },
+        "category": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 },
+        "assetPathPrefix": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+Output schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["items", "nextSeq", "hasMore", "highWatermark"],
+  "properties": {
+    "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "nextSeq": { "type": "integer", "minimum": 0 },
+    "hasMore": { "type": "boolean" },
+    "highWatermark": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": false
+}
+```
+
+Execution rule:
+
+- Forward via `rpc.invoke` with `tool=diag.tail`.
+- `fromSeq` is exclusive: returned events satisfy `seq > fromSeq`.
+- `fromSeq` must be a non-negative integer, otherwise returns `INVALID_ARGUMENT`.
+- `limit` must be `>= 1`; values larger than `1000` are capped to `1000`.
+- `nextSeq` is the largest returned `seq` (or echoes `fromSeq` when no items returned).
+- `highWatermark` is the current latest known `seq` at read time.
 
 ## 5. MCP <-> RPC Error Mapping
 

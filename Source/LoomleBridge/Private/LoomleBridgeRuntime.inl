@@ -1,4 +1,358 @@
-// Runtime tool handlers (context / selection / execute).
+// Runtime tool handlers (context / selection / execute / diag).
+namespace
+{
+constexpr int32 DefaultDiagTailLimit = 200;
+constexpr int32 MaxDiagTailLimit = 1000;
+
+bool TryReadJsonUInt64Field(const TSharedPtr<FJsonObject>& Object, const TCHAR* FieldName, uint64& Out)
+{
+    Out = 0;
+    if (!Object.IsValid())
+    {
+        return false;
+    }
+
+    double Number = 0.0;
+    if (Object->TryGetNumberField(FieldName, Number))
+    {
+        if (Number < 0.0)
+        {
+            return false;
+        }
+        Out = static_cast<uint64>(Number);
+        return true;
+    }
+
+    FString Text;
+    if (Object->TryGetStringField(FieldName, Text))
+    {
+        return LexTryParseString<uint64>(Out, *Text);
+    }
+
+    return false;
+}
+
+bool DiagEventMatchesFilters(const TSharedPtr<FJsonObject>& Event, const TSharedPtr<FJsonObject>& Filters)
+{
+    if (!Event.IsValid() || !Filters.IsValid())
+    {
+        return true;
+    }
+
+    auto MatchStringField = [&](const TCHAR* FilterField, const TCHAR* EventField) -> bool
+    {
+        FString FilterValue;
+        if (!Filters->TryGetStringField(FilterField, FilterValue) || FilterValue.IsEmpty())
+        {
+            return true;
+        }
+
+        FString EventValue;
+        if (!Event->TryGetStringField(EventField, EventValue))
+        {
+            return false;
+        }
+        return EventValue.Equals(FilterValue, ESearchCase::IgnoreCase);
+    };
+
+    if (!MatchStringField(TEXT("severity"), TEXT("severity")))
+    {
+        return false;
+    }
+    if (!MatchStringField(TEXT("category"), TEXT("category")))
+    {
+        return false;
+    }
+    if (!MatchStringField(TEXT("source"), TEXT("source")))
+    {
+        return false;
+    }
+
+    FString AssetPathPrefix;
+    if (!Filters->TryGetStringField(TEXT("assetPathPrefix"), AssetPathPrefix) || AssetPathPrefix.IsEmpty())
+    {
+        return true;
+    }
+
+    FString AssetPath;
+    if (!Event->TryGetStringField(TEXT("assetPath"), AssetPath))
+    {
+        const TSharedPtr<FJsonObject>* ContextObject = nullptr;
+        if (Event->TryGetObjectField(TEXT("context"), ContextObject) && ContextObject && (*ContextObject).IsValid())
+        {
+            (*ContextObject)->TryGetStringField(TEXT("assetPath"), AssetPath);
+        }
+    }
+
+    if (AssetPath.IsEmpty())
+    {
+        return false;
+    }
+
+    return AssetPath.StartsWith(AssetPathPrefix);
+}
+}
+
+void FLoomleBridgeModule::InitializeDiagStore()
+{
+    FScopeLock Lock(&DiagStoreMutex);
+    if (bDiagStoreInitialized)
+    {
+        return;
+    }
+
+    DiagStoreDirPath = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Loomle"), TEXT("diag"));
+    DiagStoreFilePath = FPaths::Combine(DiagStoreDirPath, TEXT("diag.jsonl"));
+    IFileManager::Get().MakeDirectory(*DiagStoreDirPath, true);
+
+    NextDiagSeq = 1;
+    TArray<FString> Lines;
+    if (FPaths::FileExists(DiagStoreFilePath) && FFileHelper::LoadFileToStringArray(Lines, *DiagStoreFilePath))
+    {
+        for (int32 Index = Lines.Num() - 1; Index >= 0; --Index)
+        {
+            const FString& Line = Lines[Index];
+            if (Line.TrimStartAndEnd().IsEmpty())
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> Event;
+            const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Line);
+            if (!FJsonSerializer::Deserialize(Reader, Event) || !Event.IsValid())
+            {
+                continue;
+            }
+
+            uint64 ParsedSeq = 0;
+            if (!TryReadJsonUInt64Field(Event, TEXT("seq"), ParsedSeq))
+            {
+                continue;
+            }
+
+            NextDiagSeq = ParsedSeq + 1;
+            break;
+        }
+    }
+
+    bDiagStoreInitialized = true;
+}
+
+void FLoomleBridgeModule::AppendDiagEvent(
+    const FString& Severity,
+    const FString& Category,
+    const FString& Source,
+    const FString& Message,
+    const TSharedPtr<FJsonObject>& Context)
+{
+    if (!bDiagStoreInitialized)
+    {
+        InitializeDiagStore();
+    }
+
+    FScopeLock Lock(&DiagStoreMutex);
+    if (DiagStoreFilePath.IsEmpty())
+    {
+        return;
+    }
+
+    const uint64 Seq = NextDiagSeq;
+    TSharedPtr<FJsonObject> Event = MakeShared<FJsonObject>();
+    Event->SetNumberField(TEXT("seq"), static_cast<double>(Seq));
+    Event->SetStringField(TEXT("ts"), FDateTime::UtcNow().ToIso8601());
+    Event->SetStringField(TEXT("severity"), Severity.ToLower());
+    Event->SetStringField(TEXT("category"), Category.ToLower());
+    Event->SetStringField(TEXT("source"), Source.ToLower());
+    Event->SetStringField(TEXT("message"), Message);
+    if (Context.IsValid())
+    {
+        Event->SetObjectField(TEXT("context"), Context);
+        FString AssetPath;
+        if (Context->TryGetStringField(TEXT("assetPath"), AssetPath) && !AssetPath.IsEmpty())
+        {
+            Event->SetStringField(TEXT("assetPath"), AssetPath);
+        }
+    }
+
+    FString JsonLine;
+    const TSharedRef<FCondensedJsonWriter> Writer = TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonLine);
+    if (!FJsonSerializer::Serialize(Event.ToSharedRef(), Writer))
+    {
+        return;
+    }
+
+    JsonLine.AppendChar(TEXT('\n'));
+    if (FFileHelper::SaveStringToFile(
+            JsonLine,
+            *DiagStoreFilePath,
+            FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM,
+            &IFileManager::Get(),
+            FILEWRITE_Append))
+    {
+        ++NextDiagSeq;
+        return;
+    }
+
+    // Avoid recursive logging loops when persistence itself fails.
+}
+
+void FLoomleBridgeModule::HandleLogLine(const FString& Message, ELogVerbosity::Type Verbosity, const FName& Category)
+{
+    if (Message.IsEmpty())
+    {
+        return;
+    }
+
+    const FString CategoryName = Category.ToString();
+    if (CategoryName.Equals(TEXT("LogLoomleBridge"), ESearchCase::IgnoreCase))
+    {
+        return;
+    }
+
+    const FString Severity = (Verbosity == ELogVerbosity::Warning) ? TEXT("warning") : TEXT("error");
+    TSharedPtr<FJsonObject> Context = MakeShared<FJsonObject>();
+    Context->SetStringField(TEXT("categoryName"), CategoryName);
+    AppendDiagEvent(Severity, TEXT("runtime"), TEXT("log"), Message, Context);
+}
+
+void FLoomleBridgeModule::HandleBlueprintCompiled()
+{
+    TSet<FString> CurrentErrorAssets;
+    for (TObjectIterator<UBlueprint> It; It; ++It)
+    {
+        UBlueprint* Blueprint = *It;
+        if (Blueprint == nullptr || Blueprint->HasAnyFlags(RF_Transient) || Blueprint->Status != BS_Error)
+        {
+            continue;
+        }
+
+        const FString AssetPath = Blueprint->GetPathName();
+        if (AssetPath.IsEmpty())
+        {
+            continue;
+        }
+
+        CurrentErrorAssets.Add(AssetPath);
+        if (BlueprintCompileErrorAssets.Contains(AssetPath))
+        {
+            continue;
+        }
+
+        TSharedPtr<FJsonObject> Context = MakeShared<FJsonObject>();
+        Context->SetStringField(TEXT("assetPath"), AssetPath);
+        Context->SetStringField(TEXT("assetName"), Blueprint->GetName());
+        Context->SetStringField(TEXT("status"), TEXT("error"));
+        AppendDiagEvent(
+            TEXT("error"),
+            TEXT("compile"),
+            TEXT("blueprint"),
+            FString::Printf(TEXT("Blueprint compile failed: %s"), *Blueprint->GetName()),
+            Context);
+    }
+
+    BlueprintCompileErrorAssets = MoveTemp(CurrentErrorAssets);
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildDiagTailToolResult(const TSharedPtr<FJsonObject>& Arguments)
+{
+    if (!bDiagStoreInitialized)
+    {
+        InitializeDiagStore();
+    }
+
+    uint64 FromSeq = 0;
+    if (Arguments.IsValid() && Arguments->HasField(TEXT("fromSeq")))
+    {
+        if (!TryReadJsonUInt64Field(Arguments, TEXT("fromSeq"), FromSeq))
+        {
+            TSharedPtr<FJsonObject> Error = MakeShared<FJsonObject>();
+            Error->SetBoolField(TEXT("isError"), true);
+            Error->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Error->SetStringField(TEXT("message"), TEXT("fromSeq must be a non-negative integer."));
+            return Error;
+        }
+    }
+
+    int32 Limit = DefaultDiagTailLimit;
+    double LimitNumber = 0.0;
+    if (Arguments.IsValid() && Arguments->TryGetNumberField(TEXT("limit"), LimitNumber))
+    {
+        if (LimitNumber < 1.0)
+        {
+            TSharedPtr<FJsonObject> Error = MakeShared<FJsonObject>();
+            Error->SetBoolField(TEXT("isError"), true);
+            Error->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Error->SetStringField(TEXT("message"), TEXT("limit must be >= 1."));
+            return Error;
+        }
+        Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, MaxDiagTailLimit);
+    }
+
+    TSharedPtr<FJsonObject> Filters;
+    const TSharedPtr<FJsonObject>* FiltersPtr = nullptr;
+    if (Arguments.IsValid() && Arguments->TryGetObjectField(TEXT("filters"), FiltersPtr) && FiltersPtr && (*FiltersPtr).IsValid())
+    {
+        Filters = *FiltersPtr;
+    }
+
+    TArray<TSharedPtr<FJsonValue>> Items;
+    uint64 NextSeq = FromSeq;
+    bool bHasMore = false;
+    uint64 HighWatermark = 0;
+
+    FScopeLock Lock(&DiagStoreMutex);
+    HighWatermark = NextDiagSeq > 0 ? (NextDiagSeq - 1) : 0;
+
+    TArray<FString> Lines;
+    if (FPaths::FileExists(DiagStoreFilePath))
+    {
+        FFileHelper::LoadFileToStringArray(Lines, *DiagStoreFilePath);
+    }
+
+    for (const FString& Line : Lines)
+    {
+        if (Line.TrimStartAndEnd().IsEmpty())
+        {
+            continue;
+        }
+
+        TSharedPtr<FJsonObject> Event;
+        const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Line);
+        if (!FJsonSerializer::Deserialize(Reader, Event) || !Event.IsValid())
+        {
+            continue;
+        }
+
+        uint64 Seq = 0;
+        if (!TryReadJsonUInt64Field(Event, TEXT("seq"), Seq) || Seq <= FromSeq)
+        {
+            continue;
+        }
+
+        if (!DiagEventMatchesFilters(Event, Filters))
+        {
+            continue;
+        }
+
+        if (Items.Num() >= Limit)
+        {
+            bHasMore = true;
+            break;
+        }
+
+        Items.Add(MakeShared<FJsonValueObject>(Event));
+        NextSeq = Seq;
+    }
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+    Result->SetArrayField(TEXT("items"), Items);
+    Result->SetNumberField(TEXT("nextSeq"), static_cast<double>(NextSeq));
+    Result->SetBoolField(TEXT("hasMore"), bHasMore);
+    Result->SetNumberField(TEXT("highWatermark"), static_cast<double>(HighWatermark));
+    return Result;
+}
+
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGetContextToolResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
     (void)Arguments;
@@ -194,7 +548,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildSelectionTransformToolResult()
     return Result;
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildExecutePythonToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildExecutePythonToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 
@@ -202,7 +556,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildExecutePythonToolResult(const 
     if (!Arguments->TryGetStringField(TEXT("code"), Code))
     {
         Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
         Result->SetStringField(TEXT("message"), TEXT("arguments.code is required."));
+        AppendDiagEvent(TEXT("error"), TEXT("python"), TEXT("execute"), TEXT("arguments.code is required."));
         return Result;
     }
 
@@ -212,7 +568,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildExecutePythonToolResult(const 
     if (!Mode.Equals(TEXT("exec")) && !Mode.Equals(TEXT("eval")))
     {
         Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
         Result->SetStringField(TEXT("message"), TEXT("arguments.mode must be 'exec' or 'eval'."));
+        AppendDiagEvent(TEXT("error"), TEXT("python"), TEXT("execute"), TEXT("arguments.mode must be 'exec' or 'eval'."));
         return Result;
     }
 
@@ -220,7 +578,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildExecutePythonToolResult(const 
     if (PythonScriptPlugin == nullptr)
     {
         Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
         Result->SetStringField(TEXT("message"), TEXT("PythonScriptPlugin module is not loaded."));
+        AppendDiagEvent(TEXT("error"), TEXT("python"), TEXT("execute"), TEXT("PythonScriptPlugin module is not loaded."));
         return Result;
     }
 
@@ -230,7 +590,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildExecutePythonToolResult(const 
         if (!PythonScriptPlugin->IsPythonInitialized())
         {
             Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
             Result->SetStringField(TEXT("message"), TEXT("Python runtime is not initialized."));
+            AppendDiagEvent(TEXT("error"), TEXT("python"), TEXT("execute"), TEXT("Python runtime is not initialized."));
             return Result;
         }
     }
@@ -281,6 +643,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildExecutePythonToolResult(const 
     }
     Result->SetArrayField(TEXT("logs"), Logs);
 
+    if (!bSuccess)
+    {
+        TSharedPtr<FJsonObject> Context = MakeShared<FJsonObject>();
+        Context->SetStringField(TEXT("mode"), Mode);
+        Context->SetNumberField(TEXT("logCount"), static_cast<double>(Logs.Num()));
+        AppendDiagEvent(TEXT("error"), TEXT("python"), TEXT("execute"), TEXT("Python execute failed."), Context);
+    }
+
     return Result;
 }
-

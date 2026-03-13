@@ -114,7 +114,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
     Result->SetArrayField(TEXT("methods"), MakeStringArray({TEXT("rpc.health"), TEXT("rpc.capabilities"), TEXT("rpc.invoke")}));
     Result->SetArrayField(TEXT("tools"), MakeStringArray({
         TEXT("context"), TEXT("execute"),
-        TEXT("graph.list"), TEXT("graph.query"), TEXT("graph.actions"), TEXT("graph.mutate")
+        TEXT("graph.list"), TEXT("graph.query"), TEXT("graph.actions"), TEXT("graph.mutate"),
+        TEXT("diag.tail")
     }));
     Result->SetArrayField(TEXT("graphTypes"), MakeStringArray({TEXT("blueprint"), TEXT("material"), TEXT("pcg")}));
 
@@ -175,6 +176,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcInvokeResult(
             Message = TEXT("INTERNAL_ERROR");
         }
 
+        TSharedPtr<FJsonObject> DiagContext = MakeShared<FJsonObject>();
+        DiagContext->SetStringField(TEXT("tool"), ToolName);
+        if (!DomainCode.IsEmpty())
+        {
+            DiagContext->SetStringField(TEXT("domainCode"), DomainCode);
+        }
+        AppendDiagEvent(TEXT("error"), TEXT("runtime"), ToolName, Message, DiagContext);
+
         bOutHasError = true;
         OutErrorCode = MapToolErrorCode(DomainCode);
         OutErrorMessage = Message;
@@ -228,6 +237,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     else if (Name.Equals(LoomleBridgeConstants::ExecuteToolName))
     {
         Payload = BuildExecutePythonToolResult(Arguments);
+    }
+    else if (Name.Equals(LoomleBridgeConstants::DiagTailToolName))
+    {
+        Payload = BuildDiagTailToolResult(Arguments);
     }
     else
     {

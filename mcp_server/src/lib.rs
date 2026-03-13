@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 pub mod mcp;
 pub mod transport;
 
-pub const TOOL_NAMES: [&str; 8] = [
+pub const TOOL_NAMES: [&str; 9] = [
     "loomle",
     "context",
     "execute",
@@ -13,6 +13,7 @@ pub const TOOL_NAMES: [&str; 8] = [
     "graph.query",
     "graph.actions",
     "graph.mutate",
+    "diag.tail",
 ];
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,8 +71,13 @@ impl<C: RpcConnector> McpService<C> {
         match name {
             "loomle" => self.call_loomle(),
             "graph" => self.call_graph(args),
-            "context" | "execute" | "graph.list" | "graph.query" | "graph.actions"
-            | "graph.mutate" => self.call_runtime(name, args, meta),
+            "context"
+            | "execute"
+            | "graph.list"
+            | "graph.query"
+            | "graph.actions"
+            | "graph.mutate"
+            | "diag.tail" => self.call_runtime(name, args, meta),
             _ => McpToolResult {
                 structured_content: error_payload(
                     1002,
@@ -395,10 +401,11 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_includes_eight_tools_and_graph_actions() {
+    fn tools_list_includes_diag_tail() {
         let tools = McpService::<FakeConnector>::tools_list();
-        assert_eq!(tools.len(), 8);
+        assert_eq!(tools.len(), 9);
         assert!(tools.contains(&"graph.actions"));
+        assert!(tools.contains(&"diag.tail"));
     }
 
     #[test]
