@@ -14,6 +14,7 @@ REQUIRED_TOOLS = {
     "loomle",
     "graph",
     "graph.list",
+    "graph.resolve",
     "graph.query",
     "graph.actions",
     "graph.mutate",
@@ -316,6 +317,33 @@ def call_execute_exec_with_retry(
         fail(f"execute failed payload={_compact_json(payload)} raw={_compact_json(response)}")
 
     fail("execute retry loop ended without success")
+    raise RuntimeError("unreachable")
+
+
+def parse_execute_json(payload: dict[str, Any]) -> dict[str, Any]:
+    result = payload.get("result")
+    candidates: list[str] = []
+    if isinstance(result, str) and result.strip():
+        candidates.append(result.strip())
+
+    logs = payload.get("logs")
+    if isinstance(logs, list):
+        for entry in reversed(logs):
+            if not isinstance(entry, dict):
+                continue
+            output = entry.get("output")
+            if isinstance(output, str) and output.strip():
+                candidates.append(output.strip())
+
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+
+    fail(f"execute payload did not contain a JSON object result: {_compact_json(payload)}")
     raise RuntimeError("unreachable")
 
 

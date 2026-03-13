@@ -11,8 +11,8 @@ Unified local tooling for testing and diagnostics.
 
 ## Current Tools
 
-- `test_bridge_smoke.py`: fast MCP end-to-end availability check
-- `test_bridge_regression.py`: deeper functional regression for graph/tool behavior
+- `test_bridge_smoke.py`: fast MCP end-to-end availability check, including `graph.resolve` tool presence
+- `test_bridge_regression.py`: deeper functional regression for graph/tool behavior, including PCG `context`/`graph.resolve` addressing
 - `test_loomle_latency.py`: validates `loomle` fast-return behavior at idle and under slow execute load
 - `test_bridge_windows.ps1`: Windows wrapper to run rust + smoke + regression in one command
 - `perf_bridge_latency.py`: latency benchmark for a selected tool call
@@ -22,8 +22,9 @@ Unified local tooling for testing and diagnostics.
 
 - UE-independent MCP server tests stay in `mcp_server`:
   - `cd mcp_server && cargo test`
-- UE-dependent smoke/regression launch MCP server from plugin path only:
+- UE-dependent smoke/regression default to the plugin MCP server path:
   - `<ProjectRoot>/Plugins/LoomleBridge/Tools/mcp/<platform>/loomle_mcp_server(.exe)`
+- Both scripts also accept `--mcp-server-bin` so runner/dev flows can point at a freshly built repo binary when needed.
 - UE-dependent bridge checks and benchmarks stay in this `tools/` directory.
 
 ### Dev Project Root Config (optional)

@@ -234,6 +234,13 @@ fn tool_descriptors() -> Vec<Value> {
             graph_list_output_schema(),
         ),
         runtime_tool_descriptor(
+            "graph.resolve",
+            "Graph Resolve",
+            "Resolve an Unreal object or asset reference into queryable graph refs.",
+            graph_resolve_input_schema(),
+            graph_resolve_output_schema(),
+        ),
+        runtime_tool_descriptor(
             "graph.query",
             "Graph Query",
             "Query semantic graph snapshot.",
@@ -396,6 +403,82 @@ fn graph_query_input_schema() -> Value {
                 "minItems": 1,
                 "maxItems": 8,
                 "description": "Blueprint only. Ordered list of composite node GUIDs to traverse into before querying. Each entry must be a K2Node_Composite nodeId. The server resolves the subgraph of the final GUID in a single round-trip, avoiding multiple graph.query calls for deeply nested composites. Mutually exclusive with graphRef.kind=inline at the same level — supply path instead."
+            }
+        },
+        "additionalProperties": false
+    })
+}
+
+fn graph_resolve_input_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Generic Unreal object path, including values emitted by context.selection.items[*].path."
+            },
+            "objectPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Explicit Unreal object path."
+            },
+            "actorPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Actor object path."
+            },
+            "componentPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Actor component object path."
+            },
+            "assetPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Unreal asset path."
+            },
+            "graphType": graph_type_schema()
+        },
+        "anyOf": [
+            { "required": ["path"] },
+            { "required": ["objectPath"] },
+            { "required": ["actorPath"] },
+            { "required": ["componentPath"] },
+            { "required": ["assetPath"] }
+        ],
+        "additionalProperties": false
+    })
+}
+
+fn graph_resolve_output_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["resolvedGraphRefs", "diagnostics"],
+        "properties": {
+            "inputEcho": {
+                "type": "object",
+                "additionalProperties": true
+            },
+            "resolvedGraphRefs": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["graphType", "graphRef", "relation", "loadStatus"],
+                    "properties": {
+                        "graphType": graph_type_schema(),
+                        "graphRef": graph_ref_schema(),
+                        "relation": { "type": "string" },
+                        "loadStatus": { "type": "string" }
+                    },
+                    "additionalProperties": true
+                }
+            },
+            "diagnostics": {
+                "type": "array",
+                "items": { "type": "object", "additionalProperties": true }
             }
         },
         "additionalProperties": false
@@ -732,7 +815,7 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_contains_graph_actions_and_diag_tail() {
+    fn tools_list_contains_graph_resolve_and_diag_tail() {
         let svc = McpService::new(StubConnector);
         let response = handle_request(
             &svc,
@@ -741,10 +824,13 @@ mod tests {
         .expect("response");
 
         let tools = response["result"]["tools"].as_array().expect("array");
-        assert_eq!(tools.len(), 9);
+        assert_eq!(tools.len(), 10);
         assert!(tools
             .iter()
             .any(|v| v.get("name") == Some(&Value::String(String::from("graph.actions")))));
+        assert!(tools
+            .iter()
+            .any(|v| v.get("name") == Some(&Value::String(String::from("graph.resolve")))));
         assert!(tools
             .iter()
             .any(|v| v.get("name") == Some(&Value::String(String::from("diag.tail")))));
@@ -773,6 +859,19 @@ mod tests {
         assert!(
             graph_query["inputSchema"]["properties"]["graphName"].is_object(),
             "graph.query should expose graphName property"
+        );
+
+        let graph_resolve = tools
+            .iter()
+            .find(|v| v.get("name") == Some(&Value::String(String::from("graph.resolve"))))
+            .expect("graph.resolve descriptor");
+        assert!(
+            graph_resolve["inputSchema"]["properties"]["path"].is_object(),
+            "graph.resolve should expose path property"
+        );
+        assert!(
+            graph_resolve["outputSchema"]["properties"]["resolvedGraphRefs"].is_object(),
+            "graph.resolve output should expose resolvedGraphRefs property"
         );
 
         let graph_actions = tools

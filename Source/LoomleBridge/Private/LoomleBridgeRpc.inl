@@ -114,7 +114,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
     Result->SetArrayField(TEXT("methods"), MakeStringArray({TEXT("rpc.health"), TEXT("rpc.capabilities"), TEXT("rpc.invoke")}));
     Result->SetArrayField(TEXT("tools"), MakeStringArray({
         TEXT("context"), TEXT("execute"),
-        TEXT("graph.list"), TEXT("graph.query"), TEXT("graph.actions"), TEXT("graph.mutate"),
+        TEXT("graph.list"), TEXT("graph.resolve"), TEXT("graph.query"), TEXT("graph.actions"), TEXT("graph.mutate"),
         TEXT("diag.tail")
     }));
     Result->SetArrayField(TEXT("graphTypes"), MakeStringArray({TEXT("blueprint"), TEXT("material"), TEXT("pcg")}));
@@ -222,6 +222,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     {
         Payload = BuildGraphListToolResult(Arguments);
     }
+    else if (Name.Equals(LoomleBridgeConstants::GraphResolveToolName))
+    {
+        Payload = BuildGraphResolveToolResult(Arguments);
+    }
     else if (Name.Equals(LoomleBridgeConstants::GraphQueryToolName))
     {
         Payload = BuildGraphQueryToolResult(Arguments);
@@ -274,6 +278,10 @@ int32 FLoomleBridgeModule::MapToolErrorCode(const FString& DomainCode) const
         return 1003;
     }
     if (DomainCode.Equals(TEXT("ASSET_NOT_FOUND")))
+    {
+        return 1004;
+    }
+    if (DomainCode.Equals(TEXT("OBJECT_NOT_FOUND")))
     {
         return 1004;
     }

@@ -12,6 +12,7 @@ from test_bridge_smoke import (
     call_tool,
     fail,
     make_temp_asset_path,
+    parse_execute_json,
     resolve_project_root,
     resolve_default_server_binary,
 )
@@ -104,6 +105,24 @@ def wait_for_bridge_ready(client: McpStdioClient, timeout_s: float = 120.0, inte
     fail(f"bridge did not become ready within {timeout_s:.0f}s")
 
 
+def require_resolved_asset_path(payload: dict, expected_asset_path: str) -> dict:
+    refs = payload.get("resolvedGraphRefs")
+    if not isinstance(refs, list) or not refs:
+        fail(f"graph.resolve missing resolvedGraphRefs: {payload}")
+
+    for entry in refs:
+        if not isinstance(entry, dict):
+            continue
+        graph_ref = entry.get("graphRef")
+        if not isinstance(graph_ref, dict):
+            continue
+        if graph_ref.get("assetPath") == expected_asset_path:
+            return entry
+
+    fail(f"graph.resolve did not include expected assetPath {expected_asset_path}: {payload}")
+    raise RuntimeError("unreachable")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Deep regression validation for Loomle bridge through MCP stdio")
     parser.add_argument(
@@ -141,6 +160,7 @@ def main() -> int:
 
     client = McpStdioClient(project_root=project_root, server_binary=server_binary, timeout_s=args.timeout)
     temp_asset = make_temp_asset_path(args.asset_prefix)
+    temp_pcg_asset = make_temp_asset_path("/Game/Codex/PCG_BridgeRegression")
 
     try:
         wait_for_bridge_ready(client)
@@ -266,6 +286,90 @@ def main() -> int:
         if not isinstance(by_ref_echo, dict) or by_ref_echo.get("kind") != "asset":
             fail(f"graph.actions(graphRef) missing graphRef echo: {actions_by_ref}")
         print("[PASS] graph.actions graphRef(asset) addressing validated")
+
+        pcg_fixture_payload = call_execute_exec_with_retry(
+            client=client,
+            req_id_base=7050,
+            code=(
+                "import json\n"
+                "import unreal\n"
+                f"asset={json.dumps(temp_pcg_asset, ensure_ascii=False)}\n"
+                "pkg_path, asset_name = asset.rsplit('/', 1)\n"
+                "asset_tools = unreal.AssetToolsHelpers.get_asset_tools()\n"
+                "graph = unreal.EditorAssetLibrary.load_asset(asset)\n"
+                "if graph is None:\n"
+                "    factory = unreal.PCGGraphFactory()\n"
+                "    graph = asset_tools.create_asset(asset_name, pkg_path, unreal.PCGGraph, factory)\n"
+                "if graph is None:\n"
+                "    raise RuntimeError('failed to create PCG graph asset')\n"
+                "volume = unreal.EditorLevelLibrary.spawn_actor_from_class(unreal.PCGVolume, unreal.Vector(0.0, 0.0, 0.0), unreal.Rotator(0.0, 0.0, 0.0))\n"
+                "if volume is None:\n"
+                "    raise RuntimeError('failed to spawn PCGVolume')\n"
+                "component = volume.get_editor_property('pcg_component')\n"
+                "if component is None:\n"
+                "    raise RuntimeError('spawned PCGVolume has no pcg_component')\n"
+                "component.set_graph(graph)\n"
+                "unreal.EditorLevelLibrary.set_selected_level_actors([volume])\n"
+                "result = {\n"
+                "    'assetPath': asset,\n"
+                "    'actorPath': volume.get_path_name(),\n"
+                "    'componentPath': component.get_path_name(),\n"
+                "}\n"
+                "print(json.dumps(result, ensure_ascii=False))\n"
+            ),
+        )
+        pcg_fixture = parse_execute_json(pcg_fixture_payload)
+        pcg_actor_path = pcg_fixture.get("actorPath")
+        pcg_component_path = pcg_fixture.get("componentPath")
+        if not isinstance(pcg_actor_path, str) or not pcg_actor_path:
+            fail(f"PCG fixture missing actorPath: {pcg_fixture}")
+        if not isinstance(pcg_component_path, str) or not pcg_component_path:
+            fail(f"PCG fixture missing componentPath: {pcg_fixture}")
+        print("[PASS] temporary PCG fixture created")
+
+        pcg_context = call_tool(client, 7056, "context", {})
+        selection = pcg_context.get("selection")
+        if not isinstance(selection, dict):
+            fail(f"context missing selection after PCG fixture setup: {pcg_context}")
+        selected_pcg_entry = require_resolved_asset_path(selection, temp_pcg_asset)
+        if selected_pcg_entry.get("graphType") != "pcg":
+            fail(f"context selection resolved wrong graphType for PCG fixture: {selected_pcg_entry}")
+        print("[PASS] context selection exposes resolvedGraphRefs for selected PCG actor")
+
+        resolved_from_actor = call_tool(
+            client,
+            7057,
+            "graph.resolve",
+            {"actorPath": pcg_actor_path, "graphType": "pcg"},
+        )
+        actor_entry = require_resolved_asset_path(resolved_from_actor, temp_pcg_asset)
+        if actor_entry.get("graphType") != "pcg":
+            fail(f"graph.resolve(actorPath) returned wrong graphType: {actor_entry}")
+
+        resolved_from_component = call_tool(
+            client,
+            7058,
+            "graph.resolve",
+            {"componentPath": pcg_component_path, "graphType": "pcg"},
+        )
+        component_entry = require_resolved_asset_path(resolved_from_component, temp_pcg_asset)
+        if component_entry.get("graphType") != "pcg":
+            fail(f"graph.resolve(componentPath) returned wrong graphType: {component_entry}")
+
+        graph_ref = actor_entry.get("graphRef")
+        if not isinstance(graph_ref, dict):
+            fail(f"graph.resolve(actorPath) missing graphRef object: {actor_entry}")
+
+        queried_pcg = call_tool(
+            client,
+            7059,
+            "graph.query",
+            {"graphType": "pcg", "graphRef": graph_ref, "limit": 200},
+        )
+        queried_graph_ref = queried_pcg.get("graphRef")
+        if not isinstance(queried_graph_ref, dict) or queried_graph_ref.get("assetPath") != temp_pcg_asset:
+            fail(f"graph.query(graphRef) did not echo expected PCG graphRef: {queried_pcg}")
+        print("[PASS] graph.resolve PCG actor/component addressing validated")
 
         first_token = items[0].get("actionToken", "")
         add_by_action = call_tool(

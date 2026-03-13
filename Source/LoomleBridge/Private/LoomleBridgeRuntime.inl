@@ -440,6 +440,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildSelectionTransformToolResult()
     Result->SetBoolField(TEXT("isError"), false);
 
     TArray<TSharedPtr<FJsonValue>> Items;
+    TArray<TSharedPtr<FJsonValue>> ResolvedGraphRefs;
+    TSet<FString> SelectionSeenGraphRefs;
     FBox AggregateBox(EForceInit::ForceInit);
     TSharedPtr<FJsonObject> ActiveItem;
 
@@ -506,6 +508,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildSelectionTransformToolResult()
                 BoundsObj->SetNumberField(TEXT("sphereRadius"), BoundsExtent.Size());
                 Item->SetObjectField(TEXT("bounds"), BoundsObj);
 
+                TArray<TSharedPtr<FJsonValue>> ItemResolvedGraphRefs;
+                TSet<FString> ItemSeenGraphRefs;
+                AppendActorResolvedGraphRefs(Actor, ItemResolvedGraphRefs, ItemSeenGraphRefs);
+                SetResolvedGraphRefsFieldIfAny(Item, ItemResolvedGraphRefs);
+                CopyResolvedGraphRefEntries(ItemResolvedGraphRefs, ResolvedGraphRefs, SelectionSeenGraphRefs);
+
                 if (!ActiveItem.IsValid())
                 {
                     ActiveItem = Item;
@@ -518,6 +526,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildSelectionTransformToolResult()
 
     Result->SetArrayField(TEXT("items"), Items);
     Result->SetNumberField(TEXT("count"), Items.Num());
+    SetResolvedGraphRefsFieldIfAny(Result, ResolvedGraphRefs);
 
     if (Items.Num() > 0)
     {

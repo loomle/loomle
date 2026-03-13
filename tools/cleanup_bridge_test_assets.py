@@ -44,7 +44,7 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="Only list matched assets, do not delete")
     args = parser.parse_args()
 
-    prefixes = args.prefix or ["BP_BridgeVerify_", "BP_BridgeRegression_"]
+    prefixes = args.prefix or ["BP_BridgeVerify_", "BP_BridgeRegression_", "PCG_BridgeRegression_"]
     project_root = resolve_project_root(args.project_root, args.dev_config)
     server_binary = (
         Path(args.mcp_server_bin).resolve() if args.mcp_server_bin else resolve_default_server_binary(project_root)

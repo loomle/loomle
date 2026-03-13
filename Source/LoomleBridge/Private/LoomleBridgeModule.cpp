@@ -42,6 +42,7 @@
 #include "MaterialEditingLibrary.h"
 #include "IMaterialEditor.h"
 #include "MaterialGraph/MaterialGraphNode.h"
+#include "PCGComponent.h"
 #include "PCGGraph.h"
 #include "PCGEdge.h"
 #include "PCGNode.h"
@@ -79,6 +80,7 @@ namespace LoomleBridgeConstants
     static const TCHAR* RpcVersion = TEXT("1.0");
     static const TCHAR* ExecuteToolName = TEXT("execute");
     static const TCHAR* GraphListToolName = TEXT("graph.list");
+    static const TCHAR* GraphResolveToolName = TEXT("graph.resolve");
     static const TCHAR* GraphQueryToolName = TEXT("graph.query");
     static const TCHAR* GraphActionsToolName = TEXT("graph.actions");
     static const TCHAR* GraphMutateToolName = TEXT("graph.mutate");
@@ -248,18 +250,669 @@ UObject* LoadObjectByAssetPath(const FString& InAssetPath)
     return LoadObject<UObject>(nullptr, *ObjectPath);
 }
 
+UPCGGraph* ResolvePcgGraphFromAsset(UObject* Asset);
+
 bool IsLikelyPcgAsset(const UObject* Asset)
 {
-    if (Asset == nullptr || Asset->GetClass() == nullptr)
+    if (Asset == nullptr)
     {
         return false;
     }
 
-    const FString ClassPath = Asset->GetClass()->GetPathName();
-    const FString ClassName = Asset->GetClass()->GetName();
-    return ClassPath.Contains(TEXT("PCGGraph"))
-        || ClassPath.Contains(TEXT("/PCG."))
-        || ClassName.Contains(TEXT("PCGGraph"));
+    return ResolvePcgGraphFromAsset(const_cast<UObject*>(Asset)) != nullptr;
+}
+
+UPCGNode* ResolvePcgNodeFromEditorNode(UEdGraphNode* GraphNode);
+
+bool TryGetAssetPathFromObject(const UObject* Object, FString& OutAssetPath)
+{
+    OutAssetPath.Empty();
+    if (Object == nullptr)
+    {
+        return false;
+    }
+
+    const UPackage* Package = Object->GetPackage();
+    OutAssetPath = Package ? Package->GetPathName() : Object->GetPathName();
+    OutAssetPath = NormalizeAssetPath(OutAssetPath);
+    return !OutAssetPath.IsEmpty() && FPackageName::IsValidLongPackageName(OutAssetPath);
+}
+
+TSharedPtr<FJsonObject> MakeAssetGraphRefJson(const FString& InAssetPath, const FString& InGraphName = FString())
+{
+    TSharedPtr<FJsonObject> GraphRef = MakeShared<FJsonObject>();
+    GraphRef->SetStringField(TEXT("kind"), TEXT("asset"));
+    GraphRef->SetStringField(TEXT("assetPath"), NormalizeAssetPath(InAssetPath));
+    if (!InGraphName.IsEmpty())
+    {
+        GraphRef->SetStringField(TEXT("graphName"), InGraphName);
+    }
+    return GraphRef;
+}
+
+TSharedPtr<FJsonObject> MakeInlineGraphRefJson(const FString& InAssetPath, const FString& InNodeGuid)
+{
+    TSharedPtr<FJsonObject> GraphRef = MakeShared<FJsonObject>();
+    GraphRef->SetStringField(TEXT("kind"), TEXT("inline"));
+    GraphRef->SetStringField(TEXT("assetPath"), NormalizeAssetPath(InAssetPath));
+    GraphRef->SetStringField(TEXT("nodeGuid"), InNodeGuid);
+    return GraphRef;
+}
+
+FString MakeResolvedGraphRefKey(const FString& GraphType, const TSharedPtr<FJsonObject>& GraphRef)
+{
+    if (!GraphRef.IsValid())
+    {
+        return GraphType + TEXT("|invalid");
+    }
+
+    FString Kind;
+    FString AssetPath;
+    FString GraphName;
+    FString NodeGuid;
+    GraphRef->TryGetStringField(TEXT("kind"), Kind);
+    GraphRef->TryGetStringField(TEXT("assetPath"), AssetPath);
+    GraphRef->TryGetStringField(TEXT("graphName"), GraphName);
+    GraphRef->TryGetStringField(TEXT("nodeGuid"), NodeGuid);
+
+    return GraphType + TEXT("|") + Kind + TEXT("|") + NormalizeAssetPath(AssetPath) + TEXT("|") + GraphName + TEXT("|") + NodeGuid;
+}
+
+void AddResolvedGraphRefEntry(
+    TArray<TSharedPtr<FJsonValue>>& OutRefs,
+    TSet<FString>& SeenKeys,
+    const FString& GraphType,
+    const TSharedPtr<FJsonObject>& GraphRef,
+    const FString& Relation,
+    const FString& LoadStatus)
+{
+    if (!GraphRef.IsValid())
+    {
+        return;
+    }
+
+    const FString SeenKey = MakeResolvedGraphRefKey(GraphType, GraphRef);
+    if (SeenKeys.Contains(SeenKey))
+    {
+        return;
+    }
+
+    SeenKeys.Add(SeenKey);
+
+    TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+    Entry->SetStringField(TEXT("graphType"), GraphType);
+    Entry->SetStringField(TEXT("relation"), Relation);
+    Entry->SetStringField(TEXT("loadStatus"), LoadStatus);
+    Entry->SetObjectField(TEXT("graphRef"), GraphRef);
+    OutRefs.Add(MakeShared<FJsonValueObject>(Entry));
+}
+
+void SetResolvedGraphRefsFieldIfAny(const TSharedPtr<FJsonObject>& Target, const TArray<TSharedPtr<FJsonValue>>& Refs)
+{
+    if (Target.IsValid() && Refs.Num() > 0)
+    {
+        Target->SetArrayField(TEXT("resolvedGraphRefs"), Refs);
+    }
+}
+
+void CopyResolvedGraphRefEntries(
+    const TArray<TSharedPtr<FJsonValue>>& Source,
+    TArray<TSharedPtr<FJsonValue>>& Dest,
+    TSet<FString>& DestSeenKeys)
+{
+    for (const TSharedPtr<FJsonValue>& Value : Source)
+    {
+        const TSharedPtr<FJsonObject>* EntryObj = nullptr;
+        if (!Value.IsValid() || !Value->TryGetObject(EntryObj) || EntryObj == nullptr || !(*EntryObj).IsValid())
+        {
+            continue;
+        }
+
+        FString GraphType;
+        FString Relation;
+        FString LoadStatus;
+        const TSharedPtr<FJsonObject>* GraphRefObj = nullptr;
+        (*EntryObj)->TryGetStringField(TEXT("graphType"), GraphType);
+        (*EntryObj)->TryGetStringField(TEXT("relation"), Relation);
+        (*EntryObj)->TryGetStringField(TEXT("loadStatus"), LoadStatus);
+        if (!(*EntryObj)->TryGetObjectField(TEXT("graphRef"), GraphRefObj) || GraphRefObj == nullptr || !(*GraphRefObj).IsValid())
+        {
+            continue;
+        }
+
+        AddResolvedGraphRefEntry(Dest, DestSeenKeys, GraphType, *GraphRefObj, Relation, LoadStatus);
+    }
+}
+
+void AppendBlueprintRootGraphRefs(
+    UBlueprint* Blueprint,
+    const FString& Relation,
+    TArray<TSharedPtr<FJsonValue>>& OutRefs,
+    TSet<FString>& SeenKeys)
+{
+    if (Blueprint == nullptr)
+    {
+        return;
+    }
+
+    FString AssetPath;
+    if (!TryGetAssetPathFromObject(Blueprint, AssetPath))
+    {
+        return;
+    }
+
+    auto AddGraphRefForGraph = [&](UEdGraph* Graph)
+    {
+        if (Graph == nullptr)
+        {
+            return;
+        }
+        AddResolvedGraphRefEntry(
+            OutRefs,
+            SeenKeys,
+            TEXT("blueprint"),
+            MakeAssetGraphRefJson(AssetPath, Graph->GetName()),
+            Relation,
+            TEXT("loaded"));
+    };
+
+    for (UEdGraph* Graph : Blueprint->UbergraphPages)
+    {
+        AddGraphRefForGraph(Graph);
+    }
+    for (UEdGraph* Graph : Blueprint->FunctionGraphs)
+    {
+        AddGraphRefForGraph(Graph);
+    }
+    for (UEdGraph* Graph : Blueprint->MacroGraphs)
+    {
+        AddGraphRefForGraph(Graph);
+    }
+}
+
+void AppendMaterialGraphRefs(
+    UObject* MaterialAsset,
+    const FString& Relation,
+    TArray<TSharedPtr<FJsonValue>>& OutRefs,
+    TSet<FString>& SeenKeys)
+{
+    FString AssetPath;
+    if (!TryGetAssetPathFromObject(MaterialAsset, AssetPath))
+    {
+        return;
+    }
+
+    AddResolvedGraphRefEntry(
+        OutRefs,
+        SeenKeys,
+        TEXT("material"),
+        MakeAssetGraphRefJson(AssetPath),
+        Relation,
+        TEXT("loaded"));
+}
+
+void AppendPcgGraphRefs(
+    UObject* PcgAsset,
+    const FString& Relation,
+    TArray<TSharedPtr<FJsonValue>>& OutRefs,
+    TSet<FString>& SeenKeys)
+{
+    UObject* ResolvedPcgAsset = ResolvePcgGraphFromAsset(PcgAsset);
+    if (ResolvedPcgAsset == nullptr)
+    {
+        ResolvedPcgAsset = PcgAsset;
+    }
+
+    FString AssetPath;
+    if (!TryGetAssetPathFromObject(ResolvedPcgAsset, AssetPath))
+    {
+        return;
+    }
+
+    AddResolvedGraphRefEntry(
+        OutRefs,
+        SeenKeys,
+        TEXT("pcg"),
+        MakeAssetGraphRefJson(AssetPath),
+        Relation,
+        TEXT("loaded"));
+}
+
+void AppendPcgComponentGraphRefs(
+    UPCGComponent* PcgComponent,
+    const FString& Relation,
+    TArray<TSharedPtr<FJsonValue>>& OutRefs,
+    TSet<FString>& SeenKeys)
+{
+    if (PcgComponent == nullptr)
+    {
+        return;
+    }
+
+    auto AppendComponentGraphRef = [&](UPCGComponent* SourceComponent)
+    {
+        if (SourceComponent == nullptr)
+        {
+            return;
+        }
+
+        if (UPCGGraphInstance* GraphInstance = SourceComponent->GetGraphInstance())
+        {
+            AppendPcgGraphRefs(GraphInstance, Relation, OutRefs, SeenKeys);
+            return;
+        }
+
+        if (UPCGGraph* Graph = SourceComponent->GetGraph())
+        {
+            AppendPcgGraphRefs(Graph, Relation, OutRefs, SeenKeys);
+        }
+    };
+
+    if (UPCGComponent* OriginalComponent = PcgComponent->GetOriginalComponent())
+    {
+        if (OriginalComponent != PcgComponent)
+        {
+            AppendComponentGraphRef(OriginalComponent);
+        }
+    }
+
+    AppendComponentGraphRef(PcgComponent);
+}
+
+void AppendSupportedGraphRefsFromAsset(
+    UObject* AssetObject,
+    const FString& Relation,
+    TArray<TSharedPtr<FJsonValue>>& OutRefs,
+    TSet<FString>& SeenKeys)
+{
+    if (AssetObject == nullptr)
+    {
+        return;
+    }
+
+    if (UBlueprint* Blueprint = Cast<UBlueprint>(AssetObject))
+    {
+        AppendBlueprintRootGraphRefs(Blueprint, Relation, OutRefs, SeenKeys);
+        return;
+    }
+
+    if (AssetObject->IsA<UMaterial>() || AssetObject->IsA<UMaterialFunction>())
+    {
+        AppendMaterialGraphRefs(AssetObject, Relation, OutRefs, SeenKeys);
+        return;
+    }
+
+    if (IsLikelyPcgAsset(AssetObject))
+    {
+        AppendPcgGraphRefs(AssetObject, Relation, OutRefs, SeenKeys);
+    }
+}
+
+void AppendSoftGraphRefFromPath(
+    const FString& GraphType,
+    const FString& AssetPath,
+    const FString& Relation,
+    TArray<TSharedPtr<FJsonValue>>& OutRefs,
+    TSet<FString>& SeenKeys)
+{
+    const FString NormalizedAssetPath = NormalizeAssetPath(AssetPath);
+    if (NormalizedAssetPath.IsEmpty() || !FPackageName::IsValidLongPackageName(NormalizedAssetPath))
+    {
+        return;
+    }
+
+    AddResolvedGraphRefEntry(
+        OutRefs,
+        SeenKeys,
+        GraphType,
+        MakeAssetGraphRefJson(NormalizedAssetPath),
+        Relation,
+        TEXT("not_loaded"));
+}
+
+void AppendSupportedGraphRefsFromObjectProperties(
+    UObject* SourceObject,
+    const FString& Relation,
+    TArray<TSharedPtr<FJsonValue>>& OutRefs,
+    TSet<FString>& SeenKeys)
+{
+    if (SourceObject == nullptr || SourceObject->GetClass() == nullptr)
+    {
+        return;
+    }
+
+    for (TFieldIterator<FObjectPropertyBase> PropIt(SourceObject->GetClass()); PropIt; ++PropIt)
+    {
+        FObjectPropertyBase* Prop = *PropIt;
+        UObject* PropValue = Prop ? Prop->GetObjectPropertyValue_InContainer(SourceObject) : nullptr;
+        AppendSupportedGraphRefsFromAsset(PropValue, Relation, OutRefs, SeenKeys);
+    }
+
+    for (TFieldIterator<FSoftObjectProperty> PropIt(SourceObject->GetClass()); PropIt; ++PropIt)
+    {
+        FSoftObjectProperty* SoftProp = *PropIt;
+        if (SoftProp == nullptr || SoftProp->PropertyClass == nullptr)
+        {
+            continue;
+        }
+
+        const FString PropertyClassPath = SoftProp->PropertyClass->GetPathName();
+        const FSoftObjectPtr SoftPtr = SoftProp->GetPropertyValue_InContainer(SourceObject);
+        const FSoftObjectPath SoftPath = SoftPtr.ToSoftObjectPath();
+        if (SoftPath.IsNull())
+        {
+            continue;
+        }
+
+        if (PropertyClassPath.Contains(TEXT("PCGGraph")) || PropertyClassPath.Contains(TEXT("/PCG.")))
+        {
+            const FString AssetPath = NormalizeAssetPath(SoftPath.GetAssetPathString());
+            if (AssetPath.IsEmpty() || !FPackageName::IsValidLongPackageName(AssetPath))
+            {
+                continue;
+            }
+
+            if (UObject* AssetObject = LoadObjectByAssetPath(AssetPath))
+            {
+                if (ResolvePcgGraphFromAsset(AssetObject) != nullptr)
+                {
+                    AppendPcgGraphRefs(AssetObject, Relation, OutRefs, SeenKeys);
+                }
+            }
+            else
+            {
+                AppendSoftGraphRefFromPath(TEXT("pcg"), AssetPath, Relation, OutRefs, SeenKeys);
+            }
+        }
+        else if (PropertyClassPath.Contains(TEXT("Material")) || PropertyClassPath.Contains(TEXT("MaterialFunction")))
+        {
+            AppendSoftGraphRefFromPath(TEXT("material"), SoftPath.GetAssetPathString(), Relation, OutRefs, SeenKeys);
+        }
+        else if (PropertyClassPath.Contains(TEXT("Blueprint")))
+        {
+            const FString AssetPath = NormalizeAssetPath(SoftPath.GetAssetPathString());
+            if (!AssetPath.IsEmpty() && FPackageName::IsValidLongPackageName(AssetPath))
+            {
+                UObject* AssetObject = LoadObjectByAssetPath(AssetPath);
+                if (AssetObject != nullptr)
+                {
+                    AppendSupportedGraphRefsFromAsset(AssetObject, Relation, OutRefs, SeenKeys);
+                }
+            }
+        }
+    }
+}
+
+void AppendPcgSubgraphRefsFromNode(
+    UPCGNode* PcgNode,
+    TArray<TSharedPtr<FJsonValue>>& OutRefs,
+    TSet<FString>& SeenKeys)
+{
+    if (PcgNode == nullptr)
+    {
+        return;
+    }
+
+    UPCGSettings* NodeSettings = PcgNode->GetSettings();
+    if (NodeSettings == nullptr || NodeSettings->GetClass() == nullptr)
+    {
+        return;
+    }
+
+    for (TFieldIterator<FObjectPropertyBase> PropIt(NodeSettings->GetClass()); PropIt; ++PropIt)
+    {
+        FObjectPropertyBase* Prop = *PropIt;
+        UObject* PropValue = Prop ? Prop->GetObjectPropertyValue_InContainer(NodeSettings) : nullptr;
+        if (PropValue != nullptr && IsLikelyPcgAsset(PropValue))
+        {
+            AppendPcgGraphRefs(PropValue, TEXT("child"), OutRefs, SeenKeys);
+        }
+    }
+
+    for (TFieldIterator<FSoftObjectProperty> PropIt(NodeSettings->GetClass()); PropIt; ++PropIt)
+    {
+        FSoftObjectProperty* SoftProp = *PropIt;
+        if (SoftProp == nullptr || SoftProp->PropertyClass == nullptr)
+        {
+            continue;
+        }
+
+        const FString PropertyClassPath = SoftProp->PropertyClass->GetPathName();
+        if (!PropertyClassPath.Contains(TEXT("PCGGraph")) && !PropertyClassPath.Contains(TEXT("/PCG.")))
+        {
+            continue;
+        }
+
+        const FSoftObjectPtr SoftPtr = SoftProp->GetPropertyValue_InContainer(NodeSettings);
+        const FSoftObjectPath SoftPath = SoftPtr.ToSoftObjectPath();
+        if (!SoftPath.IsNull())
+        {
+            AppendSoftGraphRefFromPath(TEXT("pcg"), SoftPath.GetAssetPathString(), TEXT("child"), OutRefs, SeenKeys);
+        }
+    }
+}
+
+void AppendActorResolvedGraphRefs(
+    AActor* Actor,
+    TArray<TSharedPtr<FJsonValue>>& OutRefs,
+    TSet<FString>& SeenKeys)
+{
+    if (Actor == nullptr)
+    {
+        return;
+    }
+
+    if (UBlueprint* GeneratedBlueprint = Cast<UBlueprint>(Actor->GetClass() ? Actor->GetClass()->ClassGeneratedBy : nullptr))
+    {
+        AppendBlueprintRootGraphRefs(GeneratedBlueprint, TEXT("generated_blueprint"), OutRefs, SeenKeys);
+    }
+
+    AppendSupportedGraphRefsFromObjectProperties(Actor, TEXT("attached"), OutRefs, SeenKeys);
+
+    TInlineComponentArray<UActorComponent*> Components(Actor);
+    for (UActorComponent* Component : Components)
+    {
+        if (UPCGComponent* PcgComponent = Cast<UPCGComponent>(Component))
+        {
+            AppendPcgComponentGraphRefs(PcgComponent, TEXT("component_source"), OutRefs, SeenKeys);
+        }
+        AppendSupportedGraphRefsFromObjectProperties(Component, TEXT("component_source"), OutRefs, SeenKeys);
+    }
+}
+
+UObject* ResolveRuntimeObjectFromPath(const FString& InObjectPath)
+{
+    const FString ObjectPath = InObjectPath.TrimStartAndEnd();
+    if (ObjectPath.IsEmpty())
+    {
+        return nullptr;
+    }
+
+    if (UObject* FoundObject = StaticFindObject(UObject::StaticClass(), nullptr, *ObjectPath))
+    {
+        return FoundObject;
+    }
+
+    if (ObjectPath.StartsWith(TEXT("/")))
+    {
+        if (ObjectPath.Contains(TEXT(".")))
+        {
+            if (UObject* LoadedObject = LoadObject<UObject>(nullptr, *ObjectPath))
+            {
+                return LoadedObject;
+            }
+        }
+
+        return LoadObjectByAssetPath(ObjectPath);
+    }
+
+    return nullptr;
+}
+
+void AppendResolvedGraphRefsFromObject(
+    UObject* Object,
+    TArray<TSharedPtr<FJsonValue>>& OutRefs,
+    TSet<FString>& SeenKeys)
+{
+    if (Object == nullptr)
+    {
+        return;
+    }
+
+    if (AActor* Actor = Cast<AActor>(Object))
+    {
+        AppendActorResolvedGraphRefs(Actor, OutRefs, SeenKeys);
+        return;
+    }
+
+    if (UActorComponent* Component = Cast<UActorComponent>(Object))
+    {
+        if (UPCGComponent* PcgComponent = Cast<UPCGComponent>(Component))
+        {
+            AppendPcgComponentGraphRefs(PcgComponent, TEXT("component_source"), OutRefs, SeenKeys);
+        }
+        AppendSupportedGraphRefsFromObjectProperties(Component, TEXT("component_source"), OutRefs, SeenKeys);
+        return;
+    }
+
+    if (UBlueprint* Blueprint = Cast<UBlueprint>(Object))
+    {
+        AppendBlueprintRootGraphRefs(Blueprint, TEXT("direct_asset"), OutRefs, SeenKeys);
+        return;
+    }
+
+    if (UEdGraph* Graph = Cast<UEdGraph>(Object))
+    {
+        if (UBlueprint* Blueprint = Graph->GetTypedOuter<UBlueprint>())
+        {
+            FString BlueprintAssetPath;
+            if (TryGetAssetPathFromObject(Blueprint, BlueprintAssetPath))
+            {
+                AddResolvedGraphRefEntry(
+                    OutRefs,
+                    SeenKeys,
+                    TEXT("blueprint"),
+                    MakeAssetGraphRefJson(BlueprintAssetPath, Graph->GetName()),
+                    TEXT("selected_graph"),
+                    TEXT("loaded"));
+            }
+        }
+        return;
+    }
+
+    if (UEdGraphNode* GraphNode = Cast<UEdGraphNode>(Object))
+    {
+        if (UMaterialGraphNode* MaterialGraphNode = Cast<UMaterialGraphNode>(GraphNode))
+        {
+            if (MaterialGraphNode->MaterialExpression != nullptr)
+            {
+                AppendResolvedGraphRefsFromObject(MaterialGraphNode->MaterialExpression, OutRefs, SeenKeys);
+                return;
+            }
+        }
+
+        if (UPCGNode* PcgNode = ResolvePcgNodeFromEditorNode(GraphNode))
+        {
+            AppendResolvedGraphRefsFromObject(PcgNode, OutRefs, SeenKeys);
+            return;
+        }
+
+        if (UBlueprint* Blueprint = GraphNode->GetTypedOuter<UBlueprint>())
+        {
+            FString BlueprintAssetPath;
+            if (TryGetAssetPathFromObject(Blueprint, BlueprintAssetPath))
+            {
+                if (UEdGraph* Graph = GraphNode->GetGraph())
+                {
+                    AddResolvedGraphRefEntry(
+                        OutRefs,
+                        SeenKeys,
+                        TEXT("blueprint"),
+                        MakeAssetGraphRefJson(BlueprintAssetPath, Graph->GetName()),
+                        TEXT("selected_graph"),
+                        TEXT("loaded"));
+                }
+
+                FObjectPropertyBase* BoundGraphProp = FindFProperty<FObjectPropertyBase>(GraphNode->GetClass(), TEXT("BoundGraph"));
+                if (BoundGraphProp != nullptr)
+                {
+                    UEdGraph* BoundGraph = Cast<UEdGraph>(BoundGraphProp->GetObjectPropertyValue_InContainer(GraphNode));
+                    if (BoundGraph != nullptr)
+                    {
+                        AddResolvedGraphRefEntry(
+                            OutRefs,
+                            SeenKeys,
+                            TEXT("blueprint"),
+                            MakeInlineGraphRefJson(
+                                BlueprintAssetPath,
+                                GraphNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower)),
+                            TEXT("child"),
+                            TEXT("loaded"));
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    if (UMaterialExpression* Expression = Cast<UMaterialExpression>(Object))
+    {
+        UObject* MaterialOwner = Expression->GetTypedOuter<UMaterial>();
+        if (MaterialOwner == nullptr)
+        {
+            MaterialOwner = Expression->GetTypedOuter<UMaterialFunction>();
+        }
+        AppendMaterialGraphRefs(MaterialOwner, TEXT("selected_graph"), OutRefs, SeenKeys);
+
+        if (UMaterialExpressionMaterialFunctionCall* FuncCall = Cast<UMaterialExpressionMaterialFunctionCall>(Expression))
+        {
+            AppendMaterialGraphRefs(FuncCall->MaterialFunction, TEXT("child"), OutRefs, SeenKeys);
+        }
+        return;
+    }
+
+    if (UPCGNode* PcgNode = Cast<UPCGNode>(Object))
+    {
+        if (UPCGGraph* Graph = PcgNode->GetTypedOuter<UPCGGraph>())
+        {
+            AppendPcgGraphRefs(Graph, TEXT("selected_graph"), OutRefs, SeenKeys);
+        }
+        AppendPcgSubgraphRefsFromNode(PcgNode, OutRefs, SeenKeys);
+        return;
+    }
+
+    AppendSupportedGraphRefsFromAsset(Object, TEXT("direct_asset"), OutRefs, SeenKeys);
+    AppendSupportedGraphRefsFromObjectProperties(Object, TEXT("attached"), OutRefs, SeenKeys);
+}
+
+void FilterResolvedGraphRefsByType(
+    const TArray<TSharedPtr<FJsonValue>>& InRefs,
+    const FString& GraphTypeFilter,
+    TArray<TSharedPtr<FJsonValue>>& OutRefs)
+{
+    OutRefs.Reset();
+    const FString NormalizedFilter = GraphTypeFilter.TrimStartAndEnd().ToLower();
+    if (NormalizedFilter.IsEmpty())
+    {
+        OutRefs = InRefs;
+        return;
+    }
+
+    for (const TSharedPtr<FJsonValue>& Value : InRefs)
+    {
+        const TSharedPtr<FJsonObject>* EntryObj = nullptr;
+        if (!Value.IsValid() || !Value->TryGetObject(EntryObj) || EntryObj == nullptr || !(*EntryObj).IsValid())
+        {
+            continue;
+        }
+
+        FString EntryGraphType;
+        (*EntryObj)->TryGetStringField(TEXT("graphType"), EntryGraphType);
+        if (EntryGraphType.Equals(NormalizedFilter))
+        {
+            OutRefs.Add(Value);
+        }
+    }
 }
 
 UPCGGraph* ResolvePcgGraphFromAsset(UObject* Asset)
@@ -642,6 +1295,11 @@ bool BuildBlueprintContextSnapshot(TSharedPtr<FJsonObject>& OutContext)
     OutContext->SetStringField(TEXT("assetPath"), Blueprint->GetPathName());
     OutContext->SetStringField(TEXT("assetClass"), Blueprint->GetClass()->GetPathName());
     OutContext->SetStringField(TEXT("status"), TEXT("active"));
+
+    TArray<TSharedPtr<FJsonValue>> ResolvedGraphRefs;
+    TSet<FString> SeenGraphRefs;
+    AppendBlueprintRootGraphRefs(Blueprint, TEXT("context"), ResolvedGraphRefs, SeenGraphRefs);
+    SetResolvedGraphRefsFieldIfAny(OutContext, ResolvedGraphRefs);
     return true;
 }
 
@@ -664,6 +1322,8 @@ bool BuildBlueprintSelectionSnapshot(TSharedPtr<FJsonObject>& OutSelection)
     OutSelection->SetStringField(TEXT("selectionKind"), TEXT("graph_node"));
 
     TArray<TSharedPtr<FJsonValue>> Items;
+    TArray<TSharedPtr<FJsonValue>> ResolvedGraphRefs;
+    TSet<FString> SelectionSeenGraphRefs;
     Items.Reserve(SelectedNodes.Num());
     for (UEdGraphNode* Node : SelectedNodes)
     {
@@ -684,11 +1344,50 @@ bool BuildBlueprintSelectionSnapshot(TSharedPtr<FJsonObject>& OutSelection)
             Item->SetStringField(TEXT("graphName"), Graph->GetName());
             Item->SetStringField(TEXT("graphPath"), Graph->GetPathName());
         }
+
+        TArray<TSharedPtr<FJsonValue>> ItemResolvedGraphRefs;
+        TSet<FString> ItemSeenGraphRefs;
+        FString BlueprintAssetPath;
+        if (TryGetAssetPathFromObject(Blueprint, BlueprintAssetPath))
+        {
+            if (UEdGraph* Graph = Node->GetGraph())
+            {
+                AddResolvedGraphRefEntry(
+                    ItemResolvedGraphRefs,
+                    ItemSeenGraphRefs,
+                    TEXT("blueprint"),
+                    MakeAssetGraphRefJson(BlueprintAssetPath, Graph->GetName()),
+                    TEXT("selected_graph"),
+                    TEXT("loaded"));
+            }
+
+            FObjectPropertyBase* BoundGraphProp = FindFProperty<FObjectPropertyBase>(Node->GetClass(), TEXT("BoundGraph"));
+            if (BoundGraphProp != nullptr)
+            {
+                UEdGraph* BoundGraph = Cast<UEdGraph>(BoundGraphProp->GetObjectPropertyValue_InContainer(Node));
+                if (BoundGraph != nullptr)
+                {
+                    AddResolvedGraphRefEntry(
+                        ItemResolvedGraphRefs,
+                        ItemSeenGraphRefs,
+                        TEXT("blueprint"),
+                        MakeInlineGraphRefJson(
+                            BlueprintAssetPath,
+                            Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower)),
+                        TEXT("child"),
+                        TEXT("loaded"));
+                }
+            }
+        }
+
+        SetResolvedGraphRefsFieldIfAny(Item, ItemResolvedGraphRefs);
+        CopyResolvedGraphRefEntries(ItemResolvedGraphRefs, ResolvedGraphRefs, SelectionSeenGraphRefs);
         Items.Add(MakeShared<FJsonValueObject>(Item));
     }
 
     OutSelection->SetArrayField(TEXT("items"), Items);
     OutSelection->SetNumberField(TEXT("count"), Items.Num());
+    SetResolvedGraphRefsFieldIfAny(OutSelection, ResolvedGraphRefs);
     return true;
 }
 
@@ -827,6 +1526,11 @@ bool BuildMaterialContextSnapshot(TSharedPtr<FJsonObject>& OutContext)
     OutContext->SetStringField(TEXT("assetPath"), Material->GetPathName());
     OutContext->SetStringField(TEXT("assetClass"), Material->GetClass()->GetPathName());
     OutContext->SetStringField(TEXT("status"), TEXT("active"));
+
+    TArray<TSharedPtr<FJsonValue>> ResolvedGraphRefs;
+    TSet<FString> SeenGraphRefs;
+    AppendMaterialGraphRefs(Material, TEXT("context"), ResolvedGraphRefs, SeenGraphRefs);
+    SetResolvedGraphRefsFieldIfAny(OutContext, ResolvedGraphRefs);
     return true;
 }
 
@@ -848,6 +1552,8 @@ bool BuildMaterialSelectionSnapshot(TSharedPtr<FJsonObject>& OutSelection)
     OutSelection->SetStringField(TEXT("selectionKind"), TEXT("graph_node"));
 
     TArray<TSharedPtr<FJsonValue>> Items;
+    TArray<TSharedPtr<FJsonValue>> ResolvedGraphRefs;
+    TSet<FString> SelectionSeenGraphRefs;
     Items.Reserve(SelectedExpressions.Num());
     for (UMaterialExpression* Expression : SelectedExpressions)
     {
@@ -863,11 +1569,22 @@ bool BuildMaterialSelectionSnapshot(TSharedPtr<FJsonObject>& OutSelection)
         Item->SetStringField(TEXT("path"), Expression->GetPathName());
         Item->SetNumberField(TEXT("nodePosX"), Expression->MaterialExpressionEditorX);
         Item->SetNumberField(TEXT("nodePosY"), Expression->MaterialExpressionEditorY);
+
+        TArray<TSharedPtr<FJsonValue>> ItemResolvedGraphRefs;
+        TSet<FString> ItemSeenGraphRefs;
+        AppendMaterialGraphRefs(Material, TEXT("selected_graph"), ItemResolvedGraphRefs, ItemSeenGraphRefs);
+        if (UMaterialExpressionMaterialFunctionCall* FuncCall = Cast<UMaterialExpressionMaterialFunctionCall>(Expression))
+        {
+            AppendMaterialGraphRefs(FuncCall->MaterialFunction, TEXT("child"), ItemResolvedGraphRefs, ItemSeenGraphRefs);
+        }
+        SetResolvedGraphRefsFieldIfAny(Item, ItemResolvedGraphRefs);
+        CopyResolvedGraphRefEntries(ItemResolvedGraphRefs, ResolvedGraphRefs, SelectionSeenGraphRefs);
         Items.Add(MakeShared<FJsonValueObject>(Item));
     }
 
     OutSelection->SetArrayField(TEXT("items"), Items);
     OutSelection->SetNumberField(TEXT("count"), Items.Num());
+    SetResolvedGraphRefsFieldIfAny(OutSelection, ResolvedGraphRefs);
     return true;
 }
 
@@ -888,6 +1605,12 @@ bool BuildPcgContextSnapshot(TSharedPtr<FJsonObject>& OutContext)
     OutContext->SetStringField(TEXT("assetPath"), PcgAsset->GetPathName());
     OutContext->SetStringField(TEXT("assetClass"), PcgAsset->GetClass() ? PcgAsset->GetClass()->GetPathName() : TEXT(""));
     OutContext->SetStringField(TEXT("status"), TEXT("active"));
+
+    TArray<TSharedPtr<FJsonValue>> ResolvedGraphRefs;
+    TSet<FString> SeenGraphRefs;
+    AppendPcgGraphRefs(PcgAsset, TEXT("context"), ResolvedGraphRefs, SeenGraphRefs);
+    AppendSupportedGraphRefsFromObjectProperties(PcgAsset, TEXT("source"), ResolvedGraphRefs, SeenGraphRefs);
+    SetResolvedGraphRefsFieldIfAny(OutContext, ResolvedGraphRefs);
     return true;
 }
 
@@ -1101,6 +1824,8 @@ bool BuildPcgSelectionSnapshot(TSharedPtr<FJsonObject>& OutSelection)
     }
 
     TArray<TSharedPtr<FJsonValue>> Items;
+    TArray<TSharedPtr<FJsonValue>> ResolvedGraphRefs;
+    TSet<FString> SelectionSeenGraphRefs;
     Items.Reserve(SelectedObjects.Num());
 
     for (UObject* SelectedObject : SelectedObjects)
@@ -1134,6 +1859,13 @@ bool BuildPcgSelectionSnapshot(TSharedPtr<FJsonObject>& OutSelection)
             Item->SetStringField(TEXT("graphName"), Graph->GetName());
             Item->SetStringField(TEXT("graphPath"), Graph->GetPathName());
         }
+
+        TArray<TSharedPtr<FJsonValue>> ItemResolvedGraphRefs;
+        TSet<FString> ItemSeenGraphRefs;
+        AppendPcgGraphRefs(PcgAsset, TEXT("selected_graph"), ItemResolvedGraphRefs, ItemSeenGraphRefs);
+        AppendPcgSubgraphRefsFromNode(PcgNode, ItemResolvedGraphRefs, ItemSeenGraphRefs);
+        SetResolvedGraphRefsFieldIfAny(Item, ItemResolvedGraphRefs);
+        CopyResolvedGraphRefEntries(ItemResolvedGraphRefs, ResolvedGraphRefs, SelectionSeenGraphRefs);
         Items.Add(MakeShared<FJsonValueObject>(Item));
     }
 
@@ -1150,6 +1882,7 @@ bool BuildPcgSelectionSnapshot(TSharedPtr<FJsonObject>& OutSelection)
     OutSelection->SetStringField(TEXT("selectionKind"), TEXT("graph_node"));
     OutSelection->SetArrayField(TEXT("items"), Items);
     OutSelection->SetNumberField(TEXT("count"), Items.Num());
+    SetResolvedGraphRefsFieldIfAny(OutSelection, ResolvedGraphRefs);
     return true;
 }
 

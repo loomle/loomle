@@ -345,6 +345,112 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
     return Result;
 }
 
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphResolveToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+
+    FString GraphTypeFilter;
+    if (Arguments.IsValid())
+    {
+        Arguments->TryGetStringField(TEXT("graphType"), GraphTypeFilter);
+    }
+    GraphTypeFilter = GraphTypeFilter.TrimStartAndEnd().ToLower();
+    if (!GraphTypeFilter.IsEmpty() && !IsSupportedGraphType(GraphTypeFilter))
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_GRAPH_TYPE"));
+        Result->SetStringField(TEXT("message"), TEXT("Supported graphType values: blueprint, material, pcg."));
+        return Result;
+    }
+
+    FString InputPath;
+    FString InputKind;
+    if (Arguments.IsValid())
+    {
+        if (Arguments->TryGetStringField(TEXT("path"), InputPath) && !InputPath.IsEmpty())
+        {
+            InputKind = TEXT("path");
+        }
+        else if (Arguments->TryGetStringField(TEXT("objectPath"), InputPath) && !InputPath.IsEmpty())
+        {
+            InputKind = TEXT("objectPath");
+        }
+        else if (Arguments->TryGetStringField(TEXT("componentPath"), InputPath) && !InputPath.IsEmpty())
+        {
+            InputKind = TEXT("componentPath");
+        }
+        else if (Arguments->TryGetStringField(TEXT("actorPath"), InputPath) && !InputPath.IsEmpty())
+        {
+            InputKind = TEXT("actorPath");
+        }
+        else if (Arguments->TryGetStringField(TEXT("assetPath"), InputPath) && !InputPath.IsEmpty())
+        {
+            InputKind = TEXT("assetPath");
+        }
+    }
+
+    if (InputPath.IsEmpty())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("Supply one of path, objectPath, componentPath, actorPath, or assetPath."));
+        return Result;
+    }
+
+    UObject* TargetObject = nullptr;
+    if (InputKind.Equals(TEXT("assetPath")))
+    {
+        TargetObject = LoadObjectByAssetPath(InputPath);
+        if (TargetObject == nullptr)
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("ASSET_NOT_FOUND"));
+            Result->SetStringField(TEXT("message"), TEXT("Failed to resolve assetPath."));
+            return Result;
+        }
+    }
+    else
+    {
+        TargetObject = ResolveRuntimeObjectFromPath(InputPath);
+        if (TargetObject == nullptr)
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("OBJECT_NOT_FOUND"));
+            Result->SetStringField(TEXT("message"), TEXT("Failed to resolve object path."));
+            return Result;
+        }
+    }
+
+    TArray<TSharedPtr<FJsonValue>> ResolvedGraphRefs;
+    TSet<FString> SeenGraphRefs;
+    AppendResolvedGraphRefsFromObject(TargetObject, ResolvedGraphRefs, SeenGraphRefs);
+
+    TArray<TSharedPtr<FJsonValue>> FilteredGraphRefs;
+    FilterResolvedGraphRefsByType(ResolvedGraphRefs, GraphTypeFilter, FilteredGraphRefs);
+
+    TArray<TSharedPtr<FJsonValue>> Diagnostics;
+    if (FilteredGraphRefs.Num() == 0)
+    {
+        TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
+        Diagnostic->SetStringField(TEXT("code"), TEXT("GRAPH_RESOLVE_EMPTY"));
+        Diagnostic->SetStringField(TEXT("message"), TEXT("No resolvable graph references were found for the supplied target."));
+        Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
+    }
+
+    TSharedPtr<FJsonObject> InputEcho = MakeShared<FJsonObject>();
+    InputEcho->SetStringField(InputKind, InputPath);
+    if (!GraphTypeFilter.IsEmpty())
+    {
+        InputEcho->SetStringField(TEXT("graphType"), GraphTypeFilter);
+    }
+
+    Result->SetObjectField(TEXT("inputEcho"), InputEcho);
+    Result->SetArrayField(TEXT("resolvedGraphRefs"), FilteredGraphRefs);
+    Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
+    return Result;
+}
+
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();

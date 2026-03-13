@@ -1,15 +1,18 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 pub mod mcp;
 pub mod transport;
 
-pub const TOOL_NAMES: [&str; 9] = [
+pub const TOOL_NAMES: [&str; 10] = [
     "loomle",
     "context",
     "execute",
     "graph",
     "graph.list",
+    "graph.resolve",
     "graph.query",
     "graph.actions",
     "graph.mutate",
@@ -56,11 +59,23 @@ pub struct McpToolResult {
 
 pub struct McpService<C: RpcConnector> {
     connector: C,
+    runtime_health_cache: Mutex<Option<CachedHealth>>,
 }
+
+#[derive(Clone)]
+struct CachedHealth {
+    health: RpcHealth,
+    observed_at: Instant,
+}
+
+const RUNTIME_HEALTH_CACHE_TTL: Duration = Duration::from_millis(200);
 
 impl<C: RpcConnector> McpService<C> {
     pub fn new(connector: C) -> Self {
-        Self { connector }
+        Self {
+            connector,
+            runtime_health_cache: Mutex::new(None),
+        }
     }
 
     pub fn tools_list() -> Vec<&'static str> {
@@ -71,13 +86,8 @@ impl<C: RpcConnector> McpService<C> {
         match name {
             "loomle" => self.call_loomle(),
             "graph" => self.call_graph(args),
-            "context"
-            | "execute"
-            | "graph.list"
-            | "graph.query"
-            | "graph.actions"
-            | "graph.mutate"
-            | "diag.tail" => self.call_runtime(name, args, meta),
+            "context" | "execute" | "graph.list" | "graph.resolve" | "graph.query" | "graph.actions"
+            | "graph.mutate" | "diag.tail" => self.call_runtime(name, args, meta),
             _ => McpToolResult {
                 structured_content: error_payload(
                     1002,
@@ -219,7 +229,7 @@ impl<C: RpcConnector> McpService<C> {
     }
 
     fn call_runtime(&self, tool: &str, args: Value, meta: RpcMeta) -> McpToolResult {
-        if let Ok(h) = self.connector.health() {
+        if let Ok(h) = self.runtime_health() {
             if h.is_pie {
                 return McpToolResult {
                     structured_content: editor_busy_payload(tool, &h),
@@ -238,6 +248,22 @@ impl<C: RpcConnector> McpService<C> {
                 is_error: true,
             },
         }
+    }
+
+    fn runtime_health(&self) -> Result<RpcHealth, RpcError> {
+        let now = Instant::now();
+        if let Some(cached) = self.runtime_health_cache.lock().unwrap().as_ref() {
+            if now.duration_since(cached.observed_at) <= RUNTIME_HEALTH_CACHE_TTL {
+                return Ok(cached.health.clone());
+            }
+        }
+
+        let health = self.connector.health()?;
+        *self.runtime_health_cache.lock().unwrap() = Some(CachedHealth {
+            health: health.clone(),
+            observed_at: now,
+        });
+        Ok(health)
     }
 }
 
@@ -359,6 +385,10 @@ mod tests {
             self.state.lock().unwrap().health_result = health_result;
         }
 
+        fn invoke_calls(&self) -> usize {
+            self.state.lock().unwrap().invoke_calls.len()
+        }
+
         fn last_invoke(&self) -> Option<(String, Value, RpcMeta)> {
             self.state.lock().unwrap().invoke_calls.last().cloned()
         }
@@ -403,8 +433,9 @@ mod tests {
     #[test]
     fn tools_list_includes_diag_tail() {
         let tools = McpService::<FakeConnector>::tools_list();
-        assert_eq!(tools.len(), 9);
+        assert_eq!(tools.len(), 10);
         assert!(tools.contains(&"graph.actions"));
+        assert!(tools.contains(&"graph.resolve"));
         assert!(tools.contains(&"diag.tail"));
     }
 
@@ -483,6 +514,30 @@ mod tests {
         assert!(result.is_error);
         assert_eq!(result.structured_content["domainCode"], "EDITOR_BUSY");
         assert!(connector.last_invoke().is_none());
+    }
+
+    #[test]
+    fn runtime_tools_reuse_health_probe_within_ttl() {
+        let connector = FakeConnector::new();
+        let service = McpService::new(connector.clone());
+
+        let _ = service.call_tool("context", json!({}), meta("101"));
+        let _ = service.call_tool("graph.query", json!({}), meta("102"));
+
+        assert_eq!(connector.health_calls(), 1);
+        assert_eq!(connector.invoke_calls(), 2);
+    }
+
+    #[test]
+    fn runtime_tools_probe_health_again_after_ttl_expires() {
+        let connector = FakeConnector::new();
+        let service = McpService::new(connector.clone());
+
+        let _ = service.call_tool("context", json!({}), meta("201"));
+        thread::sleep(RUNTIME_HEALTH_CACHE_TTL + Duration::from_millis(80));
+        let _ = service.call_tool("context", json!({}), meta("202"));
+
+        assert_eq!(connector.health_calls(), 2);
     }
 
     #[test]
