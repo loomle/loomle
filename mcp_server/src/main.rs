@@ -139,7 +139,10 @@ fn main() {
         }
     }
 
-    log("INFO", &format!("shutting down after {request_count} requests"));
+    log(
+        "INFO",
+        &format!("shutting down after {request_count} requests"),
+    );
 }
 
 fn write_response(stdout: &mut impl Write, response: &Value) -> io::Result<()> {
