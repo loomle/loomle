@@ -2,7 +2,6 @@
 import argparse
 import json
 import queue
-import socket
 import statistics
 import subprocess
 import sys
@@ -33,150 +32,162 @@ def percentile(sorted_values: list[float], p: float) -> float:
     return sorted_values[lo] * (1.0 - frac) + sorted_values[hi] * frac
 
 
-class BridgeConnection:
-    def send(self, payload: dict[str, Any]) -> None:
-        raise NotImplementedError
-
-    def recv_frame(self) -> dict[str, Any]:
-        raise NotImplementedError
-
-    def close(self) -> None:
-        raise NotImplementedError
+def ensure_project_root(project_root: Path) -> Path:
+    project_root = project_root.resolve()
+    if not project_root.exists():
+        fail(f"Project root not found: {project_root}")
+    if not any(project_root.glob("*.uproject")):
+        fail(f"No .uproject found under: {project_root}")
+    return project_root
 
 
-class McpStdioConnection(BridgeConnection):
-    def __init__(self, project_root: str, server_binary_path: str, timeout_s: float) -> None:
-        project = Path(project_root).resolve()
-        server_binary = Path(server_binary_path).resolve()
-        if not project.exists():
-            fail(f"Project root not found: {project}")
-        if not any(project.glob("*.uproject")):
-            fail(f"No .uproject found under: {project}")
-        if not server_binary.exists():
-            fail(f"mcp_server binary not found: {server_binary}")
-        if not server_binary.is_file():
-            fail(f"mcp_server binary path is not a file: {server_binary}")
+def default_loomle_binary() -> Path:
+    repo_root = Path(__file__).resolve().parents[1]
+    binary_name = "loomle.exe" if sys.platform.startswith("win") else "loomle"
+    return repo_root / "mcp" / "client" / "target" / "release" / binary_name
 
-        plugin_root = project / "Plugins" / "LoomleBridge"
-        if not plugin_root.is_dir():
-            fail(f"LoomleBridge plugin root not found: {plugin_root}")
+
+class LoomleSessionClient:
+    def __init__(self, project_root: Path, loomle_binary: Path, timeout_s: float) -> None:
+        self.project_root = ensure_project_root(project_root)
+        self.loomle_binary = loomle_binary.resolve()
+        if not self.loomle_binary.exists():
+            fail(f"loomle binary not found: {self.loomle_binary}")
+        if not self.loomle_binary.is_file():
+            fail(f"loomle binary path is not a file: {self.loomle_binary}")
+
         self.proc = subprocess.Popen(
-            [str(server_binary), "--project-root", str(project)],
-            cwd=str(plugin_root),
+            [
+                str(self.loomle_binary),
+                "--project-root",
+                str(self.project_root),
+                "session",
+            ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
         )
         self.timeout_s = timeout_s
+        self._next_id = 1
+        self._id_lock = threading.Lock()
+        self._pending: dict[int, "queue.Queue[dict[str, Any]]"] = {}
+        self._pending_lock = threading.Lock()
         self._send_lock = threading.Lock()
-
-    def send(self, payload: dict[str, Any]) -> None:
-        if self.proc.stdin is None:
-            raise RuntimeError("mcp stdio stdin is not available")
-        wire = json.dumps(payload, separators=(",", ":")) + "\n"
-        with self._send_lock:
-            self.proc.stdin.write(wire)
-            self.proc.stdin.flush()
-
-    def recv_frame(self) -> dict[str, Any]:
-        if self.proc.stdout is None:
-            raise RuntimeError("mcp stdio stdout is not available")
-        deadline = time.time() + self.timeout_s
-        while time.time() < deadline:
-            if self.proc.poll() is not None:
-                err = ""
-                if self.proc.stderr is not None:
-                    err = self.proc.stderr.read().strip()
-                raise RuntimeError(f"mcp_server exited early: {err}")
-
-            line = self.proc.stdout.readline()
-            if not line:
-                time.sleep(0.01)
-                continue
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                return json.loads(line)
-            except json.JSONDecodeError:
-                continue
-        raise RuntimeError("timeout waiting for mcp stdio frame")
+        self._stop = threading.Event()
+        self._reader_error: Optional[str] = None
+        self._stderr_tail: list[str] = []
+        self._stderr_lock = threading.Lock()
+        self._stdout_reader = threading.Thread(target=self._stdout_reader_loop, daemon=True)
+        self._stderr_reader = threading.Thread(target=self._stderr_reader_loop, daemon=True)
+        self._stdout_reader.start()
+        self._stderr_reader.start()
 
     def close(self) -> None:
+        self._stop.set()
         if self.proc.poll() is None:
             try:
                 self.proc.terminate()
                 self.proc.wait(timeout=2)
             except Exception:
                 self.proc.kill()
+        self._stdout_reader.join(timeout=1.0)
+        self._stderr_reader.join(timeout=1.0)
 
+    def _stderr_snapshot(self) -> str:
+        with self._stderr_lock:
+            return "\n".join(self._stderr_tail[-200:])
 
-class JsonRpcClient:
-    def __init__(self, conn: BridgeConnection, timeout_s: float) -> None:
-        self.conn = conn
-        self.timeout_s = timeout_s
-        self._next_id = 1
-        self._id_lock = threading.Lock()
-        self._pending: dict[int, "queue.Queue[dict[str, Any]]"] = {}
-        self._pending_lock = threading.Lock()
-        self._stop = threading.Event()
-        self._reader_error: Optional[str] = None
-        self._reader = threading.Thread(target=self._reader_loop, daemon=True)
-        self._reader.start()
-
-    def close(self) -> None:
-        self._stop.set()
-        self.conn.close()
-        self._reader.join(timeout=1.0)
-
-    def _reader_loop(self) -> None:
+    def _stdout_reader_loop(self) -> None:
         try:
-            while not self._stop.is_set():
-                frame = self.conn.recv_frame()
+            if self.proc.stdout is None:
+                return
+            for line in self.proc.stdout:
+                if self._stop.is_set():
+                    return
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    frame = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
                 frame_id = frame.get("id")
-                if isinstance(frame_id, (int, float)):
-                    req_id = int(frame_id)
+                if isinstance(frame_id, int):
                     with self._pending_lock:
-                        out = self._pending.get(req_id)
-                    if out is not None:
-                        out.put(frame)
-                # notifications are intentionally ignored for benchmark
+                        waiter = self._pending.get(frame_id)
+                    if waiter is not None:
+                        waiter.put(frame)
         except Exception as exc:
             self._reader_error = str(exc)
             self._stop.set()
             with self._pending_lock:
                 waiters = list(self._pending.values())
             for waiter in waiters:
-                waiter.put({"_reader_error": self._reader_error})
+                waiter.put({"ok": False, "error": self._reader_error, "id": None})
 
-    def request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+    def _stderr_reader_loop(self) -> None:
+        try:
+            if self.proc.stderr is None:
+                return
+            for line in self.proc.stderr:
+                if self._stop.is_set():
+                    return
+                text = line.rstrip()
+                if not text:
+                    continue
+                with self._stderr_lock:
+                    self._stderr_tail.append(text)
+        except Exception:
+            return
+
+    def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        if self.proc.stdin is None:
+            raise RuntimeError("loomle session stdin is not available")
         if self._reader_error:
             raise RuntimeError(self._reader_error)
 
         with self._id_lock:
-            req_id = self._next_id
+            request_id = self._next_id
             self._next_id += 1
 
         mailbox: "queue.Queue[dict[str, Any]]" = queue.Queue(maxsize=1)
         with self._pending_lock:
-            self._pending[req_id] = mailbox
+            self._pending[request_id] = mailbox
 
-        payload = {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}
+        payload = {
+            "id": request_id,
+            "tool": tool_name,
+            "arguments": arguments,
+        }
+        wire = json.dumps(payload, separators=(",", ":")) + "\n"
+
         try:
-            self.conn.send(payload)
+            with self._send_lock:
+                self.proc.stdin.write(wire)
+                self.proc.stdin.flush()
             response = mailbox.get(timeout=self.timeout_s)
         except queue.Empty as exc:
-            raise RuntimeError(f"timeout waiting for response to id={req_id}") from exc
+            stderr_tail = self._stderr_snapshot()
+            if stderr_tail:
+                raise RuntimeError(
+                    f"timeout waiting for session response id={request_id}; recent stderr:\n{stderr_tail}"
+                ) from exc
+            raise RuntimeError(f"timeout waiting for session response id={request_id}") from exc
         finally:
             with self._pending_lock:
-                self._pending.pop(req_id, None)
+                self._pending.pop(request_id, None)
 
-        if "_reader_error" in response:
-            raise RuntimeError(str(response["_reader_error"]))
+        if not response.get("ok", False):
+            raise RuntimeError(str(response.get("error", "unknown session error")))
 
-        return response
+        result = response.get("result")
+        if not isinstance(result, dict):
+            raise RuntimeError(f"invalid session result payload: {response}")
+        return result
 
 
 @dataclass
@@ -194,15 +205,15 @@ class BenchCaseResult:
 
 
 def run_benchmark(
-    client: JsonRpcClient,
-    method: str,
-    params: dict[str, Any],
+    client: LoomleSessionClient,
+    tool_name: str,
+    arguments: dict[str, Any],
     total: int,
     concurrency: int,
     warmup: int,
 ) -> BenchResult:
     for _ in range(warmup):
-        _ = client.request(method, params)
+        _ = client.call_tool(tool_name, arguments)
 
     latencies_ms: list[float] = []
     errors = 0
@@ -220,9 +231,9 @@ def run_benchmark(
 
             start = time.perf_counter()
             try:
-                resp = client.request(method, params)
+                resp = client.call_tool(tool_name, arguments)
                 elapsed_ms = (time.perf_counter() - start) * 1000.0
-                if "error" in resp:
+                if bool(resp.get("isError")):
                     with lock:
                         errors += 1
                 else:
@@ -235,52 +246,26 @@ def run_benchmark(
 
     threads = [threading.Thread(target=worker, daemon=True) for _ in range(max(1, concurrency))]
     start_wall = time.perf_counter()
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
     wall_s = time.perf_counter() - start_wall
 
     return BenchResult(latencies_ms=latencies_ms, errors=errors, ok=ok, wall_s=wall_s)
 
 
-def choose_connection(args: argparse.Namespace) -> BridgeConnection:
-    project_root = Path(args.project_root).resolve()
-    if args.mcp_server_bin:
-        server_binary = Path(args.mcp_server_bin).resolve()
-    else:
-        if sys.platform == "darwin":
-            platform_dir = "darwin"
-            binary_name = "loomle_mcp_server"
-        elif sys.platform.startswith("linux"):
-            platform_dir = "linux"
-            binary_name = "loomle_mcp_server"
-        elif sys.platform.startswith("win"):
-            platform_dir = "windows"
-            binary_name = "loomle_mcp_server.exe"
-        else:
-            fail(f"unsupported platform for mcp_server binary: {sys.platform}")
-            raise RuntimeError("unreachable")
-        server_binary = project_root / "Plugins" / "LoomleBridge" / "Tools" / "mcp" / platform_dir / binary_name
-
-    return McpStdioConnection(
-        project_root=str(project_root),
-        server_binary_path=str(server_binary),
-        timeout_s=args.timeout,
-    )
-
-
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Benchmark Loomle bridge latency (p50/p95/p99)")
+    parser = argparse.ArgumentParser(description="Benchmark LOOMLE bridge latency (p50/p95/p99)")
     parser.add_argument(
         "--project-root",
         required=True,
-        help="UE project root for stdio mode, e.g. /Users/xartest/dev/LoomleDevHost",
+        help="UE project root, e.g. /Users/xartest/dev/LoomleDevHost",
     )
     parser.add_argument(
-        "--mcp-server-bin",
+        "--loomle-bin",
         default="",
-        help="Override path to mcp_server binary. Defaults to <project>/Plugins/LoomleBridge/Tools/mcp/<platform>/...",
+        help="Override path to the loomle client binary. Defaults to <repo>/mcp/client/target/release/loomle(.exe).",
     )
     parser.add_argument("--timeout", type=float, default=5.0, help="Per-request timeout in seconds")
     parser.add_argument("--total", type=int, default=200, help="Measured request count")
@@ -289,12 +274,12 @@ def main() -> int:
     parser.add_argument(
         "--tool",
         default="loomle",
-        help="Tool name for tools/call (default: loomle)",
+        help="Tool name for session call (default: loomle)",
     )
     parser.add_argument(
         "--arguments",
         default="{}",
-        help="JSON object for tools/call arguments (default: {})",
+        help="JSON object for tool arguments (default: {})",
     )
     parser.add_argument(
         "--tools",
@@ -308,7 +293,6 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-
     try:
         tool_args = json.loads(args.arguments)
     except json.JSONDecodeError as exc:
@@ -316,27 +300,23 @@ def main() -> int:
     if not isinstance(tool_args, dict):
         fail("--arguments must decode to a JSON object")
 
-    conn = choose_connection(args)
-    client = JsonRpcClient(conn, timeout_s=args.timeout)
+    loomle_binary = Path(args.loomle_bin).resolve() if args.loomle_bin else default_loomle_binary()
+    client = LoomleSessionClient(
+        project_root=Path(args.project_root),
+        loomle_binary=loomle_binary,
+        timeout_s=args.timeout,
+    )
     try:
-        init = client.request("initialize", {})
-        if "error" in init:
-            fail(f"initialize failed: {init['error']}")
-        _ = client.request("tools/list", {})
-
-        batch_tools = [t.strip() for t in args.tools.split(",") if t.strip()]
+        batch_tools = [tool.strip() for tool in args.tools.split(",") if tool.strip()]
         if not batch_tools:
             batch_tools = [args.tool]
 
         case_results: list[BenchCaseResult] = []
         for tool_name in batch_tools:
-            per_args = dict(tool_args)
-            method = "tools/call"
-            params = {"name": tool_name, "arguments": per_args}
             result = run_benchmark(
                 client=client,
-                method=method,
-                params=params,
+                tool_name=tool_name,
+                arguments=dict(tool_args),
                 total=max(1, args.total),
                 concurrency=max(1, args.concurrency),
                 warmup=max(0, args.warmup),

@@ -1,16 +1,15 @@
-use rmcp::{
-    model::{CallToolRequestParams, JsonObject},
-    transport::{ConfigureCommandExt, TokioChildProcess},
-    ServiceExt,
+use loomle::{
+    connect_client, parse_json_object, render_json_pretty, resolve_project_root, Environment,
 };
-use serde_json::Value;
+use rmcp::model::CallToolRequestParams;
+use serde::Deserialize;
+use serde_json::{json, Value};
 use std::env;
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
-use tokio::process::Command as TokioCommand;
-
-type LoomleClient = rmcp::service::RunningService<rmcp::service::RoleClient, ()>;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::sync::mpsc;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> ExitCode {
@@ -39,6 +38,7 @@ async fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         CommandKind::RunServer { forwarded_args } => run_server(&env_info, &forwarded_args),
+        CommandKind::Session => run_session(&env_info).await,
         CommandKind::ListTools => run_list_tools(&env_info).await,
         CommandKind::Call {
             tool_name,
@@ -60,6 +60,7 @@ enum CommandKind {
     RunServer {
         forwarded_args: Vec<OsString>,
     },
+    Session,
     ListTools,
     Call {
         tool_name: String,
@@ -121,6 +122,7 @@ impl Cli {
                         forwarded_args: Vec::new(),
                     });
                 }
+                Some("session") => command = Some(CommandKind::Session),
                 Some("list-tools") => command = Some(CommandKind::ListTools),
                 Some("call") => {
                     command = Some(CommandKind::Call {
@@ -167,31 +169,12 @@ impl Cli {
     }
 }
 
-#[derive(Debug)]
-struct Environment {
-    project_root: PathBuf,
-    workspace_root: PathBuf,
-    plugin_root: PathBuf,
-    server_path: PathBuf,
-}
-
-impl Environment {
-    fn for_project_root(project_root: PathBuf) -> Self {
-        let workspace_root = project_root.join("Loomle");
-        let plugin_root = project_root.join("Plugins").join("LoomleBridge");
-        let server_path = plugin_root
-            .join("Tools")
-            .join("mcp")
-            .join(platform_key())
-            .join(server_binary_name());
-
-        Self {
-            project_root,
-            workspace_root,
-            plugin_root,
-            server_path,
-        }
-    }
+#[derive(Debug, Deserialize)]
+struct SessionRequest {
+    id: Value,
+    tool: String,
+    #[serde(default)]
+    arguments: Option<Value>,
 }
 
 fn run_doctor(env_info: &Environment) -> ExitCode {
@@ -301,12 +284,126 @@ async fn run_list_tools(env_info: &Environment) -> ExitCode {
     }
 }
 
+async fn run_session(env_info: &Environment) -> ExitCode {
+    let mut client = match connect_client(env_info).await {
+        Ok(client) => client,
+        Err(message) => {
+            eprintln!("[loomle][ERROR] {message}");
+            return ExitCode::from(1);
+        }
+    };
+
+    let peer = client.peer().clone();
+    let (response_tx, mut response_rx) = mpsc::unbounded_channel::<String>();
+    let writer = tokio::spawn(async move {
+        let mut stdout = tokio::io::stdout();
+        while let Some(line) = response_rx.recv().await {
+            if stdout.write_all(line.as_bytes()).await.is_err() {
+                break;
+            }
+            if stdout.write_all(b"\n").await.is_err() {
+                break;
+            }
+            if stdout.flush().await.is_err() {
+                break;
+            }
+        }
+    });
+
+    let mut lines = BufReader::new(tokio::io::stdin()).lines();
+    let mut tasks = Vec::new();
+
+    loop {
+        let line = match lines.next_line().await {
+            Ok(Some(line)) => line,
+            Ok(None) => break,
+            Err(error) => {
+                eprintln!("[loomle][ERROR] session stdin read failed: {error}");
+                break;
+            }
+        };
+
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        match serde_json::from_str::<SessionRequest>(&line) {
+            Ok(request) => {
+                let response_tx = response_tx.clone();
+                let peer = peer.clone();
+                tasks.push(tokio::spawn(async move {
+                    let response = handle_session_request(peer, request).await;
+                    let _ = response_tx.send(response);
+                }));
+            }
+            Err(error) => {
+                let response = json!({
+                    "id": Value::Null,
+                    "ok": false,
+                    "error": format!("invalid session request JSON: {error}")
+                });
+                let _ = response_tx.send(response.to_string());
+            }
+        }
+    }
+
+    for task in tasks {
+        let _ = task.await;
+    }
+    drop(response_tx);
+    let _ = writer.await;
+
+    match client.close().await {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("[loomle][ERROR] failed to close MCP session cleanly: {error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+async fn handle_session_request(
+    peer: rmcp::service::Peer<rmcp::service::RoleClient>,
+    request: SessionRequest,
+) -> String {
+    let arguments = match request.arguments {
+        Some(Value::Object(object)) => object,
+        Some(_) => {
+            return json!({
+                "id": request.id,
+                "ok": false,
+                "error": "session request arguments must be a JSON object"
+            })
+            .to_string();
+        }
+        None => serde_json::Map::new(),
+    };
+
+    match peer
+        .call_tool(CallToolRequestParams::new(request.tool).with_arguments(arguments))
+        .await
+    {
+        Ok(result) => json!({
+            "id": request.id,
+            "ok": true,
+            "result": result
+        })
+        .to_string(),
+        Err(error) => json!({
+            "id": request.id,
+            "ok": false,
+            "error": error.to_string()
+        })
+        .to_string(),
+    }
+}
+
 async fn run_call(
     env_info: &Environment,
     tool_name: &str,
     arguments_json: Option<&str>,
 ) -> ExitCode {
-    let arguments = match parse_arguments(arguments_json) {
+    let arguments = match parse_json_object(arguments_json, "--args") {
         Ok(arguments) => arguments,
         Err(message) => {
             eprintln!("[loomle][ERROR] {message}");
@@ -348,114 +445,10 @@ async fn run_call(
     }
 }
 
-async fn connect_client(env_info: &Environment) -> Result<LoomleClient, String> {
-    let transport = spawn_server_transport(env_info)?;
-    ().serve(transport)
-        .await
-        .map_err(|error| format!("failed to establish MCP session: {error}"))
-}
-
-fn spawn_server_transport(env_info: &Environment) -> Result<TokioChildProcess, String> {
-    if !env_info.server_path.is_file() {
-        return Err(format!(
-            "cannot launch server; binary not found: {}",
-            env_info.server_path.display()
-        ));
-    }
-
-    TokioChildProcess::new(TokioCommand::new(&env_info.server_path).configure(|cmd| {
-        cmd.arg("--project-root")
-            .arg(&env_info.project_root)
-            .stderr(Stdio::inherit());
-    }))
-    .map_err(|error| {
-        format!(
-            "failed to spawn MCP server {}: {}",
-            env_info.server_path.display(),
-            error
-        )
-    })
-}
-
-fn parse_arguments(raw: Option<&str>) -> Result<JsonObject, String> {
-    let Some(raw) = raw else {
-        return Ok(JsonObject::new());
-    };
-
-    let value: Value =
-        serde_json::from_str(raw).map_err(|error| format!("invalid JSON for --args: {error}"))?;
-    match value {
-        Value::Object(object) => Ok(object),
-        _ => Err(String::from("--args JSON must be an object")),
-    }
-}
-
 fn print_json<T: serde::Serialize>(value: &T) -> Result<(), String> {
-    let rendered = serde_json::to_string_pretty(value)
-        .map_err(|error| format!("json encode failed: {error}"))?;
+    let rendered = render_json_pretty(value)?;
     println!("{rendered}");
     Ok(())
-}
-
-fn resolve_project_root(explicit: Option<&Path>) -> Result<PathBuf, String> {
-    if let Some(path) = explicit {
-        return validate_project_root(path);
-    }
-
-    let cwd = env::current_dir().map_err(|error| format!("failed to read current dir: {error}"))?;
-    for candidate in cwd.ancestors() {
-        if has_uproject(candidate) {
-            return Ok(candidate.to_path_buf());
-        }
-    }
-    Err(format!(
-        "could not discover a LOOMLE project root from {}. Use --project-root.",
-        cwd.display()
-    ))
-}
-
-fn validate_project_root(path: &Path) -> Result<PathBuf, String> {
-    let resolved = path
-        .canonicalize()
-        .map_err(|error| format!("invalid --project-root {}: {error}", path.display()))?;
-    if !resolved.is_dir() {
-        return Err(format!("path is not a directory: {}", resolved.display()));
-    }
-    if !has_uproject(&resolved) {
-        return Err(format!("no .uproject found under: {}", resolved.display()));
-    }
-    Ok(resolved)
-}
-
-fn has_uproject(dir: &Path) -> bool {
-    match dir.read_dir() {
-        Ok(entries) => entries.flatten().any(|entry| {
-            entry
-                .path()
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("uproject"))
-        }),
-        Err(_) => false,
-    }
-}
-
-fn platform_key() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "darwin"
-    } else if cfg!(target_os = "windows") {
-        "windows"
-    } else {
-        "linux"
-    }
-}
-
-fn server_binary_name() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "loomle_mcp_server.exe"
-    } else {
-        "loomle_mcp_server"
-    }
 }
 
 fn print_usage() {
@@ -463,6 +456,7 @@ fn print_usage() {
     eprintln!("  loomle [--project-root <ProjectRoot>] doctor");
     eprintln!("  loomle [--project-root <ProjectRoot>] server-path");
     eprintln!("  loomle [--project-root <ProjectRoot>] run-server [-- <extra server args...>]");
+    eprintln!("  loomle [--project-root <ProjectRoot>] session");
     eprintln!("  loomle [--project-root <ProjectRoot>] list-tools");
     eprintln!("  loomle [--project-root <ProjectRoot>] call <tool-name> [--args <json-object>]");
     eprintln!();
@@ -471,7 +465,7 @@ fn print_usage() {
 
 #[cfg(test)]
 mod tests {
-    use super::{platform_key, server_binary_name, Cli, CommandKind};
+    use super::{Cli, CommandKind};
     use std::ffi::OsString;
     use std::path::PathBuf;
 
@@ -554,12 +548,23 @@ mod tests {
     }
 
     #[test]
+    fn cli_parses_session_command() {
+        let cli =
+            Cli::parse(vec![OsString::from("loomle"), OsString::from("session")]).expect("cli");
+
+        assert!(matches!(cli.command, CommandKind::Session));
+    }
+
+    #[test]
     fn platform_and_binary_names_match_supported_layout() {
-        assert!(matches!(platform_key(), "darwin" | "linux" | "windows"));
+        assert!(matches!(
+            loomle::platform_key(),
+            "darwin" | "linux" | "windows"
+        ));
         if cfg!(target_os = "windows") {
-            assert_eq!(server_binary_name(), "loomle_mcp_server.exe");
+            assert_eq!(loomle::server_binary_name(), "loomle_mcp_server.exe");
         } else {
-            assert_eq!(server_binary_name(), "loomle_mcp_server");
+            assert_eq!(loomle::server_binary_name(), "loomle_mcp_server");
         }
     }
 }
