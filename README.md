@@ -10,25 +10,37 @@ LOOMLE brings Unreal Engine 5 runtime and graph context into AI-native workflows
 
 ## Quick Start
 
-The repository is currently in transition from a split setup to a single-install product shape.
+LOOMLE is now organized around a single repository and a single installed project shape:
 
-Today, the quickest bootstrap path is still from the root of your local UE5 project.
+- MCP server shipped with `Plugins/LoomleBridge`
+- project-local client and agent workspace shipped under `Loomle/`
 
-1. Open Codex in your UE5 project root.
-2. Tell Codex:
+For a source checkout, the current path is:
 
-```text
-install Loomle Skill from loomle.ai/i
+1. Build the Rust binaries:
+
+```bash
+cd mcp/server && cargo build --release
+cd ../client && cargo build --release
 ```
 
-That flow installs or updates the current agent-side usage layer, sets up `LoomleBridge`, applies the required project configuration, starts the service path, and runs the basic verification checks so the MCP connection is ready to use.
+2. Assemble a release bundle:
 
-Target product direction:
+```bash
+python3 packaging/bundle/assemble_release_bundle.py \
+  --repo-root /path/to/loomle \
+  --output-dir /tmp/loomle-release \
+  --platform darwin \
+  --server-binary /path/to/loomle/mcp/server/target/release/loomle_mcp_server \
+  --client-binary /path/to/loomle/mcp/client/target/release/loomle
+```
 
-- one install
-- one repository
-- MCP server shipped with `Plugins/LoomleBridge`
-- project-local agent workspace shipped under `Loomle/`
+3. Build a manifest entry and install into a UE project:
+
+```bash
+python3 packaging/bundle/build_release_manifest.py ...
+python3 packaging/install/install_release.py ...
+```
 
 See [docs/REPO_STRUCTURE.md](/Users/xartest/dev/loomle/docs/REPO_STRUCTURE.md) for the target repository, release, and installed-project structure.
 

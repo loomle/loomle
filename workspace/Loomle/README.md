@@ -25,4 +25,4 @@ Purpose:
 - `prompts/`: reusable project-local prompt fragments if needed
 - `runtime/`: local runtime/config/state placeholders
 
-This template is intentionally minimal but functional. It is the future replacement for a separate external skill repository.
+This template is intentionally minimal but functional. It is the installed project-local usage layer for LOOMLE.
