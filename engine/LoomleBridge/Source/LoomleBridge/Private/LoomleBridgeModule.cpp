@@ -94,6 +94,28 @@ namespace LoomleBridgeConstants
 
 namespace
 {
+TSharedPtr<FJsonObject> CloneJsonObject(const TSharedPtr<FJsonObject>& Source)
+{
+    if (!Source.IsValid())
+    {
+        return nullptr;
+    }
+
+    FString Serialized;
+    {
+        const TSharedRef<FCondensedJsonWriter> Writer = TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Serialized);
+        FJsonSerializer::Serialize(Source.ToSharedRef(), Writer);
+    }
+
+    TSharedPtr<FJsonObject> Clone = MakeShared<FJsonObject>();
+    const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Serialized);
+    if (!FJsonSerializer::Deserialize(Reader, Clone) || !Clone.IsValid())
+    {
+        return nullptr;
+    }
+    return Clone;
+}
+
 class FLoomleDiagLogCaptureOutputDevice final : public FOutputDevice
 {
 public:

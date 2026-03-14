@@ -29,6 +29,8 @@ private:
     TSharedPtr<FJsonObject> BuildGraphListToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildGraphResolveToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildGraphQueryToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+    TSharedPtr<FJsonObject> BuildGraphQueryBaseResult(const TSharedPtr<FJsonObject>& Arguments) const;
+    TSharedPtr<FJsonObject> BuildShapedGraphQueryResult(const TSharedPtr<FJsonObject>& BaseResult, const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildGraphActionsToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildGraphMutateToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildGetContextToolResult(const TSharedPtr<FJsonObject>& Arguments) const;

@@ -35,7 +35,7 @@ FString FLoomleBridgeModule::HandleRequest(const FString& RequestLine)
         return MakeJsonResponse(IdValue, BuildRpcCapabilitiesResult());
     }
 
-    if (!IsInGameThread())
+    if (!IsInGameThread() && !Method.Equals(TEXT("rpc.invoke")))
     {
         TPromise<FString> ResponsePromise;
         TFuture<FString> ResponseFuture = ResponsePromise.GetFuture();
@@ -213,6 +213,38 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
 {
     bOutIsError = false;
     TSharedPtr<FJsonObject> Payload;
+
+    if (!IsInGameThread() && !Name.Equals(LoomleBridgeConstants::GraphQueryToolName))
+    {
+        struct FDispatchToolResult
+        {
+            TSharedPtr<FJsonObject> Payload;
+            bool bIsError = false;
+        };
+
+        TPromise<FDispatchToolResult> PayloadPromise;
+        TFuture<FDispatchToolResult> PayloadFuture = PayloadPromise.GetFuture();
+        AsyncTask(ENamedThreads::GameThread, [this, Name, Arguments, Promise = MoveTemp(PayloadPromise)]() mutable
+        {
+            FDispatchToolResult DispatchResult;
+            DispatchResult.Payload = DispatchTool(Name, Arguments, DispatchResult.bIsError);
+            Promise.SetValue(MoveTemp(DispatchResult));
+        });
+
+        static constexpr uint32 GameThreadTimeoutMs = 30000;
+        if (PayloadFuture.WaitFor(FTimespan::FromMilliseconds(GameThreadTimeoutMs)))
+        {
+            FDispatchToolResult DispatchResult = PayloadFuture.Get();
+            bOutIsError = DispatchResult.bIsError;
+            return DispatchResult.Payload;
+        }
+
+        bOutIsError = true;
+        Payload = MakeShared<FJsonObject>();
+        Payload->SetStringField(TEXT("code"), TEXT("EXECUTION_TIMEOUT"));
+        Payload->SetStringField(TEXT("message"), TEXT("EXECUTION_TIMEOUT"));
+        return Payload;
+    }
 
     if (Name.Equals(TEXT("context")))
     {

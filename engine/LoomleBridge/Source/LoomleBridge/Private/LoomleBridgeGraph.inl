@@ -451,10 +451,411 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphResolveToolResult(const T
     return Result;
 }
 
+namespace
+{
+struct FGraphQueryShapeOptions
+{
+    TArray<FString> NodeClasses;
+    TSet<FString> NodeIds;
+    FString Text;
+    int32 Limit = 200;
+};
+
+FGraphQueryShapeOptions ParseGraphQueryShapeOptions(const TSharedPtr<FJsonObject>& Arguments)
+{
+    FGraphQueryShapeOptions Options;
+
+    if (Arguments.IsValid())
+    {
+        double LimitNumber = 0.0;
+        if (Arguments->TryGetNumberField(TEXT("limit"), LimitNumber))
+        {
+            Options.Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, 1000);
+        }
+
+        const TSharedPtr<FJsonObject>* FilterObject = nullptr;
+        if (Arguments->TryGetObjectField(TEXT("filter"), FilterObject) && FilterObject && (*FilterObject).IsValid())
+        {
+            const TArray<TSharedPtr<FJsonValue>>* NodeClasses = nullptr;
+            if ((*FilterObject)->TryGetArrayField(TEXT("nodeClasses"), NodeClasses) && NodeClasses)
+            {
+                for (const TSharedPtr<FJsonValue>& NodeClassValue : *NodeClasses)
+                {
+                    FString NodeClass;
+                    if (NodeClassValue.IsValid() && NodeClassValue->TryGetString(NodeClass) && !NodeClass.IsEmpty())
+                    {
+                        Options.NodeClasses.Add(NodeClass);
+                    }
+                }
+            }
+
+            const TArray<TSharedPtr<FJsonValue>>* NodeIds = nullptr;
+            if ((*FilterObject)->TryGetArrayField(TEXT("nodeIds"), NodeIds) && NodeIds)
+            {
+                for (const TSharedPtr<FJsonValue>& NodeIdValue : *NodeIds)
+                {
+                    FString NodeId;
+                    if (NodeIdValue.IsValid() && NodeIdValue->TryGetString(NodeId) && !NodeId.IsEmpty())
+                    {
+                        Options.NodeIds.Add(NodeId);
+                    }
+                }
+            }
+
+            (*FilterObject)->TryGetStringField(TEXT("text"), Options.Text);
+            Options.Text = Options.Text.TrimStartAndEnd();
+        }
+    }
+
+    return Options;
+}
+
+bool GraphQueryNodeMatchesShapeOptions(const TSharedPtr<FJsonObject>& NodeObject, const FGraphQueryShapeOptions& Options)
+{
+    if (!NodeObject.IsValid())
+    {
+        return false;
+    }
+
+    FString NodeId;
+    NodeObject->TryGetStringField(TEXT("id"), NodeId);
+    FString NodeGuid;
+    NodeObject->TryGetStringField(TEXT("guid"), NodeGuid);
+
+    if (Options.NodeIds.Num() > 0 && !Options.NodeIds.Contains(NodeId) && !Options.NodeIds.Contains(NodeGuid))
+    {
+        return false;
+    }
+
+    FString NodeClassPath;
+    NodeObject->TryGetStringField(TEXT("nodeClassPath"), NodeClassPath);
+    if (NodeClassPath.IsEmpty())
+    {
+        NodeObject->TryGetStringField(TEXT("classPath"), NodeClassPath);
+    }
+
+    if (Options.NodeClasses.Num() > 0)
+    {
+        bool bClassMatched = false;
+        for (const FString& FilterClass : Options.NodeClasses)
+        {
+            if (NodeClassPath.Equals(FilterClass))
+            {
+                bClassMatched = true;
+                break;
+            }
+        }
+
+        if (!bClassMatched)
+        {
+            return false;
+        }
+    }
+
+    if (!Options.Text.IsEmpty())
+    {
+        FString Title;
+        NodeObject->TryGetStringField(TEXT("title"), Title);
+        if (!Title.Contains(Options.Text, ESearchCase::IgnoreCase)
+            && !NodeId.Contains(Options.Text, ESearchCase::IgnoreCase)
+            && !NodeGuid.Contains(Options.Text, ESearchCase::IgnoreCase)
+            && !NodeClassPath.Contains(Options.Text, ESearchCase::IgnoreCase))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+void PruneGraphQueryNodeLinks(const TSharedPtr<FJsonObject>& NodeObject, const TSet<FString>& AllowedNodeIds)
+{
+    if (!NodeObject.IsValid())
+    {
+        return;
+    }
+
+    const TArray<TSharedPtr<FJsonValue>>* Pins = nullptr;
+    if (!NodeObject->TryGetArrayField(TEXT("pins"), Pins) || Pins == nullptr)
+    {
+        return;
+    }
+
+    for (const TSharedPtr<FJsonValue>& PinValue : *Pins)
+    {
+        const TSharedPtr<FJsonObject>* PinObject = nullptr;
+        if (!PinValue.IsValid() || !PinValue->TryGetObject(PinObject) || PinObject == nullptr || !(*PinObject).IsValid())
+        {
+            continue;
+        }
+
+        auto FilterLinks = [&AllowedNodeIds](const TArray<TSharedPtr<FJsonValue>>* Links) -> TArray<TSharedPtr<FJsonValue>>
+        {
+            TArray<TSharedPtr<FJsonValue>> FilteredLinks;
+            if (Links == nullptr)
+            {
+                return FilteredLinks;
+            }
+
+            FilteredLinks.Reserve(Links->Num());
+            for (const TSharedPtr<FJsonValue>& LinkValue : *Links)
+            {
+                const TSharedPtr<FJsonObject>* LinkObject = nullptr;
+                if (!LinkValue.IsValid() || !LinkValue->TryGetObject(LinkObject) || LinkObject == nullptr || !(*LinkObject).IsValid())
+                {
+                    continue;
+                }
+
+                FString LinkedNodeId;
+                (*LinkObject)->TryGetStringField(TEXT("toNodeId"), LinkedNodeId);
+                if (LinkedNodeId.IsEmpty())
+                {
+                    (*LinkObject)->TryGetStringField(TEXT("nodeGuid"), LinkedNodeId);
+                }
+
+                if (AllowedNodeIds.Contains(LinkedNodeId))
+                {
+                    FilteredLinks.Add(LinkValue);
+                }
+            }
+            return FilteredLinks;
+        };
+
+        const TArray<TSharedPtr<FJsonValue>>* Links = nullptr;
+        if ((*PinObject)->TryGetArrayField(TEXT("links"), Links))
+        {
+            (*PinObject)->SetArrayField(TEXT("links"), FilterLinks(Links));
+        }
+
+        const TArray<TSharedPtr<FJsonValue>>* LinkedTo = nullptr;
+        if ((*PinObject)->TryGetArrayField(TEXT("linkedTo"), LinkedTo))
+        {
+            (*PinObject)->SetArrayField(TEXT("linkedTo"), FilterLinks(LinkedTo));
+        }
+    }
+}
+
+FString BuildGraphQueryRevision(const TSharedPtr<FJsonObject>& Result, const FString& Signature)
+{
+    if (!Result.IsValid())
+    {
+        return TEXT("");
+    }
+
+    FString RevisionPrefix = TEXT("graph");
+    FString ExistingRevision;
+    Result->TryGetStringField(TEXT("revision"), ExistingRevision);
+    int32 SeparatorIndex = INDEX_NONE;
+    if (ExistingRevision.FindChar(TEXT(':'), SeparatorIndex) && SeparatorIndex > 0)
+    {
+        RevisionPrefix = ExistingRevision.Left(SeparatorIndex);
+    }
+
+    FString AssetPath;
+    Result->TryGetStringField(TEXT("assetPath"), AssetPath);
+    FString GraphName;
+    Result->TryGetStringField(TEXT("graphName"), GraphName);
+    return FString::Printf(TEXT("%s:%08x"), *RevisionPrefix, GetTypeHash(AssetPath + TEXT("|") + GraphName + TEXT("|") + Signature));
+}
+}
+
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+{
+    if (!IsInGameThread())
+    {
+        TSharedPtr<FJsonObject> BaseArguments = CloneJsonObject(Arguments);
+        if (!BaseArguments.IsValid())
+        {
+            BaseArguments = MakeShared<FJsonObject>();
+            if (Arguments.IsValid())
+            {
+                for (const TPair<FString, TSharedPtr<FJsonValue>>& Field : Arguments->Values)
+                {
+                    BaseArguments->SetField(Field.Key, Field.Value);
+                }
+            }
+        }
+        BaseArguments->SetBoolField(TEXT("_loomleBaseSnapshot"), true);
+
+        TPromise<TSharedPtr<FJsonObject>> ResponsePromise;
+        TFuture<TSharedPtr<FJsonObject>> ResponseFuture = ResponsePromise.GetFuture();
+        AsyncTask(ENamedThreads::GameThread, [this, BaseArguments, Promise = MoveTemp(ResponsePromise)]() mutable
+        {
+            Promise.SetValue(BuildGraphQueryBaseResult(BaseArguments));
+        });
+
+        static constexpr uint32 GameThreadTimeoutMs = 30000;
+        if (!ResponseFuture.WaitFor(FTimespan::FromMilliseconds(GameThreadTimeoutMs)))
+        {
+            TSharedPtr<FJsonObject> TimeoutResult = MakeShared<FJsonObject>();
+            TimeoutResult->SetBoolField(TEXT("isError"), true);
+            TimeoutResult->SetStringField(TEXT("code"), TEXT("EXECUTION_TIMEOUT"));
+            TimeoutResult->SetStringField(TEXT("message"), TEXT("EXECUTION_TIMEOUT"));
+            return TimeoutResult;
+        }
+
+        return BuildShapedGraphQueryResult(ResponseFuture.Get(), Arguments);
+    }
+
+    return BuildShapedGraphQueryResult(BuildGraphQueryBaseResult(Arguments), Arguments);
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildShapedGraphQueryResult(const TSharedPtr<FJsonObject>& BaseResult, const TSharedPtr<FJsonObject>& Arguments) const
+{
+    if (!BaseResult.IsValid())
+    {
+        TSharedPtr<FJsonObject> ErrorResult = MakeShared<FJsonObject>();
+        ErrorResult->SetBoolField(TEXT("isError"), true);
+        ErrorResult->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+        ErrorResult->SetStringField(TEXT("message"), TEXT("graph.query produced an invalid result."));
+        return ErrorResult;
+    }
+
+    bool bIsError = false;
+    if (BaseResult->TryGetBoolField(TEXT("isError"), bIsError) && bIsError)
+    {
+        return CloneJsonObject(BaseResult);
+    }
+
+    TSharedPtr<FJsonObject> Result = CloneJsonObject(BaseResult);
+    if (!Result.IsValid())
+    {
+        return BaseResult;
+    }
+
+    const FGraphQueryShapeOptions ShapeOptions = ParseGraphQueryShapeOptions(Arguments);
+
+    const TSharedPtr<FJsonObject>* SnapshotObject = nullptr;
+    if (!Result->TryGetObjectField(TEXT("semanticSnapshot"), SnapshotObject) || SnapshotObject == nullptr || !(*SnapshotObject).IsValid())
+    {
+        return Result;
+    }
+
+    const TArray<TSharedPtr<FJsonValue>>* SnapshotNodes = nullptr;
+    const TArray<TSharedPtr<FJsonValue>>* SnapshotEdges = nullptr;
+    (*SnapshotObject)->TryGetArrayField(TEXT("nodes"), SnapshotNodes);
+    (*SnapshotObject)->TryGetArrayField(TEXT("edges"), SnapshotEdges);
+
+    TArray<TSharedPtr<FJsonValue>> ShapedNodes;
+    TArray<TSharedPtr<FJsonValue>> ShapedEdges;
+    TSet<FString> IncludedNodeIds;
+    TArray<FString> SignatureNodeTokens;
+    TArray<FString> SignatureEdgeTokens;
+    int32 MatchingNodeCount = 0;
+
+    if (SnapshotNodes != nullptr)
+    {
+        ShapedNodes.Reserve(FMath::Min(ShapeOptions.Limit, SnapshotNodes->Num()));
+        for (const TSharedPtr<FJsonValue>& NodeValue : *SnapshotNodes)
+        {
+            const TSharedPtr<FJsonObject>* NodeObject = nullptr;
+            if (!NodeValue.IsValid() || !NodeValue->TryGetObject(NodeObject) || NodeObject == nullptr || !(*NodeObject).IsValid())
+            {
+                continue;
+            }
+
+            if (!GraphQueryNodeMatchesShapeOptions(*NodeObject, ShapeOptions))
+            {
+                continue;
+            }
+
+            ++MatchingNodeCount;
+            if (ShapedNodes.Num() >= ShapeOptions.Limit)
+            {
+                continue;
+            }
+
+            FString NodeId;
+            (*NodeObject)->TryGetStringField(TEXT("id"), NodeId);
+            FString NodeGuid;
+            (*NodeObject)->TryGetStringField(TEXT("guid"), NodeGuid);
+            if (NodeId.IsEmpty())
+            {
+                NodeId = NodeGuid;
+            }
+
+            IncludedNodeIds.Add(NodeId);
+            SignatureNodeTokens.Add(NodeId);
+            ShapedNodes.Add(NodeValue);
+        }
+    }
+
+    for (const TSharedPtr<FJsonValue>& NodeValue : ShapedNodes)
+    {
+        const TSharedPtr<FJsonObject>* NodeObject = nullptr;
+        if (!NodeValue.IsValid() || !NodeValue->TryGetObject(NodeObject) || NodeObject == nullptr || !(*NodeObject).IsValid())
+        {
+            continue;
+        }
+        PruneGraphQueryNodeLinks(*NodeObject, IncludedNodeIds);
+    }
+
+    if (SnapshotEdges != nullptr)
+    {
+        ShapedEdges.Reserve(SnapshotEdges->Num());
+        for (const TSharedPtr<FJsonValue>& EdgeValue : *SnapshotEdges)
+        {
+            const TSharedPtr<FJsonObject>* EdgeObject = nullptr;
+            if (!EdgeValue.IsValid() || !EdgeValue->TryGetObject(EdgeObject) || EdgeObject == nullptr || !(*EdgeObject).IsValid())
+            {
+                continue;
+            }
+
+            FString FromNodeId;
+            FString ToNodeId;
+            FString FromPin;
+            FString ToPin;
+            (*EdgeObject)->TryGetStringField(TEXT("fromNodeId"), FromNodeId);
+            (*EdgeObject)->TryGetStringField(TEXT("toNodeId"), ToNodeId);
+            if (!IncludedNodeIds.Contains(FromNodeId) || !IncludedNodeIds.Contains(ToNodeId))
+            {
+                continue;
+            }
+
+            (*EdgeObject)->TryGetStringField(TEXT("fromPin"), FromPin);
+            (*EdgeObject)->TryGetStringField(TEXT("toPin"), ToPin);
+            SignatureEdgeTokens.Add(FromNodeId + TEXT("|") + FromPin + TEXT("->") + ToNodeId + TEXT("|") + ToPin);
+            ShapedEdges.Add(EdgeValue);
+        }
+    }
+
+    Algo::Sort(SignatureNodeTokens);
+    Algo::Sort(SignatureEdgeTokens);
+    const FString Signature = FString::Join(SignatureNodeTokens, TEXT(";")) + TEXT("#") + FString::Join(SignatureEdgeTokens, TEXT(";"));
+
+    (*SnapshotObject)->SetStringField(TEXT("signature"), Signature);
+    (*SnapshotObject)->SetArrayField(TEXT("nodes"), ShapedNodes);
+    (*SnapshotObject)->SetArrayField(TEXT("edges"), ShapedEdges);
+    Result->SetStringField(TEXT("revision"), BuildGraphQueryRevision(Result, Signature));
+
+    const TSharedPtr<FJsonObject>* MetaObject = nullptr;
+    if (!Result->TryGetObjectField(TEXT("meta"), MetaObject) || MetaObject == nullptr || !(*MetaObject).IsValid())
+    {
+        TSharedPtr<FJsonObject> NewMeta = MakeShared<FJsonObject>();
+        Result->SetObjectField(TEXT("meta"), NewMeta);
+        Result->TryGetObjectField(TEXT("meta"), MetaObject);
+    }
+
+    const int32 TotalNodes = SnapshotNodes ? SnapshotNodes->Num() : 0;
+    const int32 TotalEdges = SnapshotEdges ? SnapshotEdges->Num() : 0;
+    (*MetaObject)->SetNumberField(TEXT("totalNodes"), TotalNodes);
+    (*MetaObject)->SetNumberField(TEXT("returnedNodes"), ShapedNodes.Num());
+    (*MetaObject)->SetNumberField(TEXT("totalEdges"), TotalEdges);
+    (*MetaObject)->SetNumberField(TEXT("returnedEdges"), ShapedEdges.Num());
+    (*MetaObject)->SetBoolField(TEXT("truncated"), MatchingNodeCount > ShapedNodes.Num());
+
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
+    bool bBaseSnapshotRequest = false;
+    if (Arguments.IsValid())
+    {
+        Arguments->TryGetBoolField(TEXT("_loomleBaseSnapshot"), bBaseSnapshotRequest);
+    }
 
     const FString GraphType = GetGraphTypeFromArgs(Arguments);
     if (!IsSupportedGraphType(GraphType))
@@ -969,7 +1370,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
 
         TArray<FString> FilterClasses;
         const TSharedPtr<FJsonObject>* FilterObj = nullptr;
-        if (Arguments->TryGetObjectField(TEXT("filter"), FilterObj) && FilterObj && (*FilterObj).IsValid())
+        if (!bBaseSnapshotRequest && Arguments->TryGetObjectField(TEXT("filter"), FilterObj) && FilterObj && (*FilterObj).IsValid())
         {
             const TArray<TSharedPtr<FJsonValue>>* NodeClasses = nullptr;
             if ((*FilterObj)->TryGetArrayField(TEXT("nodeClasses"), NodeClasses) && NodeClasses)
@@ -985,11 +1386,15 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
             }
         }
 
-        int32 Limit = 200;
-        double LimitNumber = 0.0;
-        if (Arguments->TryGetNumberField(TEXT("limit"), LimitNumber))
+        int32 Limit = TNumericLimits<int32>::Max();
+        if (!bBaseSnapshotRequest)
         {
-            Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, 1000);
+            Limit = 200;
+            double LimitNumber = 0.0;
+            if (Arguments->TryGetNumberField(TEXT("limit"), LimitNumber))
+            {
+                Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, 1000);
+            }
         }
 
         TArray<TSharedPtr<FJsonValue>> Nodes;
@@ -1230,7 +1635,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
 
     TArray<FString> FilterClasses;
     const TSharedPtr<FJsonObject>* FilterObj = nullptr;
-    if (Arguments->TryGetObjectField(TEXT("filter"), FilterObj) && FilterObj && (*FilterObj).IsValid())
+    if (!bBaseSnapshotRequest && Arguments->TryGetObjectField(TEXT("filter"), FilterObj) && FilterObj && (*FilterObj).IsValid())
     {
         const TArray<TSharedPtr<FJsonValue>>* NodeClasses = nullptr;
         if ((*FilterObj)->TryGetArrayField(TEXT("nodeClasses"), NodeClasses) && NodeClasses)
@@ -1288,11 +1693,15 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
         FJsonSerializer::Deserialize(Reader, Nodes);
     }
 
-    int32 Limit = 200;
-    double LimitNumber = 0.0;
-    if (Arguments->TryGetNumberField(TEXT("limit"), LimitNumber))
+    int32 Limit = TNumericLimits<int32>::Max();
+    if (!bBaseSnapshotRequest)
     {
-        Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, 1000);
+        Limit = 200;
+        double LimitNumber = 0.0;
+        if (Arguments->TryGetNumberField(TEXT("limit"), LimitNumber))
+        {
+            Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, 1000);
+        }
     }
 
     TArray<TSharedPtr<FJsonValue>> SnapshotNodes;
