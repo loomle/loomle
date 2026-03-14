@@ -17,29 +17,25 @@ LOOMLE is now organized around a single repository and a single installed projec
 
 For a source checkout, the current path is:
 
-1. Build the Rust binaries:
+1. Build a local release:
 
 ```bash
-cd mcp/server && cargo build --release
-cd ../client && cargo build --release
-```
-
-2. Assemble a release bundle:
-
-```bash
-python3 packaging/bundle/assemble_release_bundle.py \
+python3 packaging/release/build_local_release.py \
   --repo-root /path/to/loomle \
   --output-dir /tmp/loomle-release \
   --platform darwin \
-  --server-binary /path/to/loomle/mcp/server/target/release/loomle_mcp_server \
-  --client-binary /path/to/loomle/mcp/client/target/release/loomle
+  --version 0.0.0-dev
 ```
 
-3. Build a manifest entry and install into a UE project:
+2. Or build and install directly into a UE project:
 
 ```bash
-python3 packaging/bundle/build_release_manifest.py ...
-python3 packaging/install/install_release.py ...
+python3 packaging/install/install_from_checkout.py \
+  --repo-root /path/to/loomle \
+  --project-root /path/to/MyProject \
+  --output-dir /tmp/loomle-install-build \
+  --platform darwin \
+  --version 0.0.0-dev
 ```
 
 See [docs/REPO_STRUCTURE.md](/Users/xartest/dev/loomle/docs/REPO_STRUCTURE.md) for the target repository, release, and installed-project structure.

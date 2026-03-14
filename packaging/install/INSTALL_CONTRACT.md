@@ -115,6 +115,11 @@ An installer must:
 4. avoid requiring a separate skill repository install
 5. be idempotent for repeated installs of the same version
 
+Source-checkout helper entrypoints:
+
+- `packaging/release/build_local_release.py`
+- `packaging/install/install_from_checkout.py`
+
 ## 6. Source-of-Truth Rule
 
 The release manifest determines:
