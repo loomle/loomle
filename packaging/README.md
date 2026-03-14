@@ -11,3 +11,4 @@ Canonical release helper paths:
 - `packaging/bundle/build_release_manifest.py`
 - `packaging/manifests/`
 - `packaging/install/`
+- `packaging/install/install_release.py`
