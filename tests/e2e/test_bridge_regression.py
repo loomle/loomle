@@ -13,8 +13,8 @@ from test_bridge_smoke import (
     fail,
     make_temp_asset_path,
     parse_execute_json,
+    resolve_default_loomle_binary,
     resolve_project_root,
-    resolve_default_server_binary,
 )
 
 
@@ -161,7 +161,7 @@ def require_resolved_asset_path(payload: dict, expected_asset_path: str) -> dict
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Deep regression validation for Loomle bridge through MCP stdio")
+    parser = argparse.ArgumentParser(description="Deep regression validation for LOOMLE bridge through loomle session")
     parser.add_argument(
         "--project-root",
         default="",
@@ -179,15 +179,25 @@ def main() -> int:
         help="Temporary blueprint asset prefix",
     )
     parser.add_argument(
-        "--mcp-server-bin",
+        "--loomle-bin",
         default="",
-        help="Override path to MCP server binary. Defaults to <project>/Plugins/LoomleBridge/Tools/mcp/<platform>/...",
+        help="Override path to the loomle client binary. Defaults to <repo>/mcp/client/target/release/loomle(.exe).",
+    )
+    parser.add_argument(
+        "--mcp-server-bin",
+        dest="loomle_bin_compat",
+        default="",
+        help=argparse.SUPPRESS,
     )
     args = parser.parse_args()
 
     project_root = resolve_project_root(args.project_root, args.dev_config)
     server_binary = (
-        Path(args.mcp_server_bin).resolve() if args.mcp_server_bin else resolve_default_server_binary(project_root)
+        Path(args.loomle_bin).resolve()
+        if args.loomle_bin
+        else Path(args.loomle_bin_compat).resolve()
+        if args.loomle_bin_compat
+        else resolve_default_loomle_binary()
     )
 
     if not project_root.exists():

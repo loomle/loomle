@@ -14,14 +14,12 @@ pub type LoomleClient = rmcp::service::RunningService<rmcp::service::RoleClient,
 #[derive(Debug, Clone)]
 pub struct Environment {
     pub project_root: PathBuf,
-    pub workspace_root: PathBuf,
     pub plugin_root: PathBuf,
     pub server_path: PathBuf,
 }
 
 impl Environment {
     pub fn for_project_root(project_root: PathBuf) -> Self {
-        let workspace_root = project_root.join("Loomle");
         let plugin_root = project_root.join("Plugins").join("LoomleBridge");
         let server_path = plugin_root
             .join("Tools")
@@ -31,7 +29,6 @@ impl Environment {
 
         Self {
             project_root,
-            workspace_root,
             plugin_root,
             server_path,
         }

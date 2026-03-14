@@ -65,16 +65,15 @@ def is_tool_error_payload(payload: dict[str, Any]) -> bool:
 class McpStdioClient:
     def __init__(self, project_root: Path, server_binary: Path, timeout_s: float) -> None:
         if not server_binary.exists():
-            fail(f"mcp_server binary not found: {server_binary}")
+            fail(f"loomle binary not found: {server_binary}")
         if not server_binary.is_file():
-            fail(f"mcp_server binary path is not a file: {server_binary}")
-        plugin_root = project_root / "Plugins" / "LoomleBridge"
-        if not plugin_root.is_dir():
-            fail(f"LoomleBridge plugin root not found: {plugin_root}")
+            fail(f"loomle binary path is not a file: {server_binary}")
+        if not any(project_root.glob("*.uproject")):
+            fail(f"no .uproject found under: {project_root}")
 
         self.proc = subprocess.Popen(
-            [str(server_binary), "--project-root", str(project_root)],
-            cwd=str(plugin_root),
+            [str(server_binary), "--project-root", str(project_root), "session"],
+            cwd=str(project_root),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -137,16 +136,15 @@ class McpStdioClient:
 
     def request(self, req_id: int, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if self.proc.stdin is None:
-            fail("mcp stdio is not available")
+            fail("loomle session stdin is not available")
 
         pending = self._pending_responses.pop(req_id, None)
         if pending is not None:
-            if "error" in pending:
-                fail(f"JSON-RPC error for {method}: {pending['error']}")
+            if not pending.get("ok", False):
+                fail(f"session error for {method}: {pending.get('error')}")
             return pending
 
         payload = {
-            "jsonrpc": "2.0",
             "id": req_id,
             "method": method,
             "params": params,
@@ -158,11 +156,11 @@ class McpStdioClient:
         while time.time() < deadline:
             if self.proc.poll() is not None:
                 err = self._stderr_snapshot()
-                fail(f"mcp_server exited early: {err}")
+                fail(f"loomle session exited early: {err}")
             if self._reader_error is not None:
-                fail(f"mcp_server stdout reader failed: {self._reader_error}")
+                fail(f"loomle session stdout reader failed: {self._reader_error}")
             if self._stderr_reader_error is not None:
-                fail(f"mcp_server stderr reader failed: {self._stderr_reader_error}")
+                fail(f"loomle session stderr reader failed: {self._stderr_reader_error}")
             wait_s = max(0.0, deadline - time.time())
             try:
                 line = self._stdout_queue.get(timeout=min(0.1, wait_s))
@@ -186,8 +184,8 @@ class McpStdioClient:
                         self._pending_responses.pop(next(iter(self._pending_responses)))
                 continue
 
-            if "error" in frame:
-                fail(f"JSON-RPC error for {method}: {frame['error']}")
+            if not frame.get("ok", False):
+                fail(f"session error for {method}: {frame.get('error')}")
             return frame
 
         stderr_tail = self._stderr_snapshot()
@@ -254,22 +252,20 @@ def resolve_project_root(project_root_arg: str, dev_config_path_arg: str) -> Pat
     return Path(value).resolve()
 
 
-def resolve_default_server_binary(project_root: Path) -> Path:
-    platform_key = sys.platform
-    if platform_key == "darwin":
-        platform_dir = "darwin"
-        binary_name = "loomle_mcp_server"
-    elif platform_key.startswith("linux"):
-        platform_dir = "linux"
-        binary_name = "loomle_mcp_server"
-    elif platform_key.startswith("win"):
-        platform_dir = "windows"
-        binary_name = "loomle_mcp_server.exe"
-    else:
-        fail(f"unsupported platform for mcp_server binary: {platform_key}")
-        raise RuntimeError("unreachable")
+def resolve_default_loomle_binary() -> Path:
+    repo_root = Path(__file__).resolve().parents[2]
+    binary_name = "loomle.exe" if sys.platform.startswith("win") else "loomle"
+    return repo_root / "mcp" / "client" / "target" / "release" / binary_name
 
-    return project_root / "Plugins" / "LoomleBridge" / "Tools" / "mcp" / platform_dir / binary_name
+
+def resolve_default_server_binary(project_root: Path) -> Path:
+    _ = project_root
+    return resolve_default_loomle_binary()
+
+
+def resolve_default_client_binary(project_root: Path) -> Path:
+    _ = project_root
+    return resolve_default_loomle_binary()
 
 
 def call_tool(
@@ -350,7 +346,7 @@ def parse_execute_json(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Verify Loomle bridge through MCP stdio server")
+    parser = argparse.ArgumentParser(description="Verify LOOMLE bridge through loomle session")
     parser.add_argument(
         "--project-root",
         default="",
@@ -368,15 +364,25 @@ def main() -> int:
         help="Temporary blueprint asset prefix",
     )
     parser.add_argument(
-        "--mcp-server-bin",
+        "--loomle-bin",
         default="",
-        help="Override path to MCP server binary. Defaults to <project>/Plugins/LoomleBridge/Tools/mcp/<platform>/...",
+        help="Override path to the loomle client binary. Defaults to <repo>/mcp/client/target/release/loomle(.exe).",
+    )
+    parser.add_argument(
+        "--mcp-server-bin",
+        dest="loomle_bin_compat",
+        default="",
+        help=argparse.SUPPRESS,
     )
     args = parser.parse_args()
 
     project_root = resolve_project_root(args.project_root, args.dev_config)
     server_binary = (
-        Path(args.mcp_server_bin).resolve() if args.mcp_server_bin else resolve_default_server_binary(project_root)
+        Path(args.loomle_bin).resolve()
+        if args.loomle_bin
+        else Path(args.loomle_bin_compat).resolve()
+        if args.loomle_bin_compat
+        else resolve_default_loomle_binary()
     )
 
     if not project_root.exists():

@@ -7,7 +7,7 @@ from test_bridge_smoke import (
     McpStdioClient,
     call_execute_exec_with_retry,
     fail,
-    resolve_default_server_binary,
+    resolve_default_loomle_binary,
     resolve_project_root,
 )
 
@@ -26,9 +26,15 @@ def main() -> int:
     )
     parser.add_argument("--timeout", type=float, default=20.0, help="Per-request timeout seconds")
     parser.add_argument(
-        "--mcp-server-bin",
+        "--loomle-bin",
         default="",
-        help="Override path to MCP server binary. Defaults to <project>/Plugins/LoomleBridge/Tools/mcp/<platform>/...",
+        help="Override path to the loomle client binary. Defaults to <repo>/mcp/client/target/release/loomle(.exe).",
+    )
+    parser.add_argument(
+        "--mcp-server-bin",
+        dest="loomle_bin_compat",
+        default="",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--scan-root",
@@ -39,15 +45,24 @@ def main() -> int:
         "--prefix",
         action="append",
         default=[],
-        help="Asset name prefix to delete. Can be repeated. Defaults: BP_BridgeVerify_, BP_BridgeRegression_",
+        help="Asset name prefix to delete. Can be repeated. Defaults: BP_BridgeVerify_, BP_BridgeRegression_, PCG_BridgeRegression_, M_RegressionLayout_",
     )
     parser.add_argument("--dry-run", action="store_true", help="Only list matched assets, do not delete")
     args = parser.parse_args()
 
-    prefixes = args.prefix or ["BP_BridgeVerify_", "BP_BridgeRegression_", "PCG_BridgeRegression_"]
+    prefixes = args.prefix or [
+        "BP_BridgeVerify_",
+        "BP_BridgeRegression_",
+        "PCG_BridgeRegression_",
+        "M_RegressionLayout_",
+    ]
     project_root = resolve_project_root(args.project_root, args.dev_config)
     server_binary = (
-        Path(args.mcp_server_bin).resolve() if args.mcp_server_bin else resolve_default_server_binary(project_root)
+        Path(args.loomle_bin).resolve()
+        if args.loomle_bin
+        else Path(args.loomle_bin_compat).resolve()
+        if args.loomle_bin_compat
+        else resolve_default_loomle_binary()
     )
 
     if not project_root.exists():

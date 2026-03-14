@@ -172,7 +172,12 @@ impl Cli {
 #[derive(Debug, Deserialize)]
 struct SessionRequest {
     id: Value,
-    tool: String,
+    #[serde(default)]
+    method: Option<String>,
+    #[serde(default)]
+    params: Option<Value>,
+    #[serde(default)]
+    tool: Option<String>,
     #[serde(default)]
     arguments: Option<Value>,
 }
@@ -182,17 +187,9 @@ fn run_doctor(env_info: &Environment) -> ExitCode {
 
     println!("LOOMLE client");
     println!("project_root={}", env_info.project_root.display());
-    println!("workspace_root={}", env_info.workspace_root.display());
     println!("plugin_root={}", env_info.plugin_root.display());
     println!("server_path={}", env_info.server_path.display());
 
-    if !env_info.workspace_root.is_dir() {
-        ok = false;
-        eprintln!(
-            "[loomle][ERROR] workspace root not found: {}",
-            env_info.workspace_root.display()
-        );
-    }
     if !env_info.plugin_root.is_dir() {
         ok = false;
         eprintln!(
@@ -366,36 +363,120 @@ async fn handle_session_request(
     peer: rmcp::service::Peer<rmcp::service::RoleClient>,
     request: SessionRequest,
 ) -> String {
-    let arguments = match request.arguments {
-        Some(Value::Object(object)) => object,
-        Some(_) => {
-            return json!({
+    let requested_method = request
+        .method
+        .clone()
+        .or_else(|| request.tool.as_ref().map(|_| String::from("tools/call")))
+        .unwrap_or_default();
+
+    match requested_method.as_str() {
+        "initialize" => {
+            let result = peer.peer_info().cloned().unwrap_or_default();
+            json!({
+                "jsonrpc": "2.0",
+                "id": request.id,
+                "ok": true,
+                "result": result
+            })
+            .to_string()
+        }
+        "tools/list" => match peer.list_all_tools().await {
+            Ok(tools) => json!({
+                "jsonrpc": "2.0",
+                "id": request.id,
+                "ok": true,
+                "result": {
+                    "tools": tools
+                }
+            })
+            .to_string(),
+            Err(error) => json!({
+                "jsonrpc": "2.0",
                 "id": request.id,
                 "ok": false,
-                "error": "session request arguments must be a JSON object"
+                "error": error.to_string()
             })
-            .to_string();
-        }
-        None => serde_json::Map::new(),
-    };
+            .to_string(),
+        },
+        "tools/call" => {
+            let (tool_name, arguments) = match session_tool_call_parts(&request) {
+                Ok(parts) => parts,
+                Err(error) => {
+                    return json!({
+                        "jsonrpc": "2.0",
+                        "id": request.id,
+                        "ok": false,
+                        "error": error
+                    })
+                    .to_string();
+                }
+            };
 
-    match peer
-        .call_tool(CallToolRequestParams::new(request.tool).with_arguments(arguments))
-        .await
-    {
-        Ok(result) => json!({
-            "id": request.id,
-            "ok": true,
-            "result": result
-        })
-        .to_string(),
-        Err(error) => json!({
+            match peer
+                .call_tool(CallToolRequestParams::new(tool_name).with_arguments(arguments))
+                .await
+            {
+                Ok(result) => json!({
+                    "jsonrpc": "2.0",
+                    "id": request.id,
+                    "ok": true,
+                    "result": result
+                })
+                .to_string(),
+                Err(error) => json!({
+                    "jsonrpc": "2.0",
+                    "id": request.id,
+                    "ok": false,
+                    "error": error.to_string()
+                })
+                .to_string(),
+            }
+        }
+        _ => json!({
+            "jsonrpc": "2.0",
             "id": request.id,
             "ok": false,
-            "error": error.to_string()
+            "error": format!("unsupported session method: {}", requested_method)
         })
         .to_string(),
     }
+}
+
+fn session_tool_call_parts(
+    request: &SessionRequest,
+) -> Result<(String, serde_json::Map<String, Value>), String> {
+    if let Some(tool) = &request.tool {
+        let arguments = match &request.arguments {
+            Some(Value::Object(object)) => object.clone(),
+            Some(_) => {
+                return Err(String::from(
+                    "session request arguments must be a JSON object",
+                ))
+            }
+            None => serde_json::Map::new(),
+        };
+        return Ok((tool.clone(), arguments));
+    }
+
+    let params = request
+        .params
+        .as_ref()
+        .and_then(Value::as_object)
+        .ok_or_else(|| String::from("tools/call requires params object"))?;
+    let tool_name = params
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| String::from("tools/call requires params.name"))?;
+    let arguments = match params.get("arguments") {
+        Some(Value::Object(object)) => object.clone(),
+        Some(_) => {
+            return Err(String::from(
+                "tools/call requires params.arguments to be an object",
+            ))
+        }
+        None => serde_json::Map::new(),
+    };
+    Ok((tool_name.to_owned(), arguments))
 }
 
 async fn run_call(

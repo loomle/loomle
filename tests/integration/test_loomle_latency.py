@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 import argparse
 import statistics
+import sys
 import threading
 import time
 from pathlib import Path
 
+THIS_DIR = Path(__file__).resolve().parent
+E2E_DIR = THIS_DIR.parent / "e2e"
+if str(E2E_DIR) not in sys.path:
+    sys.path.insert(0, str(E2E_DIR))
+
 from test_bridge_regression import wait_for_bridge_ready
-from test_bridge_smoke import McpStdioClient, call_tool, fail, resolve_default_server_binary, resolve_project_root
+from test_bridge_smoke import McpStdioClient, call_tool, fail, resolve_default_loomle_binary, resolve_project_root
 
 
 def percentile(values: list[float], p: float) -> float:
@@ -124,9 +130,15 @@ def main() -> int:
         help="Optional path to dev project-root config JSON (default: tools/dev.project-root.local.json)",
     )
     parser.add_argument(
-        "--mcp-server-bin",
+        "--loomle-bin",
         default="",
-        help="Override path to MCP server binary. Defaults to <project>/Plugins/LoomleBridge/Tools/mcp/<platform>/...",
+        help="Override path to the loomle client binary. Defaults to <repo>/mcp/client/target/release/loomle(.exe).",
+    )
+    parser.add_argument(
+        "--mcp-server-bin",
+        dest="loomle_bin_compat",
+        default="",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument("--timeout", type=float, default=2.0, help="Per-request timeout seconds for validation clients")
     parser.add_argument("--warmup", type=int, default=5, help="Warmup loomle calls before measuring")
@@ -142,7 +154,11 @@ def main() -> int:
 
     project_root = resolve_project_root(args.project_root, args.dev_config)
     server_binary = (
-        Path(args.mcp_server_bin).resolve() if args.mcp_server_bin else resolve_default_server_binary(project_root)
+        Path(args.loomle_bin).resolve()
+        if args.loomle_bin
+        else Path(args.loomle_bin_compat).resolve()
+        if args.loomle_bin_compat
+        else resolve_default_loomle_binary()
     )
 
     if not project_root.exists():
