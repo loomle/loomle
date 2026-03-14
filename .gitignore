@@ -26,3 +26,7 @@ tools/dev.project-root.local.json
 
 # Generated MCP binaries synced for local runs (never commit)
 tools/mcp/
+
+# Local exploratory notes and summaries
+tools/layout_overnight_summary.json
+tools/layout_overnight_summary.md
