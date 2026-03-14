@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LOOMLE</title>
+    <meta
+      name="description"
+      content="Install LOOMLE from loomle.ai. Paste the prompt into your coding agent from the Unreal project root."
+    />
+    <style>
+      :root {
+        --bg: #f4f0e6;
+        --ink: #17130f;
+        --muted: #6b5f52;
+        --panel: rgba(255, 251, 244, 0.82);
+        --line: rgba(23, 19, 15, 0.12);
+        --accent: #b44c2f;
+        --accent-ink: #fff8f1;
+        --shadow: 0 24px 80px rgba(47, 33, 16, 0.14);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(180, 76, 47, 0.16), transparent 28rem),
+          radial-gradient(circle at bottom right, rgba(39, 88, 79, 0.12), transparent 24rem),
+          linear-gradient(180deg, #f7f2e9, var(--bg));
+        min-height: 100vh;
+      }
+
+      main {
+        width: min(100%, 72rem);
+        margin: 0 auto;
+        padding: 3rem 1.25rem 5rem;
+      }
+
+      .hero {
+        background: var(--panel);
+        backdrop-filter: blur(8px);
+        border: 1px solid var(--line);
+        border-radius: 1.75rem;
+        box-shadow: var(--shadow);
+        padding: 2rem;
+      }
+
+      .eyebrow {
+        margin: 0 0 0.75rem;
+        font-size: 0.85rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(2.1rem, 6vw, 4.4rem);
+        line-height: 0.94;
+        max-width: 12ch;
+      }
+
+      .subcopy {
+        margin: 1rem 0 0;
+        font-size: 1.05rem;
+        color: var(--muted);
+        max-width: 36rem;
+      }
+
+      .prompt {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 0.75rem;
+        margin-top: 1.75rem;
+        padding: 0.9rem;
+        background: rgba(255, 255, 255, 0.72);
+        border: 1px solid var(--line);
+        border-radius: 1rem;
+      }
+
+      .prompt code {
+        display: block;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 0.98rem;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      button {
+        border: 0;
+        border-radius: 0.9rem;
+        background: var(--accent);
+        color: var(--accent-ink);
+        padding: 0.8rem 1rem;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button:hover {
+        filter: brightness(1.04);
+      }
+
+      .body {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+        gap: 1rem;
+        margin-top: 1.5rem;
+      }
+
+      section.card {
+        background: rgba(255, 252, 246, 0.78);
+        border: 1px solid var(--line);
+        border-radius: 1.25rem;
+        padding: 1.15rem 1.2rem;
+      }
+
+      h2 {
+        margin: 0 0 0.75rem;
+        font-size: 1.05rem;
+      }
+
+      p,
+      li {
+        font-size: 0.98rem;
+        line-height: 1.55;
+      }
+
+      ul {
+        margin: 0.6rem 0 0;
+        padding-left: 1.1rem;
+      }
+
+      pre {
+        margin: 0.6rem 0 0;
+        padding: 0.85rem 0.95rem;
+        overflow-x: auto;
+        border-radius: 0.9rem;
+        background: rgba(23, 19, 15, 0.06);
+        border: 1px solid rgba(23, 19, 15, 0.08);
+        font-size: 0.92rem;
+        line-height: 1.45;
+      }
+
+      .footer {
+        margin-top: 1.25rem;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      @media (max-width: 640px) {
+        .prompt {
+          grid-template-columns: 1fr;
+        }
+
+        button {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="hero">
+        <p class="eyebrow">LOOMLE</p>
+        <h1>Install LOOMLE from loomle.ai</h1>
+        <p class="subcopy">Paste this into your coding agent from the Unreal project root.</p>
+
+        <div class="prompt">
+          <code id="prompt">Install LOOMLE from loomle.ai</code>
+          <button id="copyButton" type="button">Copy Prompt</button>
+        </div>
+      </div>
+
+      <div class="body">
+        <section class="card" id="what-gets-installed">
+          <h2>What LOOMLE installs</h2>
+          <p>LOOMLE installs two things into an Unreal project:</p>
+          <ul>
+            <li><code>Plugins/LoomleBridge</code></li>
+            <li><code>Loomle/</code></li>
+          </ul>
+        </section>
+
+        <section class="card" id="agent-install">
+          <h2>Agent install instructions</h2>
+          <p>If LOOMLE is not yet available on this machine, acquire the global <code>loomle</code> CLI first. Then install LOOMLE into the current Unreal project by running:</p>
+          <pre><code>loomle install --project-root &lt;ProjectRoot&gt;</code></pre>
+        </section>
+
+        <section class="card" id="bootstrap">
+          <h2>Bootstrap</h2>
+          <p>If the machine does not yet have the <code>loomle</code> command:</p>
+          <pre><code>macOS / Linux:
+curl -fsSL https://loomle.ai/install.sh | sh
+
+Windows PowerShell:
+irm https://loomle.ai/install.ps1 | iex</code></pre>
+        </section>
+
+        <section class="card" id="verification">
+          <h2>Verify</h2>
+          <p>After installation, verify the setup:</p>
+          <pre><code>loomle doctor</code></pre>
+          <p>Expected project layout:</p>
+          <ul>
+            <li><code>Plugins/LoomleBridge/</code></li>
+            <li><code>Loomle/</code></li>
+          </ul>
+        </section>
+      </div>
+
+      <p class="footer">
+        Agents should treat this page as the canonical install instruction source for LOOMLE.
+        If LOOMLE is already installed, the same command path should be used for upgrade or repair.
+      </p>
+    </main>
+
+    <script>
+      const promptEl = document.getElementById("prompt");
+      const copyButton = document.getElementById("copyButton");
+      copyButton.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(promptEl.textContent.trim());
+          copyButton.textContent = "Copied";
+          setTimeout(() => {
+            copyButton.textContent = "Copy Prompt";
+          }, 1200);
+        } catch (error) {
+          copyButton.textContent = "Copy failed";
+        }
+      });
+    </script>
+  </body>
+</html>
