@@ -6,6 +6,8 @@ use std::env;
 use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{mpsc, Arc};
+use std::thread;
 use std::time::Instant;
 
 /// Maximum allowed line length (16 MiB). Requests exceeding this are rejected
@@ -14,6 +16,19 @@ const MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
 
 fn log(level: &str, msg: &str) {
     eprintln!("[loomle-mcp][{level}] {msg}");
+}
+
+struct RequestTask {
+    request_count: u64,
+    method: String,
+    request: Value,
+}
+
+struct CompletedResponse {
+    request_count: u64,
+    method: String,
+    response: Value,
+    elapsed_ms: u128,
 }
 
 fn main() {
@@ -35,13 +50,40 @@ fn main() {
     );
 
     let connector = NdjsonRpcConnector::new(RpcEndpoint::for_project_root(&project_root));
-    let service = McpService::new(connector);
+    let service = Arc::new(McpService::new(connector));
+    let worker_count = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .clamp(2, 16);
+    let max_pending_tasks = worker_count * 32;
+
+    log(
+        "INFO",
+        &format!(
+            "concurrent intake enabled workers={worker_count} max-pending-tasks={max_pending_tasks}"
+        ),
+    );
 
     let stdin = io::stdin();
     let mut reader = BufReader::new(stdin.lock());
-    let mut stdout = io::stdout();
     let mut buf = Vec::new();
     let mut request_count: u64 = 0;
+    let (task_tx, task_rx) = mpsc::sync_channel::<RequestTask>(max_pending_tasks);
+    let (response_tx, response_rx) = mpsc::channel::<CompletedResponse>();
+    let response_tx_main = response_tx.clone();
+    let shared_task_rx = Arc::new(std::sync::Mutex::new(task_rx));
+    let writer = thread::spawn(move || writer_loop(response_rx));
+    let mut workers = Vec::with_capacity(worker_count);
+
+    for worker_idx in 0..worker_count {
+        let task_rx = Arc::clone(&shared_task_rx);
+        let response_tx = response_tx.clone();
+        let service = Arc::clone(&service);
+        workers.push(thread::spawn(move || {
+            worker_loop(worker_idx, service, task_rx, response_tx);
+        }));
+    }
+    drop(response_tx);
 
     loop {
         buf.clear();
@@ -56,18 +98,19 @@ fn main() {
                 "WARN",
                 &format!("rejecting oversized request ({} bytes)", buf.len()),
             );
-            let response = json!({
-                "jsonrpc": "2.0",
-                "id": null,
-                "error": {
-                    "code": -32700,
-                    "message": "Parse error",
-                    "data": {
-                        "detail": format!("request exceeds maximum line length of {} bytes", MAX_LINE_BYTES)
-                    }
-                }
-            });
-            if write_response(&mut stdout, &response).is_err() {
+            request_count += 1;
+            let response = parse_error_response(format!(
+                "request exceeds maximum line length of {} bytes",
+                MAX_LINE_BYTES
+            ));
+            if send_completed_response(
+                &response_tx_main,
+                request_count,
+                String::from("parse_error"),
+                response,
+            )
+            .is_err()
+            {
                 break;
             }
             continue;
@@ -85,18 +128,16 @@ fn main() {
             Ok(v) => v,
             Err(e) => {
                 log("WARN", &format!("parse error: {e}"));
-                let response = json!({
-                    "jsonrpc": "2.0",
-                    "id": null,
-                    "error": {
-                        "code": -32700,
-                        "message": "Parse error",
-                        "data": {
-                            "detail": e.to_string()
-                        }
-                    }
-                });
-                if write_response(&mut stdout, &response).is_err() {
+                request_count += 1;
+                let response = parse_error_response(e.to_string());
+                if send_completed_response(
+                    &response_tx_main,
+                    request_count,
+                    String::from("parse_error"),
+                    response,
+                )
+                .is_err()
+                {
                     break;
                 }
                 continue;
@@ -117,32 +158,132 @@ fn main() {
             "DEBUG",
             &format!("req#{request_count} method={method} id={id_str}"),
         );
-
-        let start = Instant::now();
-        if let Some(response) = handle_request(&service, request) {
-            let elapsed_ms = start.elapsed().as_millis();
-            let has_error = response.get("error").is_some();
-            if has_error {
-                log(
-                    "WARN",
-                    &format!("req#{request_count} method={method} error elapsed={elapsed_ms}ms"),
-                );
-            } else {
-                log(
-                    "DEBUG",
-                    &format!("req#{request_count} method={method} ok elapsed={elapsed_ms}ms"),
-                );
-            }
-            if write_response(&mut stdout, &response).is_err() {
-                break;
-            }
+        if task_tx
+            .send(RequestTask {
+                request_count,
+                method,
+                request,
+            })
+            .is_err()
+        {
+            break;
         }
     }
+
+    drop(task_tx);
+    for worker in workers {
+        let _ = worker.join();
+    }
+    drop(response_tx_main);
+    let _ = writer.join();
 
     log(
         "INFO",
         &format!("shutting down after {request_count} requests"),
     );
+}
+
+fn worker_loop(
+    worker_idx: usize,
+    service: Arc<McpService<NdjsonRpcConnector>>,
+    task_rx: Arc<std::sync::Mutex<mpsc::Receiver<RequestTask>>>,
+    response_tx: mpsc::Sender<CompletedResponse>,
+) {
+    loop {
+        let task = {
+            let rx = match task_rx.lock() {
+                Ok(rx) => rx,
+                Err(_) => return,
+            };
+            match rx.recv() {
+                Ok(task) => task,
+                Err(_) => return,
+            }
+        };
+
+        let start = Instant::now();
+        if let Some(response) = handle_request(&service, task.request) {
+            let elapsed_ms = start.elapsed().as_millis();
+            if response_tx
+                .send(CompletedResponse {
+                    request_count: task.request_count,
+                    method: task.method,
+                    response,
+                    elapsed_ms,
+                })
+                .is_err()
+            {
+                return;
+            }
+        } else {
+            log(
+                "DEBUG",
+                &format!(
+                    "worker#{worker_idx} req#{} method={} notification completed",
+                    task.request_count, task.method
+                ),
+            );
+        }
+    }
+}
+
+fn writer_loop(response_rx: mpsc::Receiver<CompletedResponse>) {
+    let mut stdout = io::stdout();
+    for completed in response_rx {
+        let has_error = completed.response.get("error").is_some();
+        if has_error {
+            log(
+                "WARN",
+                &format!(
+                    "req#{} method={} error elapsed={}ms",
+                    completed.request_count, completed.method, completed.elapsed_ms
+                ),
+            );
+        } else {
+            log(
+                "DEBUG",
+                &format!(
+                    "req#{} method={} ok elapsed={}ms",
+                    completed.request_count, completed.method, completed.elapsed_ms
+                ),
+            );
+        }
+
+        if let Err(err) = write_response(&mut stdout, &completed.response) {
+            log("ERROR", &format!("stdout write failed: {err}"));
+            break;
+        }
+    }
+}
+
+fn parse_error_response(detail: String) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": null,
+        "error": {
+            "code": -32700,
+            "message": "Parse error",
+            "data": {
+                "detail": detail
+            }
+        }
+    })
+}
+
+fn send_completed_response(
+    response_tx: &mpsc::Sender<CompletedResponse>,
+    request_count: u64,
+    method: String,
+    response: Value,
+) -> Result<(), ()> {
+    response_tx
+        .send(CompletedResponse {
+            request_count,
+            method,
+            response,
+            elapsed_ms: 0,
+        })
+        .map_err(|_| ())
 }
 
 fn write_response(stdout: &mut impl Write, response: &Value) -> io::Result<()> {
