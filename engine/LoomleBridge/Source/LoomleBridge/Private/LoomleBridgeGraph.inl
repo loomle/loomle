@@ -23,6 +23,54 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
     }
     AssetPath = NormalizeAssetPath(AssetPath);
 
+    bool bIncludeSubgraphs = false;
+    Arguments->TryGetBoolField(TEXT("includeSubgraphs"), bIncludeSubgraphs);
+
+    int32 MaxDepth = 1;
+    double MaxDepthNumber = 1.0;
+    if (Arguments->TryGetNumberField(TEXT("maxDepth"), MaxDepthNumber))
+    {
+        MaxDepth = FMath::Clamp(static_cast<int32>(MaxDepthNumber), 0, 8);
+    }
+
+    const FString AssetScopeKey = MakeGraphQueryAssetScopeKey(GraphType, AssetPath);
+    const FString CacheKey = FString::Printf(
+        TEXT("graph.list|%s|%s|includeSubgraphs=%d|maxDepth=%d"),
+        *GraphType.ToLower(),
+        *AssetPath,
+        bIncludeSubgraphs ? 1 : 0,
+        MaxDepth);
+    if (!CacheKey.IsEmpty())
+    {
+        TSharedPtr<FJsonObject> CachedResult;
+        if (TryGetCachedGraphQueryResult(CacheKey, AssetScopeKey, CachedResult))
+        {
+            return CachedResult;
+        }
+    }
+
+    if (!IsInGameThread())
+    {
+        TPromise<TSharedPtr<FJsonObject>> ResultPromise;
+        TFuture<TSharedPtr<FJsonObject>> ResultFuture = ResultPromise.GetFuture();
+        const TSharedPtr<FJsonObject> ArgumentsCopy = CloneJsonObject(Arguments);
+        AsyncTask(ENamedThreads::GameThread, [this, ArgumentsCopy, Promise = MoveTemp(ResultPromise)]() mutable
+        {
+            Promise.SetValue(BuildGraphListToolResult(ArgumentsCopy));
+        });
+
+        static constexpr uint32 GraphListGameThreadTimeoutMs = 30000;
+        if (ResultFuture.WaitFor(FTimespan::FromMilliseconds(GraphListGameThreadTimeoutMs)))
+        {
+            return ResultFuture.Get();
+        }
+
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+        Result->SetStringField(TEXT("message"), TEXT("graph.list timed out waiting for Game Thread capture."));
+        return Result;
+    }
+
     // Helper: build an asset-kind GraphRef JSON object.
     auto MakeAssetGraphRef = [](const FString& RefAssetPath, const FString& RefGraphName) -> TSharedPtr<FJsonObject>
     {
@@ -45,16 +93,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
         Ref->SetStringField(TEXT("assetPath"), RefAssetPath);
         return Ref;
     };
-
-    bool bIncludeSubgraphs = false;
-    Arguments->TryGetBoolField(TEXT("includeSubgraphs"), bIncludeSubgraphs);
-
-    int32 MaxDepth = 1;
-    double MaxDepthNumber = 1.0;
-    if (Arguments->TryGetNumberField(TEXT("maxDepth"), MaxDepthNumber))
-    {
-        MaxDepth = FMath::Clamp(static_cast<int32>(MaxDepthNumber), 0, 8);
-    }
 
     if (GraphType.Equals(TEXT("material")))
     {
@@ -114,6 +152,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
         Result->SetStringField(TEXT("assetPath"), AssetPath);
         Result->SetArrayField(TEXT("graphs"), Graphs);
         Result->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
+        StoreCachedGraphQueryResult(CacheKey, AssetScopeKey, Result);
         return Result;
     }
 
@@ -220,6 +259,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
         Result->SetStringField(TEXT("assetPath"), AssetPath);
         Result->SetArrayField(TEXT("graphs"), Graphs);
         Result->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
+        StoreCachedGraphQueryResult(CacheKey, AssetScopeKey, Result);
         return Result;
     }
 
@@ -342,6 +382,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
     Result->SetStringField(TEXT("assetPath"), AssetPath);
     Result->SetArrayField(TEXT("graphs"), Graphs);
     Result->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
+    StoreCachedGraphQueryResult(CacheKey, AssetScopeKey, Result);
     return Result;
 }
 
@@ -619,6 +660,28 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
         {
             return BuildShapedGraphQueryResult(CachedResult, QueryFilter, QueryLimit, true);
         }
+    }
+
+    if (!IsInGameThread())
+    {
+        TPromise<TSharedPtr<FJsonObject>> ResultPromise;
+        TFuture<TSharedPtr<FJsonObject>> ResultFuture = ResultPromise.GetFuture();
+        const TSharedPtr<FJsonObject> ArgumentsCopy = CloneJsonObject(Arguments);
+        AsyncTask(ENamedThreads::GameThread, [this, ArgumentsCopy, Promise = MoveTemp(ResultPromise)]() mutable
+        {
+            Promise.SetValue(BuildGraphQueryToolResult(ArgumentsCopy));
+        });
+
+        static constexpr uint32 GraphQueryGameThreadTimeoutMs = 30000;
+        if (ResultFuture.WaitFor(FTimespan::FromMilliseconds(GraphQueryGameThreadTimeoutMs)))
+        {
+            return ResultFuture.Get();
+        }
+
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+        Result->SetStringField(TEXT("message"), TEXT("graph.query timed out waiting for Game Thread snapshot capture."));
+        return Result;
     }
 
     auto MakeLayoutObject = [](int32 PositionX, int32 PositionY, const FString& Source, bool bReliable) -> TSharedPtr<FJsonObject>
