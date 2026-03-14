@@ -73,8 +73,33 @@ private:
         double UpdatedAtSeconds = 0.0;
     };
 
+    struct FCachedGraphQueryEntry
+    {
+        FString AssetScopeKey;
+        TSharedPtr<FJsonObject> Response;
+        double CachedAtSeconds = 0.0;
+        double LastAccessSeconds = 0.0;
+        uint64 Generation = 0;
+    };
+
     void PruneGraphActionTokenRegistry();
+    void PruneGraphQueryResponseCache() const;
     bool ResolveGraphActionToken(const FString& ActionToken, const FString& GraphType, const FString& AssetPath, const FString& GraphName, FGraphActionTokenEntry& OutEntry, FString& OutErrorCode, FString& OutErrorMessage);
+    FString MakeGraphQueryAssetScopeKey(const FString& GraphType, const FString& AssetPath) const;
+    FString MakeGraphQuerySnapshotCacheKey(
+        const FString& GraphType,
+        const FString& AssetPath,
+        const FString& GraphName,
+        const FString& InlineNodeGuid,
+        const FString& LayoutDetail) const;
+    bool TryGetCachedGraphQueryResult(const FString& CacheKey, const FString& AssetScopeKey, TSharedPtr<FJsonObject>& OutResult) const;
+    void StoreCachedGraphQueryResult(const FString& CacheKey, const FString& AssetScopeKey, const TSharedPtr<FJsonObject>& Result) const;
+    void InvalidateGraphQueryCacheForAsset(const FString& GraphType, const FString& AssetPath) const;
+    TSharedPtr<FJsonObject> BuildShapedGraphQueryResult(
+        const TSharedPtr<FJsonObject>& BaseResult,
+        const TSharedPtr<FJsonObject>& Filter,
+        int32 Limit,
+        bool bCacheHit) const;
     FString MakePendingGraphLayoutKey(const FString& GraphType, const FString& AssetPath, const FString& GraphName) const;
     void RecordPendingGraphLayoutNodes(const FString& GraphType, const FString& AssetPath, const FString& GraphName, const TArray<FString>& NodeIds);
     bool ResolvePendingGraphLayoutNodes(const FString& GraphType, const FString& AssetPath, const FString& GraphName, TArray<FString>& OutNodeIds, bool bConsume);
@@ -104,6 +129,9 @@ private:
     TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> PipeServer;
     TMap<FString, FGraphActionTokenEntry> GraphActionTokenRegistry;
     FCriticalSection GraphActionTokenRegistryMutex;
+    mutable TMap<FString, FCachedGraphQueryEntry> GraphQueryResponseCache;
+    mutable TMap<FString, uint64> GraphQueryCacheGenerationByAsset;
+    mutable FCriticalSection GraphQueryResponseCacheMutex;
     TMap<FString, FPendingGraphLayoutState> PendingGraphLayoutStates;
     FCriticalSection PendingGraphLayoutStatesMutex;
     FCriticalSection DiagStoreMutex;
