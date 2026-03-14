@@ -1,16 +1,18 @@
 # LOOMLE
 
-LOOMLE brings Unreal Engine 5 runtime and graph context into AI-native workflows. It combines `LoomleBridge`, a standard MCP surface, and a companion Loomle Skill so agents can collaborate with users directly inside real UE5 projects instead of working from partial context.
+LOOMLE brings Unreal Engine 5 runtime and graph context into AI-native workflows. It combines `LoomleBridge`, a standard MCP surface, and a project-local agent workspace so agents can collaborate with users directly inside real UE5 projects instead of working from partial context.
 
 ## Core Features
 
 - Live UE5 context for AI: expose real-time editor, asset, selection, and runtime health data so agents act on facts, not snapshots.
 - MCP-native integration: deliver LOOMLE through a clean, standard MCP surface that plugs directly into agent workflows.
-- Graph-to-runtime collaboration: support graph inspection and mutation for Blueprint, Material, and PCG workflows with end-to-end project-local operation via Loomle Skill.
+- Graph-to-runtime collaboration: support graph inspection and mutation for Blueprint, Material, and PCG workflows with end-to-end project-local operation.
 
 ## Quick Start
 
-The fastest way to start with LOOMLE is from the root of your local UE5 project.
+The repository is currently in transition from a split setup to a single-install product shape.
+
+Today, the quickest bootstrap path is still from the root of your local UE5 project.
 
 1. Open Codex in your UE5 project root.
 2. Tell Codex:
@@ -19,7 +21,16 @@ The fastest way to start with LOOMLE is from the root of your local UE5 project.
 install Loomle Skill from loomle.ai/i
 ```
 
-That flow installs or updates the Loomle Skill, sets up `LoomleBridge`, applies the required project configuration, starts the service path, and runs the basic verification checks so the MCP connection is ready to use.
+That flow installs or updates the current agent-side usage layer, sets up `LoomleBridge`, applies the required project configuration, starts the service path, and runs the basic verification checks so the MCP connection is ready to use.
+
+Target product direction:
+
+- one install
+- one repository
+- MCP server shipped with `Plugins/LoomleBridge`
+- project-local agent workspace shipped under `Loomle/`
+
+See [docs/REPO_STRUCTURE.md](/Users/xartest/dev/loomle/docs/REPO_STRUCTURE.md) for the target repository, release, and installed-project structure.
 
 Once setup is complete, you do not need to call MCP tools yourself. You can simply talk to Codex in natural language and ask it to do UE5 work for you through LOOMLE.
 

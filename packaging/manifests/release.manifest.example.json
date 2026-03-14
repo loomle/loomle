@@ -1,0 +1,24 @@
+{
+  "latest": "0.1.0",
+  "versions": {
+    "0.1.0": {
+      "packages": {
+        "darwin": {
+          "url": "https://example.invalid/loomle-0.1.0-darwin.zip",
+          "sha256": "package-sha256",
+          "format": "zip",
+          "install": {
+            "plugin": {
+              "source": "plugin/LoomleBridge",
+              "destination": "Plugins/LoomleBridge"
+            },
+            "workspace": {
+              "source": "workspace/Loomle",
+              "destination": "Loomle"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LOOMLE Release Manifest",
+  "type": "object",
+  "required": [
+    "latest",
+    "versions"
+  ],
+  "properties": {
+    "latest": {
+      "type": "string",
+      "minLength": 1
+    },
+    "versions": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/versionEntry"
+      }
+    }
+  },
+  "$defs": {
+    "versionEntry": {
+      "type": "object",
+      "required": [
+        "packages"
+      ],
+      "properties": {
+        "packages": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/platformPackage"
+          }
+        }
+      }
+    },
+    "platformPackage": {
+      "type": "object",
+      "required": [
+        "url",
+        "sha256",
+        "format",
+        "install"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "minLength": 1
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "zip"
+          ]
+        },
+        "install": {
+          "$ref": "#/$defs/installPlan"
+        }
+      }
+    },
+    "installPlan": {
+      "type": "object",
+      "required": [
+        "plugin",
+        "workspace"
+      ],
+      "properties": {
+        "plugin": {
+          "$ref": "#/$defs/installTarget"
+        },
+        "workspace": {
+          "$ref": "#/$defs/installTarget"
+        }
+      }
+    },
+    "installTarget": {
+      "type": "object",
+      "required": [
+        "source",
+        "destination"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "destination": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

@@ -20,6 +20,12 @@ def main() -> int:
     parser.add_argument("--sha256", required=True)
     parser.add_argument("--server-binary-relpath", required=True)
     parser.add_argument("--server-sha256", required=True)
+    parser.add_argument("--client-binary-relpath", default="")
+    parser.add_argument("--client-sha256", default="")
+    parser.add_argument("--plugin-source", default="plugin/LoomleBridge")
+    parser.add_argument("--plugin-destination", default="Plugins/LoomleBridge")
+    parser.add_argument("--workspace-source", default="workspace/Loomle")
+    parser.add_argument("--workspace-destination", default="Loomle")
     parser.add_argument("--base-manifest")
     args = parser.parse_args()
 
@@ -37,6 +43,18 @@ def main() -> int:
         "format": "zip",
         "server_binary_relpath": args.server_binary_relpath,
         "server_sha256": args.server_sha256,
+        "client_binary_relpath": args.client_binary_relpath,
+        "client_sha256": args.client_sha256,
+        "install": {
+            "plugin": {
+                "source": args.plugin_source,
+                "destination": args.plugin_destination,
+            },
+            "workspace": {
+                "source": args.workspace_source,
+                "destination": args.workspace_destination,
+            },
+        },
     }
 
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
