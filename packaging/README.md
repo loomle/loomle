@@ -9,6 +9,7 @@ Planned responsibilities:
 
 Canonical release helper paths:
 - `packaging/bundle/build_release_manifest.py`
+- `packaging/bundle/assemble_release_bundle.py`
 - `packaging/manifests/`
 - `packaging/install/`
 - `packaging/install/install_release.py`
