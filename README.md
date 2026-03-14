@@ -10,6 +10,20 @@ LOOMLE brings Unreal Engine 5 runtime and graph context into AI-native workflows
 
 ## Quick Start
 
+First-run bootstrap entrypoints:
+
+```bash
+curl -fsSL https://loomle.ai/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://loomle.ai/install.ps1 | iex
+```
+
+After bootstrap, the machine has a global `loomle` command. That command is responsible for installing LOOMLE into a specific Unreal project.
+
 LOOMLE is now organized around a single repository and a single installed project shape:
 
 - MCP server shipped with `Plugins/LoomleBridge`
@@ -39,6 +53,7 @@ python3 packaging/install/install_from_checkout.py \
 ```
 
 See [docs/REPO_STRUCTURE.md](/Users/xartest/dev/loomle/docs/REPO_STRUCTURE.md) for the target repository, release, and installed-project structure.
+See [BOOTSTRAP_CONTRACT.md](/Users/xartest/dev/loomle/packaging/bootstrap/BOOTSTRAP_CONTRACT.md) for the public bootstrap entrypoint contract.
 
 Once setup is complete, you do not need to call MCP tools yourself. You can simply talk to Codex in natural language and ask it to do UE5 work for you through LOOMLE.
 

@@ -18,7 +18,7 @@ LOOMLE should be organized into four stable layers:
 - Unreal plugin and Unreal-side graph/runtime logic
 
 2. Protocol/runtime layer
-- MCP server, future Rust client, schemas, protocol examples
+- MCP server, Rust clients, schemas, protocol examples
 
 3. Workspace layer
 - Agent-facing project-local content installed into the user's project under `Loomle/`
@@ -73,6 +73,7 @@ loomle/
     fixtures/
 
   packaging/
+    bootstrap/
     install/
     bundle/
     manifests/
@@ -115,8 +116,9 @@ Contains Rust-side runtime and protocol-facing code.
 - runtime tool routing
 
 `mcp/client/`
-- the single supported Rust client/runtime launcher for LOOMLE
-- project-local client entrypoint used from installed `Loomle/`
+- Rust client implementations for LOOMLE entrypoints
+- includes the project-local client installed under `Loomle/`
+- may also include or share code with the machine-level bootstrap/install CLI
 
 `mcp/protocol/`
 - schemas
@@ -163,6 +165,7 @@ Examples:
 Owns release assembly and installation rules.
 
 Examples:
+- how a first-run machine acquires the `loomle` command
 - what gets copied into `Plugins/LoomleBridge`
 - what gets copied into `Loomle/`
 - release manifests
@@ -201,6 +204,15 @@ release/
 ```
 
 This release layout is an assembly product. It does not need to match the source repository layout one-to-one.
+
+Bootstrap assets may also be published separately:
+
+```text
+bootstrap/
+  darwin/loomle
+  linux/loomle
+  windows/loomle.exe
+```
 
 ## 6. Installed User-Project Layout
 
