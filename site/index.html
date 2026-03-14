@@ -43,7 +43,8 @@
         background: var(--panel);
         border: 1px solid var(--line);
         border-radius: 1.5rem;
-        padding: 2rem 2rem 1.5rem;
+        padding: 2.3rem 2rem 1.7rem;
+        text-align: center;
       }
 
       .eyebrow {
@@ -54,22 +55,21 @@
         color: var(--muted);
       }
 
-      h1 {
+      .brand {
         margin: 0;
-        font-size: clamp(2.6rem, 7vw, 5.2rem);
-        line-height: 0.92;
-        max-width: 10ch;
+        font-size: clamp(2.7rem, 7vw, 5rem);
+        line-height: 0.95;
       }
 
       .intro {
-        margin: 1rem 0 0;
-        max-width: 36rem;
+        margin: 1rem auto 0;
+        max-width: 38rem;
         font-size: 1.08rem;
         line-height: 1.45;
       }
 
       .subcopy {
-        margin: 0.55rem 0 0;
+        margin: 0.75rem auto 0;
         font-size: 1rem;
         color: var(--muted);
         max-width: 34rem;
@@ -118,6 +118,7 @@
         margin-top: 0.95rem;
         font-size: 0.93rem;
         color: var(--muted);
+        text-align: center;
       }
 
       a {
@@ -151,7 +152,7 @@
     <main>
       <div class="hero">
         <p class="eyebrow">LOOMLE</p>
-        <h1>Install LOOMLE from loomle.ai</h1>
+        <h1 class="brand">LOOMLE</h1>
         <p class="intro">Agent-native Unreal Engine tooling for Blueprint, Material, and PCG workflows.</p>
         <p class="subcopy">Paste this into your coding agent from the Unreal project root.</p>
 
