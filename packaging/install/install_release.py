@@ -48,6 +48,11 @@ def copy_tree(source: Path, destination: Path) -> None:
     shutil.copytree(source, destination)
 
 
+def require_existing_file(path: Path, label: str) -> None:
+    if not path.is_file():
+        fail(f"{label} not found: {path}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Install a LOOMLE release bundle into a user project.")
     parser.add_argument("--bundle-root", required=True, help="Extracted release bundle root")
@@ -85,11 +90,20 @@ def main() -> int:
     plugin_destination = project_root / str(plugin_install.get("destination", ""))
     workspace_source = bundle_root / str(workspace_install.get("source", ""))
     workspace_destination = project_root / str(workspace_install.get("destination", ""))
+    server_binary_relpath = package.get("server_binary_relpath")
+    client_binary_relpath = package.get("client_binary_relpath")
 
     if not str(plugin_install.get("destination", "")).startswith("Plugins/"):
         fail(f"plugin destination must stay under Plugins/: {plugin_install}")
     if str(workspace_install.get("destination", "")) != "Loomle":
         fail(f"workspace destination must be Loomle: {workspace_install}")
+    if not isinstance(server_binary_relpath, str) or not server_binary_relpath:
+        fail("package missing server_binary_relpath")
+    if not isinstance(client_binary_relpath, str) or not client_binary_relpath:
+        fail("package missing client_binary_relpath")
+
+    require_existing_file(bundle_root / server_binary_relpath, "server binary")
+    require_existing_file(bundle_root / client_binary_relpath, "client binary")
 
     copy_tree(plugin_source, plugin_destination)
     copy_tree(workspace_source, workspace_destination)

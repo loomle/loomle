@@ -13,3 +13,7 @@ Canonical release helper paths:
 - `packaging/manifests/`
 - `packaging/install/`
 - `packaging/install/install_release.py`
+
+Current expectations:
+- release bundles are complete only when they include both the MCP server and the project-local LOOMLE client
+- installers should validate the declared binaries before copying plugin and workspace content

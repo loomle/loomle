@@ -37,8 +37,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Assemble a LOOMLE release bundle from the source repository.")
     parser.add_argument("--repo-root", required=True)
     parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--server-binary", default="")
-    parser.add_argument("--client-binary", default="")
+    parser.add_argument("--platform", required=True)
+    parser.add_argument("--server-binary", required=True)
+    parser.add_argument("--client-binary", required=True)
     args = parser.parse_args()
 
     repo_root = Path(args.repo_root).resolve()
@@ -53,32 +54,28 @@ def main() -> int:
     copy_tree(engine_plugin, release_plugin)
     copy_tree(workspace_root, release_workspace)
 
-    if args.server_binary:
-        server_binary = Path(args.server_binary).resolve()
-        platform_dir = server_binary.parent.name
-        copy_file(
-            server_binary,
-            release_plugin / "Tools" / "mcp" / platform_dir / server_binary.name,
-        )
+    server_binary = Path(args.server_binary).resolve()
+    copy_file(
+        server_binary,
+        release_plugin / "Tools" / "mcp" / args.platform / server_binary.name,
+    )
 
-    if args.client_binary:
-        client_binary = Path(args.client_binary).resolve()
-        platform_dir = client_binary.parent.name
-        copy_file(
-            client_binary,
-            output_dir / "mcp" / "client" / platform_dir / client_binary.name,
-        )
-        copy_file(
-            client_binary,
-            release_workspace / "client" / client_binary.name,
-        )
+    client_binary = Path(args.client_binary).resolve()
+    copy_file(
+        client_binary,
+        output_dir / "mcp" / "client" / args.platform / client_binary.name,
+    )
+    copy_file(
+        client_binary,
+        release_workspace / "client" / client_binary.name,
+    )
 
     manifest = {
         "bundleRoot": str(output_dir),
         "plugin": str(release_plugin),
         "workspace": str(release_workspace),
-        "serverBinaryIncluded": bool(args.server_binary),
-        "clientBinaryIncluded": bool(args.client_binary),
+        "serverBinaryIncluded": True,
+        "clientBinaryIncluded": True,
     }
     print(json.dumps(manifest, indent=2))
     return 0

@@ -20,6 +20,7 @@ runtime/benchmarks/*.csv
 # Rust test build artifacts
 mcp_server/target/
 mcp/server/target/
+mcp/client/target/
 
 # Local developer project-root config
 tools/dev.project-root.local.json

@@ -1,0 +1,8 @@
+[package]
+name = "loomle"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "loomle"
+path = "src/main.rs"
