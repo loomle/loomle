@@ -35,7 +35,7 @@ FString FLoomleBridgeModule::HandleRequest(const FString& RequestLine)
         return MakeJsonResponse(IdValue, BuildRpcCapabilitiesResult());
     }
 
-    if (!IsInGameThread() && !Method.Equals(TEXT("rpc.invoke")))
+    if (!IsInGameThread())
     {
         TPromise<FString> ResponsePromise;
         TFuture<FString> ResponseFuture = ResponsePromise.GetFuture();
@@ -213,37 +213,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
 {
     bOutIsError = false;
     TSharedPtr<FJsonObject> Payload;
-
-    if (!IsInGameThread()
-        && !Name.Equals(LoomleBridgeConstants::GraphQueryToolName)
-        && !Name.Equals(LoomleBridgeConstants::GraphListToolName))
-    {
-        using FDispatchResult = TPair<TSharedPtr<FJsonObject>, bool>;
-
-        TPromise<FDispatchResult> DispatchPromise;
-        TFuture<FDispatchResult> DispatchFuture = DispatchPromise.GetFuture();
-        const FString NameCopy = Name;
-        const TSharedPtr<FJsonObject> ArgumentsCopy = CloneJsonObject(Arguments);
-        AsyncTask(ENamedThreads::GameThread, [this, NameCopy, ArgumentsCopy, Promise = MoveTemp(DispatchPromise)]() mutable
-        {
-            bool bInnerIsError = false;
-            Promise.SetValue(FDispatchResult(DispatchTool(NameCopy, ArgumentsCopy, bInnerIsError), bInnerIsError));
-        });
-
-        static constexpr uint32 DispatchToGameThreadTimeoutMs = 30000;
-        if (DispatchFuture.WaitFor(FTimespan::FromMilliseconds(DispatchToGameThreadTimeoutMs)))
-        {
-            const FDispatchResult DispatchResult = DispatchFuture.Get();
-            bOutIsError = DispatchResult.Value;
-            return DispatchResult.Key;
-        }
-
-        bOutIsError = true;
-        Payload = MakeShared<FJsonObject>();
-        Payload->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
-        Payload->SetStringField(TEXT("message"), TEXT("Timed out waiting for Game Thread tool dispatch."));
-        return Payload;
-    }
 
     if (Name.Equals(TEXT("context")))
     {

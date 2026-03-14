@@ -90,36 +90,10 @@ namespace LoomleBridgeConstants
     static const TCHAR* DiagTailToolName = TEXT("diag.tail");
     constexpr double GraphActionTokenTtlSeconds = 300.0;
     constexpr int32 MaxGraphActionTokenRegistryEntries = 2048;
-    constexpr double GraphQueryCacheTtlSeconds = 300.0;
-    constexpr int32 MaxGraphQueryCacheEntries = 128;
 }
 
 namespace
 {
-TSharedPtr<FJsonObject> CloneJsonObject(const TSharedPtr<FJsonObject>& InObject)
-{
-    if (!InObject.IsValid())
-    {
-        return nullptr;
-    }
-
-    FString JsonText;
-    const TSharedRef<FCondensedJsonWriter> Writer = TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonText);
-    if (!FJsonSerializer::Serialize(InObject.ToSharedRef(), Writer))
-    {
-        return nullptr;
-    }
-
-    TSharedPtr<FJsonObject> OutObject;
-    const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonText);
-    if (!FJsonSerializer::Deserialize(Reader, OutObject) || !OutObject.IsValid())
-    {
-        return nullptr;
-    }
-
-    return OutObject;
-}
-
 class FLoomleDiagLogCaptureOutputDevice final : public FOutputDevice
 {
 public:
