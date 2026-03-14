@@ -1,0 +1,42 @@
+{
+  "tool": "graph.mutate",
+  "graphType": "blueprint",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "branch_a",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse"
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeId": "EventBeginPlay",
+          "pinName": "Then"
+        },
+        "to": {
+          "nodeRef": "branch_a",
+          "pinName": "Execute"
+        }
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "branch_a",
+          "pinName": "Condition"
+        },
+        "value": true
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "args": {
+        "scope": "touched"
+      }
+    }
+  ]
+}

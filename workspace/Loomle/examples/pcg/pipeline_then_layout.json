@@ -1,0 +1,59 @@
+{
+  "tool": "graph.mutate",
+  "graphType": "pcg",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "create_points",
+      "args": {
+        "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "add_tag",
+      "args": {
+        "nodeClassPath": "/Script/PCG.PCGAddTagSettings"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "filter_tag",
+      "args": {
+        "nodeClassPath": "/Script/PCG.PCGFilterByTagSettings"
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "create_points",
+          "pinName": "Out"
+        },
+        "to": {
+          "nodeRef": "add_tag",
+          "pinName": "In"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "add_tag",
+          "pinName": "Out"
+        },
+        "to": {
+          "nodeRef": "filter_tag",
+          "pinName": "In"
+        }
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "args": {
+        "scope": "touched"
+      }
+    }
+  ]
+}

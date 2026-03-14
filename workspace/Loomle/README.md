@@ -18,9 +18,9 @@ Loomle/
 Purpose:
 
 - `client/`: project-local LOOMLE entrypoint
-- `tools/`: agent-facing tool and capability notes
+- `tools/`: agent-facing tool notes plus local helper scripts
 - `workflows/`: standard Blueprint, Material, and PCG operating patterns
-- `examples/`: small concrete usage examples
+- `examples/`: small concrete usage examples and payload templates
 - `checks/`: project-local validation helpers and conventions
 - `prompts/`: reusable project-local prompt fragments if needed
 - `runtime/`: local runtime/config/state placeholders
