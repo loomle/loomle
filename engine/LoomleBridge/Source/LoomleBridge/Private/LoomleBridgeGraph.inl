@@ -51,6 +51,16 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
 
     if (!IsInGameThread())
     {
+        const bool bOwnsBuild = TryBeginGraphReadBuild(CacheKey);
+        if (!bOwnsBuild)
+        {
+            TSharedPtr<FJsonObject> SharedResult;
+            if (WaitForGraphReadBuildResult(CacheKey, AssetScopeKey, 30000, SharedResult))
+            {
+                return SharedResult;
+            }
+        }
+
         TPromise<TSharedPtr<FJsonObject>> ResultPromise;
         TFuture<TSharedPtr<FJsonObject>> ResultFuture = ResultPromise.GetFuture();
         const TSharedPtr<FJsonObject> ArgumentsCopy = CloneJsonObject(Arguments);
@@ -62,9 +72,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
         static constexpr uint32 GraphListGameThreadTimeoutMs = 30000;
         if (ResultFuture.WaitFor(FTimespan::FromMilliseconds(GraphListGameThreadTimeoutMs)))
         {
+            EndGraphReadBuild(CacheKey);
             return ResultFuture.Get();
         }
 
+        EndGraphReadBuild(CacheKey);
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
         Result->SetStringField(TEXT("message"), TEXT("graph.list timed out waiting for Game Thread capture."));
@@ -664,6 +676,16 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
 
     if (!IsInGameThread())
     {
+        const bool bOwnsBuild = TryBeginGraphReadBuild(CacheKey);
+        if (!bOwnsBuild)
+        {
+            TSharedPtr<FJsonObject> SharedResult;
+            if (WaitForGraphReadBuildResult(CacheKey, AssetScopeKey, 30000, SharedResult))
+            {
+                return BuildShapedGraphQueryResult(SharedResult, QueryFilter, QueryLimit, true);
+            }
+        }
+
         TPromise<TSharedPtr<FJsonObject>> ResultPromise;
         TFuture<TSharedPtr<FJsonObject>> ResultFuture = ResultPromise.GetFuture();
         const TSharedPtr<FJsonObject> ArgumentsCopy = CloneJsonObject(Arguments);
@@ -675,9 +697,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
         static constexpr uint32 GraphQueryGameThreadTimeoutMs = 30000;
         if (ResultFuture.WaitFor(FTimespan::FromMilliseconds(GraphQueryGameThreadTimeoutMs)))
         {
+            EndGraphReadBuild(CacheKey);
             return ResultFuture.Get();
         }
 
+        EndGraphReadBuild(CacheKey);
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
         Result->SetStringField(TEXT("message"), TEXT("graph.query timed out waiting for Game Thread snapshot capture."));
@@ -1695,6 +1719,67 @@ void FLoomleBridgeModule::InvalidateGraphQueryCacheForAsset(const FString& Graph
     {
         GraphQueryResponseCache.Remove(Key);
     }
+}
+
+bool FLoomleBridgeModule::TryBeginGraphReadBuild(const FString& CacheKey) const
+{
+    if (CacheKey.IsEmpty())
+    {
+        return false;
+    }
+
+    FScopeLock ScopeLock(&GraphQueryResponseCacheMutex);
+    if (GraphReadBuildsInFlight.Contains(CacheKey))
+    {
+        return false;
+    }
+
+    GraphReadBuildsInFlight.Add(CacheKey);
+    return true;
+}
+
+void FLoomleBridgeModule::EndGraphReadBuild(const FString& CacheKey) const
+{
+    if (CacheKey.IsEmpty())
+    {
+        return;
+    }
+
+    FScopeLock ScopeLock(&GraphQueryResponseCacheMutex);
+    GraphReadBuildsInFlight.Remove(CacheKey);
+}
+
+bool FLoomleBridgeModule::WaitForGraphReadBuildResult(
+    const FString& CacheKey,
+    const FString& AssetScopeKey,
+    uint32 TimeoutMs,
+    TSharedPtr<FJsonObject>& OutResult) const
+{
+    OutResult.Reset();
+    const double DeadlineSeconds = FPlatformTime::Seconds() + (static_cast<double>(TimeoutMs) / 1000.0);
+
+    while (FPlatformTime::Seconds() < DeadlineSeconds)
+    {
+        if (TryGetCachedGraphQueryResult(CacheKey, AssetScopeKey, OutResult))
+        {
+            return true;
+        }
+
+        bool bStillInFlight = false;
+        {
+            FScopeLock ScopeLock(&GraphQueryResponseCacheMutex);
+            bStillInFlight = GraphReadBuildsInFlight.Contains(CacheKey);
+        }
+
+        if (!bStillInFlight)
+        {
+            break;
+        }
+
+        FPlatformProcess::Sleep(0.005f);
+    }
+
+    return TryGetCachedGraphQueryResult(CacheKey, AssetScopeKey, OutResult);
 }
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildShapedGraphQueryResult(

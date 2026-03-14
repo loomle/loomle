@@ -95,6 +95,13 @@ private:
     bool TryGetCachedGraphQueryResult(const FString& CacheKey, const FString& AssetScopeKey, TSharedPtr<FJsonObject>& OutResult) const;
     void StoreCachedGraphQueryResult(const FString& CacheKey, const FString& AssetScopeKey, const TSharedPtr<FJsonObject>& Result) const;
     void InvalidateGraphQueryCacheForAsset(const FString& GraphType, const FString& AssetPath) const;
+    bool TryBeginGraphReadBuild(const FString& CacheKey) const;
+    void EndGraphReadBuild(const FString& CacheKey) const;
+    bool WaitForGraphReadBuildResult(
+        const FString& CacheKey,
+        const FString& AssetScopeKey,
+        uint32 TimeoutMs,
+        TSharedPtr<FJsonObject>& OutResult) const;
     TSharedPtr<FJsonObject> BuildShapedGraphQueryResult(
         const TSharedPtr<FJsonObject>& BaseResult,
         const TSharedPtr<FJsonObject>& Filter,
@@ -131,6 +138,7 @@ private:
     FCriticalSection GraphActionTokenRegistryMutex;
     mutable TMap<FString, FCachedGraphQueryEntry> GraphQueryResponseCache;
     mutable TMap<FString, uint64> GraphQueryCacheGenerationByAsset;
+    mutable TSet<FString> GraphReadBuildsInFlight;
     mutable FCriticalSection GraphQueryResponseCacheMutex;
     TMap<FString, FPendingGraphLayoutState> PendingGraphLayoutStates;
     FCriticalSection PendingGraphLayoutStatesMutex;
