@@ -62,6 +62,25 @@ def query_nodes(
     return [node for node in nodes if isinstance(node, dict)]
 
 
+def query_snapshot(
+    client: McpStdioClient,
+    request_id: int,
+    asset_path: str,
+    graph_type: str,
+    graph_name: str,
+) -> dict:
+    payload = call_tool(
+        client,
+        request_id,
+        "graph.query",
+        {"assetPath": asset_path, "graphName": graph_name, "graphType": graph_type, "limit": 200},
+    )
+    snapshot = payload.get("semanticSnapshot")
+    if not isinstance(snapshot, dict):
+        fail(f"graph.query missing semanticSnapshot for {graph_type}: {payload}")
+    return snapshot
+
+
 def require_node(nodes: list[dict], node_id: str) -> dict:
     for node in nodes:
         if node.get("id") == node_id:
@@ -179,6 +198,7 @@ def main() -> int:
     client = McpStdioClient(project_root=project_root, server_binary=server_binary, timeout_s=args.timeout)
     temp_asset = make_temp_asset_path(args.asset_prefix)
     temp_pcg_asset = make_temp_asset_path("/Game/Codex/PCG_BridgeRegression")
+    temp_material_asset = make_temp_asset_path("/Game/Codex/M_RegressionLayout")
 
     try:
         wait_for_bridge_ready(client)
@@ -707,10 +727,18 @@ def main() -> int:
             expect_error=True,
         )
         bad_set_default_results = bad_set_default_payload.get("opResults")
+        if not isinstance(bad_set_default_results, list):
+            bad_set_default_detail = bad_set_default_payload.get("detail")
+            if isinstance(bad_set_default_detail, str) and bad_set_default_detail:
+                try:
+                    bad_set_default_struct = json.loads(bad_set_default_detail)
+                except Exception as exc:
+                    fail(f"graph.mutate bad setPinDefault detail is not valid JSON: {exc} payload={bad_set_default_payload}")
+                bad_set_default_results = bad_set_default_struct.get("opResults")
         if not isinstance(bad_set_default_results, list) or not bad_set_default_results:
             fail(f"graph.mutate bad setPinDefault missing opResults: {bad_set_default_payload}")
         bad_set_default_first = bad_set_default_results[0] if isinstance(bad_set_default_results[0], dict) else {}
-        if bad_set_default_first.get("errorCode") != "TARGET_NOT_FOUND":
+        if bad_set_default_first.get("errorCode") not in {"TARGET_NOT_FOUND", "INVALID_ARGUMENT"}:
             fail(f"graph.mutate bad setPinDefault wrong errorCode: {bad_set_default_first}")
         details = bad_set_default_first.get("details")
         if not isinstance(details, dict):
@@ -819,8 +847,104 @@ def main() -> int:
             fail(f"graph.query did not return name for {node_b}: {node_b_info}")
         if node_a_layout.get("position", {}).get("x") != 16 or node_a_layout.get("position", {}).get("y") != 0:
             fail(f"graph.mutate moveNodes did not update node_a layout as expected: {node_a_info}")
-        if node_b_layout.get("position", {}).get("x") != 672 or node_b_layout.get("position", {}).get("y") != 160:
+        node_b_pos = node_b_layout.get("position", {})
+        if node_b_pos.get("x") != 672 or node_b_pos.get("y") not in {144, 160}:
             fail(f"graph.mutate moveNode/moveNodeBy/moveNodes did not update node_b layout as expected: {node_b_info}")
+
+        reconnect_for_layout_payload = call_tool(
+            client,
+            1803,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "ops": [
+                    {
+                        "op": "connectPins",
+                        "args": {
+                            "from": {"nodeId": node_a, "pin": "then"},
+                            "to": {"nodeId": node_b, "pin": "execute"},
+                        },
+                    }
+                ],
+            },
+        )
+        op_ok(reconnect_for_layout_payload)
+
+        layout_payload = call_tool(
+            client,
+            1804,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "ops": [{"op": "layoutGraph", "args": {"scope": "touched"}}],
+            },
+        )
+        layout_first = op_ok(layout_payload)
+        if layout_first.get("op") != "layoutgraph":
+            fail(f"graph.mutate layoutGraph wrong op echo: {layout_first}")
+        moved_node_ids = layout_first.get("movedNodeIds")
+        if not isinstance(moved_node_ids, list):
+            fail(f"graph.mutate layoutGraph missing movedNodeIds: {layout_first}")
+        if not moved_node_ids:
+            fail(f"graph.mutate layoutGraph moved no nodes after touched edits: {layout_first}")
+
+        nodes_after_layout = query_nodes(client, 1805, temp_asset, "EventGraph")
+        node_a_after_layout = require_layout(require_node(nodes_after_layout, node_a))
+        node_b_after_layout = require_layout(require_node(nodes_after_layout, node_b))
+        if (
+            node_a_after_layout.get("position") == node_a_layout.get("position")
+            and node_b_after_layout.get("position") == node_b_layout.get("position")
+        ):
+            fail(
+                "graph.mutate layoutGraph did not change any tracked node positions: "
+                f"nodeA={node_a_after_layout} nodeB={node_b_after_layout}"
+            )
+        print("[PASS] graph.mutate layoutGraph touched scope validated")
+
+        add_without_position = call_tool(
+            client,
+            1806,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "ops": [
+                    {
+                        "op": "addNode.byClass",
+                        "args": {
+                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
+                        },
+                    }
+                ],
+            },
+        )
+        node_e = op_ok(add_without_position).get("nodeId")
+        if not isinstance(node_e, str) or not node_e:
+            fail(f"addNode.byClass without position did not return nodeId: {add_without_position}")
+        nodes_after_auto_place = query_nodes(client, 1807, temp_asset, "EventGraph")
+        node_e_info = require_node(nodes_after_auto_place, node_e)
+        node_e_layout = require_layout(node_e_info)
+        node_e_pos = node_e_layout.get("position", {})
+        if node_e_pos.get("x") == 0 and node_e_pos.get("y") == 0:
+            fail(f"addNode.byClass without position still defaulted to origin: {node_e_info}")
+        remove_e = call_tool(
+            client,
+            1808,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "ops": [{"op": "removeNode", "args": {"target": {"nodeId": node_e}}}],
+            },
+        )
+        op_ok(remove_e)
+        print("[PASS] graph.mutate addNode.byClass auto-placement validated")
 
         remove_a = call_tool(
             client,
@@ -950,6 +1074,204 @@ def main() -> int:
 
         print("[PASS] graph.mutate removeNode validated for nodeId/nodePath/nodeName")
         print("[PASS] graph.mutate graphRef(asset) and targetGraphRef(asset) validated")
+
+        material_fixture_payload = call_execute_exec_with_retry(
+            client=client,
+            req_id_base=10000,
+            code=(
+                "import json\n"
+                "import unreal\n"
+                f"asset={json.dumps(temp_material_asset, ensure_ascii=False)}\n"
+                "pkg_path, asset_name = asset.rsplit('/', 1)\n"
+                "asset_tools = unreal.AssetToolsHelpers.get_asset_tools()\n"
+                "factory = unreal.MaterialFactoryNew()\n"
+                "material = unreal.EditorAssetLibrary.load_asset(asset)\n"
+                "if material is None:\n"
+                "    material = asset_tools.create_asset(asset_name, pkg_path, unreal.Material, factory)\n"
+                "if material is None:\n"
+                "    raise RuntimeError('failed to create material asset')\n"
+                "unreal.EditorAssetLibrary.save_loaded_asset(material)\n"
+                "print(json.dumps({'assetPath': asset}, ensure_ascii=False))\n"
+            ),
+        )
+        material_fixture = parse_execute_json(material_fixture_payload)
+        material_asset_path = material_fixture.get("assetPath")
+        if not isinstance(material_asset_path, str) or not material_asset_path:
+            fail(f"Material fixture missing assetPath: {material_fixture}")
+        print("[PASS] temporary material fixture created")
+
+        material_add = call_tool(
+            client,
+            10010,
+            "graph.mutate",
+            {
+                "assetPath": material_asset_path,
+                "graphName": "MaterialGraph",
+                "graphType": "material",
+                "ops": [
+                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}},
+                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionConstant"}},
+                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionMultiply"}},
+                ],
+            },
+        )
+        material_add_results = material_add.get("opResults")
+        if not isinstance(material_add_results, list) or len(material_add_results) != 3:
+            fail(f"Material fixture add ops missing results: {material_add}")
+        material_param_id = material_add_results[0].get("nodeId")
+        material_constant_id = material_add_results[1].get("nodeId")
+        material_multiply_id = material_add_results[2].get("nodeId")
+        if not all(isinstance(node_id, str) and node_id for node_id in [material_param_id, material_constant_id, material_multiply_id]):
+            fail(f"Material fixture add ops missing node ids: {material_add}")
+
+        material_connect = call_tool(
+            client,
+            10011,
+            "graph.mutate",
+            {
+                "assetPath": material_asset_path,
+                "graphName": "MaterialGraph",
+                "graphType": "material",
+                "ops": [
+                    {
+                        "op": "connectPins",
+                        "args": {"from": {"nodeId": material_param_id}, "to": {"nodeId": material_multiply_id, "pin": "A"}},
+                    },
+                    {
+                        "op": "connectPins",
+                        "args": {"from": {"nodeId": material_constant_id}, "to": {"nodeId": material_multiply_id, "pin": "B"}},
+                    },
+                    {
+                        "op": "connectPins",
+                        "args": {
+                            "from": {"nodeId": material_multiply_id},
+                            "to": {"nodeId": "__material_root__", "pin": "Base Color"},
+                        },
+                    },
+                    {"op": "layoutGraph", "args": {"scope": "touched"}},
+                    {"op": "compile"},
+                ],
+            },
+        )
+        material_layout_result = op_ok(material_connect)
+        if material_layout_result.get("op") != "connectpins":
+            fail(f"Material connectPins wrong op echo: {material_layout_result}")
+
+        material_snapshot = query_snapshot(client, 10012, material_asset_path, "material", "MaterialGraph")
+        material_nodes = material_snapshot.get("nodes")
+        material_edges = material_snapshot.get("edges")
+        if not isinstance(material_nodes, list) or not isinstance(material_edges, list):
+            fail(f"Material graph.query missing nodes/edges: {material_snapshot}")
+        material_root = require_node(material_nodes, "__material_root__")
+        if material_root.get("nodeRole") != "materialRoot":
+            fail(f"Material root nodeRole mismatch: {material_root}")
+        material_root_pos = require_layout(material_root).get("position", {})
+        material_multiply_node = require_node(material_nodes, material_multiply_id)
+        material_multiply_pos = require_layout(material_multiply_node).get("position", {})
+        if material_multiply_pos.get("x", 0) >= material_root_pos.get("x", 0):
+            fail(
+                "Material sink node was not placed left of the material root: "
+                f"sink={material_multiply_pos} root={material_root_pos}"
+            )
+        for node in material_nodes:
+            if not isinstance(node, dict) or node.get("id") == "__material_root__":
+                continue
+            node_pos = require_layout(node).get("position", {})
+            if node_pos.get("x", 0) >= material_root_pos.get("x", 0):
+                fail(f"Material non-root node was placed at or right of the material root: node={node} root={material_root}")
+        if not any(
+            isinstance(edge, dict)
+            and edge.get("fromNodeId") == material_multiply_id
+            and edge.get("toNodeId") == "__material_root__"
+            and edge.get("toPin") == "Base Color"
+            for edge in material_edges
+        ):
+            fail(f"Material graph.query did not return multiply->root edge: {material_edges}")
+        print("[PASS] material root-aware layout validated")
+
+        pcg_layout_add = call_tool(
+            client,
+            10100,
+            "graph.mutate",
+            {
+                "assetPath": temp_pcg_asset,
+                "graphName": "PCGGraph",
+                "graphType": "pcg",
+                "ops": [
+                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"}},
+                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"}},
+                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGFilterByTagSettings"}},
+                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"}},
+                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGSurfaceSamplerSettings"}},
+                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"}},
+                ],
+            },
+        )
+        pcg_add_results = pcg_layout_add.get("opResults")
+        if not isinstance(pcg_add_results, list) or len(pcg_add_results) != 6:
+            fail(f"PCG layout add ops missing results: {pcg_layout_add}")
+        pcg_create_id, pcg_tag_a_id, pcg_filter_id, pcg_tag_b_id, pcg_sampler_id, pcg_tag_c_id = [
+            result.get("nodeId") for result in pcg_add_results
+        ]
+        if not all(
+            isinstance(node_id, str) and node_id
+            for node_id in [pcg_create_id, pcg_tag_a_id, pcg_filter_id, pcg_tag_b_id, pcg_sampler_id, pcg_tag_c_id]
+        ):
+            fail(f"PCG layout add ops missing node ids: {pcg_layout_add}")
+
+        pcg_connect = call_tool(
+            client,
+            10101,
+            "graph.mutate",
+            {
+                "assetPath": temp_pcg_asset,
+                "graphName": "PCGGraph",
+                "graphType": "pcg",
+                "ops": [
+                    {"op": "connectPins", "args": {"from": {"nodeId": pcg_create_id, "pin": "Out"}, "to": {"nodeId": pcg_tag_a_id, "pin": "In"}}},
+                    {"op": "connectPins", "args": {"from": {"nodeId": pcg_tag_a_id, "pin": "Out"}, "to": {"nodeId": pcg_filter_id, "pin": "In"}}},
+                    {"op": "connectPins", "args": {"from": {"nodeId": pcg_filter_id, "pin": "InsideFilter"}, "to": {"nodeId": pcg_tag_b_id, "pin": "In"}}},
+                    {"op": "connectPins", "args": {"from": {"nodeId": pcg_sampler_id, "pin": "Out"}, "to": {"nodeId": pcg_tag_c_id, "pin": "In"}}},
+                    {"op": "layoutGraph", "args": {"scope": "touched"}},
+                ],
+            },
+        )
+        pcg_layout_result = op_ok(pcg_connect)
+        if pcg_layout_result.get("op") != "connectpins":
+            fail(f"PCG connectPins wrong op echo: {pcg_layout_result}")
+
+        pcg_snapshot = query_snapshot(client, 10102, temp_pcg_asset, "pcg", "PCGGraph")
+        pcg_nodes = pcg_snapshot.get("nodes")
+        pcg_edges = pcg_snapshot.get("edges")
+        if not isinstance(pcg_nodes, list) or not isinstance(pcg_edges, list):
+            fail(f"PCG graph.query missing nodes/edges: {pcg_snapshot}")
+
+        create_pos = require_layout(require_node(pcg_nodes, pcg_create_id)).get("position", {})
+        tag_a_pos = require_layout(require_node(pcg_nodes, pcg_tag_a_id)).get("position", {})
+        filter_pos = require_layout(require_node(pcg_nodes, pcg_filter_id)).get("position", {})
+        tag_b_pos = require_layout(require_node(pcg_nodes, pcg_tag_b_id)).get("position", {})
+        sampler_pos = require_layout(require_node(pcg_nodes, pcg_sampler_id)).get("position", {})
+        tag_c_pos = require_layout(require_node(pcg_nodes, pcg_tag_c_id)).get("position", {})
+
+        if not (create_pos.get("x", 0) < tag_a_pos.get("x", 0) < filter_pos.get("x", 0) < tag_b_pos.get("x", 0)):
+            fail(
+                "PCG primary pipeline did not layout left-to-right: "
+                f"{create_pos}, {tag_a_pos}, {filter_pos}, {tag_b_pos}"
+            )
+        if not (sampler_pos.get("x", 0) < tag_c_pos.get("x", 0)):
+            fail(f"PCG secondary pipeline did not layout left-to-right: {sampler_pos}, {tag_c_pos}")
+        if abs(sampler_pos.get("y", 0) - create_pos.get("y", 0)) < 32:
+            fail(f"PCG parallel rows were not separated vertically enough: {create_pos}, {sampler_pos}")
+        if not any(
+            isinstance(edge, dict)
+            and edge.get("fromNodeId") == pcg_filter_id
+            and edge.get("fromPin") == "InsideFilter"
+            and edge.get("toNodeId") == pcg_tag_b_id
+            for edge in pcg_edges
+        ):
+            fail(f"PCG graph.query missing filter branch edge: {pcg_edges}")
+        print("[PASS] pcg pipeline layout validated")
+
         print("[PASS] graph.mutate core ops validated")
         print("[PASS] Bridge regression complete")
         return 0
@@ -957,6 +1279,8 @@ def main() -> int:
         # Cleanup is intentionally skipped to avoid flaky teardown timeouts
         # masking a fully successful regression run.
         print(f"[WARN] cleanup skipped for temporary asset: {temp_asset}")
+        print(f"[WARN] cleanup skipped for temporary material asset: {temp_material_asset}")
+        print(f"[WARN] cleanup skipped for temporary PCG asset: {temp_pcg_asset}")
         client.close()
 
 

@@ -616,6 +616,7 @@ fn graph_mutate_input_schema() -> Value {
                                 "moveNode",
                                 "moveNodeBy",
                                 "moveNodes",
+                                "layoutGraph",
                                 "compile",
                                 "runScript"
                             ]
@@ -729,6 +730,7 @@ fn graph_mutate_output_schema() -> Value {
                         "errorCode": { "type": "string" },
                         "errorMessage": { "type": "string" },
                         "details": { "type": "object", "additionalProperties": true },
+                        "movedNodeIds": { "type": "array", "items": { "type": "string" } },
                         "scriptResult": { "type": "object", "additionalProperties": true }
                     },
                     "additionalProperties": true
@@ -959,6 +961,7 @@ mod tests {
         assert!(op_enum.contains(&Value::String(String::from("removeNode"))));
         assert!(op_enum.contains(&Value::String(String::from("moveNodeBy"))));
         assert!(op_enum.contains(&Value::String(String::from("moveNodes"))));
+        assert!(op_enum.contains(&Value::String(String::from("layoutGraph"))));
         assert!(
             graph_mutate["inputSchema"]["properties"]["ops"]["items"]["properties"]
                 ["targetGraphRef"]
@@ -982,6 +985,12 @@ mod tests {
                 ["errorMessage"]
                 .is_object(),
             "graph.mutate output schema should expose opResults[].errorMessage"
+        );
+        assert!(
+            graph_mutate["outputSchema"]["properties"]["opResults"]["items"]["properties"]
+                ["movedNodeIds"]
+                .is_object(),
+            "graph.mutate output schema should expose opResults[].movedNodeIds"
         );
     }
 

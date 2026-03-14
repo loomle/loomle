@@ -41,7 +41,10 @@
 #include "Materials/MaterialFunction.h"
 #include "MaterialEditingLibrary.h"
 #include "IMaterialEditor.h"
+#include "MaterialGraph/MaterialGraph.h"
 #include "MaterialGraph/MaterialGraphNode.h"
+#include "MaterialGraph/MaterialGraphNode_Root.h"
+#include "MaterialGraph/MaterialGraphSchema.h"
 #include "PCGComponent.h"
 #include "PCGGraph.h"
 #include "PCGEdge.h"
@@ -1010,6 +1013,27 @@ UMaterialExpression* FindMaterialExpressionById(UMaterial* Material, const FStri
             return Expression;
         }
     }
+
+    UMaterialGraph* MaterialGraph = Material->MaterialGraph;
+    if (MaterialGraph != nullptr)
+    {
+        for (UEdGraphNode* Node : MaterialGraph->Nodes)
+        {
+            UMaterialGraphNode* MaterialGraphNode = Cast<UMaterialGraphNode>(Node);
+            UMaterialExpression* Expression = MaterialGraphNode ? MaterialGraphNode->MaterialExpression : nullptr;
+            if (Expression == nullptr)
+            {
+                continue;
+            }
+
+            if (Expression->GetPathName().Equals(NodeId)
+                || Expression->GetName().Equals(NodeId))
+            {
+                return Expression;
+            }
+        }
+    }
+
     return nullptr;
 }
 

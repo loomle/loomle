@@ -710,6 +710,24 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
             Result->SetStringField(TEXT("message"), TEXT("Material or MaterialFunction asset not found."));
             return Result;
         }
+        if (Material != nullptr)
+        {
+            if (Material->MaterialGraph == nullptr)
+            {
+                Material->MaterialGraph = CastChecked<UMaterialGraph>(
+                    FBlueprintEditorUtils::CreateNewGraph(
+                        Material,
+                        NAME_None,
+                        UMaterialGraph::StaticClass(),
+                        UMaterialGraphSchema::StaticClass()));
+            }
+            if (Material->MaterialGraph != nullptr)
+            {
+                Material->MaterialGraph->Material = Material;
+                Material->MaterialGraph->MaterialFunction = nullptr;
+                Material->MaterialGraph->RebuildGraph();
+            }
+        }
 
         // Collect all expressions from whichever asset was loaded.
         TArray<UMaterialExpression*> AllExpressions;
@@ -725,6 +743,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
         TArray<TSharedPtr<FJsonValue>> Nodes;
         TArray<TSharedPtr<FJsonValue>> Diagnostics;
         TArray<TSharedPtr<FJsonValue>> Edges;
+        const FString MaterialRootNodeId = TEXT("__material_root__");
         for (UMaterialExpression* Expression : AllExpressions)
         {
             TSharedPtr<FJsonObject> Node = MakeShared<FJsonObject>();
@@ -827,6 +846,95 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
 
             Node->SetArrayField(TEXT("pins"), Pins);
             Nodes.Add(MakeShared<FJsonValueObject>(Node));
+        }
+
+        if (Material != nullptr && Material->MaterialGraph != nullptr && Material->MaterialGraph->RootNode != nullptr)
+        {
+            UMaterialGraphNode_Root* RootNode = Material->MaterialGraph->RootNode;
+            TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+            Root->SetStringField(TEXT("id"), MaterialRootNodeId);
+            Root->SetStringField(TEXT("guid"), MaterialRootNodeId);
+            Root->SetStringField(TEXT("nodeClassPath"), RootNode->GetClass() ? RootNode->GetClass()->GetPathName() : TEXT(""));
+            Root->SetStringField(TEXT("title"), Material->GetName());
+            Root->SetStringField(TEXT("graphName"), GraphName);
+            TSharedPtr<FJsonObject> RootPosition = MakeShared<FJsonObject>();
+            RootPosition->SetNumberField(TEXT("x"), RootNode->NodePosX);
+            RootPosition->SetNumberField(TEXT("y"), RootNode->NodePosY);
+            Root->SetObjectField(TEXT("position"), RootPosition);
+            Root->SetObjectField(TEXT("layout"), MakeLayoutObject(RootNode->NodePosX, RootNode->NodePosY, TEXT("model"), true));
+            Root->SetBoolField(TEXT("enabled"), true);
+            Root->SetStringField(TEXT("nodeRole"), TEXT("materialRoot"));
+
+            TArray<TSharedPtr<FJsonValue>> RootPins;
+            for (UEdGraphPin* Pin : RootNode->Pins)
+            {
+                if (Pin == nullptr || Pin->Direction != EGPD_Input)
+                {
+                    continue;
+                }
+
+                TSharedPtr<FJsonObject> PinObj = MakeShared<FJsonObject>();
+                const FString PinName = Pin->PinName.ToString();
+                PinObj->SetStringField(TEXT("name"), PinName);
+                PinObj->SetStringField(TEXT("direction"), TEXT("input"));
+                PinObj->SetStringField(TEXT("category"), TEXT("material"));
+                PinObj->SetStringField(TEXT("subCategory"), TEXT(""));
+                PinObj->SetStringField(TEXT("subCategoryObject"), TEXT(""));
+                PinObj->SetBoolField(TEXT("isReference"), false);
+                PinObj->SetBoolField(TEXT("isConst"), false);
+                PinObj->SetBoolField(TEXT("isArray"), false);
+                PinObj->SetStringField(TEXT("defaultValue"), TEXT(""));
+                PinObj->SetStringField(TEXT("defaultObject"), TEXT(""));
+                PinObj->SetStringField(TEXT("defaultText"), TEXT(""));
+                TSharedPtr<FJsonObject> PinTypeObject = MakeShared<FJsonObject>();
+                PinTypeObject->SetStringField(TEXT("category"), TEXT("material"));
+                PinTypeObject->SetStringField(TEXT("subCategory"), TEXT(""));
+                PinTypeObject->SetStringField(TEXT("object"), TEXT(""));
+                PinTypeObject->SetStringField(TEXT("container"), TEXT("none"));
+                PinObj->SetObjectField(TEXT("type"), PinTypeObject);
+                TSharedPtr<FJsonObject> PinDefaultObject = MakeShared<FJsonObject>();
+                PinDefaultObject->SetStringField(TEXT("value"), TEXT(""));
+                PinDefaultObject->SetStringField(TEXT("object"), TEXT(""));
+                PinDefaultObject->SetStringField(TEXT("text"), TEXT(""));
+                PinObj->SetObjectField(TEXT("default"), PinDefaultObject);
+
+                TArray<TSharedPtr<FJsonValue>> Links;
+                for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
+                {
+                    UEdGraphNode* LinkedNode = LinkedPin ? LinkedPin->GetOwningNodeUnchecked() : nullptr;
+                    UMaterialGraphNode* MaterialGraphNode = Cast<UMaterialGraphNode>(LinkedNode);
+                    UMaterialExpression* LinkedExpression = MaterialGraphNode ? MaterialGraphNode->MaterialExpression : nullptr;
+                    if (LinkedExpression == nullptr)
+                    {
+                        continue;
+                    }
+
+                    const FString FromNodeId = MaterialExpressionId(LinkedExpression);
+                    const FString FromPinName = LinkedPin->PinName.ToString();
+
+                    TSharedPtr<FJsonObject> LinkObj = MakeShared<FJsonObject>();
+                    LinkObj->SetStringField(TEXT("toNodeId"), FromNodeId);
+                    LinkObj->SetStringField(TEXT("toPin"), FromPinName);
+                    LinkObj->SetStringField(TEXT("nodeName"), LinkedExpression->GetName());
+                    LinkObj->SetStringField(TEXT("nodeGuid"), FromNodeId);
+                    LinkObj->SetStringField(TEXT("direction"), TEXT("input"));
+                    Links.Add(MakeShared<FJsonValueObject>(LinkObj));
+
+                    TSharedPtr<FJsonObject> EdgeObj = MakeShared<FJsonObject>();
+                    EdgeObj->SetStringField(TEXT("fromNodeId"), FromNodeId);
+                    EdgeObj->SetStringField(TEXT("fromPin"), FromPinName);
+                    EdgeObj->SetStringField(TEXT("toNodeId"), MaterialRootNodeId);
+                    EdgeObj->SetStringField(TEXT("toPin"), PinName);
+                    Edges.Add(MakeShared<FJsonValueObject>(EdgeObj));
+                }
+
+                PinObj->SetArrayField(TEXT("links"), Links);
+                PinObj->SetArrayField(TEXT("linkedTo"), Links);
+                RootPins.Add(MakeShared<FJsonValueObject>(PinObj));
+            }
+
+            Root->SetArrayField(TEXT("pins"), RootPins);
+            Nodes.Add(MakeShared<FJsonValueObject>(Root));
         }
 
         if (Nodes.Num() == 0)
@@ -1480,6 +1588,1587 @@ bool FLoomleBridgeModule::ResolveGraphActionToken(const FString& ActionToken, co
     }
 
     OutEntry = *Found;
+    return true;
+}
+
+FString FLoomleBridgeModule::MakePendingGraphLayoutKey(const FString& GraphType, const FString& AssetPath, const FString& GraphName) const
+{
+    return FString::Printf(TEXT("%s|%s|%s"), *GraphType.ToLower(), *AssetPath, *GraphName);
+}
+
+void FLoomleBridgeModule::RecordPendingGraphLayoutNodes(
+    const FString& GraphType,
+    const FString& AssetPath,
+    const FString& GraphName,
+    const TArray<FString>& NodeIds)
+{
+    if (NodeIds.Num() == 0 || GraphType.IsEmpty() || AssetPath.IsEmpty())
+    {
+        return;
+    }
+
+    const FString Key = MakePendingGraphLayoutKey(GraphType, AssetPath, GraphName);
+    FScopeLock ScopeLock(&PendingGraphLayoutStatesMutex);
+    FPendingGraphLayoutState& State = PendingGraphLayoutStates.FindOrAdd(Key);
+    State.GraphType = GraphType;
+    State.AssetPath = AssetPath;
+    State.GraphName = GraphName;
+    State.UpdatedAtSeconds = FPlatformTime::Seconds();
+    for (const FString& NodeId : NodeIds)
+    {
+        if (!NodeId.IsEmpty())
+        {
+            State.TouchedNodeIds.Add(NodeId);
+        }
+    }
+}
+
+bool FLoomleBridgeModule::ResolvePendingGraphLayoutNodes(
+    const FString& GraphType,
+    const FString& AssetPath,
+    const FString& GraphName,
+    TArray<FString>& OutNodeIds,
+    bool bConsume)
+{
+    OutNodeIds.Reset();
+    const FString Key = MakePendingGraphLayoutKey(GraphType, AssetPath, GraphName);
+    FScopeLock ScopeLock(&PendingGraphLayoutStatesMutex);
+    FPendingGraphLayoutState* State = PendingGraphLayoutStates.Find(Key);
+    if (State == nullptr || State->TouchedNodeIds.Num() == 0)
+    {
+        return false;
+    }
+
+    for (const FString& NodeId : State->TouchedNodeIds)
+    {
+        OutNodeIds.Add(NodeId);
+    }
+    OutNodeIds.Sort();
+    if (bConsume)
+    {
+        PendingGraphLayoutStates.Remove(Key);
+    }
+    return OutNodeIds.Num() > 0;
+}
+
+bool FLoomleBridgeModule::ApplyBlueprintLayout(
+    const FString& AssetPath,
+    const FString& GraphName,
+    const FString& Scope,
+    const TArray<FString>& RequestedNodeIds,
+    TArray<FString>& OutMovedNodeIds,
+    FString& OutError)
+{
+    OutMovedNodeIds.Reset();
+    OutError.Empty();
+    (void)GraphName;
+
+    UBlueprint* Blueprint = LoadBlueprintByAssetPath(AssetPath);
+    UEdGraph* TargetGraph = ResolveBlueprintGraph(Blueprint, GraphName);
+    if (Blueprint == nullptr || TargetGraph == nullptr)
+    {
+        OutError = TEXT("Failed to resolve blueprint/target graph for layout.");
+        return false;
+    }
+
+    auto ResolveNodeToken = [](UEdGraph* Graph, const FString& NodeToken) -> UEdGraphNode*
+    {
+        if (Graph == nullptr || NodeToken.IsEmpty())
+        {
+            return nullptr;
+        }
+        if (UEdGraphNode* Node = FindNodeByGuid(Graph, NodeToken))
+        {
+            return Node;
+        }
+        for (UEdGraphNode* Node : Graph->Nodes)
+        {
+            if (Node == nullptr)
+            {
+                continue;
+            }
+            if (Node->GetPathName().Equals(NodeToken, ESearchCase::IgnoreCase)
+                || Node->GetName().Equals(NodeToken, ESearchCase::IgnoreCase))
+            {
+                return Node;
+            }
+        }
+        return nullptr;
+    };
+
+    auto IsExecPin = [](const UEdGraphPin* Pin) -> bool
+    {
+        return Pin != nullptr && Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec;
+    };
+
+    auto EstimateNodeSize = [](const UEdGraphNode* Node) -> FVector2D
+    {
+        if (const UEdGraphNode_Comment* CommentNode = Cast<UEdGraphNode_Comment>(Node))
+        {
+            return FVector2D(
+                FMath::Max(160.0f, static_cast<float>(CommentNode->NodeWidth)),
+                FMath::Max(120.0f, static_cast<float>(CommentNode->NodeHeight)));
+        }
+        return FVector2D(280.0f, 160.0f);
+    };
+
+    TArray<UEdGraphNode*> MovableNodes;
+    if (Scope.Equals(TEXT("all")))
+    {
+        for (UEdGraphNode* Node : TargetGraph->Nodes)
+        {
+            if (Node != nullptr)
+            {
+                MovableNodes.Add(Node);
+            }
+        }
+    }
+    else if (Scope.Equals(TEXT("touched")))
+    {
+        for (const FString& NodeId : RequestedNodeIds)
+        {
+            if (UEdGraphNode* Node = ResolveNodeToken(TargetGraph, NodeId))
+            {
+                MovableNodes.AddUnique(Node);
+            }
+        }
+    }
+    else
+    {
+        OutError = FString::Printf(TEXT("Unsupported layout scope for Blueprint: %s"), *Scope);
+        return false;
+    }
+
+    if (MovableNodes.Num() == 0)
+    {
+        OutError = Scope.Equals(TEXT("touched"))
+            ? TEXT("No touched nodes are pending for layout.")
+            : TEXT("No nodes available for layout.");
+        return false;
+    }
+
+    TSet<FString> MovableNodeIds;
+    for (UEdGraphNode* Node : MovableNodes)
+    {
+        if (Node != nullptr)
+        {
+            MovableNodeIds.Add(Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
+        }
+    }
+
+    TArray<FBox2D> OccupiedRects;
+    OccupiedRects.Reserve(TargetGraph->Nodes.Num());
+    for (UEdGraphNode* Node : TargetGraph->Nodes)
+    {
+        if (Node == nullptr)
+        {
+            continue;
+        }
+        const FString NodeId = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower);
+        if (MovableNodeIds.Contains(NodeId))
+        {
+            continue;
+        }
+
+        const FVector2D Size = EstimateNodeSize(Node);
+        OccupiedRects.Add(FBox2D(
+            FVector2D(Node->NodePosX, Node->NodePosY),
+            FVector2D(Node->NodePosX + Size.X, Node->NodePosY + Size.Y)));
+    }
+
+    TMap<UEdGraphNode*, int32> DepthByNode;
+    TMap<UEdGraphNode*, TArray<UEdGraphNode*>> ExecSuccessors;
+    TMap<UEdGraphNode*, float> PreferredYByNode;
+    TMap<UEdGraphNode*, int32> ExecBranchBiasByNode;
+    TSet<UEdGraphNode*> ExecNodes;
+    TSet<UEdGraphNode*> CommentNodes;
+    for (UEdGraphNode* Node : MovableNodes)
+    {
+        DepthByNode.Add(Node, TNumericLimits<int32>::Min());
+        ExecSuccessors.Add(Node, TArray<UEdGraphNode*>());
+        PreferredYByNode.Add(Node, static_cast<float>(Node->NodePosY));
+        ExecBranchBiasByNode.Add(Node, 0);
+        if (Cast<UEdGraphNode_Comment>(Node) != nullptr)
+        {
+            CommentNodes.Add(Node);
+        }
+    }
+
+    for (UEdGraphNode* Node : MovableNodes)
+    {
+        bool bHasIncomingExecFromMovable = false;
+        bool bHasAnyExecPin = false;
+        float PreferredExecY = 0.0f;
+        int32 PreferredExecYCount = 0;
+        for (UEdGraphPin* Pin : Node->Pins)
+        {
+            if (!IsExecPin(Pin))
+            {
+                continue;
+            }
+
+             bHasAnyExecPin = true;
+
+            if (Pin->Direction == EGPD_Input)
+            {
+                for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
+                {
+                    UEdGraphNode* LinkedNode = LinkedPin ? LinkedPin->GetOwningNodeUnchecked() : nullptr;
+                    if (LinkedNode != nullptr && DepthByNode.Contains(LinkedNode))
+                    {
+                        bHasIncomingExecFromMovable = true;
+                        PreferredExecY += static_cast<float>(LinkedNode->NodePosY);
+                        ++PreferredExecYCount;
+                    }
+                }
+            }
+            else if (Pin->Direction == EGPD_Output)
+            {
+                TArray<UEdGraphNode*>& Successors = ExecSuccessors.FindChecked(Node);
+                for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
+                {
+                    UEdGraphNode* LinkedNode = LinkedPin ? LinkedPin->GetOwningNodeUnchecked() : nullptr;
+                    if (LinkedNode != nullptr && DepthByNode.Contains(LinkedNode))
+                    {
+                        Successors.AddUnique(LinkedNode);
+                        const FString NormalizedPinName = Pin->PinName.ToString().ToLower();
+                        if (NormalizedPinName.Equals(TEXT("then")) || NormalizedPinName.Equals(TEXT("true")))
+                        {
+                            ExecBranchBiasByNode.FindOrAdd(LinkedNode) = 0;
+                        }
+                        else if (NormalizedPinName.Equals(TEXT("else")) || NormalizedPinName.Equals(TEXT("false")))
+                        {
+                            ExecBranchBiasByNode.FindOrAdd(LinkedNode) = 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (bHasAnyExecPin)
+        {
+            ExecNodes.Add(Node);
+        }
+
+        if (PreferredExecYCount > 0)
+        {
+            PreferredYByNode[Node] = PreferredExecY / static_cast<float>(PreferredExecYCount);
+        }
+
+        if (!bHasIncomingExecFromMovable)
+        {
+            DepthByNode[Node] = 0;
+        }
+    }
+
+    bool bProgress = true;
+    while (bProgress)
+    {
+        bProgress = false;
+        for (const TPair<UEdGraphNode*, TArray<UEdGraphNode*>>& Pair : ExecSuccessors)
+        {
+            const int32* SourceDepth = DepthByNode.Find(Pair.Key);
+            if (SourceDepth == nullptr || *SourceDepth == TNumericLimits<int32>::Min())
+            {
+                continue;
+            }
+
+            for (UEdGraphNode* Successor : Pair.Value)
+            {
+                int32& CurrentDepth = DepthByNode.FindChecked(Successor);
+                if (CurrentDepth < (*SourceDepth + 1))
+                {
+                    CurrentDepth = *SourceDepth + 1;
+                    bProgress = true;
+                }
+            }
+        }
+    }
+
+    for (int32 Pass = 0; Pass < 4; ++Pass)
+    {
+        bool bPassProgress = false;
+        for (UEdGraphNode* Node : MovableNodes)
+        {
+            int32& CurrentDepth = DepthByNode.FindChecked(Node);
+            if (CurrentDepth != TNumericLimits<int32>::Min())
+            {
+                continue;
+            }
+
+            TOptional<int32> CandidateDepth;
+            for (UEdGraphPin* Pin : Node->Pins)
+            {
+                if (Pin == nullptr || IsExecPin(Pin))
+                {
+                    continue;
+                }
+
+                for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
+                {
+                    UEdGraphNode* LinkedNode = LinkedPin ? LinkedPin->GetOwningNodeUnchecked() : nullptr;
+                    if (LinkedNode == nullptr || !DepthByNode.Contains(LinkedNode))
+                    {
+                        continue;
+                    }
+
+                    const int32 LinkedDepth = DepthByNode.FindChecked(LinkedNode);
+                    if (LinkedDepth == TNumericLimits<int32>::Min())
+                    {
+                        continue;
+                    }
+
+                    int32 ProposedDepth = LinkedDepth;
+                    if (Pin->Direction == EGPD_Output)
+                    {
+                        ProposedDepth = LinkedDepth - 1;
+                    }
+                    else if (Pin->Direction == EGPD_Input)
+                    {
+                        ProposedDepth = LinkedDepth + 1;
+                    }
+
+                    CandidateDepth = CandidateDepth.IsSet()
+                        ? TOptional<int32>(FMath::Min(CandidateDepth.GetValue(), ProposedDepth))
+                        : TOptional<int32>(ProposedDepth);
+                }
+            }
+
+            if (CandidateDepth.IsSet())
+            {
+                CurrentDepth = CandidateDepth.GetValue();
+                bPassProgress = true;
+            }
+        }
+
+        if (!bPassProgress)
+        {
+            break;
+        }
+    }
+
+    for (UEdGraphNode* Node : MovableNodes)
+    {
+        float WeightedY = static_cast<float>(Node->NodePosY);
+        float WeightTotal = 1.0f;
+
+        for (UEdGraphPin* Pin : Node->Pins)
+        {
+            if (Pin == nullptr)
+            {
+                continue;
+            }
+
+            for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
+            {
+                UEdGraphNode* LinkedNode = LinkedPin ? LinkedPin->GetOwningNodeUnchecked() : nullptr;
+                if (LinkedNode == nullptr || !PreferredYByNode.Contains(LinkedNode))
+                {
+                    continue;
+                }
+
+                const float LinkedY = PreferredYByNode.FindChecked(LinkedNode);
+                const bool bExecAffinity = IsExecPin(Pin) || IsExecPin(LinkedPin);
+                const float Weight = bExecAffinity ? 2.0f : 1.0f;
+                WeightedY += LinkedY * Weight;
+                WeightTotal += Weight;
+            }
+        }
+
+        PreferredYByNode[Node] = WeightedY / WeightTotal;
+        if (ExecNodes.Contains(Node))
+        {
+            const int32 BranchBias = ExecBranchBiasByNode.Contains(Node) ? ExecBranchBiasByNode.FindChecked(Node) : 0;
+            PreferredYByNode[Node] += static_cast<float>(BranchBias * 96);
+        }
+    }
+
+    int32 MinDepth = 0;
+    bool bFoundAssignedDepth = false;
+    for (const TPair<UEdGraphNode*, int32>& Pair : DepthByNode)
+    {
+        if (Pair.Value == TNumericLimits<int32>::Min())
+        {
+            continue;
+        }
+        MinDepth = bFoundAssignedDepth ? FMath::Min(MinDepth, Pair.Value) : Pair.Value;
+        bFoundAssignedDepth = true;
+    }
+
+    TMap<UEdGraphNode*, int32> NormalizedDepthByNode;
+    TMap<int32, TArray<UEdGraphNode*>> NodesByDepth;
+    int32 BaseX = TNumericLimits<int32>::Max();
+    int32 BaseY = TNumericLimits<int32>::Max();
+    for (UEdGraphNode* Node : MovableNodes)
+    {
+        int32 Depth = DepthByNode.FindChecked(Node);
+        if (Depth == TNumericLimits<int32>::Min())
+        {
+            Depth = 0;
+        }
+        Depth -= MinDepth;
+        NormalizedDepthByNode.Add(Node, Depth);
+        NodesByDepth.FindOrAdd(Depth).Add(Node);
+        BaseX = FMath::Min(BaseX, Node->NodePosX);
+        BaseY = FMath::Min(BaseY, Node->NodePosY);
+    }
+
+    if (BaseX == TNumericLimits<int32>::Max())
+    {
+        BaseX = 0;
+    }
+    if (BaseY == TNumericLimits<int32>::Max())
+    {
+        BaseY = 0;
+    }
+
+    const int32 ColumnSpacing = 320;
+    const int32 RowSpacing = 220;
+    const int32 ExecSubtreeGap = 64;
+    const int32 RootGap = 96;
+
+    TMap<UEdGraphNode*, TArray<UEdGraphNode*>> OrderedExecChildren;
+    TMap<UEdGraphNode*, int32> IncomingExecCount;
+    for (UEdGraphNode* Node : ExecNodes)
+    {
+        OrderedExecChildren.Add(Node, TArray<UEdGraphNode*>());
+        IncomingExecCount.Add(Node, 0);
+    }
+
+    for (UEdGraphNode* Node : ExecNodes)
+    {
+        TArray<UEdGraphNode*>& Children = OrderedExecChildren.FindChecked(Node);
+        for (UEdGraphPin* Pin : Node->Pins)
+        {
+            if (!IsExecPin(Pin) || Pin->Direction != EGPD_Output)
+            {
+                continue;
+            }
+
+            for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
+                {
+                    UEdGraphNode* ChildNode = LinkedPin ? LinkedPin->GetOwningNodeUnchecked() : nullptr;
+                    if (ChildNode == nullptr || !ExecNodes.Contains(ChildNode))
+                    {
+                        continue;
+                }
+
+                if (!Children.Contains(ChildNode))
+                {
+                    Children.Add(ChildNode);
+                    int32& IncomingCount = IncomingExecCount.FindOrAdd(ChildNode);
+                    ++IncomingCount;
+                }
+            }
+        }
+
+        Children.Sort([&ExecBranchBiasByNode, &PreferredYByNode](const UEdGraphNode& A, const UEdGraphNode& B)
+        {
+            const int32 BiasA = ExecBranchBiasByNode.Contains(&A) ? ExecBranchBiasByNode.FindChecked(&A) : 0;
+            const int32 BiasB = ExecBranchBiasByNode.Contains(&B) ? ExecBranchBiasByNode.FindChecked(&B) : 0;
+            if (BiasA != BiasB)
+            {
+                return BiasA < BiasB;
+            }
+
+            const float YA = PreferredYByNode.Contains(&A) ? PreferredYByNode.FindChecked(&A) : static_cast<float>(A.NodePosY);
+            const float YB = PreferredYByNode.Contains(&B) ? PreferredYByNode.FindChecked(&B) : static_cast<float>(B.NodePosY);
+            if (!FMath::IsNearlyEqual(YA, YB, 1.0f))
+            {
+                return YA < YB;
+            }
+            return A.NodePosX < B.NodePosX;
+        });
+    }
+
+    TMap<UEdGraphNode*, float> ExecSubtreeHeightByNode;
+    TSet<UEdGraphNode*> ExecHeightVisiting;
+    TFunction<float(UEdGraphNode*)> ComputeExecSubtreeHeight = [&](UEdGraphNode* Node) -> float
+    {
+        if (Node == nullptr)
+        {
+            return 0.0f;
+        }
+        if (const float* CachedHeight = ExecSubtreeHeightByNode.Find(Node))
+        {
+            return *CachedHeight;
+        }
+        if (ExecHeightVisiting.Contains(Node))
+        {
+            return EstimateNodeSize(Node).Y;
+        }
+
+        ExecHeightVisiting.Add(Node);
+        const float NodeHeight = EstimateNodeSize(Node).Y;
+        const TArray<UEdGraphNode*>* Children = OrderedExecChildren.Find(Node);
+        float ResultHeight = NodeHeight;
+        if (Children != nullptr && Children->Num() > 0)
+        {
+            float ChildrenHeight = 0.0f;
+            for (int32 Index = 0; Index < Children->Num(); ++Index)
+            {
+                if (Index > 0)
+                {
+                    ChildrenHeight += static_cast<float>(ExecSubtreeGap);
+                }
+                ChildrenHeight += ComputeExecSubtreeHeight((*Children)[Index]);
+            }
+            ResultHeight = FMath::Max(NodeHeight, ChildrenHeight);
+        }
+
+        ExecHeightVisiting.Remove(Node);
+        ExecSubtreeHeightByNode.Add(Node, ResultHeight);
+        return ResultHeight;
+    };
+
+    TMap<UEdGraphNode*, FVector2D> PlannedExecPositions;
+    TSet<UEdGraphNode*> ExecLayoutVisited;
+    TFunction<void(UEdGraphNode*, float)> LayoutExecSubtree = [&](UEdGraphNode* Node, float TopY)
+    {
+        if (Node == nullptr || ExecLayoutVisited.Contains(Node))
+        {
+            return;
+        }
+
+        ExecLayoutVisited.Add(Node);
+        const float SubtreeHeight = ComputeExecSubtreeHeight(Node);
+        const FVector2D NodeSize = EstimateNodeSize(Node);
+        const int32 Depth = NormalizedDepthByNode.Contains(Node) ? NormalizedDepthByNode.FindChecked(Node) : 0;
+        const float NodeX = static_cast<float>(BaseX + (Depth * ColumnSpacing));
+        const float NodeY = TopY;
+        PlannedExecPositions.Add(Node, FVector2D(NodeX, NodeY));
+
+        const TArray<UEdGraphNode*>* Children = OrderedExecChildren.Find(Node);
+        if (Children == nullptr || Children->Num() == 0)
+        {
+            return;
+        }
+
+        float ChildTopY = TopY;
+        for (UEdGraphNode* ChildNode : *Children)
+        {
+            LayoutExecSubtree(ChildNode, ChildTopY);
+            ChildTopY += ComputeExecSubtreeHeight(ChildNode) + static_cast<float>(ExecSubtreeGap);
+        }
+    };
+
+    TArray<UEdGraphNode*> ExecRoots;
+    for (UEdGraphNode* Node : ExecNodes)
+    {
+        const int32 IncomingCount = IncomingExecCount.Contains(Node) ? IncomingExecCount.FindChecked(Node) : 0;
+        if (IncomingCount == 0)
+        {
+            ExecRoots.Add(Node);
+        }
+    }
+    ExecRoots.Sort([&PreferredYByNode](const UEdGraphNode& A, const UEdGraphNode& B)
+    {
+        const float YA = PreferredYByNode.Contains(&A) ? PreferredYByNode.FindChecked(&A) : static_cast<float>(A.NodePosY);
+        const float YB = PreferredYByNode.Contains(&B) ? PreferredYByNode.FindChecked(&B) : static_cast<float>(B.NodePosY);
+        if (!FMath::IsNearlyEqual(YA, YB, 1.0f))
+        {
+            return YA < YB;
+        }
+        return A.NodePosX < B.NodePosX;
+    });
+
+    float RootTopY = static_cast<float>(BaseY);
+    for (UEdGraphNode* RootNode : ExecRoots)
+    {
+        LayoutExecSubtree(RootNode, RootTopY);
+        RootTopY += ComputeExecSubtreeHeight(RootNode) + static_cast<float>(RootGap);
+    }
+
+    for (UEdGraphNode* ExecNode : ExecNodes)
+    {
+        if (!ExecLayoutVisited.Contains(ExecNode))
+        {
+            LayoutExecSubtree(ExecNode, RootTopY);
+            RootTopY += ComputeExecSubtreeHeight(ExecNode) + static_cast<float>(RootGap);
+        }
+    }
+
+    for (const TPair<UEdGraphNode*, FVector2D>& Pair : PlannedExecPositions)
+    {
+        UEdGraphNode* Node = Pair.Key;
+        const FVector2D Size = EstimateNodeSize(Node);
+        const int32 TargetX = FMath::RoundToInt(Pair.Value.X);
+        int32 TargetY = FMath::RoundToInt(Pair.Value.Y);
+        FBox2D CandidateRect(
+            FVector2D(TargetX, TargetY),
+            FVector2D(TargetX + Size.X, TargetY + Size.Y));
+
+        bool bOverlaps = true;
+        while (bOverlaps)
+        {
+            bOverlaps = false;
+            for (const FBox2D& OccupiedRect : OccupiedRects)
+            {
+                if (CandidateRect.Intersect(OccupiedRect))
+                {
+                    TargetY += RowSpacing;
+                    CandidateRect = FBox2D(
+                        FVector2D(TargetX, TargetY),
+                        FVector2D(TargetX + Size.X, TargetY + Size.Y));
+                    bOverlaps = true;
+                    break;
+                }
+            }
+        }
+
+        if (Node->NodePosX != TargetX || Node->NodePosY != TargetY)
+        {
+            FString MoveError;
+            const FString NodeId = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower);
+            if (!FLoomleBlueprintAdapter::MoveNode(AssetPath, GraphName, NodeId, TargetX, TargetY, MoveError))
+            {
+                OutError = MoveError.IsEmpty() ? TEXT("Failed to move exec node during layout.") : MoveError;
+                return false;
+            }
+            OutMovedNodeIds.Add(NodeId);
+        }
+
+        OccupiedRects.Add(CandidateRect);
+    }
+
+    TArray<int32> SortedDepths;
+    NodesByDepth.GetKeys(SortedDepths);
+    SortedDepths.Sort();
+
+    for (int32 Depth : SortedDepths)
+    {
+        TArray<UEdGraphNode*>& ColumnNodes = NodesByDepth.FindChecked(Depth);
+        ColumnNodes.Sort([&PreferredYByNode, &ExecNodes, &CommentNodes](const UEdGraphNode& A, const UEdGraphNode& B)
+        {
+            const bool bAIsComment = CommentNodes.Contains(&A);
+            const bool bBIsComment = CommentNodes.Contains(&B);
+            if (bAIsComment != bBIsComment)
+            {
+                return !bAIsComment;
+            }
+
+            const bool bAIsExec = ExecNodes.Contains(&A);
+            const bool bBIsExec = ExecNodes.Contains(&B);
+            if (bAIsExec != bBIsExec)
+            {
+                return bAIsExec;
+            }
+
+            const float PreferredYA = PreferredYByNode.Contains(&A)
+                ? PreferredYByNode.FindChecked(&A)
+                : static_cast<float>(A.NodePosY);
+            const float PreferredYB = PreferredYByNode.Contains(&B)
+                ? PreferredYByNode.FindChecked(&B)
+                : static_cast<float>(B.NodePosY);
+            if (!FMath::IsNearlyEqual(PreferredYA, PreferredYB, 1.0f))
+            {
+                return PreferredYA < PreferredYB;
+            }
+
+            if (A.NodePosY != B.NodePosY)
+            {
+                return A.NodePosY < B.NodePosY;
+            }
+            return A.NodePosX < B.NodePosX;
+        });
+
+        int32 RowIndex = 0;
+        for (UEdGraphNode* Node : ColumnNodes)
+        {
+            if (ExecNodes.Contains(Node))
+            {
+                continue;
+            }
+
+            const FVector2D Size = EstimateNodeSize(Node);
+            const int32 TargetX = BaseX + (Depth * ColumnSpacing);
+            int32 TargetY = BaseY + (RowIndex * RowSpacing);
+            FBox2D CandidateRect(
+                FVector2D(TargetX, TargetY),
+                FVector2D(TargetX + Size.X, TargetY + Size.Y));
+
+            bool bOverlaps = true;
+            while (bOverlaps)
+            {
+                bOverlaps = false;
+                for (const FBox2D& OccupiedRect : OccupiedRects)
+                {
+                    if (CandidateRect.Intersect(OccupiedRect))
+                    {
+                        TargetY += RowSpacing;
+                        CandidateRect = FBox2D(
+                            FVector2D(TargetX, TargetY),
+                            FVector2D(TargetX + Size.X, TargetY + Size.Y));
+                        bOverlaps = true;
+                        break;
+                    }
+                }
+            }
+
+            if (Node->NodePosX != TargetX || Node->NodePosY != TargetY)
+            {
+                FString MoveError;
+                const FString NodeId = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower);
+                if (!FLoomleBlueprintAdapter::MoveNode(AssetPath, GraphName, NodeId, TargetX, TargetY, MoveError))
+                {
+                    OutError = MoveError.IsEmpty() ? TEXT("Failed to move node during layout.") : MoveError;
+                    return false;
+                }
+                OutMovedNodeIds.Add(NodeId);
+            }
+
+            OccupiedRects.Add(CandidateRect);
+            ++RowIndex;
+        }
+    }
+
+    return true;
+}
+
+bool FLoomleBridgeModule::ApplyMaterialLayout(
+    const FString& AssetPath,
+    const FString& GraphName,
+    const FString& Scope,
+    const TArray<FString>& RequestedNodeIds,
+    TArray<FString>& OutMovedNodeIds,
+    FString& OutError)
+{
+    OutMovedNodeIds.Reset();
+    OutError.Empty();
+    (void)GraphName;
+
+    UMaterial* MaterialAsset = LoadMaterialByAssetPath(AssetPath);
+    if (MaterialAsset == nullptr)
+    {
+        OutError = TEXT("Material asset not found.");
+        return false;
+    }
+    if (MaterialAsset->MaterialGraph == nullptr)
+    {
+        MaterialAsset->MaterialGraph = CastChecked<UMaterialGraph>(
+            FBlueprintEditorUtils::CreateNewGraph(
+                MaterialAsset,
+                NAME_None,
+                UMaterialGraph::StaticClass(),
+                UMaterialGraphSchema::StaticClass()));
+    }
+    if (MaterialAsset->MaterialGraph != nullptr)
+    {
+        MaterialAsset->MaterialGraph->Material = MaterialAsset;
+        MaterialAsset->MaterialGraph->MaterialFunction = nullptr;
+        MaterialAsset->MaterialGraph->RebuildGraph();
+    }
+    UMaterialGraph* MaterialGraph = MaterialAsset->MaterialGraph;
+    UMaterialGraphNode_Root* RootNode = MaterialGraph ? MaterialGraph->RootNode : nullptr;
+
+    TArray<UMaterialExpression*> AllExpressions;
+    for (UMaterialExpression* Expression : MaterialAsset->GetExpressions())
+    {
+        if (Expression != nullptr)
+        {
+            AllExpressions.Add(Expression);
+        }
+    }
+
+    auto ResolveExpressionToken = [&AllExpressions](const FString& NodeToken) -> UMaterialExpression*
+    {
+        if (NodeToken.IsEmpty())
+        {
+            return nullptr;
+        }
+
+        for (UMaterialExpression* Expression : AllExpressions)
+        {
+            if (Expression == nullptr)
+            {
+                continue;
+            }
+
+            const FString ExpressionId = MaterialExpressionId(Expression);
+            if (ExpressionId.Equals(NodeToken, ESearchCase::IgnoreCase)
+                || Expression->GetPathName().Equals(NodeToken, ESearchCase::IgnoreCase)
+                || Expression->GetName().Equals(NodeToken, ESearchCase::IgnoreCase))
+            {
+                return Expression;
+            }
+        }
+
+        return nullptr;
+    };
+
+    auto EstimateNodeSize = [](const UMaterialExpression* Expression) -> FVector2D
+    {
+        if (Expression == nullptr)
+        {
+            return FVector2D(240.0f, 160.0f);
+        }
+
+        const FString ClassName = Expression->GetClass() ? Expression->GetClass()->GetName() : TEXT("");
+        if (ClassName.Contains(TEXT("Texture"), ESearchCase::IgnoreCase))
+        {
+            return FVector2D(320.0f, 220.0f);
+        }
+        if (ClassName.Contains(TEXT("Parameter"), ESearchCase::IgnoreCase))
+        {
+            return FVector2D(260.0f, 180.0f);
+        }
+        return FVector2D(240.0f, 160.0f);
+    };
+
+    TMap<UMaterialExpression*, TArray<UMaterialExpression*>> Predecessors;
+    TMap<UMaterialExpression*, TArray<UMaterialExpression*>> Successors;
+    TSet<UMaterialExpression*> RootSinkExpressions;
+    for (UMaterialExpression* Expression : AllExpressions)
+    {
+        if (Expression == nullptr)
+        {
+            continue;
+        }
+        Predecessors.Add(Expression, TArray<UMaterialExpression*>());
+        Successors.Add(Expression, TArray<UMaterialExpression*>());
+    }
+
+    for (UMaterialExpression* Expression : AllExpressions)
+    {
+        if (Expression == nullptr)
+        {
+            continue;
+        }
+
+        const int32 MaxInputs = 128;
+        for (int32 InputIndex = 0; InputIndex < MaxInputs; ++InputIndex)
+        {
+            FExpressionInput* Input = Expression->GetInput(InputIndex);
+            if (Input == nullptr)
+            {
+                break;
+            }
+
+            if (UMaterialExpression* SourceExpression = Input->Expression)
+            {
+                Predecessors.FindChecked(Expression).AddUnique(SourceExpression);
+                if (Successors.Contains(SourceExpression))
+                {
+                    Successors.FindChecked(SourceExpression).AddUnique(Expression);
+                }
+            }
+        }
+    }
+
+    if (RootNode != nullptr)
+    {
+        for (UEdGraphPin* Pin : RootNode->Pins)
+        {
+            if (Pin == nullptr || Pin->Direction != EGPD_Input)
+            {
+                continue;
+            }
+
+            for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
+            {
+                UEdGraphNode* LinkedNode = LinkedPin ? LinkedPin->GetOwningNodeUnchecked() : nullptr;
+                UMaterialGraphNode* MaterialGraphNode = Cast<UMaterialGraphNode>(LinkedNode);
+                UMaterialExpression* LinkedExpression = MaterialGraphNode ? MaterialGraphNode->MaterialExpression : nullptr;
+                if (LinkedExpression != nullptr)
+                {
+                    RootSinkExpressions.Add(LinkedExpression);
+                }
+            }
+        }
+    }
+
+    TSet<UMaterialExpression*> MovableExpressions;
+    if (Scope.Equals(TEXT("all")))
+    {
+        for (UMaterialExpression* Expression : AllExpressions)
+        {
+            if (Expression != nullptr)
+            {
+                MovableExpressions.Add(Expression);
+            }
+        }
+    }
+    else if (Scope.Equals(TEXT("touched")))
+    {
+        for (const FString& NodeId : RequestedNodeIds)
+        {
+            if (UMaterialExpression* Expression = ResolveExpressionToken(NodeId))
+            {
+                MovableExpressions.Add(Expression);
+            }
+        }
+
+        TArray<UMaterialExpression*> SeedExpressions = MovableExpressions.Array();
+        for (UMaterialExpression* Expression : SeedExpressions)
+        {
+            if (Expression == nullptr)
+            {
+                continue;
+            }
+
+            if (const TArray<UMaterialExpression*>* Inputs = Predecessors.Find(Expression))
+            {
+                for (UMaterialExpression* Neighbor : *Inputs)
+                {
+                    if (Neighbor != nullptr)
+                    {
+                        MovableExpressions.Add(Neighbor);
+                    }
+                }
+            }
+            if (const TArray<UMaterialExpression*>* Outputs = Successors.Find(Expression))
+            {
+                for (UMaterialExpression* Neighbor : *Outputs)
+                {
+                    if (Neighbor != nullptr)
+                    {
+                        MovableExpressions.Add(Neighbor);
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        OutError = FString::Printf(TEXT("Unsupported layout scope for material: %s"), *Scope);
+        return false;
+    }
+
+    if (MovableExpressions.Num() == 0)
+    {
+        OutError = Scope.Equals(TEXT("touched"))
+            ? TEXT("No touched nodes are pending for layout.")
+            : TEXT("No material expressions available for layout.");
+        return false;
+    }
+
+    TSet<FString> MovableNodeIds;
+    for (UMaterialExpression* Expression : MovableExpressions)
+    {
+        if (Expression != nullptr)
+        {
+            MovableNodeIds.Add(MaterialExpressionId(Expression));
+        }
+    }
+
+    TArray<FBox2D> OccupiedRects;
+    int32 BaseX = TNumericLimits<int32>::Max();
+    int32 BaseY = TNumericLimits<int32>::Max();
+    for (UMaterialExpression* Expression : AllExpressions)
+    {
+        if (Expression == nullptr)
+        {
+            continue;
+        }
+
+        if (MovableExpressions.Contains(Expression))
+        {
+            BaseX = FMath::Min(BaseX, Expression->MaterialExpressionEditorX);
+            BaseY = FMath::Min(BaseY, Expression->MaterialExpressionEditorY);
+            continue;
+        }
+
+        const FVector2D Size = EstimateNodeSize(Expression);
+        OccupiedRects.Add(FBox2D(
+            FVector2D(Expression->MaterialExpressionEditorX, Expression->MaterialExpressionEditorY),
+            FVector2D(Expression->MaterialExpressionEditorX + Size.X, Expression->MaterialExpressionEditorY + Size.Y)));
+    }
+
+    int32 RootOriginalX = 0;
+    int32 RootOriginalY = 0;
+    if (RootNode != nullptr)
+    {
+        RootOriginalX = RootNode->NodePosX;
+        RootOriginalY = RootNode->NodePosY;
+        BaseX = FMath::Min(BaseX, RootOriginalX - 720);
+        BaseY = FMath::Min(BaseY, RootOriginalY);
+        const FVector2D RootSize(420.0f, 1040.0f);
+        OccupiedRects.Add(FBox2D(
+            FVector2D(RootOriginalX, RootOriginalY),
+            FVector2D(RootOriginalX + RootSize.X, RootOriginalY + RootSize.Y)));
+    }
+
+    if (BaseX == TNumericLimits<int32>::Max())
+    {
+        BaseX = 0;
+    }
+    if (BaseY == TNumericLimits<int32>::Max())
+    {
+        BaseY = 0;
+    }
+
+    TMap<UMaterialExpression*, int32> ReverseDepthByNode;
+    TMap<UMaterialExpression*, float> PreferredYByNode;
+    for (UMaterialExpression* Expression : MovableExpressions)
+    {
+        ReverseDepthByNode.Add(Expression, TNumericLimits<int32>::Min());
+        PreferredYByNode.Add(Expression, static_cast<float>(Expression->MaterialExpressionEditorY));
+    }
+
+    for (UMaterialExpression* Expression : MovableExpressions)
+    {
+        const TArray<UMaterialExpression*>* Outputs = Successors.Find(Expression);
+        bool bHasMovableSuccessor = false;
+        if (RootSinkExpressions.Contains(Expression))
+        {
+            ReverseDepthByNode[Expression] = 0;
+            continue;
+        }
+        if (Outputs != nullptr)
+        {
+            for (UMaterialExpression* Successor : *Outputs)
+            {
+                if (MovableExpressions.Contains(Successor))
+                {
+                    bHasMovableSuccessor = true;
+                    break;
+                }
+            }
+        }
+
+        if (!bHasMovableSuccessor)
+        {
+            ReverseDepthByNode[Expression] = 0;
+        }
+    }
+
+    bool bProgress = true;
+    while (bProgress)
+    {
+        bProgress = false;
+        for (UMaterialExpression* Expression : MovableExpressions)
+        {
+            const TArray<UMaterialExpression*>* Inputs = Predecessors.Find(Expression);
+            if (Inputs == nullptr)
+            {
+                continue;
+            }
+
+            const int32 CurrentDepth = ReverseDepthByNode.FindChecked(Expression);
+            if (CurrentDepth == TNumericLimits<int32>::Min())
+            {
+                continue;
+            }
+
+            for (UMaterialExpression* InputExpression : *Inputs)
+            {
+                if (InputExpression == nullptr || !MovableExpressions.Contains(InputExpression))
+                {
+                    continue;
+                }
+
+                int32& InputDepth = ReverseDepthByNode.FindChecked(InputExpression);
+                if (InputDepth < CurrentDepth + 1)
+                {
+                    InputDepth = CurrentDepth + 1;
+                    bProgress = true;
+                }
+            }
+        }
+    }
+
+    int32 MaxDepth = 0;
+    for (UMaterialExpression* Expression : MovableExpressions)
+    {
+        int32& Depth = ReverseDepthByNode.FindChecked(Expression);
+        if (Depth == TNumericLimits<int32>::Min())
+        {
+            Depth = 0;
+        }
+        MaxDepth = FMath::Max(MaxDepth, Depth);
+
+        float WeightedY = static_cast<float>(Expression->MaterialExpressionEditorY);
+        float WeightTotal = 1.0f;
+        if (const TArray<UMaterialExpression*>* Inputs = Predecessors.Find(Expression))
+        {
+            for (UMaterialExpression* Neighbor : *Inputs)
+            {
+                if (Neighbor != nullptr && MovableExpressions.Contains(Neighbor))
+                {
+                    WeightedY += static_cast<float>(Neighbor->MaterialExpressionEditorY);
+                    WeightTotal += 1.0f;
+                }
+            }
+        }
+        if (const TArray<UMaterialExpression*>* Outputs = Successors.Find(Expression))
+        {
+            for (UMaterialExpression* Neighbor : *Outputs)
+            {
+                if (Neighbor != nullptr && MovableExpressions.Contains(Neighbor))
+                {
+                    WeightedY += static_cast<float>(Neighbor->MaterialExpressionEditorY);
+                    WeightTotal += 1.5f;
+                }
+            }
+        }
+        PreferredYByNode[Expression] = WeightedY / WeightTotal;
+    }
+
+    TMap<int32, TArray<UMaterialExpression*>> NodesByColumn;
+    for (UMaterialExpression* Expression : MovableExpressions)
+    {
+        const int32 Column = MaxDepth - ReverseDepthByNode.FindChecked(Expression);
+        NodesByColumn.FindOrAdd(Column).Add(Expression);
+    }
+
+    auto MaterialCategoryRank = [](const UMaterialExpression* Expression) -> int32
+    {
+        const FString ClassName = Expression && Expression->GetClass() ? Expression->GetClass()->GetName() : TEXT("");
+        if (ClassName.Contains(TEXT("Parameter"), ESearchCase::IgnoreCase))
+        {
+            return 0;
+        }
+        if (ClassName.Contains(TEXT("Constant"), ESearchCase::IgnoreCase))
+        {
+            return 1;
+        }
+        if (ClassName.Contains(TEXT("Texture"), ESearchCase::IgnoreCase))
+        {
+            return 2;
+        }
+        return 3;
+    };
+
+    TArray<int32> SortedColumns;
+    NodesByColumn.GetKeys(SortedColumns);
+    SortedColumns.Sort();
+
+    const int32 ColumnSpacing = 360;
+    const int32 RowSpacing = 224;
+    const int32 GridSize = 16;
+    const int32 RootReservedGap = 352;
+    const int32 MaxColumnIndex = SortedColumns.Num() > 0 ? SortedColumns.Last() : 0;
+
+    for (int32 Column : SortedColumns)
+    {
+        TArray<UMaterialExpression*>& ColumnNodes = NodesByColumn.FindChecked(Column);
+        ColumnNodes.Sort([&PreferredYByNode, &MaterialCategoryRank](const UMaterialExpression& A, const UMaterialExpression& B)
+        {
+            const int32 RankA = MaterialCategoryRank(&A);
+            const int32 RankB = MaterialCategoryRank(&B);
+            if (RankA != RankB)
+            {
+                return RankA < RankB;
+            }
+
+            const float YA = PreferredYByNode.Contains(&A) ? PreferredYByNode.FindChecked(&A) : static_cast<float>(A.MaterialExpressionEditorY);
+            const float YB = PreferredYByNode.Contains(&B) ? PreferredYByNode.FindChecked(&B) : static_cast<float>(B.MaterialExpressionEditorY);
+            if (!FMath::IsNearlyEqual(YA, YB, 1.0f))
+            {
+                return YA < YB;
+            }
+            return A.MaterialExpressionEditorX < B.MaterialExpressionEditorX;
+        });
+
+        for (int32 Index = 0; Index < ColumnNodes.Num(); ++Index)
+        {
+            UMaterialExpression* Expression = ColumnNodes[Index];
+            const FVector2D Size = EstimateNodeSize(Expression);
+            int32 TargetX = BaseX + (Column * ColumnSpacing);
+            if (RootNode != nullptr)
+            {
+                const int32 ColumnsFromSink = MaxColumnIndex - Column;
+                TargetX = RootOriginalX - RootReservedGap - (ColumnsFromSink * ColumnSpacing);
+            }
+            TargetX = FMath::GridSnap(TargetX, GridSize);
+            int32 TargetY = FMath::GridSnap(
+                FMath::Max(BaseY + (Index * RowSpacing), FMath::RoundToInt(PreferredYByNode.FindChecked(Expression))),
+                GridSize);
+
+            FBox2D CandidateRect(
+                FVector2D(TargetX, TargetY),
+                FVector2D(TargetX + Size.X, TargetY + Size.Y));
+
+            bool bOverlaps = true;
+            while (bOverlaps)
+            {
+                bOverlaps = false;
+                for (const FBox2D& OccupiedRect : OccupiedRects)
+                {
+                    if (CandidateRect.Intersect(OccupiedRect))
+                    {
+                        TargetY = FMath::GridSnap(TargetY + RowSpacing, GridSize);
+                        CandidateRect = FBox2D(
+                            FVector2D(TargetX, TargetY),
+                            FVector2D(TargetX + Size.X, TargetY + Size.Y));
+                        bOverlaps = true;
+                        break;
+                    }
+                }
+            }
+
+            if (Expression->MaterialExpressionEditorX != TargetX || Expression->MaterialExpressionEditorY != TargetY)
+            {
+                Expression->MaterialExpressionEditorX = TargetX;
+                Expression->MaterialExpressionEditorY = TargetY;
+                OutMovedNodeIds.Add(MaterialExpressionId(Expression));
+            }
+
+            OccupiedRects.Add(CandidateRect);
+        }
+    }
+
+    return true;
+}
+
+bool FLoomleBridgeModule::ApplyPcgLayout(
+    const FString& AssetPath,
+    const FString& GraphName,
+    const FString& Scope,
+    const TArray<FString>& RequestedNodeIds,
+    TArray<FString>& OutMovedNodeIds,
+    FString& OutError)
+{
+    OutMovedNodeIds.Reset();
+    OutError.Empty();
+
+    UPCGGraph* PcgGraph = LoadPcgGraphByAssetPath(AssetPath);
+    if (PcgGraph == nullptr)
+    {
+        OutError = TEXT("PCG asset not found.");
+        return false;
+    }
+
+    TArray<UPCGNode*> AllNodes;
+    for (UPCGNode* Node : PcgGraph->GetNodes())
+    {
+        if (Node != nullptr)
+        {
+            AllNodes.Add(Node);
+        }
+    }
+
+    auto ResolveNodeToken = [&AllNodes](const FString& NodeToken) -> UPCGNode*
+    {
+        if (NodeToken.IsEmpty())
+        {
+            return nullptr;
+        }
+
+        for (UPCGNode* Node : AllNodes)
+        {
+            if (Node == nullptr)
+            {
+                continue;
+            }
+
+            if (Node->GetPathName().Equals(NodeToken, ESearchCase::IgnoreCase)
+                || Node->GetName().Equals(NodeToken, ESearchCase::IgnoreCase))
+            {
+                return Node;
+            }
+        }
+        return nullptr;
+    };
+
+    auto EstimateNodeSize = [](const UPCGNode* Node) -> FVector2D
+    {
+        const FString ClassName = Node && Node->GetSettings() && Node->GetSettings()->GetClass()
+            ? Node->GetSettings()->GetClass()->GetName()
+            : TEXT("");
+        if (ClassName.Contains(TEXT("Sampler"), ESearchCase::IgnoreCase))
+        {
+            return FVector2D(320.0f, 180.0f);
+        }
+        return FVector2D(280.0f, 160.0f);
+    };
+
+    TMap<UPCGNode*, TArray<UPCGNode*>> Predecessors;
+    TMap<UPCGNode*, TArray<UPCGNode*>> Successors;
+    for (UPCGNode* Node : AllNodes)
+    {
+        if (Node != nullptr)
+        {
+            Predecessors.Add(Node, TArray<UPCGNode*>());
+            Successors.Add(Node, TArray<UPCGNode*>());
+        }
+    }
+
+    for (UPCGNode* Node : AllNodes)
+    {
+        if (Node == nullptr)
+        {
+            continue;
+        }
+
+        for (UPCGPin* OutputPin : Node->GetOutputPins())
+        {
+            if (OutputPin == nullptr)
+            {
+                continue;
+            }
+
+            for (UPCGEdge* Edge : OutputPin->Edges)
+            {
+                const UPCGPin* OtherPin = Edge ? Edge->GetOtherPin(OutputPin) : nullptr;
+                UPCGNode* OtherNode = OtherPin ? OtherPin->Node : nullptr;
+                if (OtherNode == nullptr || OtherNode == Node)
+                {
+                    continue;
+                }
+                Successors.FindChecked(Node).AddUnique(OtherNode);
+                if (Predecessors.Contains(OtherNode))
+                {
+                    Predecessors.FindChecked(OtherNode).AddUnique(Node);
+                }
+            }
+        }
+    }
+
+    TSet<UPCGNode*> MovableNodes;
+    if (Scope.Equals(TEXT("all")))
+    {
+        for (UPCGNode* Node : AllNodes)
+        {
+            if (Node != nullptr)
+            {
+                MovableNodes.Add(Node);
+            }
+        }
+    }
+    else if (Scope.Equals(TEXT("touched")))
+    {
+        for (const FString& NodeId : RequestedNodeIds)
+        {
+            if (UPCGNode* Node = ResolveNodeToken(NodeId))
+            {
+                MovableNodes.Add(Node);
+            }
+        }
+
+        TArray<UPCGNode*> SeedNodes = MovableNodes.Array();
+        for (UPCGNode* Node : SeedNodes)
+        {
+            if (Node == nullptr)
+            {
+                continue;
+            }
+            if (const TArray<UPCGNode*>* Inputs = Predecessors.Find(Node))
+            {
+                for (UPCGNode* Neighbor : *Inputs)
+                {
+                    if (Neighbor != nullptr)
+                    {
+                        MovableNodes.Add(Neighbor);
+                    }
+                }
+            }
+            if (const TArray<UPCGNode*>* Outputs = Successors.Find(Node))
+            {
+                for (UPCGNode* Neighbor : *Outputs)
+                {
+                    if (Neighbor != nullptr)
+                    {
+                        MovableNodes.Add(Neighbor);
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        OutError = FString::Printf(TEXT("Unsupported layout scope for PCG: %s"), *Scope);
+        return false;
+    }
+
+    if (MovableNodes.Num() == 0)
+    {
+        OutError = Scope.Equals(TEXT("touched"))
+            ? TEXT("No touched nodes are pending for layout.")
+            : TEXT("No PCG nodes available for layout.");
+        return false;
+    }
+
+    TArray<FBox2D> OccupiedRects;
+    int32 BaseX = TNumericLimits<int32>::Max();
+    int32 BaseY = TNumericLimits<int32>::Max();
+    for (UPCGNode* Node : AllNodes)
+    {
+        if (Node == nullptr)
+        {
+            continue;
+        }
+
+        int32 NodeX = 0;
+        int32 NodeY = 0;
+        Node->GetNodePosition(NodeX, NodeY);
+        if (MovableNodes.Contains(Node))
+        {
+            BaseX = FMath::Min(BaseX, NodeX);
+            BaseY = FMath::Min(BaseY, NodeY);
+            continue;
+        }
+
+        const FVector2D Size = EstimateNodeSize(Node);
+        OccupiedRects.Add(FBox2D(
+            FVector2D(NodeX, NodeY),
+            FVector2D(NodeX + Size.X, NodeY + Size.Y)));
+    }
+
+    if (BaseX == TNumericLimits<int32>::Max())
+    {
+        BaseX = 0;
+    }
+    if (BaseY == TNumericLimits<int32>::Max())
+    {
+        BaseY = 0;
+    }
+
+    TMap<UPCGNode*, int32> DepthByNode;
+    TMap<UPCGNode*, float> PreferredYByNode;
+    for (UPCGNode* Node : MovableNodes)
+    {
+        DepthByNode.Add(Node, TNumericLimits<int32>::Min());
+        int32 NodeX = 0;
+        int32 NodeY = 0;
+        Node->GetNodePosition(NodeX, NodeY);
+        PreferredYByNode.Add(Node, static_cast<float>(NodeY));
+    }
+
+    for (UPCGNode* Node : MovableNodes)
+    {
+        bool bHasMovableInput = false;
+        if (const TArray<UPCGNode*>* Inputs = Predecessors.Find(Node))
+        {
+            for (UPCGNode* InputNode : *Inputs)
+            {
+                if (MovableNodes.Contains(InputNode))
+                {
+                    bHasMovableInput = true;
+                    break;
+                }
+            }
+        }
+        if (!bHasMovableInput)
+        {
+            DepthByNode[Node] = 0;
+        }
+    }
+
+    bool bProgress = true;
+    while (bProgress)
+    {
+        bProgress = false;
+        for (UPCGNode* Node : MovableNodes)
+        {
+            const int32 CurrentDepth = DepthByNode.FindChecked(Node);
+            if (CurrentDepth == TNumericLimits<int32>::Min())
+            {
+                continue;
+            }
+
+            if (const TArray<UPCGNode*>* Outputs = Successors.Find(Node))
+            {
+                for (UPCGNode* OutputNode : *Outputs)
+                {
+                    if (OutputNode == nullptr || !MovableNodes.Contains(OutputNode))
+                    {
+                        continue;
+                    }
+
+                    int32& OutputDepth = DepthByNode.FindChecked(OutputNode);
+                    if (OutputDepth < CurrentDepth + 1)
+                    {
+                        OutputDepth = CurrentDepth + 1;
+                        bProgress = true;
+                    }
+                }
+            }
+        }
+    }
+
+    TMap<int32, TArray<UPCGNode*>> NodesByDepth;
+    for (UPCGNode* Node : MovableNodes)
+    {
+        int32& Depth = DepthByNode.FindChecked(Node);
+        if (Depth == TNumericLimits<int32>::Min())
+        {
+            Depth = 0;
+        }
+
+        float WeightedY = PreferredYByNode.FindChecked(Node);
+        float WeightTotal = 1.0f;
+        if (const TArray<UPCGNode*>* Inputs = Predecessors.Find(Node))
+        {
+            for (UPCGNode* InputNode : *Inputs)
+            {
+                if (InputNode != nullptr && MovableNodes.Contains(InputNode))
+                {
+                    WeightedY += PreferredYByNode.FindChecked(InputNode) * 1.5f;
+                    WeightTotal += 1.5f;
+                }
+            }
+        }
+        PreferredYByNode[Node] = WeightedY / WeightTotal;
+        NodesByDepth.FindOrAdd(Depth).Add(Node);
+    }
+
+    TArray<int32> SortedDepths;
+    NodesByDepth.GetKeys(SortedDepths);
+    SortedDepths.Sort();
+
+    const int32 ColumnSpacing = 360;
+    const int32 RowSpacing = 208;
+    const int32 GridSize = 16;
+
+    for (int32 Depth : SortedDepths)
+    {
+        TArray<UPCGNode*>& ColumnNodes = NodesByDepth.FindChecked(Depth);
+        ColumnNodes.Sort([&PreferredYByNode](const UPCGNode& A, const UPCGNode& B)
+        {
+            const float YA = PreferredYByNode.Contains(&A) ? PreferredYByNode.FindChecked(&A) : 0.0f;
+            const float YB = PreferredYByNode.Contains(&B) ? PreferredYByNode.FindChecked(&B) : 0.0f;
+            if (!FMath::IsNearlyEqual(YA, YB, 1.0f))
+            {
+                return YA < YB;
+            }
+            return A.GetName() < B.GetName();
+        });
+
+        for (int32 Index = 0; Index < ColumnNodes.Num(); ++Index)
+        {
+            UPCGNode* Node = ColumnNodes[Index];
+            const FVector2D Size = EstimateNodeSize(Node);
+            const int32 TargetX = FMath::GridSnap(BaseX + (Depth * ColumnSpacing), GridSize);
+            int32 TargetY = FMath::GridSnap(
+                FMath::Max(BaseY + (Index * RowSpacing), FMath::RoundToInt(PreferredYByNode.FindChecked(Node))),
+                GridSize);
+
+            FBox2D CandidateRect(
+                FVector2D(TargetX, TargetY),
+                FVector2D(TargetX + Size.X, TargetY + Size.Y));
+
+            bool bOverlaps = true;
+            while (bOverlaps)
+            {
+                bOverlaps = false;
+                for (const FBox2D& OccupiedRect : OccupiedRects)
+                {
+                    if (CandidateRect.Intersect(OccupiedRect))
+                    {
+                        TargetY = FMath::GridSnap(TargetY + RowSpacing, GridSize);
+                        CandidateRect = FBox2D(
+                            FVector2D(TargetX, TargetY),
+                            FVector2D(TargetX + Size.X, TargetY + Size.Y));
+                        bOverlaps = true;
+                        break;
+                    }
+                }
+            }
+
+            int32 CurrentX = 0;
+            int32 CurrentY = 0;
+            Node->GetNodePosition(CurrentX, CurrentY);
+            if (CurrentX != TargetX || CurrentY != TargetY)
+            {
+                Node->SetNodePosition(TargetX, TargetY);
+                OutMovedNodeIds.Add(Node->GetPathName());
+            }
+
+            OccupiedRects.Add(CandidateRect);
+        }
+    }
+
     return true;
 }
 
@@ -2484,6 +4173,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             }
         };
 
+        auto HasExplicitPositionLocal = [](const TSharedPtr<FJsonObject>& Obj) -> bool
+        {
+            return Obj.IsValid() && Obj->HasTypedField<EJson::Object>(TEXT("position"));
+        };
+
         auto GetDeltaFromObjectLocal = [](const TSharedPtr<FJsonObject>& Obj, int32& OutDx, int32& OutDy)
         {
             OutDx = 0;
@@ -2512,6 +4206,249 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         UObject* MutableAsset = nullptr;
         UMaterial* MaterialAsset = nullptr;
         UPCGGraph* PcgGraph = nullptr;
+
+        auto EstimateMaterialNodeSize = [](const UMaterialExpression* Expression) -> FVector2D
+        {
+            if (Expression == nullptr)
+            {
+                return FVector2D(240.0f, 160.0f);
+            }
+
+            const FString ClassName = Expression->GetClass() ? Expression->GetClass()->GetName() : TEXT("");
+            if (ClassName.Contains(TEXT("Texture"), ESearchCase::IgnoreCase))
+            {
+                return FVector2D(320.0f, 220.0f);
+            }
+            if (ClassName.Contains(TEXT("Parameter"), ESearchCase::IgnoreCase))
+            {
+                return FVector2D(260.0f, 180.0f);
+            }
+            return FVector2D(240.0f, 160.0f);
+        };
+
+        auto EstimatePcgNodeSize = [](const UPCGNode* Node) -> FVector2D
+        {
+            const FString ClassName = Node && Node->GetSettings() && Node->GetSettings()->GetClass()
+                ? Node->GetSettings()->GetClass()->GetName()
+                : TEXT("");
+            if (ClassName.Contains(TEXT("Sampler"), ESearchCase::IgnoreCase))
+            {
+                return FVector2D(320.0f, 180.0f);
+            }
+            return FVector2D(280.0f, 160.0f);
+        };
+
+        auto ResolveAutoPlacementLocal = [&](const TSharedPtr<FJsonObject>& ArgsObj, int32& OutX, int32& OutY) -> bool
+        {
+            OutX = 0;
+            OutY = 0;
+
+            auto ResolveAnchorPoint = [&](const TSharedPtr<FJsonObject>& SourceObj, const TCHAR* FieldName, int32& AnchorX, int32& AnchorY, FVector2D& AnchorSize) -> bool
+            {
+                const TSharedPtr<FJsonObject>* AnchorObj = nullptr;
+                if (!SourceObj.IsValid()
+                    || !SourceObj->TryGetObjectField(FieldName, AnchorObj)
+                    || !AnchorObj
+                    || !(*AnchorObj).IsValid())
+                {
+                    return false;
+                }
+
+                FString AnchorNodeId;
+                if (!ResolveNodeTokenLocal(*AnchorObj, AnchorNodeId) || AnchorNodeId.IsEmpty())
+                {
+                    return false;
+                }
+
+                if (GraphType.Equals(TEXT("material")))
+                {
+                    if (UMaterialExpression* AnchorExpression = FindMaterialExpressionById(MaterialAsset, AnchorNodeId))
+                    {
+                        AnchorX = AnchorExpression->MaterialExpressionEditorX;
+                        AnchorY = AnchorExpression->MaterialExpressionEditorY;
+                        AnchorSize = EstimateMaterialNodeSize(AnchorExpression);
+                        return true;
+                    }
+                }
+                else if (GraphType.Equals(TEXT("pcg")))
+                {
+                    if (UPCGNode* AnchorNode = FindPcgNodeById(PcgGraph, AnchorNodeId))
+                    {
+                        AnchorNode->GetNodePosition(AnchorX, AnchorY);
+                        AnchorSize = EstimatePcgNodeSize(AnchorNode);
+                        return true;
+                    }
+                }
+
+                return false;
+            };
+
+            int32 AnchorX = 0;
+            int32 AnchorY = 0;
+            FVector2D AnchorSize(280.0f, 160.0f);
+            if (ResolveAnchorPoint(ArgsObj, TEXT("anchor"), AnchorX, AnchorY, AnchorSize)
+                || ResolveAnchorPoint(ArgsObj, TEXT("near"), AnchorX, AnchorY, AnchorSize)
+                || ResolveAnchorPoint(ArgsObj, TEXT("from"), AnchorX, AnchorY, AnchorSize)
+                || ResolveAnchorPoint(ArgsObj, TEXT("target"), AnchorX, AnchorY, AnchorSize))
+            {
+                OutX = AnchorX + static_cast<int32>(AnchorSize.X) + 96;
+                OutY = AnchorY;
+            }
+            else if (GraphType.Equals(TEXT("material")) && MaterialAsset != nullptr)
+            {
+                if (MaterialAsset->MaterialGraph != nullptr && MaterialAsset->MaterialGraph->RootNode != nullptr)
+                {
+                    OutX = MaterialAsset->MaterialGraph->RootNode->NodePosX - 384;
+                    OutY = MaterialAsset->MaterialGraph->RootNode->NodePosY;
+                }
+                else
+                {
+                    UMaterialExpression* RightmostExpression = nullptr;
+                    for (UMaterialExpression* Expression : MaterialAsset->GetExpressions())
+                    {
+                        if (Expression == nullptr)
+                        {
+                            continue;
+                        }
+                        if (RightmostExpression == nullptr || Expression->MaterialExpressionEditorX > RightmostExpression->MaterialExpressionEditorX)
+                        {
+                            RightmostExpression = Expression;
+                        }
+                    }
+
+                    if (RightmostExpression != nullptr)
+                    {
+                        const FVector2D Size = EstimateMaterialNodeSize(RightmostExpression);
+                        OutX = RightmostExpression->MaterialExpressionEditorX + static_cast<int32>(Size.X) + 96;
+                        OutY = RightmostExpression->MaterialExpressionEditorY;
+                    }
+                }
+            }
+            else if (GraphType.Equals(TEXT("pcg")) && PcgGraph != nullptr)
+            {
+                UPCGNode* RightmostNode = nullptr;
+                int32 RightmostX = TNumericLimits<int32>::Min();
+                for (UPCGNode* Node : PcgGraph->GetNodes())
+                {
+                    if (Node == nullptr)
+                    {
+                        continue;
+                    }
+                    int32 NodeX = 0;
+                    int32 NodeY = 0;
+                    Node->GetNodePosition(NodeX, NodeY);
+                    if (RightmostNode == nullptr || NodeX > RightmostX)
+                    {
+                        RightmostNode = Node;
+                        RightmostX = NodeX;
+                        OutY = NodeY;
+                    }
+                }
+
+                if (RightmostNode != nullptr)
+                {
+                    const FVector2D Size = EstimatePcgNodeSize(RightmostNode);
+                    OutX = RightmostX + static_cast<int32>(Size.X) + 96;
+                }
+            }
+
+            const int32 GridSize = 16;
+            const int32 VerticalStep = 208;
+            const FVector2D CandidateSize = GraphType.Equals(TEXT("material"))
+                ? FVector2D(260.0f, 180.0f)
+                : FVector2D(280.0f, 160.0f);
+
+            OutX = FMath::GridSnap(OutX, GridSize);
+            OutY = FMath::GridSnap(OutY, GridSize);
+
+            bool bCollides = true;
+            while (bCollides)
+            {
+                bCollides = false;
+                const FBox2D CandidateRect(
+                    FVector2D(OutX, OutY),
+                    FVector2D(OutX + CandidateSize.X, OutY + CandidateSize.Y));
+
+                if (GraphType.Equals(TEXT("material")) && MaterialAsset != nullptr)
+                {
+                    for (UMaterialExpression* Expression : MaterialAsset->GetExpressions())
+                    {
+                        if (Expression == nullptr)
+                        {
+                            continue;
+                        }
+
+                        const FVector2D ExistingSize = EstimateMaterialNodeSize(Expression);
+                        const FBox2D ExistingRect(
+                            FVector2D(Expression->MaterialExpressionEditorX, Expression->MaterialExpressionEditorY),
+                            FVector2D(Expression->MaterialExpressionEditorX + ExistingSize.X, Expression->MaterialExpressionEditorY + ExistingSize.Y));
+                        if (CandidateRect.Intersect(ExistingRect))
+                        {
+                            OutY = FMath::GridSnap(OutY + VerticalStep, GridSize);
+                            bCollides = true;
+                            break;
+                        }
+                    }
+                }
+                else if (GraphType.Equals(TEXT("pcg")) && PcgGraph != nullptr)
+                {
+                    for (UPCGNode* ExistingNode : PcgGraph->GetNodes())
+                    {
+                        if (ExistingNode == nullptr)
+                        {
+                            continue;
+                        }
+
+                        int32 ExistingX = 0;
+                        int32 ExistingY = 0;
+                        ExistingNode->GetNodePosition(ExistingX, ExistingY);
+                        const FVector2D ExistingSize = EstimatePcgNodeSize(ExistingNode);
+                        const FBox2D ExistingRect(
+                            FVector2D(ExistingX, ExistingY),
+                            FVector2D(ExistingX + ExistingSize.X, ExistingY + ExistingSize.Y));
+                        if (CandidateRect.Intersect(ExistingRect))
+                        {
+                            OutY = FMath::GridSnap(OutY + VerticalStep, GridSize);
+                            bCollides = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            return true;
+        };
+
+        auto ResolveMaterialPropertyByRootPinName = [&](const FString& PinName, EMaterialProperty& OutProperty) -> bool
+        {
+            if (MaterialAsset == nullptr || MaterialAsset->MaterialGraph == nullptr || MaterialAsset->MaterialGraph->RootNode == nullptr)
+            {
+                return false;
+            }
+
+            for (UEdGraphPin* Pin : MaterialAsset->MaterialGraph->RootNode->Pins)
+            {
+                if (Pin == nullptr || Pin->Direction != EGPD_Input)
+                {
+                    continue;
+                }
+                if (!Pin->PinName.ToString().Equals(PinName, ESearchCase::IgnoreCase))
+                {
+                    continue;
+                }
+
+                const int32 SourceIndex = Pin->SourceIndex;
+                if (!MaterialAsset->MaterialGraph->MaterialInputs.IsValidIndex(SourceIndex))
+                {
+                    return false;
+                }
+
+                OutProperty = MaterialAsset->MaterialGraph->MaterialInputs[SourceIndex].GetProperty();
+                return true;
+            }
+
+            return false;
+        };
         if (GraphType.Equals(TEXT("material")))
         {
             MaterialAsset = LoadMaterialByAssetPath(AssetPath);
@@ -2522,6 +4459,21 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 Result->SetStringField(TEXT("code"), TEXT("ASSET_NOT_FOUND"));
                 Result->SetStringField(TEXT("message"), TEXT("Material asset not found."));
                 return Result;
+            }
+            if (MaterialAsset->MaterialGraph == nullptr)
+            {
+                MaterialAsset->MaterialGraph = CastChecked<UMaterialGraph>(
+                    FBlueprintEditorUtils::CreateNewGraph(
+                        MaterialAsset,
+                        NAME_None,
+                        UMaterialGraph::StaticClass(),
+                        UMaterialGraphSchema::StaticClass()));
+            }
+            if (MaterialAsset->MaterialGraph != nullptr)
+            {
+                MaterialAsset->MaterialGraph->Material = MaterialAsset;
+                MaterialAsset->MaterialGraph->MaterialFunction = nullptr;
+                MaterialAsset->MaterialGraph->RebuildGraph();
             }
         }
         else if (GraphType.Equals(TEXT("pcg")))
@@ -2559,6 +4511,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             FString Error;
             bool bOk = true;
             bool bChanged = false;
+            TArray<FString> NodesTouchedForLayout;
             FString GraphEventName;
             TSharedPtr<FJsonObject> GraphEventData = MakeShared<FJsonObject>();
             (*OpObj)->TryGetStringField(TEXT("clientRef"), ClientRef);
@@ -2612,7 +4565,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
 
                         int32 X = 0;
                         int32 Y = 0;
-                        GetPointFromObjectLocal(ArgsObj, X, Y);
+                        if (HasExplicitPositionLocal(ArgsObj))
+                        {
+                            GetPointFromObjectLocal(ArgsObj, X, Y);
+                        }
+                        else
+                        {
+                            ResolveAutoPlacementLocal(ArgsObj, X, Y);
+                        }
                         if (bOk)
                         {
                             UMaterialExpression* NewExpression = UMaterialEditingLibrary::CreateMaterialExpression(MaterialAsset, ExpressionClass, X, Y);
@@ -2630,6 +4590,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                 GraphEventData->SetStringField(TEXT("nodeType"), Op.Equals(TEXT("addnode.byaction")) ? TEXT("by_action") : TEXT("by_class"));
                                 GraphEventData->SetStringField(TEXT("nodeClassPath"), NodeClassPath);
                                 GraphEventData->SetStringField(TEXT("op"), Op);
+                                NodesTouchedForLayout.Add(NodeId);
                             }
                         }
                     }
@@ -2648,6 +4609,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                             GraphEventName = TEXT("graph.node_removed");
                             GraphEventData->SetStringField(TEXT("nodeId"), TargetNodeId);
                             GraphEventData->SetStringField(TEXT("op"), Op);
+                            NodesTouchedForLayout.Add(TargetNodeId);
                         }
                         else
                         {
@@ -2687,6 +4649,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                             GraphEventData->SetNumberField(TEXT("x"), X);
                             GraphEventData->SetNumberField(TEXT("y"), Y);
                             GraphEventData->SetStringField(TEXT("op"), Op);
+                            NodesTouchedForLayout.Add(TargetNodeId);
                         }
                         else
                         {
@@ -2732,6 +4695,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                 GraphEventData->SetNumberField(TEXT("dx"), Dx);
                                 GraphEventData->SetNumberField(TEXT("dy"), Dy);
                                 GraphEventData->SetStringField(TEXT("op"), Op);
+                                for (const TSharedPtr<FJsonValue>& MovedNodeId : MovedNodeIds)
+                                {
+                                    FString MovedNodeIdString;
+                                    if (MovedNodeId.IsValid() && MovedNodeId->TryGetString(MovedNodeIdString))
+                                    {
+                                        NodesTouchedForLayout.Add(MovedNodeIdString);
+                                    }
+                                }
                             }
                         }
                     }
@@ -2757,7 +4728,40 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                             ResolvePinName(*ToObj, ToPinName);
                             UMaterialExpression* FromExpr = FindMaterialExpressionById(MaterialAsset, FromNodeId);
                             UMaterialExpression* ToExpr = FindMaterialExpressionById(MaterialAsset, ToNodeId);
-                            if (FromExpr == nullptr || ToExpr == nullptr)
+                            if (FromExpr == nullptr)
+                            {
+                                bOk = false;
+                                Error = TEXT("Material expression not found.");
+                            }
+                            else if (ToNodeId.Equals(TEXT("__material_root__")))
+                            {
+                                EMaterialProperty Property = MP_MAX;
+                                if (!ResolveMaterialPropertyByRootPinName(ToPinName, Property))
+                                {
+                                    bOk = false;
+                                    Error = TEXT("Material root pin not found.");
+                                }
+                                else
+                                {
+                                    bOk = UMaterialEditingLibrary::ConnectMaterialProperty(FromExpr, FromPinName, Property);
+                                    if (!bOk)
+                                    {
+                                        Error = TEXT("Failed to connect material expression to material root.");
+                                    }
+                                    else
+                                    {
+                                        bChanged = true;
+                                        GraphEventName = TEXT("graph.node_connected");
+                                        GraphEventData->SetStringField(TEXT("fromNodeId"), FromNodeId);
+                                        GraphEventData->SetStringField(TEXT("fromPin"), FromPinName);
+                                        GraphEventData->SetStringField(TEXT("toNodeId"), ToNodeId);
+                                        GraphEventData->SetStringField(TEXT("toPin"), ToPinName);
+                                        GraphEventData->SetStringField(TEXT("op"), Op);
+                                        NodesTouchedForLayout.Add(FromNodeId);
+                                    }
+                                }
+                            }
+                            else if (ToExpr == nullptr)
                             {
                                 bOk = false;
                                 Error = TEXT("Material expression not found.");
@@ -2778,6 +4782,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                     GraphEventData->SetStringField(TEXT("toNodeId"), ToNodeId);
                                     GraphEventData->SetStringField(TEXT("toPin"), ToPinName);
                                     GraphEventData->SetStringField(TEXT("op"), Op);
+                                    NodesTouchedForLayout.Add(FromNodeId);
+                                    NodesTouchedForLayout.Add(ToNodeId);
                                 }
                             }
                         }
@@ -2815,14 +4821,47 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
 
                         if (bOk)
                         {
-                            UMaterialExpression* Expr = FindMaterialExpressionById(MaterialAsset, TargetNodeId);
-                            if (Expr == nullptr)
+                            if (TargetNodeId.Equals(TEXT("__material_root__")))
                             {
-                                bOk = false;
-                                Error = TEXT("Material expression not found.");
+                                EMaterialProperty Property = MP_MAX;
+                                if (TargetPinName.IsEmpty() || !ResolveMaterialPropertyByRootPinName(TargetPinName, Property))
+                                {
+                                    bOk = false;
+                                    Error = TEXT("Material root pin not found.");
+                                }
+                                else if (FExpressionInput* Input = MaterialAsset->GetExpressionInputForProperty(Property))
+                                {
+                                    if (Input->Expression == nullptr)
+                                    {
+                                        bOk = false;
+                                        Error = TEXT("No links were removed.");
+                                    }
+                                    else
+                                    {
+                                        Input->Expression = nullptr;
+                                        Input->OutputIndex = 0;
+                                        bChanged = true;
+                                        GraphEventName = TEXT("graph.links_changed");
+                                        GraphEventData->SetStringField(TEXT("nodeId"), TargetNodeId);
+                                        GraphEventData->SetStringField(TEXT("pinName"), TargetPinName);
+                                        GraphEventData->SetStringField(TEXT("op"), Op);
+                                    }
+                                }
+                                else
+                                {
+                                    bOk = false;
+                                    Error = TEXT("Material property input not found.");
+                                }
                             }
                             else
                             {
+                                UMaterialExpression* Expr = FindMaterialExpressionById(MaterialAsset, TargetNodeId);
+                                if (Expr == nullptr)
+                                {
+                                    bOk = false;
+                                    Error = TEXT("Material expression not found.");
+                                    continue;
+                                }
                                 bool bDisconnected = false;
                                 if (TargetPinName.IsEmpty())
                                 {
@@ -2873,8 +4912,53 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                     GraphEventData->SetStringField(TEXT("nodeId"), TargetNodeId);
                                     GraphEventData->SetStringField(TEXT("pinName"), TargetPinName);
                                     GraphEventData->SetStringField(TEXT("op"), Op);
+                                    NodesTouchedForLayout.Add(TargetNodeId);
                                 }
                             }
+                        }
+                    }
+                    else if (Op.Equals(TEXT("layoutgraph")))
+                    {
+                        FString LayoutScope = TEXT("touched");
+                        ArgsObj->TryGetStringField(TEXT("scope"), LayoutScope);
+                        LayoutScope = LayoutScope.ToLower();
+
+                        TArray<FString> LayoutNodeIds;
+                        ResolveNodeTokenArrayFromArgsLocal(ArgsObj, LayoutNodeIds);
+                        if (LayoutScope.Equals(TEXT("touched")))
+                        {
+                            TArray<FString> PendingNodeIds;
+                            ResolvePendingGraphLayoutNodes(GraphType, AssetPath, GraphName, PendingNodeIds, false);
+                            for (const FString& PendingNodeId : PendingNodeIds)
+                            {
+                                LayoutNodeIds.AddUnique(PendingNodeId);
+                            }
+                        }
+
+                        TArray<FString> MovedNodeIds;
+                        bOk = ApplyMaterialLayout(AssetPath, GraphName, LayoutScope, LayoutNodeIds, MovedNodeIds, Error);
+                        if (bOk)
+                        {
+                            NodesTouchedForLayout.Append(MovedNodeIds);
+                            GraphEventName = TEXT("graph.layout_applied");
+                            TArray<TSharedPtr<FJsonValue>> MovedNodeValues;
+                            for (const FString& MovedNodeId : MovedNodeIds)
+                            {
+                                MovedNodeValues.Add(MakeShared<FJsonValueString>(MovedNodeId));
+                            }
+                            GraphEventData->SetStringField(TEXT("scope"), LayoutScope);
+                            GraphEventData->SetArrayField(TEXT("nodeIds"), MovedNodeValues);
+                            GraphEventData->SetStringField(TEXT("op"), Op);
+
+                            if (LayoutScope.Equals(TEXT("touched")))
+                            {
+                                TArray<FString> IgnoredNodeIds;
+                                ResolvePendingGraphLayoutNodes(GraphType, AssetPath, GraphName, IgnoredNodeIds, true);
+                            }
+                        }
+                        else if (Error.IsEmpty())
+                        {
+                            Error = TEXT("layoutGraph failed.");
                         }
                     }
                     else if (Op.Equals(TEXT("compile")))
@@ -2942,7 +5026,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                             {
                                 int32 X = 0;
                                 int32 Y = 0;
-                                GetPointFromObjectLocal(ArgsObj, X, Y);
+                                if (HasExplicitPositionLocal(ArgsObj))
+                                {
+                                    GetPointFromObjectLocal(ArgsObj, X, Y);
+                                }
+                                else
+                                {
+                                    ResolveAutoPlacementLocal(ArgsObj, X, Y);
+                                }
                                 NewNode->SetNodePosition(X, Y);
                                 NodeId = NewNode->GetPathName();
                                 bChanged = true;
@@ -2951,6 +5042,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                 GraphEventData->SetStringField(TEXT("nodeType"), Op.Equals(TEXT("addnode.byaction")) ? TEXT("by_action") : TEXT("by_class"));
                                 GraphEventData->SetStringField(TEXT("nodeClassPath"), SettingsClassPath);
                                 GraphEventData->SetStringField(TEXT("op"), Op);
+                                NodesTouchedForLayout.Add(NodeId);
                             }
                         }
                     }
@@ -2969,6 +5061,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                             GraphEventName = TEXT("graph.node_removed");
                             GraphEventData->SetStringField(TEXT("nodeId"), TargetNodeId);
                             GraphEventData->SetStringField(TEXT("op"), Op);
+                            NodesTouchedForLayout.Add(TargetNodeId);
                         }
                         else
                         {
@@ -3010,6 +5103,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                             GraphEventData->SetNumberField(TEXT("x"), X);
                             GraphEventData->SetNumberField(TEXT("y"), Y);
                             GraphEventData->SetStringField(TEXT("op"), Op);
+                            NodesTouchedForLayout.Add(TargetNodeId);
                         }
                         else
                         {
@@ -3057,6 +5151,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                 GraphEventData->SetNumberField(TEXT("dx"), Dx);
                                 GraphEventData->SetNumberField(TEXT("dy"), Dy);
                                 GraphEventData->SetStringField(TEXT("op"), Op);
+                                for (const TSharedPtr<FJsonValue>& MovedNodeId : MovedNodeIds)
+                                {
+                                    FString MovedNodeIdString;
+                                    if (MovedNodeId.IsValid() && MovedNodeId->TryGetString(MovedNodeIdString))
+                                    {
+                                        NodesTouchedForLayout.Add(MovedNodeIdString);
+                                    }
+                                }
                             }
                         }
                     }
@@ -3099,6 +5201,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                     GraphEventData->SetStringField(TEXT("toNodeId"), ToNodeId);
                                     GraphEventData->SetStringField(TEXT("toPin"), ToPinName);
                                     GraphEventData->SetStringField(TEXT("op"), Op);
+                                    NodesTouchedForLayout.Add(FromNodeId);
+                                    NodesTouchedForLayout.Add(ToNodeId);
                                 }
                                 else
                                 {
@@ -3117,6 +5221,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                     GraphEventData->SetStringField(TEXT("toNodeId"), ToNodeId);
                                     GraphEventData->SetStringField(TEXT("toPin"), ToPinName);
                                     GraphEventData->SetStringField(TEXT("op"), Op);
+                                    NodesTouchedForLayout.Add(FromNodeId);
+                                    NodesTouchedForLayout.Add(ToNodeId);
                                 }
                                 else
                                 {
@@ -3166,6 +5272,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                         GraphEventData->SetStringField(TEXT("nodeId"), TargetNodeId);
                                         GraphEventData->SetStringField(TEXT("pinName"), TargetPinName);
                                         GraphEventData->SetStringField(TEXT("op"), Op);
+                                        NodesTouchedForLayout.Add(TargetNodeId);
                                     }
                                     else
                                     {
@@ -3173,6 +5280,50 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                     }
                                 }
                             }
+                        }
+                    }
+                    else if (Op.Equals(TEXT("layoutgraph")))
+                    {
+                        FString LayoutScope = TEXT("touched");
+                        ArgsObj->TryGetStringField(TEXT("scope"), LayoutScope);
+                        LayoutScope = LayoutScope.ToLower();
+
+                        TArray<FString> LayoutNodeIds;
+                        ResolveNodeTokenArrayFromArgsLocal(ArgsObj, LayoutNodeIds);
+                        if (LayoutScope.Equals(TEXT("touched")))
+                        {
+                            TArray<FString> PendingNodeIds;
+                            ResolvePendingGraphLayoutNodes(GraphType, AssetPath, GraphName, PendingNodeIds, false);
+                            for (const FString& PendingNodeId : PendingNodeIds)
+                            {
+                                LayoutNodeIds.AddUnique(PendingNodeId);
+                            }
+                        }
+
+                        TArray<FString> MovedNodeIds;
+                        bOk = ApplyPcgLayout(AssetPath, GraphName, LayoutScope, LayoutNodeIds, MovedNodeIds, Error);
+                        if (bOk)
+                        {
+                            NodesTouchedForLayout.Append(MovedNodeIds);
+                            GraphEventName = TEXT("graph.layout_applied");
+                            TArray<TSharedPtr<FJsonValue>> MovedNodeValues;
+                            for (const FString& MovedNodeId : MovedNodeIds)
+                            {
+                                MovedNodeValues.Add(MakeShared<FJsonValueString>(MovedNodeId));
+                            }
+                            GraphEventData->SetStringField(TEXT("scope"), LayoutScope);
+                            GraphEventData->SetArrayField(TEXT("nodeIds"), MovedNodeValues);
+                            GraphEventData->SetStringField(TEXT("op"), Op);
+
+                            if (LayoutScope.Equals(TEXT("touched")))
+                            {
+                                TArray<FString> IgnoredNodeIds;
+                                ResolvePendingGraphLayoutNodes(GraphType, AssetPath, GraphName, IgnoredNodeIds, true);
+                            }
+                        }
+                        else if (Error.IsEmpty())
+                        {
+                            Error = TEXT("layoutGraph failed.");
                         }
                     }
                     else if (Op.Equals(TEXT("compile")))
@@ -3205,6 +5356,26 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             if (bChanged && MaterialAsset != nullptr)
             {
                 MaterialAsset->PostEditChange();
+            }
+
+            if (bOk && !Op.Equals(TEXT("layoutgraph")))
+            {
+                TSet<FString> UniqueTouchedNodeIds;
+                for (const FString& TouchedNodeId : NodesTouchedForLayout)
+                {
+                    if (!TouchedNodeId.IsEmpty())
+                    {
+                        UniqueTouchedNodeIds.Add(TouchedNodeId);
+                    }
+                }
+
+                TArray<FString> SortedTouchedNodeIds;
+                for (const FString& TouchedNodeId : UniqueTouchedNodeIds)
+                {
+                    SortedTouchedNodeIds.Add(TouchedNodeId);
+                }
+                SortedTouchedNodeIds.Sort();
+                RecordPendingGraphLayoutNodes(GraphType, AssetPath, GraphName, SortedTouchedNodeIds);
             }
 
             if (bOk && !ClientRef.IsEmpty() && !NodeId.IsEmpty())
@@ -3322,6 +5493,35 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         return false;
     };
 
+    auto ResolveGraphNodeToken = [](UEdGraph* Graph, const FString& NodeToken) -> UEdGraphNode*
+    {
+        if (Graph == nullptr || NodeToken.IsEmpty())
+        {
+            return nullptr;
+        }
+
+        if (UEdGraphNode* Node = FindNodeByGuid(Graph, NodeToken))
+        {
+            return Node;
+        }
+
+        for (UEdGraphNode* Node : Graph->Nodes)
+        {
+            if (Node == nullptr)
+            {
+                continue;
+            }
+
+            if (Node->GetPathName().Equals(NodeToken, ESearchCase::IgnoreCase)
+                || Node->GetName().Equals(NodeToken, ESearchCase::IgnoreCase))
+            {
+                return Node;
+            }
+        }
+
+        return nullptr;
+    };
+
     auto ResolveNodeTokenFromArgs = [&ResolveNodeToken](const TSharedPtr<FJsonObject>& ArgsObj, FString& OutNodeId) -> bool
     {
         OutNodeId.Empty();
@@ -3425,6 +5625,17 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         }
     };
 
+    auto HasExplicitPoint = [](const TSharedPtr<FJsonObject>& Obj) -> bool
+    {
+        if (!Obj.IsValid())
+        {
+            return false;
+        }
+
+        const TSharedPtr<FJsonObject>* Position = nullptr;
+        return Obj->TryGetObjectField(TEXT("position"), Position) && Position && (*Position).IsValid();
+    };
+
     auto GetDeltaFromObject = [](const TSharedPtr<FJsonObject>& Obj, int32& OutDx, int32& OutDy)
     {
         OutDx = 0;
@@ -3472,6 +5683,198 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         return Out;
     };
 
+    auto ResolveBlueprintInsertionPoint =
+        [&ResolveNodeToken, &ResolvePinName, &HasExplicitPoint, &GetPointFromObject](
+            const FString& BlueprintAssetPath,
+            const FString& CurrentGraphName,
+            const TSharedPtr<FJsonObject>& ArgsObj,
+            const FString& PreferredAnchorNodeId,
+            const FString& PreferredAnchorPinName,
+            int32& OutX,
+            int32& OutY)
+    {
+        OutX = 0;
+        OutY = 0;
+
+        if (HasExplicitPoint(ArgsObj))
+        {
+            GetPointFromObject(ArgsObj, OutX, OutY);
+            return true;
+        }
+
+        UBlueprint* Blueprint = LoadBlueprintByAssetPath(BlueprintAssetPath);
+        UEdGraph* TargetGraph = ResolveBlueprintGraph(Blueprint, CurrentGraphName);
+        if (Blueprint == nullptr || TargetGraph == nullptr)
+        {
+            return false;
+        }
+
+        auto EstimateNodeSize = [](const UEdGraphNode* Node) -> FVector2D
+        {
+            if (const UEdGraphNode_Comment* CommentNode = Cast<UEdGraphNode_Comment>(Node))
+            {
+                return FVector2D(
+                    FMath::Max(160.0f, static_cast<float>(CommentNode->NodeWidth)),
+                    FMath::Max(120.0f, static_cast<float>(CommentNode->NodeHeight)));
+            }
+            return FVector2D(280.0f, 160.0f);
+        };
+
+        auto FindAnchorNodeByToken = [](UEdGraph* Graph, const FString& NodeToken) -> UEdGraphNode*
+        {
+            if (Graph == nullptr || NodeToken.IsEmpty())
+            {
+                return nullptr;
+            }
+
+            if (UEdGraphNode* Node = FindNodeByGuid(Graph, NodeToken))
+            {
+                return Node;
+            }
+
+            for (UEdGraphNode* Node : Graph->Nodes)
+            {
+                if (Node == nullptr)
+                {
+                    continue;
+                }
+                if (Node->GetPathName().Equals(NodeToken, ESearchCase::IgnoreCase)
+                    || Node->GetName().Equals(NodeToken, ESearchCase::IgnoreCase))
+                {
+                    return Node;
+                }
+            }
+
+            return nullptr;
+        };
+
+        UEdGraphNode* AnchorNode = FindAnchorNodeByToken(TargetGraph, PreferredAnchorNodeId);
+        FString AnchorPinName = PreferredAnchorPinName;
+        if (AnchorNode == nullptr && ArgsObj.IsValid())
+        {
+            auto TryResolveAnchorField =
+                [&ResolveNodeToken, &ResolvePinName, TargetGraph, &AnchorNode, &AnchorPinName, &FindAnchorNodeByToken](
+                    const TSharedPtr<FJsonObject>& SourceObj,
+                    const TCHAR* FieldName) -> bool
+            {
+                const TSharedPtr<FJsonObject>* AnchorObj = nullptr;
+                if (!SourceObj.IsValid()
+                    || !SourceObj->TryGetObjectField(FieldName, AnchorObj)
+                    || !AnchorObj
+                    || !(*AnchorObj).IsValid())
+                {
+                    return false;
+                }
+
+                FString AnchorToken;
+                if (!ResolveNodeToken(*AnchorObj, AnchorToken) || AnchorToken.IsEmpty())
+                {
+                    return false;
+                }
+
+                AnchorNode = FindAnchorNodeByToken(TargetGraph, AnchorToken);
+                if (AnchorNode == nullptr)
+                {
+                    return false;
+                }
+
+                FString ResolvedPinName;
+                if (ResolvePinName(*AnchorObj, ResolvedPinName))
+                {
+                    AnchorPinName = ResolvedPinName;
+                }
+                return true;
+            };
+
+            if (!TryResolveAnchorField(ArgsObj, TEXT("anchor")))
+            {
+                if (!TryResolveAnchorField(ArgsObj, TEXT("near")))
+                {
+                    if (!TryResolveAnchorField(ArgsObj, TEXT("from")))
+                    {
+                        TryResolveAnchorField(ArgsObj, TEXT("target"));
+                    }
+                }
+            }
+        }
+
+        if (AnchorNode != nullptr)
+        {
+            const FVector2D AnchorSize = EstimateNodeSize(AnchorNode);
+            OutX = AnchorNode->NodePosX + static_cast<int32>(AnchorSize.X) + 96;
+            OutY = AnchorNode->NodePosY;
+
+            if (!AnchorPinName.IsEmpty())
+            {
+                if (UEdGraphPin* AnchorPin = FindPinByName(AnchorNode, AnchorPinName))
+                {
+                    if (AnchorPin->Direction == EGPD_Input)
+                    {
+                        OutX = AnchorNode->NodePosX - 384;
+                    }
+                }
+            }
+        }
+        else
+        {
+            UEdGraphNode* RightmostNode = nullptr;
+            for (UEdGraphNode* Node : TargetGraph->Nodes)
+            {
+                if (Node == nullptr)
+                {
+                    continue;
+                }
+                if (RightmostNode == nullptr || Node->NodePosX > RightmostNode->NodePosX)
+                {
+                    RightmostNode = Node;
+                }
+            }
+
+            if (RightmostNode != nullptr)
+            {
+                const FVector2D AnchorSize = EstimateNodeSize(RightmostNode);
+                OutX = RightmostNode->NodePosX + static_cast<int32>(AnchorSize.X) + 96;
+                OutY = RightmostNode->NodePosY;
+            }
+        }
+
+        const int32 GridSize = 16;
+        const int32 VerticalStep = 192;
+        const FVector2D CandidateSize(280.0f, 160.0f);
+        OutX = FMath::GridSnap(OutX, GridSize);
+        OutY = FMath::GridSnap(OutY, GridSize);
+
+        bool bCollides = true;
+        while (bCollides)
+        {
+            bCollides = false;
+            const FBox2D CandidateRect(
+                FVector2D(OutX, OutY),
+                FVector2D(OutX + CandidateSize.X, OutY + CandidateSize.Y));
+
+            for (UEdGraphNode* ExistingNode : TargetGraph->Nodes)
+            {
+                if (ExistingNode == nullptr || ExistingNode == AnchorNode)
+                {
+                    continue;
+                }
+
+                const FVector2D ExistingSize = EstimateNodeSize(ExistingNode);
+                const FBox2D ExistingRect(
+                    FVector2D(ExistingNode->NodePosX, ExistingNode->NodePosY),
+                    FVector2D(ExistingNode->NodePosX + ExistingSize.X, ExistingNode->NodePosY + ExistingSize.Y));
+                if (CandidateRect.Intersect(ExistingRect))
+                {
+                    OutY = FMath::GridSnap(OutY + VerticalStep, GridSize);
+                    bCollides = true;
+                    break;
+                }
+            }
+        }
+
+        return true;
+    };
+
     TUniquePtr<FScopedTransaction> Transaction;
     if (!bDryRun && GraphType.Equals(TEXT("blueprint")))
     {
@@ -3496,6 +5899,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         bool bChanged = false;
         FString Error;
         FString NodeId;
+        TArray<FString> NodesTouchedForLayout;
         FString ClientRef;
         FString GraphEventName;
         TSharedPtr<FJsonObject> GraphEventData = MakeShared<FJsonObject>();
@@ -3592,10 +5996,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 ArgsObj->TryGetStringField(TEXT("nodeClassPath"), NodeClassPath);
                 int32 X = 0;
                 int32 Y = 0;
-                GetPointFromObject(ArgsObj, X, Y);
+                ResolveBlueprintInsertionPoint(AssetPath, OpGraphName, ArgsObj, TEXT(""), TEXT(""), X, Y);
                 bOk = FLoomleBlueprintAdapter::AddNodeByClass(AssetPath, OpGraphName, NodeClassPath, SerializeJsonObject(ArgsObj), X, Y, NodeId, Error);
                 if (bOk)
                 {
+                    NodesTouchedForLayout.Add(NodeId);
                     GraphEventName = TEXT("graph.node_added");
                     GraphEventData->SetStringField(TEXT("nodeId"), NodeId);
                     GraphEventData->SetStringField(TEXT("nodeType"), TEXT("by_class"));
@@ -3611,7 +6016,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 ArgsObj->TryGetStringField(TEXT("actionId"), ActionId);
                 int32 X = 0;
                 int32 Y = 0;
-                GetPointFromObject(ArgsObj, X, Y);
+                ResolveBlueprintInsertionPoint(AssetPath, OpGraphName, ArgsObj, TEXT(""), TEXT(""), X, Y);
 
                 if (!ActionToken.IsEmpty())
                 {
@@ -3640,6 +6045,18 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                 {
                                     SourcePin = FindPinByName(SourceNode, TokenEntry.FromPinName);
                                 }
+                            }
+
+                            if (!HasExplicitPoint(ArgsObj))
+                            {
+                                ResolveBlueprintInsertionPoint(
+                                    AssetPath,
+                                    OpGraphName,
+                                    ArgsObj,
+                                    TokenEntry.FromNodeId,
+                                    TokenEntry.FromPinName,
+                                    X,
+                                    Y);
                             }
 
                             UEdGraphNode* NewNode = nullptr;
@@ -3678,6 +6095,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
 
                 if (bOk)
                 {
+                    NodesTouchedForLayout.Add(NodeId);
                     GraphEventName = TEXT("graph.node_added");
                     GraphEventData->SetStringField(TEXT("nodeId"), NodeId);
                     GraphEventData->SetStringField(TEXT("nodeType"), TEXT("by_action"));
@@ -3712,6 +6130,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 }
                 if (bOk)
                 {
+                    NodesTouchedForLayout.Add(FromNodeId);
+                    NodesTouchedForLayout.Add(ToNodeId);
                     GraphEventName = TEXT("graph.node_connected");
                     GraphEventData->SetStringField(TEXT("fromNodeId"), FromNodeId);
                     GraphEventData->SetStringField(TEXT("fromPin"), FromPin);
@@ -3743,6 +6163,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 }
                 if (bOk)
                 {
+                    NodesTouchedForLayout.Add(FromNodeId);
+                    NodesTouchedForLayout.Add(ToNodeId);
                     GraphEventName = TEXT("graph.links_changed");
                     GraphEventData->SetStringField(TEXT("change"), TEXT("disconnected"));
                     GraphEventData->SetStringField(TEXT("fromNodeId"), FromNodeId);
@@ -3769,6 +6191,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 }
                 if (bOk)
                 {
+                    NodesTouchedForLayout.Add(NodeToken);
                     GraphEventName = TEXT("graph.links_changed");
                     GraphEventData->SetStringField(TEXT("change"), TEXT("break_all"));
                     GraphEventData->SetStringField(TEXT("nodeId"), NodeToken);
@@ -3808,6 +6231,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 }
                 if (bOk)
                 {
+                    NodesTouchedForLayout.Add(NodeToken);
                     GraphEventName = TEXT("graph.pin_default_changed");
                     GraphEventData->SetStringField(TEXT("nodeId"), NodeToken);
                     GraphEventData->SetStringField(TEXT("pin"), Pin);
@@ -3826,6 +6250,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 }
                 if (bOk)
                 {
+                    NodesTouchedForLayout.Add(NodeToken);
                     GraphEventName = TEXT("graph.node_removed");
                     GraphEventData->SetStringField(TEXT("nodeId"), NodeToken);
                     GraphEventData->SetStringField(TEXT("op"), Op);
@@ -3841,7 +6266,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 {
                     UBlueprint* Blueprint = LoadBlueprintByAssetPath(AssetPath);
                     UEdGraph* TargetGraph = ResolveBlueprintGraph(Blueprint, OpGraphName);
-                    UEdGraphNode* TargetNode = TargetGraph ? ResolveNodeByToken(TargetGraph, NodeToken) : nullptr;
+                    UEdGraphNode* TargetNode = TargetGraph ? ResolveGraphNodeToken(TargetGraph, NodeToken) : nullptr;
                     if (TargetNode == nullptr)
                     {
                         bOk = false;
@@ -3867,6 +6292,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 }
                 if (bOk)
                 {
+                    NodesTouchedForLayout.Add(NodeToken);
                     GraphEventName = TEXT("graph.node_moved");
                     GraphEventData->SetStringField(TEXT("nodeId"), NodeToken);
                     GraphEventData->SetNumberField(TEXT("x"), X);
@@ -3900,7 +6326,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                         TArray<TSharedPtr<FJsonValue>> MovedNodeIds;
                         for (const FString& NodeToken : NodeTokens)
                         {
-                            UEdGraphNode* TargetNode = ResolveNodeByToken(TargetGraph, NodeToken);
+                            UEdGraphNode* TargetNode = ResolveGraphNodeToken(TargetGraph, NodeToken);
                             if (TargetNode == nullptr)
                             {
                                 bOk = false;
@@ -3922,6 +6348,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
 
                         if (bOk)
                         {
+                            for (const TSharedPtr<FJsonValue>& MovedNodeId : MovedNodeIds)
+                            {
+                                FString MovedNodeIdString;
+                                if (MovedNodeId.IsValid() && MovedNodeId->TryGetString(MovedNodeIdString))
+                                {
+                                    NodesTouchedForLayout.Add(MovedNodeIdString);
+                                }
+                            }
                             bChanged = MovedNodeIds.Num() > 0;
                             GraphEventName = TEXT("graph.node_moved");
                             GraphEventData->SetArrayField(TEXT("nodeIds"), MovedNodeIds);
@@ -3930,6 +6364,50 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                             GraphEventData->SetStringField(TEXT("op"), Op);
                         }
                     }
+                }
+            }
+            else if (Op.Equals(TEXT("layoutgraph")))
+            {
+                FString LayoutScope = TEXT("touched");
+                ArgsObj->TryGetStringField(TEXT("scope"), LayoutScope);
+                LayoutScope = LayoutScope.ToLower();
+
+                TArray<FString> LayoutNodeIds;
+                ResolveNodeTokenArrayFromArgs(ArgsObj, LayoutNodeIds);
+                if (LayoutScope.Equals(TEXT("touched")))
+                {
+                    TArray<FString> PendingNodeIds;
+                    ResolvePendingGraphLayoutNodes(GraphType, AssetPath, OpGraphName, PendingNodeIds, false);
+                    for (const FString& PendingNodeId : PendingNodeIds)
+                    {
+                        LayoutNodeIds.AddUnique(PendingNodeId);
+                    }
+                }
+
+                TArray<FString> MovedNodeIds;
+                bOk = ApplyBlueprintLayout(AssetPath, OpGraphName, LayoutScope, LayoutNodeIds, MovedNodeIds, Error);
+                if (bOk)
+                {
+                    NodesTouchedForLayout.Append(MovedNodeIds);
+                    GraphEventName = TEXT("graph.layout_applied");
+                    TArray<TSharedPtr<FJsonValue>> MovedNodeValues;
+                    for (const FString& MovedNodeId : MovedNodeIds)
+                    {
+                        MovedNodeValues.Add(MakeShared<FJsonValueString>(MovedNodeId));
+                    }
+                    GraphEventData->SetStringField(TEXT("scope"), LayoutScope);
+                    GraphEventData->SetArrayField(TEXT("nodeIds"), MovedNodeValues);
+                    GraphEventData->SetStringField(TEXT("op"), Op);
+
+                    if (LayoutScope.Equals(TEXT("touched")))
+                    {
+                        TArray<FString> IgnoredNodeIds;
+                        ResolvePendingGraphLayoutNodes(GraphType, AssetPath, OpGraphName, IgnoredNodeIds, true);
+                    }
+                }
+                else if (Error.IsEmpty())
+                {
+                    Error = TEXT("layoutGraph failed.");
                 }
             }
             else if (Op.Equals(TEXT("compile")))
@@ -4116,6 +6594,26 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             NodeRefs.Add(ClientRef, NodeId);
         }
 
+        if (bOk && !Op.Equals(TEXT("layoutgraph")))
+        {
+            TSet<FString> UniqueTouchedNodeIds;
+            for (const FString& TouchedNodeId : NodesTouchedForLayout)
+            {
+                if (!TouchedNodeId.IsEmpty())
+                {
+                    UniqueTouchedNodeIds.Add(TouchedNodeId);
+                }
+            }
+
+            TArray<FString> SortedTouchedNodeIds;
+            for (const FString& TouchedNodeId : UniqueTouchedNodeIds)
+            {
+                SortedTouchedNodeIds.Add(TouchedNodeId);
+            }
+            SortedTouchedNodeIds.Sort();
+            RecordPendingGraphLayoutNodes(GraphType, AssetPath, OpGraphName, SortedTouchedNodeIds);
+        }
+
         TSharedPtr<FJsonObject> OpResult = MakeShared<FJsonObject>();
         const FString OpErrorCode = bOk ? TEXT("") : InferMutateErrorCode(Op, Error);
         OpResult->SetNumberField(TEXT("index"), Index);
@@ -4132,6 +6630,18 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         }
         OpResult->SetStringField(TEXT("errorCode"), OpErrorCode);
         OpResult->SetStringField(TEXT("errorMessage"), bOk ? TEXT("") : Error);
+        if (Op.Equals(TEXT("layoutgraph")))
+        {
+            TArray<TSharedPtr<FJsonValue>> MovedNodeValues;
+            for (const FString& MovedNodeId : NodesTouchedForLayout)
+            {
+                if (!MovedNodeId.IsEmpty())
+                {
+                    MovedNodeValues.Add(MakeShared<FJsonValueString>(MovedNodeId));
+                }
+            }
+            OpResult->SetArrayField(TEXT("movedNodeIds"), MovedNodeValues);
+        }
         if (ErrorDetailsForOp.IsValid())
         {
             OpResult->SetObjectField(TEXT("details"), ErrorDetailsForOp);

@@ -505,6 +505,8 @@ Notes:
 - Runtime move ops currently include `moveNode`, `moveNodeBy`, and `moveNodes`.
 - `moveNodeBy` accepts a single target plus either `dx`/`dy` or `delta.{x,y}`.
 - `moveNodes` accepts `nodeIds` or `nodes` plus either `dx`/`dy` or `delta.{x,y}` and applies the same delta to every resolved node.
+- `layoutGraph` supports Blueprint, Material, and PCG mutate flows with `args.scope="touched"| "all"`.
+- For `scope="touched"`, LOOMLE uses the current graph's pending touched-node set accumulated from prior successful mutate ops; callers may also pass explicit `nodeIds` / `nodes` to narrow or supplement the layout set.
 
 `payload`:
 
@@ -527,6 +529,7 @@ Notes:
       "error": "",
       "errorCode": "",
       "errorMessage": "",
+      "movedNodeIds": ["optional-node-id"],
       "details": {}
     }
   ],
@@ -539,6 +542,15 @@ Notes:
 - `args.target` accepts the same node token forms used elsewhere in Blueprint mutate flows: `nodeId`, `nodeRef`, `nodePath`, `path`, `nodeName`, or `name`.
 - Pin name may be supplied as either `pin` or `pinName`.
 - When `setPinDefault` fails with `TARGET_NOT_FOUND`, `opResults[*].details` may include `expectedTargetForms`, `requestedTarget`, `matchedNode`, and `candidatePins` to help callers repair the request automatically.
+
+`layoutGraph` notes:
+
+- `scope="touched"` is intended for agent-driven local cleanup after a small batch of graph edits.
+- `scope="all"` reflows all resolvable nodes in the current graph.
+- Blueprint uses an exec-tree planner that keeps the root event anchored near the left edge and fans `True/False` branches recursively.
+- Material uses a dependency planner that places upstream expressions to the left and sink expressions to the right.
+- PCG uses a pipeline planner that places source nodes to the left and downstream processing stages to the right.
+- Successful `layoutGraph` results may include `opResults[*].movedNodeIds` with the nodes that were actually repositioned.
 
 When `applied=false`:
 

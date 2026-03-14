@@ -27,6 +27,14 @@ Unified local tooling for testing and diagnostics.
 - Both scripts also accept `--mcp-server-bin` so runner/dev flows can point at a freshly built repo binary when needed.
 - UE-dependent bridge checks and benchmarks stay in this `tools/` directory.
 
+### Refresh Rules After Code Changes
+
+- If you only change `mcp_server/`, rebuild the Rust binary and replace the dev-host plugin copy of `loomle_mcp_server`. Unreal Editor usually does not need a restart.
+- If you change Unreal plugin C++ under `Source/LoomleBridge/`, rebuild the Editor target and restart Unreal Editor before validating behavior.
+- If you change both sides, rebuild and replace `mcp_server` first, then rebuild the Unreal plugin, then restart Unreal Editor.
+- If you only change Python tests or docs, Unreal Editor does not need a restart.
+- If compilation succeeded but runtime behavior still looks old, first suspect a stale Unreal Editor session before suspecting the code path.
+
 ### Dev Project Root Config (optional)
 
 - Template: `tools/dev.project-root.example.json`

@@ -64,13 +64,48 @@ private:
         double CreatedAtSeconds = 0.0;
     };
 
+    struct FPendingGraphLayoutState
+    {
+        FString GraphType;
+        FString AssetPath;
+        FString GraphName;
+        TSet<FString> TouchedNodeIds;
+        double UpdatedAtSeconds = 0.0;
+    };
+
     void PruneGraphActionTokenRegistry();
     bool ResolveGraphActionToken(const FString& ActionToken, const FString& GraphType, const FString& AssetPath, const FString& GraphName, FGraphActionTokenEntry& OutEntry, FString& OutErrorCode, FString& OutErrorMessage);
+    FString MakePendingGraphLayoutKey(const FString& GraphType, const FString& AssetPath, const FString& GraphName) const;
+    void RecordPendingGraphLayoutNodes(const FString& GraphType, const FString& AssetPath, const FString& GraphName, const TArray<FString>& NodeIds);
+    bool ResolvePendingGraphLayoutNodes(const FString& GraphType, const FString& AssetPath, const FString& GraphName, TArray<FString>& OutNodeIds, bool bConsume);
+    bool ApplyBlueprintLayout(
+        const FString& AssetPath,
+        const FString& GraphName,
+        const FString& Scope,
+        const TArray<FString>& RequestedNodeIds,
+        TArray<FString>& OutMovedNodeIds,
+        FString& OutError);
+    bool ApplyMaterialLayout(
+        const FString& AssetPath,
+        const FString& GraphName,
+        const FString& Scope,
+        const TArray<FString>& RequestedNodeIds,
+        TArray<FString>& OutMovedNodeIds,
+        FString& OutError);
+    bool ApplyPcgLayout(
+        const FString& AssetPath,
+        const FString& GraphName,
+        const FString& Scope,
+        const TArray<FString>& RequestedNodeIds,
+        TArray<FString>& OutMovedNodeIds,
+        FString& OutError);
 
 private:
     TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> PipeServer;
     TMap<FString, FGraphActionTokenEntry> GraphActionTokenRegistry;
     FCriticalSection GraphActionTokenRegistryMutex;
+    TMap<FString, FPendingGraphLayoutState> PendingGraphLayoutStates;
+    FCriticalSection PendingGraphLayoutStatesMutex;
     FCriticalSection DiagStoreMutex;
     FString DiagStoreDirPath;
     FString DiagStoreFilePath;
