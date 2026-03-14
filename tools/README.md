@@ -7,7 +7,7 @@ Unified local tooling for testing and diagnostics.
 - `test_*`: functional/integration checks
 - `perf_*`: performance benchmarks
 - `dev_*`: developer helpers
-- `release_*`: release helpers
+- release helpers now live under `packaging/`
 
 ## Current Tools
 
@@ -20,8 +20,8 @@ Unified local tooling for testing and diagnostics.
 
 ## Test Structure
 
-- UE-independent MCP server tests stay in `mcp_server`:
-  - `cd mcp_server && cargo test`
+- UE-independent MCP server tests stay in `mcp/server`:
+  - `cd mcp/server && cargo test`
 - UE-dependent smoke/regression default to the plugin MCP server path:
   - `<ProjectRoot>/Plugins/LoomleBridge/Tools/mcp/<platform>/loomle_mcp_server(.exe)`
 - Both scripts also accept `--mcp-server-bin` so runner/dev flows can point at a freshly built repo binary when needed.
@@ -29,9 +29,9 @@ Unified local tooling for testing and diagnostics.
 
 ### Refresh Rules After Code Changes
 
-- If you only change `mcp_server/`, rebuild the Rust binary and replace the dev-host plugin copy of `loomle_mcp_server`. Unreal Editor usually does not need a restart.
+- If you only change `mcp/server/`, rebuild the Rust binary and replace the dev-host plugin copy of `loomle_mcp_server`. Unreal Editor usually does not need a restart.
 - If you change Unreal plugin C++ under `Source/LoomleBridge/`, rebuild the Editor target and restart Unreal Editor before validating behavior.
-- If you change both sides, rebuild and replace `mcp_server` first, then rebuild the Unreal plugin, then restart Unreal Editor.
+- If you change both sides, rebuild and replace the `mcp/server` binary first, then rebuild the Unreal plugin, then restart Unreal Editor.
 - If you only change Python tests or docs, Unreal Editor does not need a restart.
 - If compilation succeeded but runtime behavior still looks old, first suspect a stale Unreal Editor session before suspecting the code path.
 

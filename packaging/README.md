@@ -7,6 +7,7 @@ Planned responsibilities:
 - assemble plugin, server, client, and workspace content into a release bundle
 - install LOOMLE into a user project in one step
 
-Migration note:
-- Existing release helpers still live in `tools/`.
-- Those scripts remain in use until packaging is migrated here.
+Canonical release helper paths:
+- `packaging/bundle/build_release_manifest.py`
+- `packaging/manifests/`
+- `packaging/install/`
