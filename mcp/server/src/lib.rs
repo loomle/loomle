@@ -3,7 +3,8 @@ use serde_json::{json, Value};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-pub mod mcp;
+pub mod schema;
+pub mod sdk;
 pub mod transport;
 
 pub const TOOL_NAMES: [&str; 10] = [
