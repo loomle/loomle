@@ -8,6 +8,10 @@ Plugins/LoomleBridge/
 # macOS
 .DS_Store
 
+# Python caches
+**/__pycache__/
+*.pyc
+
 # Loomle runtime event logs
 runtime/*.jsonl
 runtime/*.json
