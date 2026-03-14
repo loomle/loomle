@@ -1,31 +1,31 @@
 # Loomle Tools
 
-Unified local tooling for testing and diagnostics.
+Developer utilities and performance tooling.
 
 ## Naming
 
-- `test_*`: functional/integration checks
 - `perf_*`: performance benchmarks
 - `dev_*`: developer helpers
 - release helpers now live under `packaging/`
 
 ## Current Tools
 
-- `test_bridge_smoke.py`: fast MCP end-to-end availability check, including `graph.resolve` tool presence
-- `test_bridge_regression.py`: deeper functional regression for graph/tool behavior, including PCG `context`/`graph.resolve` addressing
-- `test_loomle_latency.py`: validates `loomle` fast-return behavior at idle and under slow execute load
-- `test_bridge_windows.ps1`: Windows wrapper to run rust + smoke + regression in one command
 - `perf_bridge_latency.py`: latency benchmark for a selected tool call
 - `perf_graph_rw_temp_asset.py`: temporary-asset graph read/write benchmark
+- `runner_init_host_project.sh`: developer host-project bootstrap helper
+- `runner_init_host_project.ps1`: Windows host-project bootstrap helper
 
 ## Test Structure
 
-- UE-independent MCP server tests stay in `mcp/server`:
+- UE-independent MCP server tests live in `mcp/server`:
   - `cd mcp/server && cargo test`
-- UE-dependent smoke/regression default to the plugin MCP server path:
+- UE-dependent validation scripts live in `tests/`:
+  - `tests/e2e/test_bridge_smoke.py`
+  - `tests/e2e/test_bridge_regression.py`
+  - `tests/e2e/test_bridge_windows.ps1`
+  - `tests/integration/test_loomle_latency.py`
+- E2E scripts still default to the plugin MCP server path:
   - `<ProjectRoot>/Plugins/LoomleBridge/Tools/mcp/<platform>/loomle_mcp_server(.exe)`
-- Both scripts also accept `--mcp-server-bin` so runner/dev flows can point at a freshly built repo binary when needed.
-- UE-dependent bridge checks and benchmarks stay in this `tools/` directory.
 
 ### Refresh Rules After Code Changes
 
@@ -40,12 +40,12 @@ Unified local tooling for testing and diagnostics.
 - Template: `tools/dev.project-root.example.json`
 - Local file: `tools/dev.project-root.local.json` (gitignored)
 - Recommended dev host: `/Users/xartest/dev/LoomleDevHost`
-- If `--project-root` is omitted, `test_bridge_smoke.py` and `test_bridge_regression.py` read `project_root` from this local file.
+- If `--project-root` is omitted, the E2E test scripts read `project_root` from this local file.
 
 ### Windows quick run
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\test_bridge_windows.ps1 -ProjectRoot "D:\LoomleDevHost"
+powershell -ExecutionPolicy Bypass -File .\tests\e2e\test_bridge_windows.ps1 -ProjectRoot "D:\LoomleDevHost"
 ```
 
 ## Runtime Output
@@ -70,7 +70,7 @@ python3 tools/perf_bridge_latency.py \
 Example `loomle` fast-return validation:
 
 ```bash
-python3 tools/test_loomle_latency.py \
+python3 tests/integration/test_loomle_latency.py \
   --project-root "/Users/xartest/dev/LoomleDevHost" \
   --samples 30
 ```

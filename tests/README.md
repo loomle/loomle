@@ -1,13 +1,16 @@
 # Test Layer
 
-This directory will hold formal LOOMLE test organization.
+This directory holds formal LOOMLE test organization.
 
-Planned split:
+Current split:
 - `unit/`
 - `integration/`
 - `e2e/`
 - `fixtures/`
 
-Migration note:
-- Current validation scripts still live in `tools/`.
-- They remain authoritative until the test layout is migrated.
+Current contents:
+- `e2e/test_bridge_smoke.py`
+- `e2e/test_bridge_regression.py`
+- `e2e/test_bridge_windows.ps1`
+- `e2e/cleanup_bridge_test_assets.py`
+- `integration/test_loomle_latency.py`

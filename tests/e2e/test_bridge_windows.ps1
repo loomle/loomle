@@ -37,8 +37,8 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot) -or -not (Test-Path -LiteralPath 
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$smoke = Join-Path $repoRoot "tools\test_bridge_smoke.py"
-$regression = Join-Path $repoRoot "tools\test_bridge_regression.py"
+$smoke = Join-Path $repoRoot "tests\e2e\test_bridge_smoke.py"
+$regression = Join-Path $repoRoot "tests\e2e\test_bridge_regression.py"
 $serverOut = Join-Path $repoRoot "mcp\server\target\release\loomle_mcp_server.exe"
 $pluginServer = Join-Path $ProjectRoot "Plugins\LoomleBridge\Tools\mcp\windows\loomle_mcp_server.exe"
 
