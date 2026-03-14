@@ -2,7 +2,7 @@
 
 This directory is the source template for the `Loomle/` folder installed into a user project.
 
-Target installed shape:
+Installed shape:
 
 ```text
 Loomle/
@@ -15,4 +15,14 @@ Loomle/
   runtime/
 ```
 
-This template is intentionally light right now. Content will be migrated here incrementally from the current external skill-based usage layer.
+Purpose:
+
+- `client/`: project-local LOOMLE entrypoint
+- `tools/`: agent-facing tool and capability notes
+- `workflows/`: standard Blueprint, Material, and PCG operating patterns
+- `examples/`: small concrete usage examples
+- `checks/`: project-local validation helpers and conventions
+- `prompts/`: reusable project-local prompt fragments if needed
+- `runtime/`: local runtime/config/state placeholders
+
+This template is intentionally minimal but functional. It is the future replacement for a separate external skill repository.
