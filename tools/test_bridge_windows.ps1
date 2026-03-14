@@ -39,7 +39,7 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot) -or -not (Test-Path -LiteralPath 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $smoke = Join-Path $repoRoot "tools\test_bridge_smoke.py"
 $regression = Join-Path $repoRoot "tools\test_bridge_regression.py"
-$serverOut = Join-Path $repoRoot "mcp_server\target\release\loomle_mcp_server.exe"
+$serverOut = Join-Path $repoRoot "mcp\server\target\release\loomle_mcp_server.exe"
 $pluginServer = Join-Path $ProjectRoot "Plugins\LoomleBridge\Tools\mcp\windows\loomle_mcp_server.exe"
 
 if (-not (Test-Path -LiteralPath $smoke)) {
@@ -50,10 +50,10 @@ if (-not (Test-Path -LiteralPath $regression)) {
 }
 
 Step "Run Rust tests"
-Run-Cmd "cd /d \"$repoRoot\mcp_server\" && cargo test"
+Run-Cmd "cd /d \"$repoRoot\mcp\server\" && cargo test"
 
 Step "Build MCP server (release) and sync into plugin path"
-Run-Cmd "cd /d \"$repoRoot\mcp_server\" && cargo build --release"
+Run-Cmd "cd /d \"$repoRoot\mcp\server\" && cargo build --release"
 if (-not (Test-Path -LiteralPath $serverOut)) {
     throw "Missing built MCP server binary: $serverOut"
 }
