@@ -5,6 +5,13 @@ import shutil
 import sys
 from pathlib import Path
 
+import os
+
+EDITOR_PERF_SECTION = "[/Script/UnrealEd.EditorPerformanceSettings]"
+EDITOR_THROTTLE_SETTING = "bThrottleCPUWhenNotForeground=False"
+WORKSPACE_SOURCE_ROOT = Path("workspace/Loomle")
+PLUGIN_SOURCE_ROOT = Path("plugin/LoomleBridge")
+
 
 def fail(message: str) -> None:
     print(f"[FAIL] {message}", file=sys.stderr)
@@ -57,6 +64,112 @@ def require_uproject(project_root: Path) -> None:
     if any(path.is_file() and path.suffix.lower() == ".uproject" for path in project_root.iterdir()):
         return
     fail(f"no .uproject found under: {project_root}")
+
+
+def ensure_ini_section_setting(path: Path, section: str, setting: str) -> None:
+    existing = ""
+    if path.exists():
+        try:
+            existing = path.read_text(encoding="utf-8")
+        except Exception as exc:
+            fail(f"failed to read editor settings {path}: {exc}")
+
+    in_section = False
+    for line in existing.splitlines():
+        trimmed = line.strip()
+        if trimmed.startswith("[") and trimmed.endswith("]"):
+            in_section = trimmed.lower() == section.lower()
+            continue
+        if in_section and trimmed.lower() == setting.lower():
+            return
+
+    updated = existing.rstrip("\r\n")
+    if updated:
+        updated += "\n\n"
+    updated += f"{section}\n{setting}\n"
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.write_text(updated, encoding="utf-8")
+    except Exception as exc:
+        fail(f"failed to write editor settings {path}: {exc}")
+
+
+def resolve_installed_path(
+    *,
+    project_root: Path,
+    source_root: Path,
+    destination_root: str,
+    bundle_relative_path: str,
+) -> Path:
+    try:
+        relative_path = Path(bundle_relative_path).relative_to(source_root)
+    except ValueError:
+        fail(
+            "bundle path does not live under expected source root: "
+            f"path={bundle_relative_path} source_root={source_root}"
+        )
+    return project_root / destination_root / relative_path
+
+
+def write_runtime_install_state(
+    *,
+    project_root: Path,
+    version: str,
+    platform: str,
+    plugin_destination_root: str,
+    workspace_destination_root: str,
+    server_binary_relpath: str,
+    client_binary_relpath: str,
+) -> Path:
+    runtime_dir = project_root / workspace_destination_root / "runtime"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    install_state_path = runtime_dir / "install.json"
+    editor_settings_path = project_root / "Config" / "DefaultEditorSettings.ini"
+
+    install_state = {
+        "schemaVersion": 1,
+        "installedVersion": version,
+        "platform": platform,
+        "projectRoot": str(project_root),
+        "workspaceRoot": str(project_root / workspace_destination_root),
+        "pluginRoot": str(project_root / plugin_destination_root),
+        "clientPath": str(
+            resolve_installed_path(
+                project_root=project_root,
+                source_root=WORKSPACE_SOURCE_ROOT,
+                destination_root=workspace_destination_root,
+                bundle_relative_path=client_binary_relpath,
+            )
+        ),
+        "serverPath": str(
+            resolve_installed_path(
+                project_root=project_root,
+                source_root=PLUGIN_SOURCE_ROOT,
+                destination_root=plugin_destination_root,
+                bundle_relative_path=server_binary_relpath,
+            )
+        ),
+        "editorPerformance": {
+            "settingsFile": str(editor_settings_path),
+            "throttleWhenNotForeground": False,
+        },
+    }
+    try:
+        install_state_path.write_text(json.dumps(install_state, indent=2) + "\n", encoding="utf-8")
+    except Exception as exc:
+        fail(f"failed to write install state {install_state_path}: {exc}")
+    return install_state_path
+
+
+def ensure_executable_file(path: Path) -> None:
+    if os.name == "nt":
+        return
+    try:
+        mode = path.stat().st_mode
+        path.chmod(mode | 0o755)
+    except Exception as exc:
+        fail(f"failed to mark executable {path}: {exc}")
 
 
 def main() -> int:
@@ -114,6 +227,36 @@ def main() -> int:
 
     copy_tree(plugin_source, plugin_destination)
     copy_tree(workspace_source, workspace_destination)
+    ensure_executable_file(
+        resolve_installed_path(
+            project_root=project_root,
+            source_root=PLUGIN_SOURCE_ROOT,
+            destination_root=str(plugin_install.get("destination", "")),
+            bundle_relative_path=server_binary_relpath,
+        )
+    )
+    ensure_executable_file(
+        resolve_installed_path(
+            project_root=project_root,
+            source_root=WORKSPACE_SOURCE_ROOT,
+            destination_root=str(workspace_install.get("destination", "")),
+            bundle_relative_path=client_binary_relpath,
+        )
+    )
+    ensure_ini_section_setting(
+        project_root / "Config" / "DefaultEditorSettings.ini",
+        EDITOR_PERF_SECTION,
+        EDITOR_THROTTLE_SETTING,
+    )
+    install_state_path = write_runtime_install_state(
+        project_root=project_root,
+        version=version,
+        platform=args.platform,
+        plugin_destination_root=str(plugin_install.get("destination", "")),
+        workspace_destination_root=str(workspace_install.get("destination", "")),
+        server_binary_relpath=server_binary_relpath,
+        client_binary_relpath=client_binary_relpath,
+    )
 
     result = {
         "installedVersion": version,
@@ -127,6 +270,9 @@ def main() -> int:
         "workspace": {
             "source": str(workspace_source),
             "destination": str(workspace_destination),
+        },
+        "runtime": {
+            "installState": str(install_state_path),
         },
     }
     print(json.dumps(result, indent=2))

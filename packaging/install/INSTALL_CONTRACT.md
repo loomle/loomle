@@ -28,15 +28,12 @@ After installation, the user project should contain:
           windows/loomle_mcp_server.exe
 
   Loomle/
+    README.md
     client/
       loomle(.exe)
-    tools/
     workflows/
     examples/
-    checks/
-    prompts/
     runtime/
-    README.md
 ```
 
 ## 3. Placement Rules
@@ -76,8 +73,9 @@ Install destination:
 
 This target owns:
 - Rust client entrypoint
-- agent-facing tools and workflows
-- examples, prompts, checks, runtime placeholders
+- one Agent-facing README entrypoint
+- workflow guides and small examples
+- machine-written runtime state under `runtime/`
 
 ## 4. Runtime Ownership
 
@@ -112,8 +110,10 @@ An installer must:
 1. copy plugin content to `Plugins/LoomleBridge/`
 2. copy workspace content to `Loomle/`
 3. preserve platform-appropriate server and client binaries
-4. avoid requiring a separate skill repository install
-5. be idempotent for repeated installs of the same version
+4. write `Loomle/runtime/install.json` with machine-readable install state
+5. ensure `Config/DefaultEditorSettings.ini` disables background CPU throttling for Unreal Editor
+6. avoid requiring a separate skill repository install
+7. be idempotent for repeated installs of the same version
 
 Source-checkout helper entrypoints:
 

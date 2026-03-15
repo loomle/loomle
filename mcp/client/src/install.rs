@@ -10,7 +10,14 @@ use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 use zip::ZipArchive;
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 const DEFAULT_RELEASE_REPO: &str = "loomle/loomle";
+const EDITOR_PERF_SECTION: &str = "[/Script/UnrealEd.EditorPerformanceSettings]";
+const EDITOR_THROTTLE_SETTING: &str = "bThrottleCPUWhenNotForeground=False";
+const WORKSPACE_SOURCE_ROOT: &str = "workspace/Loomle";
+const PLUGIN_SOURCE_ROOT: &str = "plugin/LoomleBridge";
 
 #[derive(Debug, Clone)]
 pub struct InstallRequest {
@@ -86,7 +93,7 @@ pub fn install_release(request: InstallRequest) -> Result<serde_json::Value, Str
     let bundle_root = temp_dir.path().join("bundle");
     extract_zip(&archive_path, &bundle_root)?;
     validate_bundle_paths(&bundle_root, package)?;
-    copy_release_tree(&bundle_root, &project_root, package)?;
+    let install_state_path = copy_release_tree(&bundle_root, &project_root, &version, package)?;
 
     Ok(json!({
         "installedVersion": version,
@@ -100,6 +107,9 @@ pub fn install_release(request: InstallRequest) -> Result<serde_json::Value, Str
         "workspace": {
             "source": (bundle_root.join(&package.install.workspace.source)).display().to_string(),
             "destination": (project_root.join(&package.install.workspace.destination)).display().to_string(),
+        },
+        "runtime": {
+            "installState": install_state_path.display().to_string(),
         }
     }))
 }
@@ -363,15 +373,184 @@ fn validate_bundle_paths(bundle_root: &Path, package: &ReleasePackage) -> Result
 fn copy_release_tree(
     bundle_root: &Path,
     project_root: &Path,
+    version: &str,
     package: &ReleasePackage,
-) -> Result<(), String> {
+) -> Result<PathBuf, String> {
     let plugin_source = bundle_root.join(&package.install.plugin.source);
     let plugin_destination = project_root.join(&package.install.plugin.destination);
     let workspace_source = bundle_root.join(&package.install.workspace.source);
     let workspace_destination = project_root.join(&package.install.workspace.destination);
 
     copy_tree(&plugin_source, &plugin_destination)?;
-    copy_tree(&workspace_source, &workspace_destination)
+    copy_tree(&workspace_source, &workspace_destination)?;
+    ensure_installed_binaries_executable(project_root, package)?;
+    ensure_editor_performance_setting(project_root)?;
+    write_runtime_install_state(project_root, version, package)
+}
+
+fn ensure_editor_performance_setting(project_root: &Path) -> Result<(), String> {
+    let config_dir = project_root.join("Config");
+    fs::create_dir_all(&config_dir).map_err(|error| {
+        format!(
+            "failed to create project config directory {}: {error}",
+            config_dir.display()
+        )
+    })?;
+
+    let settings_path = config_dir.join("DefaultEditorSettings.ini");
+    let existing = match fs::read_to_string(&settings_path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => {
+            return Err(format!(
+                "failed to read editor settings {}: {error}",
+                settings_path.display()
+            ))
+        }
+    };
+
+    let updated = ensure_ini_section_setting(
+        &existing,
+        EDITOR_PERF_SECTION,
+        EDITOR_THROTTLE_SETTING,
+    );
+    fs::write(&settings_path, updated).map_err(|error| {
+        format!(
+            "failed to write editor settings {}: {error}",
+            settings_path.display()
+        )
+    })
+}
+
+fn ensure_ini_section_setting(content: &str, section: &str, setting: &str) -> String {
+    let mut in_section = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            in_section = trimmed.eq_ignore_ascii_case(section);
+            continue;
+        }
+        if in_section && trimmed.eq_ignore_ascii_case(setting) {
+            return content.to_string();
+        }
+    }
+
+    let mut updated = content.trim_end_matches(['\r', '\n']).to_string();
+    if !updated.is_empty() {
+        updated.push_str("\n\n");
+    }
+    updated.push_str(section);
+    updated.push('\n');
+    updated.push_str(setting);
+    updated.push('\n');
+    updated
+}
+
+fn ensure_installed_binaries_executable(
+    project_root: &Path,
+    package: &ReleasePackage,
+) -> Result<(), String> {
+    let client_path = installed_destination_path(
+        project_root,
+        WORKSPACE_SOURCE_ROOT,
+        &package.install.workspace.destination,
+        &package.client_binary_relpath,
+    )?;
+    let server_path = installed_destination_path(
+        project_root,
+        PLUGIN_SOURCE_ROOT,
+        &package.install.plugin.destination,
+        &package.server_binary_relpath,
+    )?;
+    ensure_executable_file(&client_path)?;
+    ensure_executable_file(&server_path)
+}
+
+#[cfg(unix)]
+fn ensure_executable_file(path: &Path) -> Result<(), String> {
+    let metadata = fs::metadata(path)
+        .map_err(|error| format!("failed to read metadata {}: {error}", path.display()))?;
+    let mut permissions = metadata.permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(path, permissions)
+        .map_err(|error| format!("failed to mark {} executable: {error}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn ensure_executable_file(_path: &Path) -> Result<(), String> {
+    Ok(())
+}
+
+fn write_runtime_install_state(
+    project_root: &Path,
+    version: &str,
+    package: &ReleasePackage,
+) -> Result<PathBuf, String> {
+    let workspace_root = project_root.join(&package.install.workspace.destination);
+    let runtime_dir = workspace_root.join("runtime");
+    fs::create_dir_all(&runtime_dir).map_err(|error| {
+        format!(
+            "failed to create workspace runtime directory {}: {error}",
+            runtime_dir.display()
+        )
+    })?;
+
+    let install_state_path = runtime_dir.join("install.json");
+    let client_path = installed_destination_path(
+        project_root,
+        WORKSPACE_SOURCE_ROOT,
+        &package.install.workspace.destination,
+        &package.client_binary_relpath,
+    )?;
+    let server_path = installed_destination_path(
+        project_root,
+        PLUGIN_SOURCE_ROOT,
+        &package.install.plugin.destination,
+        &package.server_binary_relpath,
+    )?;
+    let settings_path = project_root.join("Config/DefaultEditorSettings.ini");
+
+    let install_state = json!({
+        "schemaVersion": 1,
+        "installedVersion": version,
+        "platform": platform_key(),
+        "projectRoot": project_root.display().to_string(),
+        "workspaceRoot": workspace_root.display().to_string(),
+        "pluginRoot": project_root.join(&package.install.plugin.destination).display().to_string(),
+        "clientPath": client_path.display().to_string(),
+        "serverPath": server_path.display().to_string(),
+        "editorPerformance": {
+            "settingsFile": settings_path.display().to_string(),
+            "throttleWhenNotForeground": false,
+        }
+    });
+
+    let rendered = serde_json::to_string_pretty(&install_state)
+        .map_err(|error| format!("failed to encode install state JSON: {error}"))?;
+    fs::write(&install_state_path, format!("{rendered}\n")).map_err(|error| {
+        format!(
+            "failed to write install state {}: {error}",
+            install_state_path.display()
+        )
+    })?;
+    Ok(install_state_path)
+}
+
+fn installed_destination_path(
+    project_root: &Path,
+    source_root: &str,
+    destination_root: &str,
+    bundle_relative_path: &str,
+) -> Result<PathBuf, String> {
+    let relative_path = Path::new(bundle_relative_path)
+        .strip_prefix(source_root)
+        .map_err(|_| {
+            format!(
+                "bundle path {} does not live under expected source root {}",
+                bundle_relative_path, source_root
+            )
+        })?;
+    Ok(project_root.join(destination_root).join(relative_path))
 }
 
 fn copy_tree(source: &Path, destination: &Path) -> Result<(), String> {
@@ -532,6 +711,36 @@ mod tests {
             .join("Plugins/LoomleBridge/LoomleBridge.uplugin")
             .is_file());
         assert!(project_root.join("Loomle/client").is_dir());
+        let install_state = fs::read_to_string(project_root.join("Loomle/runtime/install.json"))
+            .expect("install state");
+        let install_state_json: serde_json::Value =
+            serde_json::from_str(&install_state).expect("install state json");
+        assert_eq!(install_state_json["installedVersion"], "0.1.0");
+        assert_eq!(install_state_json["platform"], platform_key());
+        #[cfg(unix)]
+        {
+            let client_mode = fs::metadata(project_root.join("Loomle/client").join(client_name))
+                .expect("client metadata")
+                .permissions()
+                .mode();
+            let server_mode = fs::metadata(
+                project_root
+                    .join("Plugins/LoomleBridge/Tools/mcp")
+                    .join(platform_key())
+                    .join(server_name),
+            )
+            .expect("server metadata")
+            .permissions()
+            .mode();
+            assert_ne!(client_mode & 0o111, 0, "client should be executable");
+            assert_ne!(server_mode & 0o111, 0, "server should be executable");
+        }
+        let editor_settings = fs::read_to_string(
+            project_root.join("Config/DefaultEditorSettings.ini"),
+        )
+        .expect("editor settings");
+        assert!(editor_settings.contains(EDITOR_PERF_SECTION));
+        assert!(editor_settings.contains(EDITOR_THROTTLE_SETTING));
     }
 
     #[test]

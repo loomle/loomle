@@ -601,11 +601,11 @@ fn print_usage() {
     eprintln!("Usage:");
     eprintln!("  loomle [--project-root <ProjectRoot>] install [--version <Version>] [--manifest-path <ManifestPath> | --manifest-url <ManifestUrl>]");
     eprintln!("  loomle [--project-root <ProjectRoot>] doctor");
+    eprintln!("  loomle [--project-root <ProjectRoot>] list-tools");
+    eprintln!("  loomle [--project-root <ProjectRoot>] call <tool-name> [--args <json-object>]");
     eprintln!("  loomle [--project-root <ProjectRoot>] server-path");
     eprintln!("  loomle [--project-root <ProjectRoot>] run-server");
     eprintln!("  loomle [--project-root <ProjectRoot>] session");
-    eprintln!("  loomle [--project-root <ProjectRoot>] list-tools");
-    eprintln!("  loomle [--project-root <ProjectRoot>] call <tool-name> [--args <json-object>]");
     eprintln!();
     eprintln!("If --project-root is omitted, loomle searches upward from the current directory for a .uproject.");
 }
