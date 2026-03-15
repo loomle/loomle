@@ -31,7 +31,10 @@ cargo run -- install --project-root "/Path/To/Project" --manifest-path "/Path/To
 cargo run -- update --project-root "/Path/To/Project"
 cargo run -- update --project-root "/Path/To/Project" --apply
 cargo run -- doctor --project-root "/Path/To/Project"
-cargo run -- server-path --project-root "/Path/To/Project"
+cargo run -- skill list
+cargo run -- skill list --installed
+cargo run -- skill install material-weaver
+cargo run -- skill remove material-weaver
 cargo run -- list-tools --project-root "/Path/To/Project"
 cargo run -- call context --project-root "/Path/To/Project"
 cargo run -- session --project-root "/Path/To/Project"
@@ -42,6 +45,8 @@ If `--project-root` is omitted, the client searches upward from the current dire
 `loomle update` checks the installed version against the published latest release. `loomle update --apply` upgrades in place. If Unreal Editor is already running, restart it afterward so the editor loads the updated LoomleBridge plugin version.
 
 `loomle install` always installs both the prebuilt plugin binaries and the plugin source so Unreal can load quickly and still participate in local target rebuilds.
+
+`loomle skill ...` manages official LOOMLE skills from the published `loomle/skills` registry. These commands install into the local Codex skills directory and do not require `--project-root`.
 
 ## Session mode
 

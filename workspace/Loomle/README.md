@@ -46,6 +46,12 @@ Read this file first. It is the top-level usage guide for agents working inside 
   Make one tool request and print the result.
 - `Loomle/loomle session`
   Start a persistent stdin/stdout JSON session for repeated requests. Prefer this for high-concurrency or high-volume query workloads.
+- `Loomle/loomle skill list`
+  List official LOOMLE skills from the published registry. Add `--installed` to show only already-installed official skills.
+- `Loomle/loomle skill install <skill-name>`
+  Install one official LOOMLE skill into the local Codex skills directory.
+- `Loomle/loomle skill remove <skill-name>`
+  Remove one previously installed official LOOMLE skill from the local Codex skills directory.
 - `Loomle/loomle update`
   Check the installed version against the latest published release.
 - `Loomle/loomle update --apply`
@@ -132,6 +138,27 @@ Apply the latest update:
 
 Apply a specific version:
 - `Loomle/loomle update --version <Version>`
+
+## Official Skills
+
+Use `loomle skill ...` when you need an official LOOMLE skill in your Codex skills directory.
+
+List official skills:
+- `Loomle/loomle skill list`
+
+Show only already-installed official skills:
+- `Loomle/loomle skill list --installed`
+
+Install one skill:
+- `Loomle/loomle skill install material-weaver`
+
+Remove one skill:
+- `Loomle/loomle skill remove material-weaver`
+
+Working rule:
+- these commands manage official skills from the published `loomle/skills` registry
+- they install into your local Codex skills directory, not into this Unreal project
+- you can run them from inside or outside a project; they do not require `--project-root`
 
 ## When To Open Deeper Files
 

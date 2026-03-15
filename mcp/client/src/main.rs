@@ -1,7 +1,12 @@
 use loomle::{
     connect_client,
     install::{install_release, update_release, InstallRequest, UpdateRequest},
-    parse_json_object, render_json_pretty, resolve_project_root, Environment,
+    parse_json_object, render_json_pretty, resolve_project_root,
+    skill::{
+        install_skill, list_skills, remove_skill, SkillInstallRequest, SkillListRequest,
+        SkillRemoveRequest,
+    },
+    Environment,
 };
 use rmcp::model::CallToolRequestParams;
 use serde::Deserialize;
@@ -38,20 +43,15 @@ async fn main() -> ExitCode {
                 }
             };
 
-            match install_release(InstallRequest {
-                project_root,
-                version,
-                manifest_path,
-                manifest_url,
+            run_blocking_json(move || {
+                install_release(InstallRequest {
+                    project_root,
+                    version,
+                    manifest_path,
+                    manifest_url,
+                })
             })
-            .and_then(|result| print_json(&result))
-            {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(message) => {
-                    eprintln!("[loomle][ERROR] {message}");
-                    ExitCode::from(1)
-                }
-            }
+            .await
         }
         CommandKind::Update {
             version,
@@ -67,22 +67,59 @@ async fn main() -> ExitCode {
                 }
             };
 
-            match update_release(UpdateRequest {
-                project_root,
-                version,
-                manifest_path,
-                manifest_url,
-                apply,
+            run_blocking_json(move || {
+                update_release(UpdateRequest {
+                    project_root,
+                    version,
+                    manifest_path,
+                    manifest_url,
+                    apply,
+                })
             })
-            .and_then(|result| print_json(&result))
-            {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(message) => {
-                    eprintln!("[loomle][ERROR] {message}");
-                    ExitCode::from(1)
-                }
-            }
+            .await
         }
+        CommandKind::Skill(skill_command) => match skill_command {
+            SkillCommand::List {
+                installed_only,
+                skills_root,
+                registry_url,
+            } => {
+                run_blocking_json(move || {
+                    list_skills(SkillListRequest {
+                        installed_only,
+                        skills_root,
+                        registry_url,
+                    })
+                })
+                .await
+            }
+            SkillCommand::Install {
+                skill_name,
+                skills_root,
+                registry_url,
+            } => {
+                run_blocking_json(move || {
+                    install_skill(SkillInstallRequest {
+                        skill_name,
+                        skills_root,
+                        registry_url,
+                    })
+                })
+                .await
+            }
+            SkillCommand::Remove {
+                skill_name,
+                skills_root,
+            } => {
+                run_blocking_json(move || {
+                    remove_skill(SkillRemoveRequest {
+                        skill_name,
+                        skills_root,
+                    })
+                })
+                .await
+            }
+        },
         command => {
             let project_root = match resolve_project_root(cli.project_root.as_deref()) {
                 Ok(path) => path,
@@ -105,7 +142,9 @@ async fn main() -> ExitCode {
                     tool_name,
                     arguments_json,
                 } => run_call(&env_info, &tool_name, arguments_json.as_deref()).await,
-                CommandKind::Install { .. } | CommandKind::Update { .. } => {
+                CommandKind::Install { .. }
+                | CommandKind::Update { .. }
+                | CommandKind::Skill(_) => {
                     unreachable!("install/update handled above")
                 }
             }
@@ -132,6 +171,7 @@ enum CommandKind {
         manifest_url: Option<String>,
         apply: bool,
     },
+    Skill(SkillCommand),
     Doctor,
     ServerPath,
     Session,
@@ -139,6 +179,24 @@ enum CommandKind {
     Call {
         tool_name: String,
         arguments_json: Option<String>,
+    },
+}
+
+#[derive(Debug)]
+enum SkillCommand {
+    List {
+        installed_only: bool,
+        skills_root: Option<PathBuf>,
+        registry_url: Option<String>,
+    },
+    Install {
+        skill_name: String,
+        skills_root: Option<PathBuf>,
+        registry_url: Option<String>,
+    },
+    Remove {
+        skill_name: String,
+        skills_root: Option<PathBuf>,
     },
 }
 
@@ -158,6 +216,12 @@ impl Cli {
         let mut install_manifest_path = None;
         let mut install_manifest_url = None;
         let mut update_apply = false;
+        let mut in_skill_namespace = false;
+        let mut skill_subcommand = None::<String>;
+        let mut skill_name = None;
+        let mut skill_installed_only = false;
+        let mut skill_skills_root = None;
+        let mut skill_registry_url = None;
 
         while let Some(arg) = args.next() {
             match arg.to_str() {
@@ -175,7 +239,9 @@ impl Cli {
                         command,
                         Some(CommandKind::Install { .. } | CommandKind::Update { .. })
                     ) {
-                        return Err(String::from("--version is only valid with install or update"));
+                        return Err(String::from(
+                            "--version is only valid with install or update",
+                        ));
                     }
                     install_version = Some(
                         value
@@ -221,6 +287,36 @@ impl Cli {
                     }
                     update_apply = true;
                 }
+                Some("--installed") => {
+                    if !(in_skill_namespace && skill_subcommand.as_deref() == Some("list")) {
+                        return Err(String::from("--installed is only valid with `skill list`"));
+                    }
+                    skill_installed_only = true;
+                }
+                Some("--skills-root") => {
+                    if !in_skill_namespace {
+                        return Err(String::from("--skills-root is only valid with `skill ...`"));
+                    }
+                    let value = args
+                        .next()
+                        .ok_or_else(|| String::from("missing value for --skills-root"))?;
+                    skill_skills_root = Some(PathBuf::from(value));
+                }
+                Some("--registry-url") => {
+                    if !in_skill_namespace {
+                        return Err(String::from(
+                            "--registry-url is only valid with `skill ...`",
+                        ));
+                    }
+                    let value = args
+                        .next()
+                        .ok_or_else(|| String::from("missing value for --registry-url"))?;
+                    skill_registry_url = Some(
+                        value
+                            .into_string()
+                            .map_err(|_| String::from("--registry-url must be valid UTF-8"))?,
+                    );
+                }
                 Some("--args") => {
                     let value = args
                         .next()
@@ -232,6 +328,21 @@ impl Cli {
                         .into_string()
                         .map_err(|_| String::from("--args must be valid UTF-8 JSON"))?;
                     call_arguments_json = Some(value);
+                }
+                Some("skill") => {
+                    if command.is_some() || in_skill_namespace {
+                        return Err(String::from("skill must be the only command"));
+                    }
+                    in_skill_namespace = true;
+                }
+                Some("list") if in_skill_namespace && skill_subcommand.is_none() => {
+                    skill_subcommand = Some(String::from("list"));
+                }
+                Some("install") if in_skill_namespace && skill_subcommand.is_none() => {
+                    skill_subcommand = Some(String::from("install"));
+                }
+                Some("remove") if in_skill_namespace && skill_subcommand.is_none() => {
+                    skill_subcommand = Some(String::from("remove"));
                 }
                 Some("install") => {
                     command = Some(CommandKind::Install {
@@ -269,6 +380,28 @@ impl Cli {
                             return Err(format!("unexpected extra argument for call: {other}"));
                         }
                     }
+                    _ if in_skill_namespace => match skill_subcommand.as_deref() {
+                        Some("install" | "remove") => {
+                            if skill_name.is_none() {
+                                skill_name = Some(other.to_owned());
+                            } else {
+                                return Err(format!(
+                                    "unexpected extra argument for `skill {}`: {other}",
+                                    skill_subcommand.as_deref().unwrap_or_default()
+                                ));
+                            }
+                        }
+                        Some(other_command) => {
+                            return Err(format!(
+                                "unexpected extra argument for `skill {other_command}`: {other}"
+                            ));
+                        }
+                        None => {
+                            return Err(format!(
+                                "unknown `skill` subcommand: {other}. Expected one of: list, install, remove"
+                            ));
+                        }
+                    },
                     _ => {
                         return Err(format!("unknown argument or command: {other}"));
                     }
@@ -276,25 +409,52 @@ impl Cli {
             }
         }
 
-        let command = match command {
-            Some(CommandKind::Install { .. }) => CommandKind::Install {
-                version: install_version,
-                manifest_path: install_manifest_path,
-                manifest_url: install_manifest_url,
-            },
-            Some(CommandKind::Update { .. }) => CommandKind::Update {
-                version: install_version,
-                manifest_path: install_manifest_path,
-                manifest_url: install_manifest_url,
-                apply: update_apply,
-            },
-            Some(CommandKind::Call { .. }) => CommandKind::Call {
-                tool_name: call_tool_name
-                    .ok_or_else(|| String::from("call requires a tool name"))?,
-                arguments_json: call_arguments_json,
-            },
-            Some(other) => other,
-            None => CommandKind::Doctor,
+        let command = if in_skill_namespace {
+            match skill_subcommand.as_deref() {
+                Some("list") => CommandKind::Skill(SkillCommand::List {
+                    installed_only: skill_installed_only,
+                    skills_root: skill_skills_root,
+                    registry_url: skill_registry_url,
+                }),
+                Some("install") => CommandKind::Skill(SkillCommand::Install {
+                    skill_name: skill_name
+                        .ok_or_else(|| String::from("skill install requires a skill name"))?,
+                    skills_root: skill_skills_root,
+                    registry_url: skill_registry_url,
+                }),
+                Some("remove") => CommandKind::Skill(SkillCommand::Remove {
+                    skill_name: skill_name
+                        .ok_or_else(|| String::from("skill remove requires a skill name"))?,
+                    skills_root: skill_skills_root,
+                }),
+                Some(other) => return Err(format!("unsupported skill subcommand: {other}")),
+                None => {
+                    return Err(String::from(
+                        "skill requires a subcommand: list, install, or remove",
+                    ))
+                }
+            }
+        } else {
+            match command {
+                Some(CommandKind::Install { .. }) => CommandKind::Install {
+                    version: install_version,
+                    manifest_path: install_manifest_path,
+                    manifest_url: install_manifest_url,
+                },
+                Some(CommandKind::Update { .. }) => CommandKind::Update {
+                    version: install_version,
+                    manifest_path: install_manifest_path,
+                    manifest_url: install_manifest_url,
+                    apply: update_apply,
+                },
+                Some(CommandKind::Call { .. }) => CommandKind::Call {
+                    tool_name: call_tool_name
+                        .ok_or_else(|| String::from("call requires a tool name"))?,
+                    arguments_json: call_arguments_json,
+                },
+                Some(other) => other,
+                None => CommandKind::Doctor,
+            }
         };
 
         Ok(Self {
@@ -631,11 +791,37 @@ fn print_json<T: serde::Serialize>(value: &T) -> Result<(), String> {
     Ok(())
 }
 
+async fn run_blocking_json<F>(task: F) -> ExitCode
+where
+    F: FnOnce() -> Result<Value, String> + Send + 'static,
+{
+    match tokio::task::spawn_blocking(task).await {
+        Ok(Ok(result)) => match print_json(&result) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(message) => {
+                eprintln!("[loomle][ERROR] {message}");
+                ExitCode::from(1)
+            }
+        },
+        Ok(Err(message)) => {
+            eprintln!("[loomle][ERROR] {message}");
+            ExitCode::from(1)
+        }
+        Err(error) => {
+            eprintln!("[loomle][ERROR] blocking task failed: {error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
 fn print_usage() {
     eprintln!("Usage:");
     eprintln!("  loomle [--project-root <ProjectRoot>] install [--version <Version>] [--manifest-path <ManifestPath> | --manifest-url <ManifestUrl>]");
     eprintln!("  loomle [--project-root <ProjectRoot>] update [--apply] [--version <Version>] [--manifest-path <ManifestPath> | --manifest-url <ManifestUrl>]");
     eprintln!("  loomle [--project-root <ProjectRoot>] doctor");
+    eprintln!("  loomle skill list [--installed] [--skills-root <SkillsRoot>] [--registry-url <RegistryUrl>]");
+    eprintln!("  loomle skill install <skill-name> [--skills-root <SkillsRoot>] [--registry-url <RegistryUrl>]");
+    eprintln!("  loomle skill remove <skill-name> [--skills-root <SkillsRoot>]");
     eprintln!("  loomle [--project-root <ProjectRoot>] list-tools");
     eprintln!("  loomle [--project-root <ProjectRoot>] call <tool-name> [--args <json-object>]");
     eprintln!("  loomle [--project-root <ProjectRoot>] server-path");
@@ -643,6 +829,7 @@ fn print_usage() {
     eprintln!();
     eprintln!("Commands:");
     eprintln!("  doctor      check that the project-local plugin and MCP server are installed");
+    eprintln!("  skill       list, install, or remove official LOOMLE skills");
     eprintln!("  list-tools  print the live tool contract from the installed server");
     eprintln!("  call        make one tool request and print the JSON result");
     eprintln!("  session     start a persistent stdin/stdout JSON session for repeated, high-volume, or high-concurrency requests");
@@ -655,7 +842,7 @@ fn print_usage() {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, CommandKind};
+    use super::{Cli, CommandKind, SkillCommand};
     use std::ffi::OsString;
     use std::path::PathBuf;
 
@@ -747,8 +934,8 @@ mod tests {
 
     #[test]
     fn cli_parses_update_command_defaults_to_check() {
-        let cli = Cli::parse(vec![OsString::from("loomle"), OsString::from("update")])
-            .expect("cli");
+        let cli =
+            Cli::parse(vec![OsString::from("loomle"), OsString::from("update")]).expect("cli");
 
         match cli.command {
             CommandKind::Update {
@@ -772,6 +959,74 @@ mod tests {
             Cli::parse(vec![OsString::from("loomle"), OsString::from("session")]).expect("cli");
 
         assert!(matches!(cli.command, CommandKind::Session));
+    }
+
+    #[test]
+    fn cli_parses_skill_list_installed() {
+        let cli = Cli::parse(vec![
+            OsString::from("loomle"),
+            OsString::from("skill"),
+            OsString::from("list"),
+            OsString::from("--installed"),
+            OsString::from("--skills-root"),
+            OsString::from("/tmp/skills"),
+        ])
+        .expect("cli");
+
+        match cli.command {
+            CommandKind::Skill(SkillCommand::List {
+                installed_only,
+                skills_root,
+                registry_url,
+            }) => {
+                assert!(installed_only);
+                assert_eq!(skills_root, Some(PathBuf::from("/tmp/skills")));
+                assert!(registry_url.is_none());
+            }
+            _ => panic!("expected skill list"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_skill_install_command() {
+        let cli = Cli::parse(vec![
+            OsString::from("loomle"),
+            OsString::from("skill"),
+            OsString::from("install"),
+            OsString::from("material-weaver"),
+            OsString::from("--registry-url"),
+            OsString::from("https://example.com/index.json"),
+        ])
+        .expect("cli");
+
+        match cli.command {
+            CommandKind::Skill(SkillCommand::Install {
+                skill_name,
+                skills_root,
+                registry_url,
+            }) => {
+                assert_eq!(skill_name, "material-weaver");
+                assert!(skills_root.is_none());
+                assert_eq!(
+                    registry_url.as_deref(),
+                    Some("https://example.com/index.json")
+                );
+            }
+            _ => panic!("expected skill install"),
+        }
+    }
+
+    #[test]
+    fn cli_rejects_skill_list_with_extra_argument() {
+        let error = Cli::parse(vec![
+            OsString::from("loomle"),
+            OsString::from("skill"),
+            OsString::from("list"),
+            OsString::from("material-weaver"),
+        ])
+        .expect_err("expected parse failure");
+
+        assert!(error.contains("skill list"));
     }
 
     #[test]
