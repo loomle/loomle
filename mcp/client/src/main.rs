@@ -592,6 +592,14 @@ fn print_usage() {
     eprintln!("  loomle [--project-root <ProjectRoot>] server-path");
     eprintln!("  loomle [--project-root <ProjectRoot>] session");
     eprintln!();
+    eprintln!("Commands:");
+    eprintln!("  doctor      check that the project-local plugin and MCP server are installed");
+    eprintln!("  list-tools  print the live tool contract from the installed server");
+    eprintln!("  call        make one tool request and print the JSON result");
+    eprintln!("  session     start a persistent stdin/stdout JSON session for repeated requests");
+    eprintln!("  install     install LOOMLE into a project from a release manifest");
+    eprintln!("  server-path print the resolved project-local MCP server binary path");
+    eprintln!();
     eprintln!("If --project-root is omitted, loomle searches upward from the current directory for a .uproject.");
 }
 

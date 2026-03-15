@@ -30,3 +30,16 @@ cargo run -- session --project-root "/Path/To/Project"
 ```
 
 If `--project-root` is omitted, the client searches upward from the current directory until it finds a `.uproject`.
+
+## Session mode
+
+`loomle session` keeps a single client process open and accepts one JSON request per line on stdin.
+
+Minimal examples:
+
+```json
+{"id":1,"method":"tools/list"}
+{"id":2,"method":"tools/call","params":{"name":"context","arguments":{}}}
+```
+
+Each response is emitted as one JSON line on stdout with the same `id`.
