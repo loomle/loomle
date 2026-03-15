@@ -22,6 +22,8 @@ cargo build
 ```bash
 cd mcp/client
 cargo run -- install --project-root "/Path/To/Project" --manifest-path "/Path/To/manifest.json"
+cargo run -- update --project-root "/Path/To/Project"
+cargo run -- update --project-root "/Path/To/Project" --apply
 cargo run -- doctor --project-root "/Path/To/Project"
 cargo run -- server-path --project-root "/Path/To/Project"
 cargo run -- list-tools --project-root "/Path/To/Project"
@@ -30,6 +32,8 @@ cargo run -- session --project-root "/Path/To/Project"
 ```
 
 If `--project-root` is omitted, the client searches upward from the current directory until it finds a `.uproject`.
+
+`loomle update` checks the installed version against the published latest release. `loomle update --apply` upgrades in place and reuses the current plugin mode unless `--plugin-mode` is supplied.
 
 ## Session mode
 

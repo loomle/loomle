@@ -12,6 +12,7 @@ Start here:
    - `workflows/pcg.md`
 4. Use `Loomle/client/loomle call <tool-name> --args '<json-object>'` for direct one-shot tool execution.
 5. Use `Loomle/client/loomle session` when you want a persistent stdin/stdout session for repeated requests.
+6. When LOOMLE is already installed, run `Loomle/client/loomle update` to check for a newer release and `Loomle/client/loomle update --apply` to upgrade.
 
 Installed shape:
 

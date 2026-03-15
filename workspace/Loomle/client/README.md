@@ -16,11 +16,14 @@ Preferred commands:
 - `loomle list-tools`
 - `loomle call <tool-name> --args '<json-object>'`
 - `loomle session`
+- `loomle update`
 
-Install commands:
+Lifecycle commands:
 
 - `loomle install`
 - `loomle install --plugin-mode source`
+- `loomle update`
+- `loomle update --apply`
 
 Support commands:
 
@@ -32,6 +35,8 @@ Guidance:
 - Prefer `call` for one-shot requests.
 - Prefer `session` for repeated requests, integrations, and load tests.
 - `loomle install` defaults to `--plugin-mode prebuilt` for faster end-user installs. Use `--plugin-mode source` when the project runs against a source-built Unreal Engine and you want local plugin recompiles to stay available.
+- `loomle update` checks the installed project version against the published latest release.
+- `loomle update --apply` upgrades in place and keeps the current plugin mode unless `--plugin-mode` is supplied.
 
 ## Session Mode
 

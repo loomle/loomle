@@ -1,6 +1,6 @@
 use loomle::{
     connect_client,
-    install::{install_release, InstallRequest, PluginInstallMode},
+    install::{install_release, update_release, InstallRequest, PluginInstallMode, UpdateRequest},
     parse_json_object, render_json_pretty, resolve_project_root, Environment,
 };
 use rmcp::model::CallToolRequestParams;
@@ -44,7 +44,39 @@ async fn main() -> ExitCode {
                 version,
                 manifest_path,
                 manifest_url,
+                plugin_mode: plugin_mode.unwrap_or(PluginInstallMode::Prebuilt),
+            })
+            .and_then(|result| print_json(&result))
+            {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(message) => {
+                    eprintln!("[loomle][ERROR] {message}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        CommandKind::Update {
+            version,
+            manifest_path,
+            manifest_url,
+            plugin_mode,
+            apply,
+        } => {
+            let project_root = match resolve_project_root(cli.project_root.as_deref()) {
+                Ok(path) => path,
+                Err(message) => {
+                    eprintln!("[loomle][ERROR] {message}");
+                    return ExitCode::from(2);
+                }
+            };
+
+            match update_release(UpdateRequest {
+                project_root,
+                version,
+                manifest_path,
+                manifest_url,
                 plugin_mode,
+                apply,
             })
             .and_then(|result| print_json(&result))
             {
@@ -77,7 +109,9 @@ async fn main() -> ExitCode {
                     tool_name,
                     arguments_json,
                 } => run_call(&env_info, &tool_name, arguments_json.as_deref()).await,
-                CommandKind::Install { .. } => unreachable!("install handled above"),
+                CommandKind::Install { .. } | CommandKind::Update { .. } => {
+                    unreachable!("install/update handled above")
+                }
             }
         }
     }
@@ -95,7 +129,14 @@ enum CommandKind {
         version: Option<String>,
         manifest_path: Option<PathBuf>,
         manifest_url: Option<String>,
-        plugin_mode: PluginInstallMode,
+        plugin_mode: Option<PluginInstallMode>,
+    },
+    Update {
+        version: Option<String>,
+        manifest_path: Option<PathBuf>,
+        manifest_url: Option<String>,
+        plugin_mode: Option<PluginInstallMode>,
+        apply: bool,
     },
     Doctor,
     ServerPath,
@@ -122,7 +163,8 @@ impl Cli {
         let mut install_version = None;
         let mut install_manifest_path = None;
         let mut install_manifest_url = None;
-        let mut install_plugin_mode = PluginInstallMode::Prebuilt;
+        let mut install_plugin_mode = None;
+        let mut update_apply = false;
 
         while let Some(arg) = args.next() {
             match arg.to_str() {
@@ -136,8 +178,11 @@ impl Cli {
                     let value = args
                         .next()
                         .ok_or_else(|| String::from("missing value for --version"))?;
-                    if !matches!(command, Some(CommandKind::Install { .. })) {
-                        return Err(String::from("--version is only valid with install"));
+                    if !matches!(
+                        command,
+                        Some(CommandKind::Install { .. } | CommandKind::Update { .. })
+                    ) {
+                        return Err(String::from("--version is only valid with install or update"));
                     }
                     install_version = Some(
                         value
@@ -149,8 +194,13 @@ impl Cli {
                     let value = args
                         .next()
                         .ok_or_else(|| String::from("missing value for --manifest-path"))?;
-                    if !matches!(command, Some(CommandKind::Install { .. })) {
-                        return Err(String::from("--manifest-path is only valid with install"));
+                    if !matches!(
+                        command,
+                        Some(CommandKind::Install { .. } | CommandKind::Update { .. })
+                    ) {
+                        return Err(String::from(
+                            "--manifest-path is only valid with install or update",
+                        ));
                     }
                     install_manifest_path = Some(PathBuf::from(value));
                 }
@@ -158,8 +208,13 @@ impl Cli {
                     let value = args
                         .next()
                         .ok_or_else(|| String::from("missing value for --manifest-url"))?;
-                    if !matches!(command, Some(CommandKind::Install { .. })) {
-                        return Err(String::from("--manifest-url is only valid with install"));
+                    if !matches!(
+                        command,
+                        Some(CommandKind::Install { .. } | CommandKind::Update { .. })
+                    ) {
+                        return Err(String::from(
+                            "--manifest-url is only valid with install or update",
+                        ));
                     }
                     install_manifest_url = Some(
                         value
@@ -171,19 +226,24 @@ impl Cli {
                     let value = args
                         .next()
                         .ok_or_else(|| String::from("missing value for --plugin-mode"))?;
-                    if !matches!(command, Some(CommandKind::Install { .. })) {
-                        return Err(String::from("--plugin-mode is only valid with install"));
+                    if !matches!(
+                        command,
+                        Some(CommandKind::Install { .. } | CommandKind::Update { .. })
+                    ) {
+                        return Err(String::from(
+                            "--plugin-mode is only valid with install or update",
+                        ));
                     }
-                    install_plugin_mode = match value.to_str() {
-                        Some("prebuilt") => PluginInstallMode::Prebuilt,
-                        Some("source") => PluginInstallMode::Source,
-                        Some(other) => {
-                            return Err(format!(
-                                "unsupported --plugin-mode value: {other} (expected prebuilt or source)"
-                            ))
-                        }
+                    install_plugin_mode = Some(match value.to_str() {
+                        Some(raw) => PluginInstallMode::parse(raw)?,
                         None => return Err(String::from("--plugin-mode must be valid UTF-8")),
-                    };
+                    });
+                }
+                Some("--apply") => {
+                    if !matches!(command, Some(CommandKind::Update { .. })) {
+                        return Err(String::from("--apply is only valid with update"));
+                    }
+                    update_apply = true;
                 }
                 Some("--args") => {
                     let value = args
@@ -202,7 +262,16 @@ impl Cli {
                         version: None,
                         manifest_path: None,
                         manifest_url: None,
-                        plugin_mode: PluginInstallMode::Prebuilt,
+                        plugin_mode: None,
+                    });
+                }
+                Some("update") => {
+                    command = Some(CommandKind::Update {
+                        version: None,
+                        manifest_path: None,
+                        manifest_url: None,
+                        plugin_mode: None,
+                        apply: false,
                     });
                 }
                 Some("doctor") => command = Some(CommandKind::Doctor),
@@ -239,6 +308,13 @@ impl Cli {
                 manifest_path: install_manifest_path,
                 manifest_url: install_manifest_url,
                 plugin_mode: install_plugin_mode,
+            },
+            Some(CommandKind::Update { .. }) => CommandKind::Update {
+                version: install_version,
+                manifest_path: install_manifest_path,
+                manifest_url: install_manifest_url,
+                plugin_mode: install_plugin_mode,
+                apply: update_apply,
             },
             Some(CommandKind::Call { .. }) => CommandKind::Call {
                 tool_name: call_tool_name
@@ -586,6 +662,7 @@ fn print_json<T: serde::Serialize>(value: &T) -> Result<(), String> {
 fn print_usage() {
     eprintln!("Usage:");
     eprintln!("  loomle [--project-root <ProjectRoot>] install [--version <Version>] [--manifest-path <ManifestPath> | --manifest-url <ManifestUrl>] [--plugin-mode <prebuilt|source>]");
+    eprintln!("  loomle [--project-root <ProjectRoot>] update [--apply] [--version <Version>] [--manifest-path <ManifestPath> | --manifest-url <ManifestUrl>] [--plugin-mode <prebuilt|source>]");
     eprintln!("  loomle [--project-root <ProjectRoot>] doctor");
     eprintln!("  loomle [--project-root <ProjectRoot>] list-tools");
     eprintln!("  loomle [--project-root <ProjectRoot>] call <tool-name> [--args <json-object>]");
@@ -598,6 +675,7 @@ fn print_usage() {
     eprintln!("  call        make one tool request and print the JSON result");
     eprintln!("  session     start a persistent stdin/stdout JSON session for repeated requests");
     eprintln!("  install     install LOOMLE into a project from a release manifest");
+    eprintln!("  update      check for a newer LOOMLE release or apply it with --apply");
     eprintln!("  server-path print the resolved project-local MCP server binary path");
     eprintln!();
     eprintln!("If --project-root is omitted, loomle searches upward from the current directory for a .uproject.");
@@ -692,7 +770,7 @@ mod tests {
                 assert_eq!(version.as_deref(), Some("0.1.0"));
                 assert_eq!(manifest_path, Some(PathBuf::from("/tmp/manifest.json")));
                 assert!(manifest_url.is_none());
-                assert_eq!(plugin_mode, PluginInstallMode::Prebuilt);
+                assert!(plugin_mode.is_none());
             }
             _ => panic!("expected install"),
         }
@@ -710,9 +788,56 @@ mod tests {
 
         match cli.command {
             CommandKind::Install { plugin_mode, .. } => {
-                assert_eq!(plugin_mode, PluginInstallMode::Source);
+                assert_eq!(plugin_mode, Some(PluginInstallMode::Source));
             }
             _ => panic!("expected install"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_update_command_defaults_to_check() {
+        let cli = Cli::parse(vec![OsString::from("loomle"), OsString::from("update")])
+            .expect("cli");
+
+        match cli.command {
+            CommandKind::Update {
+                apply,
+                version,
+                manifest_path,
+                manifest_url,
+                plugin_mode,
+            } => {
+                assert!(!apply);
+                assert!(version.is_none());
+                assert!(manifest_path.is_none());
+                assert!(manifest_url.is_none());
+                assert!(plugin_mode.is_none());
+            }
+            _ => panic!("expected update"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_update_apply_with_plugin_mode() {
+        let cli = Cli::parse(vec![
+            OsString::from("loomle"),
+            OsString::from("update"),
+            OsString::from("--apply"),
+            OsString::from("--plugin-mode"),
+            OsString::from("source"),
+        ])
+        .expect("cli");
+
+        match cli.command {
+            CommandKind::Update {
+                apply,
+                plugin_mode,
+                ..
+            } => {
+                assert!(apply);
+                assert_eq!(plugin_mode, Some(PluginInstallMode::Source));
+            }
+            _ => panic!("expected update"),
         }
     }
 
