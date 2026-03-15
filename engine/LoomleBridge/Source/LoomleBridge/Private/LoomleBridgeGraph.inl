@@ -4530,6 +4530,75 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         return Result;
     }
 
+    FString IdempotencyKey;
+    Arguments->TryGetStringField(TEXT("idempotencyKey"), IdempotencyKey);
+    IdempotencyKey = IdempotencyKey.TrimStartAndEnd();
+
+    const FString IdempotencyRegistryKey = IdempotencyKey.IsEmpty()
+        ? FString()
+        : FString::Printf(
+            TEXT("%s|%s|%s|%s|%s"),
+            *GraphType,
+            *AssetPath,
+            *GraphName,
+            *InlineNodeGuid,
+            *IdempotencyKey);
+    FString RequestFingerprint;
+    if (!IdempotencyRegistryKey.IsEmpty())
+    {
+        TSharedPtr<FJsonObject> FingerprintSource = CloneJsonObject(Arguments);
+        if (!FingerprintSource.IsValid())
+        {
+            FingerprintSource = MakeShared<FJsonObject>();
+            for (const TPair<FString, TSharedPtr<FJsonValue>>& Field : Arguments->Values)
+            {
+                FingerprintSource->SetField(Field.Key, Field.Value);
+            }
+        }
+        FingerprintSource->RemoveField(TEXT("idempotencyKey"));
+        RequestFingerprint = SerializeJsonObjectCondensed(FingerprintSource);
+
+        {
+            const double NowSeconds = FPlatformTime::Seconds();
+            FScopeLock Lock(&MutateIdempotencyRegistryMutex);
+
+            TArray<FString> ExpiredKeys;
+            for (const TPair<FString, FMutateIdempotencyEntry>& Entry : MutateIdempotencyRegistry)
+            {
+                if ((NowSeconds - Entry.Value.CreatedAtSeconds) > LoomleBridgeConstants::MutateIdempotencyTtlSeconds)
+                {
+                    ExpiredKeys.Add(Entry.Key);
+                }
+            }
+            for (const FString& ExpiredKey : ExpiredKeys)
+            {
+                MutateIdempotencyRegistry.Remove(ExpiredKey);
+            }
+
+            if (const FMutateIdempotencyEntry* Existing = MutateIdempotencyRegistry.Find(IdempotencyRegistryKey))
+            {
+                if (!Existing->RequestFingerprint.Equals(RequestFingerprint, ESearchCase::CaseSensitive))
+                {
+                    Result->SetBoolField(TEXT("isError"), true);
+                    Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+                    Result->SetStringField(
+                        TEXT("message"),
+                        TEXT("idempotencyKey was already used for a different graph.mutate request in this graph scope."));
+                    return Result;
+                }
+
+                if (Existing->Result.IsValid())
+                {
+                    TSharedPtr<FJsonObject> ReplayResult = CloneJsonObject(Existing->Result);
+                    if (ReplayResult.IsValid())
+                    {
+                        return ReplayResult;
+                    }
+                }
+            }
+        }
+    }
+
     FString ExpectedRevision;
     if (Arguments->TryGetStringField(TEXT("expectedRevision"), ExpectedRevision)
         && !ExpectedRevision.IsEmpty()
@@ -6108,6 +6177,33 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         }
         Result->SetArrayField(TEXT("opResults"), LocalOpResults);
         Result->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
+        if (!IdempotencyRegistryKey.IsEmpty() && !bAnyErrorLocal)
+        {
+            FScopeLock Lock(&MutateIdempotencyRegistryMutex);
+            MutateIdempotencyRegistry.FindOrAdd(IdempotencyRegistryKey) = FMutateIdempotencyEntry{
+                RequestFingerprint,
+                CloneJsonObject(Result),
+                FPlatformTime::Seconds(),
+            };
+            while (MutateIdempotencyRegistry.Num() > LoomleBridgeConstants::MaxMutateIdempotencyEntries)
+            {
+                FString OldestKey;
+                double OldestTime = TNumericLimits<double>::Max();
+                for (const TPair<FString, FMutateIdempotencyEntry>& Entry : MutateIdempotencyRegistry)
+                {
+                    if (Entry.Value.CreatedAtSeconds < OldestTime)
+                    {
+                        OldestTime = Entry.Value.CreatedAtSeconds;
+                        OldestKey = Entry.Key;
+                    }
+                }
+                if (OldestKey.IsEmpty())
+                {
+                    break;
+                }
+                MutateIdempotencyRegistry.Remove(OldestKey);
+            }
+        }
         return Result;
     }
 
@@ -7384,5 +7480,32 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
     }
     Result->SetArrayField(TEXT("opResults"), OpResults);
     Result->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
+    if (!IdempotencyRegistryKey.IsEmpty() && !bAnyError)
+    {
+        FScopeLock Lock(&MutateIdempotencyRegistryMutex);
+        MutateIdempotencyRegistry.FindOrAdd(IdempotencyRegistryKey) = FMutateIdempotencyEntry{
+            RequestFingerprint,
+            CloneJsonObject(Result),
+            FPlatformTime::Seconds(),
+        };
+        while (MutateIdempotencyRegistry.Num() > LoomleBridgeConstants::MaxMutateIdempotencyEntries)
+        {
+            FString OldestKey;
+            double OldestTime = TNumericLimits<double>::Max();
+            for (const TPair<FString, FMutateIdempotencyEntry>& Entry : MutateIdempotencyRegistry)
+            {
+                if (Entry.Value.CreatedAtSeconds < OldestTime)
+                {
+                    OldestTime = Entry.Value.CreatedAtSeconds;
+                    OldestKey = Entry.Key;
+                }
+            }
+            if (OldestKey.IsEmpty())
+            {
+                break;
+            }
+            MutateIdempotencyRegistry.Remove(OldestKey);
+        }
+    }
     return Result;
 }

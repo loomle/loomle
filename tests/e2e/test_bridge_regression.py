@@ -802,6 +802,109 @@ def main() -> int:
             )
         print("[PASS] blueprint dryRun revision metadata validated")
 
+        blueprint_idem_key = "bp-idem-1"
+        blueprint_idem_before = query_graph_payload(
+            client,
+            1093,
+            asset_path=temp_asset,
+            graph_name="EventGraph",
+            limit=200,
+        )
+        blueprint_idem_before_revision = blueprint_idem_before.get("revision")
+        blueprint_idem_before_nodes = blueprint_idem_before.get("semanticSnapshot", {}).get("nodes", [])
+        blueprint_idem_first = call_tool(
+            client,
+            1094,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "idempotencyKey": blueprint_idem_key,
+                "ops": [
+                    {
+                        "op": "addNode.byClass",
+                        "args": {
+                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
+                            "position": {"x": 1280, "y": 0},
+                        },
+                    }
+                ],
+            },
+        )
+        blueprint_idem_first_op = op_ok(blueprint_idem_first)
+        blueprint_idem_after_first = query_graph_payload(
+            client,
+            1095,
+            asset_path=temp_asset,
+            graph_name="EventGraph",
+            limit=200,
+        )
+        blueprint_idem_after_first_revision = blueprint_idem_after_first.get("revision")
+        blueprint_idem_after_first_nodes = blueprint_idem_after_first.get("semanticSnapshot", {}).get("nodes", [])
+        if not isinstance(blueprint_idem_before_nodes, list) or not isinstance(blueprint_idem_after_first_nodes, list):
+            fail("Blueprint idempotency query payload missing nodes")
+        if blueprint_idem_after_first_revision == blueprint_idem_before_revision:
+            fail(
+                "Blueprint idempotency first mutate should advance revision: "
+                f"before={blueprint_idem_before} after={blueprint_idem_after_first}"
+            )
+        if len(blueprint_idem_after_first_nodes) != len(blueprint_idem_before_nodes) + 1:
+            fail(
+                "Blueprint idempotency first mutate should add exactly one node: "
+                f"before={blueprint_idem_before} after={blueprint_idem_after_first}"
+            )
+        blueprint_idem_second = call_tool(
+            client,
+            1096,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "idempotencyKey": blueprint_idem_key,
+                "ops": [
+                    {
+                        "op": "addNode.byClass",
+                        "args": {
+                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
+                            "position": {"x": 1280, "y": 0},
+                        },
+                    }
+                ],
+            },
+        )
+        blueprint_idem_second_op = op_ok(blueprint_idem_second)
+        blueprint_idem_after_second = query_graph_payload(
+            client,
+            1097,
+            asset_path=temp_asset,
+            graph_name="EventGraph",
+            limit=200,
+        )
+        blueprint_idem_after_second_nodes = blueprint_idem_after_second.get("semanticSnapshot", {}).get("nodes", [])
+        if blueprint_idem_after_second.get("revision") != blueprint_idem_after_first_revision:
+            fail(
+                "Blueprint duplicate idempotencyKey should not advance revision: "
+                f"after_first={blueprint_idem_after_first} after_second={blueprint_idem_after_second}"
+            )
+        if not isinstance(blueprint_idem_after_second_nodes, list) or len(blueprint_idem_after_second_nodes) != len(blueprint_idem_after_first_nodes):
+            fail(
+                "Blueprint duplicate idempotencyKey should not change node count: "
+                f"after_first={blueprint_idem_after_first} after_second={blueprint_idem_after_second}"
+            )
+        if blueprint_idem_second.get("previousRevision") != blueprint_idem_first.get("previousRevision") or blueprint_idem_second.get("newRevision") != blueprint_idem_first.get("newRevision"):
+            fail(
+                "Blueprint duplicate idempotencyKey should replay the first mutate result metadata: "
+                f"first={blueprint_idem_first} second={blueprint_idem_second}"
+            )
+        if blueprint_idem_second_op.get("nodeId") != blueprint_idem_first_op.get("nodeId"):
+            fail(
+                "Blueprint duplicate idempotencyKey should replay the original nodeId: "
+                f"first={blueprint_idem_first} second={blueprint_idem_second}"
+            )
+        print("[PASS] blueprint idempotencyKey replay validated")
+
         page_one = query_graph_payload(client, 110, asset_path=temp_asset, graph_name="EventGraph", limit=1)
         page_one_meta = page_one.get("meta", {})
         page_one_cursor = page_one.get("nextCursor")
@@ -1493,6 +1596,94 @@ def main() -> int:
                 f"after_apply={material_revision_after_apply} after_dry_run={material_after_dry_run}"
             )
         print("[PASS] material dryRun revision metadata validated")
+
+        material_idem_key = "material-idem-1"
+        material_idem_before = call_tool(
+            client,
+            1001071,
+            "graph.query",
+            {"assetPath": material_asset_path, "graphName": "MaterialGraph", "graphType": "material", "limit": 200},
+        )
+        material_idem_before_revision = material_idem_before.get("revision")
+        material_idem_before_nodes = material_idem_before.get("semanticSnapshot", {}).get("nodes", [])
+        material_idem_first = call_tool(
+            client,
+            1001072,
+            "graph.mutate",
+            {
+                "assetPath": material_asset_path,
+                "graphName": "MaterialGraph",
+                "graphType": "material",
+                "idempotencyKey": material_idem_key,
+                "ops": [
+                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}}
+                ],
+            },
+        )
+        material_idem_first_op = op_ok(material_idem_first)
+        material_idem_after_first = call_tool(
+            client,
+            1001073,
+            "graph.query",
+            {"assetPath": material_asset_path, "graphName": "MaterialGraph", "graphType": "material", "limit": 200},
+        )
+        material_idem_after_first_revision = material_idem_after_first.get("revision")
+        material_idem_after_first_nodes = material_idem_after_first.get("semanticSnapshot", {}).get("nodes", [])
+        if not isinstance(material_idem_before_nodes, list) or not isinstance(material_idem_after_first_nodes, list):
+            fail("Material idempotency query payload missing nodes")
+        if material_idem_after_first_revision == material_idem_before_revision:
+            fail(
+                "Material idempotency first mutate should advance revision: "
+                f"before={material_idem_before} after={material_idem_after_first}"
+            )
+        if len(material_idem_after_first_nodes) != len(material_idem_before_nodes) + 1:
+            fail(
+                "Material idempotency first mutate should add exactly one node: "
+                f"before={material_idem_before} after={material_idem_after_first}"
+            )
+        material_idem_second = call_tool(
+            client,
+            1001074,
+            "graph.mutate",
+            {
+                "assetPath": material_asset_path,
+                "graphName": "MaterialGraph",
+                "graphType": "material",
+                "idempotencyKey": material_idem_key,
+                "ops": [
+                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}}
+                ],
+            },
+        )
+        material_idem_second_op = op_ok(material_idem_second)
+        material_idem_after_second = call_tool(
+            client,
+            1001075,
+            "graph.query",
+            {"assetPath": material_asset_path, "graphName": "MaterialGraph", "graphType": "material", "limit": 200},
+        )
+        material_idem_after_second_nodes = material_idem_after_second.get("semanticSnapshot", {}).get("nodes", [])
+        if material_idem_after_second.get("revision") != material_idem_after_first_revision:
+            fail(
+                "Material duplicate idempotencyKey should not advance revision: "
+                f"after_first={material_idem_after_first} after_second={material_idem_after_second}"
+            )
+        if not isinstance(material_idem_after_second_nodes, list) or len(material_idem_after_second_nodes) != len(material_idem_after_first_nodes):
+            fail(
+                "Material duplicate idempotencyKey should not change node count: "
+                f"after_first={material_idem_after_first} after_second={material_idem_after_second}"
+            )
+        if material_idem_second.get("previousRevision") != material_idem_first.get("previousRevision") or material_idem_second.get("newRevision") != material_idem_first.get("newRevision"):
+            fail(
+                "Material duplicate idempotencyKey should replay the first mutate result metadata: "
+                f"first={material_idem_first} second={material_idem_second}"
+            )
+        if material_idem_second_op.get("nodeId") != material_idem_first_op.get("nodeId"):
+            fail(
+                "Material duplicate idempotencyKey should replay the original nodeId: "
+                f"first={material_idem_first} second={material_idem_second}"
+            )
+        print("[PASS] material idempotencyKey replay validated")
 
         material_compile = call_tool(
             client,

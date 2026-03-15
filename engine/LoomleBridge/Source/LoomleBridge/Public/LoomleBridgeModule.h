@@ -75,6 +75,13 @@ private:
         double UpdatedAtSeconds = 0.0;
     };
 
+    struct FMutateIdempotencyEntry
+    {
+        FString RequestFingerprint;
+        TSharedPtr<FJsonObject> Result;
+        double CreatedAtSeconds = 0.0;
+    };
+
     void PruneGraphActionTokenRegistry();
     bool ResolveGraphActionToken(const FString& ActionToken, const FString& GraphType, const FString& AssetPath, const FString& GraphName, FGraphActionTokenEntry& OutEntry, FString& OutErrorCode, FString& OutErrorMessage);
     FString MakePendingGraphLayoutKey(const FString& GraphType, const FString& AssetPath, const FString& GraphName) const;
@@ -108,6 +115,8 @@ private:
     FCriticalSection GraphActionTokenRegistryMutex;
     TMap<FString, FPendingGraphLayoutState> PendingGraphLayoutStates;
     FCriticalSection PendingGraphLayoutStatesMutex;
+    TMap<FString, FMutateIdempotencyEntry> MutateIdempotencyRegistry;
+    FCriticalSection MutateIdempotencyRegistryMutex;
     FCriticalSection DiagStoreMutex;
     FString DiagStoreDirPath;
     FString DiagStoreFilePath;
