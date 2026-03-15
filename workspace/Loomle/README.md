@@ -2,19 +2,96 @@
 
 This directory is the installed project-local control surface for LOOMLE.
 
-Start here:
+Read this file first. It is the top-level usage guide for agents working inside this Unreal project.
 
-1. Run `Loomle/client/loomle doctor` to confirm the project can see the plugin and MCP server.
-2. Run `Loomle/client/loomle list-tools` to discover the live tool contract from the installed server.
-3. Use the workflow file that matches the current graph type:
+## Core Rule
+
+- Use `Loomle/client/loomle` as the only supported project-local LOOMLE entrypoint.
+- Read this file for the main workflow.
+- Open deeper files only when this file tells you why.
+
+## Quick Start
+
+1. Run `Loomle/client/loomle doctor`
+   Use this first to confirm the project can see the plugin and MCP server.
+2. Run `Loomle/client/loomle list-tools`
+   Use this to discover the live tool contract from the installed server before assuming tool names or arguments.
+3. Choose the right execution mode:
+   - `Loomle/client/loomle call <tool-name> --args '<json-object>'`
+     Use for one-shot tool execution.
+   - `Loomle/client/loomle session`
+     Use for repeated requests through one persistent stdin/stdout session.
+4. Choose the right workflow guide for the current graph type:
    - `workflows/blueprint.md`
    - `workflows/material.md`
    - `workflows/pcg.md`
-4. Use `Loomle/client/loomle call <tool-name> --args '<json-object>'` for direct one-shot tool execution.
-5. Use `Loomle/client/loomle session` when you want a persistent stdin/stdout session for repeated requests.
-6. When LOOMLE is already installed, run `Loomle/client/loomle update` to check for a newer release and `Loomle/client/loomle update --apply` to upgrade.
 
-Installed shape:
+## Commands
+
+- `Loomle/client/loomle doctor`
+  Check that LOOMLE is installed correctly in this project.
+- `Loomle/client/loomle list-tools`
+  Print the live tool contract exposed by the installed LOOMLE server.
+- `Loomle/client/loomle call <tool-name> --args '<json-object>'`
+  Make one tool request and print the result.
+- `Loomle/client/loomle session`
+  Start a persistent stdin/stdout JSON session for repeated requests.
+- `Loomle/client/loomle update`
+  Check the installed version against the latest published release.
+- `Loomle/client/loomle update --apply`
+  Upgrade this project-local LOOMLE install in place.
+
+## Session Mode
+
+`loomle session` is the persistent mode.
+
+Use it when:
+- you want to send multiple requests without restarting the client
+- you are building an integration
+- you are load testing or benchmarking
+
+Request shape:
+- write one JSON request per line to stdin
+- read one JSON response per line from stdout
+
+Minimal examples:
+
+```json
+{"id":1,"method":"tools/list"}
+{"id":2,"method":"tools/call","params":{"name":"context","arguments":{}}}
+```
+
+Responses:
+- successful responses include `"ok": true` and `result`
+- failed responses include `"ok": false` and `error`
+- each response includes the same `id` as the request
+
+## Install And Upgrade
+
+Repair or reinstall from the project root:
+- `loomle install --project-root <ProjectRoot>`
+- `loomle install --project-root <ProjectRoot> --plugin-mode source`
+
+Check for an update:
+- `Loomle/client/loomle update`
+
+Apply the latest update:
+- `Loomle/client/loomle update --apply`
+
+Apply a specific version:
+- `Loomle/client/loomle update --version <Version>`
+
+If the current install was created with `pluginMode=source`, `Loomle/client/loomle update --apply` keeps that mode unless you explicitly pass a different `--plugin-mode`.
+
+## When To Open Deeper Files
+
+- Open `workflows/blueprint.md` when the current task is editing or reading Blueprint graphs.
+- Open `workflows/material.md` when the current task is editing or reading Material graphs.
+- Open `workflows/pcg.md` when the current task is editing or reading PCG graphs.
+- Open `examples/README.md` when you want small concrete payload examples before calling tools.
+- Do not treat `runtime/` as documentation. It contains machine-written state such as install metadata.
+
+## Directory Map
 
 ```text
 Loomle/
@@ -25,14 +102,8 @@ Loomle/
   runtime/
 ```
 
-Directory roles:
-
-- `client/`: the only supported project-local LOOMLE entrypoint
-- `workflows/`: concise operating patterns for Blueprint, Material, and PCG work
-- `examples/`: small concrete payload examples
-- `runtime/`: machine-written install and health state; do not treat it as documentation
-
-Design rule:
-
-- Agent-facing usage starts from this file and the `loomle` client.
-- Repository maintainer docs live under `docs/`; they are not part of the installed workspace contract.
+- `README.md`: the main agent-facing entrypoint
+- `client/`: location of the installed `loomle` binary
+- `workflows/`: task-oriented operating guides by graph type
+- `examples/`: small payload examples
+- `runtime/`: machine-written state, not human guidance
