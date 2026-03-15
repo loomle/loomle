@@ -645,7 +645,7 @@ fn print_usage() {
     eprintln!("  doctor      check that the project-local plugin and MCP server are installed");
     eprintln!("  list-tools  print the live tool contract from the installed server");
     eprintln!("  call        make one tool request and print the JSON result");
-    eprintln!("  session     start a persistent stdin/stdout JSON session for repeated requests");
+    eprintln!("  session     start a persistent stdin/stdout JSON session for repeated, high-volume, or high-concurrency requests");
     eprintln!("  install     install LOOMLE into a project from a release manifest");
     eprintln!("  update      check for a newer LOOMLE release or apply it with --apply");
     eprintln!("  server-path print the resolved project-local MCP server binary path");

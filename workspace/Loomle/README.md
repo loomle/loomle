@@ -20,7 +20,7 @@ Read this file first. It is the top-level usage guide for agents working inside 
    - `Loomle/loomle call <tool-name> --args '<json-object>'`
      Use for one-shot tool execution.
    - `Loomle/loomle session`
-     Use for repeated requests through one persistent stdin/stdout session.
+     Use for repeated requests through one persistent stdin/stdout session. For high-concurrency or high-volume query workloads, prefer this mode because it avoids repeated client startup and is noticeably more efficient.
 4. If you are starting from the current editor selection, use `context` first, then `graph.resolve` for any emitted object path before assuming a graph address.
    Working rule:
    - `context` tells you what the editor is focused on and what is selected
@@ -45,7 +45,7 @@ Read this file first. It is the top-level usage guide for agents working inside 
 - `Loomle/loomle call <tool-name> --args '<json-object>'`
   Make one tool request and print the result.
 - `Loomle/loomle session`
-  Start a persistent stdin/stdout JSON session for repeated requests.
+  Start a persistent stdin/stdout JSON session for repeated requests. Prefer this for high-concurrency or high-volume query workloads.
 - `Loomle/loomle update`
   Check the installed version against the latest published release.
 - `Loomle/loomle update --apply`
@@ -72,6 +72,7 @@ Use it when:
 - you want to send multiple requests without restarting the client
 - you are building an integration
 - you are load testing or benchmarking
+- you expect high-concurrency or high-volume query traffic and want the more efficient transport path
 
 Request shape:
 - write one JSON request per line to stdin

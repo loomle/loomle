@@ -47,6 +47,8 @@ If `--project-root` is omitted, the client searches upward from the current dire
 
 `loomle session` keeps a single client process open and accepts one JSON request per line on stdin.
 
+Prefer `session` over repeated one-shot calls when you expect high-concurrency or high-volume query traffic. It avoids repeated client startup and is noticeably more efficient.
+
 Minimal examples:
 
 ```json
