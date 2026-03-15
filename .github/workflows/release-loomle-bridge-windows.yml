@@ -76,6 +76,11 @@ jobs:
           $manifestPath = Join-Path $releaseDir "loomle-manifest-windows.json"
           $bootstrapCliPath = Join-Path $releaseDir "loomle.exe"
 
+          $nestedInputsDir = Join-Path $inputsDir "release-verify-windows-inputs"
+          if (Test-Path -LiteralPath $nestedInputsDir) {
+            $inputsDir = $nestedInputsDir
+          }
+
           Remove-Item -LiteralPath $bundleDir, $releaseDir -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path `
             (Join-Path $bundleDir "plugin\LoomleBridge"), `

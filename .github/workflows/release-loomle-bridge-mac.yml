@@ -59,6 +59,10 @@ jobs:
           manifest_path="$release_dir/loomle-manifest-darwin.json"
           bootstrap_cli_path="$release_dir/loomle-darwin"
 
+          if [[ -d "$inputs_dir/release-verify-mac-inputs" ]]; then
+            inputs_dir="$inputs_dir/release-verify-mac-inputs"
+          fi
+
           rm -rf "$bundle_dir" "$release_dir"
           mkdir -p "$bundle_dir/plugin/LoomleBridge" "$bundle_dir/workspace" "$release_dir"
           [[ -d "$inputs_dir/plugin/LoomleBridge" ]] || { echo "Verify plugin inputs missing: $inputs_dir/plugin/LoomleBridge" >&2; exit 1; }
