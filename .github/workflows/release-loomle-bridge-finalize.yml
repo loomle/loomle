@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to finalize (for example v0.2.15)"
+        description: "Tag to finalize (for example v0.3.0)"
         required: true
         type: string
   push:
