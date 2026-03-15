@@ -28,6 +28,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Download Verify Release Inputs
+        uses: actions/download-artifact@v4
+        with:
+          name: release-verify-windows-inputs
+          path: ${{ runner.temp }}/loomle-release-inputs-windows
+
       - name: Mark Workspace As Git Safe Directory
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
@@ -42,124 +48,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "Release tag commit $tagCommit is not reachable from origin/main"
           }
-
-      - name: Resolve Unreal Engine Root (Windows)
-        id: ue_root_windows
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
-        env:
-          UE_FROM_VARS: ${{ vars.UE_5_7_ROOT_WINDOWS }}
-        run: |
-          $candidate = ""
-          if ($env:UE_FROM_VARS) {
-            $candidate = $env:UE_FROM_VARS
-          } elseif ($env:UE_5_7_ROOT_WINDOWS) {
-            $candidate = $env:UE_5_7_ROOT_WINDOWS
-          } else {
-            $candidate = "C:\Program Files\Epic Games\UE_5.7"
-          }
-
-          $runUat = Join-Path $candidate "Engine\Build\BatchFiles\RunUAT.bat"
-          if (-not (Test-Path -LiteralPath $runUat)) {
-            throw "RunUAT.bat not found. Set UE_5_7_ROOT_WINDOWS (repo var or runner env). Tried: $runUat"
-          }
-
-          "ue_root=$candidate" >> $env:GITHUB_OUTPUT
-          "run_uat=$runUat" >> $env:GITHUB_OUTPUT
-
-      - name: Ensure Rust Toolchain
-        timeout-minutes: 20
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
-        run: |
-          Write-Host "Checking cargo availability..."
-
-          function Test-Cargo([string]$CargoPath) {
-            & $CargoPath --version
-            return ($LASTEXITCODE -eq 0)
-          }
-
-          function Ensure-DefaultRustToolchain([string]$CargoPath) {
-            $cargoBin = Split-Path -Parent $CargoPath
-            $rustupExe = Join-Path $cargoBin "rustup.exe"
-            if (-not (Test-Path -LiteralPath $rustupExe)) {
-              return $false
-            }
-
-            & $rustupExe toolchain install stable --profile minimal
-            if ($LASTEXITCODE -ne 0) {
-              throw "rustup toolchain install stable --profile minimal failed with exit code $LASTEXITCODE"
-            }
-
-            & $rustupExe default stable
-            if ($LASTEXITCODE -ne 0) {
-              throw "rustup default stable failed with exit code $LASTEXITCODE"
-            }
-
-            return $true
-          }
-
-          $candidateBins = @()
-          if ($env:CARGO_HOME) {
-            $candidateBins += (Join-Path $env:CARGO_HOME "bin")
-          }
-          if ($env:USERPROFILE) {
-            $candidateBins += (Join-Path $env:USERPROFILE ".cargo\bin")
-          }
-          if ($env:HOMEDRIVE -and $env:HOMEPATH) {
-            $candidateBins += (Join-Path "$env:HOMEDRIVE$env:HOMEPATH" ".cargo\bin")
-          }
-          $candidateBins = $candidateBins | Select-Object -Unique
-
-          foreach ($bin in $candidateBins) {
-            $cargoExe = Join-Path $bin "cargo.exe"
-            if (Test-Path -LiteralPath $cargoExe) {
-              $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-              if (Test-Cargo $cargoExe) {
-                exit 0
-              }
-              if ((Ensure-DefaultRustToolchain $cargoExe) -and (Test-Cargo $cargoExe)) {
-                exit 0
-              }
-            }
-          }
-
-          $cargoCmd = Get-Command cargo -ErrorAction SilentlyContinue
-          if ($cargoCmd) {
-            if (Test-Cargo $cargoCmd.Source) {
-              exit 0
-            }
-            if ((Ensure-DefaultRustToolchain $cargoCmd.Source) -and (Test-Cargo $cargoCmd.Source)) {
-              exit 0
-            }
-          }
-
-          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-          $rustupInit = Join-Path $env:RUNNER_TEMP "rustup-init.exe"
-          Invoke-WebRequest -Uri "https://win.rustup.rs/x86_64" -OutFile $rustupInit
-          $rustup = Start-Process -FilePath $rustupInit -ArgumentList "-y --profile minimal --default-toolchain stable" -Wait -PassThru -NoNewWindow
-          if ($rustup.ExitCode -ne 0) {
-            throw "rustup-init failed with exit code $($rustup.ExitCode)"
-          }
-
-          $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE ".cargo" }
-          $cargoBin = Join-Path $cargoHome "bin"
-          $cargoExe = Join-Path $cargoBin "cargo.exe"
-          if (-not (Test-Path -LiteralPath $cargoExe)) {
-            throw "cargo.exe not found after Rust setup: $cargoExe"
-          }
-
-          $cargoBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          & $cargoExe --version
-
-      - name: Build Rust Binaries
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
-        run: |
-          Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp\server")
-          cargo build --release
-          Pop-Location
-
-          Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp\client")
-          cargo build --release
-          Pop-Location
 
       - name: Package LOOMLE Release (Windows)
         id: package
@@ -180,39 +68,28 @@ jobs:
             throw "Failed to parse SHA256 from certutil output for $Path"
           }
 
-          $plugin = Join-Path $env:GITHUB_WORKSPACE "engine\LoomleBridge\LoomleBridge.uplugin"
-          if (-not (Test-Path -LiteralPath $plugin)) {
-            throw "Plugin descriptor not found: $plugin"
-          }
-
           $version = "${{ github.ref_name }}".Substring(1)
-          $packageDir = Join-Path $env:RUNNER_TEMP "LoomleBridge_Windows"
+          $inputsDir = Join-Path $env:RUNNER_TEMP "loomle-release-inputs-windows"
           $bundleDir = Join-Path $env:RUNNER_TEMP "loomle-release-bundle-windows"
           $releaseDir = Join-Path $env:RUNNER_TEMP "loomle-release-assets-windows"
           $archivePath = Join-Path $releaseDir "loomle-windows.zip"
           $manifestPath = Join-Path $releaseDir "loomle-manifest-windows.json"
           $bootstrapCliPath = Join-Path $releaseDir "loomle.exe"
 
-          Remove-Item -LiteralPath $packageDir, $bundleDir, $releaseDir -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath $bundleDir, $releaseDir -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path `
             (Join-Path $bundleDir "plugin\LoomleBridge"), `
             (Join-Path $bundleDir "workspace"), `
             $releaseDir | Out-Null
 
-          & "${{ steps.ue_root_windows.outputs.run_uat }}" BuildPlugin "-Plugin=$plugin" "-Package=$packageDir" "-TargetPlatforms=Win64" -Rocket
-          if ($LASTEXITCODE -ne 0) {
-            throw "BuildPlugin failed with exit code $LASTEXITCODE"
+          if (-not (Test-Path -LiteralPath (Join-Path $inputsDir "plugin\LoomleBridge"))) {
+            throw "Verify plugin inputs missing: $(Join-Path $inputsDir 'plugin\LoomleBridge')"
           }
-
-          Copy-Item -Path (Join-Path $packageDir "*") -Destination (Join-Path $bundleDir "plugin\LoomleBridge") -Recurse -Force
-
-          $serverSrc = Join-Path $env:GITHUB_WORKSPACE "mcp\server\target\release\loomle_mcp_server.exe"
-          $clientSrc = Join-Path $env:GITHUB_WORKSPACE "mcp\client\target\release\loomle.exe"
-          if (-not (Test-Path -LiteralPath $serverSrc)) {
-            throw "Server binary missing: $serverSrc"
+          if (-not (Test-Path -LiteralPath (Join-Path $inputsDir "workspace\Loomle"))) {
+            throw "Verify workspace inputs missing: $(Join-Path $inputsDir 'workspace\Loomle')"
           }
-          if (-not (Test-Path -LiteralPath $clientSrc)) {
-            throw "Client binary missing: $clientSrc"
+          if (-not (Test-Path -LiteralPath (Join-Path $inputsDir "mcp\client\windows\loomle.exe"))) {
+            throw "Verify client inputs missing: $(Join-Path $inputsDir 'mcp\client\windows\loomle.exe')"
           }
 
           $serverRelPath = "plugin/LoomleBridge/Tools/mcp/windows/loomle_mcp_server.exe"
@@ -225,11 +102,12 @@ jobs:
             (Split-Path -Parent $clientDst), `
             (Join-Path $bundleDir "mcp\client\windows") | Out-Null
 
-          Copy-Item -LiteralPath $serverSrc -Destination $serverDst -Force
-          Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "workspace\Loomle\*") -Destination (Join-Path $bundleDir "workspace\Loomle") -Recurse -Force
-          Copy-Item -LiteralPath $clientSrc -Destination $clientDst -Force
-          Copy-Item -LiteralPath $clientSrc -Destination (Join-Path $bundleDir "mcp\client\windows\loomle.exe") -Force
-          Copy-Item -LiteralPath $clientSrc -Destination $bootstrapCliPath -Force
+          Copy-Item -Path (Join-Path $inputsDir "plugin\LoomleBridge\*") -Destination (Join-Path $bundleDir "plugin\LoomleBridge") -Recurse -Force
+          Copy-Item -Path (Join-Path $inputsDir "workspace\Loomle\*") -Destination (Join-Path $bundleDir "workspace\Loomle") -Recurse -Force
+          Copy-Item -LiteralPath (Join-Path $inputsDir ($serverRelPath -replace '/', '\')) -Destination $serverDst -Force
+          Copy-Item -LiteralPath (Join-Path $inputsDir ($clientRelPath -replace '/', '\')) -Destination $clientDst -Force
+          Copy-Item -LiteralPath (Join-Path $inputsDir "mcp\client\windows\loomle.exe") -Destination (Join-Path $bundleDir "mcp\client\windows\loomle.exe") -Force
+          Copy-Item -LiteralPath (Join-Path $inputsDir "mcp\client\windows\loomle.exe") -Destination $bootstrapCliPath -Force
 
           Compress-Archive -Path (Join-Path $bundleDir "*") -DestinationPath $archivePath -Force
 

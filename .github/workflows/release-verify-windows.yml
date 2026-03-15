@@ -240,6 +240,47 @@ jobs:
           Copy-Item -LiteralPath $serverSrc -Destination $pluginServer -Force
           Copy-Item -LiteralPath $clientSrc -Destination (Join-Path $workspaceDst "loomle.exe") -Force
 
+      - name: Stage Release Inputs
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
+        run: |
+          $releaseInputs = Join-Path $env:RUNNER_TEMP "loomle-release-inputs-windows"
+          $pluginSrc = Join-Path $env:RUNNER_TEMP "LoomleBridge_Gating_Windows"
+          $workspaceSrc = Join-Path $env:GITHUB_WORKSPACE "workspace\Loomle"
+          $serverSrc = Join-Path $env:GITHUB_WORKSPACE "mcp\server\target\release\loomle_mcp_server.exe"
+          $clientSrc = Join-Path $env:GITHUB_WORKSPACE "mcp\client\target\release\loomle.exe"
+
+          if (-not (Test-Path -LiteralPath $pluginSrc)) {
+            throw "Packaged plugin missing: $pluginSrc"
+          }
+          if (-not (Test-Path -LiteralPath $workspaceSrc)) {
+            throw "Workspace missing: $workspaceSrc"
+          }
+          if (-not (Test-Path -LiteralPath $serverSrc)) {
+            throw "MCP server binary missing: $serverSrc"
+          }
+          if (-not (Test-Path -LiteralPath $clientSrc)) {
+            throw "Client binary missing: $clientSrc"
+          }
+
+          Remove-Item -LiteralPath $releaseInputs -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path `
+            (Join-Path $releaseInputs "plugin\LoomleBridge\Tools\mcp\windows"), `
+            (Join-Path $releaseInputs "workspace\Loomle"), `
+            (Join-Path $releaseInputs "mcp\client\windows") | Out-Null
+
+          Copy-Item -Path (Join-Path $pluginSrc "*") -Destination (Join-Path $releaseInputs "plugin\LoomleBridge") -Recurse -Force
+          Copy-Item -Path (Join-Path $workspaceSrc "*") -Destination (Join-Path $releaseInputs "workspace\Loomle") -Recurse -Force
+          Copy-Item -LiteralPath $serverSrc -Destination (Join-Path $releaseInputs "plugin\LoomleBridge\Tools\mcp\windows\loomle_mcp_server.exe") -Force
+          Copy-Item -LiteralPath $clientSrc -Destination (Join-Path $releaseInputs "workspace\Loomle\loomle.exe") -Force
+          Copy-Item -LiteralPath $clientSrc -Destination (Join-Path $releaseInputs "mcp\client\windows\loomle.exe") -Force
+
+      - name: Upload Release Inputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-verify-windows-inputs
+          path: ${{ runner.temp }}/loomle-release-inputs-windows/**
+          if-no-files-found: error
+
       - name: Restart Unreal Editor For Verification
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |

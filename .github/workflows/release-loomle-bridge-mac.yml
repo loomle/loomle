@@ -28,6 +28,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Download Verify Release Inputs
+        uses: actions/download-artifact@v4
+        with:
+          name: release-verify-mac-inputs
+          path: ${{ runner.temp }}/loomle-release-inputs-darwin
+
       - name: Ensure Tag Commit Is On Main
         shell: bash
         run: |
@@ -39,87 +45,36 @@ jobs:
             exit 1
           }
 
-      - name: Resolve Unreal Engine Root (Mac)
-        id: ue_root_mac
-        shell: bash
-        env:
-          UE_FROM_VARS: ${{ vars.UE_5_7_ROOT_MAC }}
-        run: |
-          set -euo pipefail
-          candidate=""
-          if [[ -n "${UE_FROM_VARS:-}" ]]; then
-            candidate="$UE_FROM_VARS"
-          elif [[ -n "${UE_5_7_ROOT_MAC:-}" ]]; then
-            candidate="$UE_5_7_ROOT_MAC"
-          else
-            candidate="/Users/Shared/Epic Games/UE_5.7"
-          fi
-
-          run_uat="$candidate/Engine/Build/BatchFiles/RunUAT.sh"
-          if [[ ! -x "$run_uat" ]]; then
-            echo "RunUAT.sh not found. Set UE_5_7_ROOT_MAC (repo var or runner env). Tried: $run_uat" >&2
-            exit 1
-          fi
-
-          {
-            echo "ue_root=$candidate"
-            echo "run_uat=$run_uat"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Build Rust Binaries
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo build --release --manifest-path "$GITHUB_WORKSPACE/mcp/server/Cargo.toml"
-          cargo build --release --manifest-path "$GITHUB_WORKSPACE/mcp/client/Cargo.toml"
-
       - name: Package LOOMLE Release (Mac)
         id: package
         shell: bash
         run: |
           set -euo pipefail
 
-          plugin="$GITHUB_WORKSPACE/engine/LoomleBridge/LoomleBridge.uplugin"
-          [[ -f "$plugin" ]] || { echo "Plugin descriptor not found: $plugin" >&2; exit 1; }
-
           version="${GITHUB_REF_NAME#v}"
-          package_dir="$RUNNER_TEMP/LoomleBridge_Mac"
+          inputs_dir="$RUNNER_TEMP/loomle-release-inputs-darwin"
           bundle_dir="$RUNNER_TEMP/loomle-release-bundle-darwin"
           release_dir="$RUNNER_TEMP/loomle-release-assets-darwin"
           archive_path="$release_dir/loomle-darwin.zip"
           manifest_path="$release_dir/loomle-manifest-darwin.json"
           bootstrap_cli_path="$release_dir/loomle-darwin"
 
-          rm -rf "$package_dir" "$bundle_dir" "$release_dir"
+          rm -rf "$bundle_dir" "$release_dir"
           mkdir -p "$bundle_dir/plugin/LoomleBridge" "$bundle_dir/workspace" "$release_dir"
-
-          "${{ steps.ue_root_mac.outputs.run_uat }}" BuildPlugin \
-            -Plugin="$plugin" \
-            -Package="$package_dir" \
-            -TargetPlatforms=Mac \
-            -Rocket
-
-          rsync -a "$package_dir"/ "$bundle_dir/plugin/LoomleBridge"/
-
-          server_src="$GITHUB_WORKSPACE/mcp/server/target/release/loomle_mcp_server"
-          client_src="$GITHUB_WORKSPACE/mcp/client/target/release/loomle"
-          [[ -x "$server_src" ]] || { echo "Server binary missing: $server_src" >&2; exit 1; }
-          [[ -x "$client_src" ]] || { echo "Client binary missing: $client_src" >&2; exit 1; }
+          [[ -d "$inputs_dir/plugin/LoomleBridge" ]] || { echo "Verify plugin inputs missing: $inputs_dir/plugin/LoomleBridge" >&2; exit 1; }
+          [[ -d "$inputs_dir/workspace/Loomle" ]] || { echo "Verify workspace inputs missing: $inputs_dir/workspace/Loomle" >&2; exit 1; }
+          [[ -x "$inputs_dir/mcp/client/darwin/loomle" ]] || { echo "Verify client inputs missing: $inputs_dir/mcp/client/darwin/loomle" >&2; exit 1; }
 
           server_relpath="plugin/LoomleBridge/Tools/mcp/darwin/loomle_mcp_server"
           client_relpath="workspace/Loomle/loomle"
           server_dst="$bundle_dir/$server_relpath"
           client_dst="$bundle_dir/$client_relpath"
 
-          mkdir -p "$(dirname "$server_dst")" "$(dirname "$client_dst")" "$bundle_dir/mcp/client/darwin"
-          cp "$server_src" "$server_dst"
-          chmod +x "$server_dst"
-          rsync -a "$GITHUB_WORKSPACE/workspace/Loomle/" "$bundle_dir/workspace/Loomle/"
-          cp "$client_src" "$client_dst"
-          cp "$client_src" "$bundle_dir/mcp/client/darwin/loomle"
-          chmod +x "$client_dst" "$bundle_dir/mcp/client/darwin/loomle"
-
-          cp "$client_src" "$bootstrap_cli_path"
+          rsync -a "$inputs_dir/plugin/LoomleBridge/" "$bundle_dir/plugin/LoomleBridge/"
+          rsync -a "$inputs_dir/workspace/Loomle/" "$bundle_dir/workspace/Loomle/"
+          mkdir -p "$bundle_dir/mcp/client/darwin"
+          cp "$inputs_dir/mcp/client/darwin/loomle" "$bundle_dir/mcp/client/darwin/loomle"
+          cp "$inputs_dir/mcp/client/darwin/loomle" "$bootstrap_cli_path"
           chmod +x "$bootstrap_cli_path"
 
           (
