@@ -33,6 +33,24 @@ def copy_file(source: Path, destination: Path) -> None:
     shutil.copy2(source, destination)
 
 
+def strip_plugin_source_for_precompiled_bundle(plugin_root: Path, platform: str) -> None:
+    binary_platform_dir = {
+        "darwin": "Mac",
+        "linux": "Linux",
+        "windows": "Win64",
+    }.get(platform)
+    if not binary_platform_dir:
+        return
+
+    source_dir = plugin_root / "Source"
+    if not source_dir.is_dir():
+        return
+    if not (plugin_root / "Binaries" / binary_platform_dir).is_dir():
+        return
+
+    shutil.rmtree(source_dir)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Assemble a LOOMLE release bundle from the source repository.")
     parser.add_argument("--repo-root", required=True)
@@ -69,6 +87,7 @@ def main() -> int:
         client_binary,
         release_workspace / "client" / client_binary.name,
     )
+    strip_plugin_source_for_precompiled_bundle(release_plugin, args.platform)
 
     manifest = {
         "bundleRoot": str(output_dir),

@@ -162,6 +162,32 @@ def write_runtime_install_state(
     return install_state_path
 
 
+def plugin_binary_platform_dir(platform: str) -> str | None:
+    return {
+        "darwin": "Mac",
+        "linux": "Linux",
+        "windows": "Win64",
+    }.get(platform)
+
+
+def strip_plugin_source_for_precompiled_install(*, plugin_root: Path, platform: str) -> None:
+    source_dir = plugin_root / "Source"
+    if not source_dir.is_dir():
+        return
+
+    binary_platform_dir = plugin_binary_platform_dir(platform)
+    if not binary_platform_dir:
+        return
+
+    if not (plugin_root / "Binaries" / binary_platform_dir).is_dir():
+        return
+
+    try:
+        shutil.rmtree(source_dir)
+    except Exception as exc:
+        fail(f"failed to remove plugin source for precompiled install {source_dir}: {exc}")
+
+
 def ensure_executable_file(path: Path) -> None:
     if os.name == "nt":
         return
@@ -227,6 +253,10 @@ def main() -> int:
 
     copy_tree(plugin_source, plugin_destination)
     copy_tree(workspace_source, workspace_destination)
+    strip_plugin_source_for_precompiled_install(
+        plugin_root=plugin_destination,
+        platform=args.platform,
+    )
     ensure_executable_file(
         resolve_installed_path(
             project_root=project_root,

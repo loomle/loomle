@@ -383,9 +383,41 @@ fn copy_release_tree(
 
     copy_tree(&plugin_source, &plugin_destination)?;
     copy_tree(&workspace_source, &workspace_destination)?;
+    strip_plugin_source_for_precompiled_install(&plugin_destination)?;
     ensure_installed_binaries_executable(project_root, package)?;
     ensure_editor_performance_setting(project_root)?;
     write_runtime_install_state(project_root, version, package)
+}
+
+fn strip_plugin_source_for_precompiled_install(plugin_root: &Path) -> Result<(), String> {
+    let source_dir = plugin_root.join("Source");
+    if !source_dir.is_dir() {
+        return Ok(());
+    }
+
+    let binary_platform_dir = match plugin_binary_platform_dir() {
+        Some(dir) => plugin_root.join("Binaries").join(dir),
+        None => return Ok(()),
+    };
+    if !binary_platform_dir.is_dir() {
+        return Ok(());
+    }
+
+    fs::remove_dir_all(&source_dir).map_err(|error| {
+        format!(
+            "failed to remove plugin source for precompiled install {}: {error}",
+            source_dir.display()
+        )
+    })
+}
+
+fn plugin_binary_platform_dir() -> Option<&'static str> {
+    match platform_key() {
+        "darwin" => Some("Mac"),
+        "linux" => Some("Linux"),
+        "windows" => Some("Win64"),
+        _ => None,
+    }
 }
 
 fn ensure_editor_performance_setting(project_root: &Path) -> Result<(), String> {
@@ -755,6 +787,131 @@ mod tests {
             "https://github.com/example/test/releases/download/v0.1.0/loomle-manifest.json"
         );
         std::env::remove_var("LOOMLE_RELEASE_REPO");
+    }
+
+    #[test]
+    fn install_release_prefers_precompiled_plugin_layout() {
+        let temp = TempDir::new().expect("temp");
+        let build_root = temp.path().join("build");
+        let project_root = temp.path().join("Project");
+        let server_name = if platform_key() == "windows" {
+            "loomle_mcp_server.exe"
+        } else {
+            "loomle_mcp_server"
+        };
+        let client_name = if platform_key() == "windows" {
+            "loomle.exe"
+        } else {
+            "loomle"
+        };
+        let plugin_binary_platform_dir =
+            plugin_binary_platform_dir().expect("supported plugin binary platform");
+        fs::create_dir_all(&build_root).expect("build root");
+        fs::create_dir_all(&project_root).expect("project root");
+        fs::write(project_root.join("Demo.uproject"), "{}").expect("uproject");
+
+        let bundle_root = build_root.join("bundle");
+        fs::create_dir_all(
+            bundle_root.join(format!("plugin/LoomleBridge/Tools/mcp/{}", platform_key())),
+        )
+        .expect("plugin server dir");
+        fs::create_dir_all(
+            bundle_root.join(format!("plugin/LoomleBridge/Binaries/{plugin_binary_platform_dir}")),
+        )
+        .expect("plugin binaries");
+        fs::create_dir_all(bundle_root.join("plugin/LoomleBridge/Source/LoomleBridge"))
+            .expect("plugin source");
+        fs::create_dir_all(bundle_root.join("workspace/Loomle/client")).expect("workspace");
+        fs::write(
+            bundle_root.join("plugin/LoomleBridge/LoomleBridge.uplugin"),
+            "{}",
+        )
+        .expect("uplugin");
+        fs::write(
+            bundle_root.join(format!(
+                "plugin/LoomleBridge/Tools/mcp/{}/{}",
+                platform_key(),
+                server_name
+            )),
+            "server",
+        )
+        .expect("server");
+        fs::write(
+            bundle_root.join(format!(
+                "plugin/LoomleBridge/Binaries/{plugin_binary_platform_dir}/placeholder.bin"
+            )),
+            "binary",
+        )
+        .expect("plugin binary");
+        fs::write(
+            bundle_root.join("plugin/LoomleBridge/Source/LoomleBridge/LoomleBridge.Build.cs"),
+            "source",
+        )
+        .expect("build cs");
+        fs::write(
+            bundle_root.join(format!("workspace/Loomle/client/{}", client_name)),
+            "client",
+        )
+        .expect("client");
+        fs::write(bundle_root.join("workspace/Loomle/README.md"), "workspace").expect("readme");
+
+        let archive_path = build_root.join("loomle.zip");
+        write_zip(&bundle_root, &archive_path);
+        let archive_sha = sha256_file(&archive_path).expect("sha");
+        let manifest_path = build_root.join("manifest.json");
+        let manifest = json!({
+            "latest": "0.1.0",
+            "versions": {
+                "0.1.0": {
+                    "packages": {
+                        platform_key(): {
+                            "url": archive_path.to_string_lossy(),
+                            "sha256": archive_sha,
+                            "format": "zip",
+                            "server_binary_relpath": format!(
+                                "plugin/LoomleBridge/Tools/mcp/{}/{server_name}",
+                                platform_key()
+                            ),
+                            "client_binary_relpath": format!(
+                                "workspace/Loomle/client/{client_name}"
+                            ),
+                            "install": {
+                                "plugin": {
+                                    "source": "plugin/LoomleBridge",
+                                    "destination": "Plugins/LoomleBridge"
+                                },
+                                "workspace": {
+                                    "source": "workspace/Loomle",
+                                    "destination": "Loomle"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest).expect("serialize manifest"),
+        )
+        .expect("manifest");
+
+        install_release(InstallRequest {
+            project_root: project_root.clone(),
+            version: None,
+            manifest_path: Some(manifest_path),
+            manifest_url: None,
+        })
+        .expect("install");
+
+        assert!(project_root
+            .join("Plugins/LoomleBridge/Binaries")
+            .join(plugin_binary_platform_dir)
+            .is_dir());
+        assert!(
+            !project_root.join("Plugins/LoomleBridge/Source").exists(),
+            "precompiled installs should not keep plugin source"
+        );
     }
 
     fn write_zip(bundle_root: &Path, archive_path: &Path) {

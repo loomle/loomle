@@ -205,6 +205,7 @@ jobs:
           }
 
           Copy-Item -Path (Join-Path $packageDir "*") -Destination (Join-Path $bundleDir "plugin\LoomleBridge") -Recurse -Force
+          Remove-Item -LiteralPath (Join-Path $bundleDir "plugin\LoomleBridge\Source") -Recurse -Force -ErrorAction SilentlyContinue
 
           $serverSrc = Join-Path $env:GITHUB_WORKSPACE "mcp\server\target\release\loomle_mcp_server.exe"
           $clientSrc = Join-Path $env:GITHUB_WORKSPACE "mcp\client\target\release\loomle.exe"

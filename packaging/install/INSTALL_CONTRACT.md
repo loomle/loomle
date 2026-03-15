@@ -110,10 +110,11 @@ An installer must:
 1. copy plugin content to `Plugins/LoomleBridge/`
 2. copy workspace content to `Loomle/`
 3. preserve platform-appropriate server and client binaries
-4. write `Loomle/runtime/install.json` with machine-readable install state
-5. ensure `Config/DefaultEditorSettings.ini` disables background CPU throttling for Unreal Editor
-6. avoid requiring a separate skill repository install
-7. be idempotent for repeated installs of the same version
+4. prefer precompiled plugin installs for release bundles and remove plugin `Source/` when matching platform binaries are present
+5. write `Loomle/runtime/install.json` with machine-readable install state
+6. ensure `Config/DefaultEditorSettings.ini` disables background CPU throttling for Unreal Editor
+7. avoid requiring a separate skill repository install
+8. be idempotent for repeated installs of the same version
 
 Source-checkout helper entrypoints:
 
