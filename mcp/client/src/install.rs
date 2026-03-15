@@ -18,6 +18,10 @@ const EDITOR_PERF_SECTION: &str = "[/Script/UnrealEd.EditorPerformanceSettings]"
 const EDITOR_THROTTLE_SETTING: &str = "bThrottleCPUWhenNotForeground=False";
 const WORKSPACE_SOURCE_ROOT: &str = "workspace/Loomle";
 const PLUGIN_SOURCE_ROOT: &str = "plugin/LoomleBridge";
+const RESTART_REASON_INSTALL: &str =
+    "If Unreal Editor is already running, restart it to load the installed LoomleBridge plugin version.";
+const RESTART_REASON_UPDATE: &str =
+    "If Unreal Editor is already running, restart it to load the updated LoomleBridge plugin version.";
 
 #[derive(Debug, Clone)]
 pub struct InstallRequest {
@@ -113,6 +117,8 @@ pub fn install_release(request: InstallRequest) -> Result<serde_json::Value, Str
     Ok(json!({
         "installedVersion": version,
         "platform": platform_key(),
+        "restartRequired": true,
+        "restartReason": RESTART_REASON_INSTALL,
         "bundleRoot": bundle_root.display().to_string(),
         "projectRoot": project_root.display().to_string(),
         "plugin": {
@@ -183,7 +189,7 @@ pub fn update_release(request: UpdateRequest) -> Result<serde_json::Value, Strin
         "targetVersion": target_version,
         "updated": true,
         "restartRequired": true,
-        "restartReason": "If Unreal Editor is already running, restart it to load the updated LoomleBridge plugin version.",
+        "restartReason": RESTART_REASON_UPDATE,
         "install": install_result,
     }))
 }
@@ -804,6 +810,8 @@ mod tests {
         .expect("install");
 
         assert_eq!(result["installedVersion"], "0.1.0");
+        assert_eq!(result["restartRequired"], true);
+        assert_eq!(result["restartReason"], RESTART_REASON_INSTALL);
         assert!(project_root
             .join("Plugins/LoomleBridge/LoomleBridge.uplugin")
             .is_file());

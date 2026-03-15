@@ -56,6 +56,7 @@ Read this file first. It is the top-level usage guide for agents working inside 
   Check the installed version against the latest published release.
 - `Loomle/loomle update --apply`
   Upgrade this project-local LOOMLE install in place.
+  After install or update writes new files, restart Unreal Editor if it is already running so the new LoomleBridge plugin version is loaded.
 
 ## Addressing Graphs
 
@@ -126,6 +127,7 @@ Do not assume a failed mutate batch automatically rolled back earlier successful
 
 Repair or reinstall from the project root:
 - `loomle install --project-root <ProjectRoot>`
+  If Unreal Editor is already running, restart it after install so the newly installed LoomleBridge plugin version is loaded.
 
 LOOMLE installs the plugin's prebuilt binaries and source together so Unreal can load quickly and still participate in local target rebuilds.
 

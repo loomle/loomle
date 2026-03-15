@@ -796,7 +796,7 @@ where
     F: FnOnce() -> Result<Value, String> + Send + 'static,
 {
     match tokio::task::spawn_blocking(task).await {
-        Ok(Ok(result)) => match print_json(&result) {
+        Ok(Ok(result)) => match print_json(&result).and_then(|_| emit_restart_notice(&result)) {
             Ok(()) => ExitCode::SUCCESS,
             Err(message) => {
                 eprintln!("[loomle][ERROR] {message}");
@@ -812,6 +812,23 @@ where
             ExitCode::from(1)
         }
     }
+}
+
+fn emit_restart_notice(result: &Value) -> Result<(), String> {
+    let restart_required = result
+        .get("restartRequired")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if !restart_required {
+        return Ok(());
+    }
+
+    let reason = result
+        .get("restartReason")
+        .and_then(Value::as_str)
+        .unwrap_or("If Unreal Editor is already running, restart it so LOOMLE changes take effect.");
+    eprintln!("[loomle][NOTE] {reason}");
+    Ok(())
 }
 
 fn print_usage() {
