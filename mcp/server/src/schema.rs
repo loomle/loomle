@@ -249,6 +249,10 @@ fn graph_query_input_schema() -> Value {
                 "maximum": 1000,
                 "description": "Maximum number of nodes/edges to return when truncation is supported."
             },
+            "cursor": {
+                "type": "string",
+                "description": "Opaque pagination cursor returned by a prior graph.query response. Supply it together with the same graph address and filters to continue a truncated read."
+            },
             "path": {
                 "type": "array",
                 "items": { "type": "string", "minLength": 1 },

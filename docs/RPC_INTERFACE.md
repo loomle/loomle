@@ -283,6 +283,7 @@ Two mutually exclusive addressing modes:
     "text": "optional-text"
   },
   "limit": 200,
+  "cursor": "opaque-pagination-cursor",
   "path": ["CompositeA_Guid", "CompositeB_Guid"]
 }
 ```
@@ -302,7 +303,8 @@ Inline ref (Blueprint `K2Node_Composite`):
   },
   "layoutDetail": "basic|measured",
   "filter": { "nodeClasses": ["optional-class"], "nodeIds": ["optional-id"], "text": "optional-text" },
-  "limit": 200
+  "limit": 200,
+  "cursor": "opaque-pagination-cursor"
 }
 ```
 
@@ -315,7 +317,8 @@ Asset ref (external PCG graph, MaterialFunction, or another Blueprint graph):
     "assetPath": "/Game/PCG/MySubgraph"
   },
   "layoutDetail": "basic|measured",
-  "limit": 200
+  "limit": 200,
+  "cursor": "opaque-pagination-cursor"
 }
 ```
 
@@ -333,6 +336,7 @@ Note: `graphType: "material"` accepts both `UMaterial` and `UMaterialFunction` a
   "graphName": "EventGraph",
   "graphRef": { "kind": "inline|asset", "...": "..." },
   "revision": "opaque-token",
+  "nextCursor": "opaque-pagination-cursor",
   "semanticSnapshot": {
     "signature": "string",
     "nodes": [
@@ -378,6 +382,12 @@ Note: `graphType: "material"` accepts both `UMaterial` and `UMaterialFunction` a
   "diagnostics": []
 }
 ```
+
+Pagination notes:
+
+- `nextCursor` is empty when the current page is complete.
+- When `meta.truncated` is `true`, `nextCursor` contains an opaque continuation token.
+- To continue reading, call `graph.query` again with the same graph address, filters, and `limit`, and pass the returned `cursor`.
 
 Node field notes:
 

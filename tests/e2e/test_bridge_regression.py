@@ -100,6 +100,31 @@ def query_snapshot(
     return snapshot
 
 
+def query_graph_payload(
+    client: McpStdioClient,
+    request_id: int,
+    *,
+    asset_path: str,
+    graph_name: str,
+    limit: int,
+    cursor: str = "",
+) -> dict:
+    arguments: dict[str, object] = {
+        "assetPath": asset_path,
+        "graphName": graph_name,
+        "graphType": "blueprint",
+        "limit": limit,
+    }
+    if cursor:
+        arguments["cursor"] = cursor
+    payload = call_tool(client, request_id, "graph.query", arguments)
+    if not isinstance(payload.get("semanticSnapshot"), dict):
+        fail(f"graph.query missing semanticSnapshot for pagination test: {payload}")
+    if not isinstance(payload.get("meta"), dict):
+        fail(f"graph.query missing meta for pagination test: {payload}")
+    return payload
+
+
 def require_node(nodes: list[dict], node_id: str) -> dict:
     for node in nodes:
         if node.get("id") == node_id:
@@ -630,6 +655,36 @@ def main() -> int:
         if not isinstance(node_b, str) or not node_b:
             fail(f"addNode.byClass did not return nodeId for second node: {add_b}")
         print("[PASS] graph.mutate addNode.byClass validated")
+
+        page_one = query_graph_payload(client, 110, asset_path=temp_asset, graph_name="EventGraph", limit=1)
+        page_one_meta = page_one.get("meta", {})
+        page_one_cursor = page_one.get("nextCursor")
+        page_one_nodes = page_one.get("semanticSnapshot", {}).get("nodes", [])
+        if page_one_meta.get("truncated") is not True:
+            fail(f"graph.query pagination expected truncated=true for first page: {page_one}")
+        if not isinstance(page_one_cursor, str) or not page_one_cursor:
+            fail(f"graph.query pagination expected non-empty nextCursor for first page: {page_one}")
+        if not isinstance(page_one_nodes, list) or len(page_one_nodes) != 1:
+            fail(f"graph.query pagination expected one node on first page: {page_one}")
+
+        page_two = query_graph_payload(
+            client,
+            111,
+            asset_path=temp_asset,
+            graph_name="EventGraph",
+            limit=1,
+            cursor=page_one_cursor,
+        )
+        page_two_nodes = page_two.get("semanticSnapshot", {}).get("nodes", [])
+        if not isinstance(page_two_nodes, list) or len(page_two_nodes) != 1:
+            fail(f"graph.query pagination expected one node on second page: {page_two}")
+        first_page_node_id = page_one_nodes[0].get("guid") if isinstance(page_one_nodes[0], dict) else None
+        second_page_node_id = page_two_nodes[0].get("guid") if isinstance(page_two_nodes[0], dict) else None
+        if not isinstance(first_page_node_id, str) or not isinstance(second_page_node_id, str):
+            fail(f"graph.query pagination pages missing node guids: first={page_one} second={page_two}")
+        if first_page_node_id == second_page_node_id:
+            fail(f"graph.query pagination cursor did not advance to a new page: first={page_one} second={page_two}")
+        print("[PASS] graph.query pagination cursor validated")
 
         connect_payload = call_tool(
             client,

@@ -459,7 +459,61 @@ struct FGraphQueryShapeOptions
     TSet<FString> NodeIds;
     FString Text;
     int32 Limit = 200;
+    int32 Offset = 0;
+    bool bCursorValid = true;
+    FString CursorError;
 };
+
+bool ParseGraphQueryCursor(const FString& Cursor, int32& OutOffset, FString& OutError)
+{
+    OutOffset = 0;
+    OutError.Empty();
+
+    const FString TrimmedCursor = Cursor.TrimStartAndEnd();
+    if (TrimmedCursor.IsEmpty())
+    {
+        return true;
+    }
+
+    FString Prefix;
+    FString OffsetText;
+    if (!TrimmedCursor.Split(TEXT(":"), &Prefix, &OffsetText) || !Prefix.Equals(TEXT("offset")))
+    {
+        OutError = TEXT("cursor must use the format offset:<non-negative integer>.");
+        return false;
+    }
+
+    OffsetText = OffsetText.TrimStartAndEnd();
+    if (OffsetText.IsEmpty())
+    {
+        OutError = TEXT("cursor offset is missing.");
+        return false;
+    }
+
+    for (TCHAR Character : OffsetText)
+    {
+        if (!FChar::IsDigit(Character))
+        {
+            OutError = TEXT("cursor offset must be a non-negative integer.");
+            return false;
+        }
+    }
+
+    const int64 ParsedOffset = FCString::Atoi64(*OffsetText);
+    if (ParsedOffset < 0 || ParsedOffset > TNumericLimits<int32>::Max())
+    {
+        OutError = TEXT("cursor offset is out of range.");
+        return false;
+    }
+
+    OutOffset = static_cast<int32>(ParsedOffset);
+    return true;
+}
+
+FString BuildGraphQueryCursor(const int32 Offset)
+{
+    return FString::Printf(TEXT("offset:%d"), FMath::Max(Offset, 0));
+}
 
 FGraphQueryShapeOptions ParseGraphQueryShapeOptions(const TSharedPtr<FJsonObject>& Arguments)
 {
@@ -471,6 +525,12 @@ FGraphQueryShapeOptions ParseGraphQueryShapeOptions(const TSharedPtr<FJsonObject
         if (Arguments->TryGetNumberField(TEXT("limit"), LimitNumber))
         {
             Options.Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, 1000);
+        }
+
+        FString Cursor;
+        if (Arguments->TryGetStringField(TEXT("cursor"), Cursor) && !Cursor.TrimStartAndEnd().IsEmpty())
+        {
+            Options.bCursorValid = ParseGraphQueryCursor(Cursor, Options.Offset, Options.CursorError);
         }
 
         const TSharedPtr<FJsonObject>* FilterObject = nullptr;
@@ -661,22 +721,22 @@ FString BuildGraphQueryRevision(const TSharedPtr<FJsonObject>& Result, const FSt
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
-    if (!IsInGameThread())
+    TSharedPtr<FJsonObject> BaseArguments = CloneJsonObject(Arguments);
+    if (!BaseArguments.IsValid())
     {
-        TSharedPtr<FJsonObject> BaseArguments = CloneJsonObject(Arguments);
-        if (!BaseArguments.IsValid())
+        BaseArguments = MakeShared<FJsonObject>();
+        if (Arguments.IsValid())
         {
-            BaseArguments = MakeShared<FJsonObject>();
-            if (Arguments.IsValid())
+            for (const TPair<FString, TSharedPtr<FJsonValue>>& Field : Arguments->Values)
             {
-                for (const TPair<FString, TSharedPtr<FJsonValue>>& Field : Arguments->Values)
-                {
-                    BaseArguments->SetField(Field.Key, Field.Value);
-                }
+                BaseArguments->SetField(Field.Key, Field.Value);
             }
         }
-        BaseArguments->SetBoolField(TEXT("_loomleBaseSnapshot"), true);
+    }
+    BaseArguments->SetBoolField(TEXT("_loomleBaseSnapshot"), true);
 
+    if (!IsInGameThread())
+    {
         TPromise<TSharedPtr<FJsonObject>> ResponsePromise;
         TFuture<TSharedPtr<FJsonObject>> ResponseFuture = ResponsePromise.GetFuture();
         AsyncTask(ENamedThreads::GameThread, [this, BaseArguments, Promise = MoveTemp(ResponsePromise)]() mutable
@@ -697,7 +757,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSh
         return BuildShapedGraphQueryResult(ResponseFuture.Get(), Arguments);
     }
 
-    return BuildShapedGraphQueryResult(BuildGraphQueryBaseResult(Arguments), Arguments);
+    return BuildShapedGraphQueryResult(BuildGraphQueryBaseResult(BaseArguments), Arguments);
 }
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildShapedGraphQueryResult(const TSharedPtr<FJsonObject>& BaseResult, const TSharedPtr<FJsonObject>& Arguments) const
@@ -724,6 +784,16 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildShapedGraphQueryResult(const T
     }
 
     const FGraphQueryShapeOptions ShapeOptions = ParseGraphQueryShapeOptions(Arguments);
+    if (!ShapeOptions.bCursorValid)
+    {
+        TSharedPtr<FJsonObject> ErrorResult = MakeShared<FJsonObject>();
+        ErrorResult->SetBoolField(TEXT("isError"), true);
+        ErrorResult->SetStringField(TEXT("code"), TEXT("INVALID_CURSOR"));
+        ErrorResult->SetStringField(TEXT("message"), ShapeOptions.CursorError.IsEmpty()
+            ? TEXT("graph.query cursor is invalid.")
+            : ShapeOptions.CursorError);
+        return ErrorResult;
+    }
 
     const TSharedPtr<FJsonObject>* SnapshotObject = nullptr;
     if (!Result->TryGetObjectField(TEXT("semanticSnapshot"), SnapshotObject) || SnapshotObject == nullptr || !(*SnapshotObject).IsValid())
@@ -762,6 +832,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildShapedGraphQueryResult(const T
             }
 
             ++MatchingNodeCount;
+            if (MatchingNodeCount <= ShapeOptions.Offset)
+            {
+                continue;
+            }
             if (ShapedNodes.Num() >= ShapeOptions.Limit)
             {
                 continue;
@@ -824,11 +898,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildShapedGraphQueryResult(const T
     Algo::Sort(SignatureNodeTokens);
     Algo::Sort(SignatureEdgeTokens);
     const FString Signature = FString::Join(SignatureNodeTokens, TEXT(";")) + TEXT("#") + FString::Join(SignatureEdgeTokens, TEXT(";"));
+    const bool bTruncated = (ShapeOptions.Offset + ShapedNodes.Num()) < MatchingNodeCount;
 
     (*SnapshotObject)->SetStringField(TEXT("signature"), Signature);
     (*SnapshotObject)->SetArrayField(TEXT("nodes"), ShapedNodes);
     (*SnapshotObject)->SetArrayField(TEXT("edges"), ShapedEdges);
     Result->SetStringField(TEXT("revision"), BuildGraphQueryRevision(Result, Signature));
+    Result->SetStringField(TEXT("nextCursor"), bTruncated ? BuildGraphQueryCursor(ShapeOptions.Offset + ShapedNodes.Num()) : TEXT(""));
 
     const TSharedPtr<FJsonObject>* MetaObject = nullptr;
     if (!Result->TryGetObjectField(TEXT("meta"), MetaObject) || MetaObject == nullptr || !(*MetaObject).IsValid())
@@ -842,7 +918,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildShapedGraphQueryResult(const T
     (*MetaObject)->SetNumberField(TEXT("returnedNodes"), ShapedNodes.Num());
     (*MetaObject)->SetNumberField(TEXT("totalEdges"), OriginalEdgeCount);
     (*MetaObject)->SetNumberField(TEXT("returnedEdges"), ShapedEdges.Num());
-    (*MetaObject)->SetBoolField(TEXT("truncated"), MatchingNodeCount > ShapedNodes.Num());
+    (*MetaObject)->SetBoolField(TEXT("truncated"), bTruncated);
 
     return Result;
 }
