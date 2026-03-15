@@ -276,7 +276,7 @@ UObject* LoadObjectByAssetPath(const FString& InAssetPath)
 }
 
 UPCGGraph* ResolvePcgGraphFromAsset(UObject* Asset);
-UMaterial* FindEditedMaterial();
+UObject* FindEditedMaterialAsset();
 UObject* FindEditedPcgAsset();
 
 bool IsLikelyPcgAsset(const UObject* Asset)
@@ -909,7 +909,7 @@ void AppendResolvedGraphRefsFromObject(
         }
         if (MaterialOwner == nullptr)
         {
-            MaterialOwner = FindEditedMaterial();
+            MaterialOwner = FindEditedMaterialAsset();
         }
         AppendMaterialGraphRefs(MaterialOwner, TEXT("selected_graph"), OutRefs, SeenKeys);
 
@@ -1477,7 +1477,7 @@ bool BuildBlueprintSelectionSnapshot(TSharedPtr<FJsonObject>& OutSelection)
     return true;
 }
 
-UMaterial* FindEditedMaterial()
+UObject* FindEditedMaterialAsset()
 {
     if (!GEditor)
     {
@@ -1491,30 +1491,29 @@ UMaterial* FindEditedMaterial()
     }
 
     const FString ActiveWindowTitle = GetActiveWindowTitle();
-    UMaterial* FallbackMaterial = nullptr;
+    UObject* FallbackMaterialAsset = nullptr;
 
     const TArray<UObject*> EditedAssets = AssetEditorSubsystem->GetAllEditedAssets();
     for (UObject* Asset : EditedAssets)
     {
-        UMaterial* Material = Cast<UMaterial>(Asset);
-        if (!Material)
+        if (!Asset || (!Asset->IsA<UMaterial>() && !Asset->IsA<UMaterialFunction>()))
         {
             continue;
         }
 
-        if (!FallbackMaterial)
+        if (!FallbackMaterialAsset)
         {
-            FallbackMaterial = Material;
+            FallbackMaterialAsset = Asset;
         }
 
         if (!ActiveWindowTitle.IsEmpty()
-            && ActiveWindowTitle.Contains(Material->GetName(), ESearchCase::IgnoreCase))
+            && ActiveWindowTitle.Contains(Asset->GetName(), ESearchCase::IgnoreCase))
         {
-            return Material;
+            return Asset;
         }
     }
 
-    return ActiveWindowTitle.IsEmpty() ? FallbackMaterial : nullptr;
+    return ActiveWindowTitle.IsEmpty() ? FallbackMaterialAsset : nullptr;
 }
 
 UObject* FindEditedPcgAsset()
@@ -1555,13 +1554,13 @@ UObject* FindEditedPcgAsset()
     return ActiveWindowTitle.IsEmpty() ? FallbackAsset : nullptr;
 }
 
-bool CollectSelectedMaterialExpressions(TArray<UMaterialExpression*>& OutExpressions, UMaterial*& OutMaterial)
+bool CollectSelectedMaterialExpressions(TArray<UMaterialExpression*>& OutExpressions, UObject*& OutMaterialAsset)
 {
     OutExpressions.Reset();
-    OutMaterial = nullptr;
+    OutMaterialAsset = nullptr;
 
-    UMaterial* EditedMaterial = FindEditedMaterial();
-    if (!EditedMaterial)
+    UObject* EditedMaterialAsset = FindEditedMaterialAsset();
+    if (!EditedMaterialAsset)
     {
         return false;
     }
@@ -1591,15 +1590,15 @@ bool CollectSelectedMaterialExpressions(TArray<UMaterialExpression*>& OutExpress
         }
     }
 
-    OutMaterial = EditedMaterial;
-    return OutExpressions.Num() > 0 && OutMaterial != nullptr;
+    OutMaterialAsset = EditedMaterialAsset;
+    return OutExpressions.Num() > 0 && OutMaterialAsset != nullptr;
 }
 
 bool BuildMaterialContextSnapshot(TSharedPtr<FJsonObject>& OutContext)
 {
     OutContext.Reset();
-    UMaterial* Material = FindEditedMaterial();
-    if (!Material)
+    UObject* MaterialAsset = FindEditedMaterialAsset();
+    if (!MaterialAsset)
     {
         return false;
     }
@@ -1608,14 +1607,16 @@ bool BuildMaterialContextSnapshot(TSharedPtr<FJsonObject>& OutContext)
     OutContext->SetBoolField(TEXT("isError"), false);
     OutContext->SetStringField(TEXT("editorType"), TEXT("material"));
     OutContext->SetStringField(TEXT("provider"), TEXT("material"));
-    OutContext->SetStringField(TEXT("assetName"), Material->GetName());
-    OutContext->SetStringField(TEXT("assetPath"), Material->GetPathName());
-    OutContext->SetStringField(TEXT("assetClass"), Material->GetClass()->GetPathName());
+    OutContext->SetStringField(TEXT("assetName"), MaterialAsset->GetName());
+    OutContext->SetStringField(TEXT("assetPath"), MaterialAsset->GetPathName());
+    OutContext->SetStringField(
+        TEXT("assetClass"),
+        MaterialAsset->GetClass() ? MaterialAsset->GetClass()->GetPathName() : TEXT(""));
     OutContext->SetStringField(TEXT("status"), TEXT("active"));
 
     TArray<TSharedPtr<FJsonValue>> ResolvedGraphRefs;
     TSet<FString> SeenGraphRefs;
-    AppendMaterialGraphRefs(Material, TEXT("context"), ResolvedGraphRefs, SeenGraphRefs);
+    AppendMaterialGraphRefs(MaterialAsset, TEXT("context"), ResolvedGraphRefs, SeenGraphRefs);
     SetResolvedGraphRefsFieldIfAny(OutContext, ResolvedGraphRefs);
     return true;
 }
@@ -1624,8 +1625,8 @@ bool BuildMaterialSelectionSnapshot(TSharedPtr<FJsonObject>& OutSelection)
 {
     OutSelection.Reset();
     TArray<UMaterialExpression*> SelectedExpressions;
-    UMaterial* Material = nullptr;
-    if (!CollectSelectedMaterialExpressions(SelectedExpressions, Material))
+    UObject* MaterialAsset = nullptr;
+    if (!CollectSelectedMaterialExpressions(SelectedExpressions, MaterialAsset))
     {
         return false;
     }
@@ -1634,7 +1635,7 @@ bool BuildMaterialSelectionSnapshot(TSharedPtr<FJsonObject>& OutSelection)
     OutSelection->SetBoolField(TEXT("isError"), false);
     OutSelection->SetStringField(TEXT("editorType"), TEXT("material"));
     OutSelection->SetStringField(TEXT("provider"), TEXT("material"));
-    OutSelection->SetStringField(TEXT("assetPath"), Material->GetPathName());
+    OutSelection->SetStringField(TEXT("assetPath"), MaterialAsset->GetPathName());
     OutSelection->SetStringField(TEXT("selectionKind"), TEXT("graph_node"));
 
     TArray<TSharedPtr<FJsonValue>> Items;
@@ -1658,7 +1659,7 @@ bool BuildMaterialSelectionSnapshot(TSharedPtr<FJsonObject>& OutSelection)
 
         TArray<TSharedPtr<FJsonValue>> ItemResolvedGraphRefs;
         TSet<FString> ItemSeenGraphRefs;
-        AppendMaterialGraphRefs(Material, TEXT("selected_graph"), ItemResolvedGraphRefs, ItemSeenGraphRefs);
+        AppendMaterialGraphRefs(MaterialAsset, TEXT("selected_graph"), ItemResolvedGraphRefs, ItemSeenGraphRefs);
         if (UMaterialExpressionMaterialFunctionCall* FuncCall = Cast<UMaterialExpressionMaterialFunctionCall>(Expression))
         {
             AppendMaterialGraphRefs(FuncCall->MaterialFunction, TEXT("child"), ItemResolvedGraphRefs, ItemSeenGraphRefs);
