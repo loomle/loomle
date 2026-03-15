@@ -656,6 +656,104 @@ def main() -> int:
             fail(f"addNode.byClass did not return nodeId for second node: {add_b}")
         print("[PASS] graph.mutate addNode.byClass validated")
 
+        blueprint_revision_before = query_graph_payload(
+            client,
+            105,
+            asset_path=temp_asset,
+            graph_name="EventGraph",
+            limit=200,
+        )
+        blueprint_revision_r0 = blueprint_revision_before.get("revision")
+        blueprint_nodes_before = blueprint_revision_before.get("semanticSnapshot", {}).get("nodes", [])
+        if not isinstance(blueprint_revision_r0, str) or not blueprint_revision_r0:
+            fail(f"Blueprint graph.query missing revision before expectedRevision test: {blueprint_revision_before}")
+        if not isinstance(blueprint_nodes_before, list):
+            fail(f"Blueprint graph.query missing nodes before expectedRevision test: {blueprint_revision_before}")
+
+        blueprint_revision_apply = call_tool(
+            client,
+            106,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "expectedRevision": blueprint_revision_r0,
+                "ops": [
+                    {
+                        "op": "addNode.byClass",
+                        "args": {
+                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
+                            "position": {"x": 640, "y": 0},
+                        },
+                    }
+                ],
+            },
+        )
+        op_ok(blueprint_revision_apply)
+        blueprint_revision_after_apply = query_graph_payload(
+            client,
+            107,
+            asset_path=temp_asset,
+            graph_name="EventGraph",
+            limit=200,
+        )
+        blueprint_revision_r1 = blueprint_revision_after_apply.get("revision")
+        blueprint_nodes_after_apply = blueprint_revision_after_apply.get("semanticSnapshot", {}).get("nodes", [])
+        if not isinstance(blueprint_revision_r1, str) or not blueprint_revision_r1 or blueprint_revision_r1 == blueprint_revision_r0:
+            fail(
+                "Blueprint expectedRevision control mutate did not advance revision: "
+                f"before={blueprint_revision_before} after={blueprint_revision_after_apply}"
+            )
+        if not isinstance(blueprint_nodes_after_apply, list) or len(blueprint_nodes_after_apply) != len(blueprint_nodes_before) + 1:
+            fail(
+                "Blueprint expectedRevision control mutate did not add exactly one node: "
+                f"before={blueprint_revision_before} after={blueprint_revision_after_apply}"
+            )
+
+        stale_blueprint_revision = call_tool(
+            client,
+            108,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "expectedRevision": blueprint_revision_r0,
+                "ops": [
+                    {
+                        "op": "addNode.byClass",
+                        "args": {
+                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
+                            "position": {"x": 960, "y": 0},
+                        },
+                    }
+                ],
+            },
+            expect_error=True,
+        )
+        if stale_blueprint_revision.get("domainCode") != "REVISION_CONFLICT":
+            fail(f"Blueprint stale expectedRevision did not return REVISION_CONFLICT: {stale_blueprint_revision}")
+        blueprint_revision_after_stale = query_graph_payload(
+            client,
+            109,
+            asset_path=temp_asset,
+            graph_name="EventGraph",
+            limit=200,
+        )
+        blueprint_nodes_after_stale = blueprint_revision_after_stale.get("semanticSnapshot", {}).get("nodes", [])
+        if blueprint_revision_after_stale.get("revision") != blueprint_revision_r1:
+            fail(
+                "Blueprint stale expectedRevision should not change revision: "
+                f"expected={blueprint_revision_r1} actual={blueprint_revision_after_stale}"
+            )
+        if not isinstance(blueprint_nodes_after_stale, list) or len(blueprint_nodes_after_stale) != len(blueprint_nodes_after_apply):
+            fail(
+                "Blueprint stale expectedRevision should not change node count: "
+                f"after_apply={blueprint_revision_after_apply} after_stale={blueprint_revision_after_stale}"
+            )
+        print("[PASS] blueprint expectedRevision conflict validated")
+
         page_one = query_graph_payload(client, 110, asset_path=temp_asset, graph_name="EventGraph", limit=1)
         page_one_meta = page_one.get("meta", {})
         page_one_cursor = page_one.get("nextCursor")
@@ -1207,6 +1305,89 @@ def main() -> int:
         material_multiply_id = material_add_results[2].get("nodeId")
         if not all(isinstance(node_id, str) and node_id for node_id in [material_param_id, material_constant_id, material_multiply_id]):
             fail(f"Material fixture add ops missing node ids: {material_add}")
+
+        material_revision_before = call_tool(
+            client,
+            100101,
+            "graph.query",
+            {"assetPath": material_asset_path, "graphName": "MaterialGraph", "graphType": "material", "limit": 200},
+        )
+        material_revision_r0 = material_revision_before.get("revision")
+        material_nodes_before = material_revision_before.get("semanticSnapshot", {}).get("nodes", [])
+        if not isinstance(material_revision_r0, str) or not material_revision_r0:
+            fail(f"Material graph.query missing revision before expectedRevision test: {material_revision_before}")
+        if not isinstance(material_nodes_before, list):
+            fail(f"Material graph.query missing nodes before expectedRevision test: {material_revision_before}")
+
+        material_revision_apply = call_tool(
+            client,
+            100102,
+            "graph.mutate",
+            {
+                "assetPath": material_asset_path,
+                "graphName": "MaterialGraph",
+                "graphType": "material",
+                "expectedRevision": material_revision_r0,
+                "ops": [
+                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}}
+                ],
+            },
+        )
+        op_ok(material_revision_apply)
+        material_revision_after_apply = call_tool(
+            client,
+            100103,
+            "graph.query",
+            {"assetPath": material_asset_path, "graphName": "MaterialGraph", "graphType": "material", "limit": 200},
+        )
+        material_revision_r1 = material_revision_after_apply.get("revision")
+        material_nodes_after_apply = material_revision_after_apply.get("semanticSnapshot", {}).get("nodes", [])
+        if not isinstance(material_revision_r1, str) or not material_revision_r1 or material_revision_r1 == material_revision_r0:
+            fail(
+                "Material expectedRevision control mutate did not advance revision: "
+                f"before={material_revision_before} after={material_revision_after_apply}"
+            )
+        if not isinstance(material_nodes_after_apply, list) or len(material_nodes_after_apply) != len(material_nodes_before) + 1:
+            fail(
+                "Material expectedRevision control mutate did not add exactly one node: "
+                f"before={material_revision_before} after={material_revision_after_apply}"
+            )
+
+        stale_material_revision = call_tool(
+            client,
+            100104,
+            "graph.mutate",
+            {
+                "assetPath": material_asset_path,
+                "graphName": "MaterialGraph",
+                "graphType": "material",
+                "expectedRevision": material_revision_r0,
+                "ops": [
+                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}}
+                ],
+            },
+            expect_error=True,
+        )
+        if stale_material_revision.get("domainCode") != "REVISION_CONFLICT":
+            fail(f"Material stale expectedRevision did not return REVISION_CONFLICT: {stale_material_revision}")
+        material_revision_after_stale = call_tool(
+            client,
+            100105,
+            "graph.query",
+            {"assetPath": material_asset_path, "graphName": "MaterialGraph", "graphType": "material", "limit": 200},
+        )
+        material_nodes_after_stale = material_revision_after_stale.get("semanticSnapshot", {}).get("nodes", [])
+        if material_revision_after_stale.get("revision") != material_revision_r1:
+            fail(
+                "Material stale expectedRevision should not change revision: "
+                f"expected={material_revision_r1} actual={material_revision_after_stale}"
+            )
+        if not isinstance(material_nodes_after_stale, list) or len(material_nodes_after_stale) != len(material_nodes_after_apply):
+            fail(
+                "Material stale expectedRevision should not change node count: "
+                f"after_apply={material_revision_after_apply} after_stale={material_revision_after_stale}"
+            )
+        print("[PASS] material expectedRevision conflict validated")
 
         material_connect = call_tool(
             client,

@@ -4444,6 +4444,116 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
     bool bDryRun = false;
     Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
 
+    auto BuildMutateRevisionQueryArgs = [&]() -> TSharedPtr<FJsonObject>
+    {
+        TSharedPtr<FJsonObject> QueryArgs = MakeShared<FJsonObject>();
+        QueryArgs->SetStringField(TEXT("graphType"), GraphType);
+        if (bUsedGraphRef)
+        {
+            TSharedPtr<FJsonObject> QueryGraphRef = MakeShared<FJsonObject>();
+            QueryGraphRef->SetStringField(TEXT("assetPath"), AssetPath);
+            if (!InlineNodeGuid.IsEmpty())
+            {
+                QueryGraphRef->SetStringField(TEXT("kind"), TEXT("inline"));
+                QueryGraphRef->SetStringField(TEXT("nodeGuid"), InlineNodeGuid);
+            }
+            else
+            {
+                QueryGraphRef->SetStringField(TEXT("kind"), TEXT("asset"));
+                if (!GraphName.IsEmpty())
+                {
+                    QueryGraphRef->SetStringField(TEXT("graphName"), GraphName);
+                }
+            }
+            QueryArgs->SetObjectField(TEXT("graphRef"), QueryGraphRef);
+        }
+        else
+        {
+            QueryArgs->SetStringField(TEXT("assetPath"), AssetPath);
+            if (!GraphName.IsEmpty())
+            {
+                QueryArgs->SetStringField(TEXT("graphName"), GraphName);
+            }
+        }
+        return QueryArgs;
+    };
+
+    auto ResolveActualRevision = [&](FString& OutRevision, FString& OutCode, FString& OutMessage) -> bool
+    {
+        OutRevision.Empty();
+        OutCode.Empty();
+        OutMessage.Empty();
+
+        const TSharedPtr<FJsonObject> RevisionResult = BuildGraphQueryToolResult(BuildMutateRevisionQueryArgs());
+        if (!RevisionResult.IsValid())
+        {
+            OutCode = TEXT("INTERNAL_ERROR");
+            OutMessage = TEXT("Failed to resolve current graph revision.");
+            return false;
+        }
+
+        bool bRevisionQueryError = false;
+        RevisionResult->TryGetBoolField(TEXT("isError"), bRevisionQueryError);
+        if (bRevisionQueryError)
+        {
+            RevisionResult->TryGetStringField(TEXT("code"), OutCode);
+            RevisionResult->TryGetStringField(TEXT("message"), OutMessage);
+            if (OutCode.IsEmpty())
+            {
+                OutCode = TEXT("INTERNAL_ERROR");
+            }
+            if (OutMessage.IsEmpty())
+            {
+                OutMessage = TEXT("Failed to resolve current graph revision.");
+            }
+            return false;
+        }
+
+        if (!RevisionResult->TryGetStringField(TEXT("revision"), OutRevision) || OutRevision.IsEmpty())
+        {
+            OutCode = TEXT("INTERNAL_ERROR");
+            OutMessage = TEXT("graph.query did not return a revision for graph.mutate.");
+            return false;
+        }
+
+        return true;
+    };
+
+    FString PreviousRevision;
+    FString RevisionCode;
+    FString RevisionMessage;
+    if (!ResolveActualRevision(PreviousRevision, RevisionCode, RevisionMessage))
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), RevisionCode);
+        Result->SetStringField(TEXT("message"), RevisionMessage);
+        return Result;
+    }
+
+    FString ExpectedRevision;
+    if (Arguments->TryGetStringField(TEXT("expectedRevision"), ExpectedRevision)
+        && !ExpectedRevision.IsEmpty()
+        && !ExpectedRevision.Equals(PreviousRevision, ESearchCase::CaseSensitive))
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("REVISION_CONFLICT"));
+        Result->SetStringField(
+            TEXT("message"),
+            FString::Printf(
+                TEXT("expectedRevision mismatch: expected %s but current revision is %s."),
+                *ExpectedRevision,
+                *PreviousRevision));
+        Result->SetBoolField(TEXT("applied"), false);
+        Result->SetStringField(TEXT("graphType"), GraphType);
+        Result->SetStringField(TEXT("assetPath"), AssetPath);
+        Result->SetStringField(TEXT("graphName"), GraphName);
+        Result->SetStringField(TEXT("previousRevision"), PreviousRevision);
+        Result->SetStringField(TEXT("newRevision"), PreviousRevision);
+        Result->SetArrayField(TEXT("opResults"), TArray<TSharedPtr<FJsonValue>>{});
+        Result->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
+        return Result;
+    }
+
     bool bStopOnError = true;
     bool bContinueOnError = false;
     Arguments->TryGetBoolField(TEXT("continueOnError"), bContinueOnError);
@@ -5977,8 +6087,27 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             }
             Result->SetObjectField(TEXT("graphRef"), ResponseGraphRef);
         }
-        Result->SetStringField(TEXT("previousRevision"), FString::Printf(TEXT("%s:%08x"), GraphType.Equals(TEXT("material")) ? TEXT("mat") : TEXT("pcg"), GetTypeHash(AssetPath + TEXT("|prev"))));
-        Result->SetStringField(TEXT("newRevision"), FString::Printf(TEXT("%s:%08x"), GraphType.Equals(TEXT("material")) ? TEXT("mat") : TEXT("pcg"), GetTypeHash(AssetPath + TEXT("|new") + FString::FromInt(LocalOpResults.Num()))));
+        FString NewRevision = PreviousRevision;
+        if (!bDryRun && !bAnyErrorLocal)
+        {
+            FString PostRevisionCode;
+            FString PostRevisionMessage;
+            if (ResolveActualRevision(NewRevision, PostRevisionCode, PostRevisionMessage))
+            {
+                Result->SetStringField(TEXT("previousRevision"), PreviousRevision);
+                Result->SetStringField(TEXT("newRevision"), NewRevision);
+            }
+            else
+            {
+                Result->SetStringField(TEXT("previousRevision"), PreviousRevision);
+                Result->SetStringField(TEXT("newRevision"), PreviousRevision);
+            }
+        }
+        else
+        {
+            Result->SetStringField(TEXT("previousRevision"), PreviousRevision);
+            Result->SetStringField(TEXT("newRevision"), PreviousRevision);
+        }
         Result->SetArrayField(TEXT("opResults"), LocalOpResults);
         Result->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
         return Result;
@@ -7234,8 +7363,27 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         }
         Result->SetObjectField(TEXT("graphRef"), ResponseGraphRef);
     }
-    Result->SetStringField(TEXT("previousRevision"), FString::Printf(TEXT("bp:%08x"), GetTypeHash(AssetPath + TEXT("|prev"))));
-    Result->SetStringField(TEXT("newRevision"), FString::Printf(TEXT("bp:%08x"), GetTypeHash(AssetPath + TEXT("|new") + FString::FromInt(OpResults.Num()))));
+    FString NewRevision = PreviousRevision;
+    if (!bDryRun && !bAnyError)
+    {
+        FString PostRevisionCode;
+        FString PostRevisionMessage;
+        if (ResolveActualRevision(NewRevision, PostRevisionCode, PostRevisionMessage))
+        {
+            Result->SetStringField(TEXT("previousRevision"), PreviousRevision);
+            Result->SetStringField(TEXT("newRevision"), NewRevision);
+        }
+        else
+        {
+            Result->SetStringField(TEXT("previousRevision"), PreviousRevision);
+            Result->SetStringField(TEXT("newRevision"), PreviousRevision);
+        }
+    }
+    else
+    {
+        Result->SetStringField(TEXT("previousRevision"), PreviousRevision);
+        Result->SetStringField(TEXT("newRevision"), PreviousRevision);
+    }
     Result->SetArrayField(TEXT("opResults"), OpResults);
     Result->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
     return Result;
