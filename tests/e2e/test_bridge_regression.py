@@ -1303,6 +1303,49 @@ def main() -> int:
             for edge in material_edges
         ):
             fail(f"Material graph.query did not return multiply->root edge: {material_edges}")
+        material_before_relayout = dict(material_multiply_pos)
+        material_relayout_payload = call_tool(
+            client,
+            10016,
+            "graph.mutate",
+            {
+                "assetPath": material_asset_path,
+                "graphName": "MaterialGraph",
+                "graphType": "material",
+                "ops": [
+                    {
+                        "op": "moveNodeBy",
+                        "args": {
+                            "target": {"nodeId": material_multiply_id},
+                            "dx": 900,
+                            "dy": 600,
+                        },
+                    },
+                    {"op": "layoutGraph", "args": {"scope": "all"}},
+                ],
+            },
+        )
+        material_relayout_results = material_relayout_payload.get("opResults")
+        if not isinstance(material_relayout_results, list) or len(material_relayout_results) != 2:
+            fail(f"Material relayout ops missing results: {material_relayout_payload}")
+        material_relayout = material_relayout_results[1] if isinstance(material_relayout_results[1], dict) else {}
+        if material_relayout.get("op") != "layoutgraph":
+            fail(f"Material relayout wrong op echo: {material_relayout}")
+        if material_relayout.get("changed") is not True:
+            fail(f"Material layoutGraph should report changed=true after moveNodeBy: {material_relayout}")
+        material_relayout_moved = material_relayout.get("movedNodeIds")
+        if not isinstance(material_relayout_moved, list) or not material_relayout_moved:
+            fail(f"Material layoutGraph missing movedNodeIds after relayout: {material_relayout}")
+        material_after_relayout_snapshot = query_snapshot(client, 10017, material_asset_path, "material", "MaterialGraph")
+        material_after_relayout_nodes = material_after_relayout_snapshot.get("nodes")
+        if not isinstance(material_after_relayout_nodes, list):
+            fail(f"Material graph.query after relayout missing nodes: {material_after_relayout_snapshot}")
+        material_after_relayout_pos = require_layout(require_node(material_after_relayout_nodes, material_multiply_id)).get("position", {})
+        if material_after_relayout_pos == material_before_relayout:
+            fail(
+                "Material layoutGraph(scope=all) did not change tracked node position after moveNodeBy: "
+                f"before={material_before_relayout} after={material_after_relayout_pos}"
+            )
         print("[PASS] material root-aware layout validated")
 
         pcg_layout_add = call_tool(
@@ -1463,6 +1506,49 @@ def main() -> int:
             fail(f"PCG secondary pipeline did not layout left-to-right: {sampler_pos}, {tag_c_pos}")
         if abs(sampler_pos.get("y", 0) - create_pos.get("y", 0)) < 32:
             fail(f"PCG parallel rows were not separated vertically enough: {create_pos}, {sampler_pos}")
+        pcg_before_relayout = dict(create_pos)
+        pcg_relayout_payload = call_tool(
+            client,
+            10110,
+            "graph.mutate",
+            {
+                "assetPath": temp_pcg_asset,
+                "graphName": "PCGGraph",
+                "graphType": "pcg",
+                "ops": [
+                    {
+                        "op": "moveNodeBy",
+                        "args": {
+                            "target": {"nodeId": pcg_create_id},
+                            "dx": 900,
+                            "dy": 600,
+                        },
+                    },
+                    {"op": "layoutGraph", "args": {"scope": "all"}},
+                ],
+            },
+        )
+        pcg_relayout_results = pcg_relayout_payload.get("opResults")
+        if not isinstance(pcg_relayout_results, list) or len(pcg_relayout_results) != 2:
+            fail(f"PCG relayout ops missing results: {pcg_relayout_payload}")
+        pcg_relayout = pcg_relayout_results[1] if isinstance(pcg_relayout_results[1], dict) else {}
+        if pcg_relayout.get("op") != "layoutgraph":
+            fail(f"PCG relayout wrong op echo: {pcg_relayout}")
+        if pcg_relayout.get("changed") is not True:
+            fail(f"PCG layoutGraph should report changed=true after moveNodeBy: {pcg_relayout}")
+        pcg_relayout_moved = pcg_relayout.get("movedNodeIds")
+        if not isinstance(pcg_relayout_moved, list) or not pcg_relayout_moved:
+            fail(f"PCG layoutGraph missing movedNodeIds after relayout: {pcg_relayout}")
+        pcg_after_relayout_snapshot = query_snapshot(client, 10111, temp_pcg_asset, "pcg", "PCGGraph")
+        pcg_after_relayout_nodes = pcg_after_relayout_snapshot.get("nodes")
+        if not isinstance(pcg_after_relayout_nodes, list):
+            fail(f"PCG graph.query after relayout missing nodes: {pcg_after_relayout_snapshot}")
+        pcg_after_relayout_pos = require_layout(require_node(pcg_after_relayout_nodes, pcg_create_id)).get("position", {})
+        if pcg_after_relayout_pos == pcg_before_relayout:
+            fail(
+                "PCG layoutGraph(scope=all) did not change tracked node position after moveNodeBy: "
+                f"before={pcg_before_relayout} after={pcg_after_relayout_pos}"
+            )
         if not any(
             isinstance(edge, dict)
             and edge.get("fromNodeId") == pcg_filter_id

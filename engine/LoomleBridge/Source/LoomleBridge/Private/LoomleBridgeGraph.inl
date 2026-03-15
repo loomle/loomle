@@ -5447,6 +5447,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                         bOk = ApplyMaterialLayout(AssetPath, GraphName, LayoutScope, LayoutNodeIds, MovedNodeIds, Error);
                         if (bOk)
                         {
+                            bChanged = MovedNodeIds.Num() > 0;
                             NodesTouchedForLayout.Append(MovedNodeIds);
                             GraphEventName = TEXT("graph.layout_applied");
                             TArray<TSharedPtr<FJsonValue>> MovedNodeValues;
@@ -5822,6 +5823,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                         bOk = ApplyPcgLayout(AssetPath, GraphName, LayoutScope, LayoutNodeIds, MovedNodeIds, Error);
                         if (bOk)
                         {
+                            bChanged = MovedNodeIds.Num() > 0;
                             NodesTouchedForLayout.Append(MovedNodeIds);
                             GraphEventName = TEXT("graph.layout_applied");
                             TArray<TSharedPtr<FJsonValue>> MovedNodeValues;
@@ -5914,6 +5916,18 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             OpResult->SetStringField(TEXT("error"), bOk ? TEXT("") : Error);
             OpResult->SetStringField(TEXT("errorCode"), OpErrorCode);
             OpResult->SetStringField(TEXT("errorMessage"), bOk ? TEXT("") : Error);
+            if (Op.Equals(TEXT("layoutgraph")))
+            {
+                TArray<TSharedPtr<FJsonValue>> MovedNodeValues;
+                for (const FString& MovedNodeId : NodesTouchedForLayout)
+                {
+                    if (!MovedNodeId.IsEmpty())
+                    {
+                        MovedNodeValues.Add(MakeShared<FJsonValueString>(MovedNodeId));
+                    }
+                }
+                OpResult->SetArrayField(TEXT("movedNodeIds"), MovedNodeValues);
+            }
             LocalOpResults.Add(MakeShared<FJsonValueObject>(OpResult));
 
             if (!bOk)
