@@ -55,6 +55,7 @@ def main() -> int:
     repo_root = Path(args.repo_root).resolve()
     output_dir = Path(args.output_dir).resolve()
     bundle_dir = output_dir / "bundle"
+    bootstrap_dir = output_dir / "bootstrap"
     manifest_path = output_dir / "manifest.json"
 
     server_dir = repo_root / "mcp" / "server"
@@ -75,6 +76,10 @@ def main() -> int:
         fail(f"server binary not found: {server_binary}")
     if not client_binary.is_file():
         fail(f"client binary not found: {client_binary}")
+
+    bootstrap_target = bootstrap_dir / args.platform / client_name
+    bootstrap_target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(client_binary, bootstrap_target)
 
     run(
         [
@@ -131,6 +136,7 @@ def main() -> int:
         "repoRoot": str(repo_root),
         "outputDir": str(output_dir),
         "bundleDir": str(bundle_dir),
+        "bootstrapCli": str(bootstrap_target),
         "archive": str(archive_path),
         "manifest": str(manifest_path),
         "platform": args.platform,

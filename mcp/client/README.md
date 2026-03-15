@@ -3,6 +3,7 @@
 This directory is the canonical home for the project-local Rust client.
 
 Target role:
+- provide the machine-level `loomle install` entrypoint used after bootstrap
 - provide the single supported LOOMLE client entrypoint
 - discover the current Unreal project root
 - locate the MCP server installed under `Plugins/LoomleBridge/Tools/mcp/...`
@@ -20,6 +21,7 @@ cargo build
 
 ```bash
 cd mcp/client
+cargo run -- install --project-root "/Path/To/Project" --manifest-path "/Path/To/manifest.json"
 cargo run -- doctor --project-root "/Path/To/Project"
 cargo run -- server-path --project-root "/Path/To/Project"
 cargo run -- run-server --project-root "/Path/To/Project"

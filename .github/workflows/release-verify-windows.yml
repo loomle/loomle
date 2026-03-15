@@ -1,7 +1,8 @@
-name: Verify LOOMLE Bridge (Windows)
+name: Verify LOOMLE (Windows)
 
 on:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -171,14 +172,18 @@ jobs:
       - name: Run Rust Unit Tests
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
-          Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp_server")
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp\server")
+          cargo test
+          Pop-Location
+
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp\client")
           cargo test
           Pop-Location
 
       - name: Build Plugin From Current Commit And Sync To Test Project
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
-          $plugin = Join-Path $env:GITHUB_WORKSPACE "LoomleBridge.uplugin"
+          $plugin = Join-Path $env:GITHUB_WORKSPACE "engine\LoomleBridge\LoomleBridge.uplugin"
           if (-not (Test-Path -LiteralPath $plugin)) {
             throw "Plugin descriptor not found: $plugin"
           }
@@ -203,11 +208,15 @@ jobs:
       - name: Build MCP Server Binary (Release) And Sync To Test Project Plugin
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
-          Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp_server")
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp\server")
           cargo build --release
           Pop-Location
 
-          $serverSrc = Join-Path $env:GITHUB_WORKSPACE "mcp_server\target\release\loomle_mcp_server.exe"
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp\client")
+          cargo build --release
+          Pop-Location
+
+          $serverSrc = Join-Path $env:GITHUB_WORKSPACE "mcp\server\target\release\loomle_mcp_server.exe"
           if (-not (Test-Path -LiteralPath $serverSrc)) {
             throw "MCP server binary missing: $serverSrc"
           }
@@ -232,7 +241,7 @@ jobs:
         run: |
           $deadline = (Get-Date).AddMinutes(4)
           while ((Get-Date) -lt $deadline) {
-            python tools/test_bridge_smoke.py --project-root "${{ steps.test_project.outputs.test_root }}"
+            python tests/e2e/test_bridge_smoke.py --project-root "${{ steps.test_project.outputs.test_root }}"
             if ($LASTEXITCODE -eq 0) {
               exit 0
             }
@@ -252,7 +261,7 @@ jobs:
 
           for ($attempt = 1; $attempt -le 2; $attempt++) {
             Push-Location $env:GITHUB_WORKSPACE
-            python tools/test_bridge_regression.py --project-root $projectRoot
+            python tests/e2e/test_bridge_regression.py --project-root $projectRoot
             $exitCode = $LASTEXITCODE
             Pop-Location
 

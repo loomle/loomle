@@ -1,7 +1,8 @@
-name: Verify Loomle Bridge (Mac)
+name: Verify LOOMLE (Mac)
 
 on:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -82,14 +83,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd "$GITHUB_WORKSPACE/mcp_server"
+          cd "$GITHUB_WORKSPACE/mcp/server"
+          cargo test
+          cd "$GITHUB_WORKSPACE/mcp/client"
           cargo test
 
       - name: Build Plugin From Current Commit And Sync To Test Project
         shell: bash
         run: |
           set -euo pipefail
-          plugin="$GITHUB_WORKSPACE/LoomleBridge.uplugin"
+          plugin="$GITHUB_WORKSPACE/engine/LoomleBridge/LoomleBridge.uplugin"
           [[ -f "$plugin" ]] || { echo "Plugin descriptor not found: $plugin" >&2; exit 1; }
 
           package_dir="$RUNNER_TEMP/LoomleBridge_Gating"
@@ -109,10 +112,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd "$GITHUB_WORKSPACE/mcp_server"
+          cd "$GITHUB_WORKSPACE/mcp/server"
+          cargo build --release
+          cd "$GITHUB_WORKSPACE/mcp/client"
           cargo build --release
 
-          server_src="$GITHUB_WORKSPACE/mcp_server/target/release/loomle_mcp_server"
+          server_src="$GITHUB_WORKSPACE/mcp/server/target/release/loomle_mcp_server"
           [[ -x "$server_src" ]] || { echo "MCP server binary missing or not executable: $server_src" >&2; exit 1; }
 
           plugin_server="${{ steps.test_project.outputs.test_root }}/Plugins/LoomleBridge/Tools/mcp/darwin/loomle_mcp_server"
@@ -161,7 +166,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
-          python3 tools/test_bridge_smoke.py \
+          python3 tests/e2e/test_bridge_smoke.py \
             --project-root "${{ steps.test_project.outputs.test_root }}"
 
       - name: Run Regression Integration Test
@@ -169,7 +174,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
-          python3 tools/test_bridge_regression.py \
+          python3 tests/e2e/test_bridge_regression.py \
             --project-root "${{ steps.test_project.outputs.test_root }}"
 
       - name: Run Non-Blocking Latency Benchmark
@@ -178,10 +183,8 @@ jobs:
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
-          python3 tools/perf_bridge_latency.py \
-            --project-root "${{ steps.test_project.outputs.test_root }}" \
-            --tool loomle --total 200 --concurrency 1 --warmup 20 \
-            --output runtime/benchmarks/release-verify-latency.csv
+          python3 tests/integration/test_loomle_latency.py \
+            --project-root "${{ steps.test_project.outputs.test_root }}"
 
       - name: Upload Benchmark Artifact
         if: always()

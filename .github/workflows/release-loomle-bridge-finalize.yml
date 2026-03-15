@@ -1,10 +1,10 @@
-name: Finalize LOOMLE Release Manifest
+name: Finalize LOOMLE Release
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to finalize (for example v0.2.12)"
+        description: "Tag to finalize (for example v0.2.15)"
         required: true
         type: string
   push:
@@ -62,10 +62,6 @@ jobs:
               ;;
           esac
 
-          [[ -n "$tag_commit" && "$tag_commit" != "null" ]] || {
-            echo "Failed to resolve commit for tag $tag" >&2
-            exit 1
-          }
           echo "tag_commit=$tag_commit" >> "$GITHUB_OUTPUT"
 
       - name: Wait For Platform Assets
@@ -77,10 +73,12 @@ jobs:
           tag="${{ steps.tag.outputs.tag }}"
           tag_commit="${{ steps.tag_commit.outputs.tag_commit }}"
           required=(
-            "loomle-bridge-darwin.zip"
-            "loomle-bridge-windows.zip"
-            "loomle-bridge-manifest-darwin.json"
-            "loomle-bridge-manifest-windows.json"
+            "loomle-darwin.zip"
+            "loomle-windows.zip"
+            "loomle-manifest-darwin.json"
+            "loomle-manifest-windows.json"
+            "loomle-darwin"
+            "loomle.exe"
           )
 
           resolve_workflow_state() {
@@ -97,7 +95,6 @@ jobs:
                 | reverse
                 | .[0] // {}
                 | {
-                    id: (.databaseId // 0),
                     status: (.status // "missing"),
                     conclusion: (.conclusion // ""),
                     url: (.url // "")
@@ -106,8 +103,8 @@ jobs:
           }
 
           for _ in $(seq 1 90); do
-            mac_state="$(resolve_workflow_state 'Release LOOMLE Plugin (Mac)')"
-            win_state="$(resolve_workflow_state 'Release LOOMLE Plugin (Windows)')"
+            mac_state="$(resolve_workflow_state 'Release LOOMLE (Mac)')"
+            win_state="$(resolve_workflow_state 'Release LOOMLE (Windows)')"
 
             mac_status="$(jq -r '.status' <<<"$mac_state")"
             mac_conclusion="$(jq -r '.conclusion' <<<"$mac_state")"
@@ -164,10 +161,12 @@ jobs:
           mkdir -p release-finalize
           gh release download "$tag" \
             --repo "$GITHUB_REPOSITORY" \
-            --pattern "loomle-bridge-darwin.zip" \
-            --pattern "loomle-bridge-windows.zip" \
-            --pattern "loomle-bridge-manifest-darwin.json" \
-            --pattern "loomle-bridge-manifest-windows.json" \
+            --pattern "loomle-darwin.zip" \
+            --pattern "loomle-windows.zip" \
+            --pattern "loomle-manifest-darwin.json" \
+            --pattern "loomle-manifest-windows.json" \
+            --pattern "loomle-darwin" \
+            --pattern "loomle.exe" \
             --dir release-finalize
 
       - name: Merge Manifests
@@ -178,19 +177,18 @@ jobs:
           import json
           from pathlib import Path
 
+          version = "${{ steps.tag.outputs.version }}"
           out = {
-              "latest": "${{ steps.tag.outputs.version }}",
-              "versions": {"${{ steps.tag.outputs.version }}": {"packages": {}}},
+              "latest": version,
+              "versions": {version: {"packages": {}}},
           }
 
-          for name in ("loomle-bridge-manifest-darwin.json", "loomle-bridge-manifest-windows.json"):
+          for name in ("loomle-manifest-darwin.json", "loomle-manifest-windows.json"):
               data = json.loads(Path("release-finalize", name).read_text(encoding="utf-8"))
-              versions = data.get("versions", {})
-              entry = versions.get("${{ steps.tag.outputs.version }}", {})
-              packages = entry.get("packages", {})
-              out["versions"]["${{ steps.tag.outputs.version }}"]["packages"].update(packages)
+              packages = data["versions"][version]["packages"]
+              out["versions"][version]["packages"].update(packages)
 
-          Path("release-finalize/loomle-bridge-manifest.json").write_text(
+          Path("release-finalize/loomle-manifest.json").write_text(
               json.dumps(out, indent=2) + "\n",
               encoding="utf-8",
           )
@@ -203,32 +201,40 @@ jobs:
         run: |
           set -euo pipefail
           tag="${{ steps.tag.outputs.tag }}"
-          gh release upload "$tag" release-finalize/loomle-bridge-manifest.json \
+          gh release upload "$tag" release-finalize/loomle-manifest.json \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
 
-      - name: Update Stable Alias Release (bridge-latest)
+      - name: Update Stable Alias Release (loomle-latest)
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          if ! gh release view bridge-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create bridge-latest \
+          if ! gh release view loomle-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create loomle-latest \
               --repo "$GITHUB_REPOSITORY" \
-              --title "Bridge Latest" \
-              --notes "Stable alias release for latest LOOMLE bridge package and manifest." \
-              release-finalize/loomle-bridge-darwin.zip \
-              release-finalize/loomle-bridge-windows.zip \
-              release-finalize/loomle-bridge-manifest.json
+              --title "LOOMLE Latest" \
+              --notes "Stable alias release for the latest LOOMLE bootstrap binaries, release archives, and manifest." \
+              release-finalize/loomle-darwin.zip \
+              release-finalize/loomle-windows.zip \
+              release-finalize/loomle-manifest.json \
+              release-finalize/loomle-darwin \
+              release-finalize/loomle.exe
           else
-            gh release upload bridge-latest release-finalize/loomle-bridge-darwin.zip \
+            gh release upload loomle-latest release-finalize/loomle-darwin.zip \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
-            gh release upload bridge-latest release-finalize/loomle-bridge-windows.zip \
+            gh release upload loomle-latest release-finalize/loomle-windows.zip \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
-            gh release upload bridge-latest release-finalize/loomle-bridge-manifest.json \
+            gh release upload loomle-latest release-finalize/loomle-manifest.json \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            gh release upload loomle-latest release-finalize/loomle-darwin \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            gh release upload loomle-latest release-finalize/loomle.exe \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
           fi

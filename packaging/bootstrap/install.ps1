@@ -1,11 +1,12 @@
 $ErrorActionPreference = "Stop"
 
-$BaseUrl = if ($env:LOOMLE_BOOTSTRAP_BASE_URL) { $env:LOOMLE_BOOTSTRAP_BASE_URL } else { "https://loomle.ai" }
+$ReleaseRepo = if ($env:LOOMLE_RELEASE_REPO) { $env:LOOMLE_RELEASE_REPO } else { "loomle/loomle" }
 $Version = if ($env:LOOMLE_BOOTSTRAP_VERSION) { $env:LOOMLE_BOOTSTRAP_VERSION } else { "latest" }
 $InstallDir = if ($env:LOOMLE_INSTALL_DIR) { $env:LOOMLE_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "Programs\\Loomle\\bin" }
+$ReleaseTag = if ($Version -eq "latest") { "loomle-latest" } elseif ($Version.StartsWith("v")) { $Version } else { "v$Version" }
 $CliName = "loomle.exe"
 $Platform = "windows"
-$DownloadUrl = "$BaseUrl/downloads/bootstrap/$Version/$Platform/$CliName"
+$DownloadUrl = "https://github.com/$ReleaseRepo/releases/download/$ReleaseTag/$CliName"
 $TargetPath = Join-Path $InstallDir $CliName
 $TempPath = Join-Path ([System.IO.Path]::GetTempPath()) ("loomle-bootstrap-" + [System.Guid]::NewGuid().ToString("N") + ".exe")
 

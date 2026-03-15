@@ -1,4 +1,4 @@
-name: Release LOOMLE Plugin (Mac)
+name: Release LOOMLE (Mac)
 
 on:
   workflow_dispatch:
@@ -14,7 +14,12 @@ permissions:
   contents: write
 
 jobs:
-  release-plugin-mac:
+  verify-mac:
+    uses: ./.github/workflows/release-verify-mac.yml
+    secrets: inherit
+
+  release-mac:
+    needs: verify-mac
     runs-on: [self-hosted, macOS]
 
     steps:
@@ -59,93 +64,34 @@ jobs:
           {
             echo "ue_root=$candidate"
             echo "run_uat=$run_uat"
-            echo "ue_app=$candidate/Engine/Binaries/Mac/UnrealEditor.app"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Resolve Test Project Root
-        id: test_project
-        shell: bash
-        env:
-          TEST_ROOT_FROM_VARS: ${{ vars.LOOMLE_TEST_PROJECT_ROOT_MAC }}
-        run: |
-          set -euo pipefail
-          test_root=""
-          if [[ -n "${TEST_ROOT_FROM_VARS:-}" ]]; then
-            test_root="$TEST_ROOT_FROM_VARS"
-          elif [[ -n "${LOOMLE_TEST_PROJECT_ROOT_MAC:-}" ]]; then
-            test_root="$LOOMLE_TEST_PROJECT_ROOT_MAC"
-          else
-            runner_work_root="$(cd "$GITHUB_WORKSPACE/../.." && pwd)"
-            test_root="$runner_work_root/lrh/LoomleRunnerHost"
-          fi
-
-          "$GITHUB_WORKSPACE/tools/runner_init_host_project.sh" "$test_root"
-
-          [[ -d "$test_root" ]] || { echo "Test project root not found: $test_root" >&2; exit 1; }
-          uproject="$(find "$test_root" -maxdepth 1 -type f -name '*.uproject' | head -n 1)"
-          [[ -n "$uproject" ]] || { echo "No .uproject found under $test_root" >&2; exit 1; }
-          socket="$test_root/Intermediate/loomle.sock"
-
-          {
-            echo "test_root=$test_root"
-            echo "uproject=$uproject"
-            echo "socket=$socket"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Build Plugin From Current Commit And Sync To Test Project
+      - name: Build Rust Binaries
         shell: bash
         run: |
           set -euo pipefail
-          plugin="$GITHUB_WORKSPACE/LoomleBridge.uplugin"
-          [[ -f "$plugin" ]] || { echo "Plugin descriptor not found: $plugin" >&2; exit 1; }
+          cargo build --release --manifest-path "$GITHUB_WORKSPACE/mcp/server/Cargo.toml"
+          cargo build --release --manifest-path "$GITHUB_WORKSPACE/mcp/client/Cargo.toml"
 
-          package_dir="$RUNNER_TEMP/LoomleBridge_Gating"
-          plugin_dst="${{ steps.test_project.outputs.test_root }}/Plugins/LoomleBridge"
-          rm -rf "$package_dir"
-
-          "${{ steps.ue_root_mac.outputs.run_uat }}" BuildPlugin \
-            -Plugin="$plugin" \
-            -Package="$package_dir" \
-            -TargetPlatforms=Mac \
-            -Rocket
-
-          mkdir -p "$plugin_dst"
-          rsync -a --delete "$package_dir"/ "$plugin_dst"/
-
-      - name: Build MCP Server Binary (Release) And Sync To Test Project Plugin
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$GITHUB_WORKSPACE/mcp_server"
-          cargo build --release
-
-          server_src="$GITHUB_WORKSPACE/mcp_server/target/release/loomle_mcp_server"
-          [[ -x "$server_src" ]] || { echo "MCP server binary missing or not executable: $server_src" >&2; exit 1; }
-
-          plugin_server="${{ steps.test_project.outputs.test_root }}/Plugins/LoomleBridge/Tools/mcp/darwin/loomle_mcp_server"
-          mkdir -p "$(dirname "$plugin_server")"
-          cp "$server_src" "$plugin_server"
-          chmod +x "$plugin_server"
-
-      - name: Build and Package Plugin (Mac)
+      - name: Package LOOMLE Release (Mac)
         id: package
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
-          plugin="$GITHUB_WORKSPACE/LoomleBridge.uplugin"
+          plugin="$GITHUB_WORKSPACE/engine/LoomleBridge/LoomleBridge.uplugin"
           [[ -f "$plugin" ]] || { echo "Plugin descriptor not found: $plugin" >&2; exit 1; }
 
+          version="${GITHUB_REF_NAME#v}"
           package_dir="$RUNNER_TEMP/LoomleBridge_Mac"
-          stage_dir="$RUNNER_TEMP/release-stage"
-          release_dir="$RUNNER_TEMP/release-assets"
-          zip_path="$release_dir/loomle-bridge-darwin.zip"
-          manifest_path="$release_dir/loomle-bridge-manifest-darwin.json"
+          bundle_dir="$RUNNER_TEMP/loomle-release-bundle-darwin"
+          release_dir="$RUNNER_TEMP/loomle-release-assets-darwin"
+          archive_path="$release_dir/loomle-darwin.zip"
+          manifest_path="$release_dir/loomle-manifest-darwin.json"
+          bootstrap_cli_path="$release_dir/loomle-darwin"
 
-          rm -rf "$package_dir" "$stage_dir" "$release_dir"
-          mkdir -p "$stage_dir" "$release_dir"
+          rm -rf "$package_dir" "$bundle_dir" "$release_dir"
+          mkdir -p "$bundle_dir/plugin/LoomleBridge" "$bundle_dir/workspace" "$release_dir"
 
           "${{ steps.ue_root_mac.outputs.run_uat }}" BuildPlugin \
             -Plugin="$plugin" \
@@ -153,66 +99,64 @@ jobs:
             -TargetPlatforms=Mac \
             -Rocket
 
-          server_src="$GITHUB_WORKSPACE/mcp_server/target/release/loomle_mcp_server"
-          [[ -x "$server_src" ]] || { echo "MCP server binary missing or not executable: $server_src" >&2; exit 1; }
-          server_relpath="Tools/mcp/darwin/loomle_mcp_server"
-          server_dst="$package_dir/$server_relpath"
-          mkdir -p "$(dirname "$server_dst")"
+          rsync -a "$package_dir"/ "$bundle_dir/plugin/LoomleBridge"/
+
+          server_src="$GITHUB_WORKSPACE/mcp/server/target/release/loomle_mcp_server"
+          client_src="$GITHUB_WORKSPACE/mcp/client/target/release/loomle"
+          [[ -x "$server_src" ]] || { echo "Server binary missing: $server_src" >&2; exit 1; }
+          [[ -x "$client_src" ]] || { echo "Client binary missing: $client_src" >&2; exit 1; }
+
+          server_relpath="plugin/LoomleBridge/Tools/mcp/darwin/loomle_mcp_server"
+          client_relpath="workspace/Loomle/client/loomle"
+          server_dst="$bundle_dir/$server_relpath"
+          client_dst="$bundle_dir/$client_relpath"
+
+          mkdir -p "$(dirname "$server_dst")" "$(dirname "$client_dst")" "$bundle_dir/mcp/client/darwin"
           cp "$server_src" "$server_dst"
           chmod +x "$server_dst"
-          server_sha256="$(shasum -a 256 "$server_dst" | awk '{print tolower($1)}')"
+          rsync -a "$GITHUB_WORKSPACE/workspace/Loomle/" "$bundle_dir/workspace/Loomle/"
+          cp "$client_src" "$client_dst"
+          cp "$client_src" "$bundle_dir/mcp/client/darwin/loomle"
+          chmod +x "$client_dst" "$bundle_dir/mcp/client/darwin/loomle"
 
-          cat > "$package_dir/build-metadata.json" <<JSON
-          {
-            "platform": "darwin",
-            "built_at_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "ue_root": "${{ steps.ue_root_mac.outputs.ue_root }}",
-            "commit": "${{ github.sha }}",
-            "runner": "${{ runner.name }}"
-          }
-          JSON
-
-          mkdir -p "$stage_dir/LoomleBridge"
-          cp -R "$package_dir"/. "$stage_dir/LoomleBridge"/
+          cp "$client_src" "$bootstrap_cli_path"
+          chmod +x "$bootstrap_cli_path"
 
           (
-            cd "$stage_dir"
-            zip -r "$zip_path" LoomleBridge
+            cd "$bundle_dir"
+            zip -r "$archive_path" .
           )
 
-          sha256="$(shasum -a 256 "$zip_path" | awk '{print tolower($1)}')"
-          tag="${GITHUB_REF_NAME#v}"
-          asset_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/loomle-bridge-darwin.zip"
-          python3 "$GITHUB_WORKSPACE/tools/build_release_manifest.py" \
+          package_sha="$(shasum -a 256 "$archive_path" | awk '{print tolower($1)}')"
+          server_sha="$(shasum -a 256 "$server_dst" | awk '{print tolower($1)}')"
+          client_sha="$(shasum -a 256 "$client_dst" | awk '{print tolower($1)}')"
+          asset_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/loomle-darwin.zip"
+
+          python3 "$GITHUB_WORKSPACE/packaging/bundle/build_release_manifest.py" \
             --manifest-path "$manifest_path" \
-            --version "$tag" \
+            --version "$version" \
             --platform darwin \
             --asset-url "$asset_url" \
-            --sha256 "$sha256" \
+            --sha256 "$package_sha" \
             --server-binary-relpath "$server_relpath" \
-            --server-sha256 "$server_sha256"
+            --server-sha256 "$server_sha" \
+            --client-binary-relpath "$client_relpath" \
+            --client-sha256 "$client_sha"
 
           {
-            echo "zip_path=$zip_path"
+            echo "archive_path=$archive_path"
             echo "manifest_path=$manifest_path"
+            echo "bootstrap_cli_path=$bootstrap_cli_path"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Publish GitHub Release Zip (Plugin)
+      - name: Publish Tag Release Assets
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.package.outputs.zip_path }}
+          files: |
+            ${{ steps.package.outputs.archive_path }}
+            ${{ steps.package.outputs.manifest_path }}
+            ${{ steps.package.outputs.bootstrap_cli_path }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           draft: false
           prerelease: false
-          make_latest: true
-
-      - name: Upload Platform Manifest To Tag Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh release upload "$GITHUB_REF_NAME" "${{ steps.package.outputs.manifest_path }}" \
-            --repo "$GITHUB_REPOSITORY" \
-            --clobber

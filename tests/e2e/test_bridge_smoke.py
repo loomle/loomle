@@ -33,6 +33,7 @@ EXPECTED_GRAPH_MUTATE_OPS = {
     "moveNode",
     "moveNodeBy",
     "moveNodes",
+    "layoutGraph",
     "compile",
     "runScript",
 }
@@ -443,7 +444,7 @@ def main() -> int:
         )
         print(f"[PASS] temporary blueprint created: {temp_asset}")
 
-        graph_desc_payload = call_tool(client, 6, "graph", {"graphType": "k2"})
+        graph_desc_payload = call_tool(client, 6, "graph", {"graphType": "blueprint"})
         ops = graph_desc_payload.get("ops")
         if not isinstance(ops, list):
             fail("graph payload missing ops[]")

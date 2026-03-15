@@ -52,13 +52,23 @@ $HOME/.local/bin/loomle
 
 Bootstrap should download a standalone global CLI artifact, not the project-local `Loomle/client/loomle`.
 
-Recommended release asset shape:
+Current hosting model:
+
+- stable public entrypoints remain `https://loomle.ai/install.sh` and `https://loomle.ai/install.ps1`
+- those scripts fetch versioned binaries from GitHub Releases
+- the stable alias release is `loomle-latest`
+- current published bootstrap binaries are macOS and Windows; Linux should fail fast until a Linux release job exists
+
+Recommended release asset shape on the stable alias release:
 
 ```text
-bootstrap/
-  darwin/loomle
-  linux/loomle
-  windows/loomle.exe
+loomle-latest/
+  loomle-darwin
+  loomle-linux
+  loomle.exe
+  loomle-manifest.json
+  loomle-darwin.zip
+  loomle-windows.zip
 ```
 
 This global CLI may share code with `mcp/client`, but it is a distinct installed role:

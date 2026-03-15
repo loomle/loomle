@@ -23,3 +23,4 @@ Current expectations:
 - bootstrap installs a machine-level `loomle` command
 - release bundles are complete only when they include both the MCP server and the project-local LOOMLE client
 - installers should validate the declared binaries before copying plugin and workspace content
+- GitHub Releases is the current canonical host for published bootstrap binaries and manifests; `loomle.ai` serves only the install entrypoints and site content

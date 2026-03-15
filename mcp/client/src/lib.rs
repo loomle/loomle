@@ -11,6 +11,8 @@ use tokio::process::Command as TokioCommand;
 
 pub type LoomleClient = rmcp::service::RunningService<rmcp::service::RoleClient, ()>;
 
+pub mod install;
+
 #[derive(Debug, Clone)]
 pub struct Environment {
     pub project_root: PathBuf,

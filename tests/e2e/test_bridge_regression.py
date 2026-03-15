@@ -227,7 +227,7 @@ def main() -> int:
             fail(f"tools/list missing required tools: {', '.join(missing)}")
         print("[PASS] tools/list baseline tools available")
 
-        graph_desc = call_tool(client, 3, "graph", {"graphType": "k2"})
+        graph_desc = call_tool(client, 3, "graph", {"graphType": "blueprint"})
         ops = graph_desc.get("ops")
         if not isinstance(ops, list):
             fail("graph descriptor missing ops[]")

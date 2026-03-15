@@ -183,6 +183,7 @@ impl<C: RpcConnector> McpService<C> {
                             "moveNode",
                             "moveNodeBy",
                             "moveNodes",
+                            "layoutGraph",
                             "compile",
                             "runScript"
                         ],

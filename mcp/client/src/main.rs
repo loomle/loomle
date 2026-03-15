@@ -1,5 +1,7 @@
 use loomle::{
-    connect_client, parse_json_object, render_json_pretty, resolve_project_root, Environment,
+    connect_client,
+    install::{install_release, InstallRequest},
+    parse_json_object, render_json_pretty, resolve_project_root, Environment,
 };
 use rmcp::model::CallToolRequestParams;
 use serde::Deserialize;
@@ -22,28 +24,61 @@ async fn main() -> ExitCode {
         }
     };
 
-    let project_root = match resolve_project_root(cli.project_root.as_deref()) {
-        Ok(path) => path,
-        Err(message) => {
-            eprintln!("[loomle][ERROR] {message}");
-            return ExitCode::from(2);
-        }
-    };
-
-    let env_info = Environment::for_project_root(project_root);
     match cli.command {
-        CommandKind::Doctor => run_doctor(&env_info),
-        CommandKind::ServerPath => {
-            println!("{}", env_info.server_path.display());
-            ExitCode::SUCCESS
+        CommandKind::Install {
+            version,
+            manifest_path,
+            manifest_url,
+        } => {
+            let project_root = match resolve_project_root(cli.project_root.as_deref()) {
+                Ok(path) => path,
+                Err(message) => {
+                    eprintln!("[loomle][ERROR] {message}");
+                    return ExitCode::from(2);
+                }
+            };
+
+            match install_release(InstallRequest {
+                project_root,
+                version,
+                manifest_path,
+                manifest_url,
+            })
+            .and_then(|result| print_json(&result))
+            {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(message) => {
+                    eprintln!("[loomle][ERROR] {message}");
+                    ExitCode::from(1)
+                }
+            }
         }
-        CommandKind::RunServer { forwarded_args } => run_server(&env_info, &forwarded_args),
-        CommandKind::Session => run_session(&env_info).await,
-        CommandKind::ListTools => run_list_tools(&env_info).await,
-        CommandKind::Call {
-            tool_name,
-            arguments_json,
-        } => run_call(&env_info, &tool_name, arguments_json.as_deref()).await,
+        command => {
+            let project_root = match resolve_project_root(cli.project_root.as_deref()) {
+                Ok(path) => path,
+                Err(message) => {
+                    eprintln!("[loomle][ERROR] {message}");
+                    return ExitCode::from(2);
+                }
+            };
+            let env_info = Environment::for_project_root(project_root);
+
+            match command {
+                CommandKind::Doctor => run_doctor(&env_info),
+                CommandKind::ServerPath => {
+                    println!("{}", env_info.server_path.display());
+                    ExitCode::SUCCESS
+                }
+                CommandKind::RunServer => run_server(&env_info),
+                CommandKind::Session => run_session(&env_info).await,
+                CommandKind::ListTools => run_list_tools(&env_info).await,
+                CommandKind::Call {
+                    tool_name,
+                    arguments_json,
+                } => run_call(&env_info, &tool_name, arguments_json.as_deref()).await,
+                CommandKind::Install { .. } => unreachable!("install handled above"),
+            }
+        }
     }
 }
 
@@ -55,11 +90,14 @@ struct Cli {
 
 #[derive(Debug)]
 enum CommandKind {
+    Install {
+        version: Option<String>,
+        manifest_path: Option<PathBuf>,
+        manifest_url: Option<String>,
+    },
     Doctor,
     ServerPath,
-    RunServer {
-        forwarded_args: Vec<OsString>,
-    },
+    RunServer,
     Session,
     ListTools,
     Call {
@@ -78,30 +116,54 @@ impl Cli {
 
         let mut project_root = None;
         let mut command = None;
-        let mut forwarded_args = Vec::new();
         let mut call_tool_name = None;
         let mut call_arguments_json = None;
-        let mut in_run_server_passthrough = false;
+        let mut install_version = None;
+        let mut install_manifest_path = None;
+        let mut install_manifest_url = None;
 
         while let Some(arg) = args.next() {
-            if in_run_server_passthrough {
-                forwarded_args.push(arg);
-                continue;
-            }
-
             match arg.to_str() {
-                Some("--") => {
-                    if matches!(command, Some(CommandKind::RunServer { .. })) {
-                        in_run_server_passthrough = true;
-                    } else {
-                        return Err(String::from("unexpected `--` before run-server"));
-                    }
-                }
                 Some("--project-root") => {
                     let value = args
                         .next()
                         .ok_or_else(|| String::from("missing value for --project-root"))?;
                     project_root = Some(PathBuf::from(value));
+                }
+                Some("--version") => {
+                    let value = args
+                        .next()
+                        .ok_or_else(|| String::from("missing value for --version"))?;
+                    if !matches!(command, Some(CommandKind::Install { .. })) {
+                        return Err(String::from("--version is only valid with install"));
+                    }
+                    install_version = Some(
+                        value
+                            .into_string()
+                            .map_err(|_| String::from("--version must be valid UTF-8"))?,
+                    );
+                }
+                Some("--manifest-path") => {
+                    let value = args
+                        .next()
+                        .ok_or_else(|| String::from("missing value for --manifest-path"))?;
+                    if !matches!(command, Some(CommandKind::Install { .. })) {
+                        return Err(String::from("--manifest-path is only valid with install"));
+                    }
+                    install_manifest_path = Some(PathBuf::from(value));
+                }
+                Some("--manifest-url") => {
+                    let value = args
+                        .next()
+                        .ok_or_else(|| String::from("missing value for --manifest-url"))?;
+                    if !matches!(command, Some(CommandKind::Install { .. })) {
+                        return Err(String::from("--manifest-url is only valid with install"));
+                    }
+                    install_manifest_url = Some(
+                        value
+                            .into_string()
+                            .map_err(|_| String::from("--manifest-url must be valid UTF-8"))?,
+                    );
                 }
                 Some("--args") => {
                     let value = args
@@ -115,13 +177,16 @@ impl Cli {
                         .map_err(|_| String::from("--args must be valid UTF-8 JSON"))?;
                     call_arguments_json = Some(value);
                 }
-                Some("doctor") => command = Some(CommandKind::Doctor),
-                Some("server-path") => command = Some(CommandKind::ServerPath),
-                Some("run-server") => {
-                    command = Some(CommandKind::RunServer {
-                        forwarded_args: Vec::new(),
+                Some("install") => {
+                    command = Some(CommandKind::Install {
+                        version: None,
+                        manifest_path: None,
+                        manifest_url: None,
                     });
                 }
+                Some("doctor") => command = Some(CommandKind::Doctor),
+                Some("server-path") => command = Some(CommandKind::ServerPath),
+                Some("run-server") => command = Some(CommandKind::RunServer),
                 Some("session") => command = Some(CommandKind::Session),
                 Some("list-tools") => command = Some(CommandKind::ListTools),
                 Some("call") => {
@@ -134,9 +199,6 @@ impl Cli {
                     return Err(String::from("help requested"));
                 }
                 Some(other) => match command {
-                    Some(CommandKind::RunServer { .. }) => {
-                        forwarded_args.push(OsString::from(other));
-                    }
                     Some(CommandKind::Call { .. }) => {
                         if call_tool_name.is_none() {
                             call_tool_name = Some(other.to_owned());
@@ -152,7 +214,11 @@ impl Cli {
         }
 
         let command = match command {
-            Some(CommandKind::RunServer { .. }) => CommandKind::RunServer { forwarded_args },
+            Some(CommandKind::Install { .. }) => CommandKind::Install {
+                version: install_version,
+                manifest_path: install_manifest_path,
+                manifest_url: install_manifest_url,
+            },
             Some(CommandKind::Call { .. }) => CommandKind::Call {
                 tool_name: call_tool_name
                     .ok_or_else(|| String::from("call requires a tool name"))?,
@@ -214,7 +280,7 @@ fn run_doctor(env_info: &Environment) -> ExitCode {
     }
 }
 
-fn run_server(env_info: &Environment, forwarded_args: &[OsString]) -> ExitCode {
+fn run_server(env_info: &Environment) -> ExitCode {
     if !env_info.server_path.is_file() {
         eprintln!(
             "[loomle][ERROR] cannot launch server; binary not found: {}",
@@ -227,7 +293,6 @@ fn run_server(env_info: &Environment, forwarded_args: &[OsString]) -> ExitCode {
     command
         .arg("--project-root")
         .arg(&env_info.project_root)
-        .args(forwarded_args)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
@@ -534,9 +599,10 @@ fn print_json<T: serde::Serialize>(value: &T) -> Result<(), String> {
 
 fn print_usage() {
     eprintln!("Usage:");
+    eprintln!("  loomle [--project-root <ProjectRoot>] install [--version <Version>] [--manifest-path <ManifestPath> | --manifest-url <ManifestUrl>]");
     eprintln!("  loomle [--project-root <ProjectRoot>] doctor");
     eprintln!("  loomle [--project-root <ProjectRoot>] server-path");
-    eprintln!("  loomle [--project-root <ProjectRoot>] run-server [-- <extra server args...>]");
+    eprintln!("  loomle [--project-root <ProjectRoot>] run-server");
     eprintln!("  loomle [--project-root <ProjectRoot>] session");
     eprintln!("  loomle [--project-root <ProjectRoot>] list-tools");
     eprintln!("  loomle [--project-root <ProjectRoot>] call <tool-name> [--args <json-object>]");
@@ -558,24 +624,17 @@ mod tests {
     }
 
     #[test]
-    fn cli_parses_project_root_and_run_server_args() {
+    fn cli_parses_project_root_and_run_server() {
         let cli = Cli::parse(vec![
             OsString::from("loomle"),
             OsString::from("run-server"),
             OsString::from("--project-root"),
             OsString::from("/tmp/project"),
-            OsString::from("--"),
-            OsString::from("--verbose"),
         ])
         .expect("cli");
 
         assert_eq!(cli.project_root, Some(PathBuf::from("/tmp/project")));
-        match cli.command {
-            CommandKind::RunServer { forwarded_args } => {
-                assert_eq!(forwarded_args, vec![OsString::from("--verbose")]);
-            }
-            _ => panic!("expected run-server"),
-        }
+        assert!(matches!(cli.command, CommandKind::RunServer));
     }
 
     #[test]
@@ -626,6 +685,35 @@ mod tests {
             Cli::parse(vec![OsString::from("loomle"), OsString::from("list-tools")]).expect("cli");
 
         assert!(matches!(cli.command, CommandKind::ListTools));
+    }
+
+    #[test]
+    fn cli_parses_install_command_with_manifest_source() {
+        let cli = Cli::parse(vec![
+            OsString::from("loomle"),
+            OsString::from("--project-root"),
+            OsString::from("/tmp/project"),
+            OsString::from("install"),
+            OsString::from("--version"),
+            OsString::from("0.1.0"),
+            OsString::from("--manifest-path"),
+            OsString::from("/tmp/manifest.json"),
+        ])
+        .expect("cli");
+
+        assert_eq!(cli.project_root, Some(PathBuf::from("/tmp/project")));
+        match cli.command {
+            CommandKind::Install {
+                version,
+                manifest_path,
+                manifest_url,
+            } => {
+                assert_eq!(version.as_deref(), Some("0.1.0"));
+                assert_eq!(manifest_path, Some(PathBuf::from("/tmp/manifest.json")));
+                assert!(manifest_url.is_none());
+            }
+            _ => panic!("expected install"),
+        }
     }
 
     #[test]

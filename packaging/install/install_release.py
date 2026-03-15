@@ -53,6 +53,12 @@ def require_existing_file(path: Path, label: str) -> None:
         fail(f"{label} not found: {path}")
 
 
+def require_uproject(project_root: Path) -> None:
+    if any(path.is_file() and path.suffix.lower() == ".uproject" for path in project_root.iterdir()):
+        return
+    fail(f"no .uproject found under: {project_root}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Install a LOOMLE release bundle into a user project.")
     parser.add_argument("--bundle-root", required=True, help="Extracted release bundle root")
@@ -70,6 +76,7 @@ def main() -> int:
         fail(f"bundle root not found: {bundle_root}")
     if not project_root.exists():
         fail(f"project root not found: {project_root}")
+    require_uproject(project_root)
 
     manifest = load_manifest(manifest_path)
     version = args.version or manifest.get("latest")
