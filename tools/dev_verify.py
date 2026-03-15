@@ -78,6 +78,19 @@ def run(cmd: list[str], cwd: Path | None = None, allow_failure: bool = False) ->
     return result
 
 
+def overlay_tree(source: Path, destination: Path) -> None:
+    if not source.exists():
+        fail(f"overlay source not found: {source}")
+    destination.mkdir(parents=True, exist_ok=True)
+    for item in source.iterdir():
+        target = destination / item.name
+        if item.is_dir():
+            shutil.copytree(item, target, dirs_exist_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(item, target)
+
+
 def resolve_ue_root(platform: str, override: str) -> Path:
     if override:
         candidate = Path(override).resolve()
@@ -92,6 +105,20 @@ def resolve_ue_root(platform: str, override: str) -> Path:
     if not candidate.exists():
         fail(f"Unreal Engine root not found: {candidate}")
     return candidate
+
+
+def resolve_run_uat(ue_root: Path, platform: str) -> Path:
+    if platform == "darwin":
+        run_uat = ue_root / "Engine" / "Build" / "BatchFiles" / "RunUAT.sh"
+    elif platform == "windows":
+        run_uat = ue_root / "Engine" / "Build" / "BatchFiles" / "RunUAT.bat"
+    else:
+        fail("local plugin build automation is only supported on macOS and Windows")
+        raise RuntimeError("unreachable")
+
+    if not run_uat.exists():
+        fail(f"RunUAT not found: {run_uat}")
+    return run_uat
 
 
 def resolve_editor_binary(ue_root: Path, platform: str) -> Path:
@@ -135,6 +162,32 @@ def start_editor(editor_binary: Path, uproject: Path, platform: str) -> None:
             "-NoSound",
         ]
         subprocess.Popen(args)
+
+
+def sync_built_plugin_into_project(project_root: Path, ue_root: Path, platform: str, output_dir: Path) -> None:
+    step("Build plugin binaries from current checkout and sync into project")
+    plugin_descriptor = REPO_ROOT / "engine" / "LoomleBridge" / "LoomleBridge.uplugin"
+    if not plugin_descriptor.exists():
+        fail(f"plugin descriptor not found: {plugin_descriptor}")
+
+    package_dir = output_dir / "plugin-package"
+    if package_dir.exists():
+        shutil.rmtree(package_dir)
+
+    run_uat = resolve_run_uat(ue_root, platform)
+    target_platform = "Mac" if platform == "darwin" else "Win64"
+    run([str(run_uat), "BuildPlugin", f"-Plugin={plugin_descriptor}", f"-Package={package_dir}", f"-TargetPlatforms={target_platform}", "-Rocket"])
+
+    plugin_dst = project_root / "Plugins" / "LoomleBridge"
+    if not plugin_dst.exists():
+        fail(f"project plugin destination not found after install: {plugin_dst}")
+
+    for generated_dir in ["Binaries", "Intermediate"]:
+        stale_dir = plugin_dst / generated_dir
+        if stale_dir.exists():
+            shutil.rmtree(stale_dir)
+
+    overlay_tree(package_dir, plugin_dst)
 
 
 def restart_editor(project_root: Path, ue_root: Path, platform: str) -> None:
@@ -211,6 +264,7 @@ def main() -> int:
     output_dir = Path(args.output_dir).resolve()
     if output_dir == REPO_ROOT or output_dir == project_root:
         fail(f"refusing to use repository root or project root as output dir: {output_dir}")
+    ue_root = resolve_ue_root(platform, args.ue_root)
 
     if output_dir.exists():
         shutil.rmtree(output_dir)
@@ -236,12 +290,13 @@ def main() -> int:
         ]
     )
 
+    sync_built_plugin_into_project(project_root, ue_root, platform, output_dir)
+
     if args.install_only:
         print("[PASS] dev install completed", file=sys.stderr)
         return 0
 
     if not args.no_restart:
-        ue_root = resolve_ue_root(platform, args.ue_root)
         restart_editor(project_root, ue_root, platform)
 
     step("Run smoke validation")

@@ -5697,6 +5697,16 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                 bOk = false;
                                 Error = TEXT("PCG node not found.");
                             }
+                            else if (FindPcgPin(FromNode, FromPinName, true) == nullptr)
+                            {
+                                bOk = false;
+                                Error = TEXT("PCG output pin not found.");
+                            }
+                            else if (FindPcgPin(ToNode, ToPinName, false) == nullptr)
+                            {
+                                bOk = false;
+                                Error = TEXT("PCG input pin not found.");
+                            }
                             else if (Op.Equals(TEXT("connectpins")))
                             {
                                 bOk = (PcgGraph->AddEdge(FromNode, FName(*FromPinName), ToNode, FName(*ToPinName)) != nullptr);

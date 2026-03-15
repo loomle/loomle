@@ -1361,6 +1361,59 @@ def main() -> int:
         pcg_edges = pcg_snapshot.get("edges")
         if not isinstance(pcg_nodes, list) or not isinstance(pcg_edges, list):
             fail(f"PCG graph.query missing nodes/edges: {pcg_snapshot}")
+        bad_pcg_connect = call_tool(
+            client,
+            101021,
+            "graph.mutate",
+            {
+                "assetPath": temp_pcg_asset,
+                "graphName": "PCGGraph",
+                "graphType": "pcg",
+                "ops": [
+                    {
+                        "op": "connectPins",
+                        "args": {
+                            "from": {"nodeId": pcg_filter_id, "pin": "Out"},
+                            "to": {"nodeId": pcg_tag_b_id, "pin": "In"},
+                        },
+                    }
+                ],
+            },
+            expect_error=True,
+        )
+        bad_pcg_connect_struct = bad_pcg_connect
+        bad_pcg_connect_detail = bad_pcg_connect.get("detail")
+        if isinstance(bad_pcg_connect_detail, str) and bad_pcg_connect_detail.strip():
+            try:
+                parsed_bad_pcg_connect_detail = json.loads(bad_pcg_connect_detail)
+            except json.JSONDecodeError as exc:
+                fail(f"graph.mutate bad PCG connect detail is not valid JSON: {exc} payload={bad_pcg_connect}")
+            if isinstance(parsed_bad_pcg_connect_detail, dict):
+                bad_pcg_connect_struct = parsed_bad_pcg_connect_detail
+        bad_pcg_connect_results = bad_pcg_connect_struct.get("opResults")
+        if not isinstance(bad_pcg_connect_results, list) or not bad_pcg_connect_results:
+            fail(f"graph.mutate bad PCG connect missing opResults: {bad_pcg_connect}")
+        bad_pcg_connect_first = bad_pcg_connect_results[0] if isinstance(bad_pcg_connect_results[0], dict) else {}
+        if bad_pcg_connect_first.get("errorCode") != "TARGET_NOT_FOUND":
+            fail(f"graph.mutate bad PCG connect wrong errorCode: {bad_pcg_connect_first}")
+        if bad_pcg_connect_first.get("ok") is not False:
+            fail(f"graph.mutate bad PCG connect should fail explicitly: {bad_pcg_connect_first}")
+        if bad_pcg_connect_first.get("changed") is not False:
+            fail(f"graph.mutate bad PCG connect should not report changed=true: {bad_pcg_connect_first}")
+        pcg_snapshot_after_bad_connect = query_snapshot(client, 101022, temp_pcg_asset, "pcg", "PCGGraph")
+        pcg_edges_after_bad_connect = pcg_snapshot_after_bad_connect.get("edges")
+        if not isinstance(pcg_edges_after_bad_connect, list):
+            fail(f"PCG graph.query after bad connect missing edges: {pcg_snapshot_after_bad_connect}")
+        if any(
+            isinstance(edge, dict)
+            and edge.get("fromNodeId") == pcg_filter_id
+            and edge.get("fromPin") == "Out"
+            and edge.get("toNodeId") == pcg_tag_b_id
+            and edge.get("toPin") == "In"
+            for edge in pcg_edges_after_bad_connect
+        ):
+            fail(f"PCG graph.query should not contain invalid Out->In edge after failed connect: {pcg_edges_after_bad_connect}")
+        print("[PASS] graph.mutate invalid PCG connectPins target is rejected")
         pcg_snapshot_without_graph_name = query_snapshot(client, 10103, temp_pcg_asset, "pcg", None)
         if pcg_snapshot_without_graph_name.get("signature") != pcg_snapshot.get("signature"):
             fail(
