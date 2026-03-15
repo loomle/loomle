@@ -9,7 +9,7 @@
           "format": "zip",
           "server_binary_relpath": "plugin/LoomleBridge/Tools/mcp/darwin/loomle_mcp_server",
           "server_sha256": "server-sha256",
-          "client_binary_relpath": "workspace/Loomle/client/loomle",
+          "client_binary_relpath": "workspace/Loomle/loomle",
           "client_sha256": "client-sha256",
           "install": {
             "plugin": {

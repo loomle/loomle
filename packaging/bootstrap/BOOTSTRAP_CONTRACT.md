@@ -50,7 +50,7 @@ $HOME/.local/bin/loomle
 
 ## Artifact contract
 
-Bootstrap should download a standalone global CLI artifact, not the project-local `Loomle/client/loomle`.
+Bootstrap should download a standalone global CLI artifact, not the project-local `Loomle/loomle`.
 
 Current hosting model:
 
@@ -78,7 +78,7 @@ This global CLI may share code with `mcp/client`, but it is a distinct installed
   - provides `loomle install`
   - machine-level entrypoint
 - project-local client:
-  - installed into `Loomle/client/loomle`
+  - installed into `Loomle/loomle`
   - provides project runtime entrypoint
 
 ## Redirect target

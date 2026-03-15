@@ -107,7 +107,7 @@ jobs:
           [[ -x "$client_src" ]] || { echo "Client binary missing: $client_src" >&2; exit 1; }
 
           server_relpath="plugin/LoomleBridge/Tools/mcp/darwin/loomle_mcp_server"
-          client_relpath="workspace/Loomle/client/loomle"
+          client_relpath="workspace/Loomle/loomle"
           server_dst="$bundle_dir/$server_relpath"
           client_dst="$bundle_dir/$client_relpath"
 

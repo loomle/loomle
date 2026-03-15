@@ -256,7 +256,7 @@ Reason:
 The Rust client belongs in the project-local `Loomle/` directory:
 
 ```text
-Loomle/client/loomle(.exe)
+Loomle/loomle(.exe)
 ```
 
 Reason:
@@ -271,7 +271,7 @@ LOOMLE should install in one step and deliver all of the following:
 1. Unreal plugin under `Plugins/LoomleBridge/`
 2. MCP server under `Plugins/LoomleBridge/Tools/mcp/...`
 3. project-local `Loomle/` workspace directory
-4. Rust client under `Loomle/client/`
+4. Rust client at `Loomle/loomle(.exe)`
 
 Users should not have to install a separate skill repository before LOOMLE becomes usable.
 

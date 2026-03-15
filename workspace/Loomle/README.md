@@ -6,20 +6,20 @@ Read this file first. It is the top-level usage guide for agents working inside 
 
 ## Core Rule
 
-- Use `Loomle/client/loomle` as the only supported project-local LOOMLE entrypoint.
+- Use `Loomle/loomle` as the only supported project-local LOOMLE entrypoint.
 - Read this file for the main workflow.
 - Open deeper files only when this file tells you why.
 
 ## Quick Start
 
-1. Run `Loomle/client/loomle doctor`
+1. Run `Loomle/loomle doctor`
    Use this first to confirm the project can see the plugin and MCP server.
-2. Run `Loomle/client/loomle list-tools`
+2. Run `Loomle/loomle list-tools`
    Use this to discover the live tool contract from the installed server before assuming tool names or arguments.
 3. Choose the right execution mode:
-   - `Loomle/client/loomle call <tool-name> --args '<json-object>'`
+   - `Loomle/loomle call <tool-name> --args '<json-object>'`
      Use for one-shot tool execution.
-   - `Loomle/client/loomle session`
+   - `Loomle/loomle session`
      Use for repeated requests through one persistent stdin/stdout session.
 4. Choose the right workflow guide for the current graph type:
    - `workflows/blueprint.md`
@@ -28,17 +28,17 @@ Read this file first. It is the top-level usage guide for agents working inside 
 
 ## Commands
 
-- `Loomle/client/loomle doctor`
+- `Loomle/loomle doctor`
   Check that LOOMLE is installed correctly in this project.
-- `Loomle/client/loomle list-tools`
+- `Loomle/loomle list-tools`
   Print the live tool contract exposed by the installed LOOMLE server.
-- `Loomle/client/loomle call <tool-name> --args '<json-object>'`
+- `Loomle/loomle call <tool-name> --args '<json-object>'`
   Make one tool request and print the result.
-- `Loomle/client/loomle session`
+- `Loomle/loomle session`
   Start a persistent stdin/stdout JSON session for repeated requests.
-- `Loomle/client/loomle update`
+- `Loomle/loomle update`
   Check the installed version against the latest published release.
-- `Loomle/client/loomle update --apply`
+- `Loomle/loomle update --apply`
   Upgrade this project-local LOOMLE install in place.
 
 ## Session Mode
@@ -73,15 +73,15 @@ Repair or reinstall from the project root:
 - `loomle install --project-root <ProjectRoot> --plugin-mode source`
 
 Check for an update:
-- `Loomle/client/loomle update`
+- `Loomle/loomle update`
 
 Apply the latest update:
-- `Loomle/client/loomle update --apply`
+- `Loomle/loomle update --apply`
 
 Apply a specific version:
-- `Loomle/client/loomle update --version <Version>`
+- `Loomle/loomle update --version <Version>`
 
-If the current install was created with `pluginMode=source`, `Loomle/client/loomle update --apply` keeps that mode unless you explicitly pass a different `--plugin-mode`.
+If the current install was created with `pluginMode=source`, `Loomle/loomle update --apply` keeps that mode unless you explicitly pass a different `--plugin-mode`.
 
 ## When To Open Deeper Files
 
@@ -96,14 +96,14 @@ If the current install was created with `pluginMode=source`, `Loomle/client/loom
 ```text
 Loomle/
   README.md
-  client/
+  loomle(.exe)
   workflows/
   examples/
   runtime/
 ```
 
 - `README.md`: the main agent-facing entrypoint
-- `client/`: location of the installed `loomle` binary
+- `loomle(.exe)`: the installed project-local client entrypoint
 - `workflows/`: task-oriented operating guides by graph type
 - `examples/`: small payload examples
 - `runtime/`: machine-written state, not human guidance

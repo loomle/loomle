@@ -29,8 +29,7 @@ After installation, the user project should contain:
 
   Loomle/
     README.md
-    client/
-      loomle(.exe)
+    loomle(.exe)
     workflows/
     examples/
     runtime/
@@ -96,7 +95,7 @@ Reason:
 Installed at:
 
 ```text
-<ProjectRoot>/Loomle/client/loomle(.exe)
+<ProjectRoot>/Loomle/loomle(.exe)
 ```
 
 Reason:

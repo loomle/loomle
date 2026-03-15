@@ -216,7 +216,7 @@ jobs:
           }
 
           $serverRelPath = "plugin/LoomleBridge/Tools/mcp/windows/loomle_mcp_server.exe"
-          $clientRelPath = "workspace/Loomle/client/loomle.exe"
+          $clientRelPath = "workspace/Loomle/loomle.exe"
           $serverDst = Join-Path $bundleDir ($serverRelPath -replace '/', '\')
           $clientDst = Join-Path $bundleDir ($clientRelPath -replace '/', '\')
 

@@ -8,7 +8,7 @@ Target role:
 - discover the current Unreal project root
 - locate the MCP server installed under `Plugins/LoomleBridge/Tools/mcp/...`
 - connect to the project-local MCP server/runtime
-- live in the installed project under `Loomle/client/`
+- live in the installed project under `Loomle/`
 
 ## Build
 

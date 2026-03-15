@@ -125,7 +125,7 @@ def main() -> int:
             "--server-sha256",
             server_sha,
             "--client-binary-relpath",
-            f"workspace/Loomle/client/{client_name}",
+            f"workspace/Loomle/{client_name}",
             "--client-sha256",
             client_sha,
         ],

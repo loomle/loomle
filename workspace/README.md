@@ -6,7 +6,7 @@ Everything under `workspace/Loomle/` is intended to be copied into a user's proj
 
 Planned contents:
 - one root README that acts as the Agent-facing starting point
-- one project-local client entrypoint under `Loomle/client/`
+- one project-local client entrypoint at `Loomle/loomle(.exe)`
 - workflow-specific operating guides under `Loomle/workflows/`
 - small payload examples under `Loomle/examples/`
 - machine-written runtime state under `Loomle/runtime/`

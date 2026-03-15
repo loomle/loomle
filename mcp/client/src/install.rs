@@ -830,7 +830,7 @@ mod tests {
             bundle_root.join(format!("plugin/LoomleBridge/Tools/mcp/{}", platform_key())),
         )
         .expect("plugin");
-        fs::create_dir_all(bundle_root.join("workspace/Loomle/client")).expect("workspace");
+        fs::create_dir_all(bundle_root.join("workspace/Loomle")).expect("workspace");
         fs::write(
             bundle_root.join("plugin/LoomleBridge/LoomleBridge.uplugin"),
             "{}",
@@ -846,7 +846,7 @@ mod tests {
         )
         .expect("server");
         fs::write(
-            bundle_root.join(format!("workspace/Loomle/client/{}", client_name)),
+            bundle_root.join(format!("workspace/Loomle/{}", client_name)),
             "client",
         )
         .expect("client");
@@ -870,7 +870,7 @@ mod tests {
                                 platform_key()
                             ),
                             "client_binary_relpath": format!(
-                                "workspace/Loomle/client/{client_name}"
+                                "workspace/Loomle/{client_name}"
                             ),
                             "install": {
                                 "plugin": {
@@ -906,7 +906,7 @@ mod tests {
         assert!(project_root
             .join("Plugins/LoomleBridge/LoomleBridge.uplugin")
             .is_file());
-        assert!(project_root.join("Loomle/client").is_dir());
+        assert!(project_root.join("Loomle").join(client_name).is_file());
         let install_state = fs::read_to_string(project_root.join("Loomle/runtime/install.json"))
             .expect("install state");
         let install_state_json: serde_json::Value =
@@ -916,7 +916,7 @@ mod tests {
         assert_eq!(install_state_json["pluginMode"], "prebuilt");
         #[cfg(unix)]
         {
-            let client_mode = fs::metadata(project_root.join("Loomle/client").join(client_name))
+            let client_mode = fs::metadata(project_root.join("Loomle").join(client_name))
                 .expect("client metadata")
                 .permissions()
                 .mode();
@@ -986,7 +986,7 @@ mod tests {
         .expect("plugin binaries");
         fs::create_dir_all(bundle_root.join("plugin/LoomleBridge/Source/LoomleBridge"))
             .expect("plugin source");
-        fs::create_dir_all(bundle_root.join("workspace/Loomle/client")).expect("workspace");
+        fs::create_dir_all(bundle_root.join("workspace/Loomle")).expect("workspace");
         fs::write(
             bundle_root.join("plugin/LoomleBridge/LoomleBridge.uplugin"),
             "{}",
@@ -1014,7 +1014,7 @@ mod tests {
         )
         .expect("build cs");
         fs::write(
-            bundle_root.join(format!("workspace/Loomle/client/{}", client_name)),
+            bundle_root.join(format!("workspace/Loomle/{}", client_name)),
             "client",
         )
         .expect("client");
@@ -1038,7 +1038,7 @@ mod tests {
                                 platform_key()
                             ),
                             "client_binary_relpath": format!(
-                                "workspace/Loomle/client/{client_name}"
+                                "workspace/Loomle/{client_name}"
                             ),
                             "install": {
                                 "plugin": {
@@ -1112,7 +1112,7 @@ mod tests {
         .expect("plugin binaries");
         fs::create_dir_all(bundle_root.join("plugin/LoomleBridge/Source/LoomleBridge"))
             .expect("plugin source");
-        fs::create_dir_all(bundle_root.join("workspace/Loomle/client")).expect("workspace");
+        fs::create_dir_all(bundle_root.join("workspace/Loomle")).expect("workspace");
         fs::write(
             bundle_root.join("plugin/LoomleBridge/LoomleBridge.uplugin"),
             "{}",
@@ -1140,7 +1140,7 @@ mod tests {
         )
         .expect("build cs");
         fs::write(
-            bundle_root.join(format!("workspace/Loomle/client/{}", client_name)),
+            bundle_root.join(format!("workspace/Loomle/{}", client_name)),
             "client",
         )
         .expect("client");
@@ -1164,7 +1164,7 @@ mod tests {
                                 platform_key()
                             ),
                             "client_binary_relpath": format!(
-                                "workspace/Loomle/client/{client_name}"
+                                "workspace/Loomle/{client_name}"
                             ),
                             "install": {
                                 "plugin": {
@@ -1333,7 +1333,7 @@ mod tests {
         .expect("plugin binaries");
         fs::create_dir_all(bundle_root.join("plugin/LoomleBridge/Source/LoomleBridge"))
             .expect("plugin source");
-        fs::create_dir_all(bundle_root.join("workspace/Loomle/client")).expect("workspace");
+        fs::create_dir_all(bundle_root.join("workspace/Loomle")).expect("workspace");
         fs::write(
             bundle_root.join("plugin/LoomleBridge/LoomleBridge.uplugin"),
             "{}",
@@ -1361,7 +1361,7 @@ mod tests {
         )
         .expect("build cs");
         fs::write(
-            bundle_root.join(format!("workspace/Loomle/client/{}", client_name)),
+            bundle_root.join(format!("workspace/Loomle/{}", client_name)),
             format!("client-{version}"),
         )
         .expect("client");
@@ -1403,7 +1403,7 @@ mod tests {
                                 platform_key()
                             ),
                             "client_binary_relpath": format!(
-                                "workspace/Loomle/client/{client_name}"
+                                "workspace/Loomle/{client_name}"
                             ),
                             "install": {
                                 "plugin": {
