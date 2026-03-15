@@ -5583,7 +5583,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     else if (Op.Equals(TEXT("compile")))
                     {
                         UMaterialEditingLibrary::RecompileMaterial(MaterialAsset);
-                        bChanged = true;
                         GraphEventName = TEXT("graph.compiled");
                         GraphEventData->SetStringField(TEXT("op"), Op);
                     }
@@ -5961,7 +5960,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                         bOk = PcgGraph->Recompile();
                         if (bOk)
                         {
-                            bChanged = true;
                             GraphEventName = TEXT("graph.compiled");
                             GraphEventData->SetStringField(TEXT("op"), Op);
                         }
@@ -7245,7 +7243,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             }
         }
 
-        if (!bDryRun && bOk && !Op.Equals(TEXT("runscript")))
+        if (!bDryRun && bOk && !Op.Equals(TEXT("runscript")) && !Op.Equals(TEXT("compile")))
         {
             bChanged = true;
         }

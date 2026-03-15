@@ -754,6 +754,54 @@ def main() -> int:
             )
         print("[PASS] blueprint expectedRevision conflict validated")
 
+        blueprint_dry_run = call_tool(
+            client,
+            1091,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "dryRun": True,
+                "ops": [
+                    {
+                        "op": "addNode.byClass",
+                        "args": {
+                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
+                            "position": {"x": 1120, "y": 0},
+                        },
+                    }
+                ],
+            },
+        )
+        blueprint_dry_run_first = op_ok(blueprint_dry_run)
+        if blueprint_dry_run_first.get("changed") is not False:
+            fail(f"Blueprint dryRun mutate should report changed=false: {blueprint_dry_run}")
+        if blueprint_dry_run.get("previousRevision") != blueprint_revision_r1 or blueprint_dry_run.get("newRevision") != blueprint_revision_r1:
+            fail(
+                "Blueprint dryRun mutate revisions should stay pinned to the current graph revision: "
+                f"payload={blueprint_dry_run} expectedRevision={blueprint_revision_r1}"
+            )
+        blueprint_after_dry_run = query_graph_payload(
+            client,
+            1092,
+            asset_path=temp_asset,
+            graph_name="EventGraph",
+            limit=200,
+        )
+        blueprint_nodes_after_dry_run = blueprint_after_dry_run.get("semanticSnapshot", {}).get("nodes", [])
+        if blueprint_after_dry_run.get("revision") != blueprint_revision_r1:
+            fail(
+                "Blueprint dryRun mutate should not change graph revision: "
+                f"expected={blueprint_revision_r1} actual={blueprint_after_dry_run}"
+            )
+        if not isinstance(blueprint_nodes_after_dry_run, list) or len(blueprint_nodes_after_dry_run) != len(blueprint_nodes_after_apply):
+            fail(
+                "Blueprint dryRun mutate should not change node count: "
+                f"after_apply={blueprint_revision_after_apply} after_dry_run={blueprint_after_dry_run}"
+            )
+        print("[PASS] blueprint dryRun revision metadata validated")
+
         page_one = query_graph_payload(client, 110, asset_path=temp_asset, graph_name="EventGraph", limit=1)
         page_one_meta = page_one.get("meta", {})
         page_one_cursor = page_one.get("nextCursor")
@@ -1014,9 +1062,25 @@ def main() -> int:
                 ],
             },
         )
-        op_ok(compile_payload)
+        compile_first = op_ok(compile_payload)
+        nodes_after_compile = query_nodes(client, 20, temp_asset, "EventGraph")
+        compile_revision_after = call_tool(
+            client,
+            201,
+            "graph.query",
+            {"assetPath": temp_asset, "graphName": "EventGraph", "graphType": "blueprint", "limit": 200},
+        )
+        if compile_first.get("changed") is not False:
+            fail(f"Blueprint compile should report changed=false when graph revision is unchanged: {compile_payload}")
+        if compile_payload.get("previousRevision") != compile_payload.get("newRevision"):
+            fail(f"Blueprint compile mutate should keep previousRevision/newRevision aligned when graph is unchanged: {compile_payload}")
+        if compile_revision_after.get("revision") != compile_payload.get("newRevision"):
+            fail(
+                "Blueprint compile mutate revision metadata should match graph.query: "
+                f"mutate={compile_payload} query={compile_revision_after}"
+            )
 
-        nodes_before_remove = query_nodes(client, 20, temp_asset, "EventGraph")
+        nodes_before_remove = nodes_after_compile
         node_a_info = require_node(nodes_before_remove, node_a)
         node_b_info = require_node(nodes_before_remove, node_b)
         node_a_layout = require_layout(node_a_info)
@@ -1388,6 +1452,77 @@ def main() -> int:
                 f"after_apply={material_revision_after_apply} after_stale={material_revision_after_stale}"
             )
         print("[PASS] material expectedRevision conflict validated")
+
+        material_dry_run = call_tool(
+            client,
+            100106,
+            "graph.mutate",
+            {
+                "assetPath": material_asset_path,
+                "graphName": "MaterialGraph",
+                "graphType": "material",
+                "dryRun": True,
+                "ops": [
+                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}}
+                ],
+            },
+        )
+        material_dry_run_first = op_ok(material_dry_run)
+        if material_dry_run_first.get("changed") is not False:
+            fail(f"Material dryRun mutate should report changed=false: {material_dry_run}")
+        if material_dry_run.get("previousRevision") != material_revision_r1 or material_dry_run.get("newRevision") != material_revision_r1:
+            fail(
+                "Material dryRun mutate revisions should stay pinned to the current graph revision: "
+                f"payload={material_dry_run} expectedRevision={material_revision_r1}"
+            )
+        material_after_dry_run = call_tool(
+            client,
+            100107,
+            "graph.query",
+            {"assetPath": material_asset_path, "graphName": "MaterialGraph", "graphType": "material", "limit": 200},
+        )
+        material_nodes_after_dry_run = material_after_dry_run.get("semanticSnapshot", {}).get("nodes", [])
+        if material_after_dry_run.get("revision") != material_revision_r1:
+            fail(
+                "Material dryRun mutate should not change graph revision: "
+                f"expected={material_revision_r1} actual={material_after_dry_run}"
+            )
+        if not isinstance(material_nodes_after_dry_run, list) or len(material_nodes_after_dry_run) != len(material_nodes_after_apply):
+            fail(
+                "Material dryRun mutate should not change node count: "
+                f"after_apply={material_revision_after_apply} after_dry_run={material_after_dry_run}"
+            )
+        print("[PASS] material dryRun revision metadata validated")
+
+        material_compile = call_tool(
+            client,
+            100108,
+            "graph.mutate",
+            {
+                "assetPath": material_asset_path,
+                "graphName": "MaterialGraph",
+                "graphType": "material",
+                "ops": [{"op": "compile"}],
+            },
+        )
+        material_compile_first = op_ok(material_compile)
+        material_revision_after_compile = call_tool(
+            client,
+            100109,
+            "graph.query",
+            {"assetPath": material_asset_path, "graphName": "MaterialGraph", "graphType": "material", "limit": 200},
+        )
+        if material_compile_first.get("changed") is not False:
+            fail(f"Material compile should report changed=false when graph revision is unchanged: {material_compile}")
+        if material_compile.get("previousRevision") != material_compile.get("newRevision"):
+            fail(f"Material compile mutate should keep previousRevision/newRevision aligned when graph is unchanged: {material_compile}")
+        if material_revision_after_compile.get("revision") != material_compile.get("newRevision"):
+            fail(
+                "Material compile mutate revision metadata should match graph.query: "
+                f"mutate={material_compile} query={material_revision_after_compile}"
+            )
+        material_revision_r1 = material_revision_after_compile.get("revision")
+        print("[PASS] material compile revision metadata validated")
 
         material_connect = call_tool(
             client,
