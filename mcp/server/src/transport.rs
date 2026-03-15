@@ -227,20 +227,70 @@ fn call_with_deadline(
 fn send_and_wait(
     endpoint: &RpcEndpoint,
     request: &Value,
-    _deadline: Option<Instant>,
+    deadline: Option<Instant>,
 ) -> Result<Value, RpcError> {
+    use std::io::ErrorKind;
     use std::os::unix::net::UnixStream;
+
+    const UNIX_CONNECT_RETRY_BACKOFF_MS: [u64; 5] = [5, 10, 20, 40, 80];
 
     let path = match endpoint {
         RpcEndpoint::UnixSocket { socket_path } => socket_path,
     };
 
-    let mut stream = UnixStream::connect(path).map_err(|e| RpcError {
-        code: 1011,
-        message: String::from("INTERNAL_ERROR"),
-        retryable: true,
-        detail: format!("failed to connect unix socket {}: {e}", path.display()),
-    })?;
+    let mut connect_retries: usize = 0;
+    let mut total_wait = Duration::from_millis(0);
+    let mut stream = loop {
+        match UnixStream::connect(path) {
+            Ok(stream) => break stream,
+            Err(e) => {
+                let retryable_kind = matches!(
+                    e.kind(),
+                    ErrorKind::ConnectionRefused | ErrorKind::NotFound | ErrorKind::TimedOut
+                );
+                let Some(base_backoff_ms) =
+                    UNIX_CONNECT_RETRY_BACKOFF_MS.get(connect_retries).copied()
+                else {
+                    return Err(RpcError {
+                        code: 1011,
+                        message: String::from("INTERNAL_ERROR"),
+                        retryable: retryable_kind,
+                        detail: format!(
+                            "failed to connect unix socket {} after {} retries waitedMs={}: {e}",
+                            path.display(),
+                            connect_retries,
+                            total_wait.as_millis()
+                        ),
+                    });
+                };
+
+                if !retryable_kind {
+                    return Err(RpcError {
+                        code: 1011,
+                        message: String::from("INTERNAL_ERROR"),
+                        retryable: false,
+                        detail: format!("failed to connect unix socket {}: {e}", path.display()),
+                    });
+                }
+
+                connect_retries += 1;
+                let sleep_for = Duration::from_millis(base_backoff_ms + unix_connect_jitter_ms());
+                if !sleep_before_retry(deadline, &mut total_wait, sleep_for) {
+                    return Err(RpcError {
+                        code: 1011,
+                        message: String::from("INTERNAL_ERROR"),
+                        retryable: true,
+                        detail: format!(
+                            "failed to connect unix socket {} after {} retries waitedMs={}: {e}",
+                            path.display(),
+                            connect_retries,
+                            total_wait.as_millis()
+                        ),
+                    });
+                }
+            }
+        }
+    };
 
     let mut line = serde_json::to_string(request).map_err(|e| RpcError {
         code: 1011,
@@ -377,6 +427,39 @@ fn send_and_wait(
         retryable: false,
         detail: format!("invalid rpc response json: {e}"),
     })
+}
+
+#[cfg(unix)]
+fn sleep_before_retry(
+    deadline: Option<Instant>,
+    total_wait: &mut Duration,
+    sleep_for: Duration,
+) -> bool {
+    if let Some(deadline) = deadline {
+        let now = Instant::now();
+        if now >= deadline {
+            return false;
+        }
+        let remaining = deadline.saturating_duration_since(now);
+        if remaining < sleep_for {
+            *total_wait += remaining;
+            std::thread::sleep(remaining);
+            return false;
+        }
+    }
+
+    *total_wait += sleep_for;
+    std::thread::sleep(sleep_for);
+    true
+}
+
+#[cfg(unix)]
+fn unix_connect_jitter_ms() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| (d.subsec_nanos() % 8) as u64)
 }
 
 #[cfg(windows)]

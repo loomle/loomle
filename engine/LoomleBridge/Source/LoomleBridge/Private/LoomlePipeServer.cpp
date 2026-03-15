@@ -24,6 +24,7 @@ DEFINE_LOG_CATEGORY_STATIC(LogLoomlePipe, Log, All);
 
 namespace
 {
+constexpr int32 UnixSocketListenBacklog = SOMAXCONN;
 
 TSharedPtr<FJsonValue> ExtractRequestId(const FString& RequestLine)
 {
@@ -282,7 +283,7 @@ uint32 FLoomlePipeServer::Run()
         return 0;
     }
 
-    if (listen(LocalServerFd, 8) != 0)
+    if (listen(LocalServerFd, UnixSocketListenBacklog) != 0)
     {
         UE_LOG(LogLoomlePipe, Error, TEXT("Failed to listen on unix socket %s"), *SocketPath);
         close(LocalServerFd);
@@ -290,6 +291,7 @@ uint32 FLoomlePipeServer::Run()
         FPlatformProcess::Sleep(1.0f);
         return 0;
     }
+    UE_LOG(LogLoomlePipe, Display, TEXT("Loomle bridge listening on unix socket %s (backlog=%d)"), *SocketPath, UnixSocketListenBacklog);
 
     while (!bStopRequested)
     {
