@@ -25,7 +25,6 @@ pub struct InstallRequest {
     pub version: Option<String>,
     pub manifest_path: Option<PathBuf>,
     pub manifest_url: Option<String>,
-    pub plugin_mode: PluginInstallMode,
 }
 
 #[derive(Debug, Clone)]
@@ -34,33 +33,7 @@ pub struct UpdateRequest {
     pub version: Option<String>,
     pub manifest_path: Option<PathBuf>,
     pub manifest_url: Option<String>,
-    pub plugin_mode: Option<PluginInstallMode>,
     pub apply: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PluginInstallMode {
-    Prebuilt,
-    Source,
-}
-
-impl PluginInstallMode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Prebuilt => "prebuilt",
-            Self::Source => "source",
-        }
-    }
-
-    pub fn parse(raw: &str) -> Result<Self, String> {
-        match raw {
-            "prebuilt" => Ok(Self::Prebuilt),
-            "source" => Ok(Self::Source),
-            other => Err(format!(
-                "unsupported plugin mode `{other}` (expected prebuilt or source)"
-            )),
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -102,8 +75,6 @@ struct InstallCopySpec {
 struct RuntimeInstallState {
     #[serde(rename = "installedVersion")]
     installed_version: String,
-    #[serde(rename = "pluginMode")]
-    plugin_mode: Option<String>,
 }
 
 pub fn install_release(request: InstallRequest) -> Result<serde_json::Value, String> {
@@ -137,14 +108,11 @@ pub fn install_release(request: InstallRequest) -> Result<serde_json::Value, Str
     let bundle_root = temp_dir.path().join("bundle");
     extract_zip(&archive_path, &bundle_root)?;
     validate_bundle_paths(&bundle_root, package)?;
-    let plugin_mode = request.plugin_mode;
-    let install_state_path =
-        copy_release_tree(&bundle_root, &project_root, &version, package, plugin_mode)?;
+    let install_state_path = copy_release_tree(&bundle_root, &project_root, &version, package)?;
 
     Ok(json!({
         "installedVersion": version,
         "platform": platform_key(),
-        "pluginMode": plugin_mode.as_str(),
         "bundleRoot": bundle_root.display().to_string(),
         "projectRoot": project_root.display().to_string(),
         "plugin": {
@@ -164,21 +132,17 @@ pub fn install_release(request: InstallRequest) -> Result<serde_json::Value, Str
 pub fn update_release(request: UpdateRequest) -> Result<serde_json::Value, String> {
     let project_root = validate_project_root(&request.project_root)?;
     let install_state = read_runtime_install_state(&project_root)?;
-    let current_plugin_mode = install_state.plugin_mode();
-    let target_plugin_mode = request.plugin_mode.unwrap_or(current_plugin_mode);
     let manifest_request = InstallRequest {
         project_root: project_root.clone(),
         version: request.version.clone(),
         manifest_path: request.manifest_path.clone(),
         manifest_url: request.manifest_url.clone(),
-        plugin_mode: target_plugin_mode,
     };
     let manifest = load_manifest(&manifest_request)?;
     let latest_version = resolve_version(&manifest, None)?;
     let target_version = resolve_version(&manifest, request.version.as_deref())?;
     let version_changed = install_state.installed_version != target_version;
-    let plugin_mode_changed = current_plugin_mode != target_plugin_mode;
-    let would_change = version_changed || plugin_mode_changed;
+    let would_change = version_changed;
     let update_available = install_state.installed_version != latest_version;
 
     if !request.apply {
@@ -186,12 +150,10 @@ pub fn update_release(request: UpdateRequest) -> Result<serde_json::Value, Strin
             "installedVersion": install_state.installed_version,
             "latestVersion": latest_version,
             "targetVersion": target_version,
-            "currentPluginMode": current_plugin_mode.as_str(),
-            "targetPluginMode": target_plugin_mode.as_str(),
             "updateAvailable": update_available,
             "wouldChange": would_change,
             "recommendedCommand": if would_change {
-                Some(recommended_update_command(version_changed, plugin_mode_changed, &target_version, target_plugin_mode))
+                Some(recommended_update_command(version_changed, &target_version))
             } else {
                 None
             },
@@ -203,7 +165,6 @@ pub fn update_release(request: UpdateRequest) -> Result<serde_json::Value, Strin
             "installedVersion": install_state.installed_version,
             "latestVersion": latest_version,
             "targetVersion": target_version,
-            "pluginMode": current_plugin_mode.as_str(),
             "updated": false,
             "reason": "already_up_to_date",
         }));
@@ -214,41 +175,21 @@ pub fn update_release(request: UpdateRequest) -> Result<serde_json::Value, Strin
         version: Some(target_version.clone()),
         manifest_path: request.manifest_path,
         manifest_url: request.manifest_url,
-        plugin_mode: target_plugin_mode,
     })?;
 
     Ok(json!({
         "installedVersion": install_state.installed_version,
         "latestVersion": latest_version,
         "targetVersion": target_version,
-        "previousPluginMode": current_plugin_mode.as_str(),
-        "pluginMode": target_plugin_mode.as_str(),
         "updated": true,
         "install": install_result,
     }))
 }
 
-impl RuntimeInstallState {
-    fn plugin_mode(&self) -> PluginInstallMode {
-        self.plugin_mode
-            .as_deref()
-            .and_then(|raw| PluginInstallMode::parse(raw).ok())
-            .unwrap_or(PluginInstallMode::Prebuilt)
-    }
-}
-
-fn recommended_update_command(
-    version_changed: bool,
-    plugin_mode_changed: bool,
-    target_version: &str,
-    target_plugin_mode: PluginInstallMode,
-) -> String {
+fn recommended_update_command(version_changed: bool, target_version: &str) -> String {
     let mut command = String::from("loomle update --apply");
     if version_changed {
         command.push_str(&format!(" --version {target_version}"));
-    }
-    if plugin_mode_changed {
-        command.push_str(&format!(" --plugin-mode {}", target_plugin_mode.as_str()));
     }
     command
 }
@@ -529,7 +470,6 @@ fn copy_release_tree(
     project_root: &Path,
     version: &str,
     package: &ReleasePackage,
-    plugin_mode: PluginInstallMode,
 ) -> Result<PathBuf, String> {
     let plugin_source = bundle_root.join(&package.install.plugin.source);
     let plugin_destination = project_root.join(&package.install.plugin.destination);
@@ -538,47 +478,9 @@ fn copy_release_tree(
 
     copy_tree(&plugin_source, &plugin_destination)?;
     copy_tree(&workspace_source, &workspace_destination)?;
-    strip_plugin_source_for_precompiled_install(&plugin_destination, plugin_mode)?;
     ensure_installed_binaries_executable(project_root, package)?;
     ensure_editor_performance_setting(project_root)?;
-    write_runtime_install_state(project_root, version, package, plugin_mode)
-}
-
-fn strip_plugin_source_for_precompiled_install(
-    plugin_root: &Path,
-    plugin_mode: PluginInstallMode,
-) -> Result<(), String> {
-    if plugin_mode != PluginInstallMode::Prebuilt {
-        return Ok(());
-    }
-    let source_dir = plugin_root.join("Source");
-    if !source_dir.is_dir() {
-        return Ok(());
-    }
-
-    let binary_platform_dir = match plugin_binary_platform_dir() {
-        Some(dir) => plugin_root.join("Binaries").join(dir),
-        None => return Ok(()),
-    };
-    if !binary_platform_dir.is_dir() {
-        return Ok(());
-    }
-
-    fs::remove_dir_all(&source_dir).map_err(|error| {
-        format!(
-            "failed to remove plugin source for precompiled install {}: {error}",
-            source_dir.display()
-        )
-    })
-}
-
-fn plugin_binary_platform_dir() -> Option<&'static str> {
-    match platform_key() {
-        "darwin" => Some("Mac"),
-        "linux" => Some("Linux"),
-        "windows" => Some("Win64"),
-        _ => None,
-    }
+    write_runtime_install_state(project_root, version, package)
 }
 
 fn ensure_editor_performance_setting(project_root: &Path) -> Result<(), String> {
@@ -678,7 +580,6 @@ fn write_runtime_install_state(
     project_root: &Path,
     version: &str,
     package: &ReleasePackage,
-    plugin_mode: PluginInstallMode,
 ) -> Result<PathBuf, String> {
     let workspace_root = project_root.join(&package.install.workspace.destination);
     let runtime_dir = workspace_root.join("runtime");
@@ -708,7 +609,6 @@ fn write_runtime_install_state(
         "schemaVersion": 1,
         "installedVersion": version,
         "platform": platform_key(),
-        "pluginMode": plugin_mode.as_str(),
         "projectRoot": project_root.display().to_string(),
         "workspaceRoot": workspace_root.display().to_string(),
         "pluginRoot": project_root.join(&package.install.plugin.destination).display().to_string(),
@@ -898,7 +798,6 @@ mod tests {
             version: None,
             manifest_path: Some(manifest_path),
             manifest_url: None,
-            plugin_mode: PluginInstallMode::Prebuilt,
         })
         .expect("install");
 
@@ -913,7 +812,6 @@ mod tests {
             serde_json::from_str(&install_state).expect("install state json");
         assert_eq!(install_state_json["installedVersion"], "0.1.0");
         assert_eq!(install_state_json["platform"], platform_key());
-        assert_eq!(install_state_json["pluginMode"], "prebuilt");
         #[cfg(unix)]
         {
             let client_mode = fs::metadata(project_root.join("Loomle").join(client_name))
@@ -955,7 +853,7 @@ mod tests {
     }
 
     #[test]
-    fn install_release_prefers_precompiled_plugin_layout() {
+    fn install_release_keeps_prebuilt_binaries_and_plugin_source() {
         let temp = TempDir::new().expect("temp");
         let build_root = temp.path().join("build");
         let project_root = temp.path().join("Project");
@@ -1066,7 +964,6 @@ mod tests {
             version: None,
             manifest_path: Some(manifest_path),
             manifest_url: None,
-            plugin_mode: PluginInstallMode::Prebuilt,
         })
         .expect("install");
 
@@ -1074,14 +971,13 @@ mod tests {
             .join("Plugins/LoomleBridge/Binaries")
             .join(plugin_binary_platform_dir)
             .is_dir());
-        assert!(
-            !project_root.join("Plugins/LoomleBridge/Source").exists(),
-            "precompiled installs should not keep plugin source"
-        );
+        assert!(project_root
+            .join("Plugins/LoomleBridge/Source/LoomleBridge/LoomleBridge.Build.cs")
+            .is_file());
     }
 
     #[test]
-    fn install_release_source_mode_keeps_plugin_source() {
+    fn install_release_runtime_state_omits_plugin_mode() {
         let temp = TempDir::new().expect("temp");
         let build_root = temp.path().join("build");
         let project_root = temp.path().join("Project");
@@ -1192,7 +1088,6 @@ mod tests {
             version: None,
             manifest_path: Some(manifest_path),
             manifest_url: None,
-            plugin_mode: PluginInstallMode::Source,
         })
         .expect("install");
 
@@ -1203,11 +1098,12 @@ mod tests {
             .expect("install state");
         let install_state_json: serde_json::Value =
             serde_json::from_str(&install_state).expect("install state json");
-        assert_eq!(install_state_json["pluginMode"], "source");
+        assert_eq!(install_state_json["installedVersion"], "0.1.0");
+        assert!(install_state_json.get("pluginMode").is_none());
     }
 
     #[test]
-    fn update_release_reports_latest_and_inherits_current_plugin_mode() {
+    fn update_release_reports_latest_available_version() {
         let temp = TempDir::new().expect("temp");
         let build_root = temp.path().join("build");
         let project_root = temp.path().join("Project");
@@ -1231,7 +1127,6 @@ mod tests {
             version: Some(String::from("0.1.0")),
             manifest_path: Some(manifest_path.clone()),
             manifest_url: None,
-            plugin_mode: PluginInstallMode::Source,
         })
         .expect("install 0.1.0");
 
@@ -1240,7 +1135,6 @@ mod tests {
             version: None,
             manifest_path: Some(manifest_path),
             manifest_url: None,
-            plugin_mode: None,
             apply: false,
         })
         .expect("update check");
@@ -1248,14 +1142,12 @@ mod tests {
         assert_eq!(result["installedVersion"], "0.1.0");
         assert_eq!(result["latestVersion"], "0.2.0");
         assert_eq!(result["targetVersion"], "0.2.0");
-        assert_eq!(result["currentPluginMode"], "source");
-        assert_eq!(result["targetPluginMode"], "source");
         assert_eq!(result["updateAvailable"], true);
         assert_eq!(result["wouldChange"], true);
     }
 
     #[test]
-    fn update_release_apply_upgrades_and_keeps_existing_plugin_mode() {
+    fn update_release_apply_upgrades_and_keeps_plugin_source_available() {
         let temp = TempDir::new().expect("temp");
         let build_root = temp.path().join("build");
         let project_root = temp.path().join("Project");
@@ -1279,7 +1171,6 @@ mod tests {
             version: Some(String::from("0.1.0")),
             manifest_path: Some(manifest_path.clone()),
             manifest_url: None,
-            plugin_mode: PluginInstallMode::Source,
         })
         .expect("install 0.1.0");
 
@@ -1288,21 +1179,19 @@ mod tests {
             version: None,
             manifest_path: Some(manifest_path),
             manifest_url: None,
-            plugin_mode: None,
             apply: true,
         })
         .expect("update apply");
 
         assert_eq!(result["updated"], true);
         assert_eq!(result["targetVersion"], "0.2.0");
-        assert_eq!(result["pluginMode"], "source");
 
         let install_state = fs::read_to_string(project_root.join("Loomle/runtime/install.json"))
             .expect("install state");
         let install_state_json: serde_json::Value =
             serde_json::from_str(&install_state).expect("install state json");
         assert_eq!(install_state_json["installedVersion"], "0.2.0");
-        assert_eq!(install_state_json["pluginMode"], "source");
+        assert!(install_state_json.get("pluginMode").is_none());
         assert!(project_root
             .join("Plugins/LoomleBridge/Source/LoomleBridge/LoomleBridge.Build.cs")
             .is_file());
@@ -1462,6 +1351,15 @@ mod tests {
                 let bytes = fs::read(&path).expect("read file");
                 zip.write_all(&bytes).expect("write file");
             }
+        }
+    }
+
+    fn plugin_binary_platform_dir() -> Option<&'static str> {
+        match platform_key() {
+            "darwin" => Some("Mac"),
+            "windows" => Some("Win64"),
+            "linux" => Some("Linux"),
+            _ => None,
         }
     }
 }

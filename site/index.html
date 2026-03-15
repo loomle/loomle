@@ -171,7 +171,7 @@
         <p>macOS / Linux: curl -fsSL https://loomle.ai/install.sh | sh</p>
         <p>Windows PowerShell: irm https://loomle.ai/install.ps1 | iex</p>
         <p>Then install LOOMLE into the current Unreal project by running: loomle install --project-root &lt;ProjectRoot&gt;</p>
-        <p>Default project installs use prebuilt plugin mode. If the Unreal Engine for this project is source-built or developer-compiled, install with: loomle install --project-root &lt;ProjectRoot&gt; --plugin-mode source</p>
+        <p>LOOMLE installs both the prebuilt plugin binaries and the plugin source so Unreal can load quickly and still participate in local target rebuilds.</p>
         <p>After installation, verify the setup by running: loomle doctor</p>
         <p>When LOOMLE is already installed, check for a newer release with: loomle update</p>
         <p>To upgrade an existing project-local install in place, run: loomle update --apply</p>

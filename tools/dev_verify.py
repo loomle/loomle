@@ -242,12 +242,6 @@ def main() -> int:
         help="Version string written into the temporary local install state.",
     )
     parser.add_argument(
-        "--plugin-mode",
-        default="source",
-        choices=["prebuilt", "source"],
-        help="Plugin install mode for the dev host project (default: source).",
-    )
-    parser.add_argument(
         "--wait-timeout",
         type=float,
         default=240.0,
@@ -285,8 +279,6 @@ def main() -> int:
             platform,
             "--version",
             args.version,
-            "--plugin-mode",
-            args.plugin_mode,
         ]
     )
 

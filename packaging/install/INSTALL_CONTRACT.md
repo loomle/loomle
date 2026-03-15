@@ -109,13 +109,11 @@ An installer must:
 1. copy plugin content to `Plugins/LoomleBridge/`
 2. copy workspace content to `Loomle/`
 3. preserve platform-appropriate server and client binaries
-4. ship release bundles with plugin `Source/` available as a fallback for source-built Unreal installations
-5. default project installs to `pluginMode=prebuilt`, removing plugin `Source/` only after install when matching platform binaries are present
-6. allow an explicit source-mode install that keeps plugin `Source/` for local recompiles
-7. write `Loomle/runtime/install.json` with machine-readable install state
-8. ensure `Config/DefaultEditorSettings.ini` disables background CPU throttling for Unreal Editor
-9. avoid requiring a separate skill repository install
-10. be idempotent for repeated installs of the same version
+4. ship release bundles with plugin `Source/` alongside prebuilt binaries so Unreal can participate in local target rebuilds
+5. write `Loomle/runtime/install.json` with machine-readable install state
+6. ensure `Config/DefaultEditorSettings.ini` disables background CPU throttling for Unreal Editor
+7. avoid requiring a separate skill repository install
+8. be idempotent for repeated installs of the same version
 
 Source-checkout helper entrypoints:
 

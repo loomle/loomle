@@ -70,7 +70,8 @@ Responses:
 
 Repair or reinstall from the project root:
 - `loomle install --project-root <ProjectRoot>`
-- `loomle install --project-root <ProjectRoot> --plugin-mode source`
+
+LOOMLE installs the plugin's prebuilt binaries and source together so Unreal can load quickly and still participate in local target rebuilds.
 
 Check for an update:
 - `Loomle/loomle update`
@@ -80,8 +81,6 @@ Apply the latest update:
 
 Apply a specific version:
 - `Loomle/loomle update --version <Version>`
-
-If the current install was created with `pluginMode=source`, `Loomle/loomle update --apply` keeps that mode unless you explicitly pass a different `--plugin-mode`.
 
 ## When To Open Deeper Files
 

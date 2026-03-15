@@ -39,7 +39,9 @@ cargo run -- session --project-root "/Path/To/Project"
 
 If `--project-root` is omitted, the client searches upward from the current directory until it finds a `.uproject`.
 
-`loomle update` checks the installed version against the published latest release. `loomle update --apply` upgrades in place and reuses the current plugin mode unless `--plugin-mode` is supplied.
+`loomle update` checks the installed version against the published latest release. `loomle update --apply` upgrades in place.
+
+`loomle install` always installs both the prebuilt plugin binaries and the plugin source so Unreal can load quickly and still participate in local target rebuilds.
 
 ## Session mode
 
