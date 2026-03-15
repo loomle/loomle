@@ -18,3 +18,5 @@ Move-Item -Force $TempPath $TargetPath
 Write-Host "[loomle-bootstrap] installed $TargetPath"
 Write-Host "[loomle-bootstrap] next step:"
 Write-Host "  loomle install --project-root C:\\Path\\To\\MyProject"
+Write-Host "[loomle-bootstrap] if the Unreal Engine for this project is source-built, use:"
+Write-Host "  loomle install --project-root C:\\Path\\To\\MyProject --plugin-mode source"

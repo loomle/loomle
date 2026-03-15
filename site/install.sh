@@ -64,6 +64,8 @@ main() {
 [loomle-bootstrap] installed ${target}
 [loomle-bootstrap] next step:
   loomle install --project-root /path/to/MyProject
+[loomle-bootstrap] if the Unreal Engine for this project is source-built, use:
+  loomle install --project-root /path/to/MyProject --plugin-mode source
 EOF
 }
 
