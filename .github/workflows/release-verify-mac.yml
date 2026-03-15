@@ -177,6 +177,34 @@ jobs:
           python3 tests/e2e/test_bridge_regression.py \
             --project-root "${{ steps.test_project.outputs.test_root }}"
 
+      - name: Tail Unreal Project Log On Failure
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          log_dir="${{ steps.test_project.outputs.test_root }}/Saved/Logs"
+          if [[ ! -d "$log_dir" ]]; then
+            echo "Unreal log directory not found: $log_dir"
+            exit 0
+          fi
+
+          latest_log="$(ls -t "$log_dir"/*.log 2>/dev/null | head -n 1 || true)"
+          if [[ -z "$latest_log" ]]; then
+            echo "No Unreal log files found under $log_dir"
+            exit 0
+          fi
+
+          echo "===== Tail of $latest_log ====="
+          tail -n 200 "$latest_log"
+
+      - name: Upload Unreal Project Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-verify-mac-logs
+          path: ${{ steps.test_project.outputs.test_root }}/Saved/Logs/*.log
+          if-no-files-found: ignore
+
       - name: Run Non-Blocking Latency Benchmark
         continue-on-error: true
         shell: bash

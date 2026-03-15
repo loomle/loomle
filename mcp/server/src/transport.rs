@@ -36,7 +36,12 @@ impl RpcEndpoint {
 
 #[cfg(any(windows, test))]
 fn normalize_project_root(project_root: &Path) -> String {
-    let raw = project_root.to_string_lossy().replace('\\', "/");
+    let mut raw = project_root.to_string_lossy().replace('\\', "/");
+    if let Some(stripped) = raw.strip_prefix("//?/UNC/") {
+        raw = format!("//{stripped}");
+    } else if let Some(stripped) = raw.strip_prefix("//?/") {
+        raw = stripped.to_string();
+    }
     let trimmed = raw.trim_end_matches('/');
     if trimmed.is_empty() {
         String::from("/")
@@ -432,8 +437,10 @@ mod tests {
     fn windows_pipe_name_is_stable_across_path_separators_and_case() {
         let a = windows_pipe_name_for_project_root(Path::new(r"D:\LoomleDevHost\"));
         let b = windows_pipe_name_for_project_root(Path::new("d:/loomledevhost"));
+        let c = windows_pipe_name_for_project_root(Path::new(r"\\?\D:\LoomleDevHost\"));
 
         assert_eq!(a, b);
+        assert_eq!(a, c);
         assert!(a.starts_with("loomle-"));
     }
 

@@ -286,6 +286,35 @@ jobs:
             throw "Regression integration test failed after retry"
           }
 
+      - name: Tail Unreal Project Log On Failure
+        if: failure()
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
+        run: |
+          $logDir = Join-Path "${{ steps.test_project.outputs.test_root }}" "Saved\Logs"
+          if (-not (Test-Path -LiteralPath $logDir)) {
+            Write-Warning "Unreal log directory not found: $logDir"
+            exit 0
+          }
+
+          $latestLog = Get-ChildItem -LiteralPath $logDir -Filter *.log |
+            Sort-Object LastWriteTimeUtc -Descending |
+            Select-Object -First 1
+          if ($null -eq $latestLog) {
+            Write-Warning "No Unreal log files found under $logDir"
+            exit 0
+          }
+
+          Write-Host "===== Tail of $($latestLog.FullName) ====="
+          Get-Content -LiteralPath $latestLog.FullName -Tail 200
+
+      - name: Upload Unreal Project Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-verify-windows-logs
+          path: ${{ steps.test_project.outputs.test_root }}\Saved\Logs\*.log
+          if-no-files-found: ignore
+
       - name: Stop Unreal Editor
         if: always()
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
