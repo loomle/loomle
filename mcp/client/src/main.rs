@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use std::env;
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::process::{Command, ExitCode, Stdio};
+use std::process::ExitCode;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
@@ -71,7 +71,6 @@ async fn main() -> ExitCode {
                     println!("{}", env_info.server_path.display());
                     ExitCode::SUCCESS
                 }
-                CommandKind::RunServer => run_server(&env_info),
                 CommandKind::Session => run_session(&env_info).await,
                 CommandKind::ListTools => run_list_tools(&env_info).await,
                 CommandKind::Call {
@@ -100,7 +99,6 @@ enum CommandKind {
     },
     Doctor,
     ServerPath,
-    RunServer,
     Session,
     ListTools,
     Call {
@@ -209,7 +207,6 @@ impl Cli {
                 }
                 Some("doctor") => command = Some(CommandKind::Doctor),
                 Some("server-path") => command = Some(CommandKind::ServerPath),
-                Some("run-server") => command = Some(CommandKind::RunServer),
                 Some("session") => command = Some(CommandKind::Session),
                 Some("list-tools") => command = Some(CommandKind::ListTools),
                 Some("call") => {
@@ -301,41 +298,6 @@ fn run_doctor(env_info: &Environment) -> ExitCode {
     } else {
         println!("status=error");
         ExitCode::from(1)
-    }
-}
-
-fn run_server(env_info: &Environment) -> ExitCode {
-    if !env_info.server_path.is_file() {
-        eprintln!(
-            "[loomle][ERROR] cannot launch server; binary not found: {}",
-            env_info.server_path.display()
-        );
-        return ExitCode::from(1);
-    }
-
-    let mut command = Command::new(&env_info.server_path);
-    command
-        .arg("--project-root")
-        .arg(&env_info.project_root)
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
-
-    let status = match command.status() {
-        Ok(status) => status,
-        Err(error) => {
-            eprintln!(
-                "[loomle][ERROR] failed to launch server {}: {}",
-                env_info.server_path.display(),
-                error
-            );
-            return ExitCode::from(1);
-        }
-    };
-
-    match status.code() {
-        Some(code) => ExitCode::from(code as u8),
-        None => ExitCode::from(1),
     }
 }
 
@@ -628,7 +590,6 @@ fn print_usage() {
     eprintln!("  loomle [--project-root <ProjectRoot>] list-tools");
     eprintln!("  loomle [--project-root <ProjectRoot>] call <tool-name> [--args <json-object>]");
     eprintln!("  loomle [--project-root <ProjectRoot>] server-path");
-    eprintln!("  loomle [--project-root <ProjectRoot>] run-server");
     eprintln!("  loomle [--project-root <ProjectRoot>] session");
     eprintln!();
     eprintln!("If --project-root is omitted, loomle searches upward from the current directory for a .uproject.");
@@ -646,20 +607,6 @@ mod tests {
         let cli = Cli::parse(vec![OsString::from("loomle")]).expect("cli");
         assert!(matches!(cli.command, CommandKind::Doctor));
         assert!(cli.project_root.is_none());
-    }
-
-    #[test]
-    fn cli_parses_project_root_and_run_server() {
-        let cli = Cli::parse(vec![
-            OsString::from("loomle"),
-            OsString::from("run-server"),
-            OsString::from("--project-root"),
-            OsString::from("/tmp/project"),
-        ])
-        .expect("cli");
-
-        assert_eq!(cli.project_root, Some(PathBuf::from("/tmp/project")));
-        assert!(matches!(cli.command, CommandKind::RunServer));
     }
 
     #[test]

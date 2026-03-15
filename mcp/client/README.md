@@ -7,7 +7,7 @@ Target role:
 - provide the single supported LOOMLE client entrypoint
 - discover the current Unreal project root
 - locate the MCP server installed under `Plugins/LoomleBridge/Tools/mcp/...`
-- launch the project-local MCP server/runtime
+- connect to the project-local MCP server/runtime
 - live in the installed project under `Loomle/client/`
 
 ## Build
@@ -24,7 +24,9 @@ cd mcp/client
 cargo run -- install --project-root "/Path/To/Project" --manifest-path "/Path/To/manifest.json"
 cargo run -- doctor --project-root "/Path/To/Project"
 cargo run -- server-path --project-root "/Path/To/Project"
-cargo run -- run-server --project-root "/Path/To/Project"
+cargo run -- list-tools --project-root "/Path/To/Project"
+cargo run -- call context --project-root "/Path/To/Project"
+cargo run -- session --project-root "/Path/To/Project"
 ```
 
 If `--project-root` is omitted, the client searches upward from the current directory until it finds a `.uproject`.
