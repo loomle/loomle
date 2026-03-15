@@ -21,7 +21,12 @@ Read this file first. It is the top-level usage guide for agents working inside 
      Use for one-shot tool execution.
    - `Loomle/loomle session`
      Use for repeated requests through one persistent stdin/stdout session.
-4. Choose the right workflow guide for the current graph type:
+4. For Blueprint node creation, prefer the `graph.actions -> graph.mutate addNode.byAction` flow when you want editor-native addable actions instead of hardcoded class paths.
+   Important:
+   - `actionToken` is scoped to the exact graph that returned it.
+   - Repeated `graph.actions` calls may return different tokens for equivalent actions.
+   - If `addNode.byAction` reports an action-token error, refresh by calling `graph.actions` again on that same graph.
+5. Choose the right workflow guide for the current graph type:
    - `workflows/blueprint.md`
    - `workflows/material.md`
    - `workflows/pcg.md`
@@ -66,6 +71,21 @@ Responses:
 - failed responses include `"ok": false` and `error`
 - each response includes the same `id` as the request
 
+## Action Tokens
+
+Use `graph.actions` when you want LOOMLE to expose editor-native addable actions for the current Blueprint graph.
+
+Working rule:
+- call `graph.actions` on the exact target graph
+- pick one `actions[*].actionToken`
+- immediately use it in `graph.mutate` with `op="addNode.byAction"` on that same graph
+
+Do not assume:
+- that the same action will keep the same token across repeated `graph.actions` calls
+- that a token from one asset, one root graph, or one inline subgraph will work on another graph
+
+If mutate reports an action-token error, refresh with a new `graph.actions` call on the graph you are about to mutate.
+
 ## Install And Upgrade
 
 Repair or reinstall from the project root:
@@ -85,6 +105,7 @@ Apply a specific version:
 ## When To Open Deeper Files
 
 - Open `workflows/blueprint.md` when the current task is editing or reading Blueprint graphs.
+  This is also where `graph.actions` / `addNode.byAction` usage is explained.
 - Open `workflows/material.md` when the current task is editing or reading Material graphs.
 - Open `workflows/pcg.md` when the current task is editing or reading PCG graphs.
 - Open `examples/README.md` when you want small concrete payload examples before calling tools.
