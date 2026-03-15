@@ -1970,6 +1970,158 @@ def main() -> int:
             for edge in material_edges
         ):
             fail(f"Material graph.query did not return multiply->root edge: {material_edges}")
+        material_root_edge = next(
+            (
+                edge
+                for edge in material_edges
+                if isinstance(edge, dict)
+                and edge.get("fromNodeId") == material_multiply_id
+                and edge.get("toNodeId") == "__material_root__"
+                and edge.get("toPin") == "Base Color"
+            ),
+            None,
+        )
+        if not isinstance(material_root_edge, dict) or not material_root_edge.get("fromPin"):
+            fail(f"Material root edge missing source pin for breakPinLinks round-trip: {material_root_edge}")
+        material_break_root_from_source = call_tool(
+            client,
+            100151,
+            "graph.mutate",
+            {
+                "assetPath": material_asset_path,
+                "graphName": "MaterialGraph",
+                "graphType": "material",
+                "ops": [
+                    {
+                        "op": "breakPinLinks",
+                        "args": {
+                            "target": {
+                                "nodeId": material_root_edge.get("fromNodeId"),
+                                "pinName": material_root_edge.get("fromPin"),
+                            }
+                        },
+                    }
+                ],
+            },
+        )
+        material_break_root_from_source_first = op_ok(material_break_root_from_source)
+        if material_break_root_from_source_first.get("changed") is not True:
+            fail(
+                "Material breakPinLinks should remove root edge when targeting the edge source pin: "
+                f"{material_break_root_from_source}"
+            )
+        material_snapshot_after_root_source_break = query_snapshot(client, 100152, material_asset_path, "material", "MaterialGraph")
+        material_edges_after_root_source_break = material_snapshot_after_root_source_break.get("edges")
+        if any(
+            isinstance(edge, dict)
+            and edge.get("fromNodeId") == material_root_edge.get("fromNodeId")
+            and edge.get("fromPin") == material_root_edge.get("fromPin")
+            and edge.get("toNodeId") == material_root_edge.get("toNodeId")
+            and edge.get("toPin") == material_root_edge.get("toPin")
+            for edge in material_edges_after_root_source_break or []
+        ):
+            fail(
+                "Material breakPinLinks(source pin) should remove the root edge returned by graph.query: "
+                f"{material_snapshot_after_root_source_break}"
+            )
+        material_reconnect_root_after_source_break = call_tool(
+            client,
+            100153,
+            "graph.mutate",
+            {
+                "assetPath": material_asset_path,
+                "graphName": "MaterialGraph",
+                "graphType": "material",
+                "ops": [
+                    {
+                        "op": "connectPins",
+                        "args": {
+                            "from": {"nodeId": material_root_edge.get("fromNodeId")},
+                            "to": {"nodeId": "__material_root__", "pin": "Base Color"},
+                        },
+                    }
+                ],
+            },
+        )
+        op_ok(material_reconnect_root_after_source_break)
+        material_internal_edge = next(
+            (
+                edge
+                for edge in material_edges
+                if isinstance(edge, dict)
+                and edge.get("fromNodeId") == material_param_id
+                and edge.get("toNodeId") == material_multiply_id
+                and edge.get("toPin") == "A"
+            ),
+            None,
+        )
+        if not isinstance(material_internal_edge, dict) or not material_internal_edge.get("fromPin"):
+            fail(f"Material internal edge missing source pin for breakPinLinks round-trip: {material_internal_edge}")
+        material_break_internal_from_source = call_tool(
+            client,
+            100154,
+            "graph.mutate",
+            {
+                "assetPath": material_asset_path,
+                "graphName": "MaterialGraph",
+                "graphType": "material",
+                "ops": [
+                    {
+                        "op": "breakPinLinks",
+                        "args": {
+                            "target": {
+                                "nodeId": material_internal_edge.get("fromNodeId"),
+                                "pinName": material_internal_edge.get("fromPin"),
+                            }
+                        },
+                    }
+                ],
+            },
+        )
+        material_break_internal_from_source_first = op_ok(material_break_internal_from_source)
+        if material_break_internal_from_source_first.get("changed") is not True:
+            fail(
+                "Material breakPinLinks should remove internal edge when targeting the edge source pin: "
+                f"{material_break_internal_from_source}"
+            )
+        material_snapshot_after_internal_source_break = query_snapshot(client, 100155, material_asset_path, "material", "MaterialGraph")
+        material_edges_after_internal_source_break = material_snapshot_after_internal_source_break.get("edges")
+        if any(
+            isinstance(edge, dict)
+            and edge.get("fromNodeId") == material_internal_edge.get("fromNodeId")
+            and edge.get("fromPin") == material_internal_edge.get("fromPin")
+            and edge.get("toNodeId") == material_internal_edge.get("toNodeId")
+            and edge.get("toPin") == material_internal_edge.get("toPin")
+            for edge in material_edges_after_internal_source_break or []
+        ):
+            fail(
+                "Material breakPinLinks(source pin) should remove the internal edge returned by graph.query: "
+                f"{material_snapshot_after_internal_source_break}"
+            )
+        material_reconnect_internal_after_source_break = call_tool(
+            client,
+            100156,
+            "graph.mutate",
+            {
+                "assetPath": material_asset_path,
+                "graphName": "MaterialGraph",
+                "graphType": "material",
+                "ops": [
+                    {
+                        "op": "connectPins",
+                        "args": {
+                            "from": {"nodeId": material_internal_edge.get("fromNodeId")},
+                            "to": {
+                                "nodeId": material_internal_edge.get("toNodeId"),
+                                "pin": material_internal_edge.get("toPin"),
+                            },
+                        },
+                    }
+                ],
+            },
+        )
+        op_ok(material_reconnect_internal_after_source_break)
+        print("[PASS] material breakPinLinks source-pin round-trip validated")
         material_before_relayout = dict(material_multiply_pos)
         material_relayout_payload = call_tool(
             client,

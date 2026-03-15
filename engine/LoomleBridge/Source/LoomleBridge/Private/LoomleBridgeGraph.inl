@@ -5140,6 +5140,120 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
 
             return false;
         };
+        auto DisconnectMaterialInput = [](FExpressionInput* Input) -> bool
+        {
+            if (Input == nullptr || Input->Expression == nullptr)
+            {
+                return false;
+            }
+
+            Input->Expression = nullptr;
+            Input->OutputIndex = 0;
+            return true;
+        };
+        auto BreakMaterialLinksBySourcePin = [&](UMaterialExpression* SourceExpr, const FString& SourcePinName, TArray<FString>& OutTouchedNodeIds) -> bool
+        {
+            if (SourceExpr == nullptr || MaterialAsset == nullptr)
+            {
+                return false;
+            }
+
+            auto InputMatchesSourcePin = [&SourcePinName](const FExpressionInput* Input) -> bool
+            {
+                if (Input == nullptr)
+                {
+                    return false;
+                }
+
+                if (SourcePinName.IsEmpty())
+                {
+                    return true;
+                }
+
+                const auto CanonicalizeMaterialSourcePinNameLocal = [](const FString& PinName) -> FString
+                {
+                    FString Normalized = PinName.TrimStartAndEnd();
+                    if (Normalized.IsEmpty()
+                        || Normalized.Equals(TEXT("None"), ESearchCase::IgnoreCase)
+                        || Normalized.Equals(TEXT("Output"), ESearchCase::IgnoreCase))
+                    {
+                        return TEXT("__default__");
+                    }
+                    return Normalized.ToLower();
+                };
+
+                return CanonicalizeMaterialSourcePinNameLocal(Input->InputName.ToString())
+                    == CanonicalizeMaterialSourcePinNameLocal(SourcePinName);
+            };
+
+            bool bDisconnected = false;
+
+            if (MaterialAsset->MaterialGraph != nullptr && MaterialAsset->MaterialGraph->RootNode != nullptr)
+            {
+                TSet<EMaterialProperty> SeenRootProperties;
+                for (UEdGraphPin* RootPin : MaterialAsset->MaterialGraph->RootNode->Pins)
+                {
+                    if (RootPin == nullptr || RootPin->Direction != EGPD_Input)
+                    {
+                        continue;
+                    }
+
+                    const int32 SourceIndex = RootPin->SourceIndex;
+                    if (!MaterialAsset->MaterialGraph->MaterialInputs.IsValidIndex(SourceIndex))
+                    {
+                        continue;
+                    }
+
+                    const EMaterialProperty Property = MaterialAsset->MaterialGraph->MaterialInputs[SourceIndex].GetProperty();
+                    if (SeenRootProperties.Contains(Property))
+                    {
+                        continue;
+                    }
+                    SeenRootProperties.Add(Property);
+
+                    if (FExpressionInput* Input = MaterialAsset->GetExpressionInputForProperty(Property))
+                    {
+                        if (Input->Expression == SourceExpr && InputMatchesSourcePin(Input) && DisconnectMaterialInput(Input))
+                        {
+                            bDisconnected = true;
+                            OutTouchedNodeIds.Add(TEXT("__material_root__"));
+                        }
+                    }
+                }
+            }
+
+            for (UMaterialExpression* Candidate : MaterialAsset->GetExpressions())
+            {
+                if (Candidate == nullptr)
+                {
+                    continue;
+                }
+
+                bool bCandidateChanged = false;
+                const int32 MaxInputs = 128;
+                for (int32 InputIndex = 0; InputIndex < MaxInputs; ++InputIndex)
+                {
+                    FExpressionInput* Input = Candidate->GetInput(InputIndex);
+                    if (Input == nullptr)
+                    {
+                        break;
+                    }
+
+                    if (Input->Expression == SourceExpr && InputMatchesSourcePin(Input) && DisconnectMaterialInput(Input))
+                    {
+                        bDisconnected = true;
+                        bCandidateChanged = true;
+                    }
+                }
+
+                if (bCandidateChanged)
+                {
+                    OutTouchedNodeIds.Add(MaterialExpressionId(Candidate));
+                }
+            }
+
+            return bDisconnected;
+        };
         if (GraphType.Equals(TEXT("material")))
         {
             MaterialAsset = LoadMaterialByAssetPath(AssetPath);
@@ -5581,13 +5695,15 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                     {
                                         if (FExpressionInput* Input = Expr->GetInput(InputIndex))
                                         {
-                                            if (Input->Expression != nullptr)
+                                            if (DisconnectMaterialInput(Input))
                                             {
-                                                Input->Expression = nullptr;
-                                                Input->OutputIndex = 0;
                                                 bDisconnected = true;
                                             }
                                         }
+                                    }
+                                    else if (BreakMaterialLinksBySourcePin(Expr, TargetPinName, NodesTouchedForLayout))
+                                    {
+                                        bDisconnected = true;
                                     }
                                 }
 
