@@ -301,20 +301,48 @@ jobs:
       - name: Benchmark graph.query Concurrency
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
-          $graphArgs = @{
-            assetPath = "${{ steps.temp_asset.outputs.asset_path }}"
-            graphName = "EventGraph"
-            graphType = "blueprint"
-            limit = 200
-          } | ConvertTo-Json -Compress
+          $script = @'
+          import json
+          import os
+          import subprocess
+          import sys
 
-          python tools/perf_bridge_latency.py `
-            --project-root "${{ steps.test_project.outputs.test_root }}" `
-            --tool graph.query `
-            --arguments $graphArgs `
-            --total 384 `
-            --concurrency 48 `
-            --warmup 20 | Tee-Object -FilePath "$env:RUNNER_TEMP\loomle-graph-query-bench.txt"
+          args = {
+              "assetPath": os.environ["LOOMLE_BENCH_ASSET_PATH"],
+              "graphName": "EventGraph",
+              "graphType": "blueprint",
+              "limit": 200,
+          }
+          command = [
+              sys.executable,
+              "tools/perf_bridge_latency.py",
+              "--project-root",
+              os.environ["LOOMLE_BENCH_PROJECT_ROOT"],
+              "--tool",
+              "graph.query",
+              "--arguments",
+              json.dumps(args, separators=(",", ":")),
+              "--total",
+              "384",
+              "--concurrency",
+              "48",
+              "--warmup",
+              "20",
+          ]
+          result = subprocess.run(command, capture_output=True, text=True)
+          sys.stdout.write(result.stdout)
+          sys.stderr.write(result.stderr)
+          bench_path = os.path.join(os.environ["RUNNER_TEMP"], "loomle-graph-query-bench.txt")
+          with open(bench_path, "w", encoding="utf-8") as handle:
+              handle.write(result.stdout)
+              if result.stderr:
+                  handle.write(result.stderr)
+          raise SystemExit(result.returncode)
+          '@
+
+          $env:LOOMLE_BENCH_ASSET_PATH = "${{ steps.temp_asset.outputs.asset_path }}"
+          $env:LOOMLE_BENCH_PROJECT_ROOT = "${{ steps.test_project.outputs.test_root }}"
+          $script | python -
 
       - name: Upload Benchmark Outputs
         if: always()
