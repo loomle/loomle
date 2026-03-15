@@ -282,7 +282,7 @@ jobs:
               client.close()
           '@
 
-          $assetPath = $script | python -
+          $assetPath = ($script | python - | Select-Object -Last 1).Trim()
           if (-not $assetPath) {
             throw "Failed to create temporary benchmark asset"
           }
