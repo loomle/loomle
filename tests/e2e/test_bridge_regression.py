@@ -872,6 +872,96 @@ def main() -> int:
             )
         print("[PASS] dryRun runScript explicit skip validated")
 
+        partial_apply_node = call_tool(
+            client,
+            10923,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "ops": [
+                    {
+                        "op": "addNode.byClass",
+                        "args": {
+                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
+                            "position": {"x": 1536, "y": 0},
+                        },
+                    }
+                ],
+            },
+        )
+        partial_apply_node_id = op_ok(partial_apply_node).get("nodeId")
+        if not isinstance(partial_apply_node_id, str) or not partial_apply_node_id:
+            fail(f"Blueprint partial-apply setup addNode.byClass did not return nodeId: {partial_apply_node}")
+        partial_apply_before = query_graph_payload(
+            client,
+            10924,
+            asset_path=temp_asset,
+            graph_name="EventGraph",
+            limit=200,
+        )
+        partial_apply_before_revision = partial_apply_before.get("revision")
+        partial_apply_failure = call_tool(
+            client,
+            10925,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "ops": [
+                    {"op": "removeNode", "args": {"target": {"nodeId": partial_apply_node_id}}},
+                    {"op": "addNode", "args": {"nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse"}},
+                ],
+            },
+            expect_error=True,
+        )
+        partial_apply_detail = partial_apply_failure.get("detail")
+        if not isinstance(partial_apply_detail, str) or not partial_apply_detail.strip():
+            fail(f"Blueprint partial-apply batch should include structured detail: {partial_apply_failure}")
+        try:
+            partial_apply_struct = json.loads(partial_apply_detail)
+        except json.JSONDecodeError as exc:
+            fail(f"Blueprint partial-apply batch detail is not valid JSON: {exc} payload={partial_apply_failure}")
+        if partial_apply_struct.get("code") != "UNSUPPORTED_OP":
+            fail(f"Blueprint partial-apply batch should surface UNSUPPORTED_OP in structured detail: {partial_apply_failure}")
+        if partial_apply_struct.get("applied") is not False:
+            fail(f"Blueprint partial-apply batch should report applied=false: {partial_apply_struct}")
+        if partial_apply_struct.get("partialApplied") is not True:
+            fail(f"Blueprint partial-apply batch should report partialApplied=true: {partial_apply_struct}")
+        partial_apply_results = partial_apply_struct.get("opResults")
+        if not isinstance(partial_apply_results, list) or len(partial_apply_results) != 2:
+            fail(f"Blueprint partial-apply batch missing opResults: {partial_apply_struct}")
+        partial_apply_first = partial_apply_results[0] if isinstance(partial_apply_results[0], dict) else {}
+        partial_apply_second = partial_apply_results[1] if isinstance(partial_apply_results[1], dict) else {}
+        if partial_apply_first.get("ok") is not True or partial_apply_first.get("changed") is not True:
+            fail(f"Blueprint partial-apply first op should be applied and changed: {partial_apply_struct}")
+        if partial_apply_second.get("errorCode") != "UNSUPPORTED_OP":
+            fail(f"Blueprint partial-apply second op should fail as UNSUPPORTED_OP: {partial_apply_struct}")
+        partial_apply_after = query_graph_payload(
+            client,
+            10926,
+            asset_path=temp_asset,
+            graph_name="EventGraph",
+            limit=200,
+        )
+        partial_apply_after_nodes = partial_apply_after.get("semanticSnapshot", {}).get("nodes", [])
+        if partial_apply_after.get("revision") == partial_apply_before_revision:
+            fail(
+                "Blueprint partial-apply batch should still advance revision when an earlier op committed: "
+                f"before={partial_apply_before} after={partial_apply_after}"
+            )
+        if any(
+            isinstance(node, dict) and node.get("id") == partial_apply_node_id
+            for node in partial_apply_after_nodes or []
+        ):
+            fail(
+                "Blueprint partial-apply batch should have removed the earlier node despite later failure: "
+                f"{partial_apply_after}"
+            )
+        print("[PASS] blueprint partialApplied mutate metadata validated")
+
         blueprint_idem_key = "bp-idem-1"
         blueprint_idem_before = query_graph_payload(
             client,

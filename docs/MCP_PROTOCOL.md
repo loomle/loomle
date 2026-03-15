@@ -22,6 +22,7 @@ Protocol baseline: MCP specification `2025-11-05` tools semantics.
 Graph mutate note:
 - `graph.mutate` may return operation-specific structured fields such as `opResults[*].details` and `opResults[*].movedNodeIds`; clients should preserve unknown fields on `opResults[]`.
 - `graph.mutate` `layoutGraph` currently supports `scope="touched"` and `scope="all"` for Blueprint, Material, and PCG graphs; `scope="touched"` consumes the graph-local pending touched-node set built from earlier successful mutate ops.
+- `graph.mutate` batches execute in order and are not transactional today; if a later op fails after an earlier op already changed the graph, the top-level result returns `applied=false` and `partialApplied=true`.
 
 4. Tool name style
 - Minimal names kept as project convention.

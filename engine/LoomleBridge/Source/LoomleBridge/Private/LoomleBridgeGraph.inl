@@ -4773,6 +4773,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         TMap<FString, FString> LocalNodeRefs;
         TArray<TSharedPtr<FJsonValue>> LocalOpResults;
         bool bAnyErrorLocal = false;
+        bool bAnyChangedLocal = false;
         FString FirstErrorLocal;
         FString FirstErrorCodeLocal;
 
@@ -6420,6 +6421,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 OpResult->SetArrayField(TEXT("movedNodeIds"), MovedNodeValues);
             }
             LocalOpResults.Add(MakeShared<FJsonValueObject>(OpResult));
+            if (bOk && bChanged && !bDryRun)
+            {
+                bAnyChangedLocal = true;
+            }
 
             if (!bOk)
             {
@@ -6446,6 +6451,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             Result->SetStringField(TEXT("message"), FirstErrorLocal.IsEmpty() ? TEXT("graph.mutate failed") : FirstErrorLocal);
         }
         Result->SetBoolField(TEXT("applied"), !bAnyErrorLocal);
+        Result->SetBoolField(TEXT("partialApplied"), bAnyErrorLocal && bAnyChangedLocal);
         Result->SetStringField(TEXT("graphType"), GraphType);
         Result->SetStringField(TEXT("assetPath"), AssetPath);
         Result->SetStringField(TEXT("graphName"), GraphName);
@@ -6524,6 +6530,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
     TMap<FString, FString> NodeRefs;
     TArray<TSharedPtr<FJsonValue>> OpResults;
     bool bAnyError = false;
+    bool bAnyChanged = false;
     FString FirstError;
     FString FirstErrorCode;
 
@@ -7742,6 +7749,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             OpResult->SetObjectField(TEXT("scriptResult"), ScriptResultForOp);
         }
         OpResults.Add(MakeShared<FJsonValueObject>(OpResult));
+        if (bOk && bChanged && !bDryRun)
+        {
+            bAnyChanged = true;
+        }
 
         if (!bOk)
         {
@@ -7771,6 +7782,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
     }
 
     Result->SetBoolField(TEXT("applied"), !bAnyError);
+    Result->SetBoolField(TEXT("partialApplied"), bAnyError && bAnyChanged);
     Result->SetStringField(TEXT("graphType"), GraphType);
     Result->SetStringField(TEXT("assetPath"), AssetPath);
     Result->SetStringField(TEXT("graphName"), GraphName);

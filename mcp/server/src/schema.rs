@@ -554,9 +554,10 @@ fn graph_mutate_output_schema() -> Value {
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
-        "required": ["applied", "graphType", "assetPath", "graphName", "graphRef", "opResults", "diagnostics"],
+        "required": ["applied", "partialApplied", "graphType", "assetPath", "graphName", "graphRef", "opResults", "diagnostics"],
         "properties": {
             "applied": { "type": "boolean" },
+            "partialApplied": { "type": "boolean" },
             "graphType": graph_type_schema(),
             "assetPath": { "type": "string" },
             "graphName": { "type": "string" },

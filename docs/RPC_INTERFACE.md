@@ -525,6 +525,7 @@ Notes:
 ```json
 {
   "applied": true,
+  "partialApplied": false,
   "graphType": "blueprint|material|pcg",
   "assetPath": "/Game/...",
   "graphName": "EventGraph",
@@ -568,6 +569,8 @@ When `applied=false`:
 
 - top-level `code` mirrors the first failing operation's `opResults[*].errorCode` (falls back to `INTERNAL_ERROR` only when classification is unavailable).
 - top-level `message` mirrors the first failing operation's `opResults[*].errorMessage`.
+- top-level `partialApplied=true` means one or more earlier operations in the ordered batch already committed with `changed=true` before the later failure was encountered.
+- `graph.mutate` is currently ordered but non-transactional: the server does not roll back earlier successful ops when a later op fails.
 
 ## 5.7 tool=`diag.tail`
 
