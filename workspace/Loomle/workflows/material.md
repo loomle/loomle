@@ -8,6 +8,10 @@ Recommended Material editing rhythm for LOOMLE:
 4. connect terminal expressions into `__material_root__`
 5. call `layoutGraph(scope=\"touched\")`
 
+Addressing rule:
+- if you already have a Material or MaterialFunction asset path, prefer resolving or querying that asset directly
+- if `graph.query` returns `childGraphRef`, treat it as the preferred handle for the referenced function subgraph instead of rebuilding the address manually
+
 Layout expectation:
 - material root is the right-side sink
 - sink expressions sit immediately to the left of the root

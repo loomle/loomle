@@ -21,12 +21,17 @@ Read this file first. It is the top-level usage guide for agents working inside 
      Use for one-shot tool execution.
    - `Loomle/loomle session`
      Use for repeated requests through one persistent stdin/stdout session.
-4. For Blueprint node creation, prefer the `graph.actions -> graph.mutate addNode.byAction` flow when you want editor-native addable actions instead of hardcoded class paths.
+4. If you are starting from the current editor selection, use `context` first, then `graph.resolve` for any emitted object path before assuming a graph address.
+   Working rule:
+   - `context` tells you what the editor is focused on and what is selected
+   - `graph.resolve` turns an asset path, object path, actor path, or component path into queryable `graphRef` values
+   - once LOOMLE returns a `graphRef`, prefer reusing that `graphRef` in later `graph.query`, `graph.actions`, and `graph.mutate` calls
+5. For Blueprint node creation, prefer the `graph.actions -> graph.mutate addNode.byAction` flow when you want editor-native addable actions instead of hardcoded class paths.
    Important:
    - `actionToken` is scoped to the exact graph that returned it.
    - Repeated `graph.actions` calls may return different tokens for equivalent actions.
    - If `addNode.byAction` reports an action-token error, refresh by calling `graph.actions` again on that same graph.
-5. Choose the right workflow guide for the current graph type:
+6. Choose the right workflow guide for the current graph type:
    - `workflows/blueprint.md`
    - `workflows/material.md`
    - `workflows/pcg.md`
@@ -45,6 +50,19 @@ Read this file first. It is the top-level usage guide for agents working inside 
   Check the installed version against the latest published release.
 - `Loomle/loomle update --apply`
   Upgrade this project-local LOOMLE install in place.
+
+## Addressing Graphs
+
+Preferred discovery order:
+- use `context` when you want to start from the current editor state or selection
+- use `graph.resolve` when you have a path from selection, an actor, a component, or an asset and need a queryable graph address
+- use returned `graphRef` values as the stable addressing form for follow-up `graph.query`, `graph.actions`, and `graph.mutate` calls
+
+Do not guess:
+- that a selected object path is already the right `assetPath`
+- that Blueprint, Material, and PCG all resolve the same way from editor selection
+
+If LOOMLE gives you a `graphRef`, prefer passing that back verbatim instead of reconstructing `assetPath` / `graphName` yourself.
 
 ## Session Mode
 
@@ -86,6 +104,17 @@ Do not assume:
 
 If mutate reports an action-token error, refresh with a new `graph.actions` call on the graph you are about to mutate.
 
+## Mutate Batches
+
+`graph.mutate` batches are ordered but not transactional.
+
+Working rule:
+- if the top-level result returns `applied=true`, the full batch succeeded
+- if it returns `applied=false` and `partialApplied=true`, one or more earlier ops already changed the graph before a later op failed
+- after any failed batch, run `graph.query` again before deciding what to retry
+
+Do not assume a failed mutate batch automatically rolled back earlier successful ops.
+
 ## Install And Upgrade
 
 Repair or reinstall from the project root:
@@ -107,7 +136,9 @@ Apply a specific version:
 - Open `workflows/blueprint.md` when the current task is editing or reading Blueprint graphs.
   This is also where `graph.actions` / `addNode.byAction` usage is explained.
 - Open `workflows/material.md` when the current task is editing or reading Material graphs.
+  This is where Material subgraph traversal through `childGraphRef` is explained.
 - Open `workflows/pcg.md` when the current task is editing or reading PCG graphs.
+  This is where graph resolution from selected PCG actors and components should be treated as normal.
 - Open `examples/README.md` when you want small concrete payload examples before calling tools.
 - Do not treat `runtime/` as documentation. It contains machine-written state such as install metadata.
 
