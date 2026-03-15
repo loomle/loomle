@@ -182,6 +182,8 @@ pub fn update_release(request: UpdateRequest) -> Result<serde_json::Value, Strin
         "latestVersion": latest_version,
         "targetVersion": target_version,
         "updated": true,
+        "restartRequired": true,
+        "restartReason": "If Unreal Editor is already running, restart it to load the updated LoomleBridge plugin version.",
         "install": install_result,
     }))
 }
@@ -1185,6 +1187,11 @@ mod tests {
 
         assert_eq!(result["updated"], true);
         assert_eq!(result["targetVersion"], "0.2.0");
+        assert_eq!(result["restartRequired"], true);
+        assert_eq!(
+            result["restartReason"],
+            "If Unreal Editor is already running, restart it to load the updated LoomleBridge plugin version."
+        );
 
         let install_state = fs::read_to_string(project_root.join("Loomle/runtime/install.json"))
             .expect("install state");

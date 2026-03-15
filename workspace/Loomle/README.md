@@ -128,6 +128,7 @@ Check for an update:
 
 Apply the latest update:
 - `Loomle/loomle update --apply`
+  If Unreal Editor is already running, restart it after the update so the editor loads the new LoomleBridge plugin version.
 
 Apply a specific version:
 - `Loomle/loomle update --version <Version>`
