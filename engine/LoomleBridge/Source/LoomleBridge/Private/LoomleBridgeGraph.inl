@@ -4,15 +4,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
 
-    const FString GraphType = GetGraphTypeFromArgs(Arguments);
-    if (!IsSupportedGraphType(GraphType))
-    {
-        Result->SetBoolField(TEXT("isError"), true);
-        Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_GRAPH_TYPE"));
-        Result->SetStringField(TEXT("message"), TEXT("Supported graphType values: blueprint, material, pcg."));
-        return Result;
-    }
-
     FString AssetPath;
     if (!Arguments->TryGetStringField(TEXT("assetPath"), AssetPath) || AssetPath.IsEmpty())
     {
@@ -22,6 +13,38 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
         return Result;
     }
     AssetPath = NormalizeAssetPath(AssetPath);
+
+    FString GraphType;
+    const bool bHasExplicitGraphType =
+        Arguments.IsValid() && Arguments->TryGetStringField(TEXT("graphType"), GraphType) && !GraphType.IsEmpty();
+    if (bHasExplicitGraphType)
+    {
+        GraphType = NormalizeGraphType(GraphType);
+        if (!IsSupportedGraphType(GraphType))
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_GRAPH_TYPE"));
+            Result->SetStringField(TEXT("message"), TEXT("Supported graphType values: blueprint, material, pcg."));
+            return Result;
+        }
+    }
+    else
+    {
+        UObject* AssetObject = LoadObjectByAssetPath(AssetPath);
+        if (AssetObject != nullptr
+            && (AssetObject->IsA<UMaterial>() || AssetObject->IsA<UMaterialFunction>()))
+        {
+            GraphType = TEXT("material");
+        }
+        else if (IsLikelyPcgAsset(AssetObject))
+        {
+            GraphType = TEXT("pcg");
+        }
+        else
+        {
+            GraphType = TEXT("blueprint");
+        }
+    }
 
     // Helper: build an asset-kind GraphRef JSON object.
     auto MakeAssetGraphRef = [](const FString& RefAssetPath, const FString& RefGraphName) -> TSharedPtr<FJsonObject>
@@ -58,7 +81,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
 
     if (GraphType.Equals(TEXT("material")))
     {
-        if (LoadMaterialByAssetPath(AssetPath) == nullptr)
+        UMaterial* Material = LoadMaterialByAssetPath(AssetPath);
+        UMaterialFunction* MaterialFunction = nullptr;
+        if (Material == nullptr)
+        {
+            MaterialFunction = Cast<UMaterialFunction>(LoadObjectByAssetPath(AssetPath));
+        }
+        if (Material == nullptr && MaterialFunction == nullptr)
         {
             Result->SetBoolField(TEXT("isError"), true);
             Result->SetStringField(TEXT("code"), TEXT("ASSET_NOT_FOUND"));
@@ -79,13 +108,33 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
 
         if (bIncludeSubgraphs && MaxDepth > 0)
         {
-            UMaterial* Material = LoadMaterialByAssetPath(AssetPath);
-            if (Material)
+            TArray<UMaterialExpression*> Expressions;
+            if (Material != nullptr)
             {
-                TSharedPtr<FJsonObject> ParentRef = MakeAssetGraphRef(AssetPath, TEXT(""));
                 for (UMaterialExpression* Expression : Material->GetExpressions())
                 {
-                    if (Expression == nullptr) { continue; }
+                    if (Expression != nullptr)
+                    {
+                        Expressions.Add(Expression);
+                    }
+                }
+            }
+            else if (MaterialFunction != nullptr)
+            {
+                for (const TObjectPtr<UMaterialExpression>& Expression : MaterialFunction->GetExpressions())
+                {
+                    if (Expression != nullptr)
+                    {
+                        Expressions.Add(Expression.Get());
+                    }
+                }
+            }
+
+            if (Expressions.Num() > 0)
+            {
+                TSharedPtr<FJsonObject> ParentRef = MakeAssetGraphRef(AssetPath, TEXT(""));
+                for (UMaterialExpression* Expression : Expressions)
+                {
                     UMaterialExpressionMaterialFunctionCall* FuncCall = Cast<UMaterialExpressionMaterialFunctionCall>(Expression);
                     if (!FuncCall || !FuncCall->MaterialFunction) { continue; }
 

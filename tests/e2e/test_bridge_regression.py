@@ -1566,6 +1566,20 @@ def main() -> int:
         if not isinstance(material_asset_path, str) or not material_asset_path:
             fail(f"Material fixture missing assetPath: {material_fixture}")
         print("[PASS] temporary material fixture created")
+        material_graph_list_without_type = call_tool(
+            client,
+            10009,
+            "graph.list",
+            {"assetPath": material_asset_path, "includeSubgraphs": True},
+        )
+        material_graphs_without_type = material_graph_list_without_type.get("graphs")
+        if not isinstance(material_graphs_without_type, list) or not material_graphs_without_type:
+            fail(f"graph.list(material assetPath without graphType) missing graphs[]: {material_graph_list_without_type}")
+        material_root_graph = material_graphs_without_type[0] if isinstance(material_graphs_without_type[0], dict) else {}
+        if material_graph_list_without_type.get("graphType") != "material":
+            fail(f"graph.list(material assetPath without graphType) should infer material: {material_graph_list_without_type}")
+        if material_root_graph.get("graphName") != "MaterialGraph":
+            fail(f"graph.list(material assetPath without graphType) root graph mismatch: {material_graph_list_without_type}")
 
         material_add = call_tool(
             client,
@@ -2272,6 +2286,20 @@ def main() -> int:
             for node_id in [pcg_create_id, pcg_tag_a_id, pcg_filter_id, pcg_tag_b_id, pcg_sampler_id, pcg_tag_c_id]
         ):
             fail(f"PCG layout add ops missing node ids: {pcg_layout_add}")
+        pcg_graph_list_without_type = call_tool(
+            client,
+            101005,
+            "graph.list",
+            {"assetPath": temp_pcg_asset, "includeSubgraphs": True},
+        )
+        pcg_graphs_without_type = pcg_graph_list_without_type.get("graphs")
+        if not isinstance(pcg_graphs_without_type, list) or not pcg_graphs_without_type:
+            fail(f"graph.list(PCG assetPath without graphType) missing graphs[]: {pcg_graph_list_without_type}")
+        pcg_root_graph = pcg_graphs_without_type[0] if isinstance(pcg_graphs_without_type[0], dict) else {}
+        if pcg_graph_list_without_type.get("graphType") != "pcg":
+            fail(f"graph.list(PCG assetPath without graphType) should infer pcg: {pcg_graph_list_without_type}")
+        if pcg_root_graph.get("graphName") != "PCGGraph":
+            fail(f"graph.list(PCG assetPath without graphType) root graph mismatch: {pcg_graph_list_without_type}")
 
         pcg_connect = call_tool(
             client,
