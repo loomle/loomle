@@ -982,7 +982,51 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
         Arguments->TryGetBoolField(TEXT("_loomleBaseSnapshot"), bBaseSnapshotRequest);
     }
 
-    const FString GraphType = GetGraphTypeFromArgs(Arguments);
+    FString GraphType;
+    const bool bHasExplicitGraphType =
+        Arguments.IsValid() && Arguments->TryGetStringField(TEXT("graphType"), GraphType) && !GraphType.IsEmpty();
+    if (bHasExplicitGraphType)
+    {
+        GraphType = NormalizeGraphType(GraphType);
+    }
+    else
+    {
+        GraphType = TEXT("blueprint");
+        FString InferredAssetPath;
+        const TSharedPtr<FJsonObject>* QueryGraphRefObj = nullptr;
+        const bool bHasQueryGraphRef =
+            Arguments.IsValid()
+            && Arguments->TryGetObjectField(TEXT("graphRef"), QueryGraphRefObj)
+            && QueryGraphRefObj
+            && (*QueryGraphRefObj).IsValid();
+        if (bHasQueryGraphRef)
+        {
+            FString QueryGraphRefKind;
+            (*QueryGraphRefObj)->TryGetStringField(TEXT("kind"), QueryGraphRefKind);
+            if (!QueryGraphRefKind.Equals(TEXT("inline")))
+            {
+                (*QueryGraphRefObj)->TryGetStringField(TEXT("assetPath"), InferredAssetPath);
+            }
+        }
+        if (InferredAssetPath.IsEmpty() && Arguments.IsValid())
+        {
+            Arguments->TryGetStringField(TEXT("assetPath"), InferredAssetPath);
+        }
+        if (!InferredAssetPath.IsEmpty())
+        {
+            const FString NormalizedInferredAssetPath = NormalizeAssetPath(InferredAssetPath);
+            UObject* AssetObject = LoadObjectByAssetPath(NormalizedInferredAssetPath);
+            if (AssetObject != nullptr
+                && (AssetObject->IsA<UMaterial>() || AssetObject->IsA<UMaterialFunction>()))
+            {
+                GraphType = TEXT("material");
+            }
+            else if (IsLikelyPcgAsset(AssetObject))
+            {
+                GraphType = TEXT("pcg");
+            }
+        }
+    }
     if (!IsSupportedGraphType(GraphType))
     {
         Result->SetBoolField(TEXT("isError"), true);

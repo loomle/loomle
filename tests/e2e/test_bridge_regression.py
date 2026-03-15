@@ -2023,6 +2023,22 @@ def main() -> int:
                 "Material graph.query without graphName should resolve the same single-graph asset snapshot: "
                 f"without={material_snapshot_without_graph_name} with={material_snapshot}"
             )
+        material_query_without_type = call_tool(
+            client,
+            100131,
+            "graph.query",
+            {"assetPath": material_asset_path, "limit": 200},
+        )
+        material_query_without_type_snapshot = material_query_without_type.get("semanticSnapshot")
+        if not isinstance(material_query_without_type_snapshot, dict):
+            fail(f"Material graph.query without graphType missing semanticSnapshot: {material_query_without_type}")
+        if material_query_without_type.get("graphType") != "material":
+            fail(f"Material graph.query without graphType should infer material: {material_query_without_type}")
+        if material_query_without_type_snapshot.get("signature") != material_snapshot.get("signature"):
+            fail(
+                "Material graph.query without graphType should resolve the same single-graph asset snapshot: "
+                f"without={material_query_without_type} with={material_snapshot}"
+            )
         resolved_material_node = call_tool(
             client,
             10014,
@@ -2475,6 +2491,22 @@ def main() -> int:
             fail(
                 "PCG graph.query without graphName should resolve the same single-graph asset snapshot: "
                 f"without={pcg_snapshot_without_graph_name} with={pcg_snapshot}"
+            )
+        pcg_query_without_type = call_tool(
+            client,
+            101031,
+            "graph.query",
+            {"assetPath": temp_pcg_asset, "limit": 200},
+        )
+        pcg_query_without_type_snapshot = pcg_query_without_type.get("semanticSnapshot")
+        if not isinstance(pcg_query_without_type_snapshot, dict):
+            fail(f"PCG graph.query without graphType missing semanticSnapshot: {pcg_query_without_type}")
+        if pcg_query_without_type.get("graphType") != "pcg":
+            fail(f"PCG graph.query without graphType should infer pcg: {pcg_query_without_type}")
+        if pcg_query_without_type_snapshot.get("signature") != pcg_snapshot.get("signature"):
+            fail(
+                "PCG graph.query without graphType should resolve the same single-graph asset snapshot: "
+                f"without={pcg_query_without_type} with={pcg_snapshot}"
             )
         resolved_pcg_node = call_tool(
             client,
