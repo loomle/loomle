@@ -6665,7 +6665,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
 
         bool bOk = true;
         bool bChanged = false;
+        bool bSkipped = false;
         FString Error;
+        FString SkipReason;
         FString NodeId;
         TArray<FString> NodesTouchedForLayout;
         FString ClientRef;
@@ -6756,7 +6758,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             }
         }
 
-        if (bOk && !bDryRun)
+        const bool bRunScriptOp = Op.Equals(TEXT("runscript"));
+        if (bOk && (!bDryRun || bRunScriptOp))
         {
             if (Op.Equals(TEXT("addnode.byclass")))
             {
@@ -7216,6 +7219,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     bOk = false;
                     Error = TEXT("runScript requires args.scriptId when mode=scriptId.");
                 }
+                else if (bDryRun)
+                {
+                    bSkipped = true;
+                    SkipReason = TEXT("dryRun");
+                }
                 else
                 {
                     TSharedPtr<FJsonObject> ScriptContext = MakeShared<FJsonObject>();
@@ -7396,6 +7404,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         OpResult->SetNumberField(TEXT("index"), Index);
         OpResult->SetStringField(TEXT("op"), Op);
         OpResult->SetBoolField(TEXT("ok"), bOk);
+        OpResult->SetBoolField(TEXT("skipped"), bSkipped);
         if (!NodeId.IsEmpty())
         {
             OpResult->SetStringField(TEXT("nodeId"), NodeId);
@@ -7407,6 +7416,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         }
         OpResult->SetStringField(TEXT("errorCode"), OpErrorCode);
         OpResult->SetStringField(TEXT("errorMessage"), bOk ? TEXT("") : Error);
+        if (bSkipped && !SkipReason.IsEmpty())
+        {
+            OpResult->SetStringField(TEXT("skipReason"), SkipReason);
+        }
         if (Op.Equals(TEXT("layoutgraph")))
         {
             TArray<TSharedPtr<FJsonValue>> MovedNodeValues;

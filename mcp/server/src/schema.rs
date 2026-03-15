@@ -574,11 +574,13 @@ fn graph_mutate_output_schema() -> Value {
                         "index": { "type": "integer" },
                         "op": { "type": "string" },
                         "ok": { "type": "boolean" },
+                        "skipped": { "type": "boolean" },
                         "changed": { "type": "boolean" },
                         "nodeId": { "type": "string" },
                         "error": { "type": "string" },
                         "errorCode": { "type": "string" },
                         "errorMessage": { "type": "string" },
+                        "skipReason": { "type": "string" },
                         "details": { "type": "object", "additionalProperties": true },
                         "movedNodeIds": { "type": "array", "items": { "type": "string" } },
                         "scriptResult": { "type": "object", "additionalProperties": true }

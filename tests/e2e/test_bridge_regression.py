@@ -802,6 +802,76 @@ def main() -> int:
             )
         print("[PASS] blueprint dryRun revision metadata validated")
 
+        dry_run_run_script_inline = call_tool(
+            client,
+            10921,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "dryRun": True,
+                "ops": [
+                    {
+                        "op": "runScript",
+                        "args": {
+                            "mode": "inlineCode",
+                            "entry": "run",
+                            "code": "def run(ctx):\n  return {'ok': True, 'dryRun': ctx.get('dryRun', False)}",
+                        },
+                    }
+                ],
+            },
+        )
+        dry_run_run_script_inline_first = op_ok(dry_run_run_script_inline)
+        if dry_run_run_script_inline_first.get("skipped") is not True:
+            fail(f"dryRun runScript inlineCode should report skipped=true: {dry_run_run_script_inline}")
+        if dry_run_run_script_inline_first.get("skipReason") != "dryRun":
+            fail(f"dryRun runScript inlineCode should report skipReason=dryRun: {dry_run_run_script_inline}")
+        if dry_run_run_script_inline_first.get("changed") is not False:
+            fail(f"dryRun runScript inlineCode should report changed=false: {dry_run_run_script_inline}")
+        if dry_run_run_script_inline_first.get("scriptResult") is not None:
+            fail(f"dryRun runScript inlineCode should not include scriptResult when skipped: {dry_run_run_script_inline}")
+
+        dry_run_run_script_missing_module = call_tool(
+            client,
+            10922,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "dryRun": True,
+                "ops": [
+                    {
+                        "op": "runScript",
+                        "args": {
+                            "mode": "scriptId",
+                            "scriptId": "no_such_loomle_module",
+                            "entry": "run",
+                        },
+                    }
+                ],
+            },
+        )
+        dry_run_run_script_missing_module_first = op_ok(dry_run_run_script_missing_module)
+        if dry_run_run_script_missing_module_first.get("skipped") is not True:
+            fail(
+                "dryRun runScript scriptId should report skipped=true even for missing modules: "
+                f"{dry_run_run_script_missing_module}"
+            )
+        if dry_run_run_script_missing_module_first.get("skipReason") != "dryRun":
+            fail(
+                "dryRun runScript scriptId should report skipReason=dryRun even for missing modules: "
+                f"{dry_run_run_script_missing_module}"
+            )
+        if dry_run_run_script_missing_module_first.get("errorCode") not in ("", None):
+            fail(
+                "dryRun runScript scriptId should not surface module import errors when explicitly skipped: "
+                f"{dry_run_run_script_missing_module}"
+            )
+        print("[PASS] dryRun runScript explicit skip validated")
+
         blueprint_idem_key = "bp-idem-1"
         blueprint_idem_before = query_graph_payload(
             client,
