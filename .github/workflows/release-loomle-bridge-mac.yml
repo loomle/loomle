@@ -67,7 +67,7 @@ jobs:
           mkdir -p "$bundle_dir/plugin/LoomleBridge" "$bundle_dir/workspace" "$release_dir"
           [[ -d "$inputs_dir/plugin/LoomleBridge" ]] || { echo "Verify plugin inputs missing: $inputs_dir/plugin/LoomleBridge" >&2; exit 1; }
           [[ -d "$inputs_dir/workspace/Loomle" ]] || { echo "Verify workspace inputs missing: $inputs_dir/workspace/Loomle" >&2; exit 1; }
-          [[ -x "$inputs_dir/mcp/client/darwin/loomle" ]] || { echo "Verify client inputs missing: $inputs_dir/mcp/client/darwin/loomle" >&2; exit 1; }
+          [[ -f "$inputs_dir/mcp/client/darwin/loomle" ]] || { echo "Verify client inputs missing: $inputs_dir/mcp/client/darwin/loomle" >&2; exit 1; }
 
           server_relpath="plugin/LoomleBridge/Tools/mcp/darwin/loomle_mcp_server"
           client_relpath="workspace/Loomle/loomle"
@@ -79,7 +79,11 @@ jobs:
           mkdir -p "$bundle_dir/mcp/client/darwin"
           cp "$inputs_dir/mcp/client/darwin/loomle" "$bundle_dir/mcp/client/darwin/loomle"
           cp "$inputs_dir/mcp/client/darwin/loomle" "$bootstrap_cli_path"
-          chmod +x "$bootstrap_cli_path"
+          chmod +x \
+            "$bundle_dir/mcp/client/darwin/loomle" \
+            "$bundle_dir/$server_relpath" \
+            "$bundle_dir/$client_relpath" \
+            "$bootstrap_cli_path"
 
           (
             cd "$bundle_dir"
