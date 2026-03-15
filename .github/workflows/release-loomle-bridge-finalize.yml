@@ -67,11 +67,12 @@ jobs:
       - name: Wait For Platform Assets
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG_COMMIT: ${{ steps.tag_commit.outputs.tag_commit }}
         shell: bash
         run: |
           set -euo pipefail
           tag="${{ steps.tag.outputs.tag }}"
-          tag_commit="${{ steps.tag_commit.outputs.tag_commit }}"
+          tag_commit="$TAG_COMMIT"
           required=(
             "loomle-darwin.zip"
             "loomle-windows.zip"
@@ -86,19 +87,48 @@ jobs:
             gh run list \
               --repo "$GITHUB_REPOSITORY" \
               --workflow "$workflow_name" \
-              --event push \
-              --limit 50 \
-              --json databaseId,headSha,status,conclusion,createdAt,url \
+              --limit 100 \
+              --json databaseId,headSha,status,conclusion,createdAt,url,event \
               --jq '
                 map(select(.headSha == "'"$tag_commit"'"))
                 | sort_by(.createdAt)
                 | reverse
-                | .[0] // {}
-                | {
-                    status: (.status // "missing"),
-                    conclusion: (.conclusion // ""),
-                    url: (.url // "")
-                  }
+                | if length == 0 then
+                    {
+                      status: "missing",
+                      conclusion: "",
+                      url: "",
+                      event: ""
+                    }
+                  else
+                    (map(select(.status != "completed")) | .[0]) as $active
+                    | if $active != null then
+                        {
+                          status: $active.status,
+                          conclusion: ($active.conclusion // ""),
+                          url: ($active.url // ""),
+                          event: ($active.event // "")
+                        }
+                      else
+                        (map(select(.conclusion == "success")) | .[0]) as $success
+                        | if $success != null then
+                            {
+                              status: "completed",
+                              conclusion: "success",
+                              url: ($success.url // ""),
+                              event: ($success.event // "")
+                            }
+                          else
+                            .[0] // {}
+                            | {
+                                status: (.status // "missing"),
+                                conclusion: (.conclusion // ""),
+                                url: (.url // ""),
+                                event: (.event // "")
+                              }
+                          end
+                      end
+                  end
               '
           }
 
@@ -109,17 +139,19 @@ jobs:
             mac_status="$(jq -r '.status' <<<"$mac_state")"
             mac_conclusion="$(jq -r '.conclusion' <<<"$mac_state")"
             mac_url="$(jq -r '.url' <<<"$mac_state")"
+            mac_event="$(jq -r '.event' <<<"$mac_state")"
             win_status="$(jq -r '.status' <<<"$win_state")"
             win_conclusion="$(jq -r '.conclusion' <<<"$win_state")"
             win_url="$(jq -r '.url' <<<"$win_state")"
+            win_event="$(jq -r '.event' <<<"$win_state")"
 
             if [[ "$mac_status" == "completed" && "$mac_conclusion" != "success" ]]; then
-              echo "Mac release workflow failed for tag $tag: $mac_conclusion" >&2
+              echo "Mac release workflow failed for tag $tag: $mac_conclusion (event=${mac_event:-unknown})" >&2
               [[ -n "$mac_url" ]] && echo "Mac run: $mac_url" >&2
               exit 1
             fi
             if [[ "$win_status" == "completed" && "$win_conclusion" != "success" ]]; then
-              echo "Windows release workflow failed for tag $tag: $win_conclusion" >&2
+              echo "Windows release workflow failed for tag $tag: $win_conclusion (event=${win_event:-unknown})" >&2
               [[ -n "$win_url" ]] && echo "Windows run: $win_url" >&2
               exit 1
             fi
