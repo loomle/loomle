@@ -482,41 +482,40 @@ mod tests {
         write_zip(&bundle_root, &archive_path);
         let archive_sha = sha256_file(&archive_path).expect("sha");
         let manifest_path = build_root.join("manifest.json");
+        let manifest = json!({
+            "latest": "0.1.0",
+            "versions": {
+                "0.1.0": {
+                    "packages": {
+                        platform_key(): {
+                            "url": archive_path.to_string_lossy(),
+                            "sha256": archive_sha,
+                            "format": "zip",
+                            "server_binary_relpath": format!(
+                                "plugin/LoomleBridge/Tools/mcp/{}/{server_name}",
+                                platform_key()
+                            ),
+                            "client_binary_relpath": format!(
+                                "workspace/Loomle/client/{client_name}"
+                            ),
+                            "install": {
+                                "plugin": {
+                                    "source": "plugin/LoomleBridge",
+                                    "destination": "Plugins/LoomleBridge"
+                                },
+                                "workspace": {
+                                    "source": "workspace/Loomle",
+                                    "destination": "Loomle"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
         fs::write(
             &manifest_path,
-            format!(
-                r#"{{
-  "latest": "0.1.0",
-  "versions": {{
-    "0.1.0": {{
-      "packages": {{
-        "{platform}": {{
-          "url": "{url}",
-          "sha256": "{sha}",
-          "format": "zip",
-          "server_binary_relpath": "plugin/LoomleBridge/Tools/mcp/{platform}/{server_name}",
-          "client_binary_relpath": "workspace/Loomle/client/{client_name}",
-          "install": {{
-            "plugin": {{
-              "source": "plugin/LoomleBridge",
-              "destination": "Plugins/LoomleBridge"
-            }},
-            "workspace": {{
-              "source": "workspace/Loomle",
-              "destination": "Loomle"
-            }}
-          }}
-        }}
-      }}
-    }}
-  }}
-}}"#,
-                platform = platform_key(),
-                url = archive_path.display(),
-                sha = archive_sha,
-                server_name = server_name,
-                client_name = client_name
-            ),
+            serde_json::to_string_pretty(&manifest).expect("serialize manifest"),
         )
         .expect("manifest");
 
