@@ -1,0 +1,335 @@
+name: Benchmark LOOMLE Concurrency (Windows)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark-windows:
+    runs-on: [self-hosted, Windows]
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve Unreal Engine Root (Windows)
+        id: ue_root_windows
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
+        env:
+          UE_FROM_VARS: ${{ vars.UE_5_7_ROOT_WINDOWS }}
+        run: |
+          $candidate = ""
+          if ($env:UE_FROM_VARS) {
+            $candidate = $env:UE_FROM_VARS
+          } elseif ($env:UE_5_7_ROOT_WINDOWS) {
+            $candidate = $env:UE_5_7_ROOT_WINDOWS
+          } else {
+            $candidate = "C:\Program Files\Epic Games\UE_5.7"
+          }
+
+          $runUat = Join-Path $candidate "Engine\Build\BatchFiles\RunUAT.bat"
+          if (-not (Test-Path -LiteralPath $runUat)) {
+            throw "RunUAT.bat not found. Set UE_5_7_ROOT_WINDOWS (repo var or runner env). Tried: $runUat"
+          }
+
+          $ueEditor = Join-Path $candidate "Engine\Binaries\Win64\UnrealEditor.exe"
+          if (-not (Test-Path -LiteralPath $ueEditor)) {
+            throw "UnrealEditor.exe not found: $ueEditor"
+          }
+
+          "ue_root=$candidate" >> $env:GITHUB_OUTPUT
+          "run_uat=$runUat" >> $env:GITHUB_OUTPUT
+          "ue_editor=$ueEditor" >> $env:GITHUB_OUTPUT
+
+      - name: Resolve Test Project Root
+        id: test_project
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
+        env:
+          TEST_ROOT_FROM_VARS: ${{ vars.LOOMLE_TEST_PROJECT_ROOT_WINDOWS }}
+        run: |
+          if ($env:TEST_ROOT_FROM_VARS) {
+            $testRoot = $env:TEST_ROOT_FROM_VARS
+          } elseif ($env:LOOMLE_TEST_PROJECT_ROOT_WINDOWS) {
+            $testRoot = $env:LOOMLE_TEST_PROJECT_ROOT_WINDOWS
+          } else {
+            $workspaceRoot = (Resolve-Path (Join-Path $env:GITHUB_WORKSPACE "..\..")).Path
+            $testRoot = Join-Path $workspaceRoot "lrh\LoomleRunnerHostWin"
+          }
+
+          & (Join-Path $env:GITHUB_WORKSPACE "tools\runner_init_host_project.ps1") -ProjectRoot $testRoot -ProjectName "LoomleRunnerHostWin"
+
+          if (-not (Test-Path -LiteralPath $testRoot)) {
+            throw "Test project root not found: $testRoot"
+          }
+
+          $uproject = Get-ChildItem -LiteralPath $testRoot -Filter *.uproject | Select-Object -First 1
+          if ($null -eq $uproject) {
+            throw "No .uproject found under $testRoot"
+          }
+
+          "test_root=$testRoot" >> $env:GITHUB_OUTPUT
+          "uproject=$($uproject.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Stop Stale Unreal Editor Before Plugin Sync
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
+        run: |
+          $uproject = "${{ steps.test_project.outputs.uproject }}"
+          Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" |
+            Where-Object { $_.CommandLine -like "*$uproject*" } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+
+      - name: Ensure Rust Toolchain
+        timeout-minutes: 20
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
+        run: |
+          Write-Host "Checking cargo availability..."
+
+          function Test-Cargo([string]$CargoPath) {
+            & $CargoPath --version
+            return ($LASTEXITCODE -eq 0)
+          }
+
+          function Ensure-DefaultRustToolchain([string]$CargoPath) {
+            $cargoBin = Split-Path -Parent $CargoPath
+            $rustupExe = Join-Path $cargoBin "rustup.exe"
+            if (-not (Test-Path -LiteralPath $rustupExe)) {
+              return $false
+            }
+
+            Write-Host "cargo exists but no active default Rust toolchain is configured; installing stable with minimal profile..."
+            & $rustupExe toolchain install stable --profile minimal
+            if ($LASTEXITCODE -ne 0) {
+              throw "rustup toolchain install stable --profile minimal failed with exit code $LASTEXITCODE"
+            }
+
+            & $rustupExe default stable
+            if ($LASTEXITCODE -ne 0) {
+              throw "rustup default stable failed with exit code $LASTEXITCODE"
+            }
+
+            return $true
+          }
+
+          $candidateBins = @()
+          if ($env:CARGO_HOME) {
+            $candidateBins += (Join-Path $env:CARGO_HOME "bin")
+          }
+          if ($env:USERPROFILE) {
+            $candidateBins += (Join-Path $env:USERPROFILE ".cargo\bin")
+          }
+          if ($env:HOMEDRIVE -and $env:HOMEPATH) {
+            $candidateBins += (Join-Path "$env:HOMEDRIVE$env:HOMEPATH" ".cargo\bin")
+          }
+          $candidateBins = $candidateBins | Select-Object -Unique
+
+          foreach ($bin in $candidateBins) {
+            $cargoExe = Join-Path $bin "cargo.exe"
+            if (Test-Path -LiteralPath $cargoExe) {
+              Write-Host "Using existing cargo at $cargoExe"
+              $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+              if (Test-Cargo $cargoExe) {
+                exit 0
+              }
+              if ((Ensure-DefaultRustToolchain $cargoExe) -and (Test-Cargo $cargoExe)) {
+                exit 0
+              }
+            }
+          }
+
+          $cargoCmd = Get-Command cargo -ErrorAction SilentlyContinue
+          if ($cargoCmd) {
+            Write-Host "Using cargo from PATH: $($cargoCmd.Source)"
+            if (Test-Cargo $cargoCmd.Source) {
+              exit 0
+            }
+            if ((Ensure-DefaultRustToolchain $cargoCmd.Source) -and (Test-Cargo $cargoCmd.Source)) {
+              exit 0
+            }
+          }
+
+          Write-Host "cargo not found; installing Rust toolchain..."
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          $rustupInit = Join-Path $env:RUNNER_TEMP "rustup-init.exe"
+          Invoke-WebRequest -Uri "https://win.rustup.rs/x86_64" -OutFile $rustupInit
+          $rustup = Start-Process -FilePath $rustupInit -ArgumentList "-y --profile minimal --default-toolchain stable" -Wait -PassThru -NoNewWindow
+          if ($rustup.ExitCode -ne 0) {
+            throw "rustup-init failed with exit code $($rustup.ExitCode)"
+          }
+
+          $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE ".cargo" }
+          $cargoBin = Join-Path $cargoHome "bin"
+          $cargoExe = Join-Path $cargoBin "cargo.exe"
+          if (-not (Test-Path -LiteralPath $cargoExe)) {
+            throw "cargo.exe not found after Rust setup: $cargoExe"
+          }
+
+          $cargoBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & $cargoExe --version
+
+      - name: Build Plugin From Current Commit And Sync To Test Project
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
+        run: |
+          $plugin = Join-Path $env:GITHUB_WORKSPACE "engine\LoomleBridge\LoomleBridge.uplugin"
+          $packageDir = Join-Path $env:RUNNER_TEMP "LoomleBridge_Benchmark_Windows"
+          $pluginDst = Join-Path "${{ steps.test_project.outputs.test_root }}" "Plugins\LoomleBridge"
+          if (Test-Path -LiteralPath $packageDir) {
+            Remove-Item -LiteralPath $packageDir -Recurse -Force
+          }
+          if (Test-Path -LiteralPath $pluginDst) {
+            Remove-Item -LiteralPath $pluginDst -Recurse -Force
+          }
+
+          & "${{ steps.ue_root_windows.outputs.run_uat }}" BuildPlugin "-Plugin=$plugin" "-Package=$packageDir" "-TargetPlatforms=Win64" -Rocket
+          if ($LASTEXITCODE -ne 0) {
+            throw "BuildPlugin failed with exit code $LASTEXITCODE"
+          }
+
+          New-Item -ItemType Directory -Force -Path $pluginDst | Out-Null
+          Copy-Item -Path (Join-Path $packageDir "*") -Destination $pluginDst -Recurse -Force
+
+      - name: Build MCP Binaries And Sync To Test Project Plugin
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
+        run: |
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp\server")
+          cargo build --release
+          Pop-Location
+
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp\client")
+          cargo build --release
+          Pop-Location
+
+          $serverSrc = Join-Path $env:GITHUB_WORKSPACE "mcp\server\target\release\loomle_mcp_server.exe"
+          $clientSrc = Join-Path $env:GITHUB_WORKSPACE "mcp\client\target\release\loomle.exe"
+          $pluginServer = Join-Path "${{ steps.test_project.outputs.test_root }}" "Plugins\LoomleBridge\Tools\mcp\windows\loomle_mcp_server.exe"
+          $workspaceClient = Join-Path "${{ steps.test_project.outputs.test_root }}" "Loomle\client\loomle.exe"
+
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $pluginServer) | Out-Null
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $workspaceClient) | Out-Null
+          Copy-Item -LiteralPath $serverSrc -Destination $pluginServer -Force
+          Copy-Item -LiteralPath $clientSrc -Destination $workspaceClient -Force
+
+      - name: Restart Unreal Editor For Benchmarking
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
+        run: |
+          $uproject = "${{ steps.test_project.outputs.uproject }}"
+          Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" |
+            Where-Object { $_.CommandLine -like "*$uproject*" } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+          Start-Sleep -Seconds 2
+          $ueArgs = @($uproject, "-nullrhi", "-unattended", "-nosplash", "-nop4", "-NoSound")
+          Start-Process -FilePath "${{ steps.ue_root_windows.outputs.ue_editor }}" -ArgumentList $ueArgs
+
+      - name: Wait For Bridge Smoke Test
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
+        run: |
+          $deadline = (Get-Date).AddMinutes(4)
+          while ((Get-Date) -lt $deadline) {
+            python tests/e2e/test_bridge_smoke.py --project-root "${{ steps.test_project.outputs.test_root }}"
+            if ($LASTEXITCODE -eq 0) {
+              exit 0
+            }
+            Start-Sleep -Seconds 5
+          }
+
+          throw "TIMEOUT waiting for bridge smoke test to pass"
+
+      - name: Create Temporary Blueprint Asset For graph.query Benchmark
+        id: temp_asset
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
+        run: |
+          $script = @'
+          import json
+          import os
+          import sys
+          import time
+          from pathlib import Path
+
+          repo = Path(os.environ["GITHUB_WORKSPACE"])
+          sys.path.insert(0, str(repo / "tests" / "e2e"))
+
+          from test_bridge_smoke import McpStdioClient, call_execute_exec_with_retry, parse_execute_json, resolve_default_loomle_binary
+          from test_bridge_regression import wait_for_bridge_ready
+
+          project_root = Path(r"${{ steps.test_project.outputs.test_root }}")
+          asset = f"/Game/Codex/BP_WinIssue49Probe_{time.strftime('%Y%m%d_%H%M%S')}"
+          client = McpStdioClient(project_root=project_root, server_binary=resolve_default_loomle_binary(), timeout_s=45.0)
+          try:
+              wait_for_bridge_ready(client)
+              _ = client.request(1, "initialize", {})
+              payload = parse_execute_json(call_execute_exec_with_retry(
+                  client=client,
+                  req_id_base=30000,
+                  code=(
+                      "import unreal, json\n"
+                      f"asset={json.dumps(asset, ensure_ascii=False)}\n"
+                      "pkg_path, asset_name = asset.rsplit('/', 1)\n"
+                      "asset_tools = unreal.AssetToolsHelpers.get_asset_tools()\n"
+                      "factory = unreal.BlueprintFactory()\n"
+                      "factory.set_editor_property('ParentClass', unreal.Actor)\n"
+                      "bp = unreal.EditorAssetLibrary.load_asset(asset)\n"
+                      "if bp is None:\n"
+                      "    bp = asset_tools.create_asset(asset_name, pkg_path, unreal.Blueprint, factory)\n"
+                      "print(json.dumps({'assetPath': asset, 'created': bp is not None}, ensure_ascii=False))\n"
+                  ),
+                  max_attempts=10,
+                  retry_delay_s=1.0,
+              ))
+              print(payload["assetPath"])
+          finally:
+              client.close()
+          '@
+
+          $assetPath = $script | python -
+          if (-not $assetPath) {
+            throw "Failed to create temporary benchmark asset"
+          }
+          "asset_path=$assetPath" >> $env:GITHUB_OUTPUT
+
+      - name: Benchmark context Concurrency
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
+        run: |
+          python tools/perf_bridge_latency.py `
+            --project-root "${{ steps.test_project.outputs.test_root }}" `
+            --tool context `
+            --total 384 `
+            --concurrency 48 `
+            --warmup 20 | Tee-Object -FilePath "$env:RUNNER_TEMP\loomle-context-bench.txt"
+
+      - name: Benchmark graph.query Concurrency
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
+        run: |
+          $graphArgs = @{
+            assetPath = "${{ steps.temp_asset.outputs.asset_path }}"
+            graphName = "EventGraph"
+            graphType = "blueprint"
+            limit = 200
+          } | ConvertTo-Json -Compress
+
+          python tools/perf_bridge_latency.py `
+            --project-root "${{ steps.test_project.outputs.test_root }}" `
+            --tool graph.query `
+            --arguments $graphArgs `
+            --total 384 `
+            --concurrency 48 `
+            --warmup 20 | Tee-Object -FilePath "$env:RUNNER_TEMP\loomle-graph-query-bench.txt"
+
+      - name: Upload Benchmark Outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loomle-windows-concurrency-benchmark
+          path: |
+            ${{ runner.temp }}\loomle-context-bench.txt
+            ${{ runner.temp }}\loomle-graph-query-bench.txt
+
+      - name: Stop Unreal Editor After Benchmark
+        if: always()
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
+        run: |
+          $uproject = "${{ steps.test_project.outputs.uproject }}"
+          Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" |
+            Where-Object { $_.CommandLine -like "*$uproject*" } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
