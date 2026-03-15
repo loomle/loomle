@@ -169,7 +169,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-verify-mac-inputs
-          path: ${{ runner.temp }}/loomle-release-inputs-darwin/**
+          path: ${{ runner.temp }}/loomle-release-inputs-darwin
           if-no-files-found: error
 
       - name: Restart Unreal Editor For Verification
