@@ -67,17 +67,36 @@ def query_snapshot(
     request_id: int,
     asset_path: str,
     graph_type: str,
-    graph_name: str,
+    graph_name: str | None,
 ) -> dict:
+    arguments = {"assetPath": asset_path, "graphType": graph_type, "limit": 200}
+    if graph_name is not None:
+        arguments["graphName"] = graph_name
     payload = call_tool(
         client,
         request_id,
         "graph.query",
-        {"assetPath": asset_path, "graphName": graph_name, "graphType": graph_type, "limit": 200},
+        arguments,
     )
     snapshot = payload.get("semanticSnapshot")
     if not isinstance(snapshot, dict):
         fail(f"graph.query missing semanticSnapshot for {graph_type}: {payload}")
+    nodes = snapshot.get("nodes")
+    edges = snapshot.get("edges")
+    meta = payload.get("meta")
+    if not isinstance(nodes, list) or not isinstance(edges, list):
+        fail(f"graph.query missing nodes/edges for {graph_type}: {payload}")
+    if not isinstance(meta, dict):
+        fail(f"graph.query missing meta for {graph_type}: {payload}")
+    if meta.get("returnedNodes") != len(nodes):
+        fail(f"graph.query returnedNodes mismatch for {graph_type}: payload={payload}")
+    if meta.get("returnedEdges") != len(edges):
+        fail(f"graph.query returnedEdges mismatch for {graph_type}: payload={payload}")
+    if meta.get("truncated") is False:
+        if meta.get("totalNodes") != len(nodes):
+            fail(f"graph.query totalNodes mismatch for non-truncated {graph_type}: payload={payload}")
+        if meta.get("totalEdges") != len(edges):
+            fail(f"graph.query totalEdges mismatch for non-truncated {graph_type}: payload={payload}")
     return snapshot
 
 
@@ -1172,6 +1191,12 @@ def main() -> int:
         material_edges = material_snapshot.get("edges")
         if not isinstance(material_nodes, list) or not isinstance(material_edges, list):
             fail(f"Material graph.query missing nodes/edges: {material_snapshot}")
+        material_snapshot_without_graph_name = query_snapshot(client, 10013, material_asset_path, "material", None)
+        if material_snapshot_without_graph_name.get("signature") != material_snapshot.get("signature"):
+            fail(
+                "Material graph.query without graphName should resolve the same single-graph asset snapshot: "
+                f"without={material_snapshot_without_graph_name} with={material_snapshot}"
+            )
         material_root = require_node(material_nodes, "__material_root__")
         if material_root.get("nodeRole") != "materialRoot":
             fail(f"Material root nodeRole mismatch: {material_root}")
@@ -1255,6 +1280,12 @@ def main() -> int:
         pcg_edges = pcg_snapshot.get("edges")
         if not isinstance(pcg_nodes, list) or not isinstance(pcg_edges, list):
             fail(f"PCG graph.query missing nodes/edges: {pcg_snapshot}")
+        pcg_snapshot_without_graph_name = query_snapshot(client, 10103, temp_pcg_asset, "pcg", None)
+        if pcg_snapshot_without_graph_name.get("signature") != pcg_snapshot.get("signature"):
+            fail(
+                "PCG graph.query without graphName should resolve the same single-graph asset snapshot: "
+                f"without={pcg_snapshot_without_graph_name} with={pcg_snapshot}"
+            )
 
         create_pos = require_layout(require_node(pcg_nodes, pcg_create_id)).get("position", {})
         tag_a_pos = require_layout(require_node(pcg_nodes, pcg_tag_a_id)).get("position", {})

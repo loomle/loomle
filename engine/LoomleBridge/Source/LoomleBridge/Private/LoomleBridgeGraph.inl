@@ -735,6 +735,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildShapedGraphQueryResult(const T
     const TArray<TSharedPtr<FJsonValue>>* SnapshotEdges = nullptr;
     (*SnapshotObject)->TryGetArrayField(TEXT("nodes"), SnapshotNodes);
     (*SnapshotObject)->TryGetArrayField(TEXT("edges"), SnapshotEdges);
+    const int32 OriginalNodeCount = SnapshotNodes ? SnapshotNodes->Num() : 0;
+    const int32 OriginalEdgeCount = SnapshotEdges ? SnapshotEdges->Num() : 0;
 
     TArray<TSharedPtr<FJsonValue>> ShapedNodes;
     TArray<TSharedPtr<FJsonValue>> ShapedEdges;
@@ -836,11 +838,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildShapedGraphQueryResult(const T
         Result->TryGetObjectField(TEXT("meta"), MetaObject);
     }
 
-    const int32 TotalNodes = SnapshotNodes ? SnapshotNodes->Num() : 0;
-    const int32 TotalEdges = SnapshotEdges ? SnapshotEdges->Num() : 0;
-    (*MetaObject)->SetNumberField(TEXT("totalNodes"), TotalNodes);
+    (*MetaObject)->SetNumberField(TEXT("totalNodes"), OriginalNodeCount);
     (*MetaObject)->SetNumberField(TEXT("returnedNodes"), ShapedNodes.Num());
-    (*MetaObject)->SetNumberField(TEXT("totalEdges"), TotalEdges);
+    (*MetaObject)->SetNumberField(TEXT("totalEdges"), OriginalEdgeCount);
     (*MetaObject)->SetNumberField(TEXT("returnedEdges"), ShapedEdges.Num());
     (*MetaObject)->SetBoolField(TEXT("truncated"), MatchingNodeCount > ShapedNodes.Num());
 
@@ -866,11 +866,15 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
         return Result;
     }
 
-    // Resolve addressing mode: Mode A (assetPath + graphName) or Mode B (graphRef).
+    // Resolve addressing mode: Mode A (assetPath + optional graphName for single-graph assets)
+    // or Mode B (graphRef).
     FString AssetPath;
     FString GraphName;
     bool bUsedGraphRef = false;
     FString InlineNodeGuid; // set when graphRef.kind == "inline"
+    const FString DefaultSingleGraphName = GraphType.Equals(TEXT("pcg"))
+        ? TEXT("PCGGraph")
+        : (GraphType.Equals(TEXT("material")) ? TEXT("MaterialGraph") : TEXT(""));
 
     const TSharedPtr<FJsonObject>* GraphRefObj = nullptr;
     const bool bHasGraphRef = Arguments->TryGetObjectField(TEXT("graphRef"), GraphRefObj) && GraphRefObj && (*GraphRefObj).IsValid();
@@ -928,7 +932,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
                 return Result;
             }
             AssetPath = NormalizeAssetPath(RefAssetPath);
-            (*GraphRefObj)->TryGetStringField(TEXT("graphName"), GraphName);
+            if (!(*GraphRefObj)->TryGetStringField(TEXT("graphName"), GraphName) || GraphName.IsEmpty())
+            {
+                GraphName = DefaultSingleGraphName;
+            }
         }
         else
         {
@@ -940,7 +947,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
     }
     else
     {
-        // Mode A: assetPath + graphName both required.
+        // Mode A: assetPath is always required; graphName is only required for multi-graph assets.
         if (!Arguments->TryGetStringField(TEXT("assetPath"), AssetPath) || AssetPath.IsEmpty())
         {
             Result->SetBoolField(TEXT("isError"), true);
@@ -948,12 +955,16 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
             Result->SetStringField(TEXT("message"), TEXT("arguments.assetPath is required (Mode A) or supply graphRef (Mode B)."));
             return Result;
         }
-        if (GraphName.IsEmpty())
+        if (!Arguments->TryGetStringField(TEXT("graphName"), GraphName) || GraphName.IsEmpty())
         {
-            Result->SetBoolField(TEXT("isError"), true);
-            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-            Result->SetStringField(TEXT("message"), TEXT("arguments.graphName is required (Mode A) or supply graphRef (Mode B)."));
-            return Result;
+            if (GraphType.Equals(TEXT("blueprint")))
+            {
+                Result->SetBoolField(TEXT("isError"), true);
+                Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+                Result->SetStringField(TEXT("message"), TEXT("arguments.graphName is required (Mode A) or supply graphRef (Mode B)."));
+                return Result;
+            }
+            GraphName = DefaultSingleGraphName;
         }
         AssetPath = NormalizeAssetPath(AssetPath);
     }
