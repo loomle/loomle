@@ -240,53 +240,12 @@ jobs:
         id: temp_asset
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
-          $script = @'
-          import json
-          import os
-          import sys
-          import time
-          from pathlib import Path
-
-          repo = Path(os.environ["GITHUB_WORKSPACE"])
-          sys.path.insert(0, str(repo / "tests" / "e2e"))
-
-          from test_bridge_smoke import McpStdioClient, call_execute_exec_with_retry, parse_execute_json, resolve_default_loomle_binary
-          from test_bridge_regression import wait_for_bridge_ready
-
-          project_root = Path(r"${{ steps.test_project.outputs.test_root }}")
-          asset = f"/Game/Codex/BP_WinIssue49Probe_{time.strftime('%Y%m%d_%H%M%S')}"
-          client = McpStdioClient(project_root=project_root, server_binary=resolve_default_loomle_binary(), timeout_s=45.0)
-          try:
-              wait_for_bridge_ready(client)
-              _ = client.request(1, "initialize", {})
-              payload = parse_execute_json(call_execute_exec_with_retry(
-                  client=client,
-                  req_id_base=30000,
-                  code=(
-                      "import unreal, json\n"
-                      f"asset={json.dumps(asset, ensure_ascii=False)}\n"
-                      "pkg_path, asset_name = asset.rsplit('/', 1)\n"
-                      "asset_tools = unreal.AssetToolsHelpers.get_asset_tools()\n"
-                      "factory = unreal.BlueprintFactory()\n"
-                      "factory.set_editor_property('ParentClass', unreal.Actor)\n"
-                      "bp = unreal.EditorAssetLibrary.load_asset(asset)\n"
-                      "if bp is None:\n"
-                      "    bp = asset_tools.create_asset(asset_name, pkg_path, unreal.Blueprint, factory)\n"
-                      "print(json.dumps({'assetPath': asset, 'created': bp is not None}, ensure_ascii=False))\n"
-                  ),
-                  max_attempts=10,
-                  retry_delay_s=1.0,
-              ))
-              print(payload["assetPath"])
-          finally:
-              client.close()
-          '@
-
-          $assetPath = ($script | python - | Select-Object -Last 1).Trim()
-          if (-not $assetPath) {
+          python tools/create_temp_blueprint_asset.py `
+            --project-root "${{ steps.test_project.outputs.test_root }}" `
+            --github-output "$env:GITHUB_OUTPUT"
+          if ($LASTEXITCODE -ne 0) {
             throw "Failed to create temporary benchmark asset"
           }
-          "asset_path=$assetPath" >> $env:GITHUB_OUTPUT
 
       - name: Benchmark context Concurrency
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
@@ -301,48 +260,10 @@ jobs:
       - name: Benchmark graph.query Concurrency
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
-          $script = @'
-          import json
-          import os
-          import subprocess
-          import sys
-
-          args = {
-              "assetPath": os.environ["LOOMLE_BENCH_ASSET_PATH"],
-              "graphName": "EventGraph",
-              "graphType": "blueprint",
-              "limit": 200,
-          }
-          command = [
-              sys.executable,
-              "tools/perf_bridge_latency.py",
-              "--project-root",
-              os.environ["LOOMLE_BENCH_PROJECT_ROOT"],
-              "--tool",
-              "graph.query",
-              "--arguments",
-              json.dumps(args, separators=(",", ":")),
-              "--total",
-              "384",
-              "--concurrency",
-              "48",
-              "--warmup",
-              "20",
-          ]
-          result = subprocess.run(command, capture_output=True, text=True)
-          sys.stdout.write(result.stdout)
-          sys.stderr.write(result.stderr)
-          bench_path = os.path.join(os.environ["RUNNER_TEMP"], "loomle-graph-query-bench.txt")
-          with open(bench_path, "w", encoding="utf-8") as handle:
-              handle.write(result.stdout)
-              if result.stderr:
-                  handle.write(result.stderr)
-          raise SystemExit(result.returncode)
-          '@
-
-          $env:LOOMLE_BENCH_ASSET_PATH = "${{ steps.temp_asset.outputs.asset_path }}"
-          $env:LOOMLE_BENCH_PROJECT_ROOT = "${{ steps.test_project.outputs.test_root }}"
-          $script | python -
+          python tools/run_graph_query_benchmark.py `
+            --project-root "${{ steps.test_project.outputs.test_root }}" `
+            --asset-path "${{ steps.temp_asset.outputs.asset_path }}" `
+            --output-file "$env:RUNNER_TEMP\loomle-graph-query-bench.txt"
 
       - name: Upload Benchmark Outputs
         if: always()
