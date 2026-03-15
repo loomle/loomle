@@ -4684,6 +4684,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         {
             return TEXT("INVALID_ARGUMENT");
         }
+        if (ErrorLower.Contains(TEXT("duplicate clientref")))
+        {
+            return TEXT("INVALID_ARGUMENT");
+        }
         if (ErrorLower.Contains(TEXT("requires")) || ErrorLower.Contains(TEXT("missing")))
         {
             return TEXT("INVALID_ARGUMENT");
@@ -6077,7 +6081,16 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
 
             if (bOk && !ClientRef.IsEmpty() && !NodeId.IsEmpty())
             {
-                LocalNodeRefs.Add(ClientRef, NodeId);
+                if (LocalNodeRefs.Contains(ClientRef))
+                {
+                    bOk = false;
+                    bChanged = false;
+                    Error = FString::Printf(TEXT("Duplicate clientRef in mutate batch: %s"), *ClientRef);
+                }
+                else
+                {
+                    LocalNodeRefs.Add(ClientRef, NodeId);
+                }
             }
 
             TSharedPtr<FJsonObject> OpResult = MakeShared<FJsonObject>();
@@ -7346,7 +7359,16 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
 
         if (!ClientRef.IsEmpty() && !NodeId.IsEmpty())
         {
-            NodeRefs.Add(ClientRef, NodeId);
+            if (NodeRefs.Contains(ClientRef))
+            {
+                bOk = false;
+                bChanged = false;
+                Error = FString::Printf(TEXT("Duplicate clientRef in mutate batch: %s"), *ClientRef);
+            }
+            else
+            {
+                NodeRefs.Add(ClientRef, NodeId);
+            }
         }
 
         if (bOk && !Op.Equals(TEXT("layoutgraph")))

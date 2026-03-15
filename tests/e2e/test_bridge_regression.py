@@ -905,6 +905,54 @@ def main() -> int:
             )
         print("[PASS] blueprint idempotencyKey replay validated")
 
+        duplicate_client_ref = call_tool(
+            client,
+            1098,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "ops": [
+                    {
+                        "op": "addNode.byClass",
+                        "clientRef": "dup_ref",
+                        "args": {
+                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
+                            "position": {"x": 1440, "y": 0},
+                        },
+                    },
+                    {
+                        "op": "addNode.byClass",
+                        "clientRef": "dup_ref",
+                        "args": {
+                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
+                            "position": {"x": 1600, "y": 0},
+                        },
+                    },
+                ],
+            },
+            expect_error=True,
+        )
+        duplicate_client_ref_struct = duplicate_client_ref
+        duplicate_client_ref_detail = duplicate_client_ref.get("detail")
+        if isinstance(duplicate_client_ref_detail, str) and duplicate_client_ref_detail.strip():
+            try:
+                parsed_duplicate_detail = json.loads(duplicate_client_ref_detail)
+            except json.JSONDecodeError as exc:
+                fail(f"graph.mutate duplicate clientRef detail is not valid JSON: {exc} payload={duplicate_client_ref}")
+            if isinstance(parsed_duplicate_detail, dict):
+                duplicate_client_ref_struct = parsed_duplicate_detail
+        duplicate_client_ref_results = duplicate_client_ref_struct.get("opResults")
+        if not isinstance(duplicate_client_ref_results, list) or len(duplicate_client_ref_results) < 2:
+            fail(f"graph.mutate duplicate clientRef missing opResults: {duplicate_client_ref}")
+        duplicate_client_ref_second = duplicate_client_ref_results[1] if isinstance(duplicate_client_ref_results[1], dict) else {}
+        if duplicate_client_ref_second.get("errorCode") != "INVALID_ARGUMENT":
+            fail(f"graph.mutate duplicate clientRef wrong errorCode: {duplicate_client_ref_second}")
+        if "Duplicate clientRef" not in str(duplicate_client_ref_second.get("errorMessage", "")):
+            fail(f"graph.mutate duplicate clientRef wrong errorMessage: {duplicate_client_ref_second}")
+        print("[PASS] blueprint duplicate clientRef rejected")
+
         page_one = query_graph_payload(client, 110, asset_path=temp_asset, graph_name="EventGraph", limit=1)
         page_one_meta = page_one.get("meta", {})
         page_one_cursor = page_one.get("nextCursor")
@@ -1684,6 +1732,48 @@ def main() -> int:
                 f"first={material_idem_first} second={material_idem_second}"
             )
         print("[PASS] material idempotencyKey replay validated")
+
+        material_duplicate_client_ref = call_tool(
+            client,
+            1001076,
+            "graph.mutate",
+            {
+                "assetPath": material_asset_path,
+                "graphName": "MaterialGraph",
+                "graphType": "material",
+                "ops": [
+                    {
+                        "op": "addNode.byClass",
+                        "clientRef": "dup_material",
+                        "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"},
+                    },
+                    {
+                        "op": "addNode.byClass",
+                        "clientRef": "dup_material",
+                        "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionConstant"},
+                    },
+                ],
+            },
+            expect_error=True,
+        )
+        material_duplicate_struct = material_duplicate_client_ref
+        material_duplicate_detail = material_duplicate_client_ref.get("detail")
+        if isinstance(material_duplicate_detail, str) and material_duplicate_detail.strip():
+            try:
+                parsed_material_duplicate_detail = json.loads(material_duplicate_detail)
+            except json.JSONDecodeError as exc:
+                fail(f"graph.mutate material duplicate clientRef detail is not valid JSON: {exc} payload={material_duplicate_client_ref}")
+            if isinstance(parsed_material_duplicate_detail, dict):
+                material_duplicate_struct = parsed_material_duplicate_detail
+        material_duplicate_results = material_duplicate_struct.get("opResults")
+        if not isinstance(material_duplicate_results, list) or len(material_duplicate_results) < 2:
+            fail(f"graph.mutate material duplicate clientRef missing opResults: {material_duplicate_client_ref}")
+        material_duplicate_second = material_duplicate_results[1] if isinstance(material_duplicate_results[1], dict) else {}
+        if material_duplicate_second.get("errorCode") != "INVALID_ARGUMENT":
+            fail(f"graph.mutate material duplicate clientRef wrong errorCode: {material_duplicate_second}")
+        if "Duplicate clientRef" not in str(material_duplicate_second.get("errorMessage", "")):
+            fail(f"graph.mutate material duplicate clientRef wrong errorMessage: {material_duplicate_second}")
+        print("[PASS] material duplicate clientRef rejected")
 
         material_compile = call_tool(
             client,
