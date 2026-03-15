@@ -25,6 +25,22 @@ pub struct InstallRequest {
     pub version: Option<String>,
     pub manifest_path: Option<PathBuf>,
     pub manifest_url: Option<String>,
+    pub plugin_mode: PluginInstallMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PluginInstallMode {
+    Prebuilt,
+    Source,
+}
+
+impl PluginInstallMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Prebuilt => "prebuilt",
+            Self::Source => "source",
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -93,11 +109,14 @@ pub fn install_release(request: InstallRequest) -> Result<serde_json::Value, Str
     let bundle_root = temp_dir.path().join("bundle");
     extract_zip(&archive_path, &bundle_root)?;
     validate_bundle_paths(&bundle_root, package)?;
-    let install_state_path = copy_release_tree(&bundle_root, &project_root, &version, package)?;
+    let plugin_mode = request.plugin_mode;
+    let install_state_path =
+        copy_release_tree(&bundle_root, &project_root, &version, package, plugin_mode)?;
 
     Ok(json!({
         "installedVersion": version,
         "platform": platform_key(),
+        "pluginMode": plugin_mode.as_str(),
         "bundleRoot": bundle_root.display().to_string(),
         "projectRoot": project_root.display().to_string(),
         "plugin": {
@@ -375,6 +394,7 @@ fn copy_release_tree(
     project_root: &Path,
     version: &str,
     package: &ReleasePackage,
+    plugin_mode: PluginInstallMode,
 ) -> Result<PathBuf, String> {
     let plugin_source = bundle_root.join(&package.install.plugin.source);
     let plugin_destination = project_root.join(&package.install.plugin.destination);
@@ -383,13 +403,19 @@ fn copy_release_tree(
 
     copy_tree(&plugin_source, &plugin_destination)?;
     copy_tree(&workspace_source, &workspace_destination)?;
-    strip_plugin_source_for_precompiled_install(&plugin_destination)?;
+    strip_plugin_source_for_precompiled_install(&plugin_destination, plugin_mode)?;
     ensure_installed_binaries_executable(project_root, package)?;
     ensure_editor_performance_setting(project_root)?;
-    write_runtime_install_state(project_root, version, package)
+    write_runtime_install_state(project_root, version, package, plugin_mode)
 }
 
-fn strip_plugin_source_for_precompiled_install(plugin_root: &Path) -> Result<(), String> {
+fn strip_plugin_source_for_precompiled_install(
+    plugin_root: &Path,
+    plugin_mode: PluginInstallMode,
+) -> Result<(), String> {
+    if plugin_mode != PluginInstallMode::Prebuilt {
+        return Ok(());
+    }
     let source_dir = plugin_root.join("Source");
     if !source_dir.is_dir() {
         return Ok(());
@@ -517,6 +543,7 @@ fn write_runtime_install_state(
     project_root: &Path,
     version: &str,
     package: &ReleasePackage,
+    plugin_mode: PluginInstallMode,
 ) -> Result<PathBuf, String> {
     let workspace_root = project_root.join(&package.install.workspace.destination);
     let runtime_dir = workspace_root.join("runtime");
@@ -546,6 +573,7 @@ fn write_runtime_install_state(
         "schemaVersion": 1,
         "installedVersion": version,
         "platform": platform_key(),
+        "pluginMode": plugin_mode.as_str(),
         "projectRoot": project_root.display().to_string(),
         "workspaceRoot": workspace_root.display().to_string(),
         "pluginRoot": project_root.join(&package.install.plugin.destination).display().to_string(),
@@ -735,6 +763,7 @@ mod tests {
             version: None,
             manifest_path: Some(manifest_path),
             manifest_url: None,
+            plugin_mode: PluginInstallMode::Prebuilt,
         })
         .expect("install");
 
@@ -749,6 +778,7 @@ mod tests {
             serde_json::from_str(&install_state).expect("install state json");
         assert_eq!(install_state_json["installedVersion"], "0.1.0");
         assert_eq!(install_state_json["platform"], platform_key());
+        assert_eq!(install_state_json["pluginMode"], "prebuilt");
         #[cfg(unix)]
         {
             let client_mode = fs::metadata(project_root.join("Loomle/client").join(client_name))
@@ -901,6 +931,7 @@ mod tests {
             version: None,
             manifest_path: Some(manifest_path),
             manifest_url: None,
+            plugin_mode: PluginInstallMode::Prebuilt,
         })
         .expect("install");
 
@@ -912,6 +943,132 @@ mod tests {
             !project_root.join("Plugins/LoomleBridge/Source").exists(),
             "precompiled installs should not keep plugin source"
         );
+    }
+
+    #[test]
+    fn install_release_source_mode_keeps_plugin_source() {
+        let temp = TempDir::new().expect("temp");
+        let build_root = temp.path().join("build");
+        let project_root = temp.path().join("Project");
+        let server_name = if platform_key() == "windows" {
+            "loomle_mcp_server.exe"
+        } else {
+            "loomle_mcp_server"
+        };
+        let client_name = if platform_key() == "windows" {
+            "loomle.exe"
+        } else {
+            "loomle"
+        };
+        let plugin_binary_platform_dir =
+            plugin_binary_platform_dir().expect("supported plugin binary platform");
+        fs::create_dir_all(&build_root).expect("build root");
+        fs::create_dir_all(&project_root).expect("project root");
+        fs::write(project_root.join("Demo.uproject"), "{}").expect("uproject");
+
+        let bundle_root = build_root.join("bundle");
+        fs::create_dir_all(
+            bundle_root.join(format!("plugin/LoomleBridge/Tools/mcp/{}", platform_key())),
+        )
+        .expect("plugin server dir");
+        fs::create_dir_all(
+            bundle_root.join(format!("plugin/LoomleBridge/Binaries/{plugin_binary_platform_dir}")),
+        )
+        .expect("plugin binaries");
+        fs::create_dir_all(bundle_root.join("plugin/LoomleBridge/Source/LoomleBridge"))
+            .expect("plugin source");
+        fs::create_dir_all(bundle_root.join("workspace/Loomle/client")).expect("workspace");
+        fs::write(
+            bundle_root.join("plugin/LoomleBridge/LoomleBridge.uplugin"),
+            "{}",
+        )
+        .expect("uplugin");
+        fs::write(
+            bundle_root.join(format!(
+                "plugin/LoomleBridge/Tools/mcp/{}/{}",
+                platform_key(),
+                server_name
+            )),
+            "server",
+        )
+        .expect("server");
+        fs::write(
+            bundle_root.join(format!(
+                "plugin/LoomleBridge/Binaries/{plugin_binary_platform_dir}/placeholder.bin"
+            )),
+            "binary",
+        )
+        .expect("plugin binary");
+        fs::write(
+            bundle_root.join("plugin/LoomleBridge/Source/LoomleBridge/LoomleBridge.Build.cs"),
+            "source",
+        )
+        .expect("build cs");
+        fs::write(
+            bundle_root.join(format!("workspace/Loomle/client/{}", client_name)),
+            "client",
+        )
+        .expect("client");
+        fs::write(bundle_root.join("workspace/Loomle/README.md"), "workspace").expect("readme");
+
+        let archive_path = build_root.join("loomle.zip");
+        write_zip(&bundle_root, &archive_path);
+        let archive_sha = sha256_file(&archive_path).expect("sha");
+        let manifest_path = build_root.join("manifest.json");
+        let manifest = json!({
+            "latest": "0.1.0",
+            "versions": {
+                "0.1.0": {
+                    "packages": {
+                        platform_key(): {
+                            "url": archive_path.to_string_lossy(),
+                            "sha256": archive_sha,
+                            "format": "zip",
+                            "server_binary_relpath": format!(
+                                "plugin/LoomleBridge/Tools/mcp/{}/{server_name}",
+                                platform_key()
+                            ),
+                            "client_binary_relpath": format!(
+                                "workspace/Loomle/client/{client_name}"
+                            ),
+                            "install": {
+                                "plugin": {
+                                    "source": "plugin/LoomleBridge",
+                                    "destination": "Plugins/LoomleBridge"
+                                },
+                                "workspace": {
+                                    "source": "workspace/Loomle",
+                                    "destination": "Loomle"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest).expect("serialize manifest"),
+        )
+        .expect("manifest");
+
+        install_release(InstallRequest {
+            project_root: project_root.clone(),
+            version: None,
+            manifest_path: Some(manifest_path),
+            manifest_url: None,
+            plugin_mode: PluginInstallMode::Source,
+        })
+        .expect("install");
+
+        assert!(project_root
+            .join("Plugins/LoomleBridge/Source/LoomleBridge/LoomleBridge.Build.cs")
+            .is_file());
+        let install_state = fs::read_to_string(project_root.join("Loomle/runtime/install.json"))
+            .expect("install state");
+        let install_state_json: serde_json::Value =
+            serde_json::from_str(&install_state).expect("install state json");
+        assert_eq!(install_state_json["pluginMode"], "source");
     }
 
     fn write_zip(bundle_root: &Path, archive_path: &Path) {

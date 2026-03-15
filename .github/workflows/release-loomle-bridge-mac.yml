@@ -100,7 +100,6 @@ jobs:
             -Rocket
 
           rsync -a "$package_dir"/ "$bundle_dir/plugin/LoomleBridge"/
-          rm -rf "$bundle_dir/plugin/LoomleBridge/Source"
 
           server_src="$GITHUB_WORKSPACE/mcp/server/target/release/loomle_mcp_server"
           client_src="$GITHUB_WORKSPACE/mcp/client/target/release/loomle"

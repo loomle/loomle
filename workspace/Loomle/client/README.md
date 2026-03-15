@@ -19,6 +19,7 @@ Preferred commands:
 Advanced commands:
 
 - `loomle install`
+- `loomle install --plugin-mode source`
 - `loomle server-path`
 - `loomle run-server`
 - `loomle session`
@@ -28,6 +29,7 @@ Guidance:
 - Prefer `list-tools` over hardcoded tool assumptions.
 - Prefer `call` over manually starting the MCP server.
 - Use `run-server` and `session` only for debugging, protocol inspection, or custom integrations.
+- `loomle install` defaults to `--plugin-mode prebuilt` for faster end-user installs. Use `--plugin-mode source` when the project runs against a source-built Unreal Engine and you want local plugin recompiles to stay available.
 
 `loomle run-server` launches the MCP server installed under:
 

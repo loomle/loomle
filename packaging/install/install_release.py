@@ -117,6 +117,7 @@ def write_runtime_install_state(
     project_root: Path,
     version: str,
     platform: str,
+    plugin_mode: str,
     plugin_destination_root: str,
     workspace_destination_root: str,
     server_binary_relpath: str,
@@ -131,6 +132,7 @@ def write_runtime_install_state(
         "schemaVersion": 1,
         "installedVersion": version,
         "platform": platform,
+        "pluginMode": plugin_mode,
         "projectRoot": str(project_root),
         "workspaceRoot": str(project_root / workspace_destination_root),
         "pluginRoot": str(project_root / plugin_destination_root),
@@ -170,7 +172,10 @@ def plugin_binary_platform_dir(platform: str) -> str | None:
     }.get(platform)
 
 
-def strip_plugin_source_for_precompiled_install(*, plugin_root: Path, platform: str) -> None:
+def strip_plugin_source_for_precompiled_install(*, plugin_root: Path, platform: str, plugin_mode: str) -> None:
+    if plugin_mode != "prebuilt":
+        return
+
     source_dir = plugin_root / "Source"
     if not source_dir.is_dir():
         return
@@ -205,6 +210,12 @@ def main() -> int:
     parser.add_argument("--manifest-path", required=True, help="Release manifest path")
     parser.add_argument("--platform", required=True, help="Package platform key, e.g. darwin/linux/windows")
     parser.add_argument("--version", default="", help="Version to install; defaults to manifest.latest")
+    parser.add_argument(
+        "--plugin-mode",
+        default="prebuilt",
+        choices=["prebuilt", "source"],
+        help="Install the plugin in prebuilt mode (default) or keep Source/ for local recompiles.",
+    )
     args = parser.parse_args()
 
     bundle_root = Path(args.bundle_root).resolve()
@@ -256,6 +267,7 @@ def main() -> int:
     strip_plugin_source_for_precompiled_install(
         plugin_root=plugin_destination,
         platform=args.platform,
+        plugin_mode=args.plugin_mode,
     )
     ensure_executable_file(
         resolve_installed_path(
@@ -282,6 +294,7 @@ def main() -> int:
         project_root=project_root,
         version=version,
         platform=args.platform,
+        plugin_mode=args.plugin_mode,
         plugin_destination_root=str(plugin_install.get("destination", "")),
         workspace_destination_root=str(workspace_install.get("destination", "")),
         server_binary_relpath=server_binary_relpath,
@@ -291,6 +304,7 @@ def main() -> int:
     result = {
         "installedVersion": version,
         "platform": args.platform,
+        "pluginMode": args.plugin_mode,
         "bundleRoot": str(bundle_root),
         "projectRoot": str(project_root),
         "plugin": {
