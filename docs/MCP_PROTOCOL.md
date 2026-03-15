@@ -300,6 +300,8 @@ Practical client rule:
 - Use `RPC_INTERFACE.md` when you need lower-level transport and payload shape details.
 - For `graph.mutate`, individual `opResults[]` entries may include operation-specific `details` objects on failure; clients should preserve and inspect them rather than relying only on top-level `message`.
 - For `graph.actions`, clients should inspect `meta.actionSource` before assuming results came from typed schema discovery; fallback and curated catalog paths may include `meta.fallbackReason`, `meta.recommendedRecovery`, and matching diagnostics.
+- For `graph.actions`, treat `actions[*].actionToken` as an opaque, ephemeral token scoped to the exact `(graphType, assetPath, graphName)` context that produced it. It is suitable for near-term reuse with `graph.mutate addNode.byAction` on that same graph, but callers should not cache it as a stable global action identifier.
+- Repeated `graph.actions` calls on the same graph may return different `actionToken` values for equivalent actions. If mutate reports `ACTION_TOKEN_INVALID`, `ACTION_TOKEN_EXPIRED`, or `ACTION_TOKEN_CONTEXT_MISMATCH`, refresh by calling `graph.actions` again on the intended target graph.
 - For graph layout-aware flows, prefer `graph.layoutCapabilities` and `graph.query.meta.layoutCapabilities` over hardcoded assumptions. Current runtime support focuses on position reads plus basic move operations.
 - `graph.query` accepts `layoutDetail=basic|measured`. Callers may request `measured`, but should inspect `meta.layoutDetailApplied` and diagnostics before assuming measured geometry was actually returned.
 

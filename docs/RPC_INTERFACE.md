@@ -431,6 +431,11 @@ Notes:
 
 - `graphRef` and `graphName` are mutually exclusive.
 - For `graphRef.kind="inline"`, `graphType` must be `blueprint`.
+- `actionToken` values in `actions[]` are opaque, graph-context-scoped capability tokens meant for near-term reuse with `graph.mutate op="addNode.byAction"` on the same graph.
+- Tokens are tied to the resolved `(graphType, assetPath, graphName)` context. They must not be reused across other assets, other root graphs in the same asset, or other inline subgraphs.
+- Tokens are ephemeral. Repeated `graph.actions` calls on the same graph may return different `actionToken` values for equivalent actions; callers must not treat them as stable action identifiers.
+- Within the same graph context, a previously returned token may remain valid for a short time, but callers should refresh by calling `graph.actions` again whenever a token is missing, rejected, or stale.
+- Expected failure modes for stale or mismatched reuse are `ACTION_TOKEN_INVALID`, `ACTION_TOKEN_EXPIRED`, and `ACTION_TOKEN_CONTEXT_MISMATCH`.
 
 `payload`:
 
@@ -476,6 +481,13 @@ Notes:
 - `curated_catalog`: LOOMLE returned its built-in catalog for non-Blueprint graph types.
 
 When fallback is used or no catalog actions are available, `meta.fallbackReason`, `meta.recommendedRecovery`, and diagnostic entries may explain what happened and suggest a next step.
+
+Minimal usage pattern:
+
+1. Call `graph.actions` for the exact graph you plan to mutate.
+2. Pick one `actions[*].actionToken` from that response.
+3. Immediately pass that token into `graph.mutate` with `op="addNode.byAction"` against the same graph context.
+4. If mutate returns an action-token error, refresh with a new `graph.actions` call on that graph instead of retrying the old token globally.
 
 ## 5.6 tool=`graph.mutate`
 
