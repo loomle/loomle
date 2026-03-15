@@ -262,6 +262,7 @@ Field notes:
 - `parentGraphRef`: `null` for root-level graphs; set to the parent's `graphRef` for subgraphs when `includeSubgraphs` is `true`.
 - `ownerNodeId`: the `nodeId` of the composite/subgraph node that contains this graph. `null` for root graphs.
 - `loadStatus`: present on `kind: "asset"` entries only. `"loaded"` means the asset is in memory; `"loading"` means an async load is in progress; `"not_found"` means the asset path could not be resolved.
+- For `graphType: "material"`, top-level queries are intentionally non-recursive. Use `graph.list(includeSubgraphs=true)` or follow `childGraphRef` from `MaterialFunctionCall` nodes to inspect referenced `UMaterialFunction` graphs.
 
 ## 5.4 tool=`graph.query`
 
@@ -396,6 +397,7 @@ Node field notes:
   - PCG subgraph nodes (`UPCGSubgraphSettings`) → `kind: "asset"` (points to an external `UPCGGraph` asset)
   - Material `UMaterialExpressionMaterialFunctionCall` → `kind: "asset"` (points to an external `UMaterialFunction` asset)
 - `childLoadStatus`: present when `childGraphRef` is set. `"loaded"` if the referenced asset is currently in memory; `"not_found"` if it could not be resolved.
+- Material queries are intentionally current-asset only. When a material uses function calls, LOOMLE returns `childGraphRef` on those nodes and may emit a `MATERIAL_SUBGRAPH_REFS_PRESENT` diagnostic to remind callers to traverse into referenced `UMaterialFunction` graphs.
 - The `graphRef` at the response root mirrors the effective locator used to resolve this query — clients can store it for later use without reconstructing it. Present on all three graph types.
 - `layoutDetail`: optional query hint. `basic` requests lightweight geometry that should be cheap to compute. `measured` asks the runtime for richer layout data when supported.
 - `meta.layoutDetailRequested` / `meta.layoutDetailApplied`: let callers distinguish what they asked for from what the runtime actually returned.

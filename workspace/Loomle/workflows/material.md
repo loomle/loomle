@@ -3,9 +3,10 @@
 Recommended Material editing rhythm for LOOMLE:
 
 1. query the material graph
-2. create and connect expression chains
-3. connect terminal expressions into `__material_root__`
-4. call `layoutGraph(scope=\"touched\")`
+2. if you see `childGraphRef` on `MaterialFunctionCall` nodes, follow those refs or run `graph.list(includeSubgraphs=true)` to inspect referenced `UMaterialFunction` graphs
+3. create and connect expression chains
+4. connect terminal expressions into `__material_root__`
+5. call `layoutGraph(scope=\"touched\")`
 
 Layout expectation:
 - material root is the right-side sink

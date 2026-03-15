@@ -1232,6 +1232,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
         TArray<TSharedPtr<FJsonValue>> Diagnostics;
         TArray<TSharedPtr<FJsonValue>> Edges;
         const FString MaterialRootNodeId = TEXT("__material_root__");
+        int32 MaterialChildGraphRefCount = 0;
         for (UMaterialExpression* Expression : AllExpressions)
         {
             TSharedPtr<FJsonObject> Node = MakeShared<FJsonObject>();
@@ -1329,6 +1330,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
                     ChildRef->SetStringField(TEXT("assetPath"), FuncAssetPath);
                     Node->SetObjectField(TEXT("childGraphRef"), ChildRef);
                     Node->SetStringField(TEXT("childLoadStatus"), TEXT("loaded"));
+                    ++MaterialChildGraphRefCount;
                 }
             }
 
@@ -1430,6 +1432,16 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
             TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
             Diagnostic->SetStringField(TEXT("code"), TEXT("QUERY_DEGRADED"));
             Diagnostic->SetStringField(TEXT("message"), TEXT("Material graph has no expressions."));
+            Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
+        }
+        else if (MaterialChildGraphRefCount > 0)
+        {
+            TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
+            Diagnostic->SetStringField(TEXT("code"), TEXT("MATERIAL_SUBGRAPH_REFS_PRESENT"));
+            Diagnostic->SetStringField(
+                TEXT("message"),
+                TEXT("This material query covers the current asset only. Follow childGraphRef entries or use graph.list(includeSubgraphs=true) to inspect referenced MaterialFunction subgraphs."));
+            Diagnostic->SetNumberField(TEXT("childGraphRefCount"), MaterialChildGraphRefCount);
             Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
         }
 
