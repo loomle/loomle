@@ -52,6 +52,15 @@ python3 packaging/install/install_from_checkout.py \
   --version 0.0.0-dev
 ```
 
+For day-to-day source-checkout validation, prefer the unified developer flow:
+
+```bash
+python3 tools/dev_verify.py \
+  --project-root /path/to/MyProject
+```
+
+That flow installs the current checkout into the target project, restarts Unreal Editor, and validates through the same project-local `Loomle/loomle` entrypoint that users run after installation.
+
 See [docs/REPO_STRUCTURE.md](/Users/xartest/dev/loomle/docs/REPO_STRUCTURE.md) for the target repository, release, and installed-project structure.
 See [BOOTSTRAP_CONTRACT.md](/Users/xartest/dev/loomle/packaging/bootstrap/BOOTSTRAP_CONTRACT.md) for the public bootstrap entrypoint contract.
 

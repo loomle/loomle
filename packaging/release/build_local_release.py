@@ -83,7 +83,7 @@ def main() -> int:
 
     run(
         [
-            "python3",
+            sys.executable,
             str(assemble_script),
             "--repo-root",
             str(repo_root),
@@ -108,7 +108,7 @@ def main() -> int:
 
     run(
         [
-            "python3",
+            sys.executable,
             str(manifest_script),
             "--manifest-path",
             str(manifest_path),

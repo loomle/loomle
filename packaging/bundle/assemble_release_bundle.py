@@ -67,7 +67,7 @@ def main() -> int:
     )
     copy_file(
         client_binary,
-        release_workspace / "client" / client_binary.name,
+        release_workspace / client_binary.name,
     )
 
     manifest = {

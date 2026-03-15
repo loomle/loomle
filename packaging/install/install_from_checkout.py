@@ -31,6 +31,12 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--platform", default="")
     parser.add_argument("--version", default="0.0.0-dev")
+    parser.add_argument(
+        "--plugin-mode",
+        default="source",
+        choices=["prebuilt", "source"],
+        help="Install the plugin in prebuilt or source mode after building from checkout.",
+    )
     args = parser.parse_args()
 
     repo_root = Path(args.repo_root).resolve()
@@ -46,7 +52,7 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     build_cmd = [
-        "python3",
+        sys.executable,
         str(build_script),
         "--repo-root",
         str(repo_root),
@@ -67,7 +73,7 @@ def main() -> int:
 
     install_result = run_capture(
         [
-            "python3",
+            sys.executable,
             str(install_script),
             "--bundle-root",
             bundle_dir,
@@ -79,6 +85,8 @@ def main() -> int:
             platform,
             "--version",
             args.version,
+            "--plugin-mode",
+            args.plugin_mode,
         ],
         cwd=repo_root,
     )

@@ -27,13 +27,13 @@ def resolve_loomle_binary(project_root: Path, override: str) -> Path:
         candidate = Path(override).resolve()
     else:
         binary_name = "loomle.exe" if sys.platform.startswith("win") else "loomle"
-        project_local = project_root / "Loomle" / binary_name
-        if project_local.is_file():
-            candidate = project_local
-        else:
-            candidate = REPO_ROOT / "mcp" / "client" / "target" / "release" / binary_name
+        candidate = project_root / "Loomle" / binary_name
     if not candidate.is_file():
-        fail(f"loomle binary not found: {candidate}")
+        fail(
+            "project-local loomle binary not found: "
+            f"{candidate}. install the current checkout into the test project first, "
+            "or pass --loomle-bin to override."
+        )
     return candidate
 
 

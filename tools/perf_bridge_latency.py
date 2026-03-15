@@ -41,10 +41,17 @@ def ensure_project_root(project_root: Path) -> Path:
     return project_root
 
 
-def default_loomle_binary() -> Path:
-    repo_root = Path(__file__).resolve().parents[1]
+def default_loomle_binary(project_root: Path) -> Path:
     binary_name = "loomle.exe" if sys.platform.startswith("win") else "loomle"
-    return repo_root / "mcp" / "client" / "target" / "release" / binary_name
+    candidate = project_root.resolve() / "Loomle" / binary_name
+    if candidate.is_file():
+        return candidate
+    fail(
+        "project-local loomle binary not found: "
+        f"{candidate}. install the current checkout into the test project first, "
+        "or pass --loomle-bin to override."
+    )
+    raise RuntimeError("unreachable")
 
 
 class LoomleSessionClient:
@@ -265,7 +272,7 @@ def main() -> int:
     parser.add_argument(
         "--loomle-bin",
         default="",
-        help="Override path to the loomle client binary. Defaults to <repo>/mcp/client/target/release/loomle(.exe).",
+        help="Override path to the loomle client binary. Defaults to <ProjectRoot>/Loomle/loomle(.exe).",
     )
     parser.add_argument("--timeout", type=float, default=5.0, help="Per-request timeout in seconds")
     parser.add_argument("--total", type=int, default=200, help="Measured request count")
@@ -300,9 +307,10 @@ def main() -> int:
     if not isinstance(tool_args, dict):
         fail("--arguments must decode to a JSON object")
 
-    loomle_binary = Path(args.loomle_bin).resolve() if args.loomle_bin else default_loomle_binary()
+    project_root = Path(args.project_root)
+    loomle_binary = Path(args.loomle_bin).resolve() if args.loomle_bin else default_loomle_binary(project_root)
     client = LoomleSessionClient(
-        project_root=Path(args.project_root),
+        project_root=project_root,
         loomle_binary=loomle_binary,
         timeout_s=args.timeout,
     )

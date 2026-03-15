@@ -10,6 +10,7 @@ Developer utilities and performance tooling.
 
 ## Current Tools
 
+- `dev_verify.py`: canonical local development verification flow
 - `perf_bridge_latency.py`: latency benchmark for a selected tool call
 - `perf_graph_rw_temp_asset.py`: temporary-asset graph read/write benchmark
 - `runner_init_host_project.sh`: developer host-project bootstrap helper
@@ -24,16 +25,27 @@ Developer utilities and performance tooling.
   - `tests/e2e/test_bridge_regression.py`
   - `tests/e2e/test_bridge_windows.ps1`
   - `tests/integration/test_loomle_latency.py`
-- E2E scripts still default to the plugin MCP server path:
-  - `<ProjectRoot>/Plugins/LoomleBridge/Tools/mcp/<platform>/loomle_mcp_server(.exe)`
+- The canonical validation entrypoint is now the installed project-local client:
+  - `<ProjectRoot>/Loomle/loomle(.exe)`
 
-### Refresh Rules After Code Changes
+### Canonical Local Dev Flow
 
-- If you only change `mcp/server/`, rebuild the Rust binary and replace the dev-host plugin copy of `loomle_mcp_server`. Unreal Editor usually does not need a restart.
-- If you change Unreal plugin C++ under `engine/LoomleBridge/Source/LoomleBridge/`, rebuild the Editor target and restart Unreal Editor before validating behavior.
-- If you change both sides, rebuild and replace the `mcp/server` binary first, then rebuild the Unreal plugin, then restart Unreal Editor.
-- If you only change Python tests or docs, Unreal Editor does not need a restart.
-- If compilation succeeded but runtime behavior still looks old, first suspect a stale Unreal Editor session before suspecting the code path.
+Use `tools/dev_verify.py` instead of manually rebuilding and copying binaries. It installs the current checkout into the dev host project, restarts Unreal Editor, then validates through the same `Loomle/loomle` entrypoint that users get after install.
+
+Recommended command:
+
+```bash
+python3 tools/dev_verify.py --project-root "/Users/xartest/dev/LoomleDevHost"
+```
+
+Useful variants:
+
+```bash
+python3 tools/dev_verify.py --project-root "/Users/xartest/dev/LoomleDevHost" --run-latency
+python3 tools/dev_verify.py --project-root "/Users/xartest/dev/LoomleDevHost" --install-only
+```
+
+Only fall back to the lower-level scripts when you are intentionally debugging one phase in isolation.
 
 ### Dev Project Root Config (optional)
 

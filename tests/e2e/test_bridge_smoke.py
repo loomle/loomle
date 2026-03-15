@@ -10,6 +10,9 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+TOOLS_DIR = REPO_ROOT / "tools"
+
 REQUIRED_TOOLS = {
     "loomle",
     "graph",
@@ -233,7 +236,7 @@ def resolve_project_root(project_root_arg: str, dev_config_path_arg: str) -> Pat
     if project_root_arg:
         return Path(project_root_arg).resolve()
 
-    default_path = Path(__file__).resolve().parent / "dev.project-root.local.json"
+    default_path = TOOLS_DIR / "dev.project-root.local.json"
     config_path = Path(dev_config_path_arg).resolve() if dev_config_path_arg else default_path
     if not config_path.exists():
         fail(
@@ -253,20 +256,37 @@ def resolve_project_root(project_root_arg: str, dev_config_path_arg: str) -> Pat
     return Path(value).resolve()
 
 
-def resolve_default_loomle_binary() -> Path:
-    repo_root = Path(__file__).resolve().parents[2]
+def loomle_binary_name() -> str:
     binary_name = "loomle.exe" if sys.platform.startswith("win") else "loomle"
-    return repo_root / "mcp" / "client" / "target" / "release" / binary_name
+    return binary_name
+
+
+def resolve_project_local_loomle_binary(project_root: Path) -> Path:
+    return project_root / "Loomle" / loomle_binary_name()
+
+
+def resolve_repo_loomle_binary() -> Path:
+    return REPO_ROOT / "mcp" / "client" / "target" / "release" / loomle_binary_name()
+
+
+def resolve_default_loomle_binary(project_root: Path) -> Path:
+    candidate = resolve_project_local_loomle_binary(project_root)
+    if candidate.is_file():
+        return candidate
+    fail(
+        "project-local loomle binary not found: "
+        f"{candidate}. install the current checkout into the test project first, "
+        "or pass --loomle-bin to override."
+    )
+    raise RuntimeError("unreachable")
 
 
 def resolve_default_server_binary(project_root: Path) -> Path:
-    _ = project_root
-    return resolve_default_loomle_binary()
+    return resolve_default_loomle_binary(project_root)
 
 
 def resolve_default_client_binary(project_root: Path) -> Path:
-    _ = project_root
-    return resolve_default_loomle_binary()
+    return resolve_default_loomle_binary(project_root)
 
 
 def call_tool(
@@ -367,7 +387,7 @@ def main() -> int:
     parser.add_argument(
         "--loomle-bin",
         default="",
-        help="Override path to the loomle client binary. Defaults to <repo>/mcp/client/target/release/loomle(.exe).",
+        help="Override path to the loomle client binary. Defaults to <ProjectRoot>/Loomle/loomle(.exe).",
     )
     parser.add_argument(
         "--mcp-server-bin",
@@ -383,7 +403,7 @@ def main() -> int:
         if args.loomle_bin
         else Path(args.loomle_bin_compat).resolve()
         if args.loomle_bin_compat
-        else resolve_default_loomle_binary()
+        else resolve_default_loomle_binary(project_root)
     )
 
     if not project_root.exists():

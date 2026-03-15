@@ -17,6 +17,12 @@ cd mcp/client
 cargo build
 ```
 
+For local end-to-end validation during development, do not treat this checkout binary as the primary runtime entrypoint. Refresh the dev host project first, then validate through `<ProjectRoot>/Loomle/loomle(.exe)` by using:
+
+```bash
+python3 tools/dev_verify.py --project-root "/Path/To/Project"
+```
+
 ## Commands
 
 ```bash

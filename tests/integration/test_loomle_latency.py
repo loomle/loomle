@@ -132,7 +132,7 @@ def main() -> int:
     parser.add_argument(
         "--loomle-bin",
         default="",
-        help="Override path to the loomle client binary. Defaults to <repo>/mcp/client/target/release/loomle(.exe).",
+        help="Override path to the loomle client binary. Defaults to <ProjectRoot>/Loomle/loomle(.exe).",
     )
     parser.add_argument(
         "--mcp-server-bin",
@@ -158,7 +158,7 @@ def main() -> int:
         if args.loomle_bin
         else Path(args.loomle_bin_compat).resolve()
         if args.loomle_bin_compat
-        else resolve_default_loomle_binary()
+        else resolve_default_loomle_binary(project_root)
     )
 
     if not project_root.exists():
