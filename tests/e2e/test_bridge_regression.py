@@ -2036,7 +2036,10 @@ def main() -> int:
                     {
                         "op": "connectPins",
                         "args": {
-                            "from": {"nodeId": material_root_edge.get("fromNodeId")},
+                            "from": {
+                                "nodeId": material_root_edge.get("fromNodeId"),
+                                "pin": material_root_edge.get("fromPin"),
+                            },
                             "to": {"nodeId": "__material_root__", "pin": "Base Color"},
                         },
                     }
@@ -2110,7 +2113,10 @@ def main() -> int:
                     {
                         "op": "connectPins",
                         "args": {
-                            "from": {"nodeId": material_internal_edge.get("fromNodeId")},
+                            "from": {
+                                "nodeId": material_internal_edge.get("fromNodeId"),
+                                "pin": material_internal_edge.get("fromPin"),
+                            },
                             "to": {
                                 "nodeId": material_internal_edge.get("toNodeId"),
                                 "pin": material_internal_edge.get("toPin"),
@@ -2121,6 +2127,76 @@ def main() -> int:
             },
         )
         op_ok(material_reconnect_internal_after_source_break)
+
+        material_saturate_add = call_tool(
+            client,
+            100157,
+            "graph.mutate",
+            {
+                "assetPath": material_asset_path,
+                "graphName": "MaterialGraph",
+                "graphType": "material",
+                "ops": [
+                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionSaturate"}}
+                ],
+            },
+        )
+        material_saturate_id = op_ok(material_saturate_add).get("nodeId")
+        if not isinstance(material_saturate_id, str) or not material_saturate_id:
+            fail(f"Material Saturate addNode.byClass did not return nodeId: {material_saturate_add}")
+        material_saturate_snapshot = query_snapshot(client, 100158, material_asset_path, "material", "MaterialGraph")
+        material_saturate_node = require_node(material_saturate_snapshot.get("nodes") or [], material_saturate_id)
+        material_saturate_pins = material_saturate_node.get("pins")
+        if not isinstance(material_saturate_pins, list):
+            fail(f"Material Saturate node missing pins: {material_saturate_node}")
+        material_saturate_input_name = next(
+            (
+                pin.get("name")
+                for pin in material_saturate_pins
+                if isinstance(pin, dict) and pin.get("direction") == "input"
+            ),
+            None,
+        )
+        if not isinstance(material_saturate_input_name, str):
+            fail(f"Material Saturate input pin name missing from graph.query: {material_saturate_node}")
+        material_connect_saturate_by_query_pin = call_tool(
+            client,
+            100159,
+            "graph.mutate",
+            {
+                "assetPath": material_asset_path,
+                "graphName": "MaterialGraph",
+                "graphType": "material",
+                "ops": [
+                    {
+                        "op": "connectPins",
+                        "args": {
+                            "from": {"nodeId": material_param_id, "pin": material_internal_edge.get("fromPin")},
+                            "to": {"nodeId": material_saturate_id, "pin": material_saturate_input_name},
+                        },
+                    }
+                ],
+            },
+        )
+        material_connect_saturate_by_query_pin_first = op_ok(material_connect_saturate_by_query_pin)
+        if material_connect_saturate_by_query_pin_first.get("changed") is not True:
+            fail(
+                "Material connectPins should accept the input pin name returned by graph.query for unary nodes: "
+                f"{material_connect_saturate_by_query_pin}"
+            )
+        material_after_saturate_connect = query_snapshot(client, 100160, material_asset_path, "material", "MaterialGraph")
+        material_edges_after_saturate_connect = material_after_saturate_connect.get("edges")
+        if not any(
+            isinstance(edge, dict)
+            and edge.get("fromNodeId") == material_param_id
+            and edge.get("toNodeId") == material_saturate_id
+            and edge.get("toPin") == material_saturate_input_name
+            for edge in material_edges_after_saturate_connect or []
+        ):
+            fail(
+                "Material connectPins(query-visible unary input pin) should create the expected edge: "
+                f"{material_after_saturate_connect}"
+            )
         print("[PASS] material breakPinLinks source-pin round-trip validated")
         material_before_relayout = dict(material_multiply_pos)
         material_relayout_payload = call_tool(

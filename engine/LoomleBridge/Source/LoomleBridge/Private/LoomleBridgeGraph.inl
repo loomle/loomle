@@ -5151,6 +5151,108 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             Input->OutputIndex = 0;
             return true;
         };
+        auto AddUniqueMaterialPinCandidate = [](TArray<FString>& Candidates, const FString& Candidate)
+        {
+            for (const FString& Existing : Candidates)
+            {
+                if (Existing.Equals(Candidate, ESearchCase::IgnoreCase))
+                {
+                    return;
+                }
+            }
+            Candidates.Add(Candidate);
+        };
+        auto TrimMaterialPinName = [](const FString& PinName) -> FString
+        {
+            return PinName.TrimStartAndEnd();
+        };
+        auto StripMaterialPinDisplaySuffix = [&](const FString& PinName) -> FString
+        {
+            const FString Trimmed = TrimMaterialPinName(PinName);
+            int32 OpenParenIndex = INDEX_NONE;
+            if (Trimmed.EndsWith(TEXT(")")) && Trimmed.FindLastChar(TEXT('('), OpenParenIndex) && OpenParenIndex > 0)
+            {
+                const FString Prefix = Trimmed.Left(OpenParenIndex).TrimEnd();
+                if (!Prefix.IsEmpty())
+                {
+                    return Prefix;
+                }
+            }
+            return Trimmed;
+        };
+        auto CanonicalizeMaterialOutputPinName = [&](const FString& PinName) -> FString
+        {
+            const FString Trimmed = TrimMaterialPinName(PinName);
+            if (Trimmed.IsEmpty()
+                || Trimmed.Equals(TEXT("None"), ESearchCase::IgnoreCase)
+                || Trimmed.Equals(TEXT("Output"), ESearchCase::IgnoreCase))
+            {
+                return TEXT("");
+            }
+            return StripMaterialPinDisplaySuffix(Trimmed);
+        };
+        auto BuildMaterialOutputPinCandidates = [&](const FString& PinName) -> TArray<FString>
+        {
+            TArray<FString> Candidates;
+            AddUniqueMaterialPinCandidate(Candidates, CanonicalizeMaterialOutputPinName(PinName));
+            AddUniqueMaterialPinCandidate(Candidates, TEXT(""));
+            return Candidates;
+        };
+        auto BuildMaterialInputPinCandidates = [&](UMaterialExpression* Expression, const FString& PinName) -> TArray<FString>
+        {
+            TArray<FString> Candidates;
+            const FString Trimmed = TrimMaterialPinName(PinName);
+            const FString Stripped = StripMaterialPinDisplaySuffix(Trimmed);
+            AddUniqueMaterialPinCandidate(Candidates, Trimmed);
+            AddUniqueMaterialPinCandidate(Candidates, Stripped);
+
+            int32 InputCount = 0;
+            if (Expression != nullptr)
+            {
+                const int32 MaxInputs = 128;
+                for (int32 InputIndex = 0; InputIndex < MaxInputs; ++InputIndex)
+                {
+                    FExpressionInput* Input = Expression->GetInput(InputIndex);
+                    if (Input == nullptr)
+                    {
+                        break;
+                    }
+
+                    ++InputCount;
+                    const FString DisplayName = TrimMaterialPinName(Expression->GetInputName(InputIndex).ToString());
+                    const FString DisplayNameStripped = StripMaterialPinDisplaySuffix(DisplayName);
+                    const FString RawName = TrimMaterialPinName(Input->InputName.ToString());
+                    const FString RawNameStripped = StripMaterialPinDisplaySuffix(RawName);
+
+                    const bool bMatchesDisplay =
+                        (!Trimmed.IsEmpty() && DisplayName.Equals(Trimmed, ESearchCase::IgnoreCase))
+                        || (!Stripped.IsEmpty() && DisplayName.Equals(Stripped, ESearchCase::IgnoreCase))
+                        || (!Trimmed.IsEmpty() && DisplayNameStripped.Equals(Trimmed, ESearchCase::IgnoreCase))
+                        || (!Stripped.IsEmpty() && DisplayNameStripped.Equals(Stripped, ESearchCase::IgnoreCase));
+
+                    const bool bMatchesRaw =
+                        (!Trimmed.IsEmpty() && RawName.Equals(Trimmed, ESearchCase::IgnoreCase))
+                        || (!Stripped.IsEmpty() && RawName.Equals(Stripped, ESearchCase::IgnoreCase))
+                        || (!Trimmed.IsEmpty() && RawNameStripped.Equals(Trimmed, ESearchCase::IgnoreCase))
+                        || (!Stripped.IsEmpty() && RawNameStripped.Equals(Stripped, ESearchCase::IgnoreCase));
+
+                    if (bMatchesDisplay || bMatchesRaw)
+                    {
+                        AddUniqueMaterialPinCandidate(Candidates, RawName);
+                        AddUniqueMaterialPinCandidate(Candidates, RawNameStripped);
+                        AddUniqueMaterialPinCandidate(Candidates, DisplayName);
+                        AddUniqueMaterialPinCandidate(Candidates, DisplayNameStripped);
+                    }
+                }
+            }
+
+            if (InputCount == 1)
+            {
+                AddUniqueMaterialPinCandidate(Candidates, TEXT(""));
+            }
+
+            return Candidates;
+        };
         auto BreakMaterialLinksBySourcePin = [&](UMaterialExpression* SourceExpr, const FString& SourcePinName, TArray<FString>& OutTouchedNodeIds) -> bool
         {
             if (SourceExpr == nullptr || MaterialAsset == nullptr)
@@ -5548,7 +5650,19 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                 }
                                 else
                                 {
-                                    bOk = UMaterialEditingLibrary::ConnectMaterialProperty(FromExpr, FromPinName, Property);
+                                    const TArray<FString> SourcePinCandidates = BuildMaterialOutputPinCandidates(FromPinName);
+                                    FString EffectiveFromPinName = FromPinName;
+                                    bOk = false;
+                                    for (const FString& SourcePinCandidate : SourcePinCandidates)
+                                    {
+                                        if (UMaterialEditingLibrary::ConnectMaterialProperty(FromExpr, SourcePinCandidate, Property))
+                                        {
+                                            EffectiveFromPinName = SourcePinCandidate;
+                                            bOk = true;
+                                            break;
+                                        }
+                                    }
+
                                     if (!bOk)
                                     {
                                         Error = TEXT("Failed to connect material expression to material root.");
@@ -5558,7 +5672,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                         bChanged = true;
                                         GraphEventName = TEXT("graph.node_connected");
                                         GraphEventData->SetStringField(TEXT("fromNodeId"), FromNodeId);
-                                        GraphEventData->SetStringField(TEXT("fromPin"), FromPinName);
+                                        GraphEventData->SetStringField(TEXT("fromPin"), EffectiveFromPinName);
                                         GraphEventData->SetStringField(TEXT("toNodeId"), ToNodeId);
                                         GraphEventData->SetStringField(TEXT("toPin"), ToPinName);
                                         GraphEventData->SetStringField(TEXT("op"), Op);
@@ -5573,7 +5687,29 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                             }
                             else
                             {
-                                bOk = UMaterialEditingLibrary::ConnectMaterialExpressions(FromExpr, FromPinName, ToExpr, ToPinName);
+                                const TArray<FString> SourcePinCandidates = BuildMaterialOutputPinCandidates(FromPinName);
+                                const TArray<FString> TargetPinCandidates = BuildMaterialInputPinCandidates(ToExpr, ToPinName);
+                                FString EffectiveFromPinName = FromPinName;
+                                FString EffectiveToPinName = ToPinName;
+                                bOk = false;
+                                for (const FString& SourcePinCandidate : SourcePinCandidates)
+                                {
+                                    for (const FString& TargetPinCandidate : TargetPinCandidates)
+                                    {
+                                        if (UMaterialEditingLibrary::ConnectMaterialExpressions(FromExpr, SourcePinCandidate, ToExpr, TargetPinCandidate))
+                                        {
+                                            EffectiveFromPinName = SourcePinCandidate;
+                                            EffectiveToPinName = TargetPinCandidate;
+                                            bOk = true;
+                                            break;
+                                        }
+                                    }
+                                    if (bOk)
+                                    {
+                                        break;
+                                    }
+                                }
+
                                 if (!bOk)
                                 {
                                     Error = TEXT("Failed to connect material expressions.");
@@ -5583,9 +5719,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                     bChanged = true;
                                     GraphEventName = TEXT("graph.node_connected");
                                     GraphEventData->SetStringField(TEXT("fromNodeId"), FromNodeId);
-                                    GraphEventData->SetStringField(TEXT("fromPin"), FromPinName);
+                                    GraphEventData->SetStringField(TEXT("fromPin"), EffectiveFromPinName);
                                     GraphEventData->SetStringField(TEXT("toNodeId"), ToNodeId);
-                                    GraphEventData->SetStringField(TEXT("toPin"), ToPinName);
+                                    GraphEventData->SetStringField(TEXT("toPin"), EffectiveToPinName);
                                     GraphEventData->SetStringField(TEXT("op"), Op);
                                     NodesTouchedForLayout.Add(FromNodeId);
                                     NodesTouchedForLayout.Add(ToNodeId);
