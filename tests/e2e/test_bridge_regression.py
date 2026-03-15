@@ -1252,6 +1252,32 @@ def main() -> int:
                 "Material graph.query without graphName should resolve the same single-graph asset snapshot: "
                 f"without={material_snapshot_without_graph_name} with={material_snapshot}"
             )
+        resolved_material_node = call_tool(
+            client,
+            10014,
+            "graph.resolve",
+            {"path": material_multiply_id, "graphType": "material"},
+        )
+        resolved_material_entry = require_resolved_asset_path(resolved_material_node, material_asset_path)
+        if resolved_material_entry.get("graphType") != "material":
+            fail(f"graph.resolve(material node path) returned wrong graphType: {resolved_material_entry}")
+        resolved_material_ref = resolved_material_entry.get("graphRef")
+        if not isinstance(resolved_material_ref, dict):
+            fail(f"graph.resolve(material node path) missing graphRef: {resolved_material_entry}")
+        material_query_by_ref = call_tool(
+            client,
+            10015,
+            "graph.query",
+            {"graphType": "material", "graphRef": resolved_material_ref, "limit": 200},
+        )
+        material_query_by_ref_snapshot = material_query_by_ref.get("semanticSnapshot")
+        if not isinstance(material_query_by_ref_snapshot, dict):
+            fail(f"graph.query(material graphRef) missing semanticSnapshot: {material_query_by_ref}")
+        if material_query_by_ref_snapshot.get("signature") != material_snapshot.get("signature"):
+            fail(
+                "graph.resolve(material node path) should yield a graphRef that reads the same material snapshot: "
+                f"resolved={material_query_by_ref_snapshot} expected={material_snapshot}"
+            )
         material_root = require_node(material_nodes, "__material_root__")
         if material_root.get("nodeRole") != "materialRoot":
             fail(f"Material root nodeRole mismatch: {material_root}")
@@ -1340,6 +1366,32 @@ def main() -> int:
             fail(
                 "PCG graph.query without graphName should resolve the same single-graph asset snapshot: "
                 f"without={pcg_snapshot_without_graph_name} with={pcg_snapshot}"
+            )
+        resolved_pcg_node = call_tool(
+            client,
+            10104,
+            "graph.resolve",
+            {"path": pcg_filter_id, "graphType": "pcg"},
+        )
+        resolved_pcg_entry = require_resolved_asset_path(resolved_pcg_node, temp_pcg_asset)
+        if resolved_pcg_entry.get("graphType") != "pcg":
+            fail(f"graph.resolve(PCG node path) returned wrong graphType: {resolved_pcg_entry}")
+        resolved_pcg_ref = resolved_pcg_entry.get("graphRef")
+        if not isinstance(resolved_pcg_ref, dict):
+            fail(f"graph.resolve(PCG node path) missing graphRef: {resolved_pcg_entry}")
+        pcg_query_by_ref = call_tool(
+            client,
+            10105,
+            "graph.query",
+            {"graphType": "pcg", "graphRef": resolved_pcg_ref, "limit": 200},
+        )
+        pcg_query_by_ref_snapshot = pcg_query_by_ref.get("semanticSnapshot")
+        if not isinstance(pcg_query_by_ref_snapshot, dict):
+            fail(f"graph.query(PCG graphRef) missing semanticSnapshot: {pcg_query_by_ref}")
+        if pcg_query_by_ref_snapshot.get("signature") != pcg_snapshot.get("signature"):
+            fail(
+                "graph.resolve(PCG node path) should yield a graphRef that reads the same PCG snapshot: "
+                f"resolved={pcg_query_by_ref_snapshot} expected={pcg_snapshot}"
             )
 
         create_pos = require_layout(require_node(pcg_nodes, pcg_create_id)).get("position", {})

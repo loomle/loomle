@@ -276,6 +276,8 @@ UObject* LoadObjectByAssetPath(const FString& InAssetPath)
 }
 
 UPCGGraph* ResolvePcgGraphFromAsset(UObject* Asset);
+UMaterial* FindEditedMaterial();
+UObject* FindEditedPcgAsset();
 
 bool IsLikelyPcgAsset(const UObject* Asset)
 {
@@ -301,6 +303,11 @@ bool TryGetAssetPathFromObject(const UObject* Object, FString& OutAssetPath)
     OutAssetPath = Package ? Package->GetPathName() : Object->GetPathName();
     OutAssetPath = NormalizeAssetPath(OutAssetPath);
     return !OutAssetPath.IsEmpty() && FPackageName::IsValidLongPackageName(OutAssetPath);
+}
+
+bool IsTransientAssetPath(const FString& AssetPath)
+{
+    return AssetPath.StartsWith(TEXT("/Engine/Transient"));
 }
 
 TSharedPtr<FJsonObject> MakeAssetGraphRefJson(const FString& InAssetPath, const FString& InGraphName = FString())
@@ -883,9 +890,26 @@ void AppendResolvedGraphRefsFromObject(
     if (UMaterialExpression* Expression = Cast<UMaterialExpression>(Object))
     {
         UObject* MaterialOwner = Expression->GetTypedOuter<UMaterial>();
+        FString MaterialOwnerAssetPath;
+        if (MaterialOwner != nullptr
+            && (!TryGetAssetPathFromObject(MaterialOwner, MaterialOwnerAssetPath)
+                || IsTransientAssetPath(MaterialOwnerAssetPath)))
+        {
+            MaterialOwner = nullptr;
+        }
         if (MaterialOwner == nullptr)
         {
             MaterialOwner = Expression->GetTypedOuter<UMaterialFunction>();
+            if (MaterialOwner != nullptr
+                && (!TryGetAssetPathFromObject(MaterialOwner, MaterialOwnerAssetPath)
+                    || IsTransientAssetPath(MaterialOwnerAssetPath)))
+            {
+                MaterialOwner = nullptr;
+            }
+        }
+        if (MaterialOwner == nullptr)
+        {
+            MaterialOwner = FindEditedMaterial();
         }
         AppendMaterialGraphRefs(MaterialOwner, TEXT("selected_graph"), OutRefs, SeenKeys);
 
@@ -898,9 +922,25 @@ void AppendResolvedGraphRefsFromObject(
 
     if (UPCGNode* PcgNode = Cast<UPCGNode>(Object))
     {
+        UObject* PcgAsset = nullptr;
         if (UPCGGraph* Graph = PcgNode->GetTypedOuter<UPCGGraph>())
         {
-            AppendPcgGraphRefs(Graph, TEXT("selected_graph"), OutRefs, SeenKeys);
+            PcgAsset = ResolvePcgGraphFromAsset(Graph);
+            FString PcgAssetPath;
+            if (PcgAsset == nullptr
+                || !TryGetAssetPathFromObject(PcgAsset, PcgAssetPath)
+                || IsTransientAssetPath(PcgAssetPath))
+            {
+                PcgAsset = nullptr;
+            }
+        }
+        if (PcgAsset == nullptr)
+        {
+            PcgAsset = FindEditedPcgAsset();
+        }
+        if (PcgAsset != nullptr)
+        {
+            AppendPcgGraphRefs(PcgAsset, TEXT("selected_graph"), OutRefs, SeenKeys);
         }
         AppendPcgSubgraphRefsFromNode(PcgNode, OutRefs, SeenKeys);
         return;
