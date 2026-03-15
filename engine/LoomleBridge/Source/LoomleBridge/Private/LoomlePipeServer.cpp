@@ -24,7 +24,9 @@ DEFINE_LOG_CATEGORY_STATIC(LogLoomlePipe, Log, All);
 
 namespace
 {
+#if !PLATFORM_WINDOWS
 constexpr int32 UnixSocketListenBacklog = SOMAXCONN;
+#endif
 
 TSharedPtr<FJsonValue> ExtractRequestId(const FString& RequestLine)
 {
