@@ -108,6 +108,40 @@ def wait_for_pcg_runtime_snapshot(
     fail(f"pcg.inspectRuntime did not report generated=true within {timeout_s:.0f}s: {last_payload}")
     raise RuntimeError("unreachable")
 
+def mutate_with_combined_plan_steps(
+    client: McpStdioClient,
+    request_id: int,
+    *,
+    asset_path: str,
+    graph_type: str,
+    graph_name: str,
+    preferred_plans: list[dict],
+) -> dict:
+    steps: list[dict] = []
+    for plan in preferred_plans:
+        plan_steps = plan.get("steps")
+        if not isinstance(plan_steps, list) or not plan_steps:
+            fail(f"preferredPlan missing steps[]: {plan}")
+        steps.extend(plan_steps)
+    payload = call_tool(
+        client,
+        request_id,
+        "graph.mutate",
+        {
+            "assetPath": asset_path,
+            "graphName": graph_name,
+            "graphType": graph_type,
+            "ops": steps,
+        },
+    )
+    op_results = payload.get("opResults")
+    if not isinstance(op_results, list) or len(op_results) != len(steps):
+        fail(f"graph.mutate(combined step plan) opResults mismatch: {payload}")
+    for idx, result in enumerate(op_results):
+        if not isinstance(result, dict) or not result.get("ok"):
+            fail(f"graph.mutate(combined step plan) opResults[{idx}] failed: {payload}")
+    return payload
+
 
 def query_nodes(
     client: McpStdioClient,
@@ -2688,7 +2722,7 @@ def main() -> int:
         if not isinstance(pcg_execution_hints, list) or not pcg_execution_hints:
             fail(f"graph.ops.resolve(edge-context pcg) missing executionHints: {pcg_edge_resolve}")
         first_execution_hint = pcg_execution_hints[0] if isinstance(pcg_execution_hints[0], dict) else {}
-        if first_execution_hint.get("composeMode") != "pipeline_segment":
+        if first_execution_hint.get("composeMode") != "independent":
             fail(f"graph.ops.resolve(edge-context pcg) composeMode mismatch: {pcg_edge_resolve}")
         if first_execution_hint.get("preserveDownstream") is not True:
             fail(f"graph.ops.resolve(edge-context pcg) should preserve downstream: {pcg_edge_resolve}")
@@ -2708,6 +2742,114 @@ def main() -> int:
             fail(f"graph.ops.resolve(edge-context pcg) should reconnect from InsideFilter: {pcg_edge_resolve}")
         if not isinstance(final_to, dict) or final_to.get("nodeId") != pcg_filter_id or final_to.get("pinName") != "In":
             fail(f"graph.ops.resolve(edge-context pcg) should reconnect downstream target: {pcg_edge_resolve}")
+        pcg_compose_resolve = call_tool(
+            client,
+            1010205,
+            "graph.ops.resolve",
+            {
+                "graphType": "pcg",
+                "graphRef": {"kind": "asset", "assetPath": temp_pcg_asset},
+                "context": {
+                    "edge": {
+                        "fromPin": {"nodeId": pcg_sampler_id, "pinName": "Out"},
+                        "toPin": {"nodeId": pcg_tag_c_id, "pinName": "In"},
+                    }
+                },
+                "items": [
+                    {"opId": "pcg.meta.add_tag", "clientRef": "compose_tag"},
+                    {"opId": "pcg.filter.by_tag", "clientRef": "compose_filter"},
+                ],
+            },
+        )
+        pcg_compose_results = pcg_compose_resolve.get("results")
+        if not isinstance(pcg_compose_results, list) or len(pcg_compose_results) != 2:
+            fail(f"graph.ops.resolve(compose pcg) missing results[]: {pcg_compose_resolve}")
+        compose_tag_result = pcg_compose_results[0] if isinstance(pcg_compose_results[0], dict) else {}
+        compose_filter_result = pcg_compose_results[1] if isinstance(pcg_compose_results[1], dict) else {}
+        compose_tag_plan = compose_tag_result.get("preferredPlan")
+        compose_filter_plan = compose_filter_result.get("preferredPlan")
+        if compose_tag_result.get("resolved") is not True or not isinstance(compose_tag_plan, dict):
+            fail(f"graph.ops.resolve(compose pcg) missing first preferredPlan: {pcg_compose_resolve}")
+        if compose_filter_result.get("resolved") is not True or not isinstance(compose_filter_plan, dict):
+            fail(f"graph.ops.resolve(compose pcg) missing second preferredPlan: {pcg_compose_resolve}")
+        if compose_tag_plan.get("realizationKind") != "pipeline_compose":
+            fail(f"graph.ops.resolve(compose pcg) first plan should be pipeline_compose: {pcg_compose_resolve}")
+        if compose_filter_plan.get("realizationKind") != "pipeline_insert":
+            fail(f"graph.ops.resolve(compose pcg) last plan should be pipeline_insert: {pcg_compose_resolve}")
+        compose_tag_hints = compose_tag_plan.get("executionHints")
+        compose_filter_hints = compose_filter_plan.get("executionHints")
+        if not isinstance(compose_tag_hints, list) or not compose_tag_hints:
+            fail(f"graph.ops.resolve(compose pcg) missing first executionHints: {pcg_compose_resolve}")
+        if not isinstance(compose_filter_hints, list) or not compose_filter_hints:
+            fail(f"graph.ops.resolve(compose pcg) missing second executionHints: {pcg_compose_resolve}")
+        first_compose_hint = compose_tag_hints[0] if isinstance(compose_tag_hints[0], dict) else {}
+        last_compose_hint = compose_filter_hints[0] if isinstance(compose_filter_hints[0], dict) else {}
+        if first_compose_hint.get("composeMode") != "pipeline_segment" or first_compose_hint.get("segmentIndex") != 0:
+            fail(f"graph.ops.resolve(compose pcg) first executionHints mismatch: {pcg_compose_resolve}")
+        if last_compose_hint.get("composeMode") != "pipeline_segment" or last_compose_hint.get("segmentIndex") != 1:
+            fail(f"graph.ops.resolve(compose pcg) last executionHints mismatch: {pcg_compose_resolve}")
+        compose_filter_steps = compose_filter_plan.get("steps")
+        if not isinstance(compose_filter_steps, list) or len(compose_filter_steps) != 4:
+            fail(f"graph.ops.resolve(compose pcg) last plan expected 4 steps: {pcg_compose_resolve}")
+        compose_filter_second_step = compose_filter_steps[1] if isinstance(compose_filter_steps[1], dict) else {}
+        compose_filter_second_args = compose_filter_second_step.get("args")
+        if not isinstance(compose_filter_second_args, dict):
+            fail(f"graph.ops.resolve(compose pcg) second plan missing connect args: {pcg_compose_resolve}")
+        compose_filter_from = compose_filter_second_args.get("from")
+        if not isinstance(compose_filter_from, dict) or compose_filter_from.get("nodeRef") != "compose_tag" or compose_filter_from.get("pinName") != "Out":
+            fail(f"graph.ops.resolve(compose pcg) second plan should chain from compose_tag.Out: {pcg_compose_resolve}")
+        compose_apply = mutate_with_combined_plan_steps(
+            client,
+            1010206,
+            asset_path=temp_pcg_asset,
+            graph_type="pcg",
+            graph_name="PCGGraph",
+            preferred_plans=[compose_tag_plan, compose_filter_plan],
+        )
+        _ = compose_apply
+        pcg_snapshot_after_compose = query_snapshot(client, 1010207, temp_pcg_asset, "pcg", "PCGGraph")
+        pcg_edges_after_compose = pcg_snapshot_after_compose.get("edges")
+        if not isinstance(pcg_edges_after_compose, list):
+            fail(f"PCG graph.query after compose missing edges: {pcg_snapshot_after_compose}")
+        if any(
+            isinstance(edge, dict)
+            and edge.get("fromNodeId") == pcg_sampler_id
+            and edge.get("fromPin") == "Out"
+            and edge.get("toNodeId") == pcg_tag_c_id
+            and edge.get("toPin") == "In"
+            for edge in pcg_edges_after_compose
+        ):
+            fail(f"PCG compose should remove original sampler->tag_c edge: {pcg_edges_after_compose}")
+        compose_tag_id = None
+        compose_filter_id = None
+        compose_results_apply = compose_apply.get("opResults")
+        if isinstance(compose_results_apply, list) and len(compose_results_apply) >= 3:
+            first_add = compose_results_apply[0] if isinstance(compose_results_apply[0], dict) else {}
+            second_add = compose_results_apply[2] if isinstance(compose_results_apply[2], dict) else {}
+            compose_tag_id = first_add.get("nodeId")
+            compose_filter_id = second_add.get("nodeId")
+        if not isinstance(compose_tag_id, str) or not compose_tag_id or not isinstance(compose_filter_id, str) or not compose_filter_id:
+            fail(f"PCG compose plan did not create expected node ids: {compose_apply}")
+        expected_compose_edges = [
+            (pcg_sampler_id, "Out", compose_tag_id, "In"),
+            (compose_tag_id, "Out", compose_filter_id, "In"),
+            (compose_filter_id, "InsideFilter", pcg_tag_c_id, "In"),
+        ]
+        for from_node, from_pin, to_node, to_pin in expected_compose_edges:
+            if not any(
+                isinstance(edge, dict)
+                and edge.get("fromNodeId") == from_node
+                and edge.get("fromPin") == from_pin
+                and edge.get("toNodeId") == to_node
+                and edge.get("toPin") == to_pin
+                for edge in pcg_edges_after_compose
+            ):
+                fail(
+                    "PCG compose should produce chained segment edges: "
+                    f"missing=({from_node}, {from_pin}, {to_node}, {to_pin}) edges={pcg_edges_after_compose}"
+                )
+        pcg_snapshot = pcg_snapshot_after_compose
+        pcg_edges = pcg_edges_after_compose
         bad_pcg_connect = call_tool(
             client,
             101021,

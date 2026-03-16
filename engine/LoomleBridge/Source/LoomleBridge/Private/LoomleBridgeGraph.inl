@@ -4235,6 +4235,33 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
         }
     }
 
+    bool bEnablePcgCompose = false;
+    if (GraphType.Equals(TEXT("pcg")) && Items->Num() > 1 && !FromPinName.IsEmpty())
+    {
+        bEnablePcgCompose = true;
+        for (const TSharedPtr<FJsonValue>& ItemValue : *Items)
+        {
+            const TSharedPtr<FJsonObject>* ItemObj = nullptr;
+            if (!ItemValue.IsValid() || !ItemValue->TryGetObject(ItemObj) || ItemObj == nullptr || !(*ItemObj).IsValid())
+            {
+                bEnablePcgCompose = false;
+                break;
+            }
+
+            FString OpId;
+            if (!(*ItemObj)->TryGetStringField(TEXT("opId"), OpId) || !IsComposablePcgSemanticOp(OpId))
+            {
+                bEnablePcgCompose = false;
+                break;
+            }
+        }
+    }
+
+    FString ComposeSourceNodeId = FromNodeId;
+    FString ComposeSourcePinName = FromPinName;
+    FString ComposeSourceNodeRef;
+    FString ComposeSourceKind = TEXT("nodeId");
+
     TArray<TSharedPtr<FJsonValue>> Results;
     for (int32 Index = 0; Index < Items->Num(); ++Index)
     {
@@ -4646,12 +4673,22 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
             if ((OpId.Equals(TEXT("pcg.filter.by_tag")) || OpId.Equals(TEXT("pcg.meta.add_tag")))
                 && !FromNodeId.IsEmpty() && !FromPinName.IsEmpty())
             {
-                const FString StepNodeRef = !ClientRef.IsEmpty()
-                    ? ClientRef
-                    : FString::Printf(TEXT("resolved_%d"), Index);
+                const FString StepNodeRef = ResolvePlanStepNodeRef(ClientRef, Index);
 
                 TArray<TSharedPtr<FJsonValue>> Steps;
                 TArray<TSharedPtr<FJsonValue>> ExecutionHints;
+                FString EffectiveFromNodeId = FromNodeId;
+                FString EffectiveFromPinName = FromPinName;
+                FString EffectiveFromNodeRef;
+                FString EffectiveFromKind = TEXT("nodeId");
+                const bool bComposeItem = bEnablePcgCompose && IsComposablePcgSemanticOp(OpId);
+                if (bComposeItem)
+                {
+                    EffectiveFromNodeId = ComposeSourceNodeId;
+                    EffectiveFromPinName = ComposeSourcePinName;
+                    EffectiveFromNodeRef = ComposeSourceNodeRef;
+                    EffectiveFromKind = ComposeSourceKind;
+                }
 
                 TSharedPtr<FJsonObject> AddStep = MakeShared<FJsonObject>();
                 AddStep->SetStringField(TEXT("op"), TEXT("addNode.byClass"));
@@ -4668,8 +4705,15 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                     ConnectStep->SetStringField(TEXT("op"), TEXT("connectPins"));
                     TSharedPtr<FJsonObject> ConnectArgs = MakeShared<FJsonObject>();
                     TSharedPtr<FJsonObject> FromObj = MakeShared<FJsonObject>();
-                    FromObj->SetStringField(TEXT("nodeId"), FromNodeId);
-                    FromObj->SetStringField(TEXT("pinName"), FromPinName);
+                    if (EffectiveFromKind.Equals(TEXT("nodeRef")) && !EffectiveFromNodeRef.IsEmpty())
+                    {
+                        FromObj->SetStringField(TEXT("nodeRef"), EffectiveFromNodeRef);
+                    }
+                    else
+                    {
+                        FromObj->SetStringField(TEXT("nodeId"), EffectiveFromNodeId);
+                    }
+                    FromObj->SetStringField(TEXT("pinName"), EffectiveFromPinName);
                     TSharedPtr<FJsonObject> ToObj = MakeShared<FJsonObject>();
                     ToObj->SetStringField(TEXT("nodeRef"), StepNodeRef);
                     ToObj->SetStringField(TEXT("pinName"), InputPinName);
@@ -4679,7 +4723,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                     Steps.Add(MakeShared<FJsonValueObject>(ConnectStep));
                 }
 
-                if (!ToNodeId.IsEmpty() && !ToPinName.IsEmpty() && !PrimaryOutputPin.IsEmpty())
+                const bool bShouldReconnectDownstream = !ToNodeId.IsEmpty()
+                    && !ToPinName.IsEmpty()
+                    && !PrimaryOutputPin.IsEmpty()
+                    && (!bComposeItem || Index == Items->Num() - 1);
+                if (bShouldReconnectDownstream)
                 {
                     TSharedPtr<FJsonObject> DisconnectStep = MakeShared<FJsonObject>();
                     DisconnectStep->SetStringField(TEXT("op"), TEXT("disconnectPins"));
@@ -4713,7 +4761,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                     ExecutionHint->SetStringField(TEXT("kind"), TEXT("pipeline_insert"));
                     ExecutionHint->SetBoolField(TEXT("preserveUpstream"), true);
                     ExecutionHint->SetBoolField(TEXT("preserveDownstream"), true);
-                    ExecutionHint->SetStringField(TEXT("composeMode"), TEXT("pipeline_segment"));
+                    ExecutionHint->SetStringField(TEXT("composeMode"), bComposeItem ? TEXT("pipeline_segment") : TEXT("independent"));
+                    if (bComposeItem)
+                    {
+                        ExecutionHint->SetNumberField(TEXT("segmentIndex"), Index);
+                        ExecutionHint->SetNumberField(TEXT("segmentLength"), Items->Num());
+                    }
                     ExecutionHints.Add(MakeShared<FJsonValueObject>(ExecutionHint));
 
                     VerificationHint->SetStringField(TEXT("targetClientRef"), StepNodeRef);
@@ -4722,18 +4775,31 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                 else
                 {
                     TSharedPtr<FJsonObject> ExecutionHint = MakeShared<FJsonObject>();
-                    ExecutionHint->SetStringField(TEXT("kind"), TEXT("attach_to_upstream"));
+                    ExecutionHint->SetStringField(TEXT("kind"), bComposeItem ? TEXT("pipeline_compose") : TEXT("attach_to_upstream"));
                     ExecutionHint->SetBoolField(TEXT("preserveUpstream"), true);
                     ExecutionHint->SetBoolField(TEXT("preserveDownstream"), false);
-                    ExecutionHint->SetStringField(TEXT("composeMode"), TEXT("independent"));
+                    ExecutionHint->SetStringField(TEXT("composeMode"), bComposeItem ? TEXT("pipeline_segment") : TEXT("independent"));
+                    if (bComposeItem)
+                    {
+                        ExecutionHint->SetNumberField(TEXT("segmentIndex"), Index);
+                        ExecutionHint->SetNumberField(TEXT("segmentLength"), Items->Num());
+                    }
                     ExecutionHints.Add(MakeShared<FJsonValueObject>(ExecutionHint));
 
-                    PreferredPlan->SetStringField(TEXT("realizationKind"), TEXT("pipeline_extend"));
+                    PreferredPlan->SetStringField(TEXT("realizationKind"), bComposeItem ? TEXT("pipeline_compose") : TEXT("pipeline_extend"));
                 }
 
                 PreferredPlan->SetStringField(TEXT("coverage"), TEXT("contextual"));
                 PreferredPlan->SetArrayField(TEXT("steps"), Steps);
                 PreferredPlan->SetArrayField(TEXT("executionHints"), ExecutionHints);
+
+                if (bComposeItem && !PrimaryOutputPin.IsEmpty())
+                {
+                    ComposeSourceNodeId.Empty();
+                    ComposeSourceNodeRef = StepNodeRef;
+                    ComposeSourcePinName = PrimaryOutputPin;
+                    ComposeSourceKind = TEXT("nodeRef");
+                }
             }
         }
 
