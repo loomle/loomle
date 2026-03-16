@@ -28,7 +28,6 @@
 #include "GameFramework/Character.h"
 #include "Framework/Application/SlateApplication.h"
 #include "HAL/PlatformTime.h"
-#include "HAL/PlatformProcess.h"
 #include "IPythonScriptPlugin.h"
 #include "Input/HittestGrid.h"
 #include "Json.h"
@@ -1843,19 +1842,18 @@ void RefreshSlateWindowForCapture(const TSharedRef<SWindow>& Window)
     }
 
     FSlateApplication& SlateApp = FSlateApplication::Get();
+
+#if PLATFORM_WINDOWS
+    // Windows capture uses the native HWND path below, so avoid driving the Slate
+    // redraw path here. ForceRedrawWindow can hit platform-specific restore-size
+    // assertions on editor windows during automation.
+    (void)Window;
+    SlateApp.InvalidateAllWidgets(false);
+    return;
+#else
     SlateApp.InvalidateAllWidgets(false);
     SlateApp.Tick(ESlateTickType::All);
     SlateApp.ForceRedrawWindow(Window);
-
-#if PLATFORM_WINDOWS
-    // Windows editor windows can lag one or two paints behind after graph layout.
-    // Drive a few short redraw/tick cycles so native window capture sees the updated graph.
-    for (int32 Attempt = 0; Attempt < 3; ++Attempt)
-    {
-        FPlatformProcess::Sleep(0.10f);
-        SlateApp.Tick(ESlateTickType::All);
-        SlateApp.ForceRedrawWindow(Window);
-    }
 #endif
 }
 
