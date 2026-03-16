@@ -344,7 +344,7 @@ fn send_and_wait(
     use std::fs::OpenOptions;
 
     const PIPE_BUSY_OS_ERROR: i32 = 231;
-    const PIPE_BUSY_RETRY_BACKOFF_MS: [u64; 5] = [20, 40, 80, 120, 160];
+    const PIPE_BUSY_RETRY_BACKOFF_MS: [u64; 10] = [20, 40, 80, 120, 160, 240, 320, 400, 500, 600];
 
     let pipe_path = match endpoint {
         RpcEndpoint::NamedPipe { pipe_name } => format!("\\\\.\\pipe\\{pipe_name}"),
