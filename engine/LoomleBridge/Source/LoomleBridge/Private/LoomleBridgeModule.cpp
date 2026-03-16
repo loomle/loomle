@@ -1376,6 +1376,48 @@ TSharedPtr<SWindow> ResolveActiveTopLevelWindow()
     return ActiveWindow;
 }
 
+bool WindowHasNativeCaptureHandle(const TSharedPtr<SWindow>& Window)
+{
+#if PLATFORM_WINDOWS
+    return Window.IsValid()
+        && Window->GetNativeWindow().IsValid()
+        && Window->GetNativeWindow()->GetOSWindowHandle() != nullptr;
+#else
+    return Window.IsValid();
+#endif
+}
+
+TSharedPtr<SWindow> ResolveCaptureTopLevelWindow()
+{
+    if (!FSlateApplication::IsInitialized())
+    {
+        return nullptr;
+    }
+
+    TSharedPtr<SWindow> ActiveWindow = ResolveActiveTopLevelWindow();
+    if (WindowHasNativeCaptureHandle(ActiveWindow))
+    {
+        return ActiveWindow;
+    }
+
+    TArray<TSharedRef<SWindow>> CandidateWindows = FSlateApplication::Get().GetInteractiveTopLevelWindows();
+    if (CandidateWindows.Num() == 0)
+    {
+        FSlateApplication::Get().GetAllVisibleWindowsOrdered(CandidateWindows);
+    }
+
+    for (int32 Index = CandidateWindows.Num() - 1; Index >= 0; --Index)
+    {
+        const TSharedRef<SWindow>& Candidate = CandidateWindows[Index];
+        if (WindowHasNativeCaptureHandle(Candidate))
+        {
+            return Candidate;
+        }
+    }
+
+    return ActiveWindow;
+}
+
 FString ResolveScreenshotOutputPath(const FString& RequestedPath)
 {
     FString OutputPath = RequestedPath.TrimStartAndEnd();
@@ -1408,7 +1450,7 @@ TSharedPtr<FJsonObject> BuildActiveWindowJson()
     Window->SetBoolField(TEXT("isValid"), false);
     Window->SetStringField(TEXT("title"), TEXT(""));
 
-    TSharedPtr<SWindow> ActiveWindow = ResolveActiveTopLevelWindow();
+    TSharedPtr<SWindow> ActiveWindow = ResolveCaptureTopLevelWindow();
 
     if (!ActiveWindow.IsValid())
     {

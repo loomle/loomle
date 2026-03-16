@@ -881,7 +881,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorScreenshotToolResult(con
         return Result;
     }
 
-    TSharedPtr<SWindow> ActiveWindow = ResolveActiveTopLevelWindow();
+    TSharedPtr<SWindow> ActiveWindow = ResolveCaptureTopLevelWindow();
     if (!ActiveWindow.IsValid())
     {
         Result->SetBoolField(TEXT("isError"), true);
