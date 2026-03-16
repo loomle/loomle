@@ -641,12 +641,16 @@ Recommended required v1 ops:
 - `pcg.meta.add_tag`
 - `pcg.filter.by_tag`
 - `pcg.sample.surface`
+- `pcg.transform.points`
+- `pcg.sample.spline`
+- `pcg.source.actor_data`
+- `pcg.spawn.static_mesh`
 
 Recommended optional PCG stretch ops:
 
 - `pcg.filter.by_attribute`
 - `pcg.project.surface`
-- `pcg.spawn.static_mesh`
+- `pcg.spawn.actor`
 
 Expected realization profile:
 

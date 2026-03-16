@@ -14,7 +14,7 @@ Addressing rule:
 
 Planning rule:
 - treat `graph.ops` and `graph.ops.resolve` as the default public planning surface for PCG graph edits
-- prefer the current semantic v1 baseline: `pcg.create.points`, `pcg.meta.add_tag`, `pcg.filter.by_tag`, `pcg.sample.surface`
+- prefer the current semantic baseline: `pcg.create.points`, `pcg.meta.add_tag`, `pcg.filter.by_tag`, `pcg.sample.surface`, `pcg.transform.points`, `pcg.sample.spline`, `pcg.source.actor_data`, `pcg.spawn.static_mesh`
 - `pcg.meta.add_tag` and `pcg.filter.by_tag` can emit immediate insertion `steps[]` when `context.fromPin` is supplied
 - if you want `pcg.filter.by_tag` to resolve into an immediate insertion plan, pass `context.fromPin` so LOOMLE can generate `steps[]` with the initial `connectPins`
 - expect useful PCG plans to carry `settingsTemplate`, `pinHints`, or `verificationHints`; read those fields before filling settings or validating results

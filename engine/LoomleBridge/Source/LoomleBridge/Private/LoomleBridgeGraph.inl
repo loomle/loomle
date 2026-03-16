@@ -35,6 +35,12 @@ void AppendGraphSemanticOpSpecs(const FString& GraphType, TArray<FGraphSemanticO
         OutSpecs.Add({ TEXT("pcg.meta.add_tag"), TEXT("pcg"), TEXT("Add an Add Tag PCG node."), TEXT("/Script/PCG.PCGAddTagSettings") });
         OutSpecs.Add({ TEXT("pcg.filter.by_tag"), TEXT("pcg"), TEXT("Add a Filter By Tag PCG node."), TEXT("/Script/PCG.PCGFilterByTagSettings") });
         OutSpecs.Add({ TEXT("pcg.sample.surface"), TEXT("pcg"), TEXT("Add a Surface Sampler PCG node."), TEXT("/Script/PCG.PCGSurfaceSamplerSettings") });
+        OutSpecs.Add({ TEXT("pcg.transform.points"), TEXT("pcg"), TEXT("Add a Transform Points PCG node."), TEXT("/Script/PCG.PCGTransformPointsSettings") });
+        OutSpecs.Add({ TEXT("pcg.sample.spline"), TEXT("pcg"), TEXT("Add a Spline Sampler PCG node."), TEXT("/Script/PCG.PCGSplineSamplerSettings") });
+        OutSpecs.Add({ TEXT("pcg.source.actor_data"), TEXT("pcg"), TEXT("Add a Get Actor Data PCG node."), TEXT("/Script/PCG.PCGDataFromActorSettings") });
+        OutSpecs.Add({ TEXT("pcg.project.surface"), TEXT("pcg"), TEXT("Add a Projection PCG node."), TEXT("/Script/PCG.PCGProjectionSettings") });
+        OutSpecs.Add({ TEXT("pcg.spawn.static_mesh"), TEXT("pcg"), TEXT("Add a Static Mesh Spawner PCG node."), TEXT("/Script/PCG.PCGStaticMeshSpawnerSettings") });
+        OutSpecs.Add({ TEXT("pcg.spawn.actor"), TEXT("pcg"), TEXT("Add a Spawn Actor PCG node."), TEXT("/Script/PCG.PCGSpawnActorSettings") });
     }
 }
 
@@ -4600,9 +4606,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
             TSharedPtr<FJsonObject> SettingsTemplate = MakeShared<FJsonObject>();
             bool bHasSettingsTemplate = false;
 
-            if (OpId.Equals(TEXT("pcg.create.points"))
-                || OpId.Equals(TEXT("pcg.meta.add_tag"))
-                || OpId.Equals(TEXT("pcg.sample.surface")))
+            if (OpId.Equals(TEXT("pcg.meta.add_tag"))
+                || OpId.Equals(TEXT("pcg.transform.points"))
+                || OpId.Equals(TEXT("pcg.project.surface"))
+                || OpId.Equals(TEXT("pcg.spawn.static_mesh"))
+                || OpId.Equals(TEXT("pcg.spawn.actor")))
             {
                 TSharedPtr<FJsonObject> InHint = MakeShared<FJsonObject>();
                 InHint->SetStringField(TEXT("role"), TEXT("input"));
@@ -4612,6 +4620,40 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                 TSharedPtr<FJsonObject> OutHint = MakeShared<FJsonObject>();
                 OutHint->SetStringField(TEXT("role"), TEXT("output"));
                 OutHint->SetStringField(TEXT("pinName"), TEXT("Out"));
+                PinHints.Add(MakeShared<FJsonValueObject>(OutHint));
+            }
+            else if (OpId.Equals(TEXT("pcg.create.points")))
+            {
+                TSharedPtr<FJsonObject> OutHint = MakeShared<FJsonObject>();
+                OutHint->SetStringField(TEXT("role"), TEXT("output"));
+                OutHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                OutHint->SetStringField(TEXT("pinName"), TEXT("Out"));
+                OutHint->SetStringField(TEXT("semanticRole"), TEXT("generated_points"));
+                OutHint->SetBoolField(TEXT("isDefaultPath"), true);
+                PinHints.Add(MakeShared<FJsonValueObject>(OutHint));
+            }
+            else if (OpId.Equals(TEXT("pcg.sample.surface")))
+            {
+                TSharedPtr<FJsonObject> SurfaceHint = MakeShared<FJsonObject>();
+                SurfaceHint->SetStringField(TEXT("role"), TEXT("input_surface"));
+                SurfaceHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                SurfaceHint->SetStringField(TEXT("pinName"), TEXT("Surface"));
+                SurfaceHint->SetStringField(TEXT("semanticRole"), TEXT("surface_input"));
+                PinHints.Add(MakeShared<FJsonValueObject>(SurfaceHint));
+
+                TSharedPtr<FJsonObject> ShapeHint = MakeShared<FJsonObject>();
+                ShapeHint->SetStringField(TEXT("role"), TEXT("bounding_shape"));
+                ShapeHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                ShapeHint->SetStringField(TEXT("pinName"), TEXT("Bounding Shape"));
+                ShapeHint->SetStringField(TEXT("semanticRole"), TEXT("bounds_input"));
+                PinHints.Add(MakeShared<FJsonValueObject>(ShapeHint));
+
+                TSharedPtr<FJsonObject> OutHint = MakeShared<FJsonObject>();
+                OutHint->SetStringField(TEXT("role"), TEXT("output"));
+                OutHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                OutHint->SetStringField(TEXT("pinName"), TEXT("Out"));
+                OutHint->SetStringField(TEXT("semanticRole"), TEXT("sampled_points"));
+                OutHint->SetBoolField(TEXT("isDefaultPath"), true);
                 PinHints.Add(MakeShared<FJsonValueObject>(OutHint));
             }
             else if (OpId.Equals(TEXT("pcg.filter.by_tag")))
@@ -4639,6 +4681,40 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                 OutsideHint->SetBoolField(TEXT("isDefaultPath"), false);
                 PinHints.Add(MakeShared<FJsonValueObject>(OutsideHint));
             }
+            else if (OpId.Equals(TEXT("pcg.sample.spline")))
+            {
+                TSharedPtr<FJsonObject> SplineHint = MakeShared<FJsonObject>();
+                SplineHint->SetStringField(TEXT("role"), TEXT("input_spline"));
+                SplineHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                SplineHint->SetStringField(TEXT("pinName"), TEXT("Spline"));
+                SplineHint->SetStringField(TEXT("semanticRole"), TEXT("spline_input"));
+                PinHints.Add(MakeShared<FJsonValueObject>(SplineHint));
+
+                TSharedPtr<FJsonObject> ShapeHint = MakeShared<FJsonObject>();
+                ShapeHint->SetStringField(TEXT("role"), TEXT("bounding_shape"));
+                ShapeHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                ShapeHint->SetStringField(TEXT("pinName"), TEXT("Bounding Shape"));
+                ShapeHint->SetStringField(TEXT("semanticRole"), TEXT("bounds_input"));
+                PinHints.Add(MakeShared<FJsonValueObject>(ShapeHint));
+
+                TSharedPtr<FJsonObject> OutHint = MakeShared<FJsonObject>();
+                OutHint->SetStringField(TEXT("role"), TEXT("output"));
+                OutHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                OutHint->SetStringField(TEXT("pinName"), TEXT("Out"));
+                OutHint->SetStringField(TEXT("semanticRole"), TEXT("sampled_points"));
+                OutHint->SetBoolField(TEXT("isDefaultPath"), true);
+                PinHints.Add(MakeShared<FJsonValueObject>(OutHint));
+            }
+            else if (OpId.Equals(TEXT("pcg.source.actor_data")))
+            {
+                TSharedPtr<FJsonObject> OutHint = MakeShared<FJsonObject>();
+                OutHint->SetStringField(TEXT("role"), TEXT("output"));
+                OutHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                OutHint->SetStringField(TEXT("pinName"), TEXT("Out"));
+                OutHint->SetStringField(TEXT("semanticRole"), TEXT("actor_data"));
+                OutHint->SetBoolField(TEXT("isDefaultPath"), true);
+                PinHints.Add(MakeShared<FJsonValueObject>(OutHint));
+            }
 
             if (OpId.Equals(TEXT("pcg.meta.add_tag")))
             {
@@ -4649,6 +4725,64 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
             {
                 SettingsTemplate->SetStringField(TEXT("tag"), TEXT("<required-tag>"));
                 SettingsTemplate->SetStringField(TEXT("mode"), TEXT("include"));
+                bHasSettingsTemplate = true;
+            }
+            else if (OpId.Equals(TEXT("pcg.transform.points")))
+            {
+                TSharedPtr<FJsonObject> OffsetMin = MakeShared<FJsonObject>();
+                OffsetMin->SetNumberField(TEXT("x"), 0.0);
+                OffsetMin->SetNumberField(TEXT("y"), 0.0);
+                OffsetMin->SetNumberField(TEXT("z"), 0.0);
+                TSharedPtr<FJsonObject> OffsetMax = CloneJsonObject(OffsetMin);
+                TSharedPtr<FJsonObject> RotationMin = MakeShared<FJsonObject>();
+                RotationMin->SetNumberField(TEXT("pitch"), 0.0);
+                RotationMin->SetNumberField(TEXT("yaw"), 0.0);
+                RotationMin->SetNumberField(TEXT("roll"), 0.0);
+                TSharedPtr<FJsonObject> RotationMax = CloneJsonObject(RotationMin);
+                TSharedPtr<FJsonObject> ScaleMin = MakeShared<FJsonObject>();
+                ScaleMin->SetNumberField(TEXT("x"), 1.0);
+                ScaleMin->SetNumberField(TEXT("y"), 1.0);
+                ScaleMin->SetNumberField(TEXT("z"), 1.0);
+                TSharedPtr<FJsonObject> ScaleMax = CloneJsonObject(ScaleMin);
+                SettingsTemplate->SetObjectField(TEXT("offsetMin"), OffsetMin);
+                SettingsTemplate->SetObjectField(TEXT("offsetMax"), OffsetMax);
+                SettingsTemplate->SetObjectField(TEXT("rotationMin"), RotationMin);
+                SettingsTemplate->SetObjectField(TEXT("rotationMax"), RotationMax);
+                SettingsTemplate->SetObjectField(TEXT("scaleMin"), ScaleMin);
+                SettingsTemplate->SetObjectField(TEXT("scaleMax"), ScaleMax);
+                bHasSettingsTemplate = true;
+            }
+            else if (OpId.Equals(TEXT("pcg.sample.spline")))
+            {
+                TSharedPtr<FJsonObject> SamplerParams = MakeShared<FJsonObject>();
+                SamplerParams->SetStringField(TEXT("dimension"), TEXT("OnSpline"));
+                SamplerParams->SetStringField(TEXT("mode"), TEXT("Distance"));
+                SamplerParams->SetNumberField(TEXT("distanceIncrement"), 100.0);
+                SettingsTemplate->SetObjectField(TEXT("samplerParams"), SamplerParams);
+                bHasSettingsTemplate = true;
+            }
+            else if (OpId.Equals(TEXT("pcg.source.actor_data")))
+            {
+                SettingsTemplate->SetStringField(TEXT("mode"), TEXT("ParseActorComponents"));
+                bHasSettingsTemplate = true;
+            }
+            else if (OpId.Equals(TEXT("pcg.project.surface")))
+            {
+                TSharedPtr<FJsonObject> ProjectionParams = MakeShared<FJsonObject>();
+                ProjectionParams->SetStringField(TEXT("colorBlendMode"), TEXT("SourceValue"));
+                ProjectionParams->SetStringField(TEXT("tagMergeOperation"), TEXT("Source"));
+                SettingsTemplate->SetObjectField(TEXT("projectionParams"), ProjectionParams);
+                bHasSettingsTemplate = true;
+            }
+            else if (OpId.Equals(TEXT("pcg.spawn.static_mesh")))
+            {
+                SettingsTemplate->SetStringField(TEXT("outAttributeName"), TEXT("<optional-attribute-name>"));
+                bHasSettingsTemplate = true;
+            }
+            else if (OpId.Equals(TEXT("pcg.spawn.actor")))
+            {
+                SettingsTemplate->SetBoolField(TEXT("bSpawnByAttribute"), false);
+                SettingsTemplate->SetStringField(TEXT("spawnAttribute"), TEXT("<optional-actor-class-attribute>"));
                 bHasSettingsTemplate = true;
             }
 

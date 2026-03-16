@@ -529,12 +529,16 @@ Required:
 - `pcg.meta.add_tag`
 - `pcg.filter.by_tag`
 - `pcg.sample.surface`
+- `pcg.transform.points`
+- `pcg.sample.spline`
+- `pcg.source.actor_data`
+- `pcg.spawn.static_mesh`
 
 Stretch:
 
 - `pcg.filter.by_attribute`
 - `pcg.project.surface`
-- `pcg.spawn.static_mesh`
+- `pcg.spawn.actor`
 
 Known pressure from first-release feedback:
 
