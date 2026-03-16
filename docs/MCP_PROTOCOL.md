@@ -42,6 +42,7 @@ Graph mutate note:
 - `graph.ops.resolve`
 - `graph.query`
 - `graph.mutate`
+- `pcg.inspectRuntime`
 - `diag.tail`
 
 ## 4. MCP Tool Contracts
@@ -286,7 +287,7 @@ Execution rule:
 
 ## 4.5 Runtime Tools
 
-For `graph.list`, `graph.query`, `graph.ops`, `graph.ops.resolve`, `graph.mutate`, `diag.tail`:
+For `graph.list`, `graph.query`, `graph.ops`, `graph.ops.resolve`, `graph.mutate`, `pcg.inspectRuntime`, `diag.tail`:
 
 - Input/output schemas are exposed directly through MCP `tools/list` and should be treated as the live contract.
 - `RPC_INTERFACE.md` section 5 documents the same tool payloads at the Unreal RPC boundary.
@@ -304,7 +305,18 @@ Practical client rule:
 - For graph layout-aware flows, prefer `graph.layoutCapabilities` and `graph.query.meta.layoutCapabilities` over hardcoded assumptions. Current runtime support focuses on position reads plus basic move operations.
 - `graph.query` accepts `layoutDetail=basic|measured`. Callers may request `measured`, but should inspect `meta.layoutDetailApplied` and diagnostics before assuming measured geometry was actually returned.
 
-## 4.6 `diag.tail`
+## 4.6 `pcg.inspectRuntime`
+
+Use this after regenerating a PCG component when you need runtime-facing evidence rather than only graph topology.
+
+Execution rule:
+
+- Forward via `rpc.invoke` with `tool=pcg.inspectRuntime`.
+- Prefer `componentPath` from `graph.resolve` or `context.selection`.
+- Treat `managedResources` as the authoritative summary for spawned actors/components and instance counts.
+- `generatedGraphOutput` may be empty or sparse for common spawner-style graphs even when visible generated results exist.
+
+## 4.7 `diag.tail`
 
 Input schema:
 

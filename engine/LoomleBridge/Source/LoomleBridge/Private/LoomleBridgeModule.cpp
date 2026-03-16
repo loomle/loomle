@@ -10,6 +10,8 @@
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/InstancedStaticMeshComponent.h"
+#include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Containers/Ticker.h"
 #include "EdGraph/EdGraph.h"
 #include "EdGraph/EdGraphNode.h"
@@ -57,6 +59,7 @@
 #include "PCGNode.h"
 #include "PCGPin.h"
 #include "PCGSettings.h"
+#include "PCGManagedResource.h"
 #include "Elements/PCGActorSelector.h"
 #include "Elements/PCGDataFromActor.h"
 #include "Elements/PCGGetActorProperty.h"
@@ -107,6 +110,7 @@ namespace LoomleBridgeConstants
     static const TCHAR* EditorOpenToolName = TEXT("editor.open");
     static const TCHAR* EditorFocusToolName = TEXT("editor.focus");
     static const TCHAR* EditorScreenshotToolName = TEXT("editor.screenshot");
+    static const TCHAR* PcgInspectRuntimeToolName = TEXT("pcg.inspectRuntime");
     static const TCHAR* GraphListToolName = TEXT("graph.list");
     static const TCHAR* GraphResolveToolName = TEXT("graph.resolve");
     static const TCHAR* GraphQueryToolName = TEXT("graph.query");
@@ -924,6 +928,184 @@ UObject* ResolveRuntimeObjectFromPath(const FString& InObjectPath)
         return LoadObjectByAssetPath(ObjectPath);
     }
 
+    return nullptr;
+}
+
+void CollectPrimaryPcgComponentsFromActor(AActor* Actor, TArray<UPCGComponent*>& OutComponents)
+{
+    OutComponents.Reset();
+    if (Actor == nullptr)
+    {
+        return;
+    }
+
+    TArray<UPCGComponent*> ActorComponents;
+    Actor->GetComponents<UPCGComponent>(ActorComponents);
+    for (UPCGComponent* Component : ActorComponents)
+    {
+        if (Component == nullptr)
+        {
+            continue;
+        }
+
+        // Prefer the top-level/original component for runtime inspection. Local partition children
+        // are implementation detail and usually not what the agent wants to inspect.
+        if (Component->GetOriginalComponent() == Component)
+        {
+            OutComponents.Add(Component);
+        }
+    }
+
+    if (OutComponents.IsEmpty())
+    {
+        OutComponents = MoveTemp(ActorComponents);
+    }
+}
+
+UPCGComponent* ResolvePcgComponentFromActorForRuntimeInspect(AActor* Actor, FString& OutErrorMessage)
+{
+    TArray<UPCGComponent*> Components;
+    CollectPrimaryPcgComponentsFromActor(Actor, Components);
+    if (Components.Num() == 1)
+    {
+        return Components[0];
+    }
+
+    if (Components.IsEmpty())
+    {
+        OutErrorMessage = TEXT("The actor does not own a PCGComponent.");
+    }
+    else
+    {
+        OutErrorMessage = TEXT("The actor owns multiple PCGComponents. Pass componentPath explicitly.");
+    }
+    return nullptr;
+}
+
+UPCGComponent* ResolveSelectedPcgComponentForRuntimeInspect(FString& OutErrorMessage)
+{
+    if (GEditor == nullptr)
+    {
+        OutErrorMessage = TEXT("Editor is not available.");
+        return nullptr;
+    }
+
+    USelection* Selection = GEditor->GetSelectedActors();
+    if (Selection == nullptr || Selection->Num() == 0)
+    {
+        OutErrorMessage = TEXT("No selected actor exposes a PCGComponent.");
+        return nullptr;
+    }
+
+    TArray<UPCGComponent*> MatchingComponents;
+    for (FSelectionIterator It(*Selection); It; ++It)
+    {
+        AActor* Actor = Cast<AActor>(*It);
+        if (Actor == nullptr)
+        {
+            continue;
+        }
+
+        TArray<UPCGComponent*> Components;
+        CollectPrimaryPcgComponentsFromActor(Actor, Components);
+        MatchingComponents.Append(Components);
+    }
+
+    if (MatchingComponents.Num() == 1)
+    {
+        return MatchingComponents[0];
+    }
+
+    if (MatchingComponents.IsEmpty())
+    {
+        OutErrorMessage = TEXT("No selected actor exposes a PCGComponent.");
+    }
+    else
+    {
+        OutErrorMessage = TEXT("Multiple selected PCGComponents found. Pass componentPath explicitly.");
+    }
+    return nullptr;
+}
+
+UPCGComponent* ResolvePcgComponentForRuntimeInspect(
+    const TSharedPtr<FJsonObject>& Arguments,
+    FString& OutResolvedBy,
+    FString& OutErrorCode,
+    FString& OutErrorMessage)
+{
+    OutResolvedBy = TEXT("");
+    OutErrorCode = TEXT("");
+    OutErrorMessage = TEXT("");
+
+    FString InputPath;
+    FString InputKind;
+    if (Arguments.IsValid())
+    {
+        if (Arguments->TryGetStringField(TEXT("componentPath"), InputPath) && !InputPath.IsEmpty())
+        {
+            InputKind = TEXT("componentPath");
+        }
+        else if (Arguments->TryGetStringField(TEXT("actorPath"), InputPath) && !InputPath.IsEmpty())
+        {
+            InputKind = TEXT("actorPath");
+        }
+        else if (Arguments->TryGetStringField(TEXT("objectPath"), InputPath) && !InputPath.IsEmpty())
+        {
+            InputKind = TEXT("objectPath");
+        }
+        else if (Arguments->TryGetStringField(TEXT("path"), InputPath) && !InputPath.IsEmpty())
+        {
+            InputKind = TEXT("path");
+        }
+    }
+
+    if (!InputKind.IsEmpty())
+    {
+        UObject* ResolvedObject = ResolveRuntimeObjectFromPath(InputPath);
+        if (ResolvedObject == nullptr)
+        {
+            OutErrorCode = TEXT("OBJECT_NOT_FOUND");
+            OutErrorMessage = TEXT("The supplied path did not resolve to a runtime object.");
+            return nullptr;
+        }
+
+        if (UPCGComponent* PcgComponent = Cast<UPCGComponent>(ResolvedObject))
+        {
+            OutResolvedBy = InputKind;
+            return PcgComponent;
+        }
+
+        if (AActor* Actor = Cast<AActor>(ResolvedObject))
+        {
+            FString ActorError;
+            UPCGComponent* PcgComponent = ResolvePcgComponentFromActorForRuntimeInspect(Actor, ActorError);
+            if (PcgComponent == nullptr)
+            {
+                OutErrorCode = TEXT("OBJECT_NOT_FOUND");
+                OutErrorMessage = ActorError;
+                return nullptr;
+            }
+
+            OutResolvedBy = InputKind;
+            return PcgComponent;
+        }
+
+        OutErrorCode = TEXT("INVALID_ARGUMENT");
+        OutErrorMessage = TEXT("The supplied path must resolve to a PCGComponent or an actor that owns one.");
+        return nullptr;
+    }
+
+    FString SelectionError;
+    if (UPCGComponent* SelectedComponent = ResolveSelectedPcgComponentForRuntimeInspect(SelectionError))
+    {
+        OutResolvedBy = TEXT("selection");
+        return SelectedComponent;
+    }
+
+    OutErrorCode = TEXT("INVALID_ARGUMENT");
+    OutErrorMessage = SelectionError.IsEmpty()
+        ? TEXT("Supply componentPath, actorPath, objectPath, or path, or select a PCG actor in the level.")
+        : SelectionError;
     return nullptr;
 }
 

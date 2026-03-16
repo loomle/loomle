@@ -119,7 +119,7 @@ Result:
 {
   "rpcVersion": "1.0",
   "methods": ["rpc.health", "rpc.capabilities", "rpc.invoke"],
-  "tools": ["context", "execute", "graph.list", "graph.resolve", "graph.query", "graph.ops", "graph.ops.resolve", "graph.mutate", "diag.tail"],
+  "tools": ["context", "execute", "graph.list", "graph.resolve", "graph.query", "graph.ops", "graph.ops.resolve", "graph.mutate", "pcg.inspectRuntime", "diag.tail"],
   "graphTypes": ["blueprint", "material", "pcg"],
   "features": {
     "revision": true,
@@ -138,7 +138,7 @@ Request params:
 
 ```json
 {
-  "tool": "context|execute|graph.list|graph.resolve|graph.query|graph.ops|graph.ops.resolve|graph.mutate|diag.tail",
+  "tool": "context|execute|graph.list|graph.resolve|graph.query|graph.ops|graph.ops.resolve|graph.mutate|pcg.inspectRuntime|diag.tail",
   "args": {},
   "meta": {
     "requestId": "external-id",
@@ -613,7 +613,60 @@ When `applied=false`:
 - top-level `partialApplied=true` means one or more earlier operations in the ordered batch already committed with `changed=true` before the later failure was encountered.
 - `graph.mutate` is currently ordered but non-transactional: the server does not roll back earlier successful ops when a later op fails.
 
-## 5.9 tool=`diag.tail`
+## 5.9 tool=`pcg.inspectRuntime`
+
+`args`:
+
+```json
+{
+  "componentPath": "/Game/Maps/MyMap.MyMap:PersistentLevel.PCGVolume_0.PCGComponent0",
+  "actorPath": "/Game/Maps/MyMap.MyMap:PersistentLevel.PCGVolume_0"
+}
+```
+
+Field notes:
+
+- Supply `componentPath` when you already know the exact PCG component to inspect.
+- `actorPath`, `objectPath`, and `path` are accepted as fallbacks; when omitted, the server may fall back to the selected PCG actor/component in the editor.
+- `managedResources` is the authoritative generated-result summary for spawned actors/components and instance counts.
+- `generatedGraphOutput` can still be empty or sparse for common spawner-style graphs even when visible runtime results exist.
+
+`payload`:
+
+```json
+{
+  "ok": true,
+  "resolvedBy": "componentPath|actorPath|selection|objectPath|path",
+  "componentPath": "string",
+  "actorPath": "string",
+  "graphAssetPath": "/Game/...",
+  "generated": true,
+  "generating": false,
+  "managedResourcesAccessible": true,
+  "generatedGraphOutput": {
+    "taggedDataCount": 0,
+    "dataTypes": [],
+    "pins": []
+  },
+  "managedResources": {
+    "resourceCount": 1,
+    "generatedActorCount": 0,
+    "generatedComponentCount": 1,
+    "totalInstanceCount": 128,
+    "actors": [],
+    "components": []
+  },
+  "inspection": {
+    "available": true,
+    "executedNodeCount": 3,
+    "producedNodeCount": 2,
+    "nodes": []
+  },
+  "diagnostics": []
+}
+```
+
+## 5.10 tool=`diag.tail`
 
 `args`:
 

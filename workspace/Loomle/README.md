@@ -41,6 +41,11 @@ Read this file first. It is the top-level usage guide for agents working inside 
    - use `fromSeq` as an exclusive cursor
    - reuse returned `nextSeq` on the next poll
    - use `filters` when you want to narrow by severity, category, source, or asset path prefix
+8. When you need generated PCG runtime evidence after a regenerate, call `pcg.inspectRuntime`.
+   Working rule:
+   - prefer `componentPath` from `graph.resolve` or `context.selection`
+   - trust `managedResources` for spawned actors/components and instance counts
+   - treat `generatedGraphOutput` as informative but potentially sparse for spawner-style graphs
 
 ## Visual Loop
 
@@ -66,6 +71,8 @@ Working rule:
   Make one tool request and print the result.
 - `Loomle/loomle call diag.tail --args '{"fromSeq":0}'`
   Read persisted diagnostics incrementally. Reuse the returned `nextSeq` as the next cursor.
+- `Loomle/loomle call pcg.inspectRuntime --args '{"componentPath":"/Game/Maps/MyMap.MyMap:PersistentLevel.PCGVolume_0.PCGComponent0"}'`
+  Inspect generated PCG runtime output, managed resources, and execution summaries for one PCG component.
 - `Loomle/loomle session`
   Start a persistent stdin/stdout JSON session for repeated requests. Prefer this for high-concurrency or high-volume query workloads.
 - `Loomle/loomle skill list`
@@ -135,6 +142,22 @@ Working rule:
 - `hasMore=true` means more matching events are available after the returned page
 - use `filters.severity`, `filters.category`, `filters.source`, or `filters.assetPathPrefix` to narrow noisy streams
 - persisted diagnostic events live under `Loomle/runtime/diag/diag.jsonl`
+
+## PCG Runtime Inspection
+
+Use `pcg.inspectRuntime` when you need generated-result evidence after a PCG regenerate instead of only graph topology.
+
+Minimal one-shot example:
+
+```bash
+Loomle/loomle call pcg.inspectRuntime --args '{"componentPath":"/Game/Maps/MyMap.MyMap:PersistentLevel.PCGVolume_0.PCGComponent0"}'
+```
+
+Working rule:
+- prefer `componentPath` from `graph.resolve(actorPath=...)`, `graph.resolve(componentPath=...)`, or `context.selection`
+- use `managedResources` as the authoritative summary for spawned actors/components and instance counts
+- `generatedGraphOutput` may still be empty or sparse for common spawner-style graphs even when visible results exist
+- use `inspection.nodes[*]` when you need a per-node executed/produced-data summary
 
 ## Semantic Planning
 
@@ -211,7 +234,7 @@ Working rule:
 - Open `workflows/material.md` when the current task is editing or reading Material graphs.
   This is where Material subgraph traversal through `childGraphRef` is explained.
 - Open `workflows/pcg.md` when the current task is editing or reading PCG graphs.
-  This is where graph resolution from selected PCG actors and components should be treated as normal.
+  This is where graph resolution from selected PCG actors and components, plus `pcg.inspectRuntime`, should be treated as normal.
 - Open `examples/README.md` when you want small concrete payload examples before calling tools.
 - Do not treat `runtime/` as documentation. It contains machine-written state such as install metadata.
 

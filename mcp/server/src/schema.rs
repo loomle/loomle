@@ -130,6 +130,13 @@ pub fn tool_descriptors() -> Vec<Value> {
                 "type": "object"
             }),
         ),
+        runtime_tool_descriptor(
+            "pcg.inspectRuntime",
+            "PCG Runtime Inspect",
+            "Inspect runtime PCG generation state, managed resources, and generated output for a PCG component or actor.",
+            pcg_inspect_runtime_input_schema(),
+            pcg_inspect_runtime_output_schema(),
+        ),
         json!({
             "name": "graph",
             "title": "Graph Descriptor",
@@ -900,6 +907,57 @@ fn diag_tail_output_schema() -> Value {
     })
 }
 
+fn pcg_inspect_runtime_input_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+            "componentPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Runtime object path to a UPCGComponent."
+            },
+            "actorPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Runtime object path to an actor that owns a UPCGComponent."
+            },
+            "objectPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Generic runtime object path. May resolve to a UPCGComponent or an actor that owns one."
+            },
+            "path": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Alias for objectPath."
+            }
+        },
+        "additionalProperties": false
+    })
+}
+
+fn pcg_inspect_runtime_output_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["componentPath", "generated", "generating", "generatedGraphOutput", "managedResources", "inspection", "diagnostics"],
+        "properties": {
+            "componentPath": { "type": "string" },
+            "actorPath": { "type": "string" },
+            "graphAssetPath": { "type": "string" },
+            "generated": { "type": "boolean" },
+            "generating": { "type": "boolean" },
+            "managedResourcesAccessible": { "type": "boolean" },
+            "generatedGraphOutput": { "type": "object", "additionalProperties": true },
+            "managedResources": { "type": "object", "additionalProperties": true },
+            "inspection": { "type": "object", "additionalProperties": true },
+            "diagnostics": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+        },
+        "additionalProperties": true
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -907,7 +965,7 @@ mod tests {
     #[test]
     fn tools_list_contains_graph_resolve_and_diag_tail() {
         let tools = tool_descriptors();
-        assert_eq!(tools.len(), 14);
+        assert_eq!(tools.len(), 15);
         assert!(tools
             .iter()
             .any(|v| v.get("name") == Some(&Value::String(String::from("graph.ops")))));
@@ -929,6 +987,9 @@ mod tests {
         assert!(tools
             .iter()
             .any(|v| v.get("name") == Some(&Value::String(String::from("editor.screenshot")))));
+        assert!(tools
+            .iter()
+            .any(|v| v.get("name") == Some(&Value::String(String::from("pcg.inspectRuntime")))));
     }
 
     #[test]
@@ -1021,6 +1082,19 @@ mod tests {
         assert!(
             diag_tail["outputSchema"]["properties"]["nextSeq"].is_object(),
             "diag.tail output should expose nextSeq property"
+        );
+
+        let pcg_inspect_runtime = tools
+            .iter()
+            .find(|v| v.get("name") == Some(&Value::String(String::from("pcg.inspectRuntime"))))
+            .expect("pcg.inspectRuntime descriptor");
+        assert!(
+            pcg_inspect_runtime["inputSchema"]["properties"]["componentPath"].is_object(),
+            "pcg.inspectRuntime should expose componentPath property"
+        );
+        assert!(
+            pcg_inspect_runtime["outputSchema"]["properties"]["managedResources"].is_object(),
+            "pcg.inspectRuntime should expose managedResources property"
         );
     }
 

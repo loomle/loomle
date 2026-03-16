@@ -26,6 +26,13 @@ Readback rule:
 - when a PCG pipeline looks empty, inspect node `diagnostics` first; LOOMLE now emits empty-input hints for actor selectors, component selectors, and mesh-selector misconfiguration
 - for selector-backed nodes, read the nested `actorSelector`, `componentSelector`, or `meshSelector` objects before assuming the runtime source is correct
 
+Runtime inspection rule:
+- when you need generated-result evidence after a regenerate, call `pcg.inspectRuntime`
+- prefer passing `componentPath` from `graph.resolve(actorPath=...)`, `graph.resolve(componentPath=...)`, or `context.selection`
+- treat `managedResources` as the authoritative runtime summary for spawned actors/components and instance counts
+- expect `generatedGraphOutput` to be informative but not always complete for spawner-style graphs
+- if `generatedGraphOutput` is empty while visible spawned results exist, trust `managedResources` and `inspection` instead of assuming generation failed
+
 Layout expectation:
 - source nodes appear on the left
 - downstream processing stages move to the right

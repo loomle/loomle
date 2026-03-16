@@ -38,6 +38,7 @@ cargo run -- skill remove material-weaver
 cargo run -- list-tools --project-root "/Path/To/Project"
 cargo run -- call context --project-root "/Path/To/Project"
 cargo run -- call diag.tail --project-root "/Path/To/Project" --args '{"fromSeq":0,"limit":50}'
+cargo run -- call pcg.inspectRuntime --project-root "/Path/To/Project" --args '{"componentPath":"/Game/Maps/MyMap.MyMap:PersistentLevel.PCGVolume_0.PCGComponent0"}'
 cargo run -- session --project-root "/Path/To/Project"
 ```
 
@@ -50,6 +51,8 @@ If `--project-root` is omitted, the client searches upward from the current dire
 `loomle skill ...` manages official LOOMLE skills from the published `loomle/skills` registry. These commands install into the local Codex skills directory and do not require `--project-root`.
 
 `diag.tail` reads persisted LoomleBridge diagnostics incrementally. Treat `fromSeq` as an exclusive cursor and reuse the returned `nextSeq` on the next poll. Persisted events live under `Loomle/runtime/diag/diag.jsonl`.
+
+`pcg.inspectRuntime` is the stable runtime-facing PCG inspection path. Use it after regenerating a PCG component when you need generated output summaries, managed spawned actors/components, or per-node execution summaries. For spawner-heavy graphs, prefer `managedResources` over `generatedGraphOutput` when the latter is empty or sparse.
 
 ## Visual loop
 

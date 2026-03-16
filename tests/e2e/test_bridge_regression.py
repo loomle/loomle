@@ -80,6 +80,35 @@ def capture_editor_png_hash(client: McpStdioClient, request_id: int, relative_pa
     return payload, capture_file, hashlib.sha256(png_bytes).hexdigest()
 
 
+def wait_for_pcg_runtime_snapshot(
+    client: McpStdioClient,
+    request_id: int,
+    *,
+    component_path: str | None = None,
+    actor_path: str | None = None,
+    timeout_s: float = 30.0,
+    interval_s: float = 1.0,
+) -> dict:
+    args: dict[str, str] = {}
+    if component_path:
+        args["componentPath"] = component_path
+    if actor_path:
+        args["actorPath"] = actor_path
+
+    deadline = time.time() + timeout_s
+    attempt = 0
+    last_payload: dict | None = None
+    while time.time() < deadline:
+        attempt += 1
+        last_payload = call_tool(client, request_id + attempt, "pcg.inspectRuntime", args)
+        if last_payload.get("generated") is True and last_payload.get("generating") is False:
+            return last_payload
+        time.sleep(interval_s)
+
+    fail(f"pcg.inspectRuntime did not report generated=true within {timeout_s:.0f}s: {last_payload}")
+    raise RuntimeError("unreachable")
+
+
 def query_nodes(
     client: McpStdioClient,
     request_id: int,
@@ -3010,6 +3039,97 @@ def main() -> int:
         if static_mesh_spawner_settings.get("outAttributeName") != "ChosenMesh":
             fail(f"PCG StaticMeshSpawner outAttributeName missing from effectiveSettings: {static_mesh_spawner_settings}")
         print("[PASS] pcg graph.query settings and diagnostics validated")
+
+        pcg_generate_payload = call_execute_exec_with_retry(
+            client=client,
+            req_id_base=10120,
+            code=(
+                "import json\n"
+                "import unreal\n"
+                f"component_path = {json.dumps(pcg_component_path, ensure_ascii=False)}\n"
+                "component = unreal.load_object(None, component_path)\n"
+                "if component is None:\n"
+                "    raise RuntimeError(f'failed to load PCG component: {component_path}')\n"
+                "component.generate_local(True)\n"
+                "print(json.dumps({'ok': True}, ensure_ascii=False))\n"
+            ),
+        )
+        if parse_execute_json(pcg_generate_payload).get("ok") is not True:
+            fail(f"PCG runtime generate_local failed: {pcg_generate_payload}")
+
+        pcg_runtime_payload = wait_for_pcg_runtime_snapshot(
+            client,
+            10130,
+            component_path=pcg_component_path,
+        )
+        if pcg_runtime_payload.get("componentPath") != pcg_component_path:
+            fail(f"pcg.inspectRuntime(componentPath) returned wrong componentPath: {pcg_runtime_payload}")
+        if pcg_runtime_payload.get("actorPath") != pcg_actor_path:
+            fail(f"pcg.inspectRuntime(componentPath) returned wrong actorPath: {pcg_runtime_payload}")
+        if pcg_runtime_payload.get("graphAssetPath") != temp_pcg_asset:
+            fail(f"pcg.inspectRuntime(componentPath) returned wrong graphAssetPath: {pcg_runtime_payload}")
+
+        generated_graph_output = pcg_runtime_payload.get("generatedGraphOutput")
+        if not isinstance(generated_graph_output, dict):
+            fail(f"pcg.inspectRuntime missing generatedGraphOutput: {pcg_runtime_payload}")
+        if not isinstance(generated_graph_output.get("taggedDataCount"), int):
+            fail(f"pcg.inspectRuntime generatedGraphOutput missing taggedDataCount: {pcg_runtime_payload}")
+        if not isinstance(generated_graph_output.get("pins"), list):
+            fail(f"pcg.inspectRuntime generatedGraphOutput missing pins[]: {pcg_runtime_payload}")
+        if not isinstance(generated_graph_output.get("dataTypes"), list):
+            fail(f"pcg.inspectRuntime generatedGraphOutput missing dataTypes[]: {pcg_runtime_payload}")
+
+        managed_resources = pcg_runtime_payload.get("managedResources")
+        if not isinstance(managed_resources, dict):
+            fail(f"pcg.inspectRuntime missing managedResources: {pcg_runtime_payload}")
+        for field_name in ["resourceCount", "generatedActorCount", "generatedComponentCount", "totalInstanceCount"]:
+            if not isinstance(managed_resources.get(field_name), int):
+                fail(f"pcg.inspectRuntime managedResources missing {field_name}: {pcg_runtime_payload}")
+        if not isinstance(managed_resources.get("accessible"), bool):
+            fail(f"pcg.inspectRuntime managedResources missing accessible: {pcg_runtime_payload}")
+        if not isinstance(managed_resources.get("actors"), list):
+            fail(f"pcg.inspectRuntime managedResources missing actors[]: {pcg_runtime_payload}")
+        if not isinstance(managed_resources.get("components"), list):
+            fail(f"pcg.inspectRuntime managedResources missing components[]: {pcg_runtime_payload}")
+
+        inspection_summary = pcg_runtime_payload.get("inspection")
+        if not isinstance(inspection_summary, dict):
+            fail(f"pcg.inspectRuntime missing inspection summary: {pcg_runtime_payload}")
+        if not isinstance(inspection_summary.get("available"), bool):
+            fail(f"pcg.inspectRuntime inspection missing available flag: {pcg_runtime_payload}")
+        if not isinstance(inspection_summary.get("executedNodeCount"), int):
+            fail(f"pcg.inspectRuntime inspection missing executedNodeCount: {pcg_runtime_payload}")
+        if not isinstance(inspection_summary.get("producedNodeCount"), int):
+            fail(f"pcg.inspectRuntime inspection missing producedNodeCount: {pcg_runtime_payload}")
+        if not isinstance(inspection_summary.get("nodes"), list):
+            fail(f"pcg.inspectRuntime inspection missing nodes[]: {pcg_runtime_payload}")
+
+        runtime_diagnostics = pcg_runtime_payload.get("diagnostics")
+        if not isinstance(runtime_diagnostics, list):
+            fail(f"pcg.inspectRuntime missing diagnostics[]: {pcg_runtime_payload}")
+        runtime_diag_codes = {
+            diag.get("code")
+            for diag in runtime_diagnostics
+            if isinstance(diag, dict) and isinstance(diag.get("code"), str)
+        }
+        if generated_graph_output.get("taggedDataCount") == 0:
+            if "PCG_GENERATED_GRAPH_OUTPUT_EMPTY" not in runtime_diag_codes:
+                fail(f"pcg.inspectRuntime missing empty-output diagnostic: {pcg_runtime_payload}")
+            if (
+                managed_resources.get("generatedActorCount", 0) > 0
+                or managed_resources.get("generatedComponentCount", 0) > 0
+            ) and "PCG_RUNTIME_OUTPUT_COMPONENT_MISMATCH" not in runtime_diag_codes:
+                fail(f"pcg.inspectRuntime missing mismatch diagnostic: {pcg_runtime_payload}")
+
+        pcg_runtime_from_actor = call_tool(
+            client,
+            10160,
+            "pcg.inspectRuntime",
+            {"actorPath": pcg_actor_path},
+        )
+        if pcg_runtime_from_actor.get("componentPath") != pcg_component_path:
+            fail(f"pcg.inspectRuntime(actorPath) did not resolve the expected component: {pcg_runtime_from_actor}")
+        print("[PASS] pcg.inspectRuntime runtime summaries validated")
 
         editor_open_payload = call_tool(
             client,
