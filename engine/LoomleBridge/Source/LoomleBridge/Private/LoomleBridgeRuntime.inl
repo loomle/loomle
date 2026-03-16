@@ -632,6 +632,229 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorOpenToolResult(const TSh
     return Result;
 }
 
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorFocusToolResult(const TSharedPtr<FJsonObject>& Arguments)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+    FString AssetPath;
+    FString Panel;
+    if (!Arguments.IsValid()
+        || !Arguments->TryGetStringField(TEXT("assetPath"), AssetPath)
+        || AssetPath.TrimStartAndEnd().IsEmpty()
+        || !Arguments->TryGetStringField(TEXT("panel"), Panel)
+        || Panel.TrimStartAndEnd().IsEmpty())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("arguments.assetPath and arguments.panel are required."));
+        return Result;
+    }
+
+    if (!GEditor)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("EDITOR_NOT_AVAILABLE"));
+        Result->SetStringField(TEXT("message"), TEXT("Editor is not available."));
+        return Result;
+    }
+
+    UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
+    if (AssetEditorSubsystem == nullptr)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("EDITOR_NOT_AVAILABLE"));
+        Result->SetStringField(TEXT("message"), TEXT("AssetEditorSubsystem is not available."));
+        return Result;
+    }
+
+    UObject* Asset = LoadObjectByAssetPath(AssetPath);
+    if (Asset == nullptr)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("ASSET_NOT_FOUND"));
+        Result->SetStringField(TEXT("message"), TEXT("Asset not found."));
+        Result->SetStringField(TEXT("assetPath"), AssetPath);
+        return Result;
+    }
+
+    FText OpenError;
+    if (!AssetEditorSubsystem->CanOpenEditorForAsset(Asset, EAssetTypeActivationOpenedMethod::Edit, &OpenError))
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), OpenError.IsEmpty() ? TEXT("Asset cannot be opened in an editor.") : OpenError.ToString());
+        Result->SetStringField(TEXT("assetPath"), AssetPath);
+        return Result;
+    }
+
+    const bool bAlreadyOpen = AssetEditorSubsystem->FindEditorForAsset(Asset, false) != nullptr;
+    if (!bAlreadyOpen && !AssetEditorSubsystem->OpenEditorForAsset(Asset))
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+        Result->SetStringField(TEXT("message"), TEXT("Failed to open asset editor."));
+        Result->SetStringField(TEXT("assetPath"), AssetPath);
+        return Result;
+    }
+
+    IAssetEditorInstance* EditorInstance = AssetEditorSubsystem->FindEditorForAsset(Asset, true);
+    if (EditorInstance == nullptr)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("EDITOR_NOT_AVAILABLE"));
+        Result->SetStringField(TEXT("message"), TEXT("Asset editor is not available."));
+        Result->SetStringField(TEXT("assetPath"), AssetPath);
+        return Result;
+    }
+
+    Panel = NormalizeEditorPanel(Panel);
+    FString EditorType;
+    bool bPanelFocused = false;
+
+    if (UBlueprint* Blueprint = Cast<UBlueprint>(Asset))
+    {
+        EditorType = TEXT("blueprint");
+        FBlueprintEditor* BlueprintEditor = static_cast<FBlueprintEditor*>(EditorInstance);
+
+        if (Panel.Equals(TEXT("graph")))
+        {
+            if (UEdGraph* EventGraph = FBlueprintEditorUtils::FindEventGraph(Blueprint))
+            {
+                bPanelFocused = BlueprintEditor->OpenGraphAndBringToFront(EventGraph, true).IsValid();
+            }
+        }
+        else if (Panel.Equals(TEXT("constructionscript")))
+        {
+            if (UEdGraph* ConstructionGraph = FBlueprintEditorUtils::FindUserConstructionScript(Blueprint))
+            {
+                bPanelFocused = BlueprintEditor->OpenGraphAndBringToFront(ConstructionGraph, true).IsValid();
+            }
+        }
+        else if (Panel.Equals(TEXT("viewport")))
+        {
+            EditorInstance->InvokeTab(FTabId(FBlueprintEditorTabs::SCSViewportID));
+            bPanelFocused = true;
+        }
+        else if (Panel.Equals(TEXT("details")))
+        {
+            EditorInstance->InvokeTab(FTabId(FBlueprintEditorTabs::DetailsID));
+            bPanelFocused = true;
+        }
+        else if (Panel.Equals(TEXT("myblueprint")))
+        {
+            EditorInstance->InvokeTab(FTabId(FBlueprintEditorTabs::MyBlueprintID));
+            bPanelFocused = true;
+        }
+    }
+    else if (IsMaterialLikeAsset(Asset))
+    {
+        EditorType = TEXT("material");
+
+        if (Panel.Equals(TEXT("graph")))
+        {
+            EditorInstance->InvokeTab(FTabId(MaterialEditorGraphTabId));
+            bPanelFocused = true;
+        }
+        else if (Panel.Equals(TEXT("details")))
+        {
+            EditorInstance->InvokeTab(FTabId(MaterialEditorPropertiesTabId));
+            bPanelFocused = true;
+        }
+        else if (Panel.Equals(TEXT("palette")))
+        {
+            EditorInstance->InvokeTab(FTabId(MaterialEditorPaletteTabId));
+            bPanelFocused = true;
+        }
+        else if (Panel.Equals(TEXT("find")))
+        {
+            EditorInstance->InvokeTab(FTabId(MaterialEditorFindTabId));
+            bPanelFocused = true;
+        }
+        else if (Panel.Equals(TEXT("preview")))
+        {
+            EditorInstance->InvokeTab(FTabId(MaterialEditorPreviewTabId));
+            bPanelFocused = true;
+        }
+    }
+    else if (ResolvePcgGraphFromAsset(Asset) != nullptr)
+    {
+        EditorType = TEXT("pcg");
+        FPCGEditor* PCGEditor = static_cast<FPCGEditor*>(EditorInstance);
+
+        if (Panel.Equals(TEXT("graph")))
+        {
+            PCGEditor->BringFocusToPanel(EPCGEditorPanel::GraphEditor);
+            bPanelFocused = true;
+        }
+        else if (Panel.Equals(TEXT("details")))
+        {
+            PCGEditor->BringFocusToPanel(EPCGEditorPanel::PropertyDetails1);
+            bPanelFocused = true;
+        }
+        else if (Panel.Equals(TEXT("palette")))
+        {
+            PCGEditor->BringFocusToPanel(EPCGEditorPanel::NodePalette);
+            bPanelFocused = true;
+        }
+        else if (Panel.Equals(TEXT("find")))
+        {
+            PCGEditor->BringFocusToPanel(EPCGEditorPanel::Find);
+            bPanelFocused = true;
+        }
+        else if (Panel.Equals(TEXT("log")))
+        {
+            PCGEditor->BringFocusToPanel(EPCGEditorPanel::Log);
+            bPanelFocused = true;
+        }
+        else if (Panel.Equals(TEXT("profiling")))
+        {
+            PCGEditor->BringFocusToPanel(EPCGEditorPanel::Profiling);
+            bPanelFocused = true;
+        }
+        else if (Panel.Equals(TEXT("viewport")))
+        {
+            PCGEditor->BringFocusToPanel(EPCGEditorPanel::Viewport1);
+            bPanelFocused = true;
+        }
+    }
+
+    if (EditorType.IsEmpty())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("PANEL_UNSUPPORTED"));
+        Result->SetStringField(TEXT("message"), TEXT("This asset editor is not supported by editor.focus."));
+        Result->SetStringField(TEXT("assetPath"), AssetPath);
+        Result->SetStringField(TEXT("panel"), Panel);
+        return Result;
+    }
+
+    if (!bPanelFocused)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("PANEL_UNSUPPORTED"));
+        Result->SetStringField(TEXT("message"), TEXT("The requested panel is not supported for this editor."));
+        Result->SetStringField(TEXT("assetPath"), AssetPath);
+        Result->SetStringField(TEXT("editorType"), EditorType);
+        Result->SetStringField(TEXT("panel"), Panel);
+        return Result;
+    }
+
+    EditorInstance->FocusWindow(Asset);
+    const TSharedPtr<FJsonObject> ActiveWindow = BuildActiveWindowJson();
+
+    Result->SetBoolField(TEXT("isError"), false);
+    Result->SetBoolField(TEXT("ok"), true);
+    Result->SetStringField(TEXT("assetPath"), AssetPath);
+    Result->SetStringField(TEXT("assetName"), Asset->GetName());
+    Result->SetStringField(TEXT("assetClassPath"), Asset->GetClass() ? Asset->GetClass()->GetPathName() : TEXT(""));
+    Result->SetStringField(TEXT("editorType"), EditorType);
+    Result->SetStringField(TEXT("panel"), Panel);
+    Result->SetBoolField(TEXT("alreadyOpen"), bAlreadyOpen);
+    Result->SetBoolField(TEXT("panelFocused"), true);
+    Result->SetStringField(TEXT("windowTitle"), ActiveWindow.IsValid() ? ActiveWindow->GetStringField(TEXT("title")) : TEXT(""));
+    return Result;
+}
+
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorScreenshotToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();

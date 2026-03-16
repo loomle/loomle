@@ -18,6 +18,7 @@ public class LoomleBridge : ModuleRules
             new[]
             {
                 "ApplicationCore",
+                "AssetDefinition",
                 "AssetRegistry",
                 "BlueprintGraph",
                 "Json",
@@ -25,6 +26,7 @@ public class LoomleBridge : ModuleRules
                 "Kismet",
                 "MaterialEditor",
                 "PCG",
+                "PCGEditor",
                 "PythonScriptPlugin",
                 "Projects",
                 "Slate",

@@ -41,10 +41,12 @@ Read this file first. It is the top-level usage guide for agents working inside 
 When you need the editor to show a specific asset and then capture what it looks like:
 
 - call `editor.open` with an `assetPath`
+- then call `editor.focus` with a semantic panel like `graph`, `viewport`, or `details`
 - then call `editor.screenshot`
 
 Working rule:
 - `editor.open` opens or focuses the asset editor for a Blueprint, Material, Material Function, PCG graph, or other asset-backed editor
+- `editor.focus` focuses a semantic panel inside the active asset editor without exposing raw Unreal tab ids
 - `editor.screenshot` writes a PNG of the active editor window to disk and returns the file path
 - if you do not pass a path, screenshots go under `Loomle/runtime/captures/`
 

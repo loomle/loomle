@@ -40,6 +40,8 @@
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionMaterialFunctionCall.h"
 #include "Materials/MaterialFunction.h"
+#include "Materials/MaterialFunctionInterface.h"
+#include "Materials/MaterialInterface.h"
 #include "MaterialEditingLibrary.h"
 #include "IMaterialEditor.h"
 #include "MaterialGraph/MaterialGraph.h"
@@ -52,6 +54,7 @@
 #include "PCGNode.h"
 #include "PCGPin.h"
 #include "PCGSettings.h"
+#include "PCGEditor.h"
 #include "LoomleBlueprintAdapter.h"
 #include "LoomlePipeServer.h"
 #include "ScopedTransaction.h"
@@ -73,6 +76,7 @@
 #include "Widgets/SWidget.h"
 #include "Widgets/SWindow.h"
 #include "BlueprintEditor.h"
+#include "BlueprintEditorTabs.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogLoomleBridge, Log, All);
 
@@ -84,6 +88,7 @@ namespace LoomleBridgeConstants
     static const TCHAR* RpcVersion = TEXT("1.0");
     static const TCHAR* ExecuteToolName = TEXT("execute");
     static const TCHAR* EditorOpenToolName = TEXT("editor.open");
+    static const TCHAR* EditorFocusToolName = TEXT("editor.focus");
     static const TCHAR* EditorScreenshotToolName = TEXT("editor.screenshot");
     static const TCHAR* GraphListToolName = TEXT("graph.list");
     static const TCHAR* GraphResolveToolName = TEXT("graph.resolve");
@@ -1299,6 +1304,25 @@ TSharedPtr<FJsonObject> BuildActiveWindowJson()
     Window->SetBoolField(TEXT("isValid"), true);
     Window->SetStringField(TEXT("title"), ActiveWindow->GetTitle().ToString());
     return Window;
+}
+
+const FName MaterialEditorPreviewTabId(TEXT("MaterialEditor_Preview"));
+const FName MaterialEditorPropertiesTabId(TEXT("MaterialEditor_MaterialProperties"));
+const FName MaterialEditorPaletteTabId(TEXT("MaterialEditor_Palette"));
+const FName MaterialEditorFindTabId(TEXT("MaterialEditor_Find"));
+const FName MaterialEditorGraphTabId(TEXT("Document"));
+
+FString NormalizeEditorPanel(FString Panel)
+{
+    Panel = Panel.TrimStartAndEnd().ToLower();
+    return Panel;
+}
+
+bool IsMaterialLikeAsset(const UObject* Asset)
+{
+    return Asset != nullptr
+        && (Asset->IsA<UMaterial>()
+            || Asset->IsA<UMaterialFunctionInterface>());
 }
 
 FString GetActiveWindowTitle()

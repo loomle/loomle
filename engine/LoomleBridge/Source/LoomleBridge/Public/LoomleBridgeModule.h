@@ -36,6 +36,7 @@ private:
     TSharedPtr<FJsonObject> BuildGetContextToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildSelectionTransformToolResult() const;
     TSharedPtr<FJsonObject> BuildEditorOpenToolResult(const TSharedPtr<FJsonObject>& Arguments);
+    TSharedPtr<FJsonObject> BuildEditorFocusToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildEditorScreenshotToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildExecutePythonToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildDiagTailToolResult(const TSharedPtr<FJsonObject>& Arguments);

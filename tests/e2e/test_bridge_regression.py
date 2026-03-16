@@ -312,10 +312,21 @@ def main() -> int:
         if not isinstance(editor_open_payload.get("assetClassPath"), str) or not editor_open_payload.get("assetClassPath"):
             fail(f"editor.open missing assetClassPath: {editor_open_payload}")
 
+        editor_focus_payload = call_tool(
+            client,
+            4002,
+            "editor.focus",
+            {"assetPath": temp_asset, "panel": "graph"},
+        )
+        if editor_focus_payload.get("editorType") != "blueprint":
+            fail(f"editor.focus did not resolve blueprint editorType: {editor_focus_payload}")
+        if editor_focus_payload.get("panel") != "graph":
+            fail(f"editor.focus did not echo graph panel: {editor_focus_payload}")
+
         capture_rel_path = f"Loomle/runtime/captures/editor-open-regression-{int(time.time())}.png"
         editor_capture_payload = call_tool(
             client,
-            4002,
+            4003,
             "editor.screenshot",
             {"path": capture_rel_path},
         )
@@ -327,7 +338,7 @@ def main() -> int:
             fail(f"editor.screenshot did not write file: {editor_capture_payload}")
         if capture_file.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
             fail(f"editor.screenshot did not write a PNG file: {editor_capture_payload}")
-        print("[PASS] editor.open and editor.screenshot validated")
+        print("[PASS] editor.open, editor.focus, and editor.screenshot validated")
 
         graph_list = call_tool(client, 5, "graph.list", {"assetPath": temp_asset, "graphType": "blueprint"})
         graphs = graph_list.get("graphs")

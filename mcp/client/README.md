@@ -48,6 +48,24 @@ If `--project-root` is omitted, the client searches upward from the current dire
 
 `loomle skill ...` manages official LOOMLE skills from the published `loomle/skills` registry. These commands install into the local Codex skills directory and do not require `--project-root`.
 
+## Visual loop
+
+For editor-driven visual verification, use the project-local client to:
+
+1. open an asset editor
+2. focus the semantic panel you care about
+3. capture the current editor window
+
+Example flow:
+
+```bash
+cargo run -- call editor.open --project-root "/Path/To/Project" --args '{"assetPath":"/Game/MyFolder/MyBlueprint"}'
+cargo run -- call editor.focus --project-root "/Path/To/Project" --args '{"assetPath":"/Game/MyFolder/MyBlueprint","panel":"graph"}'
+cargo run -- call editor.screenshot --project-root "/Path/To/Project" --args '{}'
+```
+
+`editor.focus` intentionally uses semantic panel names such as `graph`, `viewport`, `details`, `palette`, `find`, `preview`, `log`, `profiling`, `constructionScript`, and `myBlueprint` instead of raw Unreal tab ids.
+
 ## Session mode
 
 `loomle session` keeps a single client process open and accepts one JSON request per line on stdin.

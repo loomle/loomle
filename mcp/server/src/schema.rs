@@ -78,6 +78,33 @@ pub fn tool_descriptors() -> Vec<Value> {
             }),
         ),
         runtime_tool_descriptor(
+            "editor.focus",
+            "Focus Editor Panel",
+            "Focus a semantic panel inside an asset editor, such as graph, viewport, details, palette, or find.",
+            json!({
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "required": ["assetPath", "panel"],
+                "properties": {
+                    "assetPath": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Unreal asset path whose editor should be focused."
+                    },
+                    "panel": {
+                        "type": "string",
+                        "enum": ["graph", "viewport", "details", "palette", "find", "preview", "log", "profiling", "constructionScript", "myBlueprint"],
+                        "description": "Semantic editor panel name. Supported values vary by editor type."
+                    }
+                },
+                "additionalProperties": false
+            }),
+            json!({
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object"
+            }),
+        ),
+        runtime_tool_descriptor(
             "editor.screenshot",
             "Editor Screenshot",
             "Capture a PNG of the active editor window and return the written file path.",
@@ -697,7 +724,7 @@ mod tests {
     #[test]
     fn tools_list_contains_graph_resolve_and_diag_tail() {
         let tools = tool_descriptors();
-        assert_eq!(tools.len(), 12);
+        assert_eq!(tools.len(), 13);
         assert!(tools
             .iter()
             .any(|v| v.get("name") == Some(&Value::String(String::from("graph.actions")))));
@@ -710,6 +737,9 @@ mod tests {
         assert!(tools
             .iter()
             .any(|v| v.get("name") == Some(&Value::String(String::from("editor.open")))));
+        assert!(tools
+            .iter()
+            .any(|v| v.get("name") == Some(&Value::String(String::from("editor.focus")))));
         assert!(tools
             .iter()
             .any(|v| v.get("name") == Some(&Value::String(String::from("editor.screenshot")))));

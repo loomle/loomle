@@ -23,6 +23,7 @@ REQUIRED_TOOLS = {
     "graph.mutate",
     "context",
     "editor.open",
+    "editor.focus",
     "editor.screenshot",
     "execute",
 }

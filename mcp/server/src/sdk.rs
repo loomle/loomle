@@ -172,10 +172,11 @@ mod tests {
             .expect("server");
         let tools = client.peer().list_all_tools().await.expect("list tools");
 
-        assert_eq!(tools.len(), 12);
+        assert_eq!(tools.len(), 13);
         assert!(tools.iter().any(|tool| tool.name == "graph.query"));
         assert!(tools.iter().any(|tool| tool.name == "diag.tail"));
         assert!(tools.iter().any(|tool| tool.name == "editor.open"));
+        assert!(tools.iter().any(|tool| tool.name == "editor.focus"));
         assert!(tools.iter().any(|tool| tool.name == "editor.screenshot"));
 
         client.close().await.expect("close client");
