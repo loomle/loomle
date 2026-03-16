@@ -45,6 +45,7 @@
 #include "Materials/MaterialInterface.h"
 #include "MaterialEditingLibrary.h"
 #include "IMaterialEditor.h"
+#include "MaterialEditorUtilities.h"
 #include "Interfaces/IMainFrameModule.h"
 #include "MaterialGraph/MaterialGraph.h"
 #include "MaterialGraph/MaterialGraphNode.h"
@@ -1449,6 +1450,19 @@ bool WindowHasNativeCaptureHandle(const TSharedPtr<SWindow>& Window)
 #endif
 }
 
+void RefreshSlateWindowForCapture(const TSharedRef<SWindow>& Window)
+{
+    if (!FSlateApplication::IsInitialized())
+    {
+        return;
+    }
+
+    FSlateApplication& SlateApp = FSlateApplication::Get();
+    SlateApp.InvalidateAllWidgets(false);
+    SlateApp.Tick(ESlateTickType::All);
+    SlateApp.ForceRedrawWindow(Window);
+}
+
 TSharedPtr<SWindow> ResolveCaptureTopLevelWindow()
 {
     if (!FSlateApplication::IsInitialized())
@@ -1586,6 +1600,63 @@ bool IsMaterialLikeAsset(const UObject* Asset)
     return Asset != nullptr
         && (Asset->IsA<UMaterial>()
             || Asset->IsA<UMaterialFunctionInterface>());
+}
+
+void RefreshMaterialEditorVisuals(UObject* MaterialAsset)
+{
+    if (!MaterialAsset || !IsMaterialLikeAsset(MaterialAsset))
+    {
+        return;
+    }
+
+    if (const TSharedPtr<IMaterialEditor> MaterialEditor = FMaterialEditorUtilities::GetIMaterialEditorForObject(MaterialAsset))
+    {
+        MaterialEditor->UpdateMaterialAfterGraphChange();
+        MaterialEditor->ForceRefreshExpressionPreviews();
+    }
+
+    if (const UMaterial* Material = Cast<UMaterial>(MaterialAsset))
+    {
+        if (Material->MaterialGraph != nullptr)
+        {
+            FMaterialEditorUtilities::UpdateMaterialAfterGraphChange(Material->MaterialGraph);
+            FMaterialEditorUtilities::ForceRefreshExpressionPreviews(Material->MaterialGraph);
+        }
+    }
+}
+
+void RefreshPcgEditorVisuals(UObject* PcgAsset)
+{
+    UPCGGraph* Graph = Cast<UPCGGraph>(PcgAsset);
+    if (Graph == nullptr)
+    {
+        return;
+    }
+
+    Graph->PostEditChange();
+
+    FPropertyChangedEvent EmptyEvent(nullptr);
+    FCoreUObjectDelegates::OnObjectPropertyChanged.Broadcast(Graph, EmptyEvent);
+
+    if (GEditor == nullptr)
+    {
+        return;
+    }
+
+    UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
+    if (AssetEditorSubsystem == nullptr)
+    {
+        return;
+    }
+
+    if (IAssetEditorInstance* EditorInstance = AssetEditorSubsystem->FindEditorForAsset(Graph, true))
+    {
+        if (FPCGEditor* PCGEditor = static_cast<FPCGEditor*>(EditorInstance))
+        {
+            PCGEditor->BringFocusToPanel(EPCGEditorPanel::GraphEditor);
+            EditorInstance->FocusWindow(Graph);
+        }
+    }
 }
 
 FString GetActiveWindowTitle()

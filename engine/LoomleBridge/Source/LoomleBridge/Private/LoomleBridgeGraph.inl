@@ -6271,6 +6271,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             if (bChanged && MaterialAsset != nullptr)
             {
                 MaterialAsset->PostEditChange();
+                RefreshMaterialEditorVisuals(MaterialAsset);
+            }
+
+            if (bChanged && PcgGraph != nullptr)
+            {
+                RefreshPcgEditorVisuals(PcgGraph);
             }
 
             if (bOk && !Op.Equals(TEXT("layoutgraph")))

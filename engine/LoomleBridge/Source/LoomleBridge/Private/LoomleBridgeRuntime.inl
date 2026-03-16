@@ -925,7 +925,16 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorScreenshotToolResult(con
         return Result;
     }
 
-    FSlateApplication::Get().ForceRedrawWindow(ActiveWindow.ToSharedRef());
+    if (UObject* ActiveMaterialAsset = FindEditedMaterialAsset())
+    {
+        RefreshMaterialEditorVisuals(ActiveMaterialAsset);
+    }
+    if (UObject* ActivePcgAsset = FindEditedPcgAsset())
+    {
+        RefreshPcgEditorVisuals(ActivePcgAsset);
+    }
+
+    RefreshSlateWindowForCapture(ActiveWindow.ToSharedRef());
     if (!FSlateApplication::Get().TakeScreenshot(ActiveWindow.ToSharedRef(), ColorData, ImageSize))
     {
         Result->SetBoolField(TEXT("isError"), true);
