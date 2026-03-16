@@ -17,6 +17,7 @@
 #include "K2Node_CallFunction.h"
 #include "K2Node_DynamicCast.h"
 #include "K2Node_Event.h"
+#include "K2Node_ExecutionSequence.h"
 #include "K2Node_IfThenElse.h"
 #include "K2Node_MacroInstance.h"
 #include "K2Node_Knot.h"
@@ -181,6 +182,17 @@ namespace LoomleBlueprintAdapterInternal
         }
 
         return nullptr;
+    }
+
+    static UEdGraph* ResolveMacroGraph(const FString& MacroLibraryAssetPath, const FString& MacroGraphName)
+    {
+        if (MacroLibraryAssetPath.IsEmpty() || MacroGraphName.IsEmpty())
+        {
+            return nullptr;
+        }
+
+        UBlueprint* MacroLibrary = LoadBlueprintByAssetPath(MacroLibraryAssetPath);
+        return FindGraphByName(MacroLibrary, MacroGraphName);
     }
 
     static bool ParsePayloadJson(const FString& PayloadJson, TSharedPtr<FJsonObject>& OutPayload)
@@ -1137,6 +1149,56 @@ bool FLoomleBlueprintAdapter::AddBranchNode(const FString& BlueprintAssetPath, c
     return true;
 }
 
+bool FLoomleBlueprintAdapter::AddExecutionSequenceNode(const FString& BlueprintAssetPath, const FString& GraphName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+{
+    OutNodeGuid.Empty();
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
+    if (!Blueprint || !EventGraph)
+    {
+        OutError = TEXT("Failed to resolve blueprint/target graph.");
+        return false;
+    }
+
+    FGraphNodeCreator<UK2Node_ExecutionSequence> Creator(*EventGraph);
+    UK2Node_ExecutionSequence* Node = Creator.CreateNode();
+    Node->NodePosX = NodePosX;
+    Node->NodePosY = NodePosY;
+    Node->AllocateDefaultPins();
+    Creator.Finalize();
+
+    OutNodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::AddMacroNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& MacroLibraryAssetPath, const FString& MacroGraphName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+{
+    OutNodeGuid.Empty();
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
+    UEdGraph* MacroGraph = LoomleBlueprintAdapterInternal::ResolveMacroGraph(MacroLibraryAssetPath, MacroGraphName);
+    if (!Blueprint || !EventGraph || !MacroGraph)
+    {
+        OutError = TEXT("Failed to resolve blueprint/target graph/macro graph.");
+        return false;
+    }
+
+    FGraphNodeCreator<UK2Node_MacroInstance> Creator(*EventGraph);
+    UK2Node_MacroInstance* Node = Creator.CreateNode();
+    Node->NodePosX = NodePosX;
+    Node->NodePosY = NodePosY;
+    Node->SetMacroGraph(MacroGraph);
+    Node->AllocateDefaultPins();
+    Creator.Finalize();
+
+    OutNodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+    return true;
+}
+
 bool FLoomleBlueprintAdapter::AddCommentNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& CommentText, int32 NodePosX, int32 NodePosY, int32 Width, int32 Height, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
@@ -1292,9 +1354,21 @@ bool FLoomleBlueprintAdapter::AddNodeByClass(const FString& BlueprintAssetPath, 
         Payload->TryGetStringField(TEXT("functionName"), FunctionName);
         return AddCallFunctionNode(BlueprintAssetPath, GraphName, FunctionClassPath, FunctionName, NodePosX, NodePosY, OutNodeGuid, OutError);
     }
+    if (NormalizedClass.Contains(TEXT("k2node_executionsequence")))
+    {
+        return AddExecutionSequenceNode(BlueprintAssetPath, GraphName, NodePosX, NodePosY, OutNodeGuid, OutError);
+    }
     if (NormalizedClass.Contains(TEXT("k2node_ifthenelse")))
     {
         return AddBranchNode(BlueprintAssetPath, GraphName, NodePosX, NodePosY, OutNodeGuid, OutError);
+    }
+    if (NormalizedClass.Contains(TEXT("k2node_macroinstance")))
+    {
+        FString MacroLibraryAssetPath;
+        FString MacroGraphName;
+        Payload->TryGetStringField(TEXT("macroLibraryAssetPath"), MacroLibraryAssetPath);
+        Payload->TryGetStringField(TEXT("macroGraphName"), MacroGraphName);
+        return AddMacroNode(BlueprintAssetPath, GraphName, MacroLibraryAssetPath, MacroGraphName, NodePosX, NodePosY, OutNodeGuid, OutError);
     }
     if (NormalizedClass.Contains(TEXT("k2node_variableget")))
     {

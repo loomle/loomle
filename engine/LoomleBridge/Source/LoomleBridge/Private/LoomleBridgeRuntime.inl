@@ -1281,6 +1281,19 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorScreenshotToolResult(con
     FIntVector ImageSize(0, 0, 0);
 
 #if PLATFORM_WINDOWS
+    if (UObject* ActiveMaterialAsset = FindEditedMaterialAsset())
+    {
+        RefreshMaterialEditorVisuals(ActiveMaterialAsset);
+    }
+    if (UObject* ActivePcgAsset = FindEditedPcgAsset())
+    {
+        RefreshPcgEditorVisuals(ActivePcgAsset);
+    }
+    if (ActiveWindow.IsValid())
+    {
+        RefreshSlateWindowForCapture(ActiveWindow.ToSharedRef());
+    }
+
     const HWND CaptureWindowHandle = ResolveCaptureWindowHandle(ActiveWindow);
     if (CaptureWindowHandle == nullptr)
     {

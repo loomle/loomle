@@ -14,9 +14,11 @@ When creating nodes:
 - use `addNode.byClass` directly when you already know the exact class path and do not need semantic planning
 
 Planning rule:
-- `core.comment`, `core.reroute`, and `bp.flow.branch` are the current Blueprint semantic v1 baseline
+- `core.comment`, `core.reroute`, `bp.flow.branch`, `bp.flow.sequence`, `bp.flow.delay`, `bp.flow.do_once`, `bp.debug.print_string`, `bp.var.get`, and `bp.var.set` are the current Blueprint semantic v1 baseline
 - use `graph.ops.resolve` with `context.fromPin` when a semantic op depends on pin context, such as `core.reroute`
-- `core.reroute` and `bp.flow.branch` can now emit `steps[]` when `context.fromPin` is supplied
+- `core.reroute`, `bp.flow.branch`, `bp.flow.sequence`, `bp.flow.delay`, `bp.debug.print_string`, and `bp.var.set` can emit `steps[]` when `context.fromPin` is supplied
+- `bp.var.get` and `bp.var.set` need `items[*].hints.variableName`; if that hint is missing, `graph.ops.resolve` should return structured remediation instead of a fake plan
+- `bp.flow.do_once` resolves to the standard `DoOnce` macro instance, not a synthetic custom node
 - when `preferredPlan.steps[]` is returned, prefer executing that batch shape instead of reconstructing the node and wire sequence by hand
 - prefer plans that resolve to `addNode.byClass`
 

@@ -544,9 +544,11 @@ Notes:
 - `preferredPlan.executionHints` may appear when a plan needs explicit insertion/composition semantics, especially for PCG.
 - richer context, remediation, and execution hints are forward-compatible contract fields; callers should preserve unknown fields rather than assuming the current MVP exhausts the schema.
 - Current MVP step generation is intentionally narrow:
-  - Blueprint `core.reroute` and `bp.flow.branch` can emit `steps[]` when `context.fromPin` is supplied.
-  - Material `mat.math.multiply` can emit `steps[]` when `items[*].hints.targetRootPin` is supplied.
-  - Material `mat.texture.sample` can emit `steps[]` when `items[*].hints.targetRootPin` is supplied, and may also connect `context.fromPin` into `UVs`.
+  - Blueprint `core.reroute`, `bp.flow.branch`, `bp.flow.sequence`, `bp.flow.delay`, `bp.debug.print_string`, and `bp.var.set` can emit `steps[]` when `context.fromPin` is supplied.
+  - Blueprint `bp.var.get` and `bp.var.set` require `items[*].hints.variableName`; unresolved responses should carry remediation when that context is missing.
+  - Material `mat.math.add`, `mat.math.lerp`, `mat.math.multiply`, `mat.math.one_minus`, and `mat.math.saturate` can emit `steps[]` when `items[*].hints.targetRootPin` is supplied.
+  - Material `mat.texture.sample` and `mat.param.texture` can emit `steps[]` when `items[*].hints.targetRootPin` is supplied, and may also connect `context.fromPin` into `UVs`.
+  - Material `mat.func.call` may return a `settingsTemplate` for `functionAssetPath` even when it does not emit `steps[]`.
   - PCG `pcg.meta.add_tag` can emit `steps[]` when `context.fromPin` is supplied.
   - PCG `pcg.filter.by_tag` can emit `steps[]` when `context.fromPin` is supplied.
 

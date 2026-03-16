@@ -12,6 +12,8 @@ struct FGraphSemanticOpSpec
     const TCHAR* Determinism = TEXT("stable");
 };
 
+static const TCHAR* BlueprintStandardMacrosAssetPath = TEXT("/Engine/EditorBlueprintResources/StandardMacros");
+
 void AppendGraphSemanticOpSpecs(const FString& GraphType, TArray<FGraphSemanticOpSpec>& OutSpecs)
 {
     if (GraphType.Equals(TEXT("blueprint")))
@@ -19,14 +21,26 @@ void AppendGraphSemanticOpSpecs(const FString& GraphType, TArray<FGraphSemanticO
         OutSpecs.Add({ TEXT("core.comment"), TEXT("cross-graph"), TEXT("Add a comment node or comment region."), TEXT("/Script/UnrealEd.EdGraphNode_Comment"), false, TEXT("curated"), TEXT("stable") });
         OutSpecs.Add({ TEXT("core.reroute"), TEXT("cross-graph"), TEXT("Add a reroute node in a pin context."), TEXT("/Script/BlueprintGraph.K2Node_Knot"), true, TEXT("contextual"), TEXT("context_sensitive") });
         OutSpecs.Add({ TEXT("bp.flow.branch"), TEXT("blueprint"), TEXT("Add a branch flow-control node."), TEXT("/Script/BlueprintGraph.K2Node_IfThenElse"), false, TEXT("curated"), TEXT("stable") });
+        OutSpecs.Add({ TEXT("bp.flow.sequence"), TEXT("blueprint"), TEXT("Add an execution sequence node."), TEXT("/Script/BlueprintGraph.K2Node_ExecutionSequence"), false, TEXT("curated"), TEXT("stable") });
+        OutSpecs.Add({ TEXT("bp.flow.delay"), TEXT("blueprint"), TEXT("Add a latent delay node."), TEXT("/Script/BlueprintGraph.K2Node_CallFunction"), false, TEXT("curated"), TEXT("stable") });
+        OutSpecs.Add({ TEXT("bp.flow.do_once"), TEXT("blueprint"), TEXT("Add a DoOnce macro node."), TEXT("/Script/BlueprintGraph.K2Node_MacroInstance"), false, TEXT("curated"), TEXT("stable") });
+        OutSpecs.Add({ TEXT("bp.debug.print_string"), TEXT("blueprint"), TEXT("Add a Print String debug node."), TEXT("/Script/BlueprintGraph.K2Node_CallFunction"), false, TEXT("curated"), TEXT("stable") });
+        OutSpecs.Add({ TEXT("bp.var.get"), TEXT("blueprint"), TEXT("Add a variable getter node."), TEXT("/Script/BlueprintGraph.K2Node_VariableGet"), false, TEXT("contextual"), TEXT("context_sensitive") });
+        OutSpecs.Add({ TEXT("bp.var.set"), TEXT("blueprint"), TEXT("Add a variable setter node."), TEXT("/Script/BlueprintGraph.K2Node_VariableSet"), false, TEXT("contextual"), TEXT("context_sensitive") });
     }
     else if (GraphType.Equals(TEXT("material")))
     {
         OutSpecs.Add({ TEXT("mat.constant.scalar"), TEXT("material"), TEXT("Add a scalar constant expression."), TEXT("/Script/Engine.MaterialExpressionConstant") });
         OutSpecs.Add({ TEXT("mat.constant.vector3"), TEXT("material"), TEXT("Add a Constant3Vector expression."), TEXT("/Script/Engine.MaterialExpressionConstant3Vector") });
+        OutSpecs.Add({ TEXT("mat.math.add"), TEXT("material"), TEXT("Add an add expression."), TEXT("/Script/Engine.MaterialExpressionAdd") });
+        OutSpecs.Add({ TEXT("mat.math.lerp"), TEXT("material"), TEXT("Add a linear interpolate expression."), TEXT("/Script/Engine.MaterialExpressionLinearInterpolate") });
         OutSpecs.Add({ TEXT("mat.math.multiply"), TEXT("material"), TEXT("Add a multiply expression."), TEXT("/Script/Engine.MaterialExpressionMultiply") });
+        OutSpecs.Add({ TEXT("mat.math.one_minus"), TEXT("material"), TEXT("Add a one-minus expression."), TEXT("/Script/Engine.MaterialExpressionOneMinus") });
+        OutSpecs.Add({ TEXT("mat.math.saturate"), TEXT("material"), TEXT("Add a saturate expression."), TEXT("/Script/Engine.MaterialExpressionSaturate") });
         OutSpecs.Add({ TEXT("mat.param.scalar"), TEXT("material"), TEXT("Add a scalar parameter expression."), TEXT("/Script/Engine.MaterialExpressionScalarParameter") });
+        OutSpecs.Add({ TEXT("mat.param.texture"), TEXT("material"), TEXT("Add a texture parameter expression."), TEXT("/Script/Engine.MaterialExpressionTextureSampleParameter2D") });
         OutSpecs.Add({ TEXT("mat.param.vector"), TEXT("material"), TEXT("Add a vector parameter expression."), TEXT("/Script/Engine.MaterialExpressionVectorParameter") });
+        OutSpecs.Add({ TEXT("mat.func.call"), TEXT("material"), TEXT("Add a material function call expression."), TEXT("/Script/Engine.MaterialExpressionMaterialFunctionCall") });
         OutSpecs.Add({ TEXT("mat.texture.sample"), TEXT("material"), TEXT("Add a texture sample expression."), TEXT("/Script/Engine.MaterialExpressionTextureSample") });
     }
     else if (GraphType.Equals(TEXT("pcg")))
@@ -4296,6 +4310,17 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
         const bool bHasHints = (*ItemObj)->TryGetObjectField(TEXT("hints"), HintsObj)
             && HintsObj != nullptr
             && (*HintsObj).IsValid();
+        FString HintVariableName;
+        FString HintVariableClassPath;
+        FString HintTargetRootPin;
+        FString HintFunctionAssetPath;
+        if (bHasHints)
+        {
+            (*HintsObj)->TryGetStringField(TEXT("variableName"), HintVariableName);
+            (*HintsObj)->TryGetStringField(TEXT("variableClassPath"), HintVariableClassPath);
+            (*HintsObj)->TryGetStringField(TEXT("targetRootPin"), HintTargetRootPin);
+            (*HintsObj)->TryGetStringField(TEXT("functionAssetPath"), HintFunctionAssetPath);
+        }
 
         TSharedPtr<FJsonObject> ResultItem = MakeShared<FJsonObject>();
         ResultItem->SetStringField(TEXT("opId"), OpId);
@@ -4362,6 +4387,34 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
             continue;
         }
 
+        if (GraphType.Equals(TEXT("blueprint"))
+            && (OpId.Equals(TEXT("bp.var.get")) || OpId.Equals(TEXT("bp.var.set")))
+            && HintVariableName.IsEmpty())
+        {
+            TSharedPtr<FJsonObject> Compatibility = MakeShared<FJsonObject>();
+            Compatibility->SetBoolField(TEXT("isCompatible"), false);
+            Compatibility->SetArrayField(TEXT("reasons"), TArray<TSharedPtr<FJsonValue>>{
+                MakeShared<FJsonValueString>(TEXT("requires_variable_context"))
+            });
+
+            TSharedPtr<FJsonObject> Remediation = MakeShared<FJsonObject>();
+            Remediation->SetArrayField(TEXT("requiredContext"), TArray<TSharedPtr<FJsonValue>>{
+                MakeShared<FJsonValueString>(TEXT("variableName"))
+            });
+            Remediation->SetArrayField(TEXT("missingFields"), TArray<TSharedPtr<FJsonValue>>{
+                MakeShared<FJsonValueString>(TEXT("items[].hints.variableName"))
+            });
+            Remediation->SetStringField(TEXT("nextAction"), TEXT("retry_resolve_with_variableName"));
+            Remediation->SetStringField(TEXT("fallbackKind"), TEXT("manual_readback"));
+
+            ResultItem->SetBoolField(TEXT("resolved"), false);
+            ResultItem->SetObjectField(TEXT("compatibility"), Compatibility);
+            ResultItem->SetObjectField(TEXT("remediation"), Remediation);
+            ResultItem->SetStringField(TEXT("reason"), TEXT("incompatible_context"));
+            Results.Add(MakeShared<FJsonValueObject>(ResultItem));
+            continue;
+        }
+
         TSharedPtr<FJsonObject> Compatibility = MakeShared<FJsonObject>();
         Compatibility->SetBoolField(TEXT("isCompatible"), true);
         Compatibility->SetArrayField(TEXT("reasons"), TArray<TSharedPtr<FJsonValue>>{});
@@ -4413,6 +4466,123 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                 FalseHint->SetStringField(TEXT("pinName"), TEXT("Else"));
                 PinHints.Add(MakeShared<FJsonValueObject>(FalseHint));
             }
+            else if (OpId.Equals(TEXT("bp.flow.sequence")))
+            {
+                TSharedPtr<FJsonObject> ExecInHint = MakeShared<FJsonObject>();
+                ExecInHint->SetStringField(TEXT("role"), TEXT("exec_input"));
+                ExecInHint->SetStringField(TEXT("pinName"), TEXT("execute"));
+                PinHints.Add(MakeShared<FJsonValueObject>(ExecInHint));
+
+                TSharedPtr<FJsonObject> Then0Hint = MakeShared<FJsonObject>();
+                Then0Hint->SetStringField(TEXT("role"), TEXT("exec_output_primary"));
+                Then0Hint->SetStringField(TEXT("pinName"), TEXT("Then_0"));
+                PinHints.Add(MakeShared<FJsonValueObject>(Then0Hint));
+
+                TSharedPtr<FJsonObject> Then1Hint = MakeShared<FJsonObject>();
+                Then1Hint->SetStringField(TEXT("role"), TEXT("exec_output_secondary"));
+                Then1Hint->SetStringField(TEXT("pinName"), TEXT("Then_1"));
+                PinHints.Add(MakeShared<FJsonValueObject>(Then1Hint));
+            }
+            else if (OpId.Equals(TEXT("bp.flow.delay")))
+            {
+                ArgsObj->SetStringField(TEXT("functionClassPath"), TEXT("/Script/Engine.KismetSystemLibrary"));
+                ArgsObj->SetStringField(TEXT("functionName"), TEXT("Delay"));
+
+                TSharedPtr<FJsonObject> ExecInHint = MakeShared<FJsonObject>();
+                ExecInHint->SetStringField(TEXT("role"), TEXT("exec_input"));
+                ExecInHint->SetStringField(TEXT("pinName"), TEXT("execute"));
+                PinHints.Add(MakeShared<FJsonValueObject>(ExecInHint));
+
+                TSharedPtr<FJsonObject> DurationHint = MakeShared<FJsonObject>();
+                DurationHint->SetStringField(TEXT("role"), TEXT("duration"));
+                DurationHint->SetStringField(TEXT("pinName"), TEXT("Duration"));
+                PinHints.Add(MakeShared<FJsonValueObject>(DurationHint));
+
+                TSharedPtr<FJsonObject> ThenHint = MakeShared<FJsonObject>();
+                ThenHint->SetStringField(TEXT("role"), TEXT("exec_output"));
+                ThenHint->SetStringField(TEXT("pinName"), TEXT("then"));
+                PinHints.Add(MakeShared<FJsonValueObject>(ThenHint));
+
+                TSharedPtr<FJsonObject> SettingsTemplate = MakeShared<FJsonObject>();
+                SettingsTemplate->SetNumberField(TEXT("duration"), 0.2);
+                PreferredPlan->SetObjectField(TEXT("settingsTemplate"), SettingsTemplate);
+            }
+            else if (OpId.Equals(TEXT("bp.flow.do_once")))
+            {
+                ArgsObj->SetStringField(TEXT("macroLibraryAssetPath"), BlueprintStandardMacrosAssetPath);
+                ArgsObj->SetStringField(TEXT("macroGraphName"), TEXT("DoOnce"));
+
+                TSharedPtr<FJsonObject> ExecInHint = MakeShared<FJsonObject>();
+                ExecInHint->SetStringField(TEXT("role"), TEXT("exec_input"));
+                ExecInHint->SetStringField(TEXT("pinName"), TEXT("Execute"));
+                PinHints.Add(MakeShared<FJsonValueObject>(ExecInHint));
+
+                TSharedPtr<FJsonObject> CompletedHint = MakeShared<FJsonObject>();
+                CompletedHint->SetStringField(TEXT("role"), TEXT("exec_output"));
+                CompletedHint->SetStringField(TEXT("pinName"), TEXT("Completed"));
+                PinHints.Add(MakeShared<FJsonValueObject>(CompletedHint));
+
+                TSharedPtr<FJsonObject> ResetHint = MakeShared<FJsonObject>();
+                ResetHint->SetStringField(TEXT("role"), TEXT("reset"));
+                ResetHint->SetStringField(TEXT("pinName"), TEXT("Reset"));
+                PinHints.Add(MakeShared<FJsonValueObject>(ResetHint));
+            }
+            else if (OpId.Equals(TEXT("bp.debug.print_string")))
+            {
+                ArgsObj->SetStringField(TEXT("functionClassPath"), TEXT("/Script/Engine.KismetSystemLibrary"));
+                ArgsObj->SetStringField(TEXT("functionName"), TEXT("PrintString"));
+
+                TSharedPtr<FJsonObject> ExecInHint = MakeShared<FJsonObject>();
+                ExecInHint->SetStringField(TEXT("role"), TEXT("exec_input"));
+                ExecInHint->SetStringField(TEXT("pinName"), TEXT("execute"));
+                PinHints.Add(MakeShared<FJsonValueObject>(ExecInHint));
+
+                TSharedPtr<FJsonObject> StringHint = MakeShared<FJsonObject>();
+                StringHint->SetStringField(TEXT("role"), TEXT("message"));
+                StringHint->SetStringField(TEXT("pinName"), TEXT("In String"));
+                PinHints.Add(MakeShared<FJsonValueObject>(StringHint));
+
+                TSharedPtr<FJsonObject> ThenHint = MakeShared<FJsonObject>();
+                ThenHint->SetStringField(TEXT("role"), TEXT("exec_output"));
+                ThenHint->SetStringField(TEXT("pinName"), TEXT("then"));
+                PinHints.Add(MakeShared<FJsonValueObject>(ThenHint));
+            }
+            else if (OpId.Equals(TEXT("bp.var.get")))
+            {
+                ArgsObj->SetStringField(TEXT("variableName"), HintVariableName);
+                if (!HintVariableClassPath.IsEmpty())
+                {
+                    ArgsObj->SetStringField(TEXT("variableClassPath"), HintVariableClassPath);
+                }
+
+                TSharedPtr<FJsonObject> ValueHint = MakeShared<FJsonObject>();
+                ValueHint->SetStringField(TEXT("role"), TEXT("value_output"));
+                ValueHint->SetStringField(TEXT("pinName"), HintVariableName);
+                PinHints.Add(MakeShared<FJsonValueObject>(ValueHint));
+            }
+            else if (OpId.Equals(TEXT("bp.var.set")))
+            {
+                ArgsObj->SetStringField(TEXT("variableName"), HintVariableName);
+                if (!HintVariableClassPath.IsEmpty())
+                {
+                    ArgsObj->SetStringField(TEXT("variableClassPath"), HintVariableClassPath);
+                }
+
+                TSharedPtr<FJsonObject> ExecInHint = MakeShared<FJsonObject>();
+                ExecInHint->SetStringField(TEXT("role"), TEXT("exec_input"));
+                ExecInHint->SetStringField(TEXT("pinName"), TEXT("execute"));
+                PinHints.Add(MakeShared<FJsonValueObject>(ExecInHint));
+
+                TSharedPtr<FJsonObject> ValueHint = MakeShared<FJsonObject>();
+                ValueHint->SetStringField(TEXT("role"), TEXT("value_input"));
+                ValueHint->SetStringField(TEXT("pinName"), HintVariableName);
+                PinHints.Add(MakeShared<FJsonValueObject>(ValueHint));
+
+                TSharedPtr<FJsonObject> ThenHint = MakeShared<FJsonObject>();
+                ThenHint->SetStringField(TEXT("role"), TEXT("exec_output"));
+                ThenHint->SetStringField(TEXT("pinName"), TEXT("then"));
+                PinHints.Add(MakeShared<FJsonValueObject>(ThenHint));
+            }
 
             if (PinHints.Num() > 0)
             {
@@ -4432,6 +4602,22 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                     TargetPinName = TEXT("Input");
                 }
                 else if (OpId.Equals(TEXT("bp.flow.branch")))
+                {
+                    TargetPinName = TEXT("execute");
+                }
+                else if (OpId.Equals(TEXT("bp.flow.sequence")))
+                {
+                    TargetPinName = TEXT("execute");
+                }
+                else if (OpId.Equals(TEXT("bp.flow.delay")))
+                {
+                    TargetPinName = TEXT("execute");
+                }
+                else if (OpId.Equals(TEXT("bp.debug.print_string")))
+                {
+                    TargetPinName = TEXT("execute");
+                }
+                else if (OpId.Equals(TEXT("bp.var.set")))
                 {
                     TargetPinName = TEXT("execute");
                 }
@@ -4469,7 +4655,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
         else if (GraphType.Equals(TEXT("material")))
         {
             TArray<TSharedPtr<FJsonValue>> PinHints;
-            if (OpId.Equals(TEXT("mat.math.multiply")))
+            if (OpId.Equals(TEXT("mat.math.add")) || OpId.Equals(TEXT("mat.math.multiply")))
             {
                 TSharedPtr<FJsonObject> AHint = MakeShared<FJsonObject>();
                 AHint->SetStringField(TEXT("role"), TEXT("input_a"));
@@ -4480,6 +4666,40 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                 BHint->SetStringField(TEXT("role"), TEXT("input_b"));
                 BHint->SetStringField(TEXT("pinName"), TEXT("B"));
                 PinHints.Add(MakeShared<FJsonValueObject>(BHint));
+
+                TSharedPtr<FJsonObject> OutHint = MakeShared<FJsonObject>();
+                OutHint->SetStringField(TEXT("role"), TEXT("output"));
+                OutHint->SetStringField(TEXT("pinName"), TEXT(""));
+                PinHints.Add(MakeShared<FJsonValueObject>(OutHint));
+            }
+            else if (OpId.Equals(TEXT("mat.math.lerp")))
+            {
+                TSharedPtr<FJsonObject> AHint = MakeShared<FJsonObject>();
+                AHint->SetStringField(TEXT("role"), TEXT("input_a"));
+                AHint->SetStringField(TEXT("pinName"), TEXT("A"));
+                PinHints.Add(MakeShared<FJsonValueObject>(AHint));
+
+                TSharedPtr<FJsonObject> BHint = MakeShared<FJsonObject>();
+                BHint->SetStringField(TEXT("role"), TEXT("input_b"));
+                BHint->SetStringField(TEXT("pinName"), TEXT("B"));
+                PinHints.Add(MakeShared<FJsonValueObject>(BHint));
+
+                TSharedPtr<FJsonObject> AlphaHint = MakeShared<FJsonObject>();
+                AlphaHint->SetStringField(TEXT("role"), TEXT("alpha"));
+                AlphaHint->SetStringField(TEXT("pinName"), TEXT("Alpha"));
+                PinHints.Add(MakeShared<FJsonValueObject>(AlphaHint));
+
+                TSharedPtr<FJsonObject> OutHint = MakeShared<FJsonObject>();
+                OutHint->SetStringField(TEXT("role"), TEXT("output"));
+                OutHint->SetStringField(TEXT("pinName"), TEXT(""));
+                PinHints.Add(MakeShared<FJsonValueObject>(OutHint));
+            }
+            else if (OpId.Equals(TEXT("mat.math.one_minus")) || OpId.Equals(TEXT("mat.math.saturate")))
+            {
+                TSharedPtr<FJsonObject> InputHint = MakeShared<FJsonObject>();
+                InputHint->SetStringField(TEXT("role"), TEXT("input"));
+                InputHint->SetStringField(TEXT("pinName"), TEXT("Input"));
+                PinHints.Add(MakeShared<FJsonValueObject>(InputHint));
 
                 TSharedPtr<FJsonObject> OutHint = MakeShared<FJsonObject>();
                 OutHint->SetStringField(TEXT("role"), TEXT("output"));
@@ -4498,106 +4718,133 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                 RgbHint->SetStringField(TEXT("pinName"), TEXT("RGB"));
                 PinHints.Add(MakeShared<FJsonValueObject>(RgbHint));
             }
+            else if (OpId.Equals(TEXT("mat.param.texture")))
+            {
+                ArgsObj->SetStringField(TEXT("parameterName"), TEXT("TextureParam"));
+
+                TSharedPtr<FJsonObject> UvHint = MakeShared<FJsonObject>();
+                UvHint->SetStringField(TEXT("role"), TEXT("uv_input"));
+                UvHint->SetStringField(TEXT("pinName"), TEXT("UVs"));
+                PinHints.Add(MakeShared<FJsonValueObject>(UvHint));
+
+                TSharedPtr<FJsonObject> RgbHint = MakeShared<FJsonObject>();
+                RgbHint->SetStringField(TEXT("role"), TEXT("rgb_output"));
+                RgbHint->SetStringField(TEXT("pinName"), TEXT("RGB"));
+                PinHints.Add(MakeShared<FJsonValueObject>(RgbHint));
+
+                TSharedPtr<FJsonObject> SettingsTemplate = MakeShared<FJsonObject>();
+                SettingsTemplate->SetStringField(TEXT("parameterName"), TEXT("TextureParam"));
+                PreferredPlan->SetObjectField(TEXT("settingsTemplate"), SettingsTemplate);
+            }
+            else if (OpId.Equals(TEXT("mat.func.call")))
+            {
+                TSharedPtr<FJsonObject> SettingsTemplate = MakeShared<FJsonObject>();
+                SettingsTemplate->SetStringField(TEXT("functionAssetPath"), TEXT("/Game/Functions/MF_Example"));
+                PreferredPlan->SetObjectField(TEXT("settingsTemplate"), SettingsTemplate);
+                if (!HintFunctionAssetPath.IsEmpty())
+                {
+                    ArgsObj->SetStringField(TEXT("functionAssetPath"), HintFunctionAssetPath);
+                }
+            }
 
             if (PinHints.Num() > 0)
             {
                 PreferredPlan->SetArrayField(TEXT("pinHints"), PinHints);
             }
 
-            if (OpId.Equals(TEXT("mat.math.multiply")) && bHasHints)
+            if ((OpId.Equals(TEXT("mat.math.add"))
+                    || OpId.Equals(TEXT("mat.math.lerp"))
+                    || OpId.Equals(TEXT("mat.math.multiply"))
+                    || OpId.Equals(TEXT("mat.math.one_minus"))
+                    || OpId.Equals(TEXT("mat.math.saturate")))
+                && !HintTargetRootPin.IsEmpty())
             {
-                FString TargetRootPin;
-                (*HintsObj)->TryGetStringField(TEXT("targetRootPin"), TargetRootPin);
-                if (!TargetRootPin.IsEmpty())
-                {
-                    const FString StepNodeRef = !ClientRef.IsEmpty()
-                        ? ClientRef
-                        : FString::Printf(TEXT("resolved_%d"), Index);
+                const FString StepNodeRef = !ClientRef.IsEmpty()
+                    ? ClientRef
+                    : FString::Printf(TEXT("resolved_%d"), Index);
 
-                    TArray<TSharedPtr<FJsonValue>> Steps;
+                TArray<TSharedPtr<FJsonValue>> Steps;
 
-                    TSharedPtr<FJsonObject> AddStep = MakeShared<FJsonObject>();
-                    AddStep->SetStringField(TEXT("op"), TEXT("addNode.byClass"));
-                    AddStep->SetStringField(TEXT("clientRef"), StepNodeRef);
-                    TSharedPtr<FJsonObject> AddStepArgs = MakeShared<FJsonObject>();
-                    AddStepArgs->SetStringField(TEXT("nodeClassPath"), Spec.NodeClassPath);
-                    AddStep->SetObjectField(TEXT("args"), AddStepArgs);
-                    Steps.Add(MakeShared<FJsonValueObject>(AddStep));
+                TSharedPtr<FJsonObject> AddStep = MakeShared<FJsonObject>();
+                AddStep->SetStringField(TEXT("op"), TEXT("addNode.byClass"));
+                AddStep->SetStringField(TEXT("clientRef"), StepNodeRef);
+                TSharedPtr<FJsonObject> AddStepArgs = MakeShared<FJsonObject>();
+                AddStepArgs->SetStringField(TEXT("nodeClassPath"), Spec.NodeClassPath);
+                AddStep->SetObjectField(TEXT("args"), AddStepArgs);
+                Steps.Add(MakeShared<FJsonValueObject>(AddStep));
 
-                    TSharedPtr<FJsonObject> ConnectStep = MakeShared<FJsonObject>();
-                    ConnectStep->SetStringField(TEXT("op"), TEXT("connectPins"));
-                    TSharedPtr<FJsonObject> ConnectArgs = MakeShared<FJsonObject>();
-                    TSharedPtr<FJsonObject> FromObj = MakeShared<FJsonObject>();
-                    FromObj->SetStringField(TEXT("nodeRef"), StepNodeRef);
-                    FromObj->SetStringField(TEXT("pinName"), TEXT(""));
-                    TSharedPtr<FJsonObject> ToObj = MakeShared<FJsonObject>();
-                    ToObj->SetStringField(TEXT("nodeId"), TEXT("__material_root__"));
-                    ToObj->SetStringField(TEXT("pinName"), TargetRootPin);
-                    ConnectArgs->SetObjectField(TEXT("from"), FromObj);
-                    ConnectArgs->SetObjectField(TEXT("to"), ToObj);
-                    ConnectStep->SetObjectField(TEXT("args"), ConnectArgs);
-                    Steps.Add(MakeShared<FJsonValueObject>(ConnectStep));
+                TSharedPtr<FJsonObject> ConnectStep = MakeShared<FJsonObject>();
+                ConnectStep->SetStringField(TEXT("op"), TEXT("connectPins"));
+                TSharedPtr<FJsonObject> ConnectArgs = MakeShared<FJsonObject>();
+                TSharedPtr<FJsonObject> FromObj = MakeShared<FJsonObject>();
+                FromObj->SetStringField(TEXT("nodeRef"), StepNodeRef);
+                FromObj->SetStringField(TEXT("pinName"), TEXT(""));
+                TSharedPtr<FJsonObject> ToObj = MakeShared<FJsonObject>();
+                ToObj->SetStringField(TEXT("nodeId"), TEXT("__material_root__"));
+                ToObj->SetStringField(TEXT("pinName"), HintTargetRootPin);
+                ConnectArgs->SetObjectField(TEXT("from"), FromObj);
+                ConnectArgs->SetObjectField(TEXT("to"), ToObj);
+                ConnectStep->SetObjectField(TEXT("args"), ConnectArgs);
+                Steps.Add(MakeShared<FJsonValueObject>(ConnectStep));
 
-                    PreferredPlan->SetStringField(TEXT("realizationKind"), TEXT("expression_insert"));
-                    PreferredPlan->SetStringField(TEXT("coverage"), TEXT("contextual"));
-                    PreferredPlan->SetArrayField(TEXT("steps"), Steps);
-                }
+                PreferredPlan->SetStringField(TEXT("realizationKind"), TEXT("expression_insert"));
+                PreferredPlan->SetStringField(TEXT("coverage"), TEXT("contextual"));
+                PreferredPlan->SetArrayField(TEXT("steps"), Steps);
             }
-            else if (OpId.Equals(TEXT("mat.texture.sample")) && bHasHints)
+            else if ((OpId.Equals(TEXT("mat.texture.sample")) || OpId.Equals(TEXT("mat.param.texture"))) && !HintTargetRootPin.IsEmpty())
             {
-                FString TargetRootPin;
-                (*HintsObj)->TryGetStringField(TEXT("targetRootPin"), TargetRootPin);
-                if (!TargetRootPin.IsEmpty())
+                const FString StepNodeRef = !ClientRef.IsEmpty()
+                    ? ClientRef
+                    : FString::Printf(TEXT("resolved_%d"), Index);
+
+                TArray<TSharedPtr<FJsonValue>> Steps;
+
+                TSharedPtr<FJsonObject> AddStep = MakeShared<FJsonObject>();
+                AddStep->SetStringField(TEXT("op"), TEXT("addNode.byClass"));
+                AddStep->SetStringField(TEXT("clientRef"), StepNodeRef);
+                TSharedPtr<FJsonObject> AddStepArgs = MakeShared<FJsonObject>();
+                AddStepArgs->SetStringField(TEXT("nodeClassPath"), Spec.NodeClassPath);
+                if (OpId.Equals(TEXT("mat.param.texture")))
                 {
-                    const FString StepNodeRef = !ClientRef.IsEmpty()
-                        ? ClientRef
-                        : FString::Printf(TEXT("resolved_%d"), Index);
-
-                    TArray<TSharedPtr<FJsonValue>> Steps;
-
-                    TSharedPtr<FJsonObject> AddStep = MakeShared<FJsonObject>();
-                    AddStep->SetStringField(TEXT("op"), TEXT("addNode.byClass"));
-                    AddStep->SetStringField(TEXT("clientRef"), StepNodeRef);
-                    TSharedPtr<FJsonObject> AddStepArgs = MakeShared<FJsonObject>();
-                    AddStepArgs->SetStringField(TEXT("nodeClassPath"), Spec.NodeClassPath);
-                    AddStep->SetObjectField(TEXT("args"), AddStepArgs);
-                    Steps.Add(MakeShared<FJsonValueObject>(AddStep));
-
-                    TSharedPtr<FJsonObject> ConnectStep = MakeShared<FJsonObject>();
-                    ConnectStep->SetStringField(TEXT("op"), TEXT("connectPins"));
-                    TSharedPtr<FJsonObject> ConnectArgs = MakeShared<FJsonObject>();
-                    TSharedPtr<FJsonObject> FromObj = MakeShared<FJsonObject>();
-                    FromObj->SetStringField(TEXT("nodeRef"), StepNodeRef);
-                    FromObj->SetStringField(TEXT("pinName"), TEXT("RGB"));
-                    TSharedPtr<FJsonObject> ToObj = MakeShared<FJsonObject>();
-                    ToObj->SetStringField(TEXT("nodeId"), TEXT("__material_root__"));
-                    ToObj->SetStringField(TEXT("pinName"), TargetRootPin);
-                    ConnectArgs->SetObjectField(TEXT("from"), FromObj);
-                    ConnectArgs->SetObjectField(TEXT("to"), ToObj);
-                    ConnectStep->SetObjectField(TEXT("args"), ConnectArgs);
-                    Steps.Add(MakeShared<FJsonValueObject>(ConnectStep));
-
-                    if (!FromNodeId.IsEmpty() && !FromPinName.IsEmpty())
-                    {
-                        TSharedPtr<FJsonObject> UvStep = MakeShared<FJsonObject>();
-                        UvStep->SetStringField(TEXT("op"), TEXT("connectPins"));
-                        TSharedPtr<FJsonObject> UvArgs = MakeShared<FJsonObject>();
-                        TSharedPtr<FJsonObject> UvFromObj = MakeShared<FJsonObject>();
-                        UvFromObj->SetStringField(TEXT("nodeId"), FromNodeId);
-                        UvFromObj->SetStringField(TEXT("pinName"), FromPinName);
-                        TSharedPtr<FJsonObject> UvToObj = MakeShared<FJsonObject>();
-                        UvToObj->SetStringField(TEXT("nodeRef"), StepNodeRef);
-                        UvToObj->SetStringField(TEXT("pinName"), TEXT("UVs"));
-                        UvArgs->SetObjectField(TEXT("from"), UvFromObj);
-                        UvArgs->SetObjectField(TEXT("to"), UvToObj);
-                        UvStep->SetObjectField(TEXT("args"), UvArgs);
-                        Steps.Add(MakeShared<FJsonValueObject>(UvStep));
-                    }
-
-                    PreferredPlan->SetStringField(TEXT("realizationKind"), TEXT("expression_insert"));
-                    PreferredPlan->SetStringField(TEXT("coverage"), TEXT("contextual"));
-                    PreferredPlan->SetArrayField(TEXT("steps"), Steps);
+                    AddStepArgs->SetStringField(TEXT("parameterName"), TEXT("TextureParam"));
                 }
+                AddStep->SetObjectField(TEXT("args"), AddStepArgs);
+                Steps.Add(MakeShared<FJsonValueObject>(AddStep));
+
+                TSharedPtr<FJsonObject> ConnectStep = MakeShared<FJsonObject>();
+                ConnectStep->SetStringField(TEXT("op"), TEXT("connectPins"));
+                TSharedPtr<FJsonObject> ConnectArgs = MakeShared<FJsonObject>();
+                TSharedPtr<FJsonObject> FromObj = MakeShared<FJsonObject>();
+                FromObj->SetStringField(TEXT("nodeRef"), StepNodeRef);
+                FromObj->SetStringField(TEXT("pinName"), TEXT("RGB"));
+                TSharedPtr<FJsonObject> ToObj = MakeShared<FJsonObject>();
+                ToObj->SetStringField(TEXT("nodeId"), TEXT("__material_root__"));
+                ToObj->SetStringField(TEXT("pinName"), HintTargetRootPin);
+                ConnectArgs->SetObjectField(TEXT("from"), FromObj);
+                ConnectArgs->SetObjectField(TEXT("to"), ToObj);
+                ConnectStep->SetObjectField(TEXT("args"), ConnectArgs);
+                Steps.Add(MakeShared<FJsonValueObject>(ConnectStep));
+
+                if (!FromNodeId.IsEmpty() && !FromPinName.IsEmpty())
+                {
+                    TSharedPtr<FJsonObject> UvStep = MakeShared<FJsonObject>();
+                    UvStep->SetStringField(TEXT("op"), TEXT("connectPins"));
+                    TSharedPtr<FJsonObject> UvArgs = MakeShared<FJsonObject>();
+                    TSharedPtr<FJsonObject> UvFromObj = MakeShared<FJsonObject>();
+                    UvFromObj->SetStringField(TEXT("nodeId"), FromNodeId);
+                    UvFromObj->SetStringField(TEXT("pinName"), FromPinName);
+                    TSharedPtr<FJsonObject> UvToObj = MakeShared<FJsonObject>();
+                    UvToObj->SetStringField(TEXT("nodeRef"), StepNodeRef);
+                    UvToObj->SetStringField(TEXT("pinName"), TEXT("UVs"));
+                    UvArgs->SetObjectField(TEXT("from"), UvFromObj);
+                    UvArgs->SetObjectField(TEXT("to"), UvToObj);
+                    UvStep->SetObjectField(TEXT("args"), UvArgs);
+                    Steps.Add(MakeShared<FJsonValueObject>(UvStep));
+                }
+
+                PreferredPlan->SetStringField(TEXT("realizationKind"), TEXT("expression_insert"));
+                PreferredPlan->SetStringField(TEXT("coverage"), TEXT("contextual"));
+                PreferredPlan->SetArrayField(TEXT("steps"), Steps);
             }
         }
         if (GraphType.Equals(TEXT("pcg")))
@@ -6162,6 +6409,39 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                 Error = TEXT("Failed to create material expression.");
                             }
                             else
+                            {
+                                FString ParameterName;
+                                ArgsObj->TryGetStringField(TEXT("parameterName"), ParameterName);
+                                if (!ParameterName.IsEmpty())
+                                {
+                                    if (FNameProperty* ParameterNameProperty = FindFProperty<FNameProperty>(NewExpression->GetClass(), TEXT("ParameterName")))
+                                    {
+                                        ParameterNameProperty->SetPropertyValue_InContainer(NewExpression, FName(*ParameterName));
+                                    }
+                                }
+
+                                if (UMaterialExpressionMaterialFunctionCall* FunctionCall = Cast<UMaterialExpressionMaterialFunctionCall>(NewExpression))
+                                {
+                                    FString FunctionAssetPath;
+                                    ArgsObj->TryGetStringField(TEXT("functionAssetPath"), FunctionAssetPath);
+                                    if (!FunctionAssetPath.IsEmpty())
+                                    {
+                                        UMaterialFunctionInterface* MaterialFunction = LoadObject<UMaterialFunctionInterface>(nullptr, *FunctionAssetPath);
+                                        if (MaterialFunction == nullptr || !FunctionCall->SetMaterialFunction(MaterialFunction))
+                                        {
+                                            UMaterialEditingLibrary::DeleteMaterialExpression(MaterialAsset, NewExpression);
+                                            bOk = false;
+                                            Error = TEXT("Failed to resolve material function asset.");
+                                        }
+                                        else
+                                        {
+                                            FunctionCall->UpdateFromFunctionResource();
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (bOk)
                             {
                                 NodeId = MaterialExpressionId(NewExpression);
                                 bChanged = true;

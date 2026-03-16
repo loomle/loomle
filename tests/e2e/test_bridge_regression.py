@@ -80,6 +80,32 @@ def capture_editor_png_hash(client: McpStdioClient, request_id: int, relative_pa
     return payload, capture_file, hashlib.sha256(png_bytes).hexdigest()
 
 
+def capture_editor_png_hash_until_changed(
+    client: McpStdioClient,
+    request_id: int,
+    *,
+    relative_path_prefix: str,
+    baseline_hash: str,
+    attempts: int = 3,
+    sleep_s: float = 0.5,
+) -> tuple[dict, Path, str]:
+    last_result: tuple[dict, Path, str] | None = None
+    for attempt in range(attempts):
+        last_result = capture_editor_png_hash(
+            client,
+            request_id + attempt,
+            f"{relative_path_prefix}-{int(time.time() * 1000)}-{attempt}.png",
+        )
+        if last_result[2] != baseline_hash:
+            return last_result
+        if attempt + 1 < attempts:
+            time.sleep(sleep_s)
+
+    if last_result is None:
+        raise RuntimeError("unreachable")
+    return last_result
+
+
 def wait_for_pcg_runtime_snapshot(
     client: McpStdioClient,
     request_id: int,
@@ -484,7 +510,17 @@ def main() -> int:
             for item in ops_items
             if isinstance(item, dict) and isinstance(item.get("opId"), str)
         }
-        if not {"core.comment", "core.reroute", "bp.flow.branch"}.issubset(op_ids):
+        if not {
+            "core.comment",
+            "core.reroute",
+            "bp.flow.branch",
+            "bp.flow.sequence",
+            "bp.flow.delay",
+            "bp.flow.do_once",
+            "bp.debug.print_string",
+            "bp.var.get",
+            "bp.var.set",
+        }.issubset(op_ids):
             fail(f"graph.ops missing Blueprint v1 baseline ops: {graph_ops}")
         graph_ops_meta = graph_ops.get("meta")
         if not isinstance(graph_ops_meta, dict):
@@ -502,14 +538,29 @@ def main() -> int:
             {
                 "graphType": "blueprint",
                 "graphRef": event_graph_ref,
-                "items": [{"opId": "bp.flow.branch"}, {"opId": "core.reroute"}],
+                "items": [
+                    {"opId": "bp.flow.branch"},
+                    {"opId": "core.reroute"},
+                    {"opId": "bp.flow.sequence"},
+                    {"opId": "bp.flow.delay"},
+                    {"opId": "bp.flow.do_once"},
+                    {"opId": "bp.debug.print_string"},
+                    {"opId": "bp.var.get"},
+                    {"opId": "bp.var.set"},
+                ],
             },
         )
         resolve_results = graph_ops_resolve.get("results")
-        if not isinstance(resolve_results, list) or len(resolve_results) != 2:
+        if not isinstance(resolve_results, list) or len(resolve_results) != 8:
             fail(f"graph.ops.resolve missing results[]: {graph_ops_resolve}")
         branch_result = next((item for item in resolve_results if isinstance(item, dict) and item.get("opId") == "bp.flow.branch"), None)
         reroute_result = next((item for item in resolve_results if isinstance(item, dict) and item.get("opId") == "core.reroute"), None)
+        sequence_result = next((item for item in resolve_results if isinstance(item, dict) and item.get("opId") == "bp.flow.sequence"), None)
+        delay_result = next((item for item in resolve_results if isinstance(item, dict) and item.get("opId") == "bp.flow.delay"), None)
+        do_once_result = next((item for item in resolve_results if isinstance(item, dict) and item.get("opId") == "bp.flow.do_once"), None)
+        print_string_result = next((item for item in resolve_results if isinstance(item, dict) and item.get("opId") == "bp.debug.print_string"), None)
+        var_get_result = next((item for item in resolve_results if isinstance(item, dict) and item.get("opId") == "bp.var.get"), None)
+        var_set_result = next((item for item in resolve_results if isinstance(item, dict) and item.get("opId") == "bp.var.set"), None)
         if not isinstance(branch_result, dict) or branch_result.get("resolved") is not True:
             fail(f"graph.ops.resolve missing resolved branch result: {graph_ops_resolve}")
         branch_plan = branch_result.get("preferredPlan")
@@ -532,7 +583,64 @@ def main() -> int:
             fail(f"graph.ops.resolve reroute remediation.missingFields mismatch: {graph_ops_resolve}")
         if reroute_remediation.get("nextAction") != "retry_resolve_with_fromPin":
             fail(f"graph.ops.resolve reroute remediation.nextAction mismatch: {graph_ops_resolve}")
+        if not isinstance(sequence_result, dict) or sequence_result.get("resolved") is not True:
+            fail(f"graph.ops.resolve missing resolved sequence result: {graph_ops_resolve}")
+        sequence_plan = sequence_result.get("preferredPlan")
+        sequence_args = sequence_plan.get("args") if isinstance(sequence_plan, dict) else None
+        if not isinstance(sequence_args, dict) or sequence_args.get("nodeClassPath") != "/Script/BlueprintGraph.K2Node_ExecutionSequence":
+            fail(f"graph.ops.resolve sequence nodeClassPath mismatch: {graph_ops_resolve}")
+        if not isinstance(delay_result, dict) or delay_result.get("resolved") is not True:
+            fail(f"graph.ops.resolve missing resolved delay result: {graph_ops_resolve}")
+        delay_plan = delay_result.get("preferredPlan")
+        delay_args = delay_plan.get("args") if isinstance(delay_plan, dict) else None
+        if not isinstance(delay_args, dict) or delay_args.get("functionName") != "Delay":
+            fail(f"graph.ops.resolve delay args mismatch: {graph_ops_resolve}")
+        if not isinstance(delay_plan.get("settingsTemplate"), dict):
+            fail(f"graph.ops.resolve delay missing settingsTemplate: {graph_ops_resolve}")
+        if not isinstance(do_once_result, dict) or do_once_result.get("resolved") is not True:
+            fail(f"graph.ops.resolve missing resolved do_once result: {graph_ops_resolve}")
+        do_once_plan = do_once_result.get("preferredPlan")
+        do_once_args = do_once_plan.get("args") if isinstance(do_once_plan, dict) else None
+        if not isinstance(do_once_args, dict) or do_once_args.get("macroGraphName") != "DoOnce":
+            fail(f"graph.ops.resolve do_once args mismatch: {graph_ops_resolve}")
+        if not isinstance(print_string_result, dict) or print_string_result.get("resolved") is not True:
+            fail(f"graph.ops.resolve missing resolved print_string result: {graph_ops_resolve}")
+        print_plan = print_string_result.get("preferredPlan")
+        print_args = print_plan.get("args") if isinstance(print_plan, dict) else None
+        if not isinstance(print_args, dict) or print_args.get("functionName") != "PrintString":
+            fail(f"graph.ops.resolve print_string args mismatch: {graph_ops_resolve}")
+        for variable_result, op_id in ((var_get_result, "bp.var.get"), (var_set_result, "bp.var.set")):
+            if not isinstance(variable_result, dict) or variable_result.get("resolved") is not False:
+                fail(f"graph.ops.resolve {op_id} should require variable context: {graph_ops_resolve}")
+            remediation = variable_result.get("remediation")
+            if not isinstance(remediation, dict) or "items[].hints.variableName" not in remediation.get("missingFields", []):
+                fail(f"graph.ops.resolve {op_id} remediation mismatch: {graph_ops_resolve}")
         print("[PASS] graph.ops.resolve Blueprint structure validated")
+
+        variable_resolve_with_hints = call_tool(
+            client,
+            65015,
+            "graph.ops.resolve",
+            {
+                "graphType": "blueprint",
+                "graphRef": event_graph_ref,
+                "items": [
+                    {"opId": "bp.var.get", "hints": {"variableName": "ActorHiddenInGame", "variableClassPath": "/Script/Engine.Actor"}},
+                    {"opId": "bp.var.set", "hints": {"variableName": "ActorHiddenInGame", "variableClassPath": "/Script/Engine.Actor"}},
+                ],
+            },
+        )
+        variable_results = variable_resolve_with_hints.get("results")
+        if not isinstance(variable_results, list) or len(variable_results) != 2:
+            fail(f"graph.ops.resolve(variable hints) missing results[]: {variable_resolve_with_hints}")
+        for variable_result in variable_results:
+            variable_plan = variable_result.get("preferredPlan") if isinstance(variable_result, dict) else None
+            variable_args = variable_plan.get("args") if isinstance(variable_plan, dict) else None
+            if variable_result.get("resolved") is not True or not isinstance(variable_args, dict):
+                fail(f"graph.ops.resolve(variable hints) should resolve with args: {variable_resolve_with_hints}")
+            if variable_args.get("variableName") != "ActorHiddenInGame":
+                fail(f"graph.ops.resolve(variable hints) variableName mismatch: {variable_resolve_with_hints}")
+        print("[PASS] graph.ops.resolve Blueprint variable hints validated")
 
         seed_branch = call_tool(
             client,
@@ -594,7 +702,42 @@ def main() -> int:
             fail(f"graph.ops.resolve(context) plan did not create reroute node: {reroute_step_apply}")
         nodes_after_reroute_plan = query_nodes(client, 6505, temp_asset, "EventGraph")
         require_node(nodes_after_reroute_plan, reroute_node_id)
-        print("[PASS] graph.ops.resolve Blueprint steps[] plan executed")
+        sequence_with_context = call_tool(
+            client,
+            6506,
+            "graph.ops.resolve",
+            {
+                "graphType": "blueprint",
+                "graphRef": event_graph_ref,
+                "context": {"fromPin": {"nodeId": seed_branch_id, "pinName": "Then"}},
+                "items": [{"opId": "bp.flow.sequence", "clientRef": "sequence_from_branch"}],
+            },
+        )
+        sequence_with_context_results = sequence_with_context.get("results")
+        if not isinstance(sequence_with_context_results, list) or len(sequence_with_context_results) != 1:
+            fail(f"graph.ops.resolve(sequence context) missing results[]: {sequence_with_context}")
+        sequence_exec_result = sequence_with_context_results[0] if isinstance(sequence_with_context_results[0], dict) else {}
+        sequence_exec_plan = sequence_exec_result.get("preferredPlan")
+        if sequence_exec_result.get("resolved") is not True or not isinstance(sequence_exec_plan, dict):
+            fail(f"graph.ops.resolve(sequence context) missing preferredPlan: {sequence_with_context}")
+        sequence_step_apply = mutate_with_plan_steps(
+            client,
+            6507,
+            asset_path=temp_asset,
+            graph_type="blueprint",
+            graph_name="EventGraph",
+            preferred_plan=sequence_exec_plan,
+        )
+        sequence_step_results = sequence_step_apply.get("opResults")
+        sequence_node_id = None
+        if isinstance(sequence_step_results, list) and sequence_step_results:
+            first_step = sequence_step_results[0] if isinstance(sequence_step_results[0], dict) else {}
+            sequence_node_id = first_step.get("nodeId")
+        if not isinstance(sequence_node_id, str) or not sequence_node_id:
+            fail(f"graph.ops.resolve(sequence context) plan did not create sequence node: {sequence_step_apply}")
+        nodes_after_sequence_plan = query_nodes(client, 6508, temp_asset, "EventGraph")
+        require_node(nodes_after_sequence_plan, sequence_node_id)
+        print("[PASS] graph.ops.resolve Blueprint steps[] plans executed")
 
         pcg_fixture_payload = call_execute_exec_with_retry(
             client=client,
@@ -1969,7 +2112,16 @@ def main() -> int:
             for item in material_ops_items
             if isinstance(item, dict) and isinstance(item.get("opId"), str)
         }
-        if not {"mat.math.multiply", "mat.texture.sample"}.issubset(material_op_ids):
+        if not {
+            "mat.math.add",
+            "mat.math.lerp",
+            "mat.math.multiply",
+            "mat.math.one_minus",
+            "mat.math.saturate",
+            "mat.param.texture",
+            "mat.func.call",
+            "mat.texture.sample",
+        }.issubset(material_op_ids):
             fail(f"graph.ops(material) missing expected ops: {material_ops}")
 
         material_resolve = call_tool(
@@ -1979,20 +2131,62 @@ def main() -> int:
             {
                 "graphType": "material",
                 "graphRef": material_graph_ref,
-                "items": [{"opId": "mat.math.multiply", "hints": {"targetRootPin": "Base Color"}}],
+                "items": [
+                    {"opId": "mat.math.add", "hints": {"targetRootPin": "Base Color"}},
+                    {"opId": "mat.math.lerp", "hints": {"targetRootPin": "Base Color"}},
+                    {"opId": "mat.math.multiply", "hints": {"targetRootPin": "Base Color"}},
+                    {"opId": "mat.math.one_minus", "hints": {"targetRootPin": "Base Color"}},
+                    {"opId": "mat.math.saturate", "hints": {"targetRootPin": "Base Color"}},
+                    {"opId": "mat.param.texture", "hints": {"targetRootPin": "Base Color"}},
+                    {"opId": "mat.func.call"},
+                ],
             },
         )
         material_resolve_results = material_resolve.get("results")
-        if not isinstance(material_resolve_results, list) or len(material_resolve_results) != 1:
+        if not isinstance(material_resolve_results, list) or len(material_resolve_results) != 7:
             fail(f"graph.ops.resolve(material) missing results[]: {material_resolve}")
-        material_multiply_result = material_resolve_results[0] if isinstance(material_resolve_results[0], dict) else {}
-        material_plan = material_multiply_result.get("preferredPlan")
-        if material_multiply_result.get("resolved") is not True or not isinstance(material_plan, dict):
-            fail(f"graph.ops.resolve(material) invalid result: {material_resolve}")
-        material_steps = material_plan.get("steps")
-        if not isinstance(material_steps, list) or len(material_steps) != 2:
-            fail(f"graph.ops.resolve(material) expected 2-step plan: {material_resolve}")
+        material_results_by_id = {
+            item.get("opId"): item
+            for item in material_resolve_results
+            if isinstance(item, dict) and isinstance(item.get("opId"), str)
+        }
+        for op_id in ("mat.math.add", "mat.math.lerp", "mat.math.multiply", "mat.math.one_minus", "mat.math.saturate"):
+            material_result = material_results_by_id.get(op_id)
+            material_plan = material_result.get("preferredPlan") if isinstance(material_result, dict) else None
+            material_steps = material_plan.get("steps") if isinstance(material_plan, dict) else None
+            if material_result.get("resolved") is not True or not isinstance(material_steps, list) or len(material_steps) != 2:
+                fail(f"graph.ops.resolve(material) {op_id} expected 2-step plan: {material_resolve}")
+        texture_param_result = material_results_by_id.get("mat.param.texture")
+        texture_param_plan = texture_param_result.get("preferredPlan") if isinstance(texture_param_result, dict) else None
+        texture_param_steps = texture_param_plan.get("steps") if isinstance(texture_param_plan, dict) else None
+        texture_param_template = texture_param_plan.get("settingsTemplate") if isinstance(texture_param_plan, dict) else None
+        if texture_param_result.get("resolved") is not True or not isinstance(texture_param_steps, list) or len(texture_param_steps) != 2:
+            fail(f"graph.ops.resolve(material) mat.param.texture expected 2-step plan: {material_resolve}")
+        if not isinstance(texture_param_template, dict) or texture_param_template.get("parameterName") != "TextureParam":
+            fail(f"graph.ops.resolve(material) mat.param.texture settingsTemplate mismatch: {material_resolve}")
+        function_call_result = material_results_by_id.get("mat.func.call")
+        function_call_plan = function_call_result.get("preferredPlan") if isinstance(function_call_result, dict) else None
+        function_call_template = function_call_plan.get("settingsTemplate") if isinstance(function_call_plan, dict) else None
+        if function_call_result.get("resolved") is not True or not isinstance(function_call_template, dict):
+            fail(f"graph.ops.resolve(material) mat.func.call missing settingsTemplate: {material_resolve}")
         print("[PASS] graph.ops / graph.ops.resolve Material validated")
+
+        material_add_plan = material_results_by_id["mat.math.add"]["preferredPlan"]
+        material_add_plan_apply = mutate_with_plan_steps(
+            client,
+            100093,
+            asset_path=material_asset_path,
+            graph_type="material",
+            graph_name="MaterialGraph",
+            preferred_plan=material_add_plan,
+        )
+        material_add_step_results = material_add_plan_apply.get("opResults")
+        material_add_node_id = None
+        if isinstance(material_add_step_results, list) and material_add_step_results:
+            first_step = material_add_step_results[0] if isinstance(material_add_step_results[0], dict) else {}
+            material_add_node_id = first_step.get("nodeId")
+        if not isinstance(material_add_node_id, str) or not material_add_node_id:
+            fail(f"graph.ops.resolve(material add) plan did not create node: {material_add_plan_apply}")
 
         material_add = call_tool(
             client,
@@ -2731,10 +2925,11 @@ def main() -> int:
             fail(f"Material visual relayout opResults mismatch: {material_visual_relayout_payload}")
         if not isinstance(material_visual_relayout_results[1], dict) or material_visual_relayout_results[1].get("ok") is not True:
             fail(f"Material visual relayout failed: {material_visual_relayout_payload}")
-        _, _, material_capture_after_hash = capture_editor_png_hash(
+        _, _, material_capture_after_hash = capture_editor_png_hash_until_changed(
             client,
             10022,
-            f"Loomle/runtime/captures/material-layout-after-{int(time.time())}.png",
+            relative_path_prefix="Loomle/runtime/captures/material-layout-after",
+            baseline_hash=material_capture_before_hash,
         )
         if material_capture_after_hash == material_capture_before_hash:
             fail(
@@ -3186,10 +3381,11 @@ def main() -> int:
             fail(f"PCG visual relayout opResults mismatch: {pcg_visual_relayout_payload}")
         if not isinstance(pcg_visual_relayout_results[1], dict) or pcg_visual_relayout_results[1].get("ok") is not True:
             fail(f"PCG visual relayout failed: {pcg_visual_relayout_payload}")
-        _, _, pcg_capture_after_hash = capture_editor_png_hash(
+        _, _, pcg_capture_after_hash = capture_editor_png_hash_until_changed(
             client,
             10116,
-            f"Loomle/runtime/captures/pcg-layout-after-{int(time.time())}.png",
+            relative_path_prefix="Loomle/runtime/captures/pcg-layout-after",
+            baseline_hash=pcg_capture_before_hash,
         )
         if pcg_capture_after_hash == pcg_capture_before_hash:
             fail(
