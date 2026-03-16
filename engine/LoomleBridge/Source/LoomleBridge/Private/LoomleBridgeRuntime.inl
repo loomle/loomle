@@ -902,49 +902,19 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorScreenshotToolResult(con
     FIntVector ImageSize(0, 0, 0);
 
 #if PLATFORM_WINDOWS
-    const FVector2f ViewportSize = FVector2f(ActiveWindow->GetViewportSize());
-    const int32 CaptureWidth = FMath::Max(1, FMath::RoundToInt(ViewportSize.X));
-    const int32 CaptureHeight = FMath::Max(1, FMath::RoundToInt(ViewportSize.Y));
-
-    UTextureRenderTarget2D* RenderTarget = FWidgetRenderer::CreateTargetFor(
-        FVector2D(CaptureWidth, CaptureHeight),
-        TF_Bilinear,
-        true);
-    if (!RenderTarget)
+    FString CaptureError;
+    const void* NativeHandle = ActiveWindow->GetNativeWindow().IsValid()
+        ? ActiveWindow->GetNativeWindow()->GetOSWindowHandle()
+        : nullptr;
+    if (!CaptureNativeWindowToColorData(reinterpret_cast<HWND>(const_cast<void*>(NativeHandle)), ColorData, ImageSize, CaptureError))
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("CAPTURE_FAILED"));
-        Result->SetStringField(TEXT("message"), TEXT("Failed to allocate an offscreen render target for the active editor window."));
+        Result->SetStringField(TEXT("message"), CaptureError.IsEmpty()
+            ? TEXT("Failed to capture the active editor window on Windows.")
+            : CaptureError);
         return Result;
     }
-
-    RenderTarget->AddToRoot();
-    {
-        TUniquePtr<FWidgetRenderer> WidgetRenderer = MakeUnique<FWidgetRenderer>(true, false);
-        FHittestGrid HitTestGrid;
-        WidgetRenderer->DrawWindow(
-            RenderTarget,
-            HitTestGrid,
-            ActiveWindow.ToSharedRef(),
-            1.0f,
-            FVector2D(CaptureWidth, CaptureHeight),
-            0.0f);
-    }
-
-    FTextureRenderTargetResource* RenderTargetResource = RenderTarget->GameThread_GetRenderTargetResource();
-    const bool bReadOk = RenderTargetResource && RenderTargetResource->ReadPixels(ColorData);
-    RenderTarget->RemoveFromRoot();
-    RenderTarget->MarkAsGarbage();
-
-    if (!bReadOk)
-    {
-        Result->SetBoolField(TEXT("isError"), true);
-        Result->SetStringField(TEXT("code"), TEXT("CAPTURE_FAILED"));
-        Result->SetStringField(TEXT("message"), TEXT("Failed to read back the active editor window capture."));
-        return Result;
-    }
-
-    ImageSize = FIntVector(CaptureWidth, CaptureHeight, 0);
 #else
     if (!FSlateApplication::Get().TakeScreenshot(ActiveWindow.ToSharedRef(), ColorData, ImageSize))
     {

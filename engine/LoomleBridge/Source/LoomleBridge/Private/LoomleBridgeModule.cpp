@@ -81,6 +81,10 @@
 #include "BlueprintEditorTabs.h"
 #include "Engine/TextureRenderTarget2D.h"
 
+#if PLATFORM_WINDOWS
+#include "Windows/WindowsHWrapper.h"
+#endif
+
 DEFINE_LOG_CATEGORY_STATIC(LogLoomleBridge, Log, All);
 
 using FCondensedJsonWriter = TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>;
@@ -107,6 +111,113 @@ namespace LoomleBridgeConstants
 
 namespace
 {
+#if PLATFORM_WINDOWS
+bool CaptureNativeWindowToColorData(HWND WindowHandle, TArray<FColor>& OutColorData, FIntVector& OutImageSize, FString& OutError)
+{
+    if (WindowHandle == nullptr)
+    {
+        OutError = TEXT("The active editor window does not expose a native OS handle.");
+        return false;
+    }
+
+    RECT WindowRect{};
+    if (!::GetWindowRect(WindowHandle, &WindowRect))
+    {
+        OutError = TEXT("Failed to query the active editor window bounds.");
+        return false;
+    }
+
+    const int32 CaptureWidth = FMath::Max(1L, WindowRect.right - WindowRect.left);
+    const int32 CaptureHeight = FMath::Max(1L, WindowRect.bottom - WindowRect.top);
+
+    HDC WindowDC = ::GetWindowDC(WindowHandle);
+    if (WindowDC == nullptr)
+    {
+        OutError = TEXT("Failed to acquire the active editor window device context.");
+        return false;
+    }
+
+    HDC MemoryDC = ::CreateCompatibleDC(WindowDC);
+    if (MemoryDC == nullptr)
+    {
+        ::ReleaseDC(WindowHandle, WindowDC);
+        OutError = TEXT("Failed to create a compatible device context for screenshot capture.");
+        return false;
+    }
+
+    BITMAPINFO BitmapInfo{};
+    BitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    BitmapInfo.bmiHeader.biWidth = CaptureWidth;
+    BitmapInfo.bmiHeader.biHeight = -CaptureHeight;
+    BitmapInfo.bmiHeader.biPlanes = 1;
+    BitmapInfo.bmiHeader.biBitCount = 32;
+    BitmapInfo.bmiHeader.biCompression = BI_RGB;
+
+    void* BitmapPixels = nullptr;
+    HBITMAP BitmapHandle = ::CreateDIBSection(WindowDC, &BitmapInfo, DIB_RGB_COLORS, &BitmapPixels, nullptr, 0);
+    if (BitmapHandle == nullptr || BitmapPixels == nullptr)
+    {
+        if (BitmapHandle != nullptr)
+        {
+            ::DeleteObject(BitmapHandle);
+        }
+        ::DeleteDC(MemoryDC);
+        ::ReleaseDC(WindowHandle, WindowDC);
+        OutError = TEXT("Failed to allocate an offscreen bitmap for screenshot capture.");
+        return false;
+    }
+
+    HGDIOBJ PreviousBitmap = ::SelectObject(MemoryDC, BitmapHandle);
+
+#ifndef PW_RENDERFULLCONTENT
+#define PW_RENDERFULLCONTENT 0x00000002
+#endif
+
+    BOOL bCaptured = ::PrintWindow(WindowHandle, MemoryDC, PW_RENDERFULLCONTENT);
+    if (!bCaptured)
+    {
+        bCaptured = ::BitBlt(MemoryDC, 0, 0, CaptureWidth, CaptureHeight, WindowDC, 0, 0, SRCCOPY | CAPTUREBLT);
+    }
+
+    if (!bCaptured)
+    {
+        if (PreviousBitmap != nullptr)
+        {
+            ::SelectObject(MemoryDC, PreviousBitmap);
+        }
+        ::DeleteObject(BitmapHandle);
+        ::DeleteDC(MemoryDC);
+        ::ReleaseDC(WindowHandle, WindowDC);
+        OutError = TEXT("Windows failed to capture the active editor window.");
+        return false;
+    }
+
+    const int32 PixelCount = CaptureWidth * CaptureHeight;
+    OutColorData.SetNumUninitialized(PixelCount);
+    const uint8* SourceBytes = static_cast<const uint8*>(BitmapPixels);
+    for (int32 PixelIndex = 0; PixelIndex < PixelCount; ++PixelIndex)
+    {
+        const uint8* SourcePixel = SourceBytes + (PixelIndex * 4);
+        FColor& Dest = OutColorData[PixelIndex];
+        Dest.B = SourcePixel[0];
+        Dest.G = SourcePixel[1];
+        Dest.R = SourcePixel[2];
+        Dest.A = SourcePixel[3] == 0 ? 255 : SourcePixel[3];
+    }
+
+    OutImageSize = FIntVector(CaptureWidth, CaptureHeight, 0);
+
+    if (PreviousBitmap != nullptr)
+    {
+        ::SelectObject(MemoryDC, PreviousBitmap);
+    }
+    ::DeleteObject(BitmapHandle);
+    ::DeleteDC(MemoryDC);
+    ::ReleaseDC(WindowHandle, WindowDC);
+    return true;
+}
+#endif
+
 TSharedPtr<FJsonObject> CloneJsonObject(const TSharedPtr<FJsonObject>& Source)
 {
     if (!Source.IsValid())
