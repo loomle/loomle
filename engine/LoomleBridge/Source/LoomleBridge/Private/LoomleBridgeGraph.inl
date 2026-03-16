@@ -4608,8 +4608,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
 
             if (OpId.Equals(TEXT("pcg.meta.add_tag"))
                 || OpId.Equals(TEXT("pcg.transform.points"))
-                || OpId.Equals(TEXT("pcg.project.surface"))
-                || OpId.Equals(TEXT("pcg.spawn.static_mesh"))
                 || OpId.Equals(TEXT("pcg.spawn.actor")))
             {
                 TSharedPtr<FJsonObject> InHint = MakeShared<FJsonObject>();
@@ -4715,6 +4713,47 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                 OutHint->SetBoolField(TEXT("isDefaultPath"), true);
                 PinHints.Add(MakeShared<FJsonValueObject>(OutHint));
             }
+            else if (OpId.Equals(TEXT("pcg.project.surface")))
+            {
+                TSharedPtr<FJsonObject> InHint = MakeShared<FJsonObject>();
+                InHint->SetStringField(TEXT("role"), TEXT("input"));
+                InHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                InHint->SetStringField(TEXT("pinName"), TEXT("In"));
+                InHint->SetStringField(TEXT("semanticRole"), TEXT("source_input"));
+                PinHints.Add(MakeShared<FJsonValueObject>(InHint));
+
+                TSharedPtr<FJsonObject> ProjectionTargetHint = MakeShared<FJsonObject>();
+                ProjectionTargetHint->SetStringField(TEXT("role"), TEXT("projection_target"));
+                ProjectionTargetHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                ProjectionTargetHint->SetStringField(TEXT("pinName"), TEXT("Projection Target"));
+                ProjectionTargetHint->SetStringField(TEXT("semanticRole"), TEXT("projection_target"));
+                PinHints.Add(MakeShared<FJsonValueObject>(ProjectionTargetHint));
+
+                TSharedPtr<FJsonObject> OutHint = MakeShared<FJsonObject>();
+                OutHint->SetStringField(TEXT("role"), TEXT("output"));
+                OutHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                OutHint->SetStringField(TEXT("pinName"), TEXT("Out"));
+                OutHint->SetStringField(TEXT("semanticRole"), TEXT("projected_output"));
+                OutHint->SetBoolField(TEXT("isDefaultPath"), true);
+                PinHints.Add(MakeShared<FJsonValueObject>(OutHint));
+            }
+            else if (OpId.Equals(TEXT("pcg.spawn.static_mesh")))
+            {
+                TSharedPtr<FJsonObject> InHint = MakeShared<FJsonObject>();
+                InHint->SetStringField(TEXT("role"), TEXT("input"));
+                InHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                InHint->SetStringField(TEXT("pinName"), TEXT("In"));
+                InHint->SetStringField(TEXT("semanticRole"), TEXT("points_input"));
+                PinHints.Add(MakeShared<FJsonValueObject>(InHint));
+
+                TSharedPtr<FJsonObject> OutHint = MakeShared<FJsonObject>();
+                OutHint->SetStringField(TEXT("role"), TEXT("output"));
+                OutHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                OutHint->SetStringField(TEXT("pinName"), TEXT("Out"));
+                OutHint->SetStringField(TEXT("semanticRole"), TEXT("spawned_output"));
+                OutHint->SetBoolField(TEXT("isDefaultPath"), true);
+                PinHints.Add(MakeShared<FJsonValueObject>(OutHint));
+            }
 
             if (OpId.Equals(TEXT("pcg.meta.add_tag")))
             {
@@ -4769,14 +4808,28 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
             else if (OpId.Equals(TEXT("pcg.project.surface")))
             {
                 TSharedPtr<FJsonObject> ProjectionParams = MakeShared<FJsonObject>();
+                ProjectionParams->SetBoolField(TEXT("bProjectPositions"), true);
+                ProjectionParams->SetBoolField(TEXT("bProjectRotations"), true);
+                ProjectionParams->SetBoolField(TEXT("bProjectScales"), false);
                 ProjectionParams->SetStringField(TEXT("colorBlendMode"), TEXT("SourceValue"));
+                ProjectionParams->SetStringField(TEXT("attributeList"), TEXT(""));
+                ProjectionParams->SetStringField(TEXT("attributeMode"), TEXT("ExcludeAttributes"));
+                ProjectionParams->SetStringField(TEXT("attributeMergeOperation"), TEXT("TargetValue"));
                 ProjectionParams->SetStringField(TEXT("tagMergeOperation"), TEXT("Source"));
                 SettingsTemplate->SetObjectField(TEXT("projectionParams"), ProjectionParams);
+                SettingsTemplate->SetBoolField(TEXT("bForceCollapseToPoint"), false);
+                SettingsTemplate->SetBoolField(TEXT("bKeepZeroDensityPoints"), false);
                 bHasSettingsTemplate = true;
             }
             else if (OpId.Equals(TEXT("pcg.spawn.static_mesh")))
             {
+                SettingsTemplate->SetStringField(TEXT("meshSelectorType"), TEXT("<selector-class-or-strategy>"));
                 SettingsTemplate->SetStringField(TEXT("outAttributeName"), TEXT("<optional-attribute-name>"));
+                SettingsTemplate->SetBoolField(TEXT("bApplyMeshBoundsToPoints"), true);
+                SettingsTemplate->SetBoolField(TEXT("bAllowDescriptorChanges"), true);
+                SettingsTemplate->SetStringField(TEXT("targetActor"), TEXT("<optional-target-actor-path>"));
+                SettingsTemplate->SetBoolField(TEXT("bSynchronousLoad"), false);
+                SettingsTemplate->SetBoolField(TEXT("bWarnOnIdenticalSpawn"), true);
                 bHasSettingsTemplate = true;
             }
             else if (OpId.Equals(TEXT("pcg.spawn.actor")))

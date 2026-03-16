@@ -700,6 +700,7 @@ def main() -> int:
             "pcg.transform.points",
             "pcg.sample.spline",
             "pcg.source.actor_data",
+            "pcg.project.surface",
             "pcg.spawn.static_mesh",
         }.issubset(pcg_op_ids):
             fail(f"graph.ops(pcg) missing expected ops: {pcg_ops}")
@@ -716,12 +717,13 @@ def main() -> int:
                     {"opId": "pcg.transform.points"},
                     {"opId": "pcg.sample.spline"},
                     {"opId": "pcg.source.actor_data"},
+                    {"opId": "pcg.project.surface"},
                     {"opId": "pcg.spawn.static_mesh"},
                 ],
             },
         )
         pcg_resolve_results = pcg_resolve.get("results")
-        if not isinstance(pcg_resolve_results, list) or len(pcg_resolve_results) != 5:
+        if not isinstance(pcg_resolve_results, list) or len(pcg_resolve_results) != 6:
             fail(f"graph.ops.resolve(pcg) missing results[]: {pcg_resolve}")
         pcg_filter_result = next(
             (item for item in pcg_resolve_results if isinstance(item, dict) and item.get("opId") == "pcg.filter.by_tag"),
@@ -785,6 +787,36 @@ def main() -> int:
             fail(f"graph.ops.resolve(pcg.source.actor_data) nodeClassPath mismatch: {pcg_resolve}")
         if not isinstance(actor_data_plan.get("settingsTemplate"), dict):
             fail(f"graph.ops.resolve(pcg.source.actor_data) missing settingsTemplate: {pcg_resolve}")
+        project_surface_result = next(
+            (item for item in pcg_resolve_results if isinstance(item, dict) and item.get("opId") == "pcg.project.surface"),
+            {},
+        )
+        project_surface_plan = project_surface_result.get("preferredPlan")
+        if project_surface_result.get("resolved") is not True or not isinstance(project_surface_plan, dict):
+            fail(f"graph.ops.resolve(pcg.project.surface) invalid result: {pcg_resolve}")
+        project_surface_args = project_surface_plan.get("args")
+        if not isinstance(project_surface_args, dict) or project_surface_args.get("nodeClassPath") != "/Script/PCG.PCGProjectionSettings":
+            fail(f"graph.ops.resolve(pcg.project.surface) nodeClassPath mismatch: {pcg_resolve}")
+        project_surface_template = project_surface_plan.get("settingsTemplate")
+        if not isinstance(project_surface_template, dict):
+            fail(f"graph.ops.resolve(pcg.project.surface) missing settingsTemplate: {pcg_resolve}")
+        projection_params = project_surface_template.get("projectionParams")
+        if not isinstance(projection_params, dict):
+            fail(f"graph.ops.resolve(pcg.project.surface) missing projectionParams: {pcg_resolve}")
+        if projection_params.get("bProjectPositions") is not True or projection_params.get("bProjectRotations") is not True:
+            fail(f"graph.ops.resolve(pcg.project.surface) projection booleans mismatch: {pcg_resolve}")
+        if projection_params.get("attributeMode") != "ExcludeAttributes" or projection_params.get("attributeMergeOperation") != "TargetValue":
+            fail(f"graph.ops.resolve(pcg.project.surface) projection enum defaults mismatch: {pcg_resolve}")
+        project_surface_hints = project_surface_plan.get("pinHints")
+        if not isinstance(project_surface_hints, list):
+            fail(f"graph.ops.resolve(pcg.project.surface) missing pinHints: {pcg_resolve}")
+        project_surface_pin_names = {
+            hint.get("pinName")
+            for hint in project_surface_hints
+            if isinstance(hint, dict) and isinstance(hint.get("pinName"), str)
+        }
+        if not {"In", "Projection Target", "Out"}.issubset(project_surface_pin_names):
+            fail(f"graph.ops.resolve(pcg.project.surface) missing pin hints: {pcg_resolve}")
         static_mesh_result = next(
             (item for item in pcg_resolve_results if isinstance(item, dict) and item.get("opId") == "pcg.spawn.static_mesh"),
             {},
@@ -795,6 +827,25 @@ def main() -> int:
         static_mesh_args = static_mesh_plan.get("args")
         if not isinstance(static_mesh_args, dict) or static_mesh_args.get("nodeClassPath") != "/Script/PCG.PCGStaticMeshSpawnerSettings":
             fail(f"graph.ops.resolve(pcg.spawn.static_mesh) nodeClassPath mismatch: {pcg_resolve}")
+        static_mesh_template = static_mesh_plan.get("settingsTemplate")
+        if not isinstance(static_mesh_template, dict):
+            fail(f"graph.ops.resolve(pcg.spawn.static_mesh) missing settingsTemplate: {pcg_resolve}")
+        if static_mesh_template.get("bApplyMeshBoundsToPoints") is not True or static_mesh_template.get("bAllowDescriptorChanges") is not True:
+            fail(f"graph.ops.resolve(pcg.spawn.static_mesh) template booleans mismatch: {pcg_resolve}")
+        if static_mesh_template.get("bSynchronousLoad") is not False or static_mesh_template.get("bWarnOnIdenticalSpawn") is not True:
+            fail(f"graph.ops.resolve(pcg.spawn.static_mesh) load/warn defaults mismatch: {pcg_resolve}")
+        if static_mesh_template.get("meshSelectorType") != "<selector-class-or-strategy>":
+            fail(f"graph.ops.resolve(pcg.spawn.static_mesh) selector template missing: {pcg_resolve}")
+        static_mesh_hints = static_mesh_plan.get("pinHints")
+        if not isinstance(static_mesh_hints, list):
+            fail(f"graph.ops.resolve(pcg.spawn.static_mesh) missing pinHints: {pcg_resolve}")
+        static_mesh_pin_names = {
+            hint.get("pinName")
+            for hint in static_mesh_hints
+            if isinstance(hint, dict) and isinstance(hint.get("pinName"), str)
+        }
+        if not {"In", "Out"}.issubset(static_mesh_pin_names):
+            fail(f"graph.ops.resolve(pcg.spawn.static_mesh) missing pin hints: {pcg_resolve}")
         print("[PASS] graph.ops / graph.ops.resolve PCG validated")
 
         bad_query = call_tool(
