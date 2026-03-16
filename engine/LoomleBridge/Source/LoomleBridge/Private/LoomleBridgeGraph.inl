@@ -52,6 +52,266 @@ bool TryFindGraphSemanticOpSpec(const FString& GraphType, const FString& OpId, F
     }
     return false;
 }
+
+template <typename TEnum>
+FString GetPcgEnumName(TEnum Value)
+{
+    const UEnum* Enum = StaticEnum<TEnum>();
+    return Enum ? Enum->GetNameStringByValue(static_cast<int64>(Value)) : FString::Printf(TEXT("%d"), static_cast<int32>(Value));
+}
+
+TSharedPtr<FJsonObject> MakePcgSelectorObject(const FPCGAttributePropertySelector& Selector)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("text"), Selector.ToString());
+    Result->SetStringField(TEXT("selection"), GetPcgEnumName(Selector.GetSelection()));
+    Result->SetStringField(TEXT("name"), Selector.GetName().ToString());
+    Result->SetStringField(TEXT("domain"), Selector.GetDomainString(false));
+    Result->SetStringField(TEXT("attributeOrProperty"), Selector.GetAttributePropertyString(false));
+
+    TArray<TSharedPtr<FJsonValue>> Accessors;
+    for (const FString& ExtraName : Selector.GetExtraNames())
+    {
+        Accessors.Add(MakeShared<FJsonValueString>(ExtraName));
+    }
+    Result->SetArrayField(TEXT("accessors"), Accessors);
+    return Result;
+}
+
+TSharedPtr<FJsonObject> MakePcgActorSelectorObject(const FPCGActorSelectorSettings& Selector)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("actorFilter"), GetPcgEnumName(Selector.ActorFilter));
+    Result->SetBoolField(TEXT("mustOverlapSelf"), Selector.bMustOverlapSelf);
+    Result->SetBoolField(TEXT("includeChildren"), Selector.bIncludeChildren);
+    Result->SetBoolField(TEXT("disableFilter"), Selector.bDisableFilter);
+    Result->SetStringField(TEXT("actorSelection"), GetPcgEnumName(Selector.ActorSelection));
+    Result->SetStringField(TEXT("actorSelectionTag"), Selector.ActorSelectionTag.ToString());
+    Result->SetStringField(
+        TEXT("actorSelectionClassPath"),
+        Selector.ActorSelectionClass ? Selector.ActorSelectionClass->GetPathName() : TEXT(""));
+    Result->SetObjectField(TEXT("actorReferenceSelector"), MakePcgSelectorObject(Selector.ActorReferenceSelector));
+    Result->SetBoolField(TEXT("selectMultiple"), Selector.bSelectMultiple);
+    Result->SetBoolField(TEXT("ignoreSelfAndChildren"), Selector.bIgnoreSelfAndChildren);
+    return Result;
+}
+
+TSharedPtr<FJsonObject> MakePcgComponentSelectorObject(const FPCGComponentSelectorSettings& Selector)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("componentSelection"), GetPcgEnumName(Selector.ComponentSelection));
+    Result->SetStringField(TEXT("componentSelectionTag"), Selector.ComponentSelectionTag.ToString());
+    Result->SetStringField(
+        TEXT("componentSelectionClassPath"),
+        Selector.ComponentSelectionClass ? Selector.ComponentSelectionClass->GetPathName() : TEXT(""));
+    return Result;
+}
+
+void AppendPcgGraphQueryDiagnostic(
+    TArray<TSharedPtr<FJsonValue>>& NodeDiagnostics,
+    TArray<TSharedPtr<FJsonValue>>& RootDiagnostics,
+    const FString& NodeId,
+    const FString& Code,
+    const FString& Message,
+    const FString& Severity = TEXT("info"))
+{
+    TSharedPtr<FJsonObject> NodeDiagnostic = MakeShared<FJsonObject>();
+    NodeDiagnostic->SetStringField(TEXT("code"), Code);
+    NodeDiagnostic->SetStringField(TEXT("message"), Message);
+    NodeDiagnostic->SetStringField(TEXT("severity"), Severity);
+    NodeDiagnostic->SetStringField(TEXT("nodeId"), NodeId);
+    NodeDiagnostics.Add(MakeShared<FJsonValueObject>(NodeDiagnostic));
+    RootDiagnostics.Add(MakeShared<FJsonValueObject>(NodeDiagnostic));
+}
+
+TSharedPtr<FJsonObject> BuildPcgNodeSettingsObject(
+    UPCGNode* NodeObj,
+    TArray<TSharedPtr<FJsonValue>>& NodeDiagnostics,
+    TArray<TSharedPtr<FJsonValue>>& RootDiagnostics)
+{
+    if (NodeObj == nullptr)
+    {
+        return nullptr;
+    }
+
+    UPCGSettings* NodeSettings = NodeObj->GetSettings();
+    if (NodeSettings == nullptr)
+    {
+        return nullptr;
+    }
+
+    const FString NodeId = NodeObj->GetPathName();
+
+    if (const UPCGGetActorPropertySettings* GetActorPropertySettings = Cast<UPCGGetActorPropertySettings>(NodeSettings))
+    {
+        TSharedPtr<FJsonObject> Settings = MakeShared<FJsonObject>();
+        Settings->SetStringField(TEXT("settingsClassPath"), GetActorPropertySettings->GetClass()->GetPathName());
+        Settings->SetObjectField(TEXT("actorSelector"), MakePcgActorSelectorObject(GetActorPropertySettings->ActorSelector));
+        Settings->SetBoolField(TEXT("selectComponent"), GetActorPropertySettings->bSelectComponent);
+        Settings->SetStringField(
+            TEXT("componentClassPath"),
+            GetActorPropertySettings->ComponentClass ? GetActorPropertySettings->ComponentClass->GetPathName() : TEXT(""));
+        Settings->SetBoolField(TEXT("processAllComponents"), GetActorPropertySettings->bProcessAllComponents);
+        Settings->SetBoolField(TEXT("outputComponentReference"), GetActorPropertySettings->bOutputComponentReference);
+        Settings->SetStringField(TEXT("propertyName"), GetActorPropertySettings->PropertyName.ToString());
+        Settings->SetBoolField(TEXT("forceObjectAndStructExtraction"), GetActorPropertySettings->bForceObjectAndStructExtraction);
+        Settings->SetObjectField(TEXT("outputAttributeName"), MakePcgSelectorObject(GetActorPropertySettings->OutputAttributeName));
+        Settings->SetBoolField(TEXT("sanitizeOutputAttributeName"), GetActorPropertySettings->bSanitizeOutputAttributeName);
+        Settings->SetBoolField(TEXT("outputActorReference"), GetActorPropertySettings->bOutputActorReference);
+        Settings->SetBoolField(TEXT("alwaysRequeryActors"), GetActorPropertySettings->bAlwaysRequeryActors);
+
+        AppendPcgGraphQueryDiagnostic(
+            NodeDiagnostics,
+            RootDiagnostics,
+            NodeId,
+            TEXT("PCG_SELECTOR_EMPTY_INPUT_HINT"),
+            TEXT("If no actors match actorSelector, this node yields no output data."));
+        if (GetActorPropertySettings->bSelectComponent)
+        {
+            AppendPcgGraphQueryDiagnostic(
+                NodeDiagnostics,
+                RootDiagnostics,
+                NodeId,
+                TEXT("PCG_COMPONENT_SELECTOR_EMPTY_INPUT_HINT"),
+                TEXT("If no attached components match componentClass, this node yields no output data."));
+        }
+
+        return Settings;
+    }
+
+    if (const UPCGGetSplineSettings* GetSplineSettings = Cast<UPCGGetSplineSettings>(NodeSettings))
+    {
+        TSharedPtr<FJsonObject> Settings = MakeShared<FJsonObject>();
+        Settings->SetStringField(TEXT("settingsClassPath"), GetSplineSettings->GetClass()->GetPathName());
+        Settings->SetStringField(TEXT("dataFilter"), TEXT("PolyLine"));
+        Settings->SetStringField(TEXT("mode"), GetPcgEnumName(GetSplineSettings->Mode));
+        Settings->SetObjectField(TEXT("actorSelector"), MakePcgActorSelectorObject(GetSplineSettings->ActorSelector));
+        Settings->SetObjectField(TEXT("componentSelector"), MakePcgComponentSelectorObject(GetSplineSettings->ComponentSelector));
+        Settings->SetBoolField(TEXT("ignorePCGGeneratedComponents"), GetSplineSettings->bIgnorePCGGeneratedComponents);
+        Settings->SetBoolField(TEXT("alwaysRequeryActors"), GetSplineSettings->bAlwaysRequeryActors);
+
+        AppendPcgGraphQueryDiagnostic(
+            NodeDiagnostics,
+            RootDiagnostics,
+            NodeId,
+            TEXT("PCG_SELECTOR_EMPTY_INPUT_HINT"),
+            TEXT("If no actors match actorSelector, this node yields no spline data."));
+        AppendPcgGraphQueryDiagnostic(
+            NodeDiagnostics,
+            RootDiagnostics,
+            NodeId,
+            TEXT("PCG_COMPONENT_SELECTOR_EMPTY_INPUT_HINT"),
+            TEXT("If no spline components match componentSelector, this node yields no spline data."));
+
+        return Settings;
+    }
+
+    if (const UPCGStaticMeshSpawnerSettings* StaticMeshSpawnerSettings = Cast<UPCGStaticMeshSpawnerSettings>(NodeSettings))
+    {
+        TSharedPtr<FJsonObject> Settings = MakeShared<FJsonObject>();
+        Settings->SetStringField(TEXT("settingsClassPath"), StaticMeshSpawnerSettings->GetClass()->GetPathName());
+        Settings->SetStringField(
+            TEXT("meshSelectorTypeClassPath"),
+            StaticMeshSpawnerSettings->MeshSelectorType ? StaticMeshSpawnerSettings->MeshSelectorType->GetPathName() : TEXT(""));
+        Settings->SetStringField(
+            TEXT("meshSelectorParametersClassPath"),
+            StaticMeshSpawnerSettings->MeshSelectorParameters ? StaticMeshSpawnerSettings->MeshSelectorParameters->GetClass()->GetPathName() : TEXT(""));
+        Settings->SetBoolField(TEXT("allowDescriptorChanges"), StaticMeshSpawnerSettings->bAllowDescriptorChanges);
+        Settings->SetStringField(TEXT("outAttributeName"), StaticMeshSpawnerSettings->OutAttributeName.ToString());
+        Settings->SetBoolField(TEXT("applyMeshBoundsToPoints"), StaticMeshSpawnerSettings->bApplyMeshBoundsToPoints);
+        Settings->SetBoolField(TEXT("synchronousLoad"), StaticMeshSpawnerSettings->bSynchronousLoad);
+        Settings->SetBoolField(TEXT("allowMergeDifferentDataInSameInstancedComponents"), StaticMeshSpawnerSettings->bAllowMergeDifferentDataInSameInstancedComponents);
+        Settings->SetBoolField(TEXT("silenceOverrideAttributeNotFoundErrors"), StaticMeshSpawnerSettings->bSilenceOverrideAttributeNotFoundErrors);
+        Settings->SetBoolField(TEXT("warnOnIdenticalSpawn"), StaticMeshSpawnerSettings->bWarnOnIdenticalSpawn);
+
+        if (const UPCGMeshSelectorByAttribute* ByAttributeSelector = Cast<UPCGMeshSelectorByAttribute>(StaticMeshSpawnerSettings->MeshSelectorParameters))
+        {
+            TSharedPtr<FJsonObject> MeshSelector = MakeShared<FJsonObject>();
+            MeshSelector->SetStringField(TEXT("kind"), TEXT("byAttribute"));
+            MeshSelector->SetStringField(TEXT("attributeName"), ByAttributeSelector->AttributeName.ToString());
+            MeshSelector->SetBoolField(TEXT("useAttributeMaterialOverrides"), ByAttributeSelector->bUseAttributeMaterialOverrides);
+            TArray<TSharedPtr<FJsonValue>> OverrideAttributes;
+            for (const FName& AttributeName : ByAttributeSelector->MaterialOverrideAttributes)
+            {
+                OverrideAttributes.Add(MakeShared<FJsonValueString>(AttributeName.ToString()));
+            }
+            MeshSelector->SetArrayField(TEXT("materialOverrideAttributes"), OverrideAttributes);
+            Settings->SetObjectField(TEXT("meshSelector"), MeshSelector);
+
+            if (ByAttributeSelector->AttributeName.IsNone())
+            {
+                AppendPcgGraphQueryDiagnostic(
+                    NodeDiagnostics,
+                    RootDiagnostics,
+                    NodeId,
+                    TEXT("PCG_EMPTY_INPUT_HINT"),
+                    TEXT("Static Mesh Spawner uses attribute-based mesh selection but no attributeName is configured."),
+                    TEXT("warning"));
+            }
+        }
+        else if (const UPCGMeshSelectorWeighted* WeightedSelector = Cast<UPCGMeshSelectorWeighted>(StaticMeshSpawnerSettings->MeshSelectorParameters))
+        {
+            TSharedPtr<FJsonObject> MeshSelector = MakeShared<FJsonObject>();
+            MeshSelector->SetStringField(TEXT("kind"), TEXT("weighted"));
+            MeshSelector->SetBoolField(TEXT("useAttributeMaterialOverrides"), WeightedSelector->bUseAttributeMaterialOverrides);
+
+            TArray<TSharedPtr<FJsonValue>> Entries;
+            for (const FPCGMeshSelectorWeightedEntry& Entry : WeightedSelector->MeshEntries)
+            {
+                TSharedPtr<FJsonObject> EntryObject = MakeShared<FJsonObject>();
+                EntryObject->SetNumberField(TEXT("weight"), Entry.Weight);
+                EntryObject->SetStringField(TEXT("meshPath"), Entry.Descriptor.StaticMesh.ToSoftObjectPath().GetAssetPathString());
+                Entries.Add(MakeShared<FJsonValueObject>(EntryObject));
+            }
+            MeshSelector->SetArrayField(TEXT("meshEntries"), Entries);
+            Settings->SetObjectField(TEXT("meshSelector"), MeshSelector);
+
+            if (WeightedSelector->MeshEntries.Num() == 0)
+            {
+                AppendPcgGraphQueryDiagnostic(
+                    NodeDiagnostics,
+                    RootDiagnostics,
+                    NodeId,
+                    TEXT("PCG_EMPTY_INPUT_HINT"),
+                    TEXT("Static Mesh Spawner has no weighted mesh entries configured."),
+                    TEXT("warning"));
+            }
+        }
+        else if (const UPCGMeshSelectorWeightedByCategory* WeightedByCategorySelector = Cast<UPCGMeshSelectorWeightedByCategory>(StaticMeshSpawnerSettings->MeshSelectorParameters))
+        {
+            TSharedPtr<FJsonObject> MeshSelector = MakeShared<FJsonObject>();
+            MeshSelector->SetStringField(TEXT("kind"), TEXT("weightedByCategory"));
+            MeshSelector->SetStringField(TEXT("categoryAttribute"), WeightedByCategorySelector->CategoryAttribute.ToString());
+
+            TArray<TSharedPtr<FJsonValue>> Entries;
+            for (const FPCGWeightedByCategoryEntryList& Entry : WeightedByCategorySelector->Entries)
+            {
+                TSharedPtr<FJsonObject> EntryObject = MakeShared<FJsonObject>();
+                EntryObject->SetStringField(TEXT("categoryEntry"), Entry.CategoryEntry);
+                EntryObject->SetBoolField(TEXT("isDefault"), Entry.IsDefault);
+                EntryObject->SetNumberField(TEXT("meshEntryCount"), Entry.WeightedMeshEntries.Num());
+                Entries.Add(MakeShared<FJsonValueObject>(EntryObject));
+            }
+            MeshSelector->SetArrayField(TEXT("entries"), Entries);
+            Settings->SetObjectField(TEXT("meshSelector"), MeshSelector);
+
+            if (WeightedByCategorySelector->Entries.Num() == 0)
+            {
+                AppendPcgGraphQueryDiagnostic(
+                    NodeDiagnostics,
+                    RootDiagnostics,
+                    NodeId,
+                    TEXT("PCG_EMPTY_INPUT_HINT"),
+                    TEXT("Static Mesh Spawner has no weighted category entries configured."),
+                    TEXT("warning"));
+            }
+        }
+
+        return Settings;
+    }
+
+    return nullptr;
+}
 }
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSharedPtr<FJsonObject>& Arguments) const
@@ -1646,6 +1906,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
 
         TArray<TSharedPtr<FJsonValue>> Nodes;
         TArray<TSharedPtr<FJsonValue>> Edges;
+        TArray<TSharedPtr<FJsonValue>> Diagnostics;
         TSet<FString> EmittedEdgeKeys;
         int32 AddedCount = 0;
         for (UPCGNode* NodeObj : PcgGraph->GetNodes())
@@ -1701,6 +1962,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
                 TEXT("layout"),
                 MakeLayoutObject(NodePosX, NodePosY, TEXT("model"), true));
             Node->SetBoolField(TEXT("enabled"), true);
+            TArray<TSharedPtr<FJsonValue>> NodeDiagnostics;
 
             TArray<TSharedPtr<FJsonValue>> Pins;
             auto SerializePcgPin = [&](UPCGPin* Pin, const FString& Direction)
@@ -1856,11 +2118,17 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
                 }
             }
 
+            if (TSharedPtr<FJsonObject> Settings = BuildPcgNodeSettingsObject(NodeObj, NodeDiagnostics, Diagnostics))
+            {
+                Node->SetObjectField(TEXT("settings"), Settings);
+                Node->SetObjectField(TEXT("effectiveSettings"), Settings);
+            }
+
             Node->SetArrayField(TEXT("pins"), Pins);
+            Node->SetArrayField(TEXT("diagnostics"), NodeDiagnostics);
             Nodes.Add(MakeShared<FJsonValueObject>(Node));
         }
 
-        TArray<TSharedPtr<FJsonValue>> Diagnostics;
         if (Nodes.Num() == 0)
         {
             TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();

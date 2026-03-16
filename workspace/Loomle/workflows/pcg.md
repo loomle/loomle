@@ -20,6 +20,12 @@ Planning rule:
 - expect useful PCG plans to carry `settingsTemplate`, `pinHints`, or `verificationHints`; read those fields before filling settings or validating results
 - expect PCG plans to need follow-up readback because actual pin names and nested settings may matter more than node topology alone
 
+Readback rule:
+- prefer `graph.query` after every meaningful PCG edit, not just for topology but also for node `effectiveSettings` and node-level `diagnostics`
+- expect `graph.query` to expose selector/spawner details for common runtime-sensitive nodes such as `Get Actor Property`, `Get Spline Data`, and `Static Mesh Spawner`
+- when a PCG pipeline looks empty, inspect node `diagnostics` first; LOOMLE now emits empty-input hints for actor selectors, component selectors, and mesh-selector misconfiguration
+- for selector-backed nodes, read the nested `actorSelector`, `componentSelector`, or `meshSelector` objects before assuming the runtime source is correct
+
 Layout expectation:
 - source nodes appear on the left
 - downstream processing stages move to the right

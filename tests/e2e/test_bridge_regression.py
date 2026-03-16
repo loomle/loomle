@@ -2839,6 +2839,178 @@ def main() -> int:
             )
         print("[PASS] pcg pipeline layout validated")
 
+        pcg_settings_probe_add = call_tool(
+            client,
+            10117,
+            "graph.mutate",
+            {
+                "assetPath": temp_pcg_asset,
+                "graphName": "PCGGraph",
+                "graphType": "pcg",
+                "ops": [
+                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGGetActorPropertySettings"}},
+                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGGetSplineSettings"}},
+                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGStaticMeshSpawnerSettings"}},
+                ],
+            },
+        )
+        pcg_settings_probe_results = pcg_settings_probe_add.get("opResults")
+        if not isinstance(pcg_settings_probe_results, list) or len(pcg_settings_probe_results) != 3:
+            fail(f"PCG settings probe add ops missing results: {pcg_settings_probe_add}")
+        pcg_get_actor_property_id, pcg_get_spline_id, pcg_static_mesh_spawner_id = [
+            result.get("nodeId") for result in pcg_settings_probe_results
+        ]
+        if not all(
+            isinstance(node_id, str) and node_id
+            for node_id in [pcg_get_actor_property_id, pcg_get_spline_id, pcg_static_mesh_spawner_id]
+        ):
+            fail(f"PCG settings probe nodes missing ids: {pcg_settings_probe_add}")
+
+        pcg_settings_fixture_payload = call_execute_exec_with_retry(
+            client=client,
+            req_id_base=10118,
+            code=(
+                "import json\n"
+                "import unreal\n"
+                "def load_required(path):\n"
+                "    obj = unreal.load_object(None, path)\n"
+                "    if obj is None:\n"
+                "        raise RuntimeError(f'failed to load object: {path}')\n"
+                "    return obj\n"
+                "def set_prop(obj, names, value):\n"
+                "    errors = []\n"
+                "    for name in names:\n"
+                "        try:\n"
+                "            obj.set_editor_property(name, value)\n"
+                "            return name\n"
+                "        except Exception as exc:\n"
+                "            errors.append(f'{name}: {exc}')\n"
+                "    raise RuntimeError('failed to set property on %s: %s' % (obj, '; '.join(errors)))\n"
+                "def resolve_enum_value(type_names, member_names):\n"
+                "    for type_name in type_names:\n"
+                "        enum_type = getattr(unreal, type_name, None)\n"
+                "        if enum_type is None:\n"
+                "            continue\n"
+                "        for member_name in member_names:\n"
+                "            if hasattr(enum_type, member_name):\n"
+                "                return getattr(enum_type, member_name)\n"
+                "    return None\n"
+                f"asset = {json.dumps(temp_pcg_asset, ensure_ascii=False)}\n"
+                f"actor_node_path = {json.dumps(pcg_get_actor_property_id, ensure_ascii=False)}\n"
+                f"spline_node_path = {json.dumps(pcg_get_spline_id, ensure_ascii=False)}\n"
+                f"spawner_node_path = {json.dumps(pcg_static_mesh_spawner_id, ensure_ascii=False)}\n"
+                "graph = unreal.EditorAssetLibrary.load_asset(asset)\n"
+                "if graph is None:\n"
+                "    raise RuntimeError(f'failed to load PCG graph asset: {asset}')\n"
+                "all_world_actors = resolve_enum_value(['EPCGActorFilter', 'PCGActorFilter'], ['ALL_WORLD_ACTORS'])\n"
+                "by_class = resolve_enum_value(['EPCGActorSelection', 'PCGActorSelection'], ['BY_CLASS'])\n"
+                "component_by_class = resolve_enum_value(['EPCGComponentSelection', 'PCGComponentSelection'], ['BY_CLASS'])\n"
+                "actor_node = load_required(actor_node_path)\n"
+                "actor_settings = actor_node.get_settings()\n"
+                "actor_selector = actor_settings.get_editor_property('actor_selector')\n"
+                "if all_world_actors is not None:\n"
+                "    set_prop(actor_selector, ['actor_filter'], all_world_actors)\n"
+                "if by_class is not None:\n"
+                "    set_prop(actor_selector, ['actor_selection'], by_class)\n"
+                "    set_prop(actor_selector, ['actor_selection_class'], unreal.Actor.static_class())\n"
+                "set_prop(actor_selector, ['b_select_multiple', 'select_multiple'], True)\n"
+                "set_prop(actor_settings, ['actor_selector'], actor_selector)\n"
+                "set_prop(actor_settings, ['property_name'], unreal.Name('Tags'))\n"
+                "set_prop(actor_settings, ['b_select_component', 'select_component'], True)\n"
+                "set_prop(actor_settings, ['component_class'], unreal.SplineComponent.static_class())\n"
+                "set_prop(actor_settings, ['b_process_all_components', 'process_all_components'], True)\n"
+                "set_prop(actor_settings, ['b_output_actor_reference', 'output_actor_reference'], True)\n"
+                "set_prop(actor_settings, ['b_always_requery_actors', 'always_requery_actors'], True)\n"
+                "spline_node = load_required(spline_node_path)\n"
+                "spline_settings = spline_node.get_settings()\n"
+                "spline_actor_selector = spline_settings.get_editor_property('actor_selector')\n"
+                "if all_world_actors is not None:\n"
+                "    set_prop(spline_actor_selector, ['actor_filter'], all_world_actors)\n"
+                "if by_class is not None:\n"
+                "    set_prop(spline_actor_selector, ['actor_selection'], by_class)\n"
+                "    set_prop(spline_actor_selector, ['actor_selection_class'], unreal.Actor.static_class())\n"
+                "set_prop(spline_settings, ['actor_selector'], spline_actor_selector)\n"
+                "component_selector = spline_settings.get_editor_property('component_selector')\n"
+                "if component_by_class is not None:\n"
+                "    set_prop(component_selector, ['component_selection'], component_by_class)\n"
+                "    set_prop(component_selector, ['component_selection_class'], unreal.SplineComponent.static_class())\n"
+                "set_prop(spline_settings, ['component_selector'], component_selector)\n"
+                "set_prop(spline_settings, ['b_always_requery_actors', 'always_requery_actors'], True)\n"
+                "spawner_node = load_required(spawner_node_path)\n"
+                "spawner_settings = spawner_node.get_settings()\n"
+                "spawner_settings.set_mesh_selector_type(unreal.PCGMeshSelectorByAttribute.static_class())\n"
+                "selector = spawner_settings.get_editor_property('mesh_selector_parameters')\n"
+                "set_prop(selector, ['attribute_name'], unreal.Name('Mesh'))\n"
+                "set_prop(spawner_settings, ['out_attribute_name'], unreal.Name('ChosenMesh'))\n"
+                "set_prop(spawner_settings, ['b_apply_mesh_bounds_to_points', 'apply_mesh_bounds_to_points'], True)\n"
+                "unreal.EditorAssetLibrary.save_asset(asset)\n"
+                "print(json.dumps({'ok': True}, ensure_ascii=False))\n"
+            ),
+        )
+        pcg_settings_fixture = parse_execute_json(pcg_settings_fixture_payload)
+        if pcg_settings_fixture.get("ok") is not True:
+            fail(f"PCG settings probe fixture failed: {pcg_settings_fixture}")
+
+        pcg_settings_snapshot = query_snapshot(client, 10119, temp_pcg_asset, "pcg", "PCGGraph")
+        pcg_settings_nodes = pcg_settings_snapshot.get("nodes")
+        if not isinstance(pcg_settings_nodes, list):
+            fail(f"PCG settings probe graph.query missing nodes: {pcg_settings_snapshot}")
+
+        get_actor_property_node = require_node(pcg_settings_nodes, pcg_get_actor_property_id)
+        get_actor_property_settings = get_actor_property_node.get("effectiveSettings")
+        if not isinstance(get_actor_property_settings, dict):
+            fail(f"PCG GetActorProperty node missing effectiveSettings: {get_actor_property_node}")
+        if get_actor_property_settings.get("propertyName") != "Tags":
+            fail(f"PCG GetActorProperty propertyName missing from effectiveSettings: {get_actor_property_settings}")
+        if get_actor_property_settings.get("selectComponent") is not True:
+            fail(f"PCG GetActorProperty selectComponent missing from effectiveSettings: {get_actor_property_settings}")
+        if not str(get_actor_property_settings.get("componentClassPath", "")).endswith("SplineComponent"):
+            fail(f"PCG GetActorProperty componentClassPath missing SplineComponent: {get_actor_property_settings}")
+        get_actor_property_actor_selector = get_actor_property_settings.get("actorSelector")
+        if not isinstance(get_actor_property_actor_selector, dict):
+            fail(f"PCG GetActorProperty missing actorSelector details: {get_actor_property_settings}")
+        if not isinstance(get_actor_property_actor_selector.get("actorFilter"), str) or not get_actor_property_actor_selector.get("actorFilter"):
+            fail(f"PCG GetActorProperty actorFilter missing from actorSelector: {get_actor_property_actor_selector}")
+        get_actor_property_diagnostics = get_actor_property_node.get("diagnostics")
+        if not isinstance(get_actor_property_diagnostics, list) or not any(
+            isinstance(diag, dict) and diag.get("code") == "PCG_SELECTOR_EMPTY_INPUT_HINT"
+            for diag in get_actor_property_diagnostics
+        ):
+            fail(f"PCG GetActorProperty missing empty-input diagnostics: {get_actor_property_node}")
+
+        get_spline_node = require_node(pcg_settings_nodes, pcg_get_spline_id)
+        get_spline_settings = get_spline_node.get("effectiveSettings")
+        if not isinstance(get_spline_settings, dict):
+            fail(f"PCG GetSpline node missing effectiveSettings: {get_spline_node}")
+        if get_spline_settings.get("dataFilter") != "PolyLine":
+            fail(f"PCG GetSpline dataFilter missing from effectiveSettings: {get_spline_settings}")
+        get_spline_component_selector = get_spline_settings.get("componentSelector")
+        if not isinstance(get_spline_component_selector, dict):
+            fail(f"PCG GetSpline missing componentSelector details: {get_spline_settings}")
+        if not isinstance(get_spline_component_selector.get("componentSelection"), str) or not get_spline_component_selector.get("componentSelection"):
+            fail(f"PCG GetSpline componentSelection missing from componentSelector: {get_spline_component_selector}")
+        get_spline_diagnostics = get_spline_node.get("diagnostics")
+        if not isinstance(get_spline_diagnostics, list) or not any(
+            isinstance(diag, dict) and diag.get("code") == "PCG_COMPONENT_SELECTOR_EMPTY_INPUT_HINT"
+            for diag in get_spline_diagnostics
+        ):
+            fail(f"PCG GetSpline missing component empty-input diagnostics: {get_spline_node}")
+
+        static_mesh_spawner_node = require_node(pcg_settings_nodes, pcg_static_mesh_spawner_id)
+        static_mesh_spawner_settings = static_mesh_spawner_node.get("effectiveSettings")
+        if not isinstance(static_mesh_spawner_settings, dict):
+            fail(f"PCG StaticMeshSpawner node missing effectiveSettings: {static_mesh_spawner_node}")
+        mesh_selector_settings = static_mesh_spawner_settings.get("meshSelector")
+        if not isinstance(mesh_selector_settings, dict):
+            fail(f"PCG StaticMeshSpawner missing meshSelector details: {static_mesh_spawner_settings}")
+        if mesh_selector_settings.get("kind") != "byAttribute":
+            fail(f"PCG StaticMeshSpawner meshSelector kind mismatch: {mesh_selector_settings}")
+        if mesh_selector_settings.get("attributeName") != "Mesh":
+            fail(f"PCG StaticMeshSpawner attributeName missing from meshSelector: {mesh_selector_settings}")
+        if static_mesh_spawner_settings.get("outAttributeName") != "ChosenMesh":
+            fail(f"PCG StaticMeshSpawner outAttributeName missing from effectiveSettings: {static_mesh_spawner_settings}")
+        print("[PASS] pcg graph.query settings and diagnostics validated")
+
         editor_open_payload = call_tool(
             client,
             4001,
