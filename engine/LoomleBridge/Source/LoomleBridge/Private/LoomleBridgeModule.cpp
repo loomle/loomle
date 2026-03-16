@@ -45,6 +45,7 @@
 #include "Materials/MaterialInterface.h"
 #include "MaterialEditingLibrary.h"
 #include "IMaterialEditor.h"
+#include "Interfaces/IMainFrameModule.h"
 #include "MaterialGraph/MaterialGraph.h"
 #include "MaterialGraph/MaterialGraphNode.h"
 #include "MaterialGraph/MaterialGraphNode_Root.h"
@@ -1394,10 +1395,24 @@ TSharedPtr<SWindow> ResolveCaptureTopLevelWindow()
         return nullptr;
     }
 
-    TSharedPtr<SWindow> ActiveWindow = ResolveActiveTopLevelWindow();
+    TSharedPtr<SWindow> ActiveWindow = FSlateApplication::Get().GetActiveTopLevelRegularWindow();
+    if (!ActiveWindow.IsValid())
+    {
+        ActiveWindow = ResolveActiveTopLevelWindow();
+    }
     if (WindowHasNativeCaptureHandle(ActiveWindow))
     {
         return ActiveWindow;
+    }
+
+    if (FModuleManager::Get().IsModuleLoaded(TEXT("MainFrame")))
+    {
+        IMainFrameModule& MainFrameModule = FModuleManager::LoadModuleChecked<IMainFrameModule>(TEXT("MainFrame"));
+        const TSharedPtr<SWindow> MainFrameWindow = MainFrameModule.GetParentWindow();
+        if (WindowHasNativeCaptureHandle(MainFrameWindow))
+        {
+            return MainFrameWindow;
+        }
     }
 
     TArray<TSharedRef<SWindow>> CandidateWindows = FSlateApplication::Get().GetInteractiveTopLevelWindows();
@@ -1417,6 +1432,37 @@ TSharedPtr<SWindow> ResolveCaptureTopLevelWindow()
 
     return ActiveWindow;
 }
+
+#if PLATFORM_WINDOWS
+HWND ResolveCaptureWindowHandle(const TSharedPtr<SWindow>& PreferredWindow)
+{
+    if (WindowHasNativeCaptureHandle(PreferredWindow))
+    {
+        return reinterpret_cast<HWND>(PreferredWindow->GetNativeWindow()->GetOSWindowHandle());
+    }
+
+    if (FSlateApplication::IsInitialized())
+    {
+        const TSharedPtr<SWindow> ActiveRegularWindow = FSlateApplication::Get().GetActiveTopLevelRegularWindow();
+        if (WindowHasNativeCaptureHandle(ActiveRegularWindow))
+        {
+            return reinterpret_cast<HWND>(ActiveRegularWindow->GetNativeWindow()->GetOSWindowHandle());
+        }
+
+        if (FModuleManager::Get().IsModuleLoaded(TEXT("MainFrame")))
+        {
+            IMainFrameModule& MainFrameModule = FModuleManager::LoadModuleChecked<IMainFrameModule>(TEXT("MainFrame"));
+            const TSharedPtr<SWindow> MainFrameWindow = MainFrameModule.GetParentWindow();
+            if (WindowHasNativeCaptureHandle(MainFrameWindow))
+            {
+                return reinterpret_cast<HWND>(MainFrameWindow->GetNativeWindow()->GetOSWindowHandle());
+            }
+        }
+    }
+
+    return ::GetForegroundWindow();
+}
+#endif
 
 FString ResolveScreenshotOutputPath(const FString& RequestedPath)
 {

@@ -903,10 +903,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorScreenshotToolResult(con
 
 #if PLATFORM_WINDOWS
     FString CaptureError;
-    const void* NativeHandle = ActiveWindow->GetNativeWindow().IsValid()
-        ? ActiveWindow->GetNativeWindow()->GetOSWindowHandle()
-        : nullptr;
-    if (!CaptureNativeWindowToColorData(reinterpret_cast<HWND>(const_cast<void*>(NativeHandle)), ColorData, ImageSize, CaptureError))
+    if (!CaptureNativeWindowToColorData(ResolveCaptureWindowHandle(ActiveWindow), ColorData, ImageSize, CaptureError))
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("CAPTURE_FAILED"));
