@@ -74,7 +74,6 @@
 #include "UObject/UObjectIterator.h"
 #include "UObject/UnrealType.h"
 #include "Misc/TransactionObjectEvent.h"
-#include "RenderingThread.h"
 #include "Slate/WidgetRenderer.h"
 #include "Widgets/SWidget.h"
 #include "Widgets/SWindow.h"

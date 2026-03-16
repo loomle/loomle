@@ -929,7 +929,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorScreenshotToolResult(con
             1.0f,
             FVector2D(CaptureWidth, CaptureHeight),
             0.0f);
-        FlushRenderingCommands();
     }
 
     FTextureRenderTargetResource* RenderTargetResource = RenderTarget->GameThread_GetRenderTargetResource();

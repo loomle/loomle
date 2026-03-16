@@ -29,7 +29,6 @@ public class LoomleBridge : ModuleRules
                 "PCGEditor",
                 "PythonScriptPlugin",
                 "Projects",
-                "RenderCore",
                 "Slate",
                 "SlateCore",
                 "UMG",
