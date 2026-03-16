@@ -213,6 +213,20 @@ Optional future filters may include:
     "fromPin": {
       "nodeId": "N1",
       "pinName": "Then"
+    },
+    "toPin": {
+      "nodeId": "N2",
+      "pinName": "Execute"
+    },
+    "edge": {
+      "fromPin": {
+        "nodeId": "N1",
+        "pinName": "Then"
+      },
+      "toPin": {
+        "nodeId": "N2",
+        "pinName": "Execute"
+      }
     }
   },
   "items": [
@@ -226,6 +240,8 @@ Notes:
 
 - `graphRef` should remain the preferred addressing mode.
 - `context` is optional.
+- `context` should be allowed to narrow from graph scope to pin scope or edge
+  scope when the semantic op depends on insertion position or endpoint role.
 - `items` is batch-first by design.
 
 ### 9.2 Output
@@ -353,8 +369,10 @@ Some graph domains need more than a mutate-op name to be practical.
 Recommended optional fields:
 
 - `settingsTemplate`: nested settings skeleton or key required settings fields
-- `pinHints`: semantic pin-role guidance such as primary input/output paths
-- `verificationHints`: suggested structural checks after apply
+- `pinHints`: semantic pin-role guidance such as primary input/output paths,
+  default continuation outputs, and insertion-specific endpoints
+- `verificationHints`: suggested structural checks after apply, ideally with
+  machine-usable kinds and targets
 - `runtimeVerification`: optional note when structural success does not imply
   trustworthy runtime output visibility
 
@@ -372,9 +390,19 @@ An unresolved item should remain structured:
     "isCompatible": false,
     "reasons": ["requires_pin_context"]
   },
+  "remediation": {
+    "requiredContext": ["from_pin"],
+    "missingFields": ["context.fromPin.nodeId", "context.fromPin.pinName"],
+    "nextAction": "re-run graph.ops.resolve with context.fromPin",
+    "fallbackKind": "direct_mutate"
+  },
   "reason": "incompatible_context"
 }
 ```
+
+`remediation` should be treated as a first-class contract field rather than
+free-form prose. Its job is to keep agents and skills inside the semantic
+planning loop after an unresolved result.
 
 ## 10. Preferred Planning Policy
 
@@ -434,6 +462,7 @@ Recommended behavior:
 - expose pipeline-oriented semantic operations
 - return plans that map to known node classes or node templates
 - prefer ordered multi-step plans over pretending every operation is one node
+- define explicit insertion behavior for upstream/downstream preservation
 - include compatibility reasons when topology or pin-type assumptions block the
   requested operation
 - expose enough settings and pin guidance that agents can avoid trial-and-error
@@ -446,9 +475,34 @@ independent from Blueprint menu logic.
 Examples of PCG-specific plan support that should be considered first-class:
 
 - nested settings templates for projection/filter/spawner nodes
-- semantic pin-role hints where node output names are not obvious
+- semantic pin-role hints that match actual runtime pins, not abstract defaults
 - verification hints for readback when the runtime output surface is known to be
   incomplete
+- insertion semantics that can preserve or intentionally rewrite downstream
+  edges
+- composition semantics for turning multiple semantic ops into one local
+  pipeline segment
+
+### 11.4 PCG insertion and composition semantics
+
+PCG should not treat `pipeline_insert` as a loose synonym for “spawn from this
+source pin”.
+
+If a plan claims insertion semantics, it should be able to express at least one
+of these behaviors explicitly:
+
+- preserve downstream by rewiring `upstream -> new node -> previous downstream`
+- branch intentionally without claiming downstream preservation
+- require edge-level context before safe insertion is possible
+
+Likewise, batch resolution for multiple PCG semantic ops should eventually
+distinguish between:
+
+- independent per-op plans
+- one composed local pipeline segment
+
+If composition is out of scope for a request, the response should say so rather
+than leaving callers to infer it.
 
 ## 12. Runtime Validation Boundary
 
@@ -602,6 +656,14 @@ Expected realization profile:
 - may need `verificationHints` where runtime output visibility is weaker than
   structural readback
 
+Known vNext pressure after the first release:
+
+- insertion plans should preserve or explicitly account for downstream edges
+- `pinHints` should reflect actual runtime outputs such as
+  `InsideFilter` / `OutsideFilter`, not generic placeholders
+- multi-item resolve should eventually distinguish independent resolution from
+  composed pipeline planning
+
 ### 15.4 Cross-graph expectations
 
 The v1 sets do not need equal breadth.
@@ -632,3 +694,7 @@ What may legitimately differ is:
    that wait until after the initial single-op rollout?
 6. Should PCG runtime validation become a separate tool family rather than a
    resolve concern?
+7. Should edge-scoped context become the preferred insertion contract for PCG
+   and some Blueprint rewrite cases?
+8. How should the protocol distinguish independent multi-item resolution from
+   composed multi-op pipeline planning?

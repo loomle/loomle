@@ -198,6 +198,40 @@ plans.
           },
           "required": ["nodeId", "pinName"],
           "additionalProperties": false
+        },
+        "toPin": {
+          "type": "object",
+          "properties": {
+            "nodeId": { "type": "string", "minLength": 1 },
+            "pinName": { "type": "string", "minLength": 1 }
+          },
+          "required": ["nodeId", "pinName"],
+          "additionalProperties": false
+        },
+        "edge": {
+          "type": "object",
+          "required": ["fromPin", "toPin"],
+          "properties": {
+            "fromPin": {
+              "type": "object",
+              "required": ["nodeId", "pinName"],
+              "properties": {
+                "nodeId": { "type": "string", "minLength": 1 },
+                "pinName": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            },
+            "toPin": {
+              "type": "object",
+              "required": ["nodeId", "pinName"],
+              "properties": {
+                "nodeId": { "type": "string", "minLength": 1 },
+                "pinName": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -263,6 +297,25 @@ plans.
             },
             "additionalProperties": false
           },
+          "remediation": {
+            "type": "object",
+            "properties": {
+              "requiredContext": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "missingFields": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "nextAction": { "type": "string" },
+              "fallbackKind": {
+                "type": "string",
+                "enum": ["none", "direct_mutate", "manual_readback"]
+              }
+            },
+            "additionalProperties": false
+          },
           "preferredPlan": {
             "type": "object",
             "required": ["realizationKind", "source", "coverage", "determinism"],
@@ -297,6 +350,12 @@ plans.
                 "type": "array",
                 "items": {
                   "type": "object",
+                  "properties": {
+                    "kind": { "type": "string" },
+                    "pinName": { "type": "string" },
+                    "semanticRole": { "type": "string" },
+                    "isDefaultPath": { "type": "boolean" }
+                  },
                   "additionalProperties": true
                 }
               },
@@ -304,6 +363,27 @@ plans.
                 "type": "array",
                 "items": {
                   "type": "object",
+                  "properties": {
+                    "kind": { "type": "string" },
+                    "targetClientRef": { "type": "string" },
+                    "requiredBeforeNextStep": { "type": "boolean" }
+                  },
+                  "additionalProperties": true
+                }
+              },
+              "executionHints": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": { "type": "string" },
+                    "preserveUpstream": { "type": "boolean" },
+                    "preserveDownstream": { "type": "boolean" },
+                    "composeMode": {
+                      "type": "string",
+                      "enum": ["independent", "pipeline_segment"]
+                    }
+                  },
                   "additionalProperties": true
                 }
               },
@@ -379,6 +459,8 @@ and pin semantics than on topology alone.
 - unresolved items remain structured inside `results[]`
 - `compatibility.reasons[]` should explain why a semantic op does not fit the
   current context
+- `remediation` should tell the caller what narrower context or follow-up is
+  required when the item did not resolve
 - if LOOMLE lacks sufficient graph observability to resolve with confidence, the
   result should degrade coverage or determinism rather than overstate certainty
 
@@ -393,14 +475,15 @@ The public graph-semantic surface is:
 Internal editor discovery may still survive as a resolver implementation
 detail.
 
-## 10. Open Draft Questions
+## 10. Draft Follow-Up Direction
 
-1. Should `graph.ops` remain graph-type-only in v1, or allow optional
-   graph-context filtering later?
-2. Should `preferredPlan` require exactly one of `preferredMutateOp` or
-   `steps[]`?
-3. Do we want a dedicated future tool for runtime validation, especially for
-   PCG?
+Recent feedback suggests the next protocol iteration should settle:
+
+1. richer context shapes such as `toPin` and `edge`
+2. structured unresolved remediation
+3. richer `steps[]`, `pinHints`, `verificationHints`, and `executionHints`
+4. explicit PCG insertion and composition semantics
+5. workflow-driven catalog expansion
 
 ## 11. Proposed v1 Catalog Baseline
 
@@ -452,6 +535,13 @@ Stretch:
 - `pcg.filter.by_attribute`
 - `pcg.project.surface`
 - `pcg.spawn.static_mesh`
+
+Known pressure from first-release feedback:
+
+- `pipeline_insert` should preserve or explicitly rewrite downstream edges
+- pin hints should match actual runtime outputs
+- multi-item resolution should distinguish independent plans from composed
+  pipeline segments
 
 ### 11.4 Realization guidance
 

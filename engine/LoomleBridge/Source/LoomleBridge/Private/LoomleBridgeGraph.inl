@@ -312,6 +312,54 @@ TSharedPtr<FJsonObject> BuildPcgNodeSettingsObject(
 
     return nullptr;
 }
+
+bool TryReadPinEndpoint(const TSharedPtr<FJsonObject>& EndpointObj, FString& OutNodeId, FString& OutPinName)
+{
+    if (!EndpointObj.IsValid())
+    {
+        return false;
+    }
+
+    EndpointObj->TryGetStringField(TEXT("nodeId"), OutNodeId);
+    EndpointObj->TryGetStringField(TEXT("pinName"), OutPinName);
+    return !OutNodeId.IsEmpty() && !OutPinName.IsEmpty();
+}
+
+const TCHAR* GetDefaultPcgInputPinName(const FString& OpId)
+{
+    if (OpId.Equals(TEXT("pcg.meta.add_tag")) || OpId.Equals(TEXT("pcg.filter.by_tag")))
+    {
+        return TEXT("In");
+    }
+
+    return TEXT("");
+}
+
+const TCHAR* GetDefaultPcgOutputPinName(const FString& OpId)
+{
+    if (OpId.Equals(TEXT("pcg.filter.by_tag")))
+    {
+        return TEXT("InsideFilter");
+    }
+    if (OpId.Equals(TEXT("pcg.meta.add_tag")))
+    {
+        return TEXT("Out");
+    }
+
+    return TEXT("");
+}
+
+bool IsComposablePcgSemanticOp(const FString& OpId)
+{
+    return OpId.Equals(TEXT("pcg.meta.add_tag")) || OpId.Equals(TEXT("pcg.filter.by_tag"));
+}
+
+FString ResolvePlanStepNodeRef(const FString& ClientRef, int32 Index)
+{
+    return !ClientRef.IsEmpty()
+        ? ClientRef
+        : FString::Printf(TEXT("resolved_%d"), Index);
+}
 }
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSharedPtr<FJsonObject>& Arguments) const
@@ -4153,14 +4201,37 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
 
     FString FromNodeId;
     FString FromPinName;
+    FString ToNodeId;
+    FString ToPinName;
     const TSharedPtr<FJsonObject>* ContextObj = nullptr;
     if (Arguments->TryGetObjectField(TEXT("context"), ContextObj) && ContextObj != nullptr && (*ContextObj).IsValid())
     {
         const TSharedPtr<FJsonObject>* FromPinObj = nullptr;
         if ((*ContextObj)->TryGetObjectField(TEXT("fromPin"), FromPinObj) && FromPinObj != nullptr && (*FromPinObj).IsValid())
         {
-            (*FromPinObj)->TryGetStringField(TEXT("nodeId"), FromNodeId);
-            (*FromPinObj)->TryGetStringField(TEXT("pinName"), FromPinName);
+            TryReadPinEndpoint(*FromPinObj, FromNodeId, FromPinName);
+        }
+
+        const TSharedPtr<FJsonObject>* ToPinObj = nullptr;
+        if ((*ContextObj)->TryGetObjectField(TEXT("toPin"), ToPinObj) && ToPinObj != nullptr && (*ToPinObj).IsValid())
+        {
+            TryReadPinEndpoint(*ToPinObj, ToNodeId, ToPinName);
+        }
+
+        const TSharedPtr<FJsonObject>* EdgeObj = nullptr;
+        if ((*ContextObj)->TryGetObjectField(TEXT("edge"), EdgeObj) && EdgeObj != nullptr && (*EdgeObj).IsValid())
+        {
+            const TSharedPtr<FJsonObject>* EdgeFromPinObj = nullptr;
+            if ((*EdgeObj)->TryGetObjectField(TEXT("fromPin"), EdgeFromPinObj) && EdgeFromPinObj != nullptr && (*EdgeFromPinObj).IsValid())
+            {
+                TryReadPinEndpoint(*EdgeFromPinObj, FromNodeId, FromPinName);
+            }
+
+            const TSharedPtr<FJsonObject>* EdgeToPinObj = nullptr;
+            if ((*EdgeObj)->TryGetObjectField(TEXT("toPin"), EdgeToPinObj) && EdgeToPinObj != nullptr && (*EdgeToPinObj).IsValid())
+            {
+                TryReadPinEndpoint(*EdgeToPinObj, ToNodeId, ToPinName);
+            }
         }
     }
 
@@ -4240,8 +4311,19 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                 MakeShared<FJsonValueString>(TEXT("requires_pin_context"))
             });
 
+            TSharedPtr<FJsonObject> Remediation = MakeShared<FJsonObject>();
+            Remediation->SetArrayField(TEXT("requiredContext"), TArray<TSharedPtr<FJsonValue>>{
+                MakeShared<FJsonValueString>(TEXT("fromPin"))
+            });
+            Remediation->SetArrayField(TEXT("missingFields"), TArray<TSharedPtr<FJsonValue>>{
+                MakeShared<FJsonValueString>(TEXT("context.fromPin"))
+            });
+            Remediation->SetStringField(TEXT("nextAction"), TEXT("retry_resolve_with_fromPin"));
+            Remediation->SetStringField(TEXT("fallbackKind"), TEXT("manual_readback"));
+
             ResultItem->SetBoolField(TEXT("resolved"), false);
             ResultItem->SetObjectField(TEXT("compatibility"), Compatibility);
+            ResultItem->SetObjectField(TEXT("remediation"), Remediation);
             ResultItem->SetStringField(TEXT("reason"), TEXT("incompatible_context"));
             Results.Add(MakeShared<FJsonValueObject>(ResultItem));
             continue;
@@ -4493,7 +4575,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
 
             if (OpId.Equals(TEXT("pcg.create.points"))
                 || OpId.Equals(TEXT("pcg.meta.add_tag"))
-                || OpId.Equals(TEXT("pcg.filter.by_tag"))
                 || OpId.Equals(TEXT("pcg.sample.surface")))
             {
                 TSharedPtr<FJsonObject> InHint = MakeShared<FJsonObject>();
@@ -4505,6 +4586,31 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                 OutHint->SetStringField(TEXT("role"), TEXT("output"));
                 OutHint->SetStringField(TEXT("pinName"), TEXT("Out"));
                 PinHints.Add(MakeShared<FJsonValueObject>(OutHint));
+            }
+            else if (OpId.Equals(TEXT("pcg.filter.by_tag")))
+            {
+                TSharedPtr<FJsonObject> InHint = MakeShared<FJsonObject>();
+                InHint->SetStringField(TEXT("role"), TEXT("input"));
+                InHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                InHint->SetStringField(TEXT("pinName"), TEXT("In"));
+                InHint->SetStringField(TEXT("semanticRole"), TEXT("input_stage"));
+                PinHints.Add(MakeShared<FJsonValueObject>(InHint));
+
+                TSharedPtr<FJsonObject> InsideHint = MakeShared<FJsonObject>();
+                InsideHint->SetStringField(TEXT("role"), TEXT("output"));
+                InsideHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                InsideHint->SetStringField(TEXT("pinName"), TEXT("InsideFilter"));
+                InsideHint->SetStringField(TEXT("semanticRole"), TEXT("primary_output"));
+                InsideHint->SetBoolField(TEXT("isDefaultPath"), true);
+                PinHints.Add(MakeShared<FJsonValueObject>(InsideHint));
+
+                TSharedPtr<FJsonObject> OutsideHint = MakeShared<FJsonObject>();
+                OutsideHint->SetStringField(TEXT("role"), TEXT("output"));
+                OutsideHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                OutsideHint->SetStringField(TEXT("pinName"), TEXT("OutsideFilter"));
+                OutsideHint->SetStringField(TEXT("semanticRole"), TEXT("secondary_output"));
+                OutsideHint->SetBoolField(TEXT("isDefaultPath"), false);
+                PinHints.Add(MakeShared<FJsonValueObject>(OutsideHint));
             }
 
             if (OpId.Equals(TEXT("pcg.meta.add_tag")))
@@ -4528,12 +4634,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                 PreferredPlan->SetObjectField(TEXT("settingsTemplate"), SettingsTemplate);
             }
 
+            const FString PrimaryOutputPin = GetDefaultPcgOutputPinName(OpId);
+            TArray<TSharedPtr<FJsonValue>> VerificationHints;
             TSharedPtr<FJsonObject> VerificationHint = MakeShared<FJsonObject>();
             VerificationHint->SetStringField(TEXT("kind"), TEXT("readback"));
             VerificationHint->SetStringField(TEXT("message"), TEXT("Re-query the new PCG node and confirm actual pin names before wiring downstream stages."));
-            PreferredPlan->SetArrayField(TEXT("verificationHints"), TArray<TSharedPtr<FJsonValue>>{
-                MakeShared<FJsonValueObject>(VerificationHint)
-            });
+            VerificationHint->SetBoolField(TEXT("requiredBeforeNextStep"), true);
+            VerificationHints.Add(MakeShared<FJsonValueObject>(VerificationHint));
+            PreferredPlan->SetArrayField(TEXT("verificationHints"), VerificationHints);
 
             if ((OpId.Equals(TEXT("pcg.filter.by_tag")) || OpId.Equals(TEXT("pcg.meta.add_tag")))
                 && !FromNodeId.IsEmpty() && !FromPinName.IsEmpty())
@@ -4543,6 +4651,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                     : FString::Printf(TEXT("resolved_%d"), Index);
 
                 TArray<TSharedPtr<FJsonValue>> Steps;
+                TArray<TSharedPtr<FJsonValue>> ExecutionHints;
 
                 TSharedPtr<FJsonObject> AddStep = MakeShared<FJsonObject>();
                 AddStep->SetStringField(TEXT("op"), TEXT("addNode.byClass"));
@@ -4552,23 +4661,79 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                 AddStep->SetObjectField(TEXT("args"), AddStepArgs);
                 Steps.Add(MakeShared<FJsonValueObject>(AddStep));
 
-                TSharedPtr<FJsonObject> ConnectStep = MakeShared<FJsonObject>();
-                ConnectStep->SetStringField(TEXT("op"), TEXT("connectPins"));
-                TSharedPtr<FJsonObject> ConnectArgs = MakeShared<FJsonObject>();
-                TSharedPtr<FJsonObject> FromObj = MakeShared<FJsonObject>();
-                FromObj->SetStringField(TEXT("nodeId"), FromNodeId);
-                FromObj->SetStringField(TEXT("pinName"), FromPinName);
-                TSharedPtr<FJsonObject> ToObj = MakeShared<FJsonObject>();
-                ToObj->SetStringField(TEXT("nodeRef"), StepNodeRef);
-                ToObj->SetStringField(TEXT("pinName"), TEXT("In"));
-                ConnectArgs->SetObjectField(TEXT("from"), FromObj);
-                ConnectArgs->SetObjectField(TEXT("to"), ToObj);
-                ConnectStep->SetObjectField(TEXT("args"), ConnectArgs);
-                Steps.Add(MakeShared<FJsonValueObject>(ConnectStep));
+                const TCHAR* InputPinName = GetDefaultPcgInputPinName(OpId);
+                if (!FString(InputPinName).IsEmpty())
+                {
+                    TSharedPtr<FJsonObject> ConnectStep = MakeShared<FJsonObject>();
+                    ConnectStep->SetStringField(TEXT("op"), TEXT("connectPins"));
+                    TSharedPtr<FJsonObject> ConnectArgs = MakeShared<FJsonObject>();
+                    TSharedPtr<FJsonObject> FromObj = MakeShared<FJsonObject>();
+                    FromObj->SetStringField(TEXT("nodeId"), FromNodeId);
+                    FromObj->SetStringField(TEXT("pinName"), FromPinName);
+                    TSharedPtr<FJsonObject> ToObj = MakeShared<FJsonObject>();
+                    ToObj->SetStringField(TEXT("nodeRef"), StepNodeRef);
+                    ToObj->SetStringField(TEXT("pinName"), InputPinName);
+                    ConnectArgs->SetObjectField(TEXT("from"), FromObj);
+                    ConnectArgs->SetObjectField(TEXT("to"), ToObj);
+                    ConnectStep->SetObjectField(TEXT("args"), ConnectArgs);
+                    Steps.Add(MakeShared<FJsonValueObject>(ConnectStep));
+                }
 
-                PreferredPlan->SetStringField(TEXT("realizationKind"), TEXT("pipeline_insert"));
+                if (!ToNodeId.IsEmpty() && !ToPinName.IsEmpty() && !PrimaryOutputPin.IsEmpty())
+                {
+                    TSharedPtr<FJsonObject> DisconnectStep = MakeShared<FJsonObject>();
+                    DisconnectStep->SetStringField(TEXT("op"), TEXT("disconnectPins"));
+                    TSharedPtr<FJsonObject> DisconnectArgs = MakeShared<FJsonObject>();
+                    TSharedPtr<FJsonObject> DisconnectFromObj = MakeShared<FJsonObject>();
+                    DisconnectFromObj->SetStringField(TEXT("nodeId"), FromNodeId);
+                    DisconnectFromObj->SetStringField(TEXT("pinName"), FromPinName);
+                    TSharedPtr<FJsonObject> DisconnectToObj = MakeShared<FJsonObject>();
+                    DisconnectToObj->SetStringField(TEXT("nodeId"), ToNodeId);
+                    DisconnectToObj->SetStringField(TEXT("pinName"), ToPinName);
+                    DisconnectArgs->SetObjectField(TEXT("from"), DisconnectFromObj);
+                    DisconnectArgs->SetObjectField(TEXT("to"), DisconnectToObj);
+                    DisconnectStep->SetObjectField(TEXT("args"), DisconnectArgs);
+                    Steps.Add(MakeShared<FJsonValueObject>(DisconnectStep));
+
+                    TSharedPtr<FJsonObject> ReconnectStep = MakeShared<FJsonObject>();
+                    ReconnectStep->SetStringField(TEXT("op"), TEXT("connectPins"));
+                    TSharedPtr<FJsonObject> ReconnectArgs = MakeShared<FJsonObject>();
+                    TSharedPtr<FJsonObject> ReconnectFromObj = MakeShared<FJsonObject>();
+                    ReconnectFromObj->SetStringField(TEXT("nodeRef"), StepNodeRef);
+                    ReconnectFromObj->SetStringField(TEXT("pinName"), PrimaryOutputPin);
+                    TSharedPtr<FJsonObject> ReconnectToObj = MakeShared<FJsonObject>();
+                    ReconnectToObj->SetStringField(TEXT("nodeId"), ToNodeId);
+                    ReconnectToObj->SetStringField(TEXT("pinName"), ToPinName);
+                    ReconnectArgs->SetObjectField(TEXT("from"), ReconnectFromObj);
+                    ReconnectArgs->SetObjectField(TEXT("to"), ReconnectToObj);
+                    ReconnectStep->SetObjectField(TEXT("args"), ReconnectArgs);
+                    Steps.Add(MakeShared<FJsonValueObject>(ReconnectStep));
+
+                    TSharedPtr<FJsonObject> ExecutionHint = MakeShared<FJsonObject>();
+                    ExecutionHint->SetStringField(TEXT("kind"), TEXT("pipeline_insert"));
+                    ExecutionHint->SetBoolField(TEXT("preserveUpstream"), true);
+                    ExecutionHint->SetBoolField(TEXT("preserveDownstream"), true);
+                    ExecutionHint->SetStringField(TEXT("composeMode"), TEXT("pipeline_segment"));
+                    ExecutionHints.Add(MakeShared<FJsonValueObject>(ExecutionHint));
+
+                    VerificationHint->SetStringField(TEXT("targetClientRef"), StepNodeRef);
+                    PreferredPlan->SetStringField(TEXT("realizationKind"), TEXT("pipeline_insert"));
+                }
+                else
+                {
+                    TSharedPtr<FJsonObject> ExecutionHint = MakeShared<FJsonObject>();
+                    ExecutionHint->SetStringField(TEXT("kind"), TEXT("attach_to_upstream"));
+                    ExecutionHint->SetBoolField(TEXT("preserveUpstream"), true);
+                    ExecutionHint->SetBoolField(TEXT("preserveDownstream"), false);
+                    ExecutionHint->SetStringField(TEXT("composeMode"), TEXT("independent"));
+                    ExecutionHints.Add(MakeShared<FJsonValueObject>(ExecutionHint));
+
+                    PreferredPlan->SetStringField(TEXT("realizationKind"), TEXT("pipeline_extend"));
+                }
+
                 PreferredPlan->SetStringField(TEXT("coverage"), TEXT("contextual"));
                 PreferredPlan->SetArrayField(TEXT("steps"), Steps);
+                PreferredPlan->SetArrayField(TEXT("executionHints"), ExecutionHints);
             }
         }
 

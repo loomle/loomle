@@ -467,7 +467,7 @@ fn graph_ops_resolve_input_schema() -> Value {
             "graphRef": graph_ref_schema(),
             "context": {
                 "type": "object",
-                "description": "Optional graph context used to resolve semantic ops, for example a source pin.",
+                "description": "Optional graph context used to resolve semantic ops, for example source pin, sink pin, or insertion edge context.",
                 "properties": {
                     "fromPin": {
                         "type": "object",
@@ -480,6 +480,58 @@ fn graph_ops_resolve_input_schema() -> Value {
                             "pinName": {
                                 "type": "string",
                                 "minLength": 1
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "toPin": {
+                        "type": "object",
+                        "required": ["nodeId", "pinName"],
+                        "properties": {
+                            "nodeId": {
+                                "type": "string",
+                                "minLength": 1
+                            },
+                            "pinName": {
+                                "type": "string",
+                                "minLength": 1
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "edge": {
+                        "type": "object",
+                        "required": ["fromPin", "toPin"],
+                        "properties": {
+                            "fromPin": {
+                                "type": "object",
+                                "required": ["nodeId", "pinName"],
+                                "properties": {
+                                    "nodeId": {
+                                        "type": "string",
+                                        "minLength": 1
+                                    },
+                                    "pinName": {
+                                        "type": "string",
+                                        "minLength": 1
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "toPin": {
+                                "type": "object",
+                                "required": ["nodeId", "pinName"],
+                                "properties": {
+                                    "nodeId": {
+                                        "type": "string",
+                                        "minLength": 1
+                                    },
+                                    "pinName": {
+                                        "type": "string",
+                                        "minLength": 1
+                                    }
+                                },
+                                "additionalProperties": false
                             }
                         },
                         "additionalProperties": false
@@ -738,6 +790,25 @@ fn graph_ops_resolve_output_schema() -> Value {
                             },
                             "additionalProperties": false
                         },
+                        "remediation": {
+                            "type": "object",
+                            "properties": {
+                                "requiredContext": {
+                                    "type": "array",
+                                    "items": { "type": "string" }
+                                },
+                                "missingFields": {
+                                    "type": "array",
+                                    "items": { "type": "string" }
+                                },
+                                "nextAction": { "type": "string" },
+                                "fallbackKind": {
+                                    "type": "string",
+                                    "enum": ["none", "direct_mutate", "manual_readback"]
+                                }
+                            },
+                            "additionalProperties": false
+                        },
                         "preferredPlan": {
                             "type": "object",
                             "required": ["realizationKind", "source", "coverage", "determinism"],
@@ -772,6 +843,12 @@ fn graph_ops_resolve_output_schema() -> Value {
                                     "type": "array",
                                     "items": {
                                         "type": "object",
+                                        "properties": {
+                                            "kind": { "type": "string" },
+                                            "pinName": { "type": "string" },
+                                            "semanticRole": { "type": "string" },
+                                            "isDefaultPath": { "type": "boolean" }
+                                        },
                                         "additionalProperties": true
                                     }
                                 },
@@ -779,6 +856,27 @@ fn graph_ops_resolve_output_schema() -> Value {
                                     "type": "array",
                                     "items": {
                                         "type": "object",
+                                        "properties": {
+                                            "kind": { "type": "string" },
+                                            "targetClientRef": { "type": "string" },
+                                            "requiredBeforeNextStep": { "type": "boolean" }
+                                        },
+                                        "additionalProperties": true
+                                    }
+                                },
+                                "executionHints": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "kind": { "type": "string" },
+                                            "preserveUpstream": { "type": "boolean" },
+                                            "preserveDownstream": { "type": "boolean" },
+                                            "composeMode": {
+                                                "type": "string",
+                                                "enum": ["independent", "pipeline_segment"]
+                                            }
+                                        },
                                         "additionalProperties": true
                                     }
                                 },
@@ -1053,6 +1151,16 @@ mod tests {
             "graph.ops.resolve should expose items property"
         );
         assert!(
+            graph_ops_resolve["inputSchema"]["properties"]["context"]["properties"]["toPin"]
+                .is_object(),
+            "graph.ops.resolve should expose context.toPin"
+        );
+        assert!(
+            graph_ops_resolve["inputSchema"]["properties"]["context"]["properties"]["edge"]
+                .is_object(),
+            "graph.ops.resolve should expose context.edge"
+        );
+        assert!(
             graph_ops_resolve["outputSchema"]["properties"]["results"].is_object(),
             "graph.ops.resolve output should expose results property"
         );
@@ -1134,6 +1242,18 @@ mod tests {
                 ["preferredPlan"]["properties"]["settingsTemplate"]
                 .is_object(),
             "graph.ops.resolve output schema should expose preferredPlan.settingsTemplate"
+        );
+        assert!(
+            graph_ops_resolve["outputSchema"]["properties"]["results"]["items"]["properties"]
+                ["remediation"]
+                .is_object(),
+            "graph.ops.resolve output schema should expose remediation"
+        );
+        assert!(
+            graph_ops_resolve["outputSchema"]["properties"]["results"]["items"]["properties"]
+                ["preferredPlan"]["properties"]["executionHints"]
+                .is_object(),
+            "graph.ops.resolve output schema should expose preferredPlan.executionHints"
         );
 
         let graph_mutate = tools

@@ -301,6 +301,9 @@ Practical client rule:
 - Use `tools/list` when you need the current accepted `inputSchema`.
 - Use `RPC_INTERFACE.md` when you need lower-level transport and payload shape details.
 - Prefer `graph.ops` and `graph.ops.resolve` for new semantic planning flows.
+- `graph.ops.resolve` context may evolve beyond graph-level scope; callers should be prepared for narrower context fields such as pin- or edge-scoped inputs.
+- unresolved `graph.ops.resolve` results may include structured remediation metadata that tells the caller which context or follow-up is missing.
+- resolved `graph.ops.resolve` plans may include richer machine-usable metadata such as `pinHints`, `verificationHints`, and `executionHints`; callers should preserve unknown fields instead of assuming a minimal fixed shape.
 - For `graph.mutate`, individual `opResults[]` entries may include operation-specific `details` objects on failure; clients should preserve and inspect them rather than relying only on top-level `message`.
 - For graph layout-aware flows, prefer `graph.layoutCapabilities` and `graph.query.meta.layoutCapabilities` over hardcoded assumptions. Current runtime support focuses on position reads plus basic move operations.
 - `graph.query` accepts `layoutDetail=basic|measured`. Callers may request `measured`, but should inspect `meta.layoutDetailApplied` and diagnostics before assuming measured geometry was actually returned.

@@ -456,6 +456,20 @@ Notes:
     "fromPin": {
       "nodeId": "optional-id",
       "pinName": "optional-pin"
+    },
+    "toPin": {
+      "nodeId": "optional-id",
+      "pinName": "optional-pin"
+    },
+    "edge": {
+      "fromPin": {
+        "nodeId": "optional-id",
+        "pinName": "optional-pin"
+      },
+      "toPin": {
+        "nodeId": "optional-id",
+        "pinName": "optional-pin"
+      }
     }
   },
   "items": [
@@ -485,12 +499,26 @@ Notes:
         "isCompatible": true,
         "reasons": []
       },
+      "remediation": {
+        "requiredContext": ["optional-context-kind"],
+        "missingFields": ["optional.path"],
+        "nextAction": "optional-guidance",
+        "fallbackKind": "none|direct_mutate|manual_readback"
+      },
       "preferredPlan": {
         "realizationKind": "spawn_node",
         "preferredMutateOp": "addNode.byClass",
         "args": {
           "nodeClassPath": "string"
         },
+        "executionHints": [
+          {
+            "kind": "pipeline_insert",
+            "preserveUpstream": true,
+            "preserveDownstream": true,
+            "composeMode": "independent|pipeline_segment"
+          }
+        ],
         "source": "typed_discovery|loomle_catalog|generic_fallback|mixed",
         "coverage": "contextual|curated|partial",
         "determinism": "stable|context_sensitive|ephemeral"
@@ -507,10 +535,14 @@ Notes:
 - `graph.ops.resolve` is a planning surface. It does not mutate the graph by itself.
 - `graphRef` is required.
 - `items[]` is batch-first so callers can compare several semantic operations under the same graph context.
+- `context` may narrow resolution from graph scope to pin scope or edge scope.
 - If an item cannot be resolved in the supplied context, it remains structured inside `results[]` with `resolved=false` and compatibility reasons.
+- `remediation` may appear on unresolved items to say what narrower context or follow-up is required.
 - `preferredPlan.pinHints` may identify important pin roles for follow-up wiring.
 - `preferredPlan.settingsTemplate` may appear when a semantic op commonly needs key settings filled before the node is useful.
 - `preferredPlan.verificationHints` may appear when readback is especially important after apply, for example on PCG flows.
+- `preferredPlan.executionHints` may appear when a plan needs explicit insertion/composition semantics, especially for PCG.
+- richer context, remediation, and execution hints are forward-compatible contract fields; callers should preserve unknown fields rather than assuming the current MVP exhausts the schema.
 - Current MVP step generation is intentionally narrow:
   - Blueprint `core.reroute` and `bp.flow.branch` can emit `steps[]` when `context.fromPin` is supplied.
   - Material `mat.math.multiply` can emit `steps[]` when `items[*].hints.targetRootPin` is supplied.

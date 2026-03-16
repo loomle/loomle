@@ -488,6 +488,15 @@ def main() -> int:
         reroute_compat = reroute_result.get("compatibility")
         if not isinstance(reroute_compat, dict) or "requires_pin_context" not in reroute_compat.get("reasons", []):
             fail(f"graph.ops.resolve reroute compatibility mismatch: {graph_ops_resolve}")
+        reroute_remediation = reroute_result.get("remediation")
+        if not isinstance(reroute_remediation, dict):
+            fail(f"graph.ops.resolve reroute missing remediation: {graph_ops_resolve}")
+        if "fromPin" not in reroute_remediation.get("requiredContext", []):
+            fail(f"graph.ops.resolve reroute remediation.requiredContext mismatch: {graph_ops_resolve}")
+        if "context.fromPin" not in reroute_remediation.get("missingFields", []):
+            fail(f"graph.ops.resolve reroute remediation.missingFields mismatch: {graph_ops_resolve}")
+        if reroute_remediation.get("nextAction") != "retry_resolve_with_fromPin":
+            fail(f"graph.ops.resolve reroute remediation.nextAction mismatch: {graph_ops_resolve}")
         print("[PASS] graph.ops.resolve Blueprint structure validated")
 
         seed_branch = call_tool(
@@ -674,6 +683,16 @@ def main() -> int:
             fail(f"graph.ops.resolve(pcg) missing settingsTemplate: {pcg_resolve}")
         if not isinstance(pcg_plan.get("verificationHints"), list):
             fail(f"graph.ops.resolve(pcg) missing verificationHints: {pcg_resolve}")
+        pcg_pin_hints = pcg_plan.get("pinHints")
+        if not isinstance(pcg_pin_hints, list):
+            fail(f"graph.ops.resolve(pcg) missing pinHints: {pcg_resolve}")
+        pcg_pin_names = {
+            hint.get("pinName")
+            for hint in pcg_pin_hints
+            if isinstance(hint, dict) and isinstance(hint.get("pinName"), str)
+        }
+        if not {"In", "InsideFilter", "OutsideFilter"}.issubset(pcg_pin_names):
+            fail(f"graph.ops.resolve(pcg) missing truthful filter pin hints: {pcg_resolve}")
         print("[PASS] graph.ops / graph.ops.resolve PCG validated")
 
         bad_query = call_tool(
@@ -2640,6 +2659,55 @@ def main() -> int:
         pcg_edges = pcg_snapshot.get("edges")
         if not isinstance(pcg_nodes, list) or not isinstance(pcg_edges, list):
             fail(f"PCG graph.query missing nodes/edges: {pcg_snapshot}")
+        pcg_edge_resolve = call_tool(
+            client,
+            101020,
+            "graph.ops.resolve",
+            {
+                "graphType": "pcg",
+                "graphRef": {"kind": "asset", "assetPath": temp_pcg_asset},
+                "context": {
+                    "edge": {
+                        "fromPin": {"nodeId": pcg_tag_a_id, "pinName": "Out"},
+                        "toPin": {"nodeId": pcg_filter_id, "pinName": "In"},
+                    }
+                },
+                "items": [{"opId": "pcg.filter.by_tag", "clientRef": "insert_filter"}],
+            },
+        )
+        pcg_edge_results = pcg_edge_resolve.get("results")
+        if not isinstance(pcg_edge_results, list) or len(pcg_edge_results) != 1:
+            fail(f"graph.ops.resolve(edge-context pcg) missing results[]: {pcg_edge_resolve}")
+        pcg_edge_result = pcg_edge_results[0] if isinstance(pcg_edge_results[0], dict) else {}
+        pcg_edge_plan = pcg_edge_result.get("preferredPlan")
+        if pcg_edge_result.get("resolved") is not True or not isinstance(pcg_edge_plan, dict):
+            fail(f"graph.ops.resolve(edge-context pcg) invalid result: {pcg_edge_resolve}")
+        if pcg_edge_plan.get("realizationKind") != "pipeline_insert":
+            fail(f"graph.ops.resolve(edge-context pcg) should return pipeline_insert: {pcg_edge_resolve}")
+        pcg_execution_hints = pcg_edge_plan.get("executionHints")
+        if not isinstance(pcg_execution_hints, list) or not pcg_execution_hints:
+            fail(f"graph.ops.resolve(edge-context pcg) missing executionHints: {pcg_edge_resolve}")
+        first_execution_hint = pcg_execution_hints[0] if isinstance(pcg_execution_hints[0], dict) else {}
+        if first_execution_hint.get("composeMode") != "pipeline_segment":
+            fail(f"graph.ops.resolve(edge-context pcg) composeMode mismatch: {pcg_edge_resolve}")
+        if first_execution_hint.get("preserveDownstream") is not True:
+            fail(f"graph.ops.resolve(edge-context pcg) should preserve downstream: {pcg_edge_resolve}")
+        pcg_steps = pcg_edge_plan.get("steps")
+        if not isinstance(pcg_steps, list) or len(pcg_steps) != 4:
+            fail(f"graph.ops.resolve(edge-context pcg) expected 4-step insert plan: {pcg_edge_resolve}")
+        step_ops = [step.get("op") for step in pcg_steps if isinstance(step, dict)]
+        if step_ops != ["addNode.byClass", "connectPins", "disconnectPins", "connectPins"]:
+            fail(f"graph.ops.resolve(edge-context pcg) unexpected step sequence: {pcg_edge_resolve}")
+        final_step = pcg_steps[-1] if isinstance(pcg_steps[-1], dict) else {}
+        final_args = final_step.get("args")
+        if not isinstance(final_args, dict):
+            fail(f"graph.ops.resolve(edge-context pcg) missing final connect args: {pcg_edge_resolve}")
+        final_from = final_args.get("from")
+        final_to = final_args.get("to")
+        if not isinstance(final_from, dict) or final_from.get("pinName") != "InsideFilter":
+            fail(f"graph.ops.resolve(edge-context pcg) should reconnect from InsideFilter: {pcg_edge_resolve}")
+        if not isinstance(final_to, dict) or final_to.get("nodeId") != pcg_filter_id or final_to.get("pinName") != "In":
+            fail(f"graph.ops.resolve(edge-context pcg) should reconnect downstream target: {pcg_edge_resolve}")
         bad_pcg_connect = call_tool(
             client,
             101021,
