@@ -101,7 +101,7 @@ void FLoomleBridgeModule::InitializeDiagStore()
         return;
     }
 
-    DiagStoreDirPath = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Loomle"), TEXT("diag"));
+    DiagStoreDirPath = FPaths::Combine(FPaths::ProjectDir(), TEXT("Loomle"), TEXT("runtime"), TEXT("diag"));
     DiagStoreFilePath = FPaths::Combine(DiagStoreDirPath, TEXT("diag.jsonl"));
     IFileManager::Get().MakeDirectory(*DiagStoreDirPath, true);
 

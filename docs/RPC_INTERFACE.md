@@ -614,7 +614,7 @@ When `applied=false`:
 
 Storage note:
 
-- Events are persisted under `<ProjectRoot>/Saved/Loomle/diag/diag.jsonl`.
+- Events are persisted under `<ProjectRoot>/Loomle/runtime/diag/diag.jsonl`.
 - Current v1 sources include UE log warnings/errors and Blueprint compile failures.
 
 Cursor semantics:

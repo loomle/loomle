@@ -133,6 +133,7 @@ Working rule:
 - `nextSeq` is the cursor to use on the next poll
 - `hasMore=true` means more matching events are available after the returned page
 - use `filters.severity`, `filters.category`, `filters.source`, or `filters.assetPathPrefix` to narrow noisy streams
+- persisted diagnostic events live under `Loomle/runtime/diag/diag.jsonl`
 
 ## Action Tokens
 

@@ -49,7 +49,7 @@ If `--project-root` is omitted, the client searches upward from the current dire
 
 `loomle skill ...` manages official LOOMLE skills from the published `loomle/skills` registry. These commands install into the local Codex skills directory and do not require `--project-root`.
 
-`diag.tail` reads persisted LoomleBridge diagnostics incrementally. Treat `fromSeq` as an exclusive cursor and reuse the returned `nextSeq` on the next poll.
+`diag.tail` reads persisted LoomleBridge diagnostics incrementally. Treat `fromSeq` as an exclusive cursor and reuse the returned `nextSeq` on the next poll. Persisted events live under `Loomle/runtime/diag/diag.jsonl`.
 
 ## Visual loop
 
