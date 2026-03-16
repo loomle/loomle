@@ -1,6 +1,6 @@
 [package]
 name = "loomle_mcp_server"
-version = "0.3.23"
+version = "0.3.24"
 edition = "2021"
 
 [dependencies]
