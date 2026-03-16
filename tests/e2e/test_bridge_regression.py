@@ -340,6 +340,28 @@ def main() -> int:
             fail(f"editor.screenshot did not write a PNG file: {editor_capture_payload}")
         print("[PASS] editor.open, editor.focus, and editor.screenshot validated")
 
+        close_editor_payload = call_tool(
+            client,
+            4004,
+            "execute",
+            {
+                "mode": "exec",
+                "code": (
+                    "import json\n"
+                    "import unreal\n"
+                    f"asset={json.dumps(temp_asset, ensure_ascii=False)}\n"
+                    "loaded = unreal.EditorAssetLibrary.load_asset(asset)\n"
+                    "if loaded is None:\n"
+                    "    raise RuntimeError('failed to reload asset for editor close')\n"
+                    "subsystem = unreal.get_editor_subsystem(unreal.AssetEditorSubsystem)\n"
+                    "closed = subsystem.close_all_editors_for_asset(loaded)\n"
+                    "print(json.dumps({'closed': bool(closed)}, ensure_ascii=False))\n"
+                ),
+            },
+        )
+        if close_editor_payload.get("isError"):
+            fail(f"failed to close temporary editor after screenshot validation: {close_editor_payload}")
+
         graph_list = call_tool(client, 5, "graph.list", {"assetPath": temp_asset, "graphType": "blueprint"})
         graphs = graph_list.get("graphs")
         if not isinstance(graphs, list):
