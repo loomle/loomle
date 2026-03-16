@@ -23,6 +23,7 @@ Planning rule:
 Readback rule:
 - prefer `graph.query` after every meaningful PCG edit, not just for topology but also for node `effectiveSettings` and node-level `diagnostics`
 - expect `graph.query` to expose selector/spawner details for common runtime-sensitive nodes such as `Get Actor Property`, `Get Spline Data`, and `Static Mesh Spawner`
+- after disconnecting an overridable PCG input pin, you can use `setPinDefault` on that input to write the node setting directly; prefer readback or `graph.runtime` to confirm the resulting behavior
 - when a PCG pipeline looks empty, inspect node `diagnostics` first; LOOMLE now emits empty-input hints for actor selectors, component selectors, and mesh-selector misconfiguration
 - for selector-backed nodes, read the nested `actorSelector`, `componentSelector`, or `meshSelector` objects before assuming the runtime source is correct
 

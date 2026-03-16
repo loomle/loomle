@@ -3566,6 +3566,83 @@ def main() -> int:
             fail(f"PCG StaticMeshSpawner outAttributeName missing from effectiveSettings: {static_mesh_spawner_settings}")
         print("[PASS] pcg graph.query settings and diagnostics validated")
 
+        pcg_set_default_add = call_tool(
+            client,
+            101191,
+            "graph.mutate",
+            {
+                "assetPath": temp_pcg_asset,
+                "graphName": "PCGGraph",
+                "graphType": "pcg",
+                "ops": [
+                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSphereSettings"}},
+                ],
+            },
+        )
+        pcg_set_default_results = pcg_set_default_add.get("opResults")
+        if not isinstance(pcg_set_default_results, list) or len(pcg_set_default_results) != 1:
+            fail(f"PCG setPinDefault probe add op missing results: {pcg_set_default_add}")
+        pcg_set_default_node_id = pcg_set_default_results[0].get("nodeId")
+        if not isinstance(pcg_set_default_node_id, str) or not pcg_set_default_node_id:
+            fail(f"PCG setPinDefault probe missing node id: {pcg_set_default_add}")
+
+        pcg_set_default_payload = call_tool(
+            client,
+            101192,
+            "graph.mutate",
+            {
+                "assetPath": temp_pcg_asset,
+                "graphName": "PCGGraph",
+                "graphType": "pcg",
+                "ops": [
+                    {
+                        "op": "setPinDefault",
+                        "args": {
+                            "target": {"nodeId": pcg_set_default_node_id, "pin": "Radius"},
+                            "value": 250.5,
+                        },
+                    },
+                    {
+                        "op": "setPinDefault",
+                        "args": {
+                            "target": {"nodeId": pcg_set_default_node_id, "pin": "LongitudinalSegments"},
+                            "value": 8,
+                        },
+                    },
+                ],
+            },
+        )
+        op_ok(pcg_set_default_payload)
+
+        pcg_set_default_verify_payload = call_execute_exec_with_retry(
+            client=client,
+            req_id_base=101193,
+            code=(
+                "import json\n"
+                "import unreal\n"
+                f"node_path = {json.dumps(pcg_set_default_node_id, ensure_ascii=False)}\n"
+                "node = unreal.load_object(None, node_path)\n"
+                "if node is None:\n"
+                "    raise RuntimeError(f'failed to load PCG node: {node_path}')\n"
+                "settings = node.get_settings()\n"
+                "if settings is None:\n"
+                "    raise RuntimeError(f'PCG node has no settings: {node_path}')\n"
+                "print(json.dumps({\n"
+                "    'ok': True,\n"
+                "    'radius': settings.get_editor_property('radius'),\n"
+                "    'longitudinalSegments': settings.get_editor_property('longitudinal_segments'),\n"
+                "}, ensure_ascii=False))\n"
+            ),
+        )
+        pcg_set_default_verify = parse_execute_json(pcg_set_default_verify_payload)
+        if pcg_set_default_verify.get("ok") is not True:
+            fail(f"PCG setPinDefault verification failed: {pcg_set_default_verify}")
+        if abs(float(pcg_set_default_verify.get("radius", 0.0)) - 250.5) > 1e-6:
+            fail(f"PCG setPinDefault did not update Radius: {pcg_set_default_verify}")
+        if pcg_set_default_verify.get("longitudinalSegments") != 8:
+            fail(f"PCG setPinDefault did not update LongitudinalSegments: {pcg_set_default_verify}")
+        print("[PASS] graph.mutate setPinDefault supports PCG overridable inputs")
+
         pcg_generate_payload = call_execute_exec_with_retry(
             client=client,
             req_id_base=10120,

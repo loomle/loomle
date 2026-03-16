@@ -5789,6 +5789,47 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             return Obj->TryGetStringField(TEXT("pinName"), OutPinName) && !OutPinName.IsEmpty();
         };
 
+        auto ResolveValueStringLocal = [](const TSharedPtr<FJsonObject>& Obj, FString& OutValue) -> bool
+        {
+            OutValue.Empty();
+            if (!Obj.IsValid())
+            {
+                return false;
+            }
+
+            TSharedPtr<FJsonValue> ValueField = Obj->TryGetField(TEXT("value"));
+            if (!ValueField.IsValid())
+            {
+                return false;
+            }
+
+            switch (ValueField->Type)
+            {
+            case EJson::String:
+                OutValue = ValueField->AsString();
+                return true;
+            case EJson::Boolean:
+                OutValue = ValueField->AsBool() ? TEXT("true") : TEXT("false");
+                return true;
+            case EJson::Number:
+            {
+                const double NumericValue = ValueField->AsNumber();
+                const double RoundedValue = FMath::RoundToDouble(NumericValue);
+                if (FMath::IsNearlyEqual(NumericValue, RoundedValue, KINDA_SMALL_NUMBER))
+                {
+                    OutValue = LexToString(static_cast<int64>(RoundedValue));
+                }
+                else
+                {
+                    OutValue = LexToString(NumericValue);
+                }
+                return true;
+            }
+            default:
+                return false;
+            }
+        };
+
         auto GetPointFromObjectLocal = [](const TSharedPtr<FJsonObject>& Obj, int32& OutX, int32& OutY)
         {
             OutX = 0;
@@ -7161,6 +7202,52 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                     }
                                 }
                             }
+                        }
+                    }
+                    else if (Op.Equals(TEXT("setpindefault")))
+                    {
+                        const TSharedPtr<FJsonObject>* TargetObj = nullptr;
+                        FString TargetNodeId;
+                        FString TargetPinName;
+                        FString DefaultValue;
+                        if (!ArgsObj->TryGetObjectField(TEXT("target"), TargetObj) || !TargetObj || !(*TargetObj).IsValid() || !ResolveNodeTokenLocal(*TargetObj, TargetNodeId))
+                        {
+                            bOk = false;
+                            Error = TEXT("setPinDefault requires args.target.");
+                        }
+                        else if (!ResolvePinName(*TargetObj, TargetPinName))
+                        {
+                            bOk = false;
+                            Error = TEXT("setPinDefault requires args.target.pin.");
+                        }
+                        else if (!ResolveValueStringLocal(ArgsObj, DefaultValue))
+                        {
+                            bOk = false;
+                            Error = TEXT("setPinDefault requires args.value as a string, number, or boolean.");
+                        }
+                        else if (UPCGNode* Node = FindPcgNodeById(PcgGraph, TargetNodeId))
+                        {
+                            bOk = SetPcgPinDefaultValue(Node, TargetPinName, DefaultValue, Error);
+                            if (bOk)
+                            {
+                                NodeId = TargetNodeId;
+                                bChanged = true;
+                                GraphEventName = TEXT("graph.pin_default_changed");
+                                GraphEventData->SetStringField(TEXT("nodeId"), TargetNodeId);
+                                GraphEventData->SetStringField(TEXT("pin"), TargetPinName);
+                                GraphEventData->SetStringField(TEXT("value"), DefaultValue);
+                                GraphEventData->SetStringField(TEXT("op"), Op);
+                                NodesTouchedForLayout.Add(TargetNodeId);
+                            }
+                            else if (Error.IsEmpty())
+                            {
+                                Error = TEXT("Failed to set PCG pin default value.");
+                            }
+                        }
+                        else
+                        {
+                            bOk = false;
+                            Error = TEXT("PCG node not found.");
                         }
                     }
                     else if (Op.Equals(TEXT("layoutgraph")))

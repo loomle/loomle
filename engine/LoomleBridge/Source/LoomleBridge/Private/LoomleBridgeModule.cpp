@@ -60,6 +60,7 @@
 #include "PCGPin.h"
 #include "PCGSettings.h"
 #include "PCGManagedResource.h"
+#include "Metadata/PCGDefaultValueInterface.h"
 #include "Elements/PCGActorSelector.h"
 #include "Elements/PCGDataFromActor.h"
 #include "Elements/PCGGetActorProperty.h"
@@ -1381,6 +1382,199 @@ UPCGPin* FindPcgPin(UPCGNode* Node, const FString& PinName, bool bOutputPin)
     }
 
     return nullptr;
+}
+
+const FPCGSettingsOverridableParam* FindPcgOverridableParamByPinLabel(UPCGSettings* Settings, const FName PinLabel)
+{
+    if (Settings == nullptr || PinLabel.IsNone())
+    {
+        return nullptr;
+    }
+
+    for (const FPCGSettingsOverridableParam& Param : Settings->OverridableParams())
+    {
+        if (Param.Label == PinLabel)
+        {
+            return &Param;
+        }
+    }
+
+    return nullptr;
+}
+
+bool ResolvePcgOverridableValueTarget(
+    UPCGSettings* Settings,
+    const FPCGSettingsOverridableParam& Param,
+    void*& OutContainer,
+    FProperty*& OutLeafProperty,
+    FString& OutError)
+{
+    OutContainer = nullptr;
+    OutLeafProperty = nullptr;
+
+    if (Settings == nullptr)
+    {
+        OutError = TEXT("Invalid PCG default value target: settings object is missing.");
+        return false;
+    }
+
+    if (Param.Properties.IsEmpty())
+    {
+        OutError = TEXT("Invalid PCG default value target: overridable property metadata is unavailable.");
+        return false;
+    }
+
+    OutContainer = Settings;
+
+    for (int32 PropertyIndex = 0; PropertyIndex < Param.Properties.Num() - 1; ++PropertyIndex)
+    {
+        FProperty* CurrentProperty = const_cast<FProperty*>(Param.Properties[PropertyIndex]);
+        if (CurrentProperty == nullptr)
+        {
+            OutError = TEXT("Invalid PCG default value target: encountered a null property in the override chain.");
+            return false;
+        }
+
+        if (FStructProperty* StructProperty = CastField<FStructProperty>(CurrentProperty))
+        {
+            void* NextContainer = StructProperty->ContainerPtrToValuePtr<void>(OutContainer);
+            if (NextContainer == nullptr)
+            {
+                OutError = FString::Printf(
+                    TEXT("Invalid PCG default value target: struct property '%s' could not be resolved."),
+                    *StructProperty->GetName());
+                return false;
+            }
+
+            OutContainer = NextContainer;
+        }
+        else if (FObjectProperty* ObjectProperty = CastField<FObjectProperty>(CurrentProperty))
+        {
+            UObject* NextObject = ObjectProperty->GetObjectPropertyValue_InContainer(OutContainer);
+            if (NextObject == nullptr)
+            {
+                OutError = FString::Printf(
+                    TEXT("Invalid PCG default value target: object property '%s' is null."),
+                    *ObjectProperty->GetName());
+                return false;
+            }
+
+            OutContainer = NextObject;
+        }
+        else
+        {
+            OutError = FString::Printf(
+                TEXT("Invalid PCG default value target: unsupported nested property type '%s'."),
+                *CurrentProperty->GetClass()->GetName());
+            return false;
+        }
+    }
+
+    OutLeafProperty = const_cast<FProperty*>(Param.Properties.Last());
+    if (OutLeafProperty == nullptr)
+    {
+        OutError = TEXT("Invalid PCG default value target: missing leaf property.");
+        return false;
+    }
+
+    return true;
+}
+
+bool SetPcgOverridableValueFromString(
+    UPCGSettings* Settings,
+    const FPCGSettingsOverridableParam& Param,
+    const FString& Value,
+    FString& OutError)
+{
+    void* Container = nullptr;
+    FProperty* LeafProperty = nullptr;
+    if (!ResolvePcgOverridableValueTarget(Settings, Param, Container, LeafProperty, OutError))
+    {
+        return false;
+    }
+
+    void* ValuePtr = LeafProperty->ContainerPtrToValuePtr<void>(Container);
+    if (ValuePtr == nullptr)
+    {
+        OutError = FString::Printf(
+            TEXT("Invalid PCG default value target: could not resolve value storage for '%s'."),
+            *LeafProperty->GetName());
+        return false;
+    }
+
+    const TCHAR* ImportResult = LeafProperty->ImportText_Direct(*Value, ValuePtr, Settings, PPF_None);
+    if (ImportResult == nullptr)
+    {
+        OutError = FString::Printf(
+            TEXT("Invalid PCG default value for pin '%s': %s"),
+            *Param.Label.ToString(),
+            *Value);
+        return false;
+    }
+
+    return true;
+}
+
+bool SetPcgPinDefaultValue(UPCGNode* Node, const FString& PinName, const FString& Value, FString& OutError)
+{
+    if (Node == nullptr)
+    {
+        OutError = TEXT("PCG node not found.");
+        return false;
+    }
+
+    UPCGPin* TargetPin = FindPcgPin(Node, PinName, false);
+    if (TargetPin == nullptr)
+    {
+        OutError = TEXT("PCG input pin not found.");
+        return false;
+    }
+
+    if (TargetPin->IsConnected())
+    {
+        OutError = TEXT("Invalid PCG default value target: input pin is connected. Disconnect it before setting a default value.");
+        return false;
+    }
+
+    UPCGSettings* Settings = Node->GetSettings();
+    if (Settings == nullptr)
+    {
+        OutError = TEXT("Invalid PCG default value target: node settings are missing.");
+        return false;
+    }
+
+    const FName PinLabel = TargetPin->Properties.Label;
+    if (IPCGSettingsDefaultValueProvider* DefaultValueProvider = Cast<IPCGSettingsDefaultValueProvider>(Settings))
+    {
+        if (DefaultValueProvider->IsPinDefaultValueEnabled(PinLabel))
+        {
+            Settings->Modify();
+            DefaultValueProvider->SetPinDefaultValue(PinLabel, Value, true);
+            if (!DefaultValueProvider->IsPinDefaultValueActivated(PinLabel))
+            {
+                DefaultValueProvider->SetPinDefaultValueIsActivated(PinLabel, true);
+            }
+            return true;
+        }
+    }
+
+    const FPCGSettingsOverridableParam* Param = FindPcgOverridableParamByPinLabel(Settings, PinLabel);
+    if (Param == nullptr)
+    {
+        OutError = TEXT("Invalid PCG default value target: input pin does not support default values.");
+        return false;
+    }
+
+    Settings->Modify();
+    if (!SetPcgOverridableValueFromString(Settings, *Param, Value, OutError))
+    {
+        return false;
+    }
+
+#if WITH_EDITOR
+    Settings->OnSettingsChangedDelegate.Broadcast(Settings, EPCGChangeType::Settings);
+#endif
+    return true;
 }
 
 UMaterialExpression* FindMaterialExpressionById(UMaterial* Material, const FString& NodeId)
