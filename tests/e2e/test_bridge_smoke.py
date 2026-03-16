@@ -21,6 +21,7 @@ REQUIRED_TOOLS = {
     "graph.query",
     "graph.actions",
     "graph.mutate",
+    "diag.tail",
     "context",
     "editor.open",
     "editor.focus",
@@ -442,6 +443,20 @@ def main() -> int:
         if rpc_health.get("status") not in {"ok", "degraded"}:
             fail(f"loomle rpc health not ready: {loomle_payload}")
         print("[PASS] loomle status query succeeded")
+
+        diag_payload = call_tool(client, 31, "diag.tail", {"fromSeq": 0, "limit": 10})
+        items = diag_payload.get("items")
+        if not isinstance(items, list):
+            fail(f"diag.tail missing items[]: {diag_payload}")
+        next_seq = diag_payload.get("nextSeq")
+        high_watermark = diag_payload.get("highWatermark")
+        if not isinstance(next_seq, int) or next_seq < 0:
+            fail(f"diag.tail invalid nextSeq: {diag_payload}")
+        if not isinstance(high_watermark, int) or high_watermark < 0:
+            fail(f"diag.tail invalid highWatermark: {diag_payload}")
+        if not isinstance(diag_payload.get("hasMore"), bool):
+            fail(f"diag.tail invalid hasMore: {diag_payload}")
+        print("[PASS] diag.tail is available")
 
         _ = call_execute_exec_with_retry(
             client=client,

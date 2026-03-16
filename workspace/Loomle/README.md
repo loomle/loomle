@@ -35,6 +35,11 @@ Read this file first. It is the top-level usage guide for agents working inside 
    - `workflows/blueprint.md`
    - `workflows/material.md`
    - `workflows/pcg.md`
+7. When you need recent Unreal-side warnings, compile failures, or runtime diagnostics, call `diag.tail`.
+   Working rule:
+   - use `fromSeq` as an exclusive cursor
+   - reuse returned `nextSeq` on the next poll
+   - use `filters` when you want to narrow by severity, category, source, or asset path prefix
 
 ## Visual Loop
 
@@ -58,6 +63,8 @@ Working rule:
   Print the live tool contract exposed by the installed LOOMLE server.
 - `Loomle/loomle call <tool-name> --args '<json-object>'`
   Make one tool request and print the result.
+- `Loomle/loomle call diag.tail --args '{"fromSeq":0}'`
+  Read persisted diagnostics incrementally. Reuse the returned `nextSeq` as the next cursor.
 - `Loomle/loomle session`
   Start a persistent stdin/stdout JSON session for repeated requests. Prefer this for high-concurrency or high-volume query workloads.
 - `Loomle/loomle skill list`
@@ -110,6 +117,22 @@ Responses:
 - successful responses include `"ok": true` and `result`
 - failed responses include `"ok": false` and `error`
 - each response includes the same `id` as the request
+
+## Diagnostics
+
+Use `diag.tail` when you want recent LoomleBridge diagnostics instead of only the current health snapshot.
+
+Minimal one-shot example:
+
+```bash
+Loomle/loomle call diag.tail --args '{"fromSeq":0,"limit":50}'
+```
+
+Working rule:
+- `fromSeq` is exclusive, so returned items satisfy `seq > fromSeq`
+- `nextSeq` is the cursor to use on the next poll
+- `hasMore=true` means more matching events are available after the returned page
+- use `filters.severity`, `filters.category`, `filters.source`, or `filters.assetPathPrefix` to narrow noisy streams
 
 ## Action Tokens
 
