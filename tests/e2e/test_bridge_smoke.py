@@ -22,6 +22,8 @@ REQUIRED_TOOLS = {
     "graph.actions",
     "graph.mutate",
     "context",
+    "editor.open",
+    "editor.screenshot",
     "execute",
 }
 

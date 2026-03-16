@@ -17,6 +17,7 @@
 #include "EdGraph/EdGraphSchema.h"
 #include "Engine/Engine.h"
 #include "Engine/Selection.h"
+#include "ImageUtils.h"
 #include "Engine/SCS_Node.h"
 #include "Engine/SimpleConstructionScript.h"
 #include "Engine/StaticMesh.h"
@@ -82,6 +83,8 @@ namespace LoomleBridgeConstants
     static const TCHAR* PipeNamePrefix = TEXT("loomle");
     static const TCHAR* RpcVersion = TEXT("1.0");
     static const TCHAR* ExecuteToolName = TEXT("execute");
+    static const TCHAR* EditorOpenToolName = TEXT("editor.open");
+    static const TCHAR* EditorScreenshotToolName = TEXT("editor.screenshot");
     static const TCHAR* GraphListToolName = TEXT("graph.list");
     static const TCHAR* GraphResolveToolName = TEXT("graph.resolve");
     static const TCHAR* GraphQueryToolName = TEXT("graph.query");
@@ -1234,15 +1237,11 @@ UEdGraphPin* FindPinByName(UEdGraphNode* Node, const FString& PinName)
     return Node->FindPin(*PinName);
 }
 
-TSharedPtr<FJsonObject> BuildActiveWindowJson()
+TSharedPtr<SWindow> ResolveActiveTopLevelWindow()
 {
-    TSharedPtr<FJsonObject> Window = MakeShared<FJsonObject>();
-    Window->SetBoolField(TEXT("isValid"), false);
-    Window->SetStringField(TEXT("title"), TEXT(""));
-
     if (!FSlateApplication::IsInitialized())
     {
-        return Window;
+        return nullptr;
     }
 
     TSharedPtr<SWindow> ActiveWindow = FSlateApplication::Get().GetActiveTopLevelWindow();
@@ -1254,6 +1253,43 @@ TSharedPtr<FJsonObject> BuildActiveWindowJson()
             ActiveWindow = FSlateApplication::Get().FindWidgetWindow(FocusedWidget.ToSharedRef());
         }
     }
+
+    return ActiveWindow;
+}
+
+FString ResolveScreenshotOutputPath(const FString& RequestedPath)
+{
+    FString OutputPath = RequestedPath.TrimStartAndEnd();
+    if (OutputPath.IsEmpty())
+    {
+        const FString Timestamp = FDateTime::UtcNow().ToString(TEXT("%Y%m%d-%H%M%S"));
+        OutputPath = FPaths::Combine(
+            FPaths::ProjectDir(),
+            TEXT("Loomle"),
+            TEXT("runtime"),
+            TEXT("captures"),
+            FString::Printf(TEXT("capture-%s.png"), *Timestamp));
+    }
+    else if (FPaths::IsRelative(OutputPath))
+    {
+        OutputPath = FPaths::Combine(FPaths::ProjectDir(), OutputPath);
+    }
+
+    if (!OutputPath.EndsWith(TEXT(".png"), ESearchCase::IgnoreCase))
+    {
+        OutputPath += TEXT(".png");
+    }
+
+    return FPaths::ConvertRelativePathToFull(OutputPath);
+}
+
+TSharedPtr<FJsonObject> BuildActiveWindowJson()
+{
+    TSharedPtr<FJsonObject> Window = MakeShared<FJsonObject>();
+    Window->SetBoolField(TEXT("isValid"), false);
+    Window->SetStringField(TEXT("title"), TEXT(""));
+
+    TSharedPtr<SWindow> ActiveWindow = ResolveActiveTopLevelWindow();
 
     if (!ActiveWindow.IsValid())
     {
@@ -1267,20 +1303,7 @@ TSharedPtr<FJsonObject> BuildActiveWindowJson()
 
 FString GetActiveWindowTitle()
 {
-    if (!FSlateApplication::IsInitialized())
-    {
-        return FString();
-    }
-
-    TSharedPtr<SWindow> ActiveWindow = FSlateApplication::Get().GetActiveTopLevelWindow();
-    if (!ActiveWindow.IsValid())
-    {
-        const TSharedPtr<SWidget> FocusedWidget = FSlateApplication::Get().GetKeyboardFocusedWidget();
-        if (FocusedWidget.IsValid())
-        {
-            ActiveWindow = FSlateApplication::Get().FindWidgetWindow(FocusedWidget.ToSharedRef());
-        }
-    }
+    TSharedPtr<SWindow> ActiveWindow = ResolveActiveTopLevelWindow();
 
     return ActiveWindow.IsValid() ? ActiveWindow->GetTitle().ToString() : FString();
 }

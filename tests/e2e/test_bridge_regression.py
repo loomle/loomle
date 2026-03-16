@@ -301,6 +301,34 @@ def main() -> int:
         _ = create_payload
         print(f"[PASS] temporary asset created: {temp_asset}")
 
+        editor_open_payload = call_tool(
+            client,
+            4001,
+            "editor.open",
+            {"assetPath": temp_asset},
+        )
+        if editor_open_payload.get("assetPath") != temp_asset:
+            fail(f"editor.open did not echo assetPath: {editor_open_payload}")
+        if not isinstance(editor_open_payload.get("assetClassPath"), str) or not editor_open_payload.get("assetClassPath"):
+            fail(f"editor.open missing assetClassPath: {editor_open_payload}")
+
+        capture_rel_path = f"Loomle/runtime/captures/editor-open-regression-{int(time.time())}.png"
+        editor_capture_payload = call_tool(
+            client,
+            4002,
+            "editor.screenshot",
+            {"path": capture_rel_path},
+        )
+        capture_path = editor_capture_payload.get("path")
+        if not isinstance(capture_path, str) or not capture_path:
+            fail(f"editor.screenshot missing path: {editor_capture_payload}")
+        capture_file = Path(capture_path)
+        if not capture_file.exists():
+            fail(f"editor.screenshot did not write file: {editor_capture_payload}")
+        if capture_file.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
+            fail(f"editor.screenshot did not write a PNG file: {editor_capture_payload}")
+        print("[PASS] editor.open and editor.screenshot validated")
+
         graph_list = call_tool(client, 5, "graph.list", {"assetPath": temp_asset, "graphType": "blueprint"})
         graphs = graph_list.get("graphs")
         if not isinstance(graphs, list):

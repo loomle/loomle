@@ -557,6 +557,168 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildSelectionTransformToolResult()
     return Result;
 }
 
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorOpenToolResult(const TSharedPtr<FJsonObject>& Arguments)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+    FString AssetPath;
+    if (!Arguments.IsValid() || !Arguments->TryGetStringField(TEXT("assetPath"), AssetPath) || AssetPath.TrimStartAndEnd().IsEmpty())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("arguments.assetPath is required."));
+        return Result;
+    }
+
+    if (!GEditor)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("EDITOR_NOT_AVAILABLE"));
+        Result->SetStringField(TEXT("message"), TEXT("Editor is not available."));
+        return Result;
+    }
+
+    UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
+    if (AssetEditorSubsystem == nullptr)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("EDITOR_NOT_AVAILABLE"));
+        Result->SetStringField(TEXT("message"), TEXT("AssetEditorSubsystem is not available."));
+        return Result;
+    }
+
+    UObject* Asset = LoadObjectByAssetPath(AssetPath);
+    if (Asset == nullptr)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("ASSET_NOT_FOUND"));
+        Result->SetStringField(TEXT("message"), TEXT("Asset not found."));
+        Result->SetStringField(TEXT("assetPath"), AssetPath);
+        return Result;
+    }
+
+    FText OpenError;
+    if (!AssetEditorSubsystem->CanOpenEditorForAsset(Asset, EAssetTypeActivationOpenedMethod::Edit, &OpenError))
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), OpenError.IsEmpty() ? TEXT("Asset cannot be opened in an editor.") : OpenError.ToString());
+        Result->SetStringField(TEXT("assetPath"), AssetPath);
+        return Result;
+    }
+
+    const bool bAlreadyOpen = AssetEditorSubsystem->FindEditorForAsset(Asset, false) != nullptr;
+    const bool bOpened = AssetEditorSubsystem->OpenEditorForAsset(Asset);
+    const bool bWindowFocused = AssetEditorSubsystem->FindEditorForAsset(Asset, true) != nullptr;
+    const TSharedPtr<FJsonObject> ActiveWindow = BuildActiveWindowJson();
+
+    if (!bOpened && !bAlreadyOpen)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+        Result->SetStringField(TEXT("message"), TEXT("Failed to open asset editor."));
+        Result->SetStringField(TEXT("assetPath"), AssetPath);
+        return Result;
+    }
+
+    Result->SetBoolField(TEXT("isError"), false);
+    Result->SetBoolField(TEXT("ok"), true);
+    Result->SetStringField(TEXT("assetPath"), AssetPath);
+    Result->SetStringField(TEXT("assetName"), Asset->GetName());
+    Result->SetStringField(TEXT("assetClassPath"), Asset->GetClass() ? Asset->GetClass()->GetPathName() : TEXT(""));
+    Result->SetBoolField(TEXT("alreadyOpen"), bAlreadyOpen);
+    Result->SetBoolField(TEXT("windowFocused"), bWindowFocused);
+    Result->SetStringField(TEXT("windowTitle"), ActiveWindow.IsValid() ? ActiveWindow->GetStringField(TEXT("title")) : TEXT(""));
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorScreenshotToolResult(const TSharedPtr<FJsonObject>& Arguments)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+    FString Target = TEXT("activeWindow");
+    FString RequestedPath;
+    if (Arguments.IsValid())
+    {
+        Arguments->TryGetStringField(TEXT("target"), Target);
+        Arguments->TryGetStringField(TEXT("path"), RequestedPath);
+    }
+
+    Target = Target.TrimStartAndEnd();
+    if (Target.IsEmpty())
+    {
+        Target = TEXT("activeWindow");
+    }
+
+    if (!Target.Equals(TEXT("activeWindow"), ESearchCase::IgnoreCase))
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("arguments.target must be 'activeWindow'."));
+        return Result;
+    }
+
+    TSharedPtr<SWindow> ActiveWindow = ResolveActiveTopLevelWindow();
+    if (!ActiveWindow.IsValid())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("WINDOW_NOT_FOUND"));
+        Result->SetStringField(TEXT("message"), TEXT("No active top-level editor window was found."));
+        return Result;
+    }
+
+    const FString OutputPath = ResolveScreenshotOutputPath(RequestedPath);
+    const FString OutputDir = FPaths::GetPath(OutputPath);
+    if (!OutputDir.IsEmpty())
+    {
+        IFileManager::Get().MakeDirectory(*OutputDir, true);
+    }
+
+    FSlateApplication::Get().ForceRedrawWindow(ActiveWindow.ToSharedRef());
+    TArray<FColor> ColorData;
+    FIntVector ImageSize(0, 0, 0);
+    if (!FSlateApplication::Get().TakeScreenshot(ActiveWindow.ToSharedRef(), ColorData, ImageSize))
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("CAPTURE_FAILED"));
+        Result->SetStringField(TEXT("message"), TEXT("Failed to capture the active editor window."));
+        return Result;
+    }
+
+    if (ImageSize.X <= 0 || ImageSize.Y <= 0 || ColorData.IsEmpty())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("CAPTURE_FAILED"));
+        Result->SetStringField(TEXT("message"), TEXT("Screenshot capture returned no pixels."));
+        return Result;
+    }
+
+    TArray64<uint8> CompressedPng;
+    FImageUtils::PNGCompressImageArray(
+        ImageSize.X,
+        ImageSize.Y,
+        TArrayView64<const FColor>(ColorData.GetData(), ColorData.Num()),
+        CompressedPng);
+
+    if (CompressedPng.IsEmpty() || !FFileHelper::SaveArrayToFile(CompressedPng, *OutputPath))
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+        Result->SetStringField(TEXT("message"), TEXT("Failed to write screenshot PNG."));
+        Result->SetStringField(TEXT("path"), OutputPath);
+        return Result;
+    }
+
+    Result->SetBoolField(TEXT("isError"), false);
+    Result->SetBoolField(TEXT("ok"), true);
+    Result->SetStringField(TEXT("target"), TEXT("activeWindow"));
+    Result->SetStringField(TEXT("path"), OutputPath);
+    Result->SetStringField(TEXT("windowTitle"), ActiveWindow->GetTitle().ToString());
+    Result->SetNumberField(TEXT("width"), ImageSize.X);
+    Result->SetNumberField(TEXT("height"), ImageSize.Y);
+    return Result;
+}
+
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildExecutePythonToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();

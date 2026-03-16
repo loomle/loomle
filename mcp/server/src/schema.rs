@@ -55,6 +55,54 @@ pub fn tool_descriptors() -> Vec<Value> {
                 "type": "object"
             }
         }),
+        runtime_tool_descriptor(
+            "editor.open",
+            "Open Asset Editor",
+            "Open or focus the editor for a specific Unreal asset path.",
+            json!({
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "required": ["assetPath"],
+                "properties": {
+                    "assetPath": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Unreal asset path, for example /Game/MyFolder/MyAsset."
+                    }
+                },
+                "additionalProperties": false
+            }),
+            json!({
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object"
+            }),
+        ),
+        runtime_tool_descriptor(
+            "editor.screenshot",
+            "Editor Screenshot",
+            "Capture a PNG of the active editor window and return the written file path.",
+            json!({
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "enum": ["activeWindow"],
+                        "default": "activeWindow",
+                        "description": "Screenshot target. The first release supports only the active top-level editor window."
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Optional output path. Relative paths resolve from the Unreal project root; .png is appended when omitted."
+                    }
+                },
+                "additionalProperties": false
+            }),
+            json!({
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object"
+            }),
+        ),
         json!({
             "name": "graph",
             "title": "Graph Descriptor",
@@ -649,7 +697,7 @@ mod tests {
     #[test]
     fn tools_list_contains_graph_resolve_and_diag_tail() {
         let tools = tool_descriptors();
-        assert_eq!(tools.len(), 10);
+        assert_eq!(tools.len(), 12);
         assert!(tools
             .iter()
             .any(|v| v.get("name") == Some(&Value::String(String::from("graph.actions")))));
@@ -659,6 +707,12 @@ mod tests {
         assert!(tools
             .iter()
             .any(|v| v.get("name") == Some(&Value::String(String::from("diag.tail")))));
+        assert!(tools
+            .iter()
+            .any(|v| v.get("name") == Some(&Value::String(String::from("editor.open")))));
+        assert!(tools
+            .iter()
+            .any(|v| v.get("name") == Some(&Value::String(String::from("editor.screenshot")))));
     }
 
     #[test]

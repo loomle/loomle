@@ -7,9 +7,11 @@ pub mod schema;
 pub mod sdk;
 pub mod transport;
 
-pub const TOOL_NAMES: [&str; 10] = [
+pub const TOOL_NAMES: [&str; 12] = [
     "loomle",
     "context",
+    "editor.open",
+    "editor.screenshot",
     "execute",
     "graph",
     "graph.list",
@@ -87,7 +89,7 @@ impl<C: RpcConnector> McpService<C> {
         match name {
             "loomle" => self.call_loomle(),
             "graph" => self.call_graph(args),
-            "context" | "execute" | "graph.list" | "graph.resolve" | "graph.query"
+            "context" | "editor.open" | "editor.screenshot" | "execute" | "graph.list" | "graph.resolve" | "graph.query"
             | "graph.actions" | "graph.mutate" | "diag.tail" => self.call_runtime(name, args, meta),
             _ => McpToolResult {
                 structured_content: error_payload(
@@ -460,10 +462,12 @@ mod tests {
     #[test]
     fn tools_list_includes_diag_tail() {
         let tools = McpService::<FakeConnector>::tools_list();
-        assert_eq!(tools.len(), 10);
+        assert_eq!(tools.len(), 12);
         assert!(tools.contains(&"graph.actions"));
         assert!(tools.contains(&"graph.resolve"));
         assert!(tools.contains(&"diag.tail"));
+        assert!(tools.contains(&"editor.open"));
+        assert!(tools.contains(&"editor.screenshot"));
     }
 
     #[test]
