@@ -1,0 +1,20 @@
+{
+  "tool": "graph.ops.resolve",
+  "graphType": "pcg",
+  "graphRef": {
+    "kind": "asset",
+    "assetPath": "/Game/Path/To/PCG_Example"
+  },
+  "context": {
+    "fromPin": {
+      "nodeId": "CreatePoints_0",
+      "pinName": "Out"
+    }
+  },
+  "items": [
+    {
+      "opId": "pcg.filter.by_tag",
+      "clientRef": "filter_points_by_tag"
+    }
+  ]
+}

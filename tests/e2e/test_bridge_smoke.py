@@ -19,7 +19,8 @@ REQUIRED_TOOLS = {
     "graph.list",
     "graph.resolve",
     "graph.query",
-    "graph.actions",
+    "graph.ops",
+    "graph.ops.resolve",
     "graph.mutate",
     "diag.tail",
     "context",
@@ -31,7 +32,6 @@ REQUIRED_TOOLS = {
 
 EXPECTED_GRAPH_MUTATE_OPS = {
     "addNode.byClass",
-    "addNode.byAction",
     "connectPins",
     "disconnectPins",
     "breakPinLinks",

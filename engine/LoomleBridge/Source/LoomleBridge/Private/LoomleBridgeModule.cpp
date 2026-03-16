@@ -101,11 +101,10 @@ namespace LoomleBridgeConstants
     static const TCHAR* GraphListToolName = TEXT("graph.list");
     static const TCHAR* GraphResolveToolName = TEXT("graph.resolve");
     static const TCHAR* GraphQueryToolName = TEXT("graph.query");
-    static const TCHAR* GraphActionsToolName = TEXT("graph.actions");
+    static const TCHAR* GraphOpsToolName = TEXT("graph.ops");
+    static const TCHAR* GraphOpsResolveToolName = TEXT("graph.ops.resolve");
     static const TCHAR* GraphMutateToolName = TEXT("graph.mutate");
     static const TCHAR* DiagTailToolName = TEXT("diag.tail");
-    constexpr double GraphActionTokenTtlSeconds = 300.0;
-    constexpr int32 MaxGraphActionTokenRegistryEntries = 2048;
     constexpr double MutateIdempotencyTtlSeconds = 1800.0;
     constexpr int32 MaxMutateIdempotencyEntries = 2048;
 }
@@ -1354,7 +1353,69 @@ UEdGraphPin* FindPinByName(UEdGraphNode* Node, const FString& PinName)
     {
         return nullptr;
     }
-    return Node->FindPin(*PinName);
+
+    if (UEdGraphPin* Pin = Node->FindPin(*PinName))
+    {
+        return Pin;
+    }
+
+    auto NormalizePinToken = [](FString Value) -> FString
+    {
+        Value = Value.ToLower();
+        Value.ReplaceInline(TEXT(" "), TEXT(""));
+        Value.ReplaceInline(TEXT("_"), TEXT(""));
+        Value.ReplaceInline(TEXT("-"), TEXT(""));
+        return Value;
+    };
+
+    const FString RequestedKey = NormalizePinToken(PinName);
+
+    auto TrySchemaPin = [Node](const FName& SchemaPinName) -> UEdGraphPin*
+    {
+        return Node->FindPin(SchemaPinName);
+    };
+
+    if (RequestedKey.Equals(TEXT("execute")) || RequestedKey.Equals(TEXT("execin")))
+    {
+        if (UEdGraphPin* Pin = TrySchemaPin(UEdGraphSchema_K2::PN_Execute))
+        {
+            return Pin;
+        }
+    }
+
+    if (RequestedKey.Equals(TEXT("then")) || RequestedKey.Equals(TEXT("execout")))
+    {
+        if (UEdGraphPin* Pin = TrySchemaPin(UEdGraphSchema_K2::PN_Then))
+        {
+            return Pin;
+        }
+    }
+
+    if (RequestedKey.Equals(TEXT("input")) || RequestedKey.Equals(TEXT("inputpin")))
+    {
+        if (UEdGraphPin* Pin = Node->FindPin(TEXT("InputPin")))
+        {
+            return Pin;
+        }
+    }
+
+    if (RequestedKey.Equals(TEXT("output")) || RequestedKey.Equals(TEXT("outputpin")))
+    {
+        if (UEdGraphPin* Pin = Node->FindPin(TEXT("OutputPin")))
+        {
+            return Pin;
+        }
+    }
+
+    for (UEdGraphPin* Pin : Node->Pins)
+    {
+        if (Pin != nullptr && NormalizePinToken(Pin->PinName.ToString()).Equals(RequestedKey))
+        {
+            return Pin;
+        }
+    }
+
+    return nullptr;
 }
 
 TSharedPtr<SWindow> ResolveActiveTopLevelWindow()

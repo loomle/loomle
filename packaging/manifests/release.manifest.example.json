@@ -1,10 +1,10 @@
 {
-  "latest": "0.3.20",
+  "latest": "0.3.21",
   "versions": {
-    "0.3.20": {
+    "0.3.21": {
       "packages": {
         "darwin": {
-          "url": "https://example.invalid/loomle-0.3.20-darwin.zip",
+          "url": "https://example.invalid/loomle-0.3.21-darwin.zip",
           "sha256": "package-sha256",
           "format": "zip",
           "server_binary_relpath": "plugin/LoomleBridge/Tools/mcp/darwin/loomle_mcp_server",

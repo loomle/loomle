@@ -1,4 +1,59 @@
 // Graph runtime handlers for Loomle Bridge.
+namespace
+{
+struct FGraphSemanticOpSpec
+{
+    const TCHAR* OpId;
+    const TCHAR* Scope;
+    const TCHAR* Summary;
+    const TCHAR* NodeClassPath;
+    bool bRequiresPinContext = false;
+    const TCHAR* Coverage = TEXT("curated");
+    const TCHAR* Determinism = TEXT("stable");
+};
+
+void AppendGraphSemanticOpSpecs(const FString& GraphType, TArray<FGraphSemanticOpSpec>& OutSpecs)
+{
+    if (GraphType.Equals(TEXT("blueprint")))
+    {
+        OutSpecs.Add({ TEXT("core.comment"), TEXT("cross-graph"), TEXT("Add a comment node or comment region."), TEXT("/Script/UnrealEd.EdGraphNode_Comment"), false, TEXT("curated"), TEXT("stable") });
+        OutSpecs.Add({ TEXT("core.reroute"), TEXT("cross-graph"), TEXT("Add a reroute node in a pin context."), TEXT("/Script/BlueprintGraph.K2Node_Knot"), true, TEXT("contextual"), TEXT("context_sensitive") });
+        OutSpecs.Add({ TEXT("bp.flow.branch"), TEXT("blueprint"), TEXT("Add a branch flow-control node."), TEXT("/Script/BlueprintGraph.K2Node_IfThenElse"), false, TEXT("curated"), TEXT("stable") });
+    }
+    else if (GraphType.Equals(TEXT("material")))
+    {
+        OutSpecs.Add({ TEXT("mat.constant.scalar"), TEXT("material"), TEXT("Add a scalar constant expression."), TEXT("/Script/Engine.MaterialExpressionConstant") });
+        OutSpecs.Add({ TEXT("mat.constant.vector3"), TEXT("material"), TEXT("Add a Constant3Vector expression."), TEXT("/Script/Engine.MaterialExpressionConstant3Vector") });
+        OutSpecs.Add({ TEXT("mat.math.multiply"), TEXT("material"), TEXT("Add a multiply expression."), TEXT("/Script/Engine.MaterialExpressionMultiply") });
+        OutSpecs.Add({ TEXT("mat.param.scalar"), TEXT("material"), TEXT("Add a scalar parameter expression."), TEXT("/Script/Engine.MaterialExpressionScalarParameter") });
+        OutSpecs.Add({ TEXT("mat.param.vector"), TEXT("material"), TEXT("Add a vector parameter expression."), TEXT("/Script/Engine.MaterialExpressionVectorParameter") });
+        OutSpecs.Add({ TEXT("mat.texture.sample"), TEXT("material"), TEXT("Add a texture sample expression."), TEXT("/Script/Engine.MaterialExpressionTextureSample") });
+    }
+    else if (GraphType.Equals(TEXT("pcg")))
+    {
+        OutSpecs.Add({ TEXT("pcg.create.points"), TEXT("pcg"), TEXT("Add a Create Points PCG node."), TEXT("/Script/PCG.PCGCreatePointsSettings") });
+        OutSpecs.Add({ TEXT("pcg.meta.add_tag"), TEXT("pcg"), TEXT("Add an Add Tag PCG node."), TEXT("/Script/PCG.PCGAddTagSettings") });
+        OutSpecs.Add({ TEXT("pcg.filter.by_tag"), TEXT("pcg"), TEXT("Add a Filter By Tag PCG node."), TEXT("/Script/PCG.PCGFilterByTagSettings") });
+        OutSpecs.Add({ TEXT("pcg.sample.surface"), TEXT("pcg"), TEXT("Add a Surface Sampler PCG node."), TEXT("/Script/PCG.PCGSurfaceSamplerSettings") });
+    }
+}
+
+bool TryFindGraphSemanticOpSpec(const FString& GraphType, const FString& OpId, FGraphSemanticOpSpec& OutSpec)
+{
+    TArray<FGraphSemanticOpSpec> Specs;
+    AppendGraphSemanticOpSpecs(GraphType, Specs);
+    for (const FGraphSemanticOpSpec& Spec : Specs)
+    {
+        if (OpId.Equals(Spec.OpId))
+        {
+            OutSpec = Spec;
+            return true;
+        }
+    }
+    return false;
+}
+}
+
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
@@ -2105,93 +2160,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
     return Result;
 }
 
-void FLoomleBridgeModule::PruneGraphActionTokenRegistry()
-{
-    // Caller must hold GraphActionTokenRegistryMutex.
-    const double NowSeconds = FPlatformTime::Seconds();
-    TArray<FString> KeysToRemove;
-    KeysToRemove.Reserve(GraphActionTokenRegistry.Num());
-    for (const TPair<FString, FGraphActionTokenEntry>& Pair : GraphActionTokenRegistry)
-    {
-        const bool bHasExecutablePayload = Pair.Value.Action.IsValid() || !Pair.Value.LegacyActionId.IsEmpty();
-        if (!bHasExecutablePayload || (NowSeconds - Pair.Value.CreatedAtSeconds) > LoomleBridgeConstants::GraphActionTokenTtlSeconds)
-        {
-            KeysToRemove.Add(Pair.Key);
-        }
-    }
-    for (const FString& Key : KeysToRemove)
-    {
-        GraphActionTokenRegistry.Remove(Key);
-    }
-
-    if (GraphActionTokenRegistry.Num() <= LoomleBridgeConstants::MaxGraphActionTokenRegistryEntries)
-    {
-        return;
-    }
-
-    struct FTokenAgeEntry
-    {
-        FString Token;
-        double CreatedAtSeconds = 0.0;
-    };
-    TArray<FTokenAgeEntry> AgeEntries;
-    AgeEntries.Reserve(GraphActionTokenRegistry.Num());
-    for (const TPair<FString, FGraphActionTokenEntry>& Pair : GraphActionTokenRegistry)
-    {
-        FTokenAgeEntry AgeEntry;
-        AgeEntry.Token = Pair.Key;
-        AgeEntry.CreatedAtSeconds = Pair.Value.CreatedAtSeconds;
-        AgeEntries.Add(AgeEntry);
-    }
-    Algo::Sort(AgeEntries, [](const FTokenAgeEntry& A, const FTokenAgeEntry& B)
-    {
-        return A.CreatedAtSeconds < B.CreatedAtSeconds;
-    });
-
-    const int32 Overflow = GraphActionTokenRegistry.Num() - LoomleBridgeConstants::MaxGraphActionTokenRegistryEntries;
-    for (int32 Index = 0; Index < Overflow; ++Index)
-    {
-        GraphActionTokenRegistry.Remove(AgeEntries[Index].Token);
-    }
-}
-
-bool FLoomleBridgeModule::ResolveGraphActionToken(const FString& ActionToken, const FString& GraphType, const FString& AssetPath, const FString& GraphName, FGraphActionTokenEntry& OutEntry, FString& OutErrorCode, FString& OutErrorMessage)
-{
-    OutErrorCode.Empty();
-    OutErrorMessage.Empty();
-    OutEntry = FGraphActionTokenEntry();
-
-    FScopeLock ScopeLock(&GraphActionTokenRegistryMutex);
-    PruneGraphActionTokenRegistry();
-
-    const FGraphActionTokenEntry* Found = GraphActionTokenRegistry.Find(ActionToken);
-    if (Found == nullptr || (!Found->Action.IsValid() && Found->LegacyActionId.IsEmpty()))
-    {
-        OutErrorCode = TEXT("ACTION_TOKEN_INVALID");
-        OutErrorMessage = TEXT("Unknown actionToken. Refresh with graph.actions and retry.");
-        return false;
-    }
-
-    const double NowSeconds = FPlatformTime::Seconds();
-    if ((NowSeconds - Found->CreatedAtSeconds) > LoomleBridgeConstants::GraphActionTokenTtlSeconds)
-    {
-        GraphActionTokenRegistry.Remove(ActionToken);
-        OutErrorCode = TEXT("ACTION_TOKEN_EXPIRED");
-        OutErrorMessage = TEXT("actionToken expired. Refresh with graph.actions and retry.");
-        return false;
-    }
-
-    if (!Found->GraphType.Equals(GraphType) || !Found->AssetPath.Equals(AssetPath) || !Found->GraphName.Equals(GraphName))
-    {
-        OutErrorCode = TEXT("ACTION_TOKEN_CONTEXT_MISMATCH");
-        OutErrorMessage = TEXT("actionToken does not match requested graph context.");
-        return false;
-    }
-
-    OutEntry = *Found;
-    return true;
-}
-
 FString FLoomleBridgeModule::MakePendingGraphLayoutKey(const FString& GraphType, const FString& AssetPath, const FString& GraphName) const
 {
     return FString::Printf(TEXT("%s|%s|%s"), *GraphType.ToLower(), *AssetPath, *GraphName);
@@ -3773,7 +3741,7 @@ bool FLoomleBridgeModule::ApplyPcgLayout(
     return true;
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphActionsToolResult(const TSharedPtr<FJsonObject>& Arguments)
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsToolResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
@@ -3787,251 +3755,134 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphActionsToolResult(const T
         return Result;
     }
 
-    auto ResolveInlineBlueprintGraphName = [](const FString& InAssetPath, const FString& InNodeGuid, FString& OutGraphName, FString& OutError) -> bool
+    FString StabilityFilter;
+    if (Arguments.IsValid())
     {
-        FString NodesJson;
-        OutGraphName.Empty();
-        OutError.Empty();
-        return FLoomleBlueprintAdapter::ListCompositeSubgraphNodes(InAssetPath, InNodeGuid, OutGraphName, NodesJson, OutError)
-            && !OutGraphName.IsEmpty();
-    };
-
-    FString AssetPath;
-    FString GraphName = GraphType.Equals(TEXT("blueprint"))
-        ? TEXT("EventGraph")
-        : (GraphType.Equals(TEXT("pcg")) ? TEXT("PCGGraph") : TEXT("MaterialGraph"));
-    FString InlineNodeGuid;
-    bool bUsedGraphRef = false;
-
-    const TSharedPtr<FJsonObject>* GraphRefObj = nullptr;
-    const bool bHasGraphRef = Arguments->TryGetObjectField(TEXT("graphRef"), GraphRefObj) && GraphRefObj && (*GraphRefObj).IsValid();
-    const bool bHasGraphName = Arguments->HasTypedField<EJson::String>(TEXT("graphName"));
-    if (bHasGraphRef && bHasGraphName)
+        Arguments->TryGetStringField(TEXT("stability"), StabilityFilter);
+    }
+    StabilityFilter = StabilityFilter.TrimStartAndEnd().ToLower();
+    if (!StabilityFilter.IsEmpty()
+        && !StabilityFilter.Equals(TEXT("stable"))
+        && !StabilityFilter.Equals(TEXT("experimental")))
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Result->SetStringField(TEXT("message"), TEXT("Supply either graphRef (Mode B) or graphName (Mode A), not both."));
+        Result->SetStringField(TEXT("message"), TEXT("stability must be stable or experimental when provided."));
         return Result;
     }
 
-    if (bHasGraphRef)
+    FString Query;
+    if (Arguments.IsValid())
     {
-        bUsedGraphRef = true;
-        FString Kind;
-        if (!(*GraphRefObj)->TryGetStringField(TEXT("kind"), Kind) || Kind.IsEmpty())
-        {
-            Result->SetBoolField(TEXT("isError"), true);
-            Result->SetStringField(TEXT("code"), TEXT("GRAPH_REF_INVALID"));
-            Result->SetStringField(TEXT("message"), TEXT("graphRef.kind is required."));
-            return Result;
-        }
-        Kind = Kind.ToLower();
-
-        FString RefAssetPath;
-        if (!(*GraphRefObj)->TryGetStringField(TEXT("assetPath"), RefAssetPath) || RefAssetPath.IsEmpty())
-        {
-            Result->SetBoolField(TEXT("isError"), true);
-            Result->SetStringField(TEXT("code"), TEXT("GRAPH_REF_INVALID"));
-            Result->SetStringField(TEXT("message"), TEXT("graphRef.assetPath is required."));
-            return Result;
-        }
-        AssetPath = NormalizeAssetPath(RefAssetPath);
-
-        if (Kind.Equals(TEXT("asset")))
-        {
-            (*GraphRefObj)->TryGetStringField(TEXT("graphName"), GraphName);
-        }
-        else if (Kind.Equals(TEXT("inline")))
-        {
-            if (!GraphType.Equals(TEXT("blueprint")))
-            {
-                Result->SetBoolField(TEXT("isError"), true);
-                Result->SetStringField(TEXT("code"), TEXT("GRAPH_REF_INVALID"));
-                Result->SetStringField(TEXT("message"), TEXT("graphRef.kind=inline is only supported for blueprint graphType."));
-                return Result;
-            }
-            if (!(*GraphRefObj)->TryGetStringField(TEXT("nodeGuid"), InlineNodeGuid) || InlineNodeGuid.IsEmpty())
-            {
-                Result->SetBoolField(TEXT("isError"), true);
-                Result->SetStringField(TEXT("code"), TEXT("GRAPH_REF_INVALID"));
-                Result->SetStringField(TEXT("message"), TEXT("graphRef.nodeGuid is required for kind=inline."));
-                return Result;
-            }
-
-            FString ResolvedGraphName;
-            FString ResolveError;
-            if (!ResolveInlineBlueprintGraphName(AssetPath, InlineNodeGuid, ResolvedGraphName, ResolveError))
-            {
-                Result->SetBoolField(TEXT("isError"), true);
-                Result->SetStringField(TEXT("code"), TEXT("GRAPH_NOT_FOUND"));
-                Result->SetStringField(TEXT("message"), ResolveError.IsEmpty() ? TEXT("Failed to resolve inline graphRef.") : ResolveError);
-                return Result;
-            }
-            GraphName = ResolvedGraphName;
-        }
-        else
-        {
-            Result->SetBoolField(TEXT("isError"), true);
-            Result->SetStringField(TEXT("code"), TEXT("GRAPH_REF_INVALID"));
-            Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Unsupported graphRef.kind: %s"), *Kind));
-            return Result;
-        }
+        Arguments->TryGetStringField(TEXT("query"), Query);
     }
-    else
+    const FString QueryLower = Query.TrimStartAndEnd().ToLower();
+
+    int32 Limit = 1000;
+    double LimitNumber = 0.0;
+    if (Arguments.IsValid() && Arguments->TryGetNumberField(TEXT("limit"), LimitNumber))
     {
-        if (!Arguments->TryGetStringField(TEXT("assetPath"), AssetPath) || AssetPath.IsEmpty())
-        {
-            Result->SetBoolField(TEXT("isError"), true);
-            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-            Result->SetStringField(TEXT("message"), TEXT("arguments.assetPath is required (Mode A) or supply graphRef (Mode B)."));
-            return Result;
-        }
-        AssetPath = NormalizeAssetPath(AssetPath);
-        Arguments->TryGetStringField(TEXT("graphName"), GraphName);
+        Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, 1000);
     }
 
-    if (!GraphType.Equals(TEXT("blueprint")))
+    TArray<FGraphSemanticOpSpec> Specs;
+    AppendGraphSemanticOpSpecs(GraphType, Specs);
+
+    TArray<TSharedPtr<FJsonValue>> Ops;
+    TArray<TSharedPtr<FJsonValue>> Diagnostics;
+    for (const FGraphSemanticOpSpec& Spec : Specs)
     {
-        PruneGraphActionTokenRegistry();
-
-        int32 Limit = 100;
-        double LimitNumber = 0.0;
-        if (Arguments->TryGetNumberField(TEXT("limit"), LimitNumber))
+        if (Ops.Num() >= Limit)
         {
-            Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, 1000);
+            break;
         }
 
-        struct FSimpleActionSpec
+        if (!StabilityFilter.IsEmpty() && !StabilityFilter.Equals(TEXT("stable")))
         {
-            const TCHAR* ActionId;
-            const TCHAR* Title;
-            const TCHAR* Category;
-            const TCHAR* NodeClassPath;
-        };
-
-        TArray<FSimpleActionSpec> ActionSpecs;
-        if (GraphType.Equals(TEXT("material")))
-        {
-            ActionSpecs.Add({ TEXT("mat.constant"), TEXT("Constant"), TEXT("Material|Constants"), TEXT("/Script/Engine.MaterialExpressionConstant") });
-            ActionSpecs.Add({ TEXT("mat.constant3"), TEXT("Constant3Vector"), TEXT("Material|Constants"), TEXT("/Script/Engine.MaterialExpressionConstant3Vector") });
-            ActionSpecs.Add({ TEXT("mat.multiply"), TEXT("Multiply"), TEXT("Material|Math"), TEXT("/Script/Engine.MaterialExpressionMultiply") });
-            ActionSpecs.Add({ TEXT("mat.textureSample"), TEXT("Texture Sample"), TEXT("Material|Texture"), TEXT("/Script/Engine.MaterialExpressionTextureSample") });
-            ActionSpecs.Add({ TEXT("mat.scalarParameter"), TEXT("Scalar Parameter"), TEXT("Material|Parameters"), TEXT("/Script/Engine.MaterialExpressionScalarParameter") });
-            ActionSpecs.Add({ TEXT("mat.vectorParameter"), TEXT("Vector Parameter"), TEXT("Material|Parameters"), TEXT("/Script/Engine.MaterialExpressionVectorParameter") });
-        }
-        else if (GraphType.Equals(TEXT("pcg")))
-        {
-            ActionSpecs.Add({ TEXT("pcg.addTag"), TEXT("Add Tag"), TEXT("PCG|Metadata"), TEXT("/Script/PCG.PCGAddTagSettings") });
-            ActionSpecs.Add({ TEXT("pcg.filterByTag"), TEXT("Filter By Tag"), TEXT("PCG|Filter"), TEXT("/Script/PCG.PCGFilterByTagSettings") });
-            ActionSpecs.Add({ TEXT("pcg.createPoints"), TEXT("Create Points"), TEXT("PCG|Create"), TEXT("/Script/PCG.PCGCreatePointsSettings") });
-            ActionSpecs.Add({ TEXT("pcg.surfaceSampler"), TEXT("Surface Sampler"), TEXT("PCG|Sampling"), TEXT("/Script/PCG.PCGSurfaceSamplerSettings") });
+            continue;
         }
 
-        TSharedPtr<FJsonObject> ContextEcho = MakeShared<FJsonObject>();
-        ContextEcho->SetStringField(TEXT("mode"), TEXT("graph"));
-
-        TArray<TSharedPtr<FJsonValue>> Actions;
-        int32 Total = 0;
-        for (const FSimpleActionSpec& Spec : ActionSpecs)
+        const FString SearchBlob = (FString(Spec.OpId) + TEXT("|") + Spec.Scope + TEXT("|") + Spec.Summary).ToLower();
+        if (!QueryLower.IsEmpty() && !SearchBlob.Contains(QueryLower))
         {
-            if (Actions.Num() >= Limit)
-            {
-                break;
-            }
-
-            UClass* NodeClass = LoadObject<UClass>(nullptr, Spec.NodeClassPath);
-            if (NodeClass == nullptr)
-            {
-                continue;
-            }
-            ++Total;
-
-            const FString ActionToken = FString::Printf(TEXT("act:%s:%s"), *GraphType, *FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-            FGraphActionTokenEntry TokenEntry;
-            TokenEntry.GraphType = GraphType;
-            TokenEntry.AssetPath = AssetPath;
-            TokenEntry.GraphName = GraphName;
-            TokenEntry.LegacyActionId = Spec.NodeClassPath;
-            TokenEntry.CreatedAtSeconds = FPlatformTime::Seconds();
-            {
-                FScopeLock ScopeLock(&GraphActionTokenRegistryMutex);
-                GraphActionTokenRegistry.Add(ActionToken, TokenEntry);
-            }
-
-            TSharedPtr<FJsonObject> ActionObject = MakeShared<FJsonObject>();
-            ActionObject->SetStringField(TEXT("actionToken"), ActionToken);
-            ActionObject->SetStringField(TEXT("title"), Spec.Title);
-            ActionObject->SetStringField(TEXT("categoryPath"), Spec.Category);
-            ActionObject->SetStringField(TEXT("tooltip"), TEXT(""));
-            ActionObject->SetStringField(TEXT("keywords"), TEXT(""));
-            TSharedPtr<FJsonObject> Compatibility = MakeShared<FJsonObject>();
-            Compatibility->SetBoolField(TEXT("isCompatible"), true);
-            Compatibility->SetArrayField(TEXT("reasons"), TArray<TSharedPtr<FJsonValue>>{});
-            ActionObject->SetObjectField(TEXT("compatibility"), Compatibility);
-            TSharedPtr<FJsonObject> SpawnObj = MakeShared<FJsonObject>();
-            SpawnObj->SetStringField(TEXT("nodeClassPath"), Spec.NodeClassPath);
-            ActionObject->SetObjectField(TEXT("spawn"), SpawnObj);
-            Actions.Add(MakeShared<FJsonValueObject>(ActionObject));
+            continue;
         }
 
-        TSharedPtr<FJsonObject> Meta = MakeShared<FJsonObject>();
-        Meta->SetNumberField(TEXT("total"), Total);
-        Meta->SetNumberField(TEXT("returned"), Actions.Num());
-        Meta->SetBoolField(TEXT("truncated"), false);
-        Meta->SetStringField(TEXT("actionSource"), TEXT("curated_catalog"));
-
-        TArray<TSharedPtr<FJsonValue>> Diagnostics;
-        if (Actions.Num() == 0)
+        UClass* NodeClass = LoadObject<UClass>(nullptr, Spec.NodeClassPath);
+        if (NodeClass == nullptr)
         {
             TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
-            Diagnostic->SetStringField(TEXT("code"), TEXT("ADDABLE_EMPTY"));
-            Diagnostic->SetStringField(TEXT("message"), TEXT("No addable actions are available for current graph type in this editor build."));
+            Diagnostic->SetStringField(TEXT("code"), TEXT("SEMANTIC_OP_CLASS_UNAVAILABLE"));
+            Diagnostic->SetStringField(TEXT("opId"), Spec.OpId);
+            Diagnostic->SetStringField(TEXT("message"), FString::Printf(TEXT("Semantic op class is unavailable in this editor build: %s"), Spec.NodeClassPath));
             Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
-            Meta->SetStringField(TEXT("fallbackReason"), TEXT("no_catalog_actions"));
-            Meta->SetStringField(TEXT("recommendedRecovery"), TEXT("Verify the current editor build exposes actions for this graph type, or use graph.mutate addNode.byClass directly."));
+            continue;
         }
 
-        Result->SetStringField(TEXT("graphType"), GraphType);
-        Result->SetStringField(TEXT("assetPath"), AssetPath);
-        Result->SetStringField(TEXT("graphName"), GraphName);
-        {
-            TSharedPtr<FJsonObject> ResponseGraphRef = MakeShared<FJsonObject>();
-            if (bUsedGraphRef && !InlineNodeGuid.IsEmpty())
-            {
-                ResponseGraphRef->SetStringField(TEXT("kind"), TEXT("inline"));
-                ResponseGraphRef->SetStringField(TEXT("nodeGuid"), InlineNodeGuid);
-                ResponseGraphRef->SetStringField(TEXT("assetPath"), AssetPath);
-            }
-            else
-            {
-                ResponseGraphRef->SetStringField(TEXT("kind"), TEXT("asset"));
-                ResponseGraphRef->SetStringField(TEXT("assetPath"), AssetPath);
-                if (!GraphName.IsEmpty())
-                {
-                    ResponseGraphRef->SetStringField(TEXT("graphName"), GraphName);
-                }
-            }
-            Result->SetObjectField(TEXT("graphRef"), ResponseGraphRef);
-        }
-        Result->SetObjectField(TEXT("contextEcho"), ContextEcho);
-        Result->SetArrayField(TEXT("actions"), Actions);
-        Result->SetStringField(TEXT("nextCursor"), TEXT(""));
-        Result->SetObjectField(TEXT("meta"), Meta);
-        Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
-        return Result;
+        TSharedPtr<FJsonObject> OpObject = MakeShared<FJsonObject>();
+        OpObject->SetStringField(TEXT("opId"), Spec.OpId);
+        OpObject->SetStringField(TEXT("stability"), TEXT("stable"));
+        OpObject->SetStringField(TEXT("scope"), Spec.Scope);
+        OpObject->SetStringField(TEXT("summary"), Spec.Summary);
+        Ops.Add(MakeShared<FJsonValueObject>(OpObject));
     }
 
-    UBlueprint* Blueprint = LoadBlueprintByAssetPath(AssetPath);
-    UEdGraph* TargetGraph = ResolveBlueprintGraph(Blueprint, GraphName);
-    if (Blueprint == nullptr || TargetGraph == nullptr)
+    TSharedPtr<FJsonObject> Meta = MakeShared<FJsonObject>();
+    Meta->SetStringField(TEXT("source"), TEXT("loomle_catalog"));
+    Meta->SetStringField(TEXT("coverage"), TEXT("curated"));
+
+    Result->SetStringField(TEXT("graphType"), GraphType);
+    Result->SetArrayField(TEXT("ops"), Ops);
+    Result->SetObjectField(TEXT("meta"), Meta);
+    Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+
+    const FString GraphType = GetGraphTypeFromArgs(Arguments);
+    if (!IsSupportedGraphType(GraphType))
     {
         Result->SetBoolField(TEXT("isError"), true);
-        Result->SetStringField(TEXT("code"), TEXT("GRAPH_NOT_FOUND"));
-        Result->SetStringField(TEXT("message"), TEXT("Failed to resolve blueprint/target graph."));
+        Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_GRAPH_TYPE"));
+        Result->SetStringField(TEXT("message"), TEXT("Supported graphType values: blueprint, material, pcg."));
         return Result;
     }
 
-    UEdGraphPin* FromPin = nullptr;
+    const TSharedPtr<FJsonObject>* GraphRefObj = nullptr;
+    if (!Arguments.IsValid()
+        || !Arguments->TryGetObjectField(TEXT("graphRef"), GraphRefObj)
+        || GraphRefObj == nullptr
+        || !(*GraphRefObj).IsValid())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("graphRef is required."));
+        return Result;
+    }
+
+    const TArray<TSharedPtr<FJsonValue>>* Items = nullptr;
+    if (!Arguments->TryGetArrayField(TEXT("items"), Items) || Items == nullptr || Items->Num() == 0)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("items[] is required."));
+        return Result;
+    }
+
+    TSharedPtr<FJsonObject> QueryArgs = MakeShared<FJsonObject>();
+    QueryArgs->SetStringField(TEXT("graphType"), GraphType);
+    QueryArgs->SetObjectField(TEXT("graphRef"), CloneJsonObject(*GraphRefObj));
+    const TSharedPtr<FJsonObject> QueryResult = BuildGraphQueryToolResult(QueryArgs);
+    bool bQueryIsError = false;
+    if (QueryResult.IsValid() && QueryResult->TryGetBoolField(TEXT("isError"), bQueryIsError) && bQueryIsError)
+    {
+        return QueryResult;
+    }
+
     FString FromNodeId;
     FString FromPinName;
     const TSharedPtr<FJsonObject>* ContextObj = nullptr;
@@ -4042,378 +3893,445 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphActionsToolResult(const T
         {
             (*FromPinObj)->TryGetStringField(TEXT("nodeId"), FromNodeId);
             (*FromPinObj)->TryGetStringField(TEXT("pinName"), FromPinName);
-            if (!FromNodeId.IsEmpty() && !FromPinName.IsEmpty())
-            {
-                if (UEdGraphNode* Node = FindNodeByGuid(TargetGraph, FromNodeId))
-                {
-                    FromPin = FindPinByName(Node, FromPinName);
-                }
-            }
         }
     }
 
-    FBlueprintActionContext ActionContext;
-    ActionContext.Blueprints.Add(Blueprint);
-    ActionContext.Graphs.Add(TargetGraph);
-    if (FromPin != nullptr)
+    TArray<TSharedPtr<FJsonValue>> Results;
+    for (int32 Index = 0; Index < Items->Num(); ++Index)
     {
-        ActionContext.Pins.Add(FromPin);
-    }
-
-    FBlueprintActionMenuBuilder MenuBuilder;
-    UEdGraph* TempOwnerGraph = NewObject<UEdGraph>((UObject*)Blueprint);
-    if (TempOwnerGraph != nullptr)
-    {
-        TempOwnerGraph->Schema = UEdGraphSchema_K2::StaticClass();
-        TempOwnerGraph->SetFlags(RF_Transient);
-        MenuBuilder.OwnerOfTemporaries = TempOwnerGraph;
-    }
-
-    const uint32 ClassTargetMask =
-        EContextTargetFlags::TARGET_Blueprint |
-        EContextTargetFlags::TARGET_SubComponents |
-        EContextTargetFlags::TARGET_NodeTarget |
-        EContextTargetFlags::TARGET_PinObject |
-        EContextTargetFlags::TARGET_SiblingPinObjects |
-        EContextTargetFlags::TARGET_BlueprintLibraries |
-        EContextTargetFlags::TARGET_NonImportedTypes;
-    FBlueprintActionMenuUtils::MakeContextMenu(ActionContext, true, ClassTargetMask, MenuBuilder);
-
-    int32 Limit = 100;
-    double LimitNumber = 0.0;
-    if (Arguments->TryGetNumberField(TEXT("limit"), LimitNumber))
-    {
-        Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, 1000);
-    }
-
-    FString Query;
-    Arguments->TryGetStringField(TEXT("query"), Query);
-    const FString QueryLower = Query.TrimStartAndEnd().ToLower();
-    const bool bHasPinContext = (FromPin != nullptr);
-
-    PruneGraphActionTokenRegistry();
-    TArray<TSharedPtr<FJsonValue>> Actions;
-    TArray<TSharedPtr<FJsonValue>> Diagnostics;
-    int32 TotalActions = 0;
-
-    struct FActionCandidate
-    {
-        TSharedPtr<FEdGraphSchemaAction> Action;
-        FString Title;
-        FString Category;
-        FString Tooltip;
-        FString Keywords;
-        FString FullSearchText;
-        int32 Score = 0;
-        int32 Grouping = 0;
-    };
-    TArray<FActionCandidate> Candidates;
-    Candidates.Reserve(MenuBuilder.GetNumActions());
-
-    auto ComputeActionScore = [&QueryLower, bHasPinContext](const FActionCandidate& Candidate) -> int32
-    {
-        const FString TitleLower = Candidate.Title.ToLower();
-        const FString CategoryLower = Candidate.Category.ToLower();
-        const FString KeywordsLower = Candidate.Keywords.ToLower();
-        const FString FullSearchLower = Candidate.FullSearchText.ToLower();
-        int32 Score = Candidate.Grouping * 10;
-
-        if (!QueryLower.IsEmpty())
+        const TSharedPtr<FJsonValue>& ItemValue = (*Items)[Index];
+        const TSharedPtr<FJsonObject>* ItemObj = nullptr;
+        if (!ItemValue.IsValid() || !ItemValue->TryGetObject(ItemObj) || ItemObj == nullptr || !(*ItemObj).IsValid())
         {
-            if (TitleLower.Equals(QueryLower))
-            {
-                Score += 2400;
-            }
-            else if (TitleLower.StartsWith(QueryLower))
-            {
-                Score += 1300;
-            }
-            else if (TitleLower.Contains(QueryLower))
-            {
-                Score += 700;
-            }
-
-            if (CategoryLower.Contains(QueryLower))
-            {
-                Score += 260;
-            }
-            if (KeywordsLower.Contains(QueryLower))
-            {
-                Score += 300;
-            }
-            if (FullSearchLower.Contains(QueryLower))
-            {
-                Score += 120;
-            }
-        }
-        else
-        {
-            const bool bIsCastAction = TitleLower.StartsWith(TEXT("cast to "));
-            const bool bIsClassVariant = TitleLower.EndsWith(TEXT(" class")) || TitleLower.Contains(TEXT(" class"));
-            if (bIsCastAction && !bHasPinContext)
-            {
-                Score -= 550;
-            }
-            if (bIsClassVariant && !bHasPinContext)
-            {
-                Score -= 260;
-            }
-            if (CategoryLower.Contains(TEXT("casting")) && !bHasPinContext)
-            {
-                Score -= 140;
-            }
-
-            const bool bIsHighPriorityNode =
-                TitleLower.Equals(TEXT("branch"))
-                || TitleLower.Equals(TEXT("sequence"))
-                || TitleLower.Equals(TEXT("comment"))
-                || TitleLower.Equals(TEXT("reroute"))
-                || TitleLower.Equals(TEXT("for loop"))
-                || TitleLower.Equals(TEXT("for each loop"))
-                || TitleLower.Equals(TEXT("do once"))
-                || TitleLower.Equals(TEXT("gate"))
-                || TitleLower.Equals(TEXT("delay"))
-                || TitleLower.Equals(TEXT("print string"));
-            if (bIsHighPriorityNode)
-            {
-                Score += 900;
-            }
-            if (CategoryLower.Contains(TEXT("flow control")))
-            {
-                Score += 260;
-            }
-            if (CategoryLower.Contains(TEXT("utilities")))
-            {
-                Score += 80;
-            }
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Result->SetStringField(TEXT("message"), FString::Printf(TEXT("items[%d] must be an object."), Index));
+            return Result;
         }
 
-        if (!TitleLower.StartsWith(TEXT("cast to ")))
+        FString OpId;
+        if (!(*ItemObj)->TryGetStringField(TEXT("opId"), OpId) || OpId.IsEmpty())
         {
-            Score += 40;
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Result->SetStringField(TEXT("message"), FString::Printf(TEXT("items[%d].opId is required."), Index));
+            return Result;
         }
-        return Score;
-    };
 
-    const int32 NumActions = MenuBuilder.GetNumActions();
-    for (int32 Index = 0; Index < NumActions; ++Index)
-    {
-        TSharedPtr<FEdGraphSchemaAction>& ActionRef = MenuBuilder.GetSchemaAction(Index);
-        if (!ActionRef.IsValid())
+        FString ClientRef;
+        (*ItemObj)->TryGetStringField(TEXT("clientRef"), ClientRef);
+        const TSharedPtr<FJsonObject>* HintsObj = nullptr;
+        const bool bHasHints = (*ItemObj)->TryGetObjectField(TEXT("hints"), HintsObj)
+            && HintsObj != nullptr
+            && (*HintsObj).IsValid();
+
+        TSharedPtr<FJsonObject> ResultItem = MakeShared<FJsonObject>();
+        ResultItem->SetStringField(TEXT("opId"), OpId);
+        if (!ClientRef.IsEmpty())
         {
+            ResultItem->SetStringField(TEXT("clientRef"), ClientRef);
+        }
+
+        FGraphSemanticOpSpec Spec;
+        if (!TryFindGraphSemanticOpSpec(GraphType, OpId, Spec))
+        {
+            TSharedPtr<FJsonObject> Compatibility = MakeShared<FJsonObject>();
+            Compatibility->SetBoolField(TEXT("isCompatible"), false);
+            Compatibility->SetArrayField(TEXT("reasons"), TArray<TSharedPtr<FJsonValue>>{
+                MakeShared<FJsonValueString>(TEXT("unsupported_opid"))
+            });
+
+            ResultItem->SetBoolField(TEXT("resolved"), false);
+            ResultItem->SetObjectField(TEXT("compatibility"), Compatibility);
+            ResultItem->SetStringField(TEXT("reason"), TEXT("unsupported_opid"));
+            Results.Add(MakeShared<FJsonValueObject>(ResultItem));
             continue;
         }
 
-        const FString Title = ActionRef->GetMenuDescription().ToString();
-        const FString Category = ActionRef->GetCategory().ToString();
-        const FString Tooltip = ActionRef->GetTooltipDescription().ToString();
-        const FString Keywords = ActionRef->GetKeywords().ToString();
-        const FString FullSearchText = ActionRef->GetFullSearchText();
-        const FName ActionTypeId = ActionRef->GetTypeId();
-        if (ActionTypeId == FEdGraphSchemaAction_Dummy::StaticGetTypeId() && QueryLower.IsEmpty())
+        UClass* NodeClass = LoadObject<UClass>(nullptr, Spec.NodeClassPath);
+        if (NodeClass == nullptr)
         {
+            TSharedPtr<FJsonObject> Compatibility = MakeShared<FJsonObject>();
+            Compatibility->SetBoolField(TEXT("isCompatible"), false);
+            Compatibility->SetArrayField(TEXT("reasons"), TArray<TSharedPtr<FJsonValue>>{
+                MakeShared<FJsonValueString>(TEXT("class_unavailable"))
+            });
+
+            ResultItem->SetBoolField(TEXT("resolved"), false);
+            ResultItem->SetObjectField(TEXT("compatibility"), Compatibility);
+            ResultItem->SetStringField(TEXT("reason"), TEXT("class_unavailable"));
+            Results.Add(MakeShared<FJsonValueObject>(ResultItem));
             continue;
         }
 
-        if (!QueryLower.IsEmpty())
+        if (Spec.bRequiresPinContext && (FromNodeId.IsEmpty() || FromPinName.IsEmpty()))
         {
-            const FString SearchBlob = (Title + TEXT("|") + Category + TEXT("|") + Tooltip + TEXT("|") + Keywords + TEXT("|") + FullSearchText).ToLower();
-            if (!SearchBlob.Contains(QueryLower))
-            {
-                continue;
-            }
-        }
+            TSharedPtr<FJsonObject> Compatibility = MakeShared<FJsonObject>();
+            Compatibility->SetBoolField(TEXT("isCompatible"), false);
+            Compatibility->SetArrayField(TEXT("reasons"), TArray<TSharedPtr<FJsonValue>>{
+                MakeShared<FJsonValueString>(TEXT("requires_pin_context"))
+            });
 
-        FActionCandidate Candidate;
-        Candidate.Action = ActionRef;
-        Candidate.Title = Title;
-        Candidate.Category = Category;
-        Candidate.Tooltip = Tooltip;
-        Candidate.Keywords = Keywords;
-        Candidate.FullSearchText = FullSearchText;
-        Candidate.Grouping = ActionRef->GetGrouping();
-        Candidate.Score = ComputeActionScore(Candidate);
-        Candidates.Add(Candidate);
-    }
-
-    Algo::Sort(Candidates, [](const FActionCandidate& A, const FActionCandidate& B)
-    {
-        if (A.Score != B.Score)
-        {
-            return A.Score > B.Score;
+            ResultItem->SetBoolField(TEXT("resolved"), false);
+            ResultItem->SetObjectField(TEXT("compatibility"), Compatibility);
+            ResultItem->SetStringField(TEXT("reason"), TEXT("incompatible_context"));
+            Results.Add(MakeShared<FJsonValueObject>(ResultItem));
+            continue;
         }
-        if (A.Grouping != B.Grouping)
-        {
-            return A.Grouping > B.Grouping;
-        }
-        return A.Title < B.Title;
-    });
-
-    TotalActions = Candidates.Num();
-    for (const FActionCandidate& Candidate : Candidates)
-    {
-        if (Actions.Num() >= Limit)
-        {
-            break;
-        }
-
-        const FString ActionToken = FString::Printf(TEXT("act:bp:%s"), *FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-        FGraphActionTokenEntry TokenEntry;
-        TokenEntry.GraphType = GraphType;
-        TokenEntry.AssetPath = AssetPath;
-        TokenEntry.GraphName = GraphName;
-        TokenEntry.FromNodeId = FromNodeId;
-        TokenEntry.FromPinName = FromPinName;
-        TokenEntry.Action = Candidate.Action;
-        TokenEntry.CreatedAtSeconds = FPlatformTime::Seconds();
-        {
-            FScopeLock ScopeLock(&GraphActionTokenRegistryMutex);
-            GraphActionTokenRegistry.Add(ActionToken, TokenEntry);
-        }
-
-        TSharedPtr<FJsonObject> ActionObject = MakeShared<FJsonObject>();
-        ActionObject->SetStringField(TEXT("actionToken"), ActionToken);
-        ActionObject->SetStringField(TEXT("title"), Candidate.Title);
-        ActionObject->SetStringField(TEXT("categoryPath"), Candidate.Category);
-        ActionObject->SetStringField(TEXT("tooltip"), Candidate.Tooltip);
-        ActionObject->SetStringField(TEXT("keywords"), Candidate.Keywords);
 
         TSharedPtr<FJsonObject> Compatibility = MakeShared<FJsonObject>();
         Compatibility->SetBoolField(TEXT("isCompatible"), true);
         Compatibility->SetArrayField(TEXT("reasons"), TArray<TSharedPtr<FJsonValue>>{});
-        ActionObject->SetObjectField(TEXT("compatibility"), Compatibility);
 
-        TSharedPtr<FJsonObject> SpawnObj = MakeShared<FJsonObject>();
-        if (Candidate.Action->GetTypeId() == FEdGraphSchemaAction_NewNode::StaticGetTypeId())
+        TSharedPtr<FJsonObject> PreferredPlan = MakeShared<FJsonObject>();
+        PreferredPlan->SetStringField(TEXT("realizationKind"), TEXT("spawn_node"));
+        PreferredPlan->SetStringField(TEXT("preferredMutateOp"), TEXT("addNode.byClass"));
+        TSharedPtr<FJsonObject> ArgsObj = MakeShared<FJsonObject>();
+        ArgsObj->SetStringField(TEXT("nodeClassPath"), Spec.NodeClassPath);
+        PreferredPlan->SetObjectField(TEXT("args"), ArgsObj);
+        PreferredPlan->SetStringField(TEXT("source"), TEXT("loomle_catalog"));
+        PreferredPlan->SetStringField(TEXT("coverage"), Spec.Coverage);
+        PreferredPlan->SetStringField(TEXT("determinism"), Spec.Determinism);
+
+        if (GraphType.Equals(TEXT("blueprint")))
         {
-            const FEdGraphSchemaAction_NewNode* NewNodeAction = static_cast<const FEdGraphSchemaAction_NewNode*>(Candidate.Action.Get());
-            if (NewNodeAction != nullptr && NewNodeAction->NodeTemplate != nullptr && NewNodeAction->NodeTemplate->GetClass() != nullptr)
+            TArray<TSharedPtr<FJsonValue>> PinHints;
+            if (OpId.Equals(TEXT("core.reroute")))
             {
-                SpawnObj->SetStringField(TEXT("nodeClassPath"), NewNodeAction->NodeTemplate->GetClass()->GetPathName());
+                TSharedPtr<FJsonObject> InHint = MakeShared<FJsonObject>();
+                InHint->SetStringField(TEXT("role"), TEXT("input"));
+                InHint->SetStringField(TEXT("pinName"), TEXT("Input"));
+                PinHints.Add(MakeShared<FJsonValueObject>(InHint));
+
+                TSharedPtr<FJsonObject> OutHint = MakeShared<FJsonObject>();
+                OutHint->SetStringField(TEXT("role"), TEXT("output"));
+                OutHint->SetStringField(TEXT("pinName"), TEXT("Output"));
+                PinHints.Add(MakeShared<FJsonValueObject>(OutHint));
             }
-        }
-        ActionObject->SetObjectField(TEXT("spawn"), SpawnObj);
-        Actions.Add(MakeShared<FJsonValueObject>(ActionObject));
-    }
-
-    bool bUsedFallbackActions = false;
-    if (TotalActions == 0)
-    {
-        bUsedFallbackActions = true;
-        struct FFallbackActionSpec
-        {
-            const TCHAR* ActionId;
-            const TCHAR* Title;
-            const TCHAR* Category;
-        };
-        const FFallbackActionSpec FallbackActions[] = {
-            {TEXT("event"), TEXT("Event"), TEXT("Events")},
-            {TEXT("cast"), TEXT("Cast"), TEXT("Utilities|Casting")},
-            {TEXT("callFunction"), TEXT("Call Function"), TEXT("Functions")},
-            {TEXT("branch"), TEXT("Branch"), TEXT("Flow Control")},
-            {TEXT("variableGet"), TEXT("Get Variable"), TEXT("Variables")},
-            {TEXT("variableSet"), TEXT("Set Variable"), TEXT("Variables")},
-            {TEXT("comment"), TEXT("Comment"), TEXT("Utilities")},
-            {TEXT("knot"), TEXT("Reroute"), TEXT("Utilities")}
-        };
-
-        for (const FFallbackActionSpec& Fallback : FallbackActions)
-        {
-            if (Actions.Num() >= Limit)
+            else if (OpId.Equals(TEXT("bp.flow.branch")))
             {
-                break;
-            }
+                TSharedPtr<FJsonObject> ExecInHint = MakeShared<FJsonObject>();
+                ExecInHint->SetStringField(TEXT("role"), TEXT("exec_input"));
+                ExecInHint->SetStringField(TEXT("pinName"), TEXT("execute"));
+                PinHints.Add(MakeShared<FJsonValueObject>(ExecInHint));
 
-            ++TotalActions;
-            const FString ActionToken = FString::Printf(TEXT("act:bp:%s"), *FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-            FGraphActionTokenEntry TokenEntry;
-            TokenEntry.GraphType = GraphType;
-            TokenEntry.AssetPath = AssetPath;
-            TokenEntry.GraphName = GraphName;
-            TokenEntry.FromNodeId = FromNodeId;
-            TokenEntry.FromPinName = FromPinName;
-            TokenEntry.LegacyActionId = Fallback.ActionId;
-            TokenEntry.CreatedAtSeconds = FPlatformTime::Seconds();
-            {
-                FScopeLock ScopeLock(&GraphActionTokenRegistryMutex);
-                GraphActionTokenRegistry.Add(ActionToken, TokenEntry);
+                TSharedPtr<FJsonObject> ConditionHint = MakeShared<FJsonObject>();
+                ConditionHint->SetStringField(TEXT("role"), TEXT("condition"));
+                ConditionHint->SetStringField(TEXT("pinName"), TEXT("Condition"));
+                PinHints.Add(MakeShared<FJsonValueObject>(ConditionHint));
+
+                TSharedPtr<FJsonObject> TrueHint = MakeShared<FJsonObject>();
+                TrueHint->SetStringField(TEXT("role"), TEXT("true_branch"));
+                TrueHint->SetStringField(TEXT("pinName"), TEXT("Then"));
+                PinHints.Add(MakeShared<FJsonValueObject>(TrueHint));
+
+                TSharedPtr<FJsonObject> FalseHint = MakeShared<FJsonObject>();
+                FalseHint->SetStringField(TEXT("role"), TEXT("false_branch"));
+                FalseHint->SetStringField(TEXT("pinName"), TEXT("Else"));
+                PinHints.Add(MakeShared<FJsonValueObject>(FalseHint));
             }
 
-            TSharedPtr<FJsonObject> ActionObject = MakeShared<FJsonObject>();
-            ActionObject->SetStringField(TEXT("actionToken"), ActionToken);
-            ActionObject->SetStringField(TEXT("title"), Fallback.Title);
-            ActionObject->SetStringField(TEXT("categoryPath"), Fallback.Category);
-            ActionObject->SetStringField(TEXT("tooltip"), TEXT(""));
-            ActionObject->SetStringField(TEXT("keywords"), TEXT(""));
-            TSharedPtr<FJsonObject> Compatibility = MakeShared<FJsonObject>();
-            Compatibility->SetBoolField(TEXT("isCompatible"), true);
-            Compatibility->SetArrayField(TEXT("reasons"), TArray<TSharedPtr<FJsonValue>>{});
-            ActionObject->SetObjectField(TEXT("compatibility"), Compatibility);
-            ActionObject->SetObjectField(TEXT("spawn"), MakeShared<FJsonObject>());
-            Actions.Add(MakeShared<FJsonValueObject>(ActionObject));
-        }
-
-        TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
-        Diagnostic->SetStringField(TEXT("code"), TEXT("ADDABLE_FALLBACK_USED"));
-        Diagnostic->SetStringField(TEXT("message"), TEXT("Schema returned no actions, fallback action set was used."));
-        Diagnostic->SetStringField(TEXT("reason"), TEXT("schema_returned_no_actions"));
-        Diagnostic->SetStringField(TEXT("recommendedRecovery"), TEXT("Retry graph.actions after graph.query on the same graph, or use graph.mutate addNode.byClass for deterministic construction."));
-        Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
-    }
-    {
-        FScopeLock ScopeLock(&GraphActionTokenRegistryMutex);
-        PruneGraphActionTokenRegistry();
-    }
-
-    TSharedPtr<FJsonObject> ContextEcho = MakeShared<FJsonObject>();
-    ContextEcho->SetStringField(TEXT("mode"), FromPin != nullptr ? TEXT("pin") : TEXT("graph"));
-    if (!FromNodeId.IsEmpty())
-    {
-        ContextEcho->SetStringField(TEXT("fromNodeId"), FromNodeId);
-    }
-    if (!FromPinName.IsEmpty())
-    {
-        ContextEcho->SetStringField(TEXT("fromPinName"), FromPinName);
-    }
-
-    TSharedPtr<FJsonObject> Meta = MakeShared<FJsonObject>();
-    Meta->SetNumberField(TEXT("total"), TotalActions);
-    Meta->SetNumberField(TEXT("returned"), Actions.Num());
-    Meta->SetBoolField(TEXT("truncated"), Actions.Num() < TotalActions);
-    Meta->SetStringField(TEXT("actionSource"), bUsedFallbackActions ? TEXT("generic_fallback") : TEXT("typed"));
-    if (bUsedFallbackActions)
-    {
-        Meta->SetStringField(TEXT("fallbackReason"), TEXT("schema_returned_no_actions"));
-        Meta->SetStringField(TEXT("recommendedRecovery"), TEXT("Retry graph.actions after graph.query on the same graph, or use graph.mutate addNode.byClass for deterministic construction."));
-    }
-
-    Result->SetStringField(TEXT("graphType"), GraphType);
-    Result->SetStringField(TEXT("assetPath"), AssetPath);
-    Result->SetStringField(TEXT("graphName"), GraphName);
-    {
-        TSharedPtr<FJsonObject> ResponseGraphRef = MakeShared<FJsonObject>();
-        if (bUsedGraphRef && !InlineNodeGuid.IsEmpty())
-        {
-            ResponseGraphRef->SetStringField(TEXT("kind"), TEXT("inline"));
-            ResponseGraphRef->SetStringField(TEXT("nodeGuid"), InlineNodeGuid);
-            ResponseGraphRef->SetStringField(TEXT("assetPath"), AssetPath);
-        }
-        else
-        {
-            ResponseGraphRef->SetStringField(TEXT("kind"), TEXT("asset"));
-            ResponseGraphRef->SetStringField(TEXT("assetPath"), AssetPath);
-            if (!GraphName.IsEmpty())
+            if (PinHints.Num() > 0)
             {
-                ResponseGraphRef->SetStringField(TEXT("graphName"), GraphName);
+                PreferredPlan->SetArrayField(TEXT("pinHints"), PinHints);
+            }
+
+            if (!FromNodeId.IsEmpty() && !FromPinName.IsEmpty())
+            {
+                const FString StepNodeRef = !ClientRef.IsEmpty()
+                    ? ClientRef
+                    : FString::Printf(TEXT("resolved_%d"), Index);
+                TArray<TSharedPtr<FJsonValue>> Steps;
+                FString TargetPinName;
+
+                if (OpId.Equals(TEXT("core.reroute")))
+                {
+                    TargetPinName = TEXT("Input");
+                }
+                else if (OpId.Equals(TEXT("bp.flow.branch")))
+                {
+                    TargetPinName = TEXT("execute");
+                }
+
+                if (!TargetPinName.IsEmpty())
+                {
+                    TSharedPtr<FJsonObject> AddStep = MakeShared<FJsonObject>();
+                    AddStep->SetStringField(TEXT("op"), TEXT("addNode.byClass"));
+                    AddStep->SetStringField(TEXT("clientRef"), StepNodeRef);
+                    TSharedPtr<FJsonObject> AddStepArgs = MakeShared<FJsonObject>();
+                    AddStepArgs->SetStringField(TEXT("nodeClassPath"), Spec.NodeClassPath);
+                    AddStep->SetObjectField(TEXT("args"), AddStepArgs);
+                    Steps.Add(MakeShared<FJsonValueObject>(AddStep));
+
+                    TSharedPtr<FJsonObject> ConnectStep = MakeShared<FJsonObject>();
+                    ConnectStep->SetStringField(TEXT("op"), TEXT("connectPins"));
+                    TSharedPtr<FJsonObject> ConnectArgs = MakeShared<FJsonObject>();
+                    TSharedPtr<FJsonObject> FromObj = MakeShared<FJsonObject>();
+                    FromObj->SetStringField(TEXT("nodeId"), FromNodeId);
+                    FromObj->SetStringField(TEXT("pinName"), FromPinName);
+                    TSharedPtr<FJsonObject> ToObj = MakeShared<FJsonObject>();
+                    ToObj->SetStringField(TEXT("nodeRef"), StepNodeRef);
+                    ToObj->SetStringField(TEXT("pinName"), TargetPinName);
+                    ConnectArgs->SetObjectField(TEXT("from"), FromObj);
+                    ConnectArgs->SetObjectField(TEXT("to"), ToObj);
+                    ConnectStep->SetObjectField(TEXT("args"), ConnectArgs);
+                    Steps.Add(MakeShared<FJsonValueObject>(ConnectStep));
+
+                    PreferredPlan->SetStringField(TEXT("realizationKind"), TEXT("graph_insert"));
+                    PreferredPlan->SetStringField(TEXT("coverage"), TEXT("contextual"));
+                    PreferredPlan->SetArrayField(TEXT("steps"), Steps);
+                }
             }
         }
-        Result->SetObjectField(TEXT("graphRef"), ResponseGraphRef);
+        else if (GraphType.Equals(TEXT("material")))
+        {
+            TArray<TSharedPtr<FJsonValue>> PinHints;
+            if (OpId.Equals(TEXT("mat.math.multiply")))
+            {
+                TSharedPtr<FJsonObject> AHint = MakeShared<FJsonObject>();
+                AHint->SetStringField(TEXT("role"), TEXT("input_a"));
+                AHint->SetStringField(TEXT("pinName"), TEXT("A"));
+                PinHints.Add(MakeShared<FJsonValueObject>(AHint));
+
+                TSharedPtr<FJsonObject> BHint = MakeShared<FJsonObject>();
+                BHint->SetStringField(TEXT("role"), TEXT("input_b"));
+                BHint->SetStringField(TEXT("pinName"), TEXT("B"));
+                PinHints.Add(MakeShared<FJsonValueObject>(BHint));
+
+                TSharedPtr<FJsonObject> OutHint = MakeShared<FJsonObject>();
+                OutHint->SetStringField(TEXT("role"), TEXT("output"));
+                OutHint->SetStringField(TEXT("pinName"), TEXT(""));
+                PinHints.Add(MakeShared<FJsonValueObject>(OutHint));
+            }
+            else if (OpId.Equals(TEXT("mat.texture.sample")))
+            {
+                TSharedPtr<FJsonObject> UvHint = MakeShared<FJsonObject>();
+                UvHint->SetStringField(TEXT("role"), TEXT("uv_input"));
+                UvHint->SetStringField(TEXT("pinName"), TEXT("UVs"));
+                PinHints.Add(MakeShared<FJsonValueObject>(UvHint));
+
+                TSharedPtr<FJsonObject> RgbHint = MakeShared<FJsonObject>();
+                RgbHint->SetStringField(TEXT("role"), TEXT("rgb_output"));
+                RgbHint->SetStringField(TEXT("pinName"), TEXT("RGB"));
+                PinHints.Add(MakeShared<FJsonValueObject>(RgbHint));
+            }
+
+            if (PinHints.Num() > 0)
+            {
+                PreferredPlan->SetArrayField(TEXT("pinHints"), PinHints);
+            }
+
+            if (OpId.Equals(TEXT("mat.math.multiply")) && bHasHints)
+            {
+                FString TargetRootPin;
+                (*HintsObj)->TryGetStringField(TEXT("targetRootPin"), TargetRootPin);
+                if (!TargetRootPin.IsEmpty())
+                {
+                    const FString StepNodeRef = !ClientRef.IsEmpty()
+                        ? ClientRef
+                        : FString::Printf(TEXT("resolved_%d"), Index);
+
+                    TArray<TSharedPtr<FJsonValue>> Steps;
+
+                    TSharedPtr<FJsonObject> AddStep = MakeShared<FJsonObject>();
+                    AddStep->SetStringField(TEXT("op"), TEXT("addNode.byClass"));
+                    AddStep->SetStringField(TEXT("clientRef"), StepNodeRef);
+                    TSharedPtr<FJsonObject> AddStepArgs = MakeShared<FJsonObject>();
+                    AddStepArgs->SetStringField(TEXT("nodeClassPath"), Spec.NodeClassPath);
+                    AddStep->SetObjectField(TEXT("args"), AddStepArgs);
+                    Steps.Add(MakeShared<FJsonValueObject>(AddStep));
+
+                    TSharedPtr<FJsonObject> ConnectStep = MakeShared<FJsonObject>();
+                    ConnectStep->SetStringField(TEXT("op"), TEXT("connectPins"));
+                    TSharedPtr<FJsonObject> ConnectArgs = MakeShared<FJsonObject>();
+                    TSharedPtr<FJsonObject> FromObj = MakeShared<FJsonObject>();
+                    FromObj->SetStringField(TEXT("nodeRef"), StepNodeRef);
+                    FromObj->SetStringField(TEXT("pinName"), TEXT(""));
+                    TSharedPtr<FJsonObject> ToObj = MakeShared<FJsonObject>();
+                    ToObj->SetStringField(TEXT("nodeId"), TEXT("__material_root__"));
+                    ToObj->SetStringField(TEXT("pinName"), TargetRootPin);
+                    ConnectArgs->SetObjectField(TEXT("from"), FromObj);
+                    ConnectArgs->SetObjectField(TEXT("to"), ToObj);
+                    ConnectStep->SetObjectField(TEXT("args"), ConnectArgs);
+                    Steps.Add(MakeShared<FJsonValueObject>(ConnectStep));
+
+                    PreferredPlan->SetStringField(TEXT("realizationKind"), TEXT("expression_insert"));
+                    PreferredPlan->SetStringField(TEXT("coverage"), TEXT("contextual"));
+                    PreferredPlan->SetArrayField(TEXT("steps"), Steps);
+                }
+            }
+            else if (OpId.Equals(TEXT("mat.texture.sample")) && bHasHints)
+            {
+                FString TargetRootPin;
+                (*HintsObj)->TryGetStringField(TEXT("targetRootPin"), TargetRootPin);
+                if (!TargetRootPin.IsEmpty())
+                {
+                    const FString StepNodeRef = !ClientRef.IsEmpty()
+                        ? ClientRef
+                        : FString::Printf(TEXT("resolved_%d"), Index);
+
+                    TArray<TSharedPtr<FJsonValue>> Steps;
+
+                    TSharedPtr<FJsonObject> AddStep = MakeShared<FJsonObject>();
+                    AddStep->SetStringField(TEXT("op"), TEXT("addNode.byClass"));
+                    AddStep->SetStringField(TEXT("clientRef"), StepNodeRef);
+                    TSharedPtr<FJsonObject> AddStepArgs = MakeShared<FJsonObject>();
+                    AddStepArgs->SetStringField(TEXT("nodeClassPath"), Spec.NodeClassPath);
+                    AddStep->SetObjectField(TEXT("args"), AddStepArgs);
+                    Steps.Add(MakeShared<FJsonValueObject>(AddStep));
+
+                    TSharedPtr<FJsonObject> ConnectStep = MakeShared<FJsonObject>();
+                    ConnectStep->SetStringField(TEXT("op"), TEXT("connectPins"));
+                    TSharedPtr<FJsonObject> ConnectArgs = MakeShared<FJsonObject>();
+                    TSharedPtr<FJsonObject> FromObj = MakeShared<FJsonObject>();
+                    FromObj->SetStringField(TEXT("nodeRef"), StepNodeRef);
+                    FromObj->SetStringField(TEXT("pinName"), TEXT("RGB"));
+                    TSharedPtr<FJsonObject> ToObj = MakeShared<FJsonObject>();
+                    ToObj->SetStringField(TEXT("nodeId"), TEXT("__material_root__"));
+                    ToObj->SetStringField(TEXT("pinName"), TargetRootPin);
+                    ConnectArgs->SetObjectField(TEXT("from"), FromObj);
+                    ConnectArgs->SetObjectField(TEXT("to"), ToObj);
+                    ConnectStep->SetObjectField(TEXT("args"), ConnectArgs);
+                    Steps.Add(MakeShared<FJsonValueObject>(ConnectStep));
+
+                    if (!FromNodeId.IsEmpty() && !FromPinName.IsEmpty())
+                    {
+                        TSharedPtr<FJsonObject> UvStep = MakeShared<FJsonObject>();
+                        UvStep->SetStringField(TEXT("op"), TEXT("connectPins"));
+                        TSharedPtr<FJsonObject> UvArgs = MakeShared<FJsonObject>();
+                        TSharedPtr<FJsonObject> UvFromObj = MakeShared<FJsonObject>();
+                        UvFromObj->SetStringField(TEXT("nodeId"), FromNodeId);
+                        UvFromObj->SetStringField(TEXT("pinName"), FromPinName);
+                        TSharedPtr<FJsonObject> UvToObj = MakeShared<FJsonObject>();
+                        UvToObj->SetStringField(TEXT("nodeRef"), StepNodeRef);
+                        UvToObj->SetStringField(TEXT("pinName"), TEXT("UVs"));
+                        UvArgs->SetObjectField(TEXT("from"), UvFromObj);
+                        UvArgs->SetObjectField(TEXT("to"), UvToObj);
+                        UvStep->SetObjectField(TEXT("args"), UvArgs);
+                        Steps.Add(MakeShared<FJsonValueObject>(UvStep));
+                    }
+
+                    PreferredPlan->SetStringField(TEXT("realizationKind"), TEXT("expression_insert"));
+                    PreferredPlan->SetStringField(TEXT("coverage"), TEXT("contextual"));
+                    PreferredPlan->SetArrayField(TEXT("steps"), Steps);
+                }
+            }
+        }
+        if (GraphType.Equals(TEXT("pcg")))
+        {
+            TArray<TSharedPtr<FJsonValue>> PinHints;
+            TSharedPtr<FJsonObject> SettingsTemplate = MakeShared<FJsonObject>();
+            bool bHasSettingsTemplate = false;
+
+            if (OpId.Equals(TEXT("pcg.create.points"))
+                || OpId.Equals(TEXT("pcg.meta.add_tag"))
+                || OpId.Equals(TEXT("pcg.filter.by_tag"))
+                || OpId.Equals(TEXT("pcg.sample.surface")))
+            {
+                TSharedPtr<FJsonObject> InHint = MakeShared<FJsonObject>();
+                InHint->SetStringField(TEXT("role"), TEXT("input"));
+                InHint->SetStringField(TEXT("pinName"), TEXT("In"));
+                PinHints.Add(MakeShared<FJsonValueObject>(InHint));
+
+                TSharedPtr<FJsonObject> OutHint = MakeShared<FJsonObject>();
+                OutHint->SetStringField(TEXT("role"), TEXT("output"));
+                OutHint->SetStringField(TEXT("pinName"), TEXT("Out"));
+                PinHints.Add(MakeShared<FJsonValueObject>(OutHint));
+            }
+
+            if (OpId.Equals(TEXT("pcg.meta.add_tag")))
+            {
+                SettingsTemplate->SetStringField(TEXT("tag"), TEXT("<required-tag>"));
+                bHasSettingsTemplate = true;
+            }
+            else if (OpId.Equals(TEXT("pcg.filter.by_tag")))
+            {
+                SettingsTemplate->SetStringField(TEXT("tag"), TEXT("<required-tag>"));
+                SettingsTemplate->SetStringField(TEXT("mode"), TEXT("include"));
+                bHasSettingsTemplate = true;
+            }
+
+            if (PinHints.Num() > 0)
+            {
+                PreferredPlan->SetArrayField(TEXT("pinHints"), PinHints);
+            }
+            if (bHasSettingsTemplate)
+            {
+                PreferredPlan->SetObjectField(TEXT("settingsTemplate"), SettingsTemplate);
+            }
+
+            TSharedPtr<FJsonObject> VerificationHint = MakeShared<FJsonObject>();
+            VerificationHint->SetStringField(TEXT("kind"), TEXT("readback"));
+            VerificationHint->SetStringField(TEXT("message"), TEXT("Re-query the new PCG node and confirm actual pin names before wiring downstream stages."));
+            PreferredPlan->SetArrayField(TEXT("verificationHints"), TArray<TSharedPtr<FJsonValue>>{
+                MakeShared<FJsonValueObject>(VerificationHint)
+            });
+
+            if ((OpId.Equals(TEXT("pcg.filter.by_tag")) || OpId.Equals(TEXT("pcg.meta.add_tag")))
+                && !FromNodeId.IsEmpty() && !FromPinName.IsEmpty())
+            {
+                const FString StepNodeRef = !ClientRef.IsEmpty()
+                    ? ClientRef
+                    : FString::Printf(TEXT("resolved_%d"), Index);
+
+                TArray<TSharedPtr<FJsonValue>> Steps;
+
+                TSharedPtr<FJsonObject> AddStep = MakeShared<FJsonObject>();
+                AddStep->SetStringField(TEXT("op"), TEXT("addNode.byClass"));
+                AddStep->SetStringField(TEXT("clientRef"), StepNodeRef);
+                TSharedPtr<FJsonObject> AddStepArgs = MakeShared<FJsonObject>();
+                AddStepArgs->SetStringField(TEXT("nodeClassPath"), Spec.NodeClassPath);
+                AddStep->SetObjectField(TEXT("args"), AddStepArgs);
+                Steps.Add(MakeShared<FJsonValueObject>(AddStep));
+
+                TSharedPtr<FJsonObject> ConnectStep = MakeShared<FJsonObject>();
+                ConnectStep->SetStringField(TEXT("op"), TEXT("connectPins"));
+                TSharedPtr<FJsonObject> ConnectArgs = MakeShared<FJsonObject>();
+                TSharedPtr<FJsonObject> FromObj = MakeShared<FJsonObject>();
+                FromObj->SetStringField(TEXT("nodeId"), FromNodeId);
+                FromObj->SetStringField(TEXT("pinName"), FromPinName);
+                TSharedPtr<FJsonObject> ToObj = MakeShared<FJsonObject>();
+                ToObj->SetStringField(TEXT("nodeRef"), StepNodeRef);
+                ToObj->SetStringField(TEXT("pinName"), TEXT("In"));
+                ConnectArgs->SetObjectField(TEXT("from"), FromObj);
+                ConnectArgs->SetObjectField(TEXT("to"), ToObj);
+                ConnectStep->SetObjectField(TEXT("args"), ConnectArgs);
+                Steps.Add(MakeShared<FJsonValueObject>(ConnectStep));
+
+                PreferredPlan->SetStringField(TEXT("realizationKind"), TEXT("pipeline_insert"));
+                PreferredPlan->SetStringField(TEXT("coverage"), TEXT("contextual"));
+                PreferredPlan->SetArrayField(TEXT("steps"), Steps);
+            }
+        }
+
+        ResultItem->SetBoolField(TEXT("resolved"), true);
+        ResultItem->SetObjectField(TEXT("compatibility"), Compatibility);
+        ResultItem->SetObjectField(TEXT("preferredPlan"), PreferredPlan);
+        ResultItem->SetArrayField(TEXT("alternatives"), TArray<TSharedPtr<FJsonValue>>{});
+        Results.Add(MakeShared<FJsonValueObject>(ResultItem));
     }
-    Result->SetObjectField(TEXT("contextEcho"), ContextEcho);
-    Result->SetArrayField(TEXT("actions"), Actions);
-    Result->SetStringField(TEXT("nextCursor"), TEXT(""));
-    Result->SetObjectField(TEXT("meta"), Meta);
-    Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
+
+    Result->SetStringField(TEXT("graphType"), QueryResult->GetStringField(TEXT("graphType")));
+    const TSharedPtr<FJsonObject>* NormalizedGraphRef = nullptr;
+    if (QueryResult->TryGetObjectField(TEXT("graphRef"), NormalizedGraphRef) && NormalizedGraphRef != nullptr && (*NormalizedGraphRef).IsValid())
+    {
+        Result->SetObjectField(TEXT("graphRef"), CloneJsonObject(*NormalizedGraphRef));
+    }
+    else
+    {
+        Result->SetObjectField(TEXT("graphRef"), CloneJsonObject(*GraphRefObj));
+    }
+
+    const TArray<TSharedPtr<FJsonValue>>* QueryDiagnostics = nullptr;
+    if (QueryResult->TryGetArrayField(TEXT("diagnostics"), QueryDiagnostics) && QueryDiagnostics != nullptr)
+    {
+        Result->SetArrayField(TEXT("diagnostics"), *QueryDiagnostics);
+    }
+    else
+    {
+        Result->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
+    }
+    Result->SetArrayField(TEXT("results"), Results);
     return Result;
 }
 
@@ -5527,35 +5445,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             {
                 if (GraphType.Equals(TEXT("material")))
                 {
-                    if (Op.Equals(TEXT("addnode.byclass")) || Op.Equals(TEXT("addnode.byaction")))
+                    if (Op.Equals(TEXT("addnode.byclass")))
                     {
                         FString NodeClassPath;
-                        if (Op.Equals(TEXT("addnode.byclass")))
-                        {
-                            ArgsObj->TryGetStringField(TEXT("nodeClassPath"), NodeClassPath);
-                        }
-                        else
-                        {
-                            FString ActionToken;
-                            ArgsObj->TryGetStringField(TEXT("actionToken"), ActionToken);
-                            ArgsObj->TryGetStringField(TEXT("actionId"), NodeClassPath);
-                            if (!ActionToken.IsEmpty())
-                            {
-                                FGraphActionTokenEntry TokenEntry;
-                                FString ErrorCode;
-                                if (ResolveGraphActionToken(ActionToken, GraphType, AssetPath, GraphName, TokenEntry, ErrorCode, Error))
-                                {
-                                    if (!TokenEntry.LegacyActionId.IsEmpty())
-                                    {
-                                        NodeClassPath = TokenEntry.LegacyActionId;
-                                    }
-                                }
-                                else
-                                {
-                                    bOk = false;
-                                }
-                            }
-                        }
+                        ArgsObj->TryGetStringField(TEXT("nodeClassPath"), NodeClassPath);
 
                         UClass* ExpressionClass = LoadObject<UClass>(nullptr, *NodeClassPath);
                         if (bOk && (ExpressionClass == nullptr || !ExpressionClass->IsChildOf(UMaterialExpression::StaticClass())))
@@ -5588,7 +5481,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                 bChanged = true;
                                 GraphEventName = TEXT("graph.node_added");
                                 GraphEventData->SetStringField(TEXT("nodeId"), NodeId);
-                                GraphEventData->SetStringField(TEXT("nodeType"), Op.Equals(TEXT("addnode.byaction")) ? TEXT("by_action") : TEXT("by_class"));
+                                GraphEventData->SetStringField(TEXT("nodeType"), TEXT("by_class"));
                                 GraphEventData->SetStringField(TEXT("nodeClassPath"), NodeClassPath);
                                 GraphEventData->SetStringField(TEXT("op"), Op);
                                 NodesTouchedForLayout.Add(NodeId);
@@ -6013,35 +5906,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 }
                 else if (GraphType.Equals(TEXT("pcg")))
                 {
-                    if (Op.Equals(TEXT("addnode.byclass")) || Op.Equals(TEXT("addnode.byaction")))
+                    if (Op.Equals(TEXT("addnode.byclass")))
                     {
                         FString SettingsClassPath;
-                        if (Op.Equals(TEXT("addnode.byclass")))
-                        {
-                            ArgsObj->TryGetStringField(TEXT("nodeClassPath"), SettingsClassPath);
-                        }
-                        else
-                        {
-                            FString ActionToken;
-                            ArgsObj->TryGetStringField(TEXT("actionToken"), ActionToken);
-                            ArgsObj->TryGetStringField(TEXT("actionId"), SettingsClassPath);
-                            if (!ActionToken.IsEmpty())
-                            {
-                                FGraphActionTokenEntry TokenEntry;
-                                FString ErrorCode;
-                                if (ResolveGraphActionToken(ActionToken, GraphType, AssetPath, GraphName, TokenEntry, ErrorCode, Error))
-                                {
-                                    if (!TokenEntry.LegacyActionId.IsEmpty())
-                                    {
-                                        SettingsClassPath = TokenEntry.LegacyActionId;
-                                    }
-                                }
-                                else
-                                {
-                                    bOk = false;
-                                }
-                            }
-                        }
+                        ArgsObj->TryGetStringField(TEXT("nodeClassPath"), SettingsClassPath);
 
                         UClass* SettingsClass = LoadObject<UClass>(nullptr, *SettingsClassPath);
                         if (bOk && (SettingsClass == nullptr || !SettingsClass->IsChildOf(UPCGSettings::StaticClass())))
@@ -6076,7 +5944,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                 bChanged = true;
                                 GraphEventName = TEXT("graph.node_added");
                                 GraphEventData->SetStringField(TEXT("nodeId"), NodeId);
-                                GraphEventData->SetStringField(TEXT("nodeType"), Op.Equals(TEXT("addnode.byaction")) ? TEXT("by_action") : TEXT("by_class"));
+                                GraphEventData->SetStringField(TEXT("nodeType"), TEXT("by_class"));
                                 GraphEventData->SetStringField(TEXT("nodeClassPath"), SettingsClassPath);
                                 GraphEventData->SetStringField(TEXT("op"), Op);
                                 NodesTouchedForLayout.Add(NodeId);
@@ -7128,105 +6996,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     GraphEventData->SetStringField(TEXT("nodeId"), NodeId);
                     GraphEventData->SetStringField(TEXT("nodeType"), TEXT("by_class"));
                     GraphEventData->SetStringField(TEXT("nodeClassPath"), NodeClassPath);
-                    GraphEventData->SetStringField(TEXT("op"), Op);
-                }
-            }
-            else if (Op.Equals(TEXT("addnode.byaction")))
-            {
-                FString ActionToken;
-                FString ActionId;
-                ArgsObj->TryGetStringField(TEXT("actionToken"), ActionToken);
-                ArgsObj->TryGetStringField(TEXT("actionId"), ActionId);
-                int32 X = 0;
-                int32 Y = 0;
-                ResolveBlueprintInsertionPoint(AssetPath, OpGraphName, ArgsObj, TEXT(""), TEXT(""), X, Y);
-
-                if (!ActionToken.IsEmpty())
-                {
-                    FGraphActionTokenEntry TokenEntry;
-                    FString ErrorCode;
-                    bOk = ResolveGraphActionToken(ActionToken, GraphType, AssetPath, OpGraphName, TokenEntry, ErrorCode, Error);
-                    if (!bOk && !ErrorCode.IsEmpty() && !Error.IsEmpty())
-                    {
-                        Error = ErrorCode + TEXT(": ") + Error;
-                    }
-                    if (bOk)
-                    {
-                        UBlueprint* Blueprint = LoadBlueprintByAssetPath(AssetPath);
-                        UEdGraph* TargetGraph = ResolveBlueprintGraph(Blueprint, OpGraphName);
-                        if (Blueprint == nullptr || TargetGraph == nullptr)
-                        {
-                            bOk = false;
-                            Error = TEXT("Failed to resolve blueprint/target graph.");
-                        }
-                        else
-                        {
-                            UEdGraphPin* SourcePin = nullptr;
-                            if (!TokenEntry.FromNodeId.IsEmpty() && !TokenEntry.FromPinName.IsEmpty())
-                            {
-                                if (UEdGraphNode* SourceNode = FindNodeByGuid(TargetGraph, TokenEntry.FromNodeId))
-                                {
-                                    SourcePin = FindPinByName(SourceNode, TokenEntry.FromPinName);
-                                }
-                            }
-
-                            if (!HasExplicitPoint(ArgsObj))
-                            {
-                                ResolveBlueprintInsertionPoint(
-                                    AssetPath,
-                                    OpGraphName,
-                                    ArgsObj,
-                                    TokenEntry.FromNodeId,
-                                    TokenEntry.FromPinName,
-                                    X,
-                                    Y);
-                            }
-
-                            UEdGraphNode* NewNode = nullptr;
-                            if (TokenEntry.Action.IsValid())
-                            {
-                                NewNode = TokenEntry.Action->PerformAction(TargetGraph, SourcePin, FVector2f(static_cast<float>(X), static_cast<float>(Y)), true);
-                            }
-
-                            if (NewNode == nullptr)
-                            {
-                                if (!TokenEntry.LegacyActionId.IsEmpty())
-                                {
-                                    bOk = FLoomleBlueprintAdapter::AddNodeByAction(AssetPath, OpGraphName, TokenEntry.LegacyActionId, SerializeJsonObject(ArgsObj), X, Y, NodeId, Error);
-                                    if (bOk && ActionId.IsEmpty())
-                                    {
-                                        ActionId = TokenEntry.LegacyActionId;
-                                    }
-                                }
-                                else
-                                {
-                                    bOk = false;
-                                    Error = TEXT("Action token execution produced no node.");
-                                }
-                            }
-                            else
-                            {
-                                NodeId = NewNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower);
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    bOk = FLoomleBlueprintAdapter::AddNodeByAction(AssetPath, OpGraphName, ActionId, SerializeJsonObject(ArgsObj), X, Y, NodeId, Error);
-                }
-
-                if (bOk)
-                {
-                    NodesTouchedForLayout.Add(NodeId);
-                    GraphEventName = TEXT("graph.node_added");
-                    GraphEventData->SetStringField(TEXT("nodeId"), NodeId);
-                    GraphEventData->SetStringField(TEXT("nodeType"), TEXT("by_action"));
-                    if (!ActionToken.IsEmpty())
-                    {
-                        GraphEventData->SetStringField(TEXT("actionToken"), ActionToken);
-                    }
-                    GraphEventData->SetStringField(TEXT("actionId"), ActionId);
                     GraphEventData->SetStringField(TEXT("op"), Op);
                 }
             }

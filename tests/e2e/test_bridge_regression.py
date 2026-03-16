@@ -28,6 +28,38 @@ def op_ok(payload: dict) -> dict:
     return first
 
 
+def mutate_with_plan_steps(
+    client: McpStdioClient,
+    request_id: int,
+    *,
+    asset_path: str,
+    graph_type: str,
+    graph_name: str,
+    preferred_plan: dict,
+) -> dict:
+    steps = preferred_plan.get("steps")
+    if not isinstance(steps, list) or not steps:
+        fail(f"preferredPlan missing steps[]: {preferred_plan}")
+    payload = call_tool(
+        client,
+        request_id,
+        "graph.mutate",
+        {
+            "assetPath": asset_path,
+            "graphName": graph_name,
+            "graphType": graph_type,
+            "ops": steps,
+        },
+    )
+    op_results = payload.get("opResults")
+    if not isinstance(op_results, list) or len(op_results) != len(steps):
+        fail(f"graph.mutate(step plan) opResults mismatch: {payload}")
+    for idx, result in enumerate(op_results):
+        if not isinstance(result, dict) or not result.get("ok"):
+            fail(f"graph.mutate(step plan) opResults[{idx}] failed: {payload}")
+    return payload
+
+
 def query_nodes(
     client: McpStdioClient,
     request_id: int,
@@ -354,64 +386,122 @@ def main() -> int:
             fail(f"graph.query missing LAYOUT_DETAIL_DOWNGRADED diagnostic: {graph_query}")
         print("[PASS] graph.query structure validated")
 
-        actions = call_tool(
+        graph_ops = call_tool(
             client,
-            7,
-            "graph.actions",
-            {"assetPath": temp_asset, "graphName": "EventGraph", "graphType": "blueprint", "limit": 20},
+            6500,
+            "graph.ops",
+            {"graphType": "blueprint", "limit": 20},
         )
-        items = actions.get("items")
-        if not isinstance(items, list):
-            items = actions.get("actions")
-        if not isinstance(items, list):
-            fail(f"graph.actions missing actions/items[]: {actions}")
-        if len(items) == 0:
-            fail(f"graph.actions returned empty actions list: {actions}")
+        ops_items = graph_ops.get("ops")
+        if not isinstance(ops_items, list) or len(ops_items) == 0:
+            fail(f"graph.ops missing ops[]: {graph_ops}")
+        op_ids = {
+            item.get("opId")
+            for item in ops_items
+            if isinstance(item, dict) and isinstance(item.get("opId"), str)
+        }
+        if not {"core.comment", "core.reroute", "bp.flow.branch"}.issubset(op_ids):
+            fail(f"graph.ops missing Blueprint v1 baseline ops: {graph_ops}")
+        graph_ops_meta = graph_ops.get("meta")
+        if not isinstance(graph_ops_meta, dict):
+            fail(f"graph.ops missing meta: {graph_ops}")
+        if graph_ops_meta.get("source") not in {"loomle_catalog", "mixed"}:
+            fail(f"graph.ops meta.source invalid: {graph_ops}")
+        if graph_ops_meta.get("coverage") not in {"curated", "partial"}:
+            fail(f"graph.ops meta.coverage invalid: {graph_ops}")
+        print("[PASS] graph.ops Blueprint catalog validated")
 
-        for idx, item in enumerate(items):
-            if not isinstance(item, dict):
-                fail(f"graph.actions item[{idx}] is not a dict: {item}")
-            action_token = item.get("actionToken")
-            if not isinstance(action_token, str) or not action_token.startswith("act:"):
-                fail(f"graph.actions item[{idx}] missing valid actionToken: {item}")
-
-        if not isinstance(actions.get("graphType"), str):
-            fail(f"graph.actions missing graphType echo: {actions}")
-        if not isinstance(actions.get("assetPath"), str):
-            fail(f"graph.actions missing assetPath echo: {actions}")
-        if not isinstance(actions.get("graphName"), str):
-            fail(f"graph.actions missing graphName echo: {actions}")
-        meta = actions.get("meta")
-        if not isinstance(meta, dict) or "total" not in meta or "returned" not in meta:
-            fail(f"graph.actions missing or invalid meta: {actions}")
-        action_source = meta.get("actionSource")
-        if action_source not in {"typed", "generic_fallback", "curated_catalog"}:
-            fail(f"graph.actions meta missing valid actionSource: {meta}")
-        diagnostics = actions.get("diagnostics")
-        if not isinstance(diagnostics, list):
-            fail(f"graph.actions diagnostics missing or invalid: {actions}")
-        if any(isinstance(d, dict) and d.get("code") == "ADDABLE_FALLBACK_USED" for d in diagnostics):
-            if not isinstance(meta.get("fallbackReason"), str) or not meta.get("fallbackReason"):
-                fail(f"graph.actions fallback meta missing fallbackReason: {meta}")
-            if not isinstance(meta.get("recommendedRecovery"), str) or not meta.get("recommendedRecovery"):
-                fail(f"graph.actions fallback meta missing recommendedRecovery: {meta}")
-        print(f"[PASS] graph.actions response validated ({len(items)} actions returned)")
-
-        actions_by_ref = call_tool(
+        graph_ops_resolve = call_tool(
             client,
-            7001,
-            "graph.actions",
-            {"graphRef": event_graph_ref, "graphType": "blueprint", "limit": 5},
+            6501,
+            "graph.ops.resolve",
+            {
+                "graphType": "blueprint",
+                "graphRef": event_graph_ref,
+                "items": [{"opId": "bp.flow.branch"}, {"opId": "core.reroute"}],
+            },
         )
-        by_ref_items = actions_by_ref.get("items")
-        if not isinstance(by_ref_items, list):
-            by_ref_items = actions_by_ref.get("actions")
-        if not isinstance(by_ref_items, list) or len(by_ref_items) == 0:
-            fail(f"graph.actions(graphRef) returned no actions/items: {actions_by_ref}")
-        by_ref_echo = actions_by_ref.get("graphRef")
-        if not isinstance(by_ref_echo, dict) or by_ref_echo.get("kind") != "asset":
-            fail(f"graph.actions(graphRef) missing graphRef echo: {actions_by_ref}")
-        print("[PASS] graph.actions graphRef(asset) addressing validated")
+        resolve_results = graph_ops_resolve.get("results")
+        if not isinstance(resolve_results, list) or len(resolve_results) != 2:
+            fail(f"graph.ops.resolve missing results[]: {graph_ops_resolve}")
+        branch_result = next((item for item in resolve_results if isinstance(item, dict) and item.get("opId") == "bp.flow.branch"), None)
+        reroute_result = next((item for item in resolve_results if isinstance(item, dict) and item.get("opId") == "core.reroute"), None)
+        if not isinstance(branch_result, dict) or branch_result.get("resolved") is not True:
+            fail(f"graph.ops.resolve missing resolved branch result: {graph_ops_resolve}")
+        branch_plan = branch_result.get("preferredPlan")
+        if not isinstance(branch_plan, dict):
+            fail(f"graph.ops.resolve missing preferredPlan for branch: {graph_ops_resolve}")
+        branch_args = branch_plan.get("args")
+        if not isinstance(branch_args, dict) or branch_args.get("nodeClassPath") != "/Script/BlueprintGraph.K2Node_IfThenElse":
+            fail(f"graph.ops.resolve branch nodeClassPath mismatch: {graph_ops_resolve}")
+        if not isinstance(reroute_result, dict) or reroute_result.get("resolved") is not False:
+            fail(f"graph.ops.resolve missing unresolved reroute result: {graph_ops_resolve}")
+        reroute_compat = reroute_result.get("compatibility")
+        if not isinstance(reroute_compat, dict) or "requires_pin_context" not in reroute_compat.get("reasons", []):
+            fail(f"graph.ops.resolve reroute compatibility mismatch: {graph_ops_resolve}")
+        print("[PASS] graph.ops.resolve Blueprint structure validated")
+
+        seed_branch = call_tool(
+            client,
+            6502,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "ops": [
+                    {
+                        "op": "addNode.byClass",
+                        "args": {
+                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
+                            "position": {"x": 900, "y": -200},
+                        },
+                    }
+                ],
+            },
+        )
+        seed_branch_id = op_ok(seed_branch).get("nodeId")
+        if not isinstance(seed_branch_id, str) or not seed_branch_id:
+            fail(f"seed branch nodeId missing: {seed_branch}")
+
+        reroute_with_context = call_tool(
+            client,
+            6503,
+            "graph.ops.resolve",
+            {
+                "graphType": "blueprint",
+                "graphRef": event_graph_ref,
+                "context": {"fromPin": {"nodeId": seed_branch_id, "pinName": "Then"}},
+                "items": [{"opId": "core.reroute", "clientRef": "reroute_from_branch"}],
+            },
+        )
+        reroute_with_context_results = reroute_with_context.get("results")
+        if not isinstance(reroute_with_context_results, list) or len(reroute_with_context_results) != 1:
+            fail(f"graph.ops.resolve(context) missing results[]: {reroute_with_context}")
+        reroute_exec_result = reroute_with_context_results[0] if isinstance(reroute_with_context_results[0], dict) else {}
+        if reroute_exec_result.get("resolved") is not True:
+            fail(f"graph.ops.resolve(context) reroute did not resolve: {reroute_with_context}")
+        reroute_plan = reroute_exec_result.get("preferredPlan")
+        if not isinstance(reroute_plan, dict):
+            fail(f"graph.ops.resolve(context) missing preferredPlan: {reroute_with_context}")
+        reroute_step_apply = mutate_with_plan_steps(
+            client,
+            6504,
+            asset_path=temp_asset,
+            graph_type="blueprint",
+            graph_name="EventGraph",
+            preferred_plan=reroute_plan,
+        )
+        reroute_step_results = reroute_step_apply.get("opResults")
+        reroute_node_id = None
+        if isinstance(reroute_step_results, list) and reroute_step_results:
+            first_step = reroute_step_results[0] if isinstance(reroute_step_results[0], dict) else {}
+            reroute_node_id = first_step.get("nodeId")
+        if not isinstance(reroute_node_id, str) or not reroute_node_id:
+            fail(f"graph.ops.resolve(context) plan did not create reroute node: {reroute_step_apply}")
+        nodes_after_reroute_plan = query_nodes(client, 6505, temp_asset, "EventGraph")
+        require_node(nodes_after_reroute_plan, reroute_node_id)
+        print("[PASS] graph.ops.resolve Blueprint steps[] plan executed")
 
         pcg_fixture_payload = call_execute_exec_with_retry(
             client=client,
@@ -497,76 +587,45 @@ def main() -> int:
             fail(f"graph.query(graphRef) did not echo expected PCG graphRef: {queried_pcg}")
         print("[PASS] graph.resolve PCG actor/component addressing validated")
 
-        first_token = items[0].get("actionToken", "")
-        add_by_action = call_tool(
+        pcg_ops = call_tool(
             client,
-            9007,
-            "graph.mutate",
+            7060,
+            "graph.ops",
+            {"graphType": "pcg", "limit": 20},
+        )
+        pcg_ops_items = pcg_ops.get("ops")
+        if not isinstance(pcg_ops_items, list) or len(pcg_ops_items) == 0:
+            fail(f"graph.ops(pcg) missing ops[]: {pcg_ops}")
+        pcg_op_ids = {
+            item.get("opId")
+            for item in pcg_ops_items
+            if isinstance(item, dict) and isinstance(item.get("opId"), str)
+        }
+        if not {"pcg.meta.add_tag", "pcg.filter.by_tag", "pcg.sample.surface"}.issubset(pcg_op_ids):
+            fail(f"graph.ops(pcg) missing expected ops: {pcg_ops}")
+
+        pcg_resolve = call_tool(
+            client,
+            7061,
+            "graph.ops.resolve",
             {
-                "assetPath": temp_asset,
-                "graphName": "EventGraph",
-                "graphType": "blueprint",
-                "ops": [
-                    {
-                        "op": "addNode.byAction",
-                        "args": {
-                            "actionToken": first_token,
-                            "position": {"x": 1200, "y": 0},
-                        },
-                    }
-                ],
+                "graphType": "pcg",
+                "graphRef": graph_ref,
+                "items": [{"opId": "pcg.filter.by_tag"}],
             },
         )
-        by_action_result = op_ok(add_by_action)
-        by_action_node = by_action_result.get("nodeId")
-        if not isinstance(by_action_node, str) or not by_action_node:
-            fail(f"addNode.byAction did not return nodeId: {add_by_action}")
-        print(f"[PASS] graph.actions addNode.byAction via actionToken succeeded (nodeId={by_action_node})")
-
-        call_tool(
-            client,
-            9008,
-            "graph.mutate",
-            {
-                "assetPath": temp_asset,
-                "graphName": "EventGraph",
-                "graphType": "blueprint",
-                "ops": [{"op": "removeNode", "args": {"target": {"nodeId": by_action_node}}}],
-            },
-        )
-
-        bad_actions = call_tool(
-            client,
-            9009,
-            "graph.actions",
-            {"assetPath": temp_asset, "graphName": "EventGraph", "graphType": "notreal", "limit": 5},
-            expect_error=True,
-        )
-        _ = bad_actions
-        print("[PASS] graph.actions error path validated (unsupported graphType)")
-
-        stale_token_mutate = call_tool(
-            client,
-            9010,
-            "graph.mutate",
-            {
-                "assetPath": temp_asset,
-                "graphName": "EventGraph",
-                "graphType": "blueprint",
-                "ops": [
-                    {
-                        "op": "addNode.byAction",
-                        "args": {"actionToken": "act:blueprint:00000000-0000-0000-0000-000000000000", "position": {"x": 0, "y": 0}},
-                    }
-                ],
-            },
-            expect_error=True,
-        )
-        stale_message = str(stale_token_mutate.get("message", ""))
-        stale_detail = str(stale_token_mutate.get("detail", ""))
-        if "ACTION_TOKEN_INVALID" not in (stale_message + " " + stale_detail):
-            fail(f"stale actionToken error missing ACTION_TOKEN_INVALID marker: {stale_token_mutate}")
-        print("[PASS] graph.actions stale actionToken correctly rejected")
+        pcg_resolve_results = pcg_resolve.get("results")
+        if not isinstance(pcg_resolve_results, list) or len(pcg_resolve_results) != 1:
+            fail(f"graph.ops.resolve(pcg) missing results[]: {pcg_resolve}")
+        pcg_filter_result = pcg_resolve_results[0] if isinstance(pcg_resolve_results[0], dict) else {}
+        pcg_plan = pcg_filter_result.get("preferredPlan")
+        if pcg_filter_result.get("resolved") is not True or not isinstance(pcg_plan, dict):
+            fail(f"graph.ops.resolve(pcg) invalid result: {pcg_resolve}")
+        if not isinstance(pcg_plan.get("settingsTemplate"), dict):
+            fail(f"graph.ops.resolve(pcg) missing settingsTemplate: {pcg_resolve}")
+        if not isinstance(pcg_plan.get("verificationHints"), list):
+            fail(f"graph.ops.resolve(pcg) missing verificationHints: {pcg_resolve}")
+        print("[PASS] graph.ops / graph.ops.resolve PCG validated")
 
         bad_query = call_tool(
             client,
@@ -1670,6 +1729,48 @@ def main() -> int:
             fail(f"graph.list(material assetPath without graphType) should infer material: {material_graph_list_without_type}")
         if material_root_graph.get("graphName") != "MaterialGraph":
             fail(f"graph.list(material assetPath without graphType) root graph mismatch: {material_graph_list_without_type}")
+        material_graph_ref = material_root_graph.get("graphRef")
+        if not isinstance(material_graph_ref, dict):
+            fail(f"graph.list(material) missing graphRef: {material_graph_list_without_type}")
+
+        material_ops = call_tool(
+            client,
+            100091,
+            "graph.ops",
+            {"graphType": "material", "limit": 20},
+        )
+        material_ops_items = material_ops.get("ops")
+        if not isinstance(material_ops_items, list) or len(material_ops_items) == 0:
+            fail(f"graph.ops(material) missing ops[]: {material_ops}")
+        material_op_ids = {
+            item.get("opId")
+            for item in material_ops_items
+            if isinstance(item, dict) and isinstance(item.get("opId"), str)
+        }
+        if not {"mat.math.multiply", "mat.texture.sample"}.issubset(material_op_ids):
+            fail(f"graph.ops(material) missing expected ops: {material_ops}")
+
+        material_resolve = call_tool(
+            client,
+            100092,
+            "graph.ops.resolve",
+            {
+                "graphType": "material",
+                "graphRef": material_graph_ref,
+                "items": [{"opId": "mat.math.multiply", "hints": {"targetRootPin": "Base Color"}}],
+            },
+        )
+        material_resolve_results = material_resolve.get("results")
+        if not isinstance(material_resolve_results, list) or len(material_resolve_results) != 1:
+            fail(f"graph.ops.resolve(material) missing results[]: {material_resolve}")
+        material_multiply_result = material_resolve_results[0] if isinstance(material_resolve_results[0], dict) else {}
+        material_plan = material_multiply_result.get("preferredPlan")
+        if material_multiply_result.get("resolved") is not True or not isinstance(material_plan, dict):
+            fail(f"graph.ops.resolve(material) invalid result: {material_resolve}")
+        material_steps = material_plan.get("steps")
+        if not isinstance(material_steps, list) or len(material_steps) != 2:
+            fail(f"graph.ops.resolve(material) expected 2-step plan: {material_resolve}")
+        print("[PASS] graph.ops / graph.ops.resolve Material validated")
 
         material_add = call_tool(
             client,

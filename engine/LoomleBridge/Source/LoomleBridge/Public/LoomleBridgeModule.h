@@ -9,7 +9,6 @@ class FLoomlePipeServer;
 class FJsonObject;
 class FJsonValue;
 class FOutputDevice;
-struct FEdGraphSchemaAction;
 
 class FLoomleBridgeModule : public IModuleInterface
 {
@@ -31,7 +30,8 @@ private:
     TSharedPtr<FJsonObject> BuildGraphQueryToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildGraphQueryBaseResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildShapedGraphQueryResult(const TSharedPtr<FJsonObject>& BaseResult, const TSharedPtr<FJsonObject>& Arguments) const;
-    TSharedPtr<FJsonObject> BuildGraphActionsToolResult(const TSharedPtr<FJsonObject>& Arguments);
+    TSharedPtr<FJsonObject> BuildGraphOpsToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+    TSharedPtr<FJsonObject> BuildGraphOpsResolveToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildGraphMutateToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildGetContextToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildSelectionTransformToolResult() const;
@@ -57,18 +57,6 @@ private:
     FString MakeJsonError(const TSharedPtr<FJsonValue>& Id, int32 Code, const FString& Message) const;
 
 private:
-    struct FGraphActionTokenEntry
-    {
-        FString GraphType;
-        FString AssetPath;
-        FString GraphName;
-        FString FromNodeId;
-        FString FromPinName;
-        FString LegacyActionId;
-        TSharedPtr<FEdGraphSchemaAction> Action;
-        double CreatedAtSeconds = 0.0;
-    };
-
     struct FPendingGraphLayoutState
     {
         FString GraphType;
@@ -85,8 +73,6 @@ private:
         double CreatedAtSeconds = 0.0;
     };
 
-    void PruneGraphActionTokenRegistry();
-    bool ResolveGraphActionToken(const FString& ActionToken, const FString& GraphType, const FString& AssetPath, const FString& GraphName, FGraphActionTokenEntry& OutEntry, FString& OutErrorCode, FString& OutErrorMessage);
     FString MakePendingGraphLayoutKey(const FString& GraphType, const FString& AssetPath, const FString& GraphName) const;
     void RecordPendingGraphLayoutNodes(const FString& GraphType, const FString& AssetPath, const FString& GraphName, const TArray<FString>& NodeIds);
     bool ResolvePendingGraphLayoutNodes(const FString& GraphType, const FString& AssetPath, const FString& GraphName, TArray<FString>& OutNodeIds, bool bConsume);
@@ -114,8 +100,6 @@ private:
 
 private:
     TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> PipeServer;
-    TMap<FString, FGraphActionTokenEntry> GraphActionTokenRegistry;
-    FCriticalSection GraphActionTokenRegistryMutex;
     TMap<FString, FPendingGraphLayoutState> PendingGraphLayoutStates;
     FCriticalSection PendingGraphLayoutStatesMutex;
     TMap<FString, FMutateIdempotencyEntry> MutateIdempotencyRegistry;

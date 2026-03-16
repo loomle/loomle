@@ -75,7 +75,8 @@ struct GitTreeResponse {
 #[derive(Debug, Deserialize)]
 struct GitTreeEntry {
     path: String,
-    mode: String,
+    #[serde(rename = "mode")]
+    _mode: String,
     #[serde(rename = "type")]
     entry_type: String,
 }

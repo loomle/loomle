@@ -82,7 +82,8 @@ LOOMLE currently exposes these MCP tools for the agent. These are the tools Code
 - `graph`: Read graph capability metadata, supported operations, and runtime status.
 - `graph.list`: List graphs available in the current target asset or context.
 - `graph.query`: Inspect graph structure such as nodes, pins, and connections.
-- `graph.actions`: Retrieve actionable graph operation candidates for the current graph context.
+- `graph.ops`: List stable semantic graph operations for a graph type.
+- `graph.ops.resolve`: Resolve semantic graph operations into mutate-ready plans for a concrete graph context.
 - `graph.mutate`: Apply graph changes through ordered mutation operations.
 
 For protocol details and deeper technical documentation, see [docs/README.md](/Users/xartest/dev/loomle/docs/README.md).

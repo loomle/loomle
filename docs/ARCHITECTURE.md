@@ -56,8 +56,9 @@ MCP tools:
 - `execute`
 - `graph`
 - `graph.list`
+- `graph.ops`
+- `graph.ops.resolve`
 - `graph.query`
-- `graph.actions`
 - `graph.mutate`
 - `diag.tail`
 
@@ -68,8 +69,9 @@ Execution route:
 - `execute`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=execute`).
 - `graph`: MCP local descriptor response + required `rpc.health` probe on every call.
 - `graph.list`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.list`).
+- `graph.ops`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.ops`).
+- `graph.ops.resolve`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.ops.resolve`).
 - `graph.query`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.query`).
-- `graph.actions`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.actions`).
 - `graph.mutate`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.mutate`).
 - `diag.tail`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=diag.tail`).
 

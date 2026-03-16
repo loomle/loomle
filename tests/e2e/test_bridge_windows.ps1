@@ -20,7 +20,7 @@ function Run-Cmd([string]$CmdLine) {
     }
 }
 
-$repoRoot = Split-Path -Parent $PSScriptRoot
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 
 if (-not (Test-Path -LiteralPath $ProjectRoot)) {
     $devConfig = Join-Path $repoRoot "tools\dev.project-root.local.json"
@@ -54,12 +54,12 @@ if (-not (Test-Path -LiteralPath $regression)) {
 }
 
 Step "Run Rust tests"
-Run-Cmd "cd /d \"$repoRoot\mcp\server\" && cargo test"
-Run-Cmd "cd /d \"$repoRoot\mcp\client\" && cargo test"
+Run-Cmd ('cd /d "{0}" && cargo test' -f (Join-Path $repoRoot "mcp\server"))
+Run-Cmd ('cd /d "{0}" && cargo test' -f (Join-Path $repoRoot "mcp\client"))
 
 Step "Build MCP binaries (release) and sync into project-local paths"
-Run-Cmd "cd /d \"$repoRoot\mcp\server\" && cargo build --release"
-Run-Cmd "cd /d \"$repoRoot\mcp\client\" && cargo build --release"
+Run-Cmd ('cd /d "{0}" && cargo build --release' -f (Join-Path $repoRoot "mcp\server"))
+Run-Cmd ('cd /d "{0}" && cargo build --release' -f (Join-Path $repoRoot "mcp\client"))
 if (-not (Test-Path -LiteralPath $serverOut)) {
     throw "Missing built MCP server binary: $serverOut"
 }
@@ -77,12 +77,12 @@ Copy-Item -LiteralPath $clientOut -Destination (Join-Path $workspaceDst "loomle.
 
 if (-not $SkipSmoke) {
     Step "Run bridge smoke test"
-    Run-Cmd "$Python \"$smoke\" --project-root \"$ProjectRoot\""
+    Run-Cmd ('"{0}" "{1}" --project-root "{2}"' -f $Python, $smoke, $ProjectRoot)
 }
 
 if (-not $SkipRegression) {
     Step "Run bridge regression test"
-    Run-Cmd "$Python \"$regression\" --project-root \"$ProjectRoot\""
+    Run-Cmd ('"{0}" "{1}" --project-root "{2}"' -f $Python, $regression, $ProjectRoot)
 }
 
 Write-Host "[PASS] Windows bridge tests complete"

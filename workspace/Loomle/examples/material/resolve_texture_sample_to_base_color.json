@@ -1,0 +1,23 @@
+{
+  "tool": "graph.ops.resolve",
+  "graphType": "material",
+  "graphRef": {
+    "kind": "asset",
+    "assetPath": "/Game/Path/To/M_Example"
+  },
+  "context": {
+    "fromPin": {
+      "nodeId": "TextureCoordinate_0",
+      "pinName": ""
+    }
+  },
+  "items": [
+    {
+      "opId": "mat.texture.sample",
+      "clientRef": "sample_for_base_color",
+      "hints": {
+        "targetRootPin": "Base Color"
+      }
+    }
+  ]
+}

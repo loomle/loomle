@@ -169,11 +169,18 @@ pub fn tool_descriptors() -> Vec<Value> {
             graph_query_output_schema(),
         ),
         runtime_tool_descriptor(
-            "graph.actions",
-            "Graph Actions",
-            "List addable actions for graph context.",
-            graph_actions_input_schema(),
-            graph_actions_output_schema(),
+            "graph.ops",
+            "Graph Ops",
+            "List stable semantic graph operations known for a graph domain.",
+            graph_ops_input_schema(),
+            graph_ops_output_schema(),
+        ),
+        runtime_tool_descriptor(
+            "graph.ops.resolve",
+            "Graph Ops Resolve",
+            "Resolve semantic graph operations into mutate-ready plans for a concrete graph context.",
+            graph_ops_resolve_input_schema(),
+            graph_ops_resolve_output_schema(),
         ),
         runtime_tool_descriptor(
             "graph.mutate",
@@ -416,39 +423,48 @@ fn graph_resolve_output_schema() -> Value {
     })
 }
 
-fn graph_actions_input_schema() -> Value {
+fn graph_ops_input_schema() -> Value {
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
+        "required": ["graphType"],
         "properties": {
-            "assetPath": {
-                "type": "string",
-                "minLength": 1,
-                "description": "Unreal asset path (Mode A). Required when graphName is used; omit when graphRef is provided."
-            },
-            "graphName": {
-                "type": "string",
-                "minLength": 1,
-                "description": "Graph name within the asset (Mode A), for example EventGraph. Mutually exclusive with graphRef."
-            },
-            "graphRef": graph_ref_schema(),
             "graphType": graph_type_schema(),
             "query": {
                 "type": "string",
-                "description": "Optional fuzzy search text used to filter available actions."
+                "description": "Optional fuzzy text filter over known opIds, labels, tags, and summaries."
+            },
+            "stability": {
+                "type": "string",
+                "enum": ["stable", "experimental"],
+                "description": "Optional filter by semantic op stability."
             },
             "limit": {
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 1000,
-                "description": "Maximum number of actions to return."
-            },
+                "description": "Maximum number of semantic ops to return."
+            }
+        },
+        "additionalProperties": false
+    })
+}
+
+fn graph_ops_resolve_input_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["graphType", "graphRef", "items"],
+        "properties": {
+            "graphType": graph_type_schema(),
+            "graphRef": graph_ref_schema(),
             "context": {
                 "type": "object",
-                "description": "Optional graph context used to scope returned actions.",
+                "description": "Optional graph context used to resolve semantic ops, for example a source pin.",
                 "properties": {
                     "fromPin": {
                         "type": "object",
+                        "required": ["nodeId", "pinName"],
                         "properties": {
                             "nodeId": {
                                 "type": "string",
@@ -463,6 +479,31 @@ fn graph_actions_input_schema() -> Value {
                     }
                 },
                 "additionalProperties": false
+            },
+            "items": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 200,
+                "items": {
+                    "type": "object",
+                    "required": ["opId"],
+                    "properties": {
+                        "opId": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "clientRef": {
+                            "type": "string",
+                            "description": "Optional client-side reference echoed in the result."
+                        },
+                        "hints": {
+                            "type": "object",
+                            "description": "Optional semantic resolution hints interpreted by the resolver.",
+                            "additionalProperties": true
+                        }
+                    },
+                    "additionalProperties": false
+                }
             }
         },
         "additionalProperties": false
@@ -532,7 +573,6 @@ fn graph_mutate_input_schema() -> Value {
                             "type": "string",
                             "enum": [
                                 "addNode.byClass",
-                                "addNode.byAction",
                                 "connectPins",
                                 "disconnectPins",
                                 "breakPinLinks",
@@ -605,23 +645,166 @@ fn graph_query_output_schema() -> Value {
     })
 }
 
-fn graph_actions_output_schema() -> Value {
+fn graph_ops_output_schema() -> Value {
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
-        "required": ["graphType", "assetPath", "graphName", "graphRef", "actions", "meta", "diagnostics"],
+        "required": ["graphType", "ops", "meta", "diagnostics"],
         "properties": {
             "graphType": graph_type_schema(),
-            "assetPath": { "type": "string" },
-            "graphName": { "type": "string" },
-            "graphRef": graph_ref_schema(),
-            "contextEcho": { "type": "object", "additionalProperties": true },
-            "actions": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
-            "nextCursor": { "type": "string" },
-            "meta": { "type": "object", "additionalProperties": true },
-            "diagnostics": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+            "ops": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["opId", "stability", "scope", "summary"],
+                    "properties": {
+                        "opId": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "stability": {
+                            "type": "string",
+                            "enum": ["stable", "experimental"]
+                        },
+                        "scope": {
+                            "type": "string",
+                            "enum": ["cross-graph", "blueprint", "material", "pcg"]
+                        },
+                        "summary": {
+                            "type": "string"
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": { "type": "string" }
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "meta": {
+                "type": "object",
+                "required": ["source", "coverage"],
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "enum": ["loomle_catalog", "mixed"]
+                    },
+                    "coverage": {
+                        "type": "string",
+                        "enum": ["curated", "partial"]
+                    }
+                },
+                "additionalProperties": false
+            },
+            "diagnostics": {
+                "type": "array",
+                "items": { "type": "object", "additionalProperties": true }
+            }
         },
-        "additionalProperties": true
+        "additionalProperties": false
+    })
+}
+
+fn graph_ops_resolve_output_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["graphType", "graphRef", "results", "diagnostics"],
+        "properties": {
+            "graphType": graph_type_schema(),
+            "graphRef": graph_ref_schema(),
+            "results": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["opId", "resolved", "compatibility"],
+                    "properties": {
+                        "opId": { "type": "string" },
+                        "clientRef": { "type": "string" },
+                        "resolved": { "type": "boolean" },
+                        "compatibility": {
+                            "type": "object",
+                            "required": ["isCompatible", "reasons"],
+                            "properties": {
+                                "isCompatible": { "type": "boolean" },
+                                "reasons": { "type": "array", "items": { "type": "string" } }
+                            },
+                            "additionalProperties": false
+                        },
+                        "preferredPlan": {
+                            "type": "object",
+                            "required": ["realizationKind", "source", "coverage", "determinism"],
+                            "properties": {
+                                "realizationKind": { "type": "string" },
+                                "preferredMutateOp": { "type": "string" },
+                                "args": {
+                                    "type": "object",
+                                    "additionalProperties": true
+                                },
+                                "steps": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "required": ["op", "args"],
+                                        "properties": {
+                                            "op": { "type": "string" },
+                                            "clientRef": { "type": "string" },
+                                            "args": {
+                                                "type": "object",
+                                                "additionalProperties": true
+                                            }
+                                        },
+                                        "additionalProperties": false
+                                    }
+                                },
+                                "settingsTemplate": {
+                                    "type": "object",
+                                    "additionalProperties": true
+                                },
+                                "pinHints": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "additionalProperties": true
+                                    }
+                                },
+                                "verificationHints": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "additionalProperties": true
+                                    }
+                                },
+                                "source": {
+                                    "type": "string",
+                                    "enum": ["typed_discovery", "loomle_catalog", "generic_fallback", "mixed"]
+                                },
+                                "coverage": {
+                                    "type": "string",
+                                    "enum": ["contextual", "curated", "partial"]
+                                },
+                                "determinism": {
+                                    "type": "string",
+                                    "enum": ["stable", "context_sensitive", "ephemeral"]
+                                }
+                            },
+                            "additionalProperties": false
+                        },
+                        "alternatives": {
+                            "type": "array",
+                            "items": { "type": "object", "additionalProperties": true }
+                        },
+                        "reason": { "type": "string" }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "diagnostics": {
+                "type": "array",
+                "items": { "type": "object", "additionalProperties": true }
+            }
+        },
+        "additionalProperties": false
     })
 }
 
@@ -724,10 +907,13 @@ mod tests {
     #[test]
     fn tools_list_contains_graph_resolve_and_diag_tail() {
         let tools = tool_descriptors();
-        assert_eq!(tools.len(), 13);
+        assert_eq!(tools.len(), 14);
         assert!(tools
             .iter()
-            .any(|v| v.get("name") == Some(&Value::String(String::from("graph.actions")))));
+            .any(|v| v.get("name") == Some(&Value::String(String::from("graph.ops")))));
+        assert!(tools
+            .iter()
+            .any(|v| v.get("name") == Some(&Value::String(String::from("graph.ops.resolve")))));
         assert!(tools
             .iter()
             .any(|v| v.get("name") == Some(&Value::String(String::from("graph.resolve")))));
@@ -780,17 +966,34 @@ mod tests {
             "graph.resolve output should expose resolvedGraphRefs property"
         );
 
-        let graph_actions = tools
+        let graph_ops = tools
             .iter()
-            .find(|v| v.get("name") == Some(&Value::String(String::from("graph.actions"))))
-            .expect("graph.actions descriptor");
+            .find(|v| v.get("name") == Some(&Value::String(String::from("graph.ops"))))
+            .expect("graph.ops descriptor");
+        let graph_ops_required = graph_ops["inputSchema"]["required"]
+            .as_array()
+            .expect("required array");
+        assert!(graph_ops_required.contains(&Value::String(String::from("graphType"))));
         assert!(
-            graph_actions["inputSchema"]["properties"]["graphRef"].is_object(),
-            "graph.actions should expose graphRef property"
+            graph_ops["outputSchema"]["properties"]["ops"].is_object(),
+            "graph.ops output should expose ops property"
+        );
+
+        let graph_ops_resolve = tools
+            .iter()
+            .find(|v| v.get("name") == Some(&Value::String(String::from("graph.ops.resolve"))))
+            .expect("graph.ops.resolve descriptor");
+        assert!(
+            graph_ops_resolve["inputSchema"]["properties"]["graphRef"].is_object(),
+            "graph.ops.resolve should expose graphRef property"
         );
         assert!(
-            graph_actions["outputSchema"]["properties"]["graphRef"].is_object(),
-            "graph.actions output should expose graphRef property"
+            graph_ops_resolve["inputSchema"]["properties"]["items"].is_object(),
+            "graph.ops.resolve should expose items property"
+        );
+        assert!(
+            graph_ops_resolve["outputSchema"]["properties"]["results"].is_object(),
+            "graph.ops.resolve output should expose results property"
         );
 
         // graph.mutate: only ops is required; assetPath is optional when graphRef is supplied.
@@ -831,6 +1034,32 @@ mod tests {
         assert_eq!(
             graph_list["inputSchema"]["properties"]["graphType"]["default"],
             Value::String(String::from("blueprint"))
+        );
+
+        let graph_ops = tools
+            .iter()
+            .find(|v| v.get("name") == Some(&Value::String(String::from("graph.ops"))))
+            .expect("graph.ops descriptor");
+        assert_eq!(
+            graph_ops["outputSchema"]["properties"]["meta"]["properties"]["source"]["enum"][0],
+            Value::String(String::from("loomle_catalog"))
+        );
+
+        let graph_ops_resolve = tools
+            .iter()
+            .find(|v| v.get("name") == Some(&Value::String(String::from("graph.ops.resolve"))))
+            .expect("graph.ops.resolve descriptor");
+        assert!(
+            graph_ops_resolve["outputSchema"]["properties"]["results"]["items"]["properties"]
+                ["preferredPlan"]["properties"]["steps"]
+                .is_object(),
+            "graph.ops.resolve output schema should expose preferredPlan.steps"
+        );
+        assert!(
+            graph_ops_resolve["outputSchema"]["properties"]["results"]["items"]["properties"]
+                ["preferredPlan"]["properties"]["settingsTemplate"]
+                .is_object(),
+            "graph.ops.resolve output schema should expose preferredPlan.settingsTemplate"
         );
 
         let graph_mutate = tools

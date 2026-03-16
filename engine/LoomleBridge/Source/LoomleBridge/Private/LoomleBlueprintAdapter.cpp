@@ -422,6 +422,14 @@ namespace LoomleBlueprintAdapterInternal
         {
             if (UEdGraphPin* P = TrySchemaPin(UEdGraphSchema_K2::PN_CastSucceeded)) return P;
         }
+        if (Key.Equals(TEXT("input")) || Key.Equals(TEXT("inputpin")))
+        {
+            if (UEdGraphPin* P = Node->FindPin(TEXT("InputPin"))) return P;
+        }
+        if (Key.Equals(TEXT("output")) || Key.Equals(TEXT("outputpin")))
+        {
+            if (UEdGraphPin* P = Node->FindPin(TEXT("OutputPin"))) return P;
+        }
 
         const FString NormalizedRequested = NormalizePinToken(RequestedName);
         for (UEdGraphPin* Pin : Node->Pins)
@@ -1320,54 +1328,6 @@ bool FLoomleBlueprintAdapter::AddNodeByClass(const FString& BlueprintAssetPath, 
     }
 
     OutError = FString::Printf(TEXT("Unsupported nodeClassPath for addNode.byClass: %s"), *NodeClassPath);
-    return false;
-}
-
-bool FLoomleBlueprintAdapter::AddNodeByAction(const FString& BlueprintAssetPath, const FString& GraphName, const FString& ActionId, const FString& PayloadJson, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
-{
-    const FString Action = ActionId.ToLower();
-    if (Action.IsEmpty())
-    {
-        OutError = TEXT("ActionId is required.");
-        OutNodeGuid.Empty();
-        return false;
-    }
-
-    if (Action.Equals(TEXT("event")))
-    {
-        return AddNodeByClass(BlueprintAssetPath, GraphName, TEXT("/Script/BlueprintGraph.K2Node_Event"), PayloadJson, NodePosX, NodePosY, OutNodeGuid, OutError);
-    }
-    if (Action.Equals(TEXT("cast")))
-    {
-        return AddNodeByClass(BlueprintAssetPath, GraphName, TEXT("/Script/BlueprintGraph.K2Node_DynamicCast"), PayloadJson, NodePosX, NodePosY, OutNodeGuid, OutError);
-    }
-    if (Action.Equals(TEXT("callfunction")))
-    {
-        return AddNodeByClass(BlueprintAssetPath, GraphName, TEXT("/Script/BlueprintGraph.K2Node_CallFunction"), PayloadJson, NodePosX, NodePosY, OutNodeGuid, OutError);
-    }
-    if (Action.Equals(TEXT("branch")))
-    {
-        return AddNodeByClass(BlueprintAssetPath, GraphName, TEXT("/Script/BlueprintGraph.K2Node_IfThenElse"), PayloadJson, NodePosX, NodePosY, OutNodeGuid, OutError);
-    }
-    if (Action.Equals(TEXT("variableget")))
-    {
-        return AddNodeByClass(BlueprintAssetPath, GraphName, TEXT("/Script/BlueprintGraph.K2Node_VariableGet"), PayloadJson, NodePosX, NodePosY, OutNodeGuid, OutError);
-    }
-    if (Action.Equals(TEXT("variableset")))
-    {
-        return AddNodeByClass(BlueprintAssetPath, GraphName, TEXT("/Script/BlueprintGraph.K2Node_VariableSet"), PayloadJson, NodePosX, NodePosY, OutNodeGuid, OutError);
-    }
-    if (Action.Equals(TEXT("comment")))
-    {
-        return AddNodeByClass(BlueprintAssetPath, GraphName, TEXT("/Script/UnrealEd.EdGraphNode_Comment"), PayloadJson, NodePosX, NodePosY, OutNodeGuid, OutError);
-    }
-    if (Action.Equals(TEXT("knot")))
-    {
-        return AddNodeByClass(BlueprintAssetPath, GraphName, TEXT("/Script/BlueprintGraph.K2Node_Knot"), PayloadJson, NodePosX, NodePosY, OutNodeGuid, OutError);
-    }
-
-    OutError = FString::Printf(TEXT("Unsupported actionId for addNode.byAction: %s"), *ActionId);
-    OutNodeGuid.Empty();
     return false;
 }
 

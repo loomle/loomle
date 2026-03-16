@@ -3,19 +3,22 @@
 Recommended Blueprint editing rhythm for LOOMLE:
 
 1. query the graph
-2. apply a small batch of `graph.mutate` operations
-3. call `layoutGraph(scope=\"touched\")`
-4. query again if verification is needed
+2. use `graph.ops` and `graph.ops.resolve` when you need semantic node planning
+3. apply a small batch of `graph.mutate` operations
+4. call `layoutGraph(scope=\"touched\")`
+5. query again if verification is needed
 
 When creating nodes:
-- prefer `graph.actions` followed by `graph.mutate op="addNode.byAction"` when you want editor-native addable actions
-- use `addNode.byClass` when you need deterministic construction from a known class path
+- prefer `graph.ops` to discover stable semantic operations for Blueprint
+- prefer `graph.ops.resolve` to map those semantic ops into mutate-ready plans
+- use `addNode.byClass` directly when you already know the exact class path and do not need semantic planning
 
-`actionToken` rules:
-- treat it as opaque and short-lived
-- use it only on the exact Blueprint graph that returned it
-- do not cache it as a stable identifier across repeated `graph.actions` calls
-- if `addNode.byAction` reports an action-token error, call `graph.actions` again on that same graph and retry with a fresh token
+Planning rule:
+- `core.comment`, `core.reroute`, and `bp.flow.branch` are the current Blueprint semantic v1 baseline
+- use `graph.ops.resolve` with `context.fromPin` when a semantic op depends on pin context, such as `core.reroute`
+- `core.reroute` and `bp.flow.branch` can now emit `steps[]` when `context.fromPin` is supplied
+- when `preferredPlan.steps[]` is returned, prefer executing that batch shape instead of reconstructing the node and wire sequence by hand
+- prefer plans that resolve to `addNode.byClass`
 
 Layout expectation:
 - exec tree stays readable from left to right

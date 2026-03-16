@@ -114,7 +114,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
     Result->SetArrayField(TEXT("methods"), MakeStringArray({TEXT("rpc.health"), TEXT("rpc.capabilities"), TEXT("rpc.invoke")}));
     Result->SetArrayField(TEXT("tools"), MakeStringArray({
         TEXT("context"), TEXT("editor.open"), TEXT("editor.focus"), TEXT("editor.screenshot"), TEXT("execute"),
-        TEXT("graph.list"), TEXT("graph.resolve"), TEXT("graph.query"), TEXT("graph.actions"), TEXT("graph.mutate"),
+        TEXT("graph.list"), TEXT("graph.resolve"), TEXT("graph.query"), TEXT("graph.ops"), TEXT("graph.ops.resolve"),
+        TEXT("graph.mutate"),
         TEXT("diag.tail")
     }));
     Result->SetArrayField(TEXT("graphTypes"), MakeStringArray({TEXT("blueprint"), TEXT("material"), TEXT("pcg")}));
@@ -274,9 +275,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     {
         Payload = BuildGraphQueryToolResult(Arguments);
     }
-    else if (Name.Equals(LoomleBridgeConstants::GraphActionsToolName))
+    else if (Name.Equals(LoomleBridgeConstants::GraphOpsToolName))
     {
-        Payload = BuildGraphActionsToolResult(Arguments);
+        Payload = BuildGraphOpsToolResult(Arguments);
+    }
+    else if (Name.Equals(LoomleBridgeConstants::GraphOpsResolveToolName))
+    {
+        Payload = BuildGraphOpsResolveToolResult(Arguments);
     }
     else if (Name.Equals(LoomleBridgeConstants::GraphMutateToolName))
     {

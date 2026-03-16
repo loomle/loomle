@@ -1,0 +1,21 @@
+{
+  "tool": "graph.ops.resolve",
+  "graphType": "blueprint",
+  "graphRef": {
+    "kind": "asset",
+    "assetPath": "/Game/Path/To/BP_Example",
+    "graphName": "EventGraph"
+  },
+  "context": {
+    "fromPin": {
+      "nodeId": "EventBeginPlay",
+      "pinName": "Then"
+    }
+  },
+  "items": [
+    {
+      "opId": "bp.flow.branch",
+      "clientRef": "branch_from_begin_play"
+    }
+  ]
+}

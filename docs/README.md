@@ -22,6 +22,12 @@ Project-level technical documentation for `Loomle Bridge` (plugin + MCP server).
 6. `MCP_PROTOCOL.md`
 - MCP tool surface, tool schemas, routing rules, and behavior contract.
 
+7. `GRAPH_OPS_DESIGN.md`
+- Proposal for `graph.ops` and `graph.ops.resolve` as the graph-semantic planning layer.
+
+8. `GRAPH_OPS_PROTOCOL_DRAFT.md`
+- MCP-style draft contract for `graph.ops` and `graph.ops.resolve`.
+
 ## Recommended Read Order
 
 1. `ARCHITECTURE.md`
@@ -30,3 +36,5 @@ Project-level technical documentation for `Loomle Bridge` (plugin + MCP server).
 4. `INSTALL_PAGE_CONTENT.md`
 5. `RPC_INTERFACE.md`
 6. `MCP_PROTOCOL.md`
+7. `GRAPH_OPS_DESIGN.md`
+8. `GRAPH_OPS_PROTOCOL_DRAFT.md`

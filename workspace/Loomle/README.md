@@ -25,12 +25,13 @@ Read this file first. It is the top-level usage guide for agents working inside 
    Working rule:
    - `context` tells you what the editor is focused on and what is selected
    - `graph.resolve` turns an asset path, object path, actor path, or component path into queryable `graphRef` values
-   - once LOOMLE returns a `graphRef`, prefer reusing that `graphRef` in later `graph.query`, `graph.actions`, and `graph.mutate` calls
-5. For Blueprint node creation, prefer the `graph.actions -> graph.mutate addNode.byAction` flow when you want editor-native addable actions instead of hardcoded class paths.
-   Important:
-   - `actionToken` is scoped to the exact graph that returned it.
-   - Repeated `graph.actions` calls may return different tokens for equivalent actions.
-   - If `addNode.byAction` reports an action-token error, refresh by calling `graph.actions` again on that same graph.
+   - once LOOMLE returns a `graphRef`, prefer reusing that `graphRef` in later `graph.query`, `graph.ops.resolve`, and `graph.mutate` calls
+5. For graph editing, prefer the semantic planning flow:
+   - call `graph.ops` when you need to discover stable semantic operations for the current graph type
+   - call `graph.ops.resolve` on the exact target `graphRef` when you need a mutate-ready plan for one or more semantic ops
+   - apply the resulting plan with `graph.mutate`
+   Working rule:
+   - prefer `addNode.byClass` plans produced by `graph.ops.resolve`
 6. Choose the right workflow guide for the current graph type:
    - `workflows/blueprint.md`
    - `workflows/material.md`
@@ -84,7 +85,7 @@ Working rule:
 Preferred discovery order:
 - use `context` when you want to start from the current editor state or selection
 - use `graph.resolve` when you have a path from selection, an actor, a component, or an asset and need a queryable graph address
-- use returned `graphRef` values as the stable addressing form for follow-up `graph.query`, `graph.actions`, and `graph.mutate` calls
+- use returned `graphRef` values as the stable addressing form for follow-up `graph.query`, `graph.ops.resolve`, and `graph.mutate` calls
 
 Do not guess:
 - that a selected object path is already the right `assetPath`
@@ -135,20 +136,23 @@ Working rule:
 - use `filters.severity`, `filters.category`, `filters.source`, or `filters.assetPathPrefix` to narrow noisy streams
 - persisted diagnostic events live under `Loomle/runtime/diag/diag.jsonl`
 
-## Action Tokens
+## Semantic Planning
 
-Use `graph.actions` when you want LOOMLE to expose editor-native addable actions for the current Blueprint graph.
+Use `graph.ops` and `graph.ops.resolve` as the default node-planning surface.
 
 Working rule:
-- call `graph.actions` on the exact target graph
-- pick one `actions[*].actionToken`
-- immediately use it in `graph.mutate` with `op="addNode.byAction"` on that same graph
+- call `graph.ops` when you need the stable semantic catalog for a graph type
+- call `graph.ops.resolve` on the exact target graph when you want mutate-ready plans
+- prefer the returned `preferredPlan` over ad hoc class guessing when the op exists in the semantic catalog
 
-Do not assume:
-- that the same action will keep the same token across repeated `graph.actions` calls
-- that a token from one asset, one root graph, or one inline subgraph will work on another graph
-
-If mutate reports an action-token error, refresh with a new `graph.actions` call on the graph you are about to mutate.
+Current expectation:
+- `graph.ops` is curated, not exhaustive
+- `graph.ops.resolve` is a planning surface only; apply the plan with `graph.mutate`
+- when `preferredPlan.steps[]` is present, those steps can be copied directly into
+  `graph.mutate.ops`
+- richer plans may include `pinHints`, `settingsTemplate`, or
+  `verificationHints`; treat those as execution guidance rather than optional
+  prose
 
 ## Mutate Batches
 
@@ -203,7 +207,7 @@ Working rule:
 ## When To Open Deeper Files
 
 - Open `workflows/blueprint.md` when the current task is editing or reading Blueprint graphs.
-  This is also where `graph.actions` / `addNode.byAction` usage is explained.
+  This is also where the preferred `graph.ops` / `graph.ops.resolve` planning flow is explained.
 - Open `workflows/material.md` when the current task is editing or reading Material graphs.
   This is where Material subgraph traversal through `childGraphRef` is explained.
 - Open `workflows/pcg.md` when the current task is editing or reading PCG graphs.

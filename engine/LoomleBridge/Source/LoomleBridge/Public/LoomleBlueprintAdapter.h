@@ -23,7 +23,6 @@ public:
     static bool AddVariableGetNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& VariableName, const FString& VariableClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);
     static bool AddVariableSetNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& VariableName, const FString& VariableClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);
     static bool AddNodeByClass(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeClassPath, const FString& PayloadJson, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);
-    static bool AddNodeByAction(const FString& BlueprintAssetPath, const FString& GraphName, const FString& ActionId, const FString& PayloadJson, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);
     static bool ConnectPins(const FString& BlueprintAssetPath, const FString& GraphName, const FString& FromNodeGuid, const FString& FromPinName, const FString& ToNodeGuid, const FString& ToPinName, FString& OutError);
     static bool DisconnectPins(const FString& BlueprintAssetPath, const FString& GraphName, const FString& FromNodeGuid, const FString& FromPinName, const FString& ToNodeGuid, const FString& ToPinName, FString& OutError);
     static bool BreakPinLinks(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, const FString& PinName, FString& OutError);

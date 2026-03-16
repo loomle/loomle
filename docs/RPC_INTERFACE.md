@@ -119,7 +119,7 @@ Result:
 {
   "rpcVersion": "1.0",
   "methods": ["rpc.health", "rpc.capabilities", "rpc.invoke"],
-  "tools": ["context", "execute", "graph.list", "graph.query", "graph.actions", "graph.mutate", "diag.tail"],
+  "tools": ["context", "execute", "graph.list", "graph.resolve", "graph.query", "graph.ops", "graph.ops.resolve", "graph.mutate", "diag.tail"],
   "graphTypes": ["blueprint", "material", "pcg"],
   "features": {
     "revision": true,
@@ -138,7 +138,7 @@ Request params:
 
 ```json
 {
-  "tool": "context|execute|graph.list|graph.query|graph.actions|graph.mutate|diag.tail",
+  "tool": "context|execute|graph.list|graph.resolve|graph.query|graph.ops|graph.ops.resolve|graph.mutate|diag.tail",
   "args": {},
   "meta": {
     "requestId": "external-id",
@@ -258,7 +258,7 @@ Naming note:
 
 Field notes:
 
-- `graphRef`: present on all entries. For root graphs the server emits an `asset`-kind ref; for inline subgraphs an `inline`-kind ref. Use this value as input to `graph.query`, `graph.actions`, or `graph.mutate` for direct addressing.
+- `graphRef`: present on all entries. For root graphs the server emits an `asset`-kind ref; for inline subgraphs an `inline`-kind ref. Use this value as input to `graph.query`, `graph.ops.resolve`, or `graph.mutate` for direct addressing.
 - `parentGraphRef`: `null` for root-level graphs; set to the parent's `graphRef` for subgraphs when `includeSubgraphs` is `true`.
 - `ownerNodeId`: the `nodeId` of the composite/subgraph node that contains this graph. `null` for root graphs.
 - `loadStatus`: present on `kind: "asset"` entries only. `"loaded"` means the asset is in memory; `"loading"` means an async load is in progress; `"not_found"` means the asset path could not be resolved.
@@ -404,17 +404,53 @@ Node field notes:
 - If the runtime downgrades a measured request to basic layout data, diagnostics may include `LAYOUT_DETAIL_DOWNGRADED`.
 - Current LOOMLE support guarantees node positions and move operations. Size/bounds support is partial today; for Blueprint, comment nodes may include model-derived size/bounds even when ordinary nodes do not.
 
-## 5.5 tool=`graph.actions`
+## 5.5 tool=`graph.ops`
 
 `args`:
-
-Accepts the same two addressing modes as `graph.query` (Mode A: `assetPath` + `graphName`; Mode B: `graphRef`).
 
 ```json
 {
   "graphType": "blueprint|material|pcg",
-  "assetPath": "/Game/...",
-  "graphName": "EventGraph",
+  "query": "optional-text",
+  "stability": "stable|experimental",
+  "limit": 1000
+}
+```
+
+`payload`:
+
+```json
+{
+  "graphType": "blueprint|material|pcg",
+  "ops": [
+    {
+      "opId": "string",
+      "stability": "stable|experimental",
+      "scope": "cross-graph|blueprint|material|pcg",
+      "summary": "string"
+    }
+  ],
+  "meta": {
+    "source": "loomle_catalog|mixed",
+    "coverage": "curated|partial"
+  },
+  "diagnostics": []
+}
+```
+
+Notes:
+
+- `graph.ops` lists LOOMLE's stable semantic operation catalog for the requested graph domain.
+- This is a planning inventory surface, not an editor action-menu export.
+- `graph.ops` results may be curated rather than exhaustive.
+
+## 5.6 tool=`graph.ops.resolve`
+
+`args`:
+
+```json
+{
+  "graphType": "blueprint|material|pcg",
   "graphRef": { "kind": "inline|asset", "...": "..." },
   "context": {
     "fromPin": {
@@ -422,74 +458,67 @@ Accepts the same two addressing modes as `graph.query` (Mode A: `assetPath` + `g
       "pinName": "optional-pin"
     }
   },
-  "query": "optional-text",
-  "limit": 100
+  "items": [
+    {
+      "opId": "string",
+      "clientRef": "optional",
+      "hints": {
+        "targetRootPin": "optional-material-root-pin"
+      }
+    }
+  ]
 }
 ```
-
-Notes:
-
-- `graphRef` and `graphName` are mutually exclusive.
-- For `graphRef.kind="inline"`, `graphType` must be `blueprint`.
-- `actionToken` values in `actions[]` are opaque, graph-context-scoped capability tokens meant for near-term reuse with `graph.mutate op="addNode.byAction"` on the same graph.
-- Tokens are tied to the resolved `(graphType, assetPath, graphName)` context. They must not be reused across other assets, other root graphs in the same asset, or other inline subgraphs.
-- Tokens are ephemeral. Repeated `graph.actions` calls on the same graph may return different `actionToken` values for equivalent actions; callers must not treat them as stable action identifiers.
-- Within the same graph context, a previously returned token may remain valid for a short time, but callers should refresh by calling `graph.actions` again whenever a token is missing, rejected, or stale.
-- Expected failure modes for stale or mismatched reuse are `ACTION_TOKEN_INVALID`, `ACTION_TOKEN_EXPIRED`, and `ACTION_TOKEN_CONTEXT_MISMATCH`.
 
 `payload`:
 
 ```json
 {
   "graphType": "blueprint|material|pcg",
-  "assetPath": "/Game/...",
-  "graphName": "EventGraph",
   "graphRef": { "kind": "inline|asset", "...": "..." },
-  "contextEcho": {
-    "mode": "graph|pin",
-    "fromNodeId": "optional",
-    "fromPinName": "optional"
-  },
-  "actions": [
+  "results": [
     {
-      "actionToken": "opaque-token",
-      "title": "string",
-      "categoryPath": "string",
-      "tooltip": "string",
-      "spawn": {
-        "nodeClassPath": "string"
-      }
+      "opId": "string",
+      "clientRef": "optional",
+      "resolved": true,
+      "compatibility": {
+        "isCompatible": true,
+        "reasons": []
+      },
+      "preferredPlan": {
+        "realizationKind": "spawn_node",
+        "preferredMutateOp": "addNode.byClass",
+        "args": {
+          "nodeClassPath": "string"
+        },
+        "source": "typed_discovery|loomle_catalog|generic_fallback|mixed",
+        "coverage": "contextual|curated|partial",
+        "determinism": "stable|context_sensitive|ephemeral"
+      },
+      "alternatives": []
     }
   ],
-  "nextCursor": "",
-  "meta": {
-    "total": 0,
-    "returned": 0,
-    "truncated": false,
-    "actionSource": "typed|generic_fallback|curated_catalog",
-    "fallbackReason": "optional",
-    "recommendedRecovery": "optional"
-  },
   "diagnostics": []
 }
 ```
 
-`meta.actionSource` notes:
+Notes:
 
-- `typed`: returned from the graph schema's typed action discovery path.
-- `generic_fallback`: schema returned no typed actions, so LOOMLE emitted a generic fallback action set.
-- `curated_catalog`: LOOMLE returned its built-in catalog for non-Blueprint graph types.
+- `graph.ops.resolve` is a planning surface. It does not mutate the graph by itself.
+- `graphRef` is required.
+- `items[]` is batch-first so callers can compare several semantic operations under the same graph context.
+- If an item cannot be resolved in the supplied context, it remains structured inside `results[]` with `resolved=false` and compatibility reasons.
+- `preferredPlan.pinHints` may identify important pin roles for follow-up wiring.
+- `preferredPlan.settingsTemplate` may appear when a semantic op commonly needs key settings filled before the node is useful.
+- `preferredPlan.verificationHints` may appear when readback is especially important after apply, for example on PCG flows.
+- Current MVP step generation is intentionally narrow:
+  - Blueprint `core.reroute` and `bp.flow.branch` can emit `steps[]` when `context.fromPin` is supplied.
+  - Material `mat.math.multiply` can emit `steps[]` when `items[*].hints.targetRootPin` is supplied.
+  - Material `mat.texture.sample` can emit `steps[]` when `items[*].hints.targetRootPin` is supplied, and may also connect `context.fromPin` into `UVs`.
+  - PCG `pcg.meta.add_tag` can emit `steps[]` when `context.fromPin` is supplied.
+  - PCG `pcg.filter.by_tag` can emit `steps[]` when `context.fromPin` is supplied.
 
-When fallback is used or no catalog actions are available, `meta.fallbackReason`, `meta.recommendedRecovery`, and diagnostic entries may explain what happened and suggest a next step.
-
-Minimal usage pattern:
-
-1. Call `graph.actions` for the exact graph you plan to mutate.
-2. Pick one `actions[*].actionToken` from that response.
-3. Immediately pass that token into `graph.mutate` with `op="addNode.byAction"` against the same graph context.
-4. If mutate returns an action-token error, refresh with a new `graph.actions` call on that graph instead of retrying the old token globally.
-
-## 5.6 tool=`graph.mutate`
+## 5.7 tool=`graph.mutate`
 
 `args`:
 
@@ -584,7 +613,7 @@ When `applied=false`:
 - top-level `partialApplied=true` means one or more earlier operations in the ordered batch already committed with `changed=true` before the later failure was encountered.
 - `graph.mutate` is currently ordered but non-transactional: the server does not roll back earlier successful ops when a later op fails.
 
-## 5.7 tool=`diag.tail`
+## 5.9 tool=`diag.tail`
 
 `args`:
 

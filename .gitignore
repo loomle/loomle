@@ -16,6 +16,8 @@ Plugins/LoomleBridge/
 runtime/*.jsonl
 runtime/*.json
 runtime/benchmarks/*.csv
+runtime/dev-verify-install/
+runtime/local-release-*/
 
 # Rust test build artifacts
 mcp_server/target/

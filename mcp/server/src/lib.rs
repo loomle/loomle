@@ -7,7 +7,7 @@ pub mod schema;
 pub mod sdk;
 pub mod transport;
 
-pub const TOOL_NAMES: [&str; 13] = [
+pub const TOOL_NAMES: [&str; 14] = [
     "loomle",
     "context",
     "editor.open",
@@ -18,7 +18,8 @@ pub const TOOL_NAMES: [&str; 13] = [
     "graph.list",
     "graph.resolve",
     "graph.query",
-    "graph.actions",
+    "graph.ops",
+    "graph.ops.resolve",
     "graph.mutate",
     "diag.tail",
 ];
@@ -91,7 +92,7 @@ impl<C: RpcConnector> McpService<C> {
             "loomle" => self.call_loomle(),
             "graph" => self.call_graph(args),
             "context" | "editor.open" | "editor.focus" | "editor.screenshot" | "execute" | "graph.list" | "graph.resolve" | "graph.query"
-            | "graph.actions" | "graph.mutate" | "diag.tail" => self.call_runtime(name, args, meta),
+            | "graph.ops" | "graph.ops.resolve" | "graph.mutate" | "diag.tail" => self.call_runtime(name, args, meta),
             _ => McpToolResult {
                 structured_content: error_payload(
                     1002,
@@ -177,7 +178,6 @@ impl<C: RpcConnector> McpService<C> {
                         "message": if h.is_pie { "Unreal Editor is currently in Play In Editor (PIE)." } else { "" },
                         "ops": [
                             "addNode.byClass",
-                            "addNode.byAction",
                             "connectPins",
                             "disconnectPins",
                             "breakPinLinks",
@@ -463,8 +463,9 @@ mod tests {
     #[test]
     fn tools_list_includes_diag_tail() {
         let tools = McpService::<FakeConnector>::tools_list();
-        assert_eq!(tools.len(), 13);
-        assert!(tools.contains(&"graph.actions"));
+        assert_eq!(tools.len(), 14);
+        assert!(tools.contains(&"graph.ops"));
+        assert!(tools.contains(&"graph.ops.resolve"));
         assert!(tools.contains(&"graph.resolve"));
         assert!(tools.contains(&"diag.tail"));
         assert!(tools.contains(&"editor.open"));
