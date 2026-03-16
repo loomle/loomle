@@ -113,7 +113,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
 
     Result->SetArrayField(TEXT("methods"), MakeStringArray({TEXT("rpc.health"), TEXT("rpc.capabilities"), TEXT("rpc.invoke")}));
     Result->SetArrayField(TEXT("tools"), MakeStringArray({
-        TEXT("context"), TEXT("editor.open"), TEXT("editor.focus"), TEXT("editor.screenshot"), TEXT("pcg.inspectRuntime"), TEXT("execute"),
+        TEXT("context"), TEXT("editor.open"), TEXT("editor.focus"), TEXT("editor.screenshot"), TEXT("graph.runtime"), TEXT("execute"),
         TEXT("graph.list"), TEXT("graph.resolve"), TEXT("graph.query"), TEXT("graph.ops"), TEXT("graph.ops.resolve"),
         TEXT("graph.mutate"),
         TEXT("diag.tail")
@@ -263,9 +263,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     {
         Payload = BuildEditorScreenshotToolResult(Arguments);
     }
-    else if (Name.Equals(LoomleBridgeConstants::PcgInspectRuntimeToolName))
+    else if (Name.Equals(LoomleBridgeConstants::GraphRuntimeToolName))
     {
-        Payload = BuildPcgInspectRuntimeToolResult(Arguments);
+        Payload = BuildGraphRuntimeToolResult(Arguments);
     }
     else if (Name.Equals(LoomleBridgeConstants::GraphListToolName))
     {

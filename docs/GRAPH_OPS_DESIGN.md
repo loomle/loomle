@@ -512,7 +512,7 @@ Graph-semantic planning and runtime result inspection should stay separate.
 solve PCG runtime result introspection by itself.
 
 If runtime output inspection remains unreliable for common PCG workflows, a
-separate capability such as `pcg.inspectRuntime` is a better design path than
+separate capability such as `graph.runtime` is a better design path than
 overloading resolve.
 
 ## 13. Public Graph-Semantic Boundary

@@ -131,11 +131,11 @@ pub fn tool_descriptors() -> Vec<Value> {
             }),
         ),
         runtime_tool_descriptor(
-            "pcg.inspectRuntime",
-            "PCG Runtime Inspect",
-            "Inspect runtime PCG generation state, managed resources, and generated output for a PCG component or actor.",
-            pcg_inspect_runtime_input_schema(),
-            pcg_inspect_runtime_output_schema(),
+            "graph.runtime",
+            "Graph Runtime",
+            "Inspect runtime graph state. The first release supports graphType=\"pcg\" only.",
+            graph_runtime_input_schema(),
+            graph_runtime_output_schema(),
         ),
         json!({
             "name": "graph",
@@ -1005,11 +1005,17 @@ fn diag_tail_output_schema() -> Value {
     })
 }
 
-fn pcg_inspect_runtime_input_schema() -> Value {
+fn graph_runtime_input_schema() -> Value {
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
+        "required": ["graphType"],
         "properties": {
+            "graphType": {
+                "type": "string",
+                "enum": ["pcg"],
+                "description": "Runtime graph domain. The first release supports only PCG."
+            },
             "componentPath": {
                 "type": "string",
                 "minLength": 1,
@@ -1035,7 +1041,7 @@ fn pcg_inspect_runtime_input_schema() -> Value {
     })
 }
 
-fn pcg_inspect_runtime_output_schema() -> Value {
+fn graph_runtime_output_schema() -> Value {
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -1087,7 +1093,7 @@ mod tests {
             .any(|v| v.get("name") == Some(&Value::String(String::from("editor.screenshot")))));
         assert!(tools
             .iter()
-            .any(|v| v.get("name") == Some(&Value::String(String::from("pcg.inspectRuntime")))));
+            .any(|v| v.get("name") == Some(&Value::String(String::from("graph.runtime")))));
     }
 
     #[test]
@@ -1192,17 +1198,21 @@ mod tests {
             "diag.tail output should expose nextSeq property"
         );
 
-        let pcg_inspect_runtime = tools
+        let graph_runtime = tools
             .iter()
-            .find(|v| v.get("name") == Some(&Value::String(String::from("pcg.inspectRuntime"))))
-            .expect("pcg.inspectRuntime descriptor");
+            .find(|v| v.get("name") == Some(&Value::String(String::from("graph.runtime"))))
+            .expect("graph.runtime descriptor");
         assert!(
-            pcg_inspect_runtime["inputSchema"]["properties"]["componentPath"].is_object(),
-            "pcg.inspectRuntime should expose componentPath property"
+            graph_runtime["inputSchema"]["properties"]["graphType"].is_object(),
+            "graph.runtime should expose graphType property"
         );
         assert!(
-            pcg_inspect_runtime["outputSchema"]["properties"]["managedResources"].is_object(),
-            "pcg.inspectRuntime should expose managedResources property"
+            graph_runtime["inputSchema"]["properties"]["componentPath"].is_object(),
+            "graph.runtime should expose componentPath property"
+        );
+        assert!(
+            graph_runtime["outputSchema"]["properties"]["managedResources"].is_object(),
+            "graph.runtime should expose managedResources property"
         );
     }
 

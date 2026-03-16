@@ -41,7 +41,7 @@ Read this file first. It is the top-level usage guide for agents working inside 
    - use `fromSeq` as an exclusive cursor
    - reuse returned `nextSeq` on the next poll
    - use `filters` when you want to narrow by severity, category, source, or asset path prefix
-8. When you need generated PCG runtime evidence after a regenerate, call `pcg.inspectRuntime`.
+8. When you need generated PCG runtime evidence after a regenerate, call `graph.runtime`.
    Working rule:
    - prefer `componentPath` from `graph.resolve` or `context.selection`
    - trust `managedResources` for spawned actors/components and instance counts
@@ -71,7 +71,7 @@ Working rule:
   Make one tool request and print the result.
 - `Loomle/loomle call diag.tail --args '{"fromSeq":0}'`
   Read persisted diagnostics incrementally. Reuse the returned `nextSeq` as the next cursor.
-- `Loomle/loomle call pcg.inspectRuntime --args '{"componentPath":"/Game/Maps/MyMap.MyMap:PersistentLevel.PCGVolume_0.PCGComponent0"}'`
+- `Loomle/loomle call graph.runtime --args '{"graphType":"pcg","componentPath":"/Game/Maps/MyMap.MyMap:PersistentLevel.PCGVolume_0.PCGComponent0"}'`
   Inspect generated PCG runtime output, managed resources, and execution summaries for one PCG component.
 - `Loomle/loomle session`
   Start a persistent stdin/stdout JSON session for repeated requests. Prefer this for high-concurrency or high-volume query workloads.
@@ -145,12 +145,12 @@ Working rule:
 
 ## PCG Runtime Inspection
 
-Use `pcg.inspectRuntime` when you need generated-result evidence after a PCG regenerate instead of only graph topology.
+Use `graph.runtime` when you need generated-result evidence after a PCG regenerate instead of only graph topology.
 
 Minimal one-shot example:
 
 ```bash
-Loomle/loomle call pcg.inspectRuntime --args '{"componentPath":"/Game/Maps/MyMap.MyMap:PersistentLevel.PCGVolume_0.PCGComponent0"}'
+Loomle/loomle call graph.runtime --args '{"graphType":"pcg","componentPath":"/Game/Maps/MyMap.MyMap:PersistentLevel.PCGVolume_0.PCGComponent0"}'
 ```
 
 Working rule:
@@ -234,7 +234,7 @@ Working rule:
 - Open `workflows/material.md` when the current task is editing or reading Material graphs.
   This is where Material subgraph traversal through `childGraphRef` is explained.
 - Open `workflows/pcg.md` when the current task is editing or reading PCG graphs.
-  This is where graph resolution from selected PCG actors and components, plus `pcg.inspectRuntime`, should be treated as normal.
+  This is where graph resolution from selected PCG actors and components, plus `graph.runtime`, should be treated as normal.
 - Open `examples/README.md` when you want small concrete payload examples before calling tools.
 - Do not treat `runtime/` as documentation. It contains machine-written state such as install metadata.
 

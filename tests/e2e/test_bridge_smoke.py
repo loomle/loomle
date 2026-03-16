@@ -22,7 +22,7 @@ REQUIRED_TOOLS = {
     "graph.ops",
     "graph.ops.resolve",
     "graph.mutate",
-    "pcg.inspectRuntime",
+    "graph.runtime",
     "diag.tail",
     "context",
     "editor.open",

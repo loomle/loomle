@@ -546,9 +546,18 @@ TSharedPtr<FJsonObject> BuildPcgInspectionSummary(UPCGComponent* Component)
 }
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgInspectRuntimeToolResult(const TSharedPtr<FJsonObject>& Arguments)
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphRuntimeToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+    FString GraphType;
+    if (!Arguments.IsValid() || !Arguments->TryGetStringField(TEXT("graphType"), GraphType) || !GraphType.Equals(TEXT("pcg"), ESearchCase::IgnoreCase))
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_GRAPH_TYPE"));
+        Result->SetStringField(TEXT("message"), TEXT("graph.runtime currently supports graphType=\"pcg\" only."));
+        return Result;
+    }
 
     FString ResolvedBy;
     FString ErrorCode;

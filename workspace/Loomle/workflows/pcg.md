@@ -27,7 +27,7 @@ Readback rule:
 - for selector-backed nodes, read the nested `actorSelector`, `componentSelector`, or `meshSelector` objects before assuming the runtime source is correct
 
 Runtime inspection rule:
-- when you need generated-result evidence after a regenerate, call `pcg.inspectRuntime`
+- when you need generated-result evidence after a regenerate, call `graph.runtime`
 - prefer passing `componentPath` from `graph.resolve(actorPath=...)`, `graph.resolve(componentPath=...)`, or `context.selection`
 - treat `managedResources` as the authoritative runtime summary for spawned actors/components and instance counts
 - expect `generatedGraphOutput` to be informative but not always complete for spawner-style graphs

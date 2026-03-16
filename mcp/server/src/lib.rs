@@ -15,7 +15,7 @@ pub const TOOL_NAMES: [&str; 15] = [
     "editor.open",
     "editor.focus",
     "editor.screenshot",
-    "pcg.inspectRuntime",
+    "graph.runtime",
     "execute",
     "graph",
     "graph.list",
@@ -94,7 +94,7 @@ impl<C: RpcConnector> McpService<C> {
         match name {
             "loomle" => self.call_loomle(),
             "graph" => self.call_graph(args),
-            "context" | "editor.open" | "editor.focus" | "editor.screenshot" | "pcg.inspectRuntime" | "execute" | "graph.list" | "graph.resolve" | "graph.query"
+            "context" | "editor.open" | "editor.focus" | "editor.screenshot" | "graph.runtime" | "execute" | "graph.list" | "graph.resolve" | "graph.query"
             | "graph.ops" | "graph.ops.resolve" | "graph.mutate" | "diag.tail" => self.call_runtime(name, args, meta),
             _ => McpToolResult {
                 structured_content: error_payload(
@@ -474,7 +474,7 @@ mod tests {
         assert!(tools.contains(&"editor.open"));
         assert!(tools.contains(&"editor.focus"));
         assert!(tools.contains(&"editor.screenshot"));
-        assert!(tools.contains(&"pcg.inspectRuntime"));
+        assert!(tools.contains(&"graph.runtime"));
     }
 
     #[test]

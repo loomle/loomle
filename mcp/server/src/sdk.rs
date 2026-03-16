@@ -177,7 +177,7 @@ mod tests {
         assert!(tools.iter().any(|tool| tool.name == "graph.ops"));
         assert!(tools.iter().any(|tool| tool.name == "graph.ops.resolve"));
         assert!(tools.iter().any(|tool| tool.name == "diag.tail"));
-        assert!(tools.iter().any(|tool| tool.name == "pcg.inspectRuntime"));
+        assert!(tools.iter().any(|tool| tool.name == "graph.runtime"));
         assert!(tools.iter().any(|tool| tool.name == "editor.open"));
         assert!(tools.iter().any(|tool| tool.name == "editor.focus"));
         assert!(tools.iter().any(|tool| tool.name == "editor.screenshot"));
