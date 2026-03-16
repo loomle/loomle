@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import platform
 import time
 from pathlib import Path
 
@@ -89,6 +90,9 @@ def capture_editor_png_hash_until_changed(
     attempts: int = 3,
     sleep_s: float = 0.5,
 ) -> tuple[dict, Path, str]:
+    if platform.system() == "Windows":
+        attempts = max(attempts, 6)
+        sleep_s = max(sleep_s, 0.75)
     last_result: tuple[dict, Path, str] | None = None
     for attempt in range(attempts):
         last_result = capture_editor_png_hash(
