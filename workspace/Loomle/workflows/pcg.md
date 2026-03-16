@@ -33,6 +33,43 @@ Runtime inspection rule:
 - expect `generatedGraphOutput` to be informative but not always complete for spawner-style graphs
 - if `generatedGraphOutput` is empty while visible spawned results exist, trust `managedResources` and `inspection` instead of assuming generation failed
 
+Observability contract:
+- expect every PCG edge in `graph.query.semanticSnapshot.edges[]` to carry stable endpoint metadata: `fromNodeId`, `fromPin`, `toNodeId`, and `toPin`
+- expect PCG subgraph nodes to expose `childGraphRef`; if the referenced graph asset cannot be resolved, inspect `childLoadStatus`
+- expect runtime-sensitive PCG nodes to expose meaningful nested settings in `effectiveSettings`, especially selector-backed fields such as `actorSelector`, `componentSelector`, and `meshSelector`
+- treat node-level `diagnostics` as the first explanation surface for empty-input and selector misconfiguration cases before reaching for Python fallback logic
+
+Projection, filter, and spawn pattern:
+- for landscape projection flows, read and write projection settings under `effectiveSettings.projectionParams`
+- important projection fields such as `attributeMode`, `attributeList`, and `attributeMergeOperation` live inside `projectionParams`, not at the top level
+- when you plan a landscape layer filter after projection, make sure the projection step keeps the metadata you need; otherwise later `Filter By Tag` / layer-weight filters may appear broken even though the missing metadata is upstream
+- `Filter By Tag` has two meaningful output pins:
+  - `InsideFilter` is the primary “matched” path
+  - `OutsideFilter` is the unmatched branch
+- for mesh spawning, inspect `effectiveSettings.meshSelector` and related diagnostics before assuming the spawner is reading the intended attribute
+
+End-to-end pattern: projection -> filter -> static mesh spawn:
+1. start from the actual PCG graph and call `graph.ops.resolve` for semantic nodes such as `pcg.project.surface`, `pcg.filter.by_tag`, and `pcg.spawn.static_mesh`
+2. read the returned `preferredPlan.settingsTemplate` before mutating; for projection this is where nested `projectionParams` fields are surfaced, and for spawning this is where mesh-selector defaults appear
+3. apply the returned plan with `graph.mutate`, then run `layoutGraph(scope="touched")`
+4. verify the resulting topology with `graph.query`
+5. confirm node configuration with `effectiveSettings` and node `diagnostics`
+6. if you regenerated the PCG component, call `graph.runtime` and trust `managedResources` / `inspection` over sparse `generatedGraphOutput`
+
+Troubleshooting:
+- graph generates in the editor but introspection looks empty:
+  - call `graph.runtime`
+  - trust `managedResources` and `inspection` first
+  - do not treat empty `generatedGraphOutput` alone as proof that generation failed
+- filter produces zero points:
+  - inspect node `diagnostics`
+  - confirm the upstream projection kept the metadata you expect
+  - confirm you are wiring from `InsideFilter` when you want the matched branch
+- volume appears to target the wrong landscape layer:
+  - re-read `projectionParams`
+  - check whether metadata inclusion/exclusion is stripping the layer fields you want to filter on
+  - verify the downstream selector/filter node is still reading the intended attribute names
+
 Layout expectation:
 - source nodes appear on the left
 - downstream processing stages move to the right
