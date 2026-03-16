@@ -882,13 +882,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorScreenshotToolResult(con
     }
 
     TSharedPtr<SWindow> ActiveWindow = ResolveCaptureTopLevelWindow();
-    if (!ActiveWindow.IsValid())
-    {
-        Result->SetBoolField(TEXT("isError"), true);
-        Result->SetStringField(TEXT("code"), TEXT("WINDOW_NOT_FOUND"));
-        Result->SetStringField(TEXT("message"), TEXT("No active top-level editor window was found."));
-        return Result;
-    }
 
     const FString OutputPath = ResolveScreenshotOutputPath(RequestedPath);
     const FString OutputDir = FPaths::GetPath(OutputPath);
@@ -897,13 +890,24 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorScreenshotToolResult(con
         IFileManager::Get().MakeDirectory(*OutputDir, true);
     }
 
-    FSlateApplication::Get().ForceRedrawWindow(ActiveWindow.ToSharedRef());
     TArray<FColor> ColorData;
     FIntVector ImageSize(0, 0, 0);
 
 #if PLATFORM_WINDOWS
+    const HWND CaptureWindowHandle = ResolveCaptureWindowHandle(ActiveWindow);
+    if (CaptureWindowHandle == nullptr)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("WINDOW_NOT_FOUND"));
+        Result->SetStringField(TEXT("message"), TEXT("No native editor window was found for screenshot capture."));
+        return Result;
+    }
+
+    ::RedrawWindow(CaptureWindowHandle, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+    ::UpdateWindow(CaptureWindowHandle);
+
     FString CaptureError;
-    if (!CaptureNativeWindowToColorData(ResolveCaptureWindowHandle(ActiveWindow), ColorData, ImageSize, CaptureError))
+    if (!CaptureNativeWindowToColorData(CaptureWindowHandle, ColorData, ImageSize, CaptureError))
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("CAPTURE_FAILED"));
@@ -913,6 +917,15 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorScreenshotToolResult(con
         return Result;
     }
 #else
+    if (!ActiveWindow.IsValid())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("WINDOW_NOT_FOUND"));
+        Result->SetStringField(TEXT("message"), TEXT("No active top-level editor window was found."));
+        return Result;
+    }
+
+    FSlateApplication::Get().ForceRedrawWindow(ActiveWindow.ToSharedRef());
     if (!FSlateApplication::Get().TakeScreenshot(ActiveWindow.ToSharedRef(), ColorData, ImageSize))
     {
         Result->SetBoolField(TEXT("isError"), true);
@@ -950,7 +963,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorScreenshotToolResult(con
     Result->SetBoolField(TEXT("ok"), true);
     Result->SetStringField(TEXT("target"), TEXT("activeWindow"));
     Result->SetStringField(TEXT("path"), OutputPath);
-    Result->SetStringField(TEXT("windowTitle"), ActiveWindow->GetTitle().ToString());
+    Result->SetStringField(TEXT("windowTitle"), ActiveWindow.IsValid() ? ActiveWindow->GetTitle().ToString() : TEXT(""));
     Result->SetNumberField(TEXT("width"), ImageSize.X);
     Result->SetNumberField(TEXT("height"), ImageSize.Y);
     return Result;
