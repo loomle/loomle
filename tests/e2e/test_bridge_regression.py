@@ -301,67 +301,6 @@ def main() -> int:
         _ = create_payload
         print(f"[PASS] temporary asset created: {temp_asset}")
 
-        editor_open_payload = call_tool(
-            client,
-            4001,
-            "editor.open",
-            {"assetPath": temp_asset},
-        )
-        if editor_open_payload.get("assetPath") != temp_asset:
-            fail(f"editor.open did not echo assetPath: {editor_open_payload}")
-        if not isinstance(editor_open_payload.get("assetClassPath"), str) or not editor_open_payload.get("assetClassPath"):
-            fail(f"editor.open missing assetClassPath: {editor_open_payload}")
-
-        editor_focus_payload = call_tool(
-            client,
-            4002,
-            "editor.focus",
-            {"assetPath": temp_asset, "panel": "graph"},
-        )
-        if editor_focus_payload.get("editorType") != "blueprint":
-            fail(f"editor.focus did not resolve blueprint editorType: {editor_focus_payload}")
-        if editor_focus_payload.get("panel") != "graph":
-            fail(f"editor.focus did not echo graph panel: {editor_focus_payload}")
-
-        capture_rel_path = f"Loomle/runtime/captures/editor-open-regression-{int(time.time())}.png"
-        editor_capture_payload = call_tool(
-            client,
-            4003,
-            "editor.screenshot",
-            {"path": capture_rel_path},
-        )
-        capture_path = editor_capture_payload.get("path")
-        if not isinstance(capture_path, str) or not capture_path:
-            fail(f"editor.screenshot missing path: {editor_capture_payload}")
-        capture_file = Path(capture_path)
-        if not capture_file.exists():
-            fail(f"editor.screenshot did not write file: {editor_capture_payload}")
-        if capture_file.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
-            fail(f"editor.screenshot did not write a PNG file: {editor_capture_payload}")
-        print("[PASS] editor.open, editor.focus, and editor.screenshot validated")
-
-        close_editor_payload = call_tool(
-            client,
-            4004,
-            "execute",
-            {
-                "mode": "exec",
-                "code": (
-                    "import json\n"
-                    "import unreal\n"
-                    f"asset={json.dumps(temp_asset, ensure_ascii=False)}\n"
-                    "loaded = unreal.EditorAssetLibrary.load_asset(asset)\n"
-                    "if loaded is None:\n"
-                    "    raise RuntimeError('failed to reload asset for editor close')\n"
-                    "subsystem = unreal.get_editor_subsystem(unreal.AssetEditorSubsystem)\n"
-                    "closed = subsystem.close_all_editors_for_asset(loaded)\n"
-                    "print(json.dumps({'closed': bool(closed)}, ensure_ascii=False))\n"
-                ),
-            },
-        )
-        if close_editor_payload.get("isError"):
-            fail(f"failed to close temporary editor after screenshot validation: {close_editor_payload}")
-
         graph_list = call_tool(client, 5, "graph.list", {"assetPath": temp_asset, "graphType": "blueprint"})
         graphs = graph_list.get("graphs")
         if not isinstance(graphs, list):
@@ -2664,6 +2603,45 @@ def main() -> int:
         ):
             fail(f"PCG graph.query missing filter branch edge: {pcg_edges}")
         print("[PASS] pcg pipeline layout validated")
+
+        editor_open_payload = call_tool(
+            client,
+            4001,
+            "editor.open",
+            {"assetPath": temp_asset},
+        )
+        if editor_open_payload.get("assetPath") != temp_asset:
+            fail(f"editor.open did not echo assetPath: {editor_open_payload}")
+        if not isinstance(editor_open_payload.get("assetClassPath"), str) or not editor_open_payload.get("assetClassPath"):
+            fail(f"editor.open missing assetClassPath: {editor_open_payload}")
+
+        editor_focus_payload = call_tool(
+            client,
+            4002,
+            "editor.focus",
+            {"assetPath": temp_asset, "panel": "graph"},
+        )
+        if editor_focus_payload.get("editorType") != "blueprint":
+            fail(f"editor.focus did not resolve blueprint editorType: {editor_focus_payload}")
+        if editor_focus_payload.get("panel") != "graph":
+            fail(f"editor.focus did not echo graph panel: {editor_focus_payload}")
+
+        capture_rel_path = f"Loomle/runtime/captures/editor-open-regression-{int(time.time())}.png"
+        editor_capture_payload = call_tool(
+            client,
+            4003,
+            "editor.screenshot",
+            {"path": capture_rel_path},
+        )
+        capture_path = editor_capture_payload.get("path")
+        if not isinstance(capture_path, str) or not capture_path:
+            fail(f"editor.screenshot missing path: {editor_capture_payload}")
+        capture_file = Path(capture_path)
+        if not capture_file.exists():
+            fail(f"editor.screenshot did not write file: {editor_capture_payload}")
+        if capture_file.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
+            fail(f"editor.screenshot did not write a PNG file: {editor_capture_payload}")
+        print("[PASS] editor.open, editor.focus, and editor.screenshot validated")
 
         print("[PASS] graph.mutate core ops validated")
         print("[PASS] Bridge regression complete")
