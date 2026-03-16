@@ -27,6 +27,7 @@
 #include "Framework/Application/SlateApplication.h"
 #include "HAL/PlatformTime.h"
 #include "IPythonScriptPlugin.h"
+#include "Input/HittestGrid.h"
 #include "Json.h"
 #include "HAL/FileManager.h"
 #include "Kismet2/BlueprintEditorUtils.h"
@@ -73,10 +74,13 @@
 #include "UObject/UObjectIterator.h"
 #include "UObject/UnrealType.h"
 #include "Misc/TransactionObjectEvent.h"
+#include "RenderingThread.h"
+#include "Slate/WidgetRenderer.h"
 #include "Widgets/SWidget.h"
 #include "Widgets/SWindow.h"
 #include "BlueprintEditor.h"
 #include "BlueprintEditorTabs.h"
+#include "Engine/TextureRenderTarget2D.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogLoomleBridge, Log, All);
 

@@ -31,6 +31,7 @@ public class LoomleBridge : ModuleRules
                 "Projects",
                 "Slate",
                 "SlateCore",
+                "UMG",
                 "UnrealEd"
             });
     }

@@ -900,6 +900,53 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorScreenshotToolResult(con
     FSlateApplication::Get().ForceRedrawWindow(ActiveWindow.ToSharedRef());
     TArray<FColor> ColorData;
     FIntVector ImageSize(0, 0, 0);
+
+#if PLATFORM_WINDOWS
+    const FVector2f ViewportSize = FVector2f(ActiveWindow->GetViewportSize());
+    const int32 CaptureWidth = FMath::Max(1, FMath::RoundToInt(ViewportSize.X));
+    const int32 CaptureHeight = FMath::Max(1, FMath::RoundToInt(ViewportSize.Y));
+
+    UTextureRenderTarget2D* RenderTarget = FWidgetRenderer::CreateTargetFor(
+        FVector2D(CaptureWidth, CaptureHeight),
+        TF_Bilinear,
+        true);
+    if (!RenderTarget)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("CAPTURE_FAILED"));
+        Result->SetStringField(TEXT("message"), TEXT("Failed to allocate an offscreen render target for the active editor window."));
+        return Result;
+    }
+
+    RenderTarget->AddToRoot();
+    {
+        TUniquePtr<FWidgetRenderer> WidgetRenderer = MakeUnique<FWidgetRenderer>(true, false);
+        FHittestGrid HitTestGrid;
+        WidgetRenderer->DrawWindow(
+            RenderTarget,
+            HitTestGrid,
+            ActiveWindow.ToSharedRef(),
+            1.0f,
+            FVector2D(CaptureWidth, CaptureHeight),
+            0.0f);
+        FlushRenderingCommands();
+    }
+
+    FTextureRenderTargetResource* RenderTargetResource = RenderTarget->GameThread_GetRenderTargetResource();
+    const bool bReadOk = RenderTargetResource && RenderTargetResource->ReadPixels(ColorData);
+    RenderTarget->RemoveFromRoot();
+    RenderTarget->MarkAsGarbage();
+
+    if (!bReadOk)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("CAPTURE_FAILED"));
+        Result->SetStringField(TEXT("message"), TEXT("Failed to read back the active editor window capture."));
+        return Result;
+    }
+
+    ImageSize = FIntVector(CaptureWidth, CaptureHeight, 0);
+#else
     if (!FSlateApplication::Get().TakeScreenshot(ActiveWindow.ToSharedRef(), ColorData, ImageSize))
     {
         Result->SetBoolField(TEXT("isError"), true);
@@ -907,6 +954,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorScreenshotToolResult(con
         Result->SetStringField(TEXT("message"), TEXT("Failed to capture the active editor window."));
         return Result;
     }
+#endif
 
     if (ImageSize.X <= 0 || ImageSize.Y <= 0 || ColorData.IsEmpty())
     {
