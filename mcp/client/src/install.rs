@@ -23,6 +23,17 @@ const RESTART_REASON_INSTALL: &str =
 const RESTART_REASON_UPDATE: &str =
     "If Unreal Editor is already running, restart it to load the updated LoomleBridge plugin version.";
 
+fn print_install_phase(message: &str) {
+    eprintln!("[loomle][INFO] {message}");
+}
+
+fn local_manifest_repair_hint(project_root: &Path) -> String {
+    format!(
+        " If needed, repair with `loomle install --project-root {} --manifest-path <manifest.json>` using a locally downloaded manifest/package.",
+        project_root.display()
+    )
+}
+
 #[derive(Debug, Clone)]
 pub struct InstallRequest {
     pub project_root: PathBuf,
@@ -106,12 +117,39 @@ pub fn install_release(request: InstallRequest) -> Result<serde_json::Value, Str
     }
 
     let archive_path = temp_dir.path().join("loomle-release.zip");
-    fetch_release_archive(package, &archive_path)?;
-    verify_archive_sha(package, &archive_path)?;
+    print_install_phase(&format!(
+        "downloading LOOMLE {version} package for {}",
+        platform_key()
+    ));
+    fetch_release_archive(package, &archive_path)
+        .map_err(|error| format!("{error}{}", local_manifest_repair_hint(&project_root)))?;
+
+    if !package.sha256.trim().is_empty() {
+        print_install_phase("verifying package sha256");
+    }
+    verify_archive_sha(package, &archive_path).map_err(|error| {
+        format!(
+            "{error}. The downloaded archive may be incomplete or corrupt.{}",
+            local_manifest_repair_hint(&project_root)
+        )
+    })?;
 
     let bundle_root = temp_dir.path().join("bundle");
-    extract_zip(&archive_path, &bundle_root)?;
-    validate_bundle_paths(&bundle_root, package)?;
+    print_install_phase("extracting release bundle");
+    extract_zip(&archive_path, &bundle_root).map_err(|error| {
+        format!(
+            "{error}. The archive may be invalid or incomplete.{}",
+            local_manifest_repair_hint(&project_root)
+        )
+    })?;
+    print_install_phase("validating release bundle");
+    validate_bundle_paths(&bundle_root, package).map_err(|error| {
+        format!(
+            "{error}. The extracted bundle appears incomplete.{}",
+            local_manifest_repair_hint(&project_root)
+        )
+    })?;
+    print_install_phase("copying plugin and workspace into the project");
     let install_state_path = copy_release_tree(&bundle_root, &project_root, &version, package)?;
 
     Ok(json!({
@@ -204,8 +242,17 @@ fn recommended_update_command(version_changed: bool, target_version: &str) -> St
 
 fn read_runtime_install_state(project_root: &Path) -> Result<RuntimeInstallState, String> {
     let path = project_root.join("Loomle").join("runtime").join("install.json");
-    let content = fs::read_to_string(&path)
-        .map_err(|error| format!("failed to read install state {}: {error}", path.display()))?;
+    let content = fs::read_to_string(&path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            format!(
+                "install state not found at {}. This project may need repair; run `loomle install --project-root {}` before using `loomle update`.",
+                path.display(),
+                project_root.display()
+            )
+        } else {
+            format!("failed to read install state {}: {error}", path.display())
+        }
+    })?;
     let state: RuntimeInstallState = serde_json::from_str(&content)
         .map_err(|error| format!("invalid install state JSON {}: {error}", path.display()))?;
     if state.installed_version.trim().is_empty() {
@@ -376,7 +423,7 @@ fn extract_zip(archive_path: &Path, bundle_root: &Path) -> Result<(), String> {
         .map_err(|error| format!("failed to open archive {}: {error}", archive_path.display()))?;
     let mut archive = ZipArchive::new(file).map_err(|error| {
         format!(
-            "failed to read zip archive {}: {error}",
+            "invalid or incomplete zip archive {}: {error}",
             archive_path.display()
         )
     })?;
@@ -391,7 +438,12 @@ fn extract_zip(archive_path: &Path, bundle_root: &Path) -> Result<(), String> {
     for index in 0..archive.len() {
         let mut entry = archive
             .by_index(index)
-            .map_err(|error| format!("failed to read zip entry #{index}: {error}"))?;
+            .map_err(|error| {
+                format!(
+                    "invalid or incomplete zip archive {} while reading entry #{index}: {error}",
+                    archive_path.display()
+                )
+            })?;
         let Some(enclosed_name) = entry.enclosed_name() else {
             return Err(format!("zip entry contains unsafe path: {}", entry.name()));
         };
@@ -1212,6 +1264,32 @@ mod tests {
             .is_file());
     }
 
+    #[test]
+    fn update_release_missing_install_state_reports_repair_command() {
+        let temp = TempDir::new().expect("temp");
+        let build_root = temp.path().join("build");
+        let project_root = temp.path().join("Project");
+        fs::create_dir_all(&build_root).expect("build root");
+        fs::create_dir_all(&project_root).expect("project root");
+        fs::write(project_root.join("Demo.uproject"), "{}").expect("uproject");
+
+        let release_010 = build_release_archive(&build_root, "0.1.0");
+        let manifest_path = write_manifest(&build_root, "0.1.0", &[("0.1.0", &release_010.0, &release_010.1)]);
+
+        let error = update_release(UpdateRequest {
+            project_root: project_root.clone(),
+            version: None,
+            manifest_path: Some(manifest_path),
+            manifest_url: None,
+            apply: false,
+        })
+        .expect_err("missing install state should fail");
+
+        assert!(error.contains("install state not found"));
+        assert!(error.contains("loomle install --project-root"));
+        assert!(error.contains(&project_root.display().to_string()));
+    }
+
     fn build_release_archive(build_root: &Path, version: &str) -> (PathBuf, String) {
         let server_name = if platform_key() == "windows" {
             "loomle_mcp_server.exe"
@@ -1468,6 +1546,79 @@ mod tests {
             .join("Plugins/LoomleBridge/LoomleBridge.uplugin")
             .is_file());
         assert!(project_root.join("Loomle").join(client_name).is_file());
+    }
+
+    #[test]
+    fn install_release_reports_invalid_incomplete_zip_without_sha() {
+        let temp = TempDir::new().expect("temp");
+        let build_root = temp.path().join("build");
+        let project_root = temp.path().join("Project");
+        fs::create_dir_all(&build_root).expect("build root");
+        fs::create_dir_all(&project_root).expect("project root");
+        fs::write(project_root.join("Demo.uproject"), "{}").expect("uproject");
+
+        let (archive_path, _archive_sha) = build_release_archive(&build_root, "0.1.0");
+        let bytes = fs::read(&archive_path).expect("read archive");
+        let truncated_len = bytes.len().saturating_sub(64).max(1);
+        fs::write(&archive_path, &bytes[..truncated_len]).expect("truncate archive");
+
+        let server_name = if platform_key() == "windows" {
+            "loomle_mcp_server.exe"
+        } else {
+            "loomle_mcp_server"
+        };
+        let client_name = if platform_key() == "windows" {
+            "loomle.exe"
+        } else {
+            "loomle"
+        };
+        let manifest_path = build_root.join("manifest-no-sha.json");
+        let manifest = serde_json::json!({
+            "latest": "0.1.0",
+            "versions": {
+                "0.1.0": {
+                    "packages": {
+                        platform_key(): {
+                            "url": archive_path.to_string_lossy(),
+                            "sha256": "",
+                            "format": "zip",
+                            "server_binary_relpath": format!(
+                                "plugin/LoomleBridge/Tools/mcp/{}/{server_name}",
+                                platform_key()
+                            ),
+                            "client_binary_relpath": format!("workspace/Loomle/{client_name}"),
+                            "install": {
+                                "plugin": {
+                                    "source": "plugin/LoomleBridge",
+                                    "destination": "Plugins/LoomleBridge"
+                                },
+                                "workspace": {
+                                    "source": "workspace/Loomle",
+                                    "destination": "Loomle"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest).expect("serialize manifest"),
+        )
+        .expect("manifest");
+
+        let error = install_release(InstallRequest {
+            project_root: project_root.clone(),
+            version: None,
+            manifest_path: Some(manifest_path),
+            manifest_url: None,
+        })
+        .expect_err("truncated zip should fail");
+
+        assert!(error.contains("invalid or incomplete zip archive"));
+        assert!(error.contains("archive may be invalid or incomplete"));
+        assert!(error.contains("manifest-path"));
     }
 
     fn plugin_binary_platform_dir() -> Option<&'static str> {
