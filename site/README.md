@@ -20,4 +20,6 @@ Expected published URLs:
 This site is intentionally minimal:
 
 - `index.html` is the install entrypoint page
-- `install.sh` and `install.ps1` are the bootstrap scripts for machines that do not yet have the `loomle` command
+- `install.sh` and `install.ps1` are the bootstrap scripts that download a temporary `loomle-installer`, run one install/update operation, and then delete it
+
+Keep the published bootstrap scripts aligned with `packaging/bootstrap/install.sh` and `packaging/bootstrap/install.ps1`.

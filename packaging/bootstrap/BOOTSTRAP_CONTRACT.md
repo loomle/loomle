@@ -71,4 +71,4 @@ If `https://loomle.ai/i` must redirect to a concrete script endpoint, the prefer
 
 and the install page at `https://loomle.ai/i` should also visibly show the Windows alternative:
 
-- `powershell -ExecutionPolicy Bypass -Command "irm https://loomle.ai/install.ps1 | iex"`
+- `& ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) install --project-root C:\Path\To\MyProject`

@@ -10,19 +10,29 @@ LOOMLE brings Unreal Engine 5 runtime and graph context into AI-native workflows
 
 ## Quick Start
 
-First-run bootstrap entrypoints:
+Install LOOMLE directly into an Unreal project.
+
+From the project root on macOS:
 
 ```bash
-curl -fsSL https://loomle.ai/install.sh | sh
+curl -fsSL https://loomle.ai/install.sh | sh -s -- install --project-root "$PWD"
 ```
 
-Windows PowerShell:
+From the project root in Windows PowerShell:
 
 ```powershell
-irm https://loomle.ai/install.ps1 | iex
+& ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) install --project-root (Get-Location).Path
 ```
 
-After bootstrap, the machine has a global `loomle` command. That command is responsible for installing LOOMLE into a specific Unreal project.
+These bootstrap commands download a temporary `loomle-installer`, execute one install operation for the current project, and then delete the temporary binary. They do not leave a machine-level `loomle` command behind.
+
+After install, use the project-local client under `Loomle/`:
+
+```bash
+Loomle/loomle doctor
+```
+
+On Windows, use `Loomle\\loomle.exe doctor`.
 
 LOOMLE is now organized around a single repository and a single installed project shape:
 
