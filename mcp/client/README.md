@@ -39,6 +39,7 @@ cargo run -- list-tools --project-root "/Path/To/Project"
 cargo run -- call context --project-root "/Path/To/Project"
 cargo run -- call diag.tail --project-root "/Path/To/Project" --args '{"fromSeq":0,"limit":50}'
 cargo run -- call graph.verify --project-root "/Path/To/Project" --args '{"mode":"runtime","graphType":"pcg","componentPath":"/Game/Maps/MyMap.MyMap:PersistentLevel.PCGVolume_0.PCGComponent0"}'
+cargo run -- call graph.verify --project-root "/Path/To/Project" --args-file "/Path/To/args.json"
 cargo run -- session --project-root "/Path/To/Project"
 ```
 
@@ -49,6 +50,8 @@ If `--project-root` is omitted, the client searches upward from the current dire
 `loomle install` always installs both the prebuilt plugin binaries and the plugin source so Unreal can load quickly and still participate in local target rebuilds. If Unreal Editor is already running, restart it afterward so the editor loads the newly installed LoomleBridge plugin version.
 
 `loomle skill ...` manages official LOOMLE skills from the published `loomle/skills` registry. These commands install into the local Codex skills directory and do not require `--project-root`.
+
+On Windows PowerShell, prefer `--args-file <json-file>` over inline `--args <json>` for non-trivial payloads. That avoids shell quoting damage before LOOMLE sees the JSON.
 
 `diag.tail` reads persisted LoomleBridge diagnostics incrementally. Treat `fromSeq` as an exclusive cursor and reuse the returned `nextSeq` on the next poll. Persisted events live under `Loomle/runtime/diag/diag.jsonl`.
 

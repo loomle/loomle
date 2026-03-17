@@ -396,7 +396,7 @@ fn extract_zip(archive_path: &Path, bundle_root: &Path) -> Result<(), String> {
             return Err(format!("zip entry contains unsafe path: {}", entry.name()));
         };
         let destination = bundle_root.join(enclosed_name);
-        if entry.name().ends_with('/') {
+        if entry.is_dir() || entry.name().ends_with('\\') {
             fs::create_dir_all(&destination).map_err(|error| {
                 format!(
                     "failed to create extracted dir {}: {error}",
@@ -1367,6 +1367,107 @@ mod tests {
                 zip.write_all(&bytes).expect("write file");
             }
         }
+    }
+
+    #[test]
+    fn install_release_extracts_windows_directory_entries() {
+        let temp = TempDir::new().expect("temp");
+        let build_root = temp.path().join("build");
+        let project_root = temp.path().join("Project");
+        let archive_path = build_root.join("loomle.zip");
+        let manifest_path = build_root.join("manifest.json");
+        let server_name = if platform_key() == "windows" {
+            "loomle_mcp_server.exe"
+        } else {
+            "loomle_mcp_server"
+        };
+        let client_name = if platform_key() == "windows" {
+            "loomle.exe"
+        } else {
+            "loomle"
+        };
+
+        fs::create_dir_all(&build_root).expect("build root");
+        fs::create_dir_all(&project_root).expect("project root");
+        fs::write(project_root.join("Demo.uproject"), "{}").expect("uproject");
+
+        let file = fs::File::create(&archive_path).expect("archive");
+        let mut zip = zip::ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        zip.add_directory("plugin/LoomleBridge/", options)
+            .expect("plugin dir");
+        zip.add_directory("plugin/LoomleBridge/Tools/", options)
+            .expect("tools dir");
+        zip.add_directory("plugin/LoomleBridge/Tools/mcp/", options)
+            .expect("mcp dir");
+        zip.add_directory(format!("plugin/LoomleBridge/Tools/mcp/{}/", platform_key()), options)
+            .expect("platform dir");
+        zip.add_directory("workspace/Loomle/", options)
+            .expect("workspace dir");
+        zip.add_directory("mcp\\client\\", options)
+            .expect("windows-style dir");
+        zip.start_file("plugin/LoomleBridge/LoomleBridge.uplugin", options)
+            .expect("uplugin");
+        zip.write_all(b"{}").expect("uplugin bytes");
+        zip.start_file(
+            format!("plugin/LoomleBridge/Tools/mcp/{}/{}", platform_key(), server_name),
+            options,
+        )
+        .expect("server");
+        zip.write_all(b"server").expect("server bytes");
+        zip.start_file(format!("workspace/Loomle/{client_name}"), options)
+            .expect("client");
+        zip.write_all(b"client").expect("client bytes");
+        zip.finish().expect("finish zip");
+
+        let archive_sha = sha256_file(&archive_path).expect("sha");
+        let manifest = serde_json::json!({
+            "latest": "0.1.0",
+            "versions": {
+                "0.1.0": {
+                    "packages": {
+                        platform_key(): {
+                            "url": archive_path.to_string_lossy(),
+                            "sha256": archive_sha,
+                            "format": "zip",
+                            "server_binary_relpath": format!(
+                                "plugin/LoomleBridge/Tools/mcp/{}/{server_name}",
+                                platform_key()
+                            ),
+                            "client_binary_relpath": format!("workspace/Loomle/{client_name}"),
+                            "install": {
+                                "plugin": {
+                                    "source": "plugin/LoomleBridge",
+                                    "destination": "Plugins/LoomleBridge"
+                                },
+                                "workspace": {
+                                    "source": "workspace/Loomle",
+                                    "destination": "Loomle"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest).expect("serialize manifest"),
+        )
+        .expect("manifest");
+
+        install_release(InstallRequest {
+            project_root: project_root.clone(),
+            version: None,
+            manifest_path: Some(manifest_path),
+            manifest_url: None,
+        })
+        .expect("install");
+
+        assert!(project_root
+            .join("Plugins/LoomleBridge/LoomleBridge.uplugin")
+            .is_file());
+        assert!(project_root.join("Loomle").join(client_name).is_file());
     }
 
     fn plugin_binary_platform_dir() -> Option<&'static str> {

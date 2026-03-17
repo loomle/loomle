@@ -102,8 +102,15 @@ pub fn parse_json_object(raw: Option<&str>, flag_name: &str) -> Result<JsonObjec
         return Ok(JsonObject::new());
     };
 
-    let value: Value = serde_json::from_str(raw)
-        .map_err(|error| format!("invalid JSON for {flag_name}: {error}"))?;
+    let value: Value = serde_json::from_str(raw).map_err(|error| {
+        let mut message = format!("invalid JSON for {flag_name}: {error}");
+        if cfg!(target_os = "windows") && flag_name == "--args" {
+            message.push_str(
+                ". On Windows PowerShell, prefer --args-file <path> for non-trivial JSON payloads.",
+            );
+        }
+        message
+    })?;
     match value {
         Value::Object(object) => Ok(object),
         _ => Err(format!("{flag_name} JSON must be an object")),

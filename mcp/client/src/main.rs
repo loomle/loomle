@@ -13,6 +13,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::env;
 use std::ffi::OsString;
+use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -141,7 +142,16 @@ async fn main() -> ExitCode {
                 CommandKind::Call {
                     tool_name,
                     arguments_json,
-                } => run_call(&env_info, &tool_name, arguments_json.as_deref()).await,
+                    arguments_file,
+                } => {
+                    run_call(
+                        &env_info,
+                        &tool_name,
+                        arguments_json.as_deref(),
+                        arguments_file.as_deref(),
+                    )
+                    .await
+                }
                 CommandKind::Install { .. }
                 | CommandKind::Update { .. }
                 | CommandKind::Skill(_) => {
@@ -179,6 +189,7 @@ enum CommandKind {
     Call {
         tool_name: String,
         arguments_json: Option<String>,
+        arguments_file: Option<PathBuf>,
     },
 }
 
@@ -212,6 +223,7 @@ impl Cli {
         let mut command = None;
         let mut call_tool_name = None;
         let mut call_arguments_json = None;
+        let mut call_arguments_file = None;
         let mut install_version = None;
         let mut install_manifest_path = None;
         let mut install_manifest_url = None;
@@ -329,6 +341,15 @@ impl Cli {
                         .map_err(|_| String::from("--args must be valid UTF-8 JSON"))?;
                     call_arguments_json = Some(value);
                 }
+                Some("--args-file") => {
+                    let value = args
+                        .next()
+                        .ok_or_else(|| String::from("missing value for --args-file"))?;
+                    if !matches!(command, Some(CommandKind::Call { .. })) {
+                        return Err(String::from("--args-file is only valid with call"));
+                    }
+                    call_arguments_file = Some(PathBuf::from(value));
+                }
                 Some("skill") => {
                     if command.is_some() || in_skill_namespace {
                         return Err(String::from("skill must be the only command"));
@@ -367,6 +388,7 @@ impl Cli {
                     command = Some(CommandKind::Call {
                         tool_name: String::new(),
                         arguments_json: None,
+                        arguments_file: None,
                     });
                 }
                 Some("--help") | Some("-h") | None => {
@@ -451,6 +473,7 @@ impl Cli {
                     tool_name: call_tool_name
                         .ok_or_else(|| String::from("call requires a tool name"))?,
                     arguments_json: call_arguments_json,
+                    arguments_file: call_arguments_file,
                 },
                 Some(other) => other,
                 None => CommandKind::Doctor,
@@ -742,8 +765,28 @@ async fn run_call(
     env_info: &Environment,
     tool_name: &str,
     arguments_json: Option<&str>,
+    arguments_file: Option<&std::path::Path>,
 ) -> ExitCode {
-    let arguments = match parse_json_object(arguments_json, "--args") {
+    let raw_arguments = match (arguments_json, arguments_file) {
+        (Some(_), Some(_)) => {
+            eprintln!("[loomle][ERROR] --args and --args-file are mutually exclusive");
+            return ExitCode::from(2);
+        }
+        (Some(raw), None) => Some(raw.to_owned()),
+        (None, Some(path)) => match fs::read_to_string(path) {
+            Ok(raw) => Some(raw),
+            Err(error) => {
+                eprintln!(
+                    "[loomle][ERROR] failed to read --args-file {}: {error}",
+                    path.display()
+                );
+                return ExitCode::from(2);
+            }
+        },
+        (None, None) => None,
+    };
+
+    let arguments = match parse_json_object(raw_arguments.as_deref(), "--args") {
         Ok(arguments) => arguments,
         Err(message) => {
             eprintln!("[loomle][ERROR] {message}");
@@ -840,7 +883,7 @@ fn print_usage() {
     eprintln!("  loomle skill install <skill-name> [--skills-root <SkillsRoot>] [--registry-url <RegistryUrl>]");
     eprintln!("  loomle skill remove <skill-name> [--skills-root <SkillsRoot>]");
     eprintln!("  loomle [--project-root <ProjectRoot>] list-tools");
-    eprintln!("  loomle [--project-root <ProjectRoot>] call <tool-name> [--args <json-object>]");
+    eprintln!("  loomle [--project-root <ProjectRoot>] call <tool-name> [--args <json-object> | --args-file <json-file>]");
     eprintln!("  loomle [--project-root <ProjectRoot>] server-path");
     eprintln!("  loomle [--project-root <ProjectRoot>] session");
     eprintln!();
@@ -901,12 +944,39 @@ mod tests {
             CommandKind::Call {
                 tool_name,
                 arguments_json,
+                arguments_file,
             } => {
                 assert_eq!(tool_name, "graph.query");
                 assert_eq!(
                     arguments_json.as_deref(),
                     Some("{\"assetPath\":\"/Game/Test\"}")
                 );
+                assert!(arguments_file.is_none());
+            }
+            _ => panic!("expected call"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_call_command_with_args_file() {
+        let cli = Cli::parse(vec![
+            OsString::from("loomle"),
+            OsString::from("call"),
+            OsString::from("graph.list"),
+            OsString::from("--args-file"),
+            OsString::from("args.json"),
+        ])
+        .expect("cli");
+
+        match cli.command {
+            CommandKind::Call {
+                tool_name,
+                arguments_json,
+                arguments_file,
+            } => {
+                assert_eq!(tool_name, "graph.list");
+                assert!(arguments_json.is_none());
+                assert_eq!(arguments_file, Some(PathBuf::from("args.json")));
             }
             _ => panic!("expected call"),
         }
