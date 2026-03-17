@@ -46,7 +46,13 @@ pub fn tool_descriptors() -> Vec<Value> {
                 "properties": {
                     "language": { "type": "string", "default": "python" },
                     "mode": { "type": "string", "enum": ["exec", "eval"], "default": "exec" },
-                    "code": { "type": "string", "minLength": 1 }
+                    "code": { "type": "string", "minLength": 1 },
+                    "timeoutMs": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "default": 120000,
+                        "description": "Optional end-to-end timeout budget in milliseconds for long-running editor work. Defaults to 120000."
+                    }
                 },
                 "additionalProperties": false
             },

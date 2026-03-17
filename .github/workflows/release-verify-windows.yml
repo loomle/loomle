@@ -15,6 +15,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check Release Version Strings
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
+        run: |
+          $script = Join-Path $env:GITHUB_WORKSPACE "tools\check_release_versions.py"
+          $arguments = @($script)
+          if ($env:GITHUB_REF_NAME -and $env:GITHUB_REF_NAME.StartsWith("v")) {
+            $arguments += @("--expected-version", $env:GITHUB_REF_NAME.Substring(1))
+          }
+          python $arguments
+          if ($LASTEXITCODE -ne 0) {
+            throw "check_release_versions.py failed with exit code $LASTEXITCODE"
+          }
+
       - name: Resolve Unreal Engine Root (Windows)
         id: ue_root_windows
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"

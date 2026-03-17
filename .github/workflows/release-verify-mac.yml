@@ -15,6 +15,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check Release Version Strings
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmd=(python3 "$GITHUB_WORKSPACE/tools/check_release_versions.py")
+          if [[ "${GITHUB_REF_NAME:-}" == v* ]]; then
+            cmd+=(--expected-version "${GITHUB_REF_NAME#v}")
+          fi
+          "${cmd[@]}"
+
       - name: Resolve Unreal Engine Root (Mac)
         id: ue_root_mac
         shell: bash

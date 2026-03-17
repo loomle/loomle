@@ -119,13 +119,34 @@ fn rpc_meta_for_request(
         .as_ref()
         .and_then(|meta| meta.get("deadlineMs"))
         .and_then(Value::as_u64)
-        .unwrap_or(10_000);
+        .or_else(|| execute_timeout_ms_from_arguments(request))
+        .unwrap_or_else(|| default_deadline_ms_for_tool(request.name.as_ref()));
 
     RpcMeta {
         request_id: context.id.to_string(),
         trace_id,
         deadline_ms,
     }
+}
+
+fn default_deadline_ms_for_tool(tool_name: &str) -> u64 {
+    match tool_name {
+        "execute" => 120_000,
+        _ => 10_000,
+    }
+}
+
+fn execute_timeout_ms_from_arguments(request: &CallToolRequestParams) -> Option<u64> {
+    if request.name.as_ref() != "execute" {
+        return None;
+    }
+
+    request
+        .arguments
+        .as_ref()
+        .and_then(|arguments| arguments.get("timeoutMs"))
+        .and_then(Value::as_u64)
+        .filter(|timeout_ms| *timeout_ms > 0)
 }
 
 #[cfg(test)]
@@ -215,5 +236,21 @@ mod tests {
 
         client.close().await.expect("close client");
         server_running.close().await.expect("close server");
+    }
+
+    #[test]
+    fn execute_defaults_to_longer_deadline() {
+        assert_eq!(default_deadline_ms_for_tool("execute"), 120_000);
+    }
+
+    #[test]
+    fn execute_timeout_argument_overrides_default_deadline() {
+        let request =
+            CallToolRequestParams::new("execute").with_arguments(serde_json::Map::from_iter([
+                (String::from("code"), json!("print('hello')")),
+                (String::from("timeoutMs"), json!(45_000_u64)),
+            ]));
+
+        assert_eq!(execute_timeout_ms_from_arguments(&request), Some(45_000));
     }
 }

@@ -11,7 +11,7 @@ use loomle::{
     },
     Environment,
 };
-use rmcp::model::CallToolRequestParams;
+use rmcp::model::{CallToolRequestParams, Meta};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::env;
@@ -254,7 +254,10 @@ fn handoff_to_installer(
     };
 
     let mut command = StdCommand::new(installer.path());
-    command.arg("--project-root").arg(&project_root).arg(subcommand);
+    command
+        .arg("--project-root")
+        .arg(&project_root)
+        .arg(subcommand);
     if apply {
         command.arg("--apply");
     }
@@ -955,7 +958,14 @@ async fn run_call(
         }
     };
 
-    let request = CallToolRequestParams::new(tool_name.to_owned()).with_arguments(arguments);
+    let deadline_ms = execute_timeout_ms_from_arguments(tool_name, &arguments);
+    let mut request = CallToolRequestParams::new(tool_name.to_owned()).with_arguments(arguments);
+    if let Some(deadline_ms) = deadline_ms {
+        request.meta = Some(Meta(serde_json::Map::from_iter([(
+            String::from("deadlineMs"),
+            json!(deadline_ms),
+        )])));
+    }
     let result = client.peer().call_tool(request).await.map_err(|error| {
         format!(
             "failed to call tool `{}` via {}: {}",
@@ -979,6 +989,20 @@ async fn run_call(
             ExitCode::from(1)
         }
     }
+}
+
+fn execute_timeout_ms_from_arguments(
+    tool_name: &str,
+    arguments: &serde_json::Map<String, Value>,
+) -> Option<u64> {
+    if tool_name != "execute" {
+        return None;
+    }
+
+    arguments
+        .get("timeoutMs")
+        .and_then(Value::as_u64)
+        .filter(|timeout_ms| *timeout_ms > 0)
 }
 
 fn print_json<T: serde::Serialize>(value: &T) -> Result<(), String> {
@@ -1022,7 +1046,9 @@ fn emit_restart_notice(result: &Value) -> Result<(), String> {
     let reason = result
         .get("restartReason")
         .and_then(Value::as_str)
-        .unwrap_or("If Unreal Editor is already running, restart it so LOOMLE changes take effect.");
+        .unwrap_or(
+            "If Unreal Editor is already running, restart it so LOOMLE changes take effect.",
+        );
     eprintln!("[loomle][NOTE] {reason}");
     Ok(())
 }
@@ -1055,7 +1081,8 @@ fn print_usage() {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, CommandKind, SkillCommand};
+    use super::{execute_timeout_ms_from_arguments, Cli, CommandKind, SkillCommand};
+    use serde_json::json;
     use std::ffi::OsString;
     use std::path::PathBuf;
 
@@ -1336,5 +1363,29 @@ mod tests {
         assert!(!loomle::is_installer_binary_path(std::path::Path::new(
             loomle::project_client_binary_name()
         )));
+    }
+
+    #[test]
+    fn execute_timeout_ms_is_read_from_execute_arguments() {
+        let arguments = serde_json::Map::from_iter([
+            (String::from("code"), json!("print('hello')")),
+            (String::from("timeoutMs"), json!(45_000_u64)),
+        ]);
+
+        assert_eq!(
+            execute_timeout_ms_from_arguments("execute", &arguments),
+            Some(45_000)
+        );
+    }
+
+    #[test]
+    fn execute_timeout_ms_is_ignored_for_other_tools() {
+        let arguments =
+            serde_json::Map::from_iter([(String::from("timeoutMs"), json!(45_000_u64))]);
+
+        assert_eq!(
+            execute_timeout_ms_from_arguments("graph.query", &arguments),
+            None
+        );
     }
 }
