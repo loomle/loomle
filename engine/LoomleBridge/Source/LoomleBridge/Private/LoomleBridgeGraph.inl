@@ -144,6 +144,141 @@ void AppendPcgGraphQueryDiagnostic(
     RootDiagnostics.Add(MakeShared<FJsonValueObject>(NodeDiagnostic));
 }
 
+void AppendPcgGraphRootDiagnostic(
+    TArray<TSharedPtr<FJsonValue>>& RootDiagnostics,
+    const FString& Code,
+    const FString& Message,
+    const FString& Severity = TEXT("warning"),
+    const TArray<FString>* NodeIds = nullptr)
+{
+    TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
+    Diagnostic->SetStringField(TEXT("code"), Code);
+    Diagnostic->SetStringField(TEXT("message"), Message);
+    Diagnostic->SetStringField(TEXT("severity"), Severity);
+    if (NodeIds != nullptr && NodeIds->Num() > 0)
+    {
+        TArray<TSharedPtr<FJsonValue>> NodeIdValues;
+        for (const FString& NodeId : *NodeIds)
+        {
+            NodeIdValues.Add(MakeShared<FJsonValueString>(NodeId));
+        }
+        Diagnostic->SetArrayField(TEXT("nodeIds"), NodeIdValues);
+    }
+    RootDiagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
+}
+
+void AppendPcgGraphHealthDiagnostics(
+    const UPCGGraph* Graph,
+    const TSet<FString>& SpawnerNodeIds,
+    const TArray<TSharedPtr<FJsonValue>>& Edges,
+    TArray<TSharedPtr<FJsonValue>>& Diagnostics)
+{
+    if (Graph == nullptr)
+    {
+        return;
+    }
+
+    const UPCGNode* OutputNode = Graph->GetOutputNode();
+    if (OutputNode == nullptr)
+    {
+        return;
+    }
+
+    const FString OutputNodeId = OutputNode->GetPathName();
+    TMap<FString, TArray<FString>> ReverseAdjacency;
+    int32 OutputIncomingEdgeCount = 0;
+
+    for (const TSharedPtr<FJsonValue>& EdgeValue : Edges)
+    {
+        const TSharedPtr<FJsonObject>* EdgeObject = nullptr;
+        if (!EdgeValue.IsValid() || !EdgeValue->TryGetObject(EdgeObject) || EdgeObject == nullptr || !(*EdgeObject).IsValid())
+        {
+            continue;
+        }
+
+        FString FromNodeId;
+        FString ToNodeId;
+        if (!(*EdgeObject)->TryGetStringField(TEXT("fromNodeId"), FromNodeId) ||
+            !(*EdgeObject)->TryGetStringField(TEXT("toNodeId"), ToNodeId) ||
+            FromNodeId.IsEmpty() ||
+            ToNodeId.IsEmpty())
+        {
+            continue;
+        }
+
+        ReverseAdjacency.FindOrAdd(ToNodeId).Add(FromNodeId);
+        if (ToNodeId.Equals(OutputNodeId))
+        {
+            ++OutputIncomingEdgeCount;
+        }
+    }
+
+    TSet<FString> ReachableToOutput;
+    TArray<FString> Pending;
+    ReachableToOutput.Add(OutputNodeId);
+    Pending.Add(OutputNodeId);
+
+    while (Pending.Num() > 0)
+    {
+        const FString CurrentNodeId = Pending.Pop(EAllowShrinking::No);
+        const TArray<FString>* UpstreamNodes = ReverseAdjacency.Find(CurrentNodeId);
+        if (UpstreamNodes == nullptr)
+        {
+            continue;
+        }
+
+        for (const FString& UpstreamNodeId : *UpstreamNodes)
+        {
+            if (!UpstreamNodeId.IsEmpty() && !ReachableToOutput.Contains(UpstreamNodeId))
+            {
+                ReachableToOutput.Add(UpstreamNodeId);
+                Pending.Add(UpstreamNodeId);
+            }
+        }
+    }
+
+    const bool bOutputNodeMissingInputs = OutputIncomingEdgeCount == 0;
+    if (bOutputNodeMissingInputs)
+    {
+        AppendPcgGraphRootDiagnostic(
+            Diagnostics,
+            TEXT("PCG_OUTPUT_NODE_MISSING_INPUTS"),
+            TEXT("The PCG output node has no incoming edges, so no data can reach the graph output."),
+            TEXT("error"));
+        AppendPcgGraphRootDiagnostic(
+            Diagnostics,
+            TEXT("PCG_NO_TERMINAL_OUTPUT_PATH"),
+            TEXT("No terminal output path reaches the PCG output node from any authored node."),
+            TEXT("error"));
+        AppendPcgGraphRootDiagnostic(
+            Diagnostics,
+            TEXT("PCG_GRAPH_CAN_GENERATE_NO_OUTPUT"),
+            TEXT("This PCG graph currently has no authored path into the output node and can generate no output."),
+            TEXT("warning"));
+    }
+
+    TArray<FString> DisconnectedSpawnerNodeIds;
+    for (const FString& SpawnerNodeId : SpawnerNodeIds)
+    {
+        if (!ReachableToOutput.Contains(SpawnerNodeId))
+        {
+            DisconnectedSpawnerNodeIds.Add(SpawnerNodeId);
+        }
+    }
+    if (DisconnectedSpawnerNodeIds.Num() > 0)
+    {
+        DisconnectedSpawnerNodeIds.Sort();
+        AppendPcgGraphRootDiagnostic(
+            Diagnostics,
+            TEXT("PCG_SPAWNER_NOT_CONNECTED_TO_OUTPUT"),
+            FString::Printf(
+                TEXT("%d PCG spawner node(s) are not connected to any path that reaches the output node."),
+                DisconnectedSpawnerNodeIds.Num()),
+            TEXT("warning"),
+            &DisconnectedSpawnerNodeIds);
+    }
+}
+
 TSharedPtr<FJsonObject> BuildPcgNodeSettingsObject(
     UPCGNode* NodeObj,
     TArray<TSharedPtr<FJsonValue>>& NodeDiagnostics,
@@ -1976,6 +2111,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
         TArray<TSharedPtr<FJsonValue>> Edges;
         TArray<TSharedPtr<FJsonValue>> Diagnostics;
         TSet<FString> EmittedEdgeKeys;
+        TSet<FString> SpawnerNodeIds;
         int32 AddedCount = 0;
         for (UPCGNode* NodeObj : PcgGraph->GetNodes())
         {
@@ -1987,6 +2123,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
             const FString NodeClassPath = (NodeObj->GetSettings() && NodeObj->GetSettings()->GetClass())
                 ? NodeObj->GetSettings()->GetClass()->GetPathName()
                 : (NodeObj->GetClass() ? NodeObj->GetClass()->GetPathName() : TEXT(""));
+            const bool bIsSpawnerNode =
+                NodeClassPath.Equals(TEXT("/Script/PCG.PCGStaticMeshSpawnerSettings")) ||
+                NodeClassPath.Equals(TEXT("/Script/PCG.PCGSpawnActorSettings"));
 
             if (FilterClasses.Num() > 0)
             {
@@ -2016,6 +2155,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
             NodeObj->GetNodePosition(NodePosX, NodePosY);
 
             const FString NodeId = NodeObj->GetPathName();
+            if (bIsSpawnerNode)
+            {
+                SpawnerNodeIds.Add(NodeId);
+            }
             TSharedPtr<FJsonObject> Node = MakeShared<FJsonObject>();
             Node->SetStringField(TEXT("id"), NodeId);
             Node->SetStringField(TEXT("guid"), NodeId);
@@ -2204,6 +2347,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
             Diagnostic->SetStringField(TEXT("message"), TEXT("PCG graph has no nodes."));
             Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
         }
+        AppendPcgGraphHealthDiagnostics(PcgGraph, SpawnerNodeIds, Edges, Diagnostics);
 
         BuildMinimalSnapshotResult(TEXT("pcg"), Nodes, Edges, Diagnostics);
         // Echo effective graphRef at response root.

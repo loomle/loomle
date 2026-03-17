@@ -399,6 +399,7 @@ def main() -> int:
     client = McpStdioClient(project_root=project_root, server_binary=server_binary, timeout_s=args.timeout)
     temp_asset = make_temp_asset_path(args.asset_prefix)
     temp_pcg_asset = make_temp_asset_path("/Game/Codex/PCG_BridgeRegression")
+    temp_pcg_health_asset = make_temp_asset_path("/Game/Codex/PCG_HealthRegression")
     temp_material_asset = make_temp_asset_path("/Game/Codex/M_RegressionLayout")
 
     try:
@@ -3614,6 +3615,82 @@ def main() -> int:
             fail(f"PCG StaticMeshSpawner outAttributeName missing from effectiveSettings: {static_mesh_spawner_settings}")
         print("[PASS] pcg graph.query settings and diagnostics validated")
 
+        pcg_health_fixture_payload = call_execute_exec_with_retry(
+            client=client,
+            req_id_base=101190,
+            code=(
+                "import json\n"
+                "import unreal\n"
+                f"asset={json.dumps(temp_pcg_health_asset, ensure_ascii=False)}\n"
+                "pkg_path, asset_name = asset.rsplit('/', 1)\n"
+                "asset_tools = unreal.AssetToolsHelpers.get_asset_tools()\n"
+                "graph = unreal.EditorAssetLibrary.load_asset(asset)\n"
+                "if graph is None:\n"
+                "    factory = unreal.PCGGraphFactory()\n"
+                "    graph = asset_tools.create_asset(asset_name, pkg_path, unreal.PCGGraph, factory)\n"
+                "if graph is None:\n"
+                "    raise RuntimeError('failed to create PCG health graph asset')\n"
+                "print(json.dumps({'ok': True, 'assetPath': asset}, ensure_ascii=False))\n"
+            ),
+        )
+        if parse_execute_json(pcg_health_fixture_payload).get("ok") is not True:
+            fail(f"PCG health fixture asset creation failed: {pcg_health_fixture_payload}")
+        pcg_health_add = call_tool(
+            client,
+            1011901,
+            "graph.mutate",
+            {
+                "assetPath": temp_pcg_health_asset,
+                "graphName": "PCGGraph",
+                "graphType": "pcg",
+                "ops": [
+                    {"op": "addNode.byClass", "clientRef": "health_create", "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"}},
+                    {"op": "addNode.byClass", "clientRef": "health_tag", "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"}},
+                    {"op": "addNode.byClass", "clientRef": "health_spawner", "args": {"nodeClassPath": "/Script/PCG.PCGStaticMeshSpawnerSettings"}},
+                    {"op": "connectPins", "args": {"from": {"nodeRef": "health_create", "pin": "Out"}, "to": {"nodeRef": "health_tag", "pin": "In"}}},
+                    {"op": "connectPins", "args": {"from": {"nodeRef": "health_tag", "pin": "Out"}, "to": {"nodeRef": "health_spawner", "pin": "In"}}},
+                ],
+            },
+        )
+        pcg_health_results = pcg_health_add.get("opResults")
+        if not isinstance(pcg_health_results, list) or len(pcg_health_results) != 5:
+            fail(f"PCG health probe add ops missing results: {pcg_health_add}")
+        for idx, result in enumerate(pcg_health_results):
+            if not isinstance(result, dict) or result.get("ok") is not True:
+                fail(f"PCG health probe opResults[{idx}] failed: {pcg_health_add}")
+        pcg_health_verify = call_tool(
+            client,
+            1011902,
+            "graph.verify",
+            {
+                "mode": "health",
+                "assetPath": temp_pcg_health_asset,
+                "graphName": "PCGGraph",
+                "graphType": "pcg",
+            },
+        )
+        if pcg_health_verify.get("mode") != "health":
+            fail(f"graph.verify(mode=health, pcg) returned wrong mode: {pcg_health_verify}")
+        if pcg_health_verify.get("status") != "error":
+            fail(f"graph.verify(mode=health, pcg) should report error for disconnected output graph: {pcg_health_verify}")
+        pcg_health_diagnostics = pcg_health_verify.get("diagnostics")
+        if not isinstance(pcg_health_diagnostics, list):
+            fail(f"graph.verify(mode=health, pcg) missing diagnostics[]: {pcg_health_verify}")
+        pcg_health_codes = {
+            diag.get("code")
+            for diag in pcg_health_diagnostics
+            if isinstance(diag, dict) and isinstance(diag.get("code"), str)
+        }
+        for expected_code in {
+            "PCG_OUTPUT_NODE_MISSING_INPUTS",
+            "PCG_NO_TERMINAL_OUTPUT_PATH",
+            "PCG_GRAPH_CAN_GENERATE_NO_OUTPUT",
+            "PCG_SPAWNER_NOT_CONNECTED_TO_OUTPUT",
+        }:
+            if expected_code not in pcg_health_codes:
+                fail(f"graph.verify(mode=health, pcg) missing {expected_code}: {pcg_health_verify}")
+        print("[PASS] pcg graph.verify health diagnostics validated")
+
         pcg_set_default_add = call_tool(
             client,
             101191,
@@ -3820,6 +3897,7 @@ def main() -> int:
         print(f"[WARN] cleanup skipped for temporary asset: {temp_asset}")
         print(f"[WARN] cleanup skipped for temporary material asset: {temp_material_asset}")
         print(f"[WARN] cleanup skipped for temporary PCG asset: {temp_pcg_asset}")
+        print(f"[WARN] cleanup skipped for temporary PCG health asset: {temp_pcg_health_asset}")
         client.close()
 
 
