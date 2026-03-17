@@ -156,6 +156,29 @@ pub fn server_binary_name() -> &'static str {
     }
 }
 
+pub fn project_client_binary_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "loomle.exe"
+    } else {
+        "loomle"
+    }
+}
+
+pub fn installer_binary_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "loomle-installer.exe"
+    } else {
+        "loomle-installer"
+    }
+}
+
+pub fn is_installer_binary_path(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.eq_ignore_ascii_case(installer_binary_name()))
+        .unwrap_or(false)
+}
+
 fn has_uproject(dir: &Path) -> bool {
     match dir.read_dir() {
         Ok(entries) => entries.flatten().any(|entry| {

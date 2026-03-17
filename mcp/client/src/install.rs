@@ -1,4 +1,4 @@
-use crate::{platform_key, validate_project_root};
+use crate::{installer_binary_name, platform_key, validate_project_root};
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::json;
@@ -14,6 +14,7 @@ use zip::ZipArchive;
 use std::os::unix::fs::PermissionsExt;
 
 const DEFAULT_RELEASE_REPO: &str = "loomle/loomle";
+const INSTALLER_PATH_OVERRIDE_ENV: &str = "LOOMLE_INSTALLER_PATH";
 const EDITOR_PERF_SECTION: &str = "[/Script/UnrealEd.EditorPerformanceSettings]";
 const EDITOR_THROTTLE_SETTING: &str = "bThrottleCPUWhenNotForeground=False";
 const WORKSPACE_SOURCE_ROOT: &str = "workspace/Loomle";
@@ -55,6 +56,17 @@ pub struct UpdateRequest {
     pub manifest_path: Option<PathBuf>,
     pub manifest_url: Option<String>,
     pub apply: bool,
+}
+
+pub struct DownloadedInstaller {
+    _temp_dir: TempDir,
+    path: PathBuf,
+}
+
+impl DownloadedInstaller {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -341,6 +353,64 @@ fn default_manifest_url(requested_version: Option<&str>) -> String {
     )
 }
 
+fn release_tag_for_version(requested_version: Option<&str>) -> String {
+    match requested_version.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(version) if version.starts_with('v') => version.to_owned(),
+        Some(version) => format!("v{version}"),
+        None => String::from("loomle-latest"),
+    }
+}
+
+pub fn installer_download_url(requested_version: Option<&str>) -> Result<String, String> {
+    let release_repo =
+        std::env::var("LOOMLE_RELEASE_REPO").unwrap_or_else(|_| String::from(DEFAULT_RELEASE_REPO));
+    match platform_key() {
+        "windows" | "darwin" => Ok(format!(
+            "https://github.com/{release_repo}/releases/download/{}/{}",
+            release_tag_for_version(requested_version),
+            installer_binary_name()
+        )),
+        unsupported => Err(format!(
+            "installer bootstrap assets are not published for platform={unsupported}"
+        )),
+    }
+}
+
+pub fn download_temp_installer(requested_version: Option<&str>) -> Result<DownloadedInstaller, String> {
+    let temp_dir =
+        TempDir::new().map_err(|error| format!("failed to create temp dir for installer: {error}"))?;
+    let installer_path = temp_dir.path().join(installer_binary_name());
+    if let Ok(override_path) = std::env::var(INSTALLER_PATH_OVERRIDE_ENV) {
+        let source_path = PathBuf::from(override_path);
+        print_install_phase(&format!(
+            "copying temporary installer from {} via {}",
+            source_path.display(),
+            INSTALLER_PATH_OVERRIDE_ENV
+        ));
+        fs::copy(&source_path, &installer_path).map_err(|error| {
+            format!(
+                "failed to copy temporary installer {} to {}: {error}",
+                source_path.display(),
+                installer_path.display()
+            )
+        })?;
+        ensure_executable_file(&installer_path)?;
+        return Ok(DownloadedInstaller {
+            _temp_dir: temp_dir,
+            path: installer_path,
+        });
+    }
+    let download_url = installer_download_url(requested_version)?;
+    print_install_phase(&format!("downloading temporary installer from {download_url}"));
+    download_url_to_path(&download_url, &installer_path)
+        .map_err(|error| format!("failed to download temporary installer {download_url}: {error}"))?;
+    ensure_executable_file(&installer_path)?;
+    Ok(DownloadedInstaller {
+        _temp_dir: temp_dir,
+        path: installer_path,
+    })
+}
+
 fn resolve_version(
     manifest: &ReleaseManifest,
     requested_version: Option<&str>,
@@ -384,17 +454,25 @@ fn fetch_release_archive(package: &ReleasePackage, archive_path: &Path) -> Resul
         return Ok(());
     }
 
+    let downloaded_bytes = download_url_to_path(&package.url, archive_path)
+        .map_err(|error| format!("failed to download package {}: {error}", package.url))?;
+    print_install_phase(&format!(
+        "package download complete: {downloaded_bytes} bytes"
+    ));
+    Ok(())
+}
+
+fn download_url_to_path(url: &str, destination: &Path) -> Result<u64, String> {
     let mut response = Client::new()
-        .get(&package.url)
+        .get(url)
         .send()
         .and_then(|response| response.error_for_status())
-        .map_err(|error| format!("failed to download package {}: {error}", package.url))?;
-    let expected_bytes = response.content_length();
+        .map_err(|error| format!("download failed: {error}"))?;
 
-    let mut output = fs::File::create(archive_path).map_err(|error| {
+    let mut output = fs::File::create(destination).map_err(|error| {
         format!(
-            "failed to create archive {}: {error}",
-            archive_path.display()
+            "failed to create download target {}: {error}",
+            destination.display()
         )
     })?;
     let mut downloaded_bytes: u64 = 0;
@@ -402,34 +480,25 @@ fn fetch_release_archive(package: &ReleasePackage, archive_path: &Path) -> Resul
     loop {
         let bytes_read = response
             .read(&mut buffer)
-            .map_err(|error| format!("failed to read package {}: {error}", package.url))?;
+            .map_err(|error| format!("failed to read response body: {error}"))?;
         if bytes_read == 0 {
             break;
         }
-        output
-            .write_all(&buffer[..bytes_read])
-            .map_err(|error| format!("failed to write archive {}: {error}", archive_path.display()))?;
+        output.write_all(&buffer[..bytes_read]).map_err(|error| {
+            format!(
+                "failed to write download target {}: {error}",
+                destination.display()
+            )
+        })?;
         downloaded_bytes += bytes_read as u64;
     }
     output.flush().map_err(|error| {
         format!(
-            "failed to flush archive {}: {error}",
-            archive_path.display()
+            "failed to flush download target {}: {error}",
+            destination.display()
         )
     })?;
-    match expected_bytes {
-        Some(expected_bytes) => {
-            print_install_phase(&format!(
-                "package download complete: {downloaded_bytes}/{expected_bytes} bytes"
-            ));
-        }
-        None => {
-            print_install_phase(&format!(
-                "package download complete: {downloaded_bytes} bytes"
-            ));
-        }
-    }
-    Ok(())
+    Ok(downloaded_bytes)
 }
 
 fn file_path_from_uri(raw: &str) -> Result<Option<PathBuf>, String> {
@@ -1038,6 +1107,48 @@ mod tests {
             "https://github.com/example/test/releases/download/v0.1.0/loomle-manifest.json"
         );
         std::env::remove_var("LOOMLE_RELEASE_REPO");
+    }
+
+    #[test]
+    fn installer_download_url_uses_release_alias_and_installer_name() {
+        std::env::set_var("LOOMLE_RELEASE_REPO", "example/test");
+        let latest_url = installer_download_url(None).expect("latest installer url");
+        let versioned_url =
+            installer_download_url(Some("0.3.32")).expect("versioned installer url");
+        if platform_key() == "windows" {
+            assert_eq!(
+                latest_url,
+                "https://github.com/example/test/releases/download/loomle-latest/loomle-installer.exe"
+            );
+            assert_eq!(
+                versioned_url,
+                "https://github.com/example/test/releases/download/v0.3.32/loomle-installer.exe"
+            );
+        } else if platform_key() == "darwin" {
+            assert_eq!(
+                latest_url,
+                "https://github.com/example/test/releases/download/loomle-latest/loomle-installer"
+            );
+            assert_eq!(
+                versioned_url,
+                "https://github.com/example/test/releases/download/v0.3.32/loomle-installer"
+            );
+        }
+        std::env::remove_var("LOOMLE_RELEASE_REPO");
+    }
+
+    #[test]
+    fn download_temp_installer_uses_local_override_path() {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let source_path = temp_dir.path().join(installer_binary_name());
+        fs::write(&source_path, b"installer-binary").expect("write source installer");
+        std::env::set_var(INSTALLER_PATH_OVERRIDE_ENV, &source_path);
+
+        let downloaded = download_temp_installer(None).expect("downloaded installer");
+        let copied = fs::read(downloaded.path()).expect("read copied installer");
+        assert_eq!(copied, b"installer-binary");
+
+        std::env::remove_var(INSTALLER_PATH_OVERRIDE_ENV);
     }
 
     #[test]

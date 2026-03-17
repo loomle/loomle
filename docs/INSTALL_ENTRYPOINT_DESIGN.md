@@ -78,13 +78,14 @@ Suggested sections:
 
 #### Agent install instructions
 
-- install or acquire the global `loomle` CLI if it is not already available
-- run `loomle install --project-root <ProjectRoot>`
-- run `loomle doctor`
+- run the temporary `loomle-installer` bootstrap if it is not already available in the current command
+- run `loomle-installer install --project-root <ProjectRoot>`
+- run `Loomle/loomle doctor`
 
 #### Platform notes
 
-- macOS / Linux bootstrap path
+- macOS bootstrap path
+- Linux currently requires source or local-bundle install
 - Windows bootstrap path
 
 #### Verification
@@ -127,7 +128,7 @@ The page should ultimately guide agents toward:
 
 - `https://loomle.ai/install.sh`
 - `https://loomle.ai/install.ps1`
-- or the global `loomle install` path once the CLI is already present
+- or the project-local `Loomle/loomle update --apply` path once LOOMLE is already installed
 
 But the homepage prompt itself should stay simple and stable.
 

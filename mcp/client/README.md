@@ -3,8 +3,8 @@
 This directory is the canonical home for the project-local Rust client.
 
 Target role:
-- provide the machine-level `loomle install` entrypoint used after bootstrap
-- provide the single supported LOOMLE client entrypoint
+- provide the project-local `loomle` entrypoint installed under `Loomle/`
+- share install/update implementation code with the temporary `loomle-installer`
 - discover the current Unreal project root
 - locate the MCP server installed under `Plugins/LoomleBridge/Tools/mcp/...`
 - connect to the project-local MCP server/runtime
@@ -45,7 +45,7 @@ cargo run -- session --project-root "/Path/To/Project"
 
 If `--project-root` is omitted, the client searches upward from the current directory until it finds a `.uproject`.
 
-`loomle update` checks the installed version against the published latest release. `loomle update --apply` upgrades in place. If Unreal Editor is already running, restart it afterward so the editor loads the updated LoomleBridge plugin version.
+`loomle update` checks the installed version against the published latest release. Project-local `loomle update --apply` now hands off to a freshly downloaded temporary `loomle-installer`, which performs the actual in-place upgrade and then exits. If Unreal Editor is already running, restart it afterward so the editor loads the updated LoomleBridge plugin version.
 
 `loomle install` always installs both the prebuilt plugin binaries and the plugin source so Unreal can load quickly and still participate in local target rebuilds. If Unreal Editor is already running, restart it afterward so the editor loads the newly installed LoomleBridge plugin version.
 

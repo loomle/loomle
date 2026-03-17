@@ -78,8 +78,8 @@ jobs:
             "loomle-windows.zip"
             "loomle-manifest-darwin.json"
             "loomle-manifest-windows.json"
-            "loomle-darwin"
-            "loomle.exe"
+            "loomle-installer"
+            "loomle-installer.exe"
           )
 
           resolve_workflow_state() {
@@ -197,8 +197,8 @@ jobs:
             --pattern "loomle-windows.zip" \
             --pattern "loomle-manifest-darwin.json" \
             --pattern "loomle-manifest-windows.json" \
-            --pattern "loomle-darwin" \
-            --pattern "loomle.exe" \
+            --pattern "loomle-installer" \
+            --pattern "loomle-installer.exe" \
             --dir release-finalize
 
       - name: Merge Manifests
@@ -251,8 +251,8 @@ jobs:
               release-finalize/loomle-darwin.zip \
               release-finalize/loomle-windows.zip \
               release-finalize/loomle-manifest.json \
-              release-finalize/loomle-darwin \
-              release-finalize/loomle.exe
+              release-finalize/loomle-installer \
+              release-finalize/loomle-installer.exe
           else
             gh release upload loomle-latest release-finalize/loomle-darwin.zip \
               --repo "$GITHUB_REPOSITORY" \
@@ -263,10 +263,10 @@ jobs:
             gh release upload loomle-latest release-finalize/loomle-manifest.json \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
-            gh release upload loomle-latest release-finalize/loomle-darwin \
+            gh release upload loomle-latest release-finalize/loomle-installer \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
-            gh release upload loomle-latest release-finalize/loomle.exe \
+            gh release upload loomle-latest release-finalize/loomle-installer.exe \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
           fi

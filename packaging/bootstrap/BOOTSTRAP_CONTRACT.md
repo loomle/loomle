@@ -4,7 +4,7 @@
 
 Support a machine with no existing LOOMLE setup.
 
-The user should be able to start from a single public entrypoint and end up with a usable `loomle` command on their machine.
+The user should be able to start from a single public entrypoint, download a temporary `loomle-installer`, execute one install or update operation, and then discard it.
 
 ## Public entrypoint
 
@@ -24,33 +24,15 @@ Recommended behavior:
 Bootstrap scripts should:
 
 1. detect the current platform
-2. download the global `loomle` CLI binary
-3. place it in a standard user-local bin directory
-4. print the next-step command:
-   - `loomle install --project-root <ProjectRoot>`
+2. download the temporary `loomle-installer` binary for that platform
+3. execute it with the requested install or update arguments
+4. delete the temporary binary after the installer exits
 
-Bootstrap scripts should not install directly into a UE project.
-That work belongs to the global CLI after bootstrap.
-
-## Global CLI placement
-
-Recommended install destinations:
-
-### macOS / Linux
-
-```text
-$HOME/.local/bin/loomle
-```
-
-### Windows
-
-```text
-%LOCALAPPDATA%\\Programs\\Loomle\\bin\\loomle.exe
-```
+Bootstrap scripts should not install a global CLI and should not leave a machine-level `loomle` binary behind.
 
 ## Artifact contract
 
-Bootstrap should download a standalone global CLI artifact, not the project-local `Loomle/loomle`.
+Bootstrap should download a standalone installer artifact, not the project-local `Loomle/loomle`.
 
 Current hosting model:
 
@@ -63,23 +45,23 @@ Recommended release asset shape on the stable alias release:
 
 ```text
 loomle-latest/
-  loomle-darwin
-  loomle-linux
-  loomle.exe
+  loomle-installer
+  loomle-installer.exe
   loomle-manifest.json
   loomle-darwin.zip
   loomle-windows.zip
 ```
 
-This global CLI may share code with `mcp/client`, but it is a distinct installed role:
+The temporary installer may share code with `mcp/client`, but it is a distinct role:
 
-- global CLI:
+- `loomle-installer`:
   - bootstrap target
-  - provides `loomle install`
-  - machine-level entrypoint
-- project-local client:
+  - executes install, update, and repair flows
+  - is downloaded temporarily and removed after use
+- project-local `loomle`:
   - installed into `Loomle/loomle`
   - provides project runtime entrypoint
+  - may hand off `update --apply` to a temporary installer
 
 ## Redirect target
 

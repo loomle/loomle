@@ -115,7 +115,7 @@ Contains Rust-side runtime and protocol-facing code.
 `mcp/client/`
 - Rust client implementations for LOOMLE entrypoints
 - includes the project-local client installed under `Loomle/`
-- may also include or share code with the machine-level bootstrap/install CLI
+- may also include or share code with the temporary bootstrap/install CLI
 
 `mcp/protocol/`
 - schemas
@@ -206,9 +206,8 @@ Bootstrap assets may also be published separately:
 
 ```text
 bootstrap/
-  darwin/loomle
-  linux/loomle
-  windows/loomle.exe
+  darwin/loomle-installer
+  windows/loomle-installer.exe
 ```
 
 ## 6. Installed User-Project Layout

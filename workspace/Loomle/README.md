@@ -87,6 +87,7 @@ Working rule:
 - `Loomle/loomle update`
   Check the installed version against the latest published release.
 - `Loomle/loomle update --apply`
+  This downloads a temporary `loomle-installer`, hands off the upgrade, and exits.
   Upgrade this project-local LOOMLE install in place.
   After install or update writes new files, restart Unreal Editor if it is already running so the new LoomleBridge plugin version is loaded.
 
@@ -203,6 +204,7 @@ Check for an update:
 
 Apply the latest update:
 - `Loomle/loomle update --apply`
+  Project-local `loomle` does not self-upgrade directly; it delegates apply operations to a temporary installer.
   If Unreal Editor is already running, restart it after the update so the editor loads the new LoomleBridge plugin version.
 
 Apply a specific version:

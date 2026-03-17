@@ -57,7 +57,7 @@ jobs:
           release_dir="$RUNNER_TEMP/loomle-release-assets-darwin"
           archive_path="$release_dir/loomle-darwin.zip"
           manifest_path="$release_dir/loomle-manifest-darwin.json"
-          bootstrap_cli_path="$release_dir/loomle-darwin"
+          bootstrap_cli_path="$release_dir/loomle-installer"
 
           if [[ -d "$inputs_dir/release-verify-mac-inputs" ]]; then
             inputs_dir="$inputs_dir/release-verify-mac-inputs"

@@ -66,10 +66,10 @@ This tells the agent what to expect after installation.
 Suggested copy:
 
 ```text
-If LOOMLE is not yet available on this machine, acquire the global loomle CLI first.
+If LOOMLE is not yet available on this machine, run the temporary installer bootstrap first.
 Then install LOOMLE into the current Unreal project by running:
 
-loomle install --project-root <ProjectRoot>
+loomle-installer install --project-root <ProjectRoot>
 ```
 
 This should be plain text, not only a styled code widget.
@@ -79,13 +79,17 @@ This should be plain text, not only a styled code widget.
 Suggested copy:
 
 ```text
-If the machine does not yet have the loomle command:
+If the machine does not yet have the installer:
 
-macOS / Linux:
-curl -fsSL https://loomle.ai/install.sh | sh
+macOS:
+curl -fsSL https://loomle.ai/install.sh | sh -s -- install --project-root /path/to/MyProject
+
+Linux:
+Bootstrap install is not published yet.
+Build from source or use a local release bundle for now.
 
 Windows PowerShell:
-irm https://loomle.ai/install.ps1 | iex
+& ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) install --project-root C:\Path\To\MyProject
 ```
 
 ### 4. Verification
@@ -95,7 +99,7 @@ Suggested copy:
 ```text
 After installation, verify the setup:
 
-loomle doctor
+Loomle/loomle doctor
 
 Expected project layout:
 - Plugins/LoomleBridge/

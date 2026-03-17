@@ -35,6 +35,14 @@ def platform_defaults(platform: str) -> tuple[str, str]:
     fail(f"unsupported platform: {platform}")
 
 
+def installer_asset_name(platform: str) -> str:
+    if platform == "windows":
+        return "loomle-installer.exe"
+    if platform in {"darwin", "linux"}:
+        return "loomle-installer"
+    fail(f"unsupported platform: {platform}")
+
+
 def detect_platform() -> str:
     if sys.platform == "darwin":
         return "darwin"
@@ -77,7 +85,7 @@ def main() -> int:
     if not client_binary.is_file():
         fail(f"client binary not found: {client_binary}")
 
-    bootstrap_target = bootstrap_dir / args.platform / client_name
+    bootstrap_target = bootstrap_dir / args.platform / installer_asset_name(args.platform)
     bootstrap_target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(client_binary, bootstrap_target)
 

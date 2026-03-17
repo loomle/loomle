@@ -74,7 +74,7 @@ jobs:
           $releaseDir = Join-Path $env:RUNNER_TEMP "loomle-release-assets-windows"
           $archivePath = Join-Path $releaseDir "loomle-windows.zip"
           $manifestPath = Join-Path $releaseDir "loomle-manifest-windows.json"
-          $bootstrapCliPath = Join-Path $releaseDir "loomle.exe"
+          $bootstrapCliPath = Join-Path $releaseDir "loomle-installer.exe"
 
           $nestedInputsDir = Join-Path $inputsDir "release-verify-windows-inputs"
           if (Test-Path -LiteralPath $nestedInputsDir) {

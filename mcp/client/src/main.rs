@@ -1,7 +1,7 @@
 use loomle::{
     connect_client,
-    install::{install_release, update_release, InstallRequest, UpdateRequest},
-    parse_json_object, render_json_pretty, resolve_project_root,
+    install::{download_temp_installer, install_release, update_release, InstallRequest, UpdateRequest},
+    is_installer_binary_path, parse_json_object, render_json_pretty, resolve_project_root,
     skill::{
         install_skill, list_skills, remove_skill, SkillInstallRequest, SkillListRequest,
         SkillRemoveRequest,
@@ -15,7 +15,7 @@ use std::env;
 use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
-use std::process::ExitCode;
+use std::process::{Command as StdCommand, ExitCode};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
@@ -67,6 +67,10 @@ async fn main() -> ExitCode {
                     return ExitCode::from(2);
                 }
             };
+
+            if apply && !current_process_is_installer() {
+                return handoff_update_to_installer(project_root, version, manifest_path, manifest_url);
+            }
 
             run_blocking_json(move || {
                 update_release(UpdateRequest {
@@ -158,6 +162,61 @@ async fn main() -> ExitCode {
                     unreachable!("install/update handled above")
                 }
             }
+        }
+    }
+}
+
+fn current_process_is_installer() -> bool {
+    env::current_exe()
+        .ok()
+        .as_deref()
+        .map(is_installer_binary_path)
+        .unwrap_or(false)
+}
+
+fn handoff_update_to_installer(
+    project_root: PathBuf,
+    version: Option<String>,
+    manifest_path: Option<PathBuf>,
+    manifest_url: Option<String>,
+) -> ExitCode {
+    let installer = match download_temp_installer(version.as_deref()) {
+        Ok(installer) => installer,
+        Err(message) => {
+            eprintln!("[loomle][ERROR] {message}");
+            return ExitCode::from(1);
+        }
+    };
+
+    let mut command = StdCommand::new(installer.path());
+    command.arg("--project-root").arg(&project_root).arg("update").arg("--apply");
+    if let Some(version) = &version {
+        command.arg("--version").arg(version);
+    }
+    if let Some(manifest_path) = &manifest_path {
+        command.arg("--manifest-path").arg(manifest_path);
+    }
+    if let Some(manifest_url) = &manifest_url {
+        command.arg("--manifest-url").arg(manifest_url);
+    }
+
+    eprintln!(
+        "[loomle][INFO] handing off update --apply to temporary installer {}",
+        installer.path().display()
+    );
+    match command.status() {
+        Ok(status) if status.success() => ExitCode::SUCCESS,
+        Ok(status) => match status.code() {
+            Some(code) if (0..=255).contains(&code) => ExitCode::from(code as u8),
+            _ => ExitCode::from(1),
+        },
+        Err(error) => {
+            eprintln!(
+                "[loomle][ERROR] failed to launch temporary installer {}: {}",
+                installer.path().display(),
+                error
+            );
+            ExitCode::from(1)
         }
     }
 }
@@ -1124,8 +1183,18 @@ mod tests {
         ));
         if cfg!(target_os = "windows") {
             assert_eq!(loomle::server_binary_name(), "loomle_mcp_server.exe");
+            assert_eq!(loomle::project_client_binary_name(), "loomle.exe");
+            assert_eq!(loomle::installer_binary_name(), "loomle-installer.exe");
         } else {
             assert_eq!(loomle::server_binary_name(), "loomle_mcp_server");
+            assert_eq!(loomle::project_client_binary_name(), "loomle");
+            assert_eq!(loomle::installer_binary_name(), "loomle-installer");
         }
+        assert!(loomle::is_installer_binary_path(std::path::Path::new(
+            loomle::installer_binary_name()
+        )));
+        assert!(!loomle::is_installer_binary_path(std::path::Path::new(
+            loomle::project_client_binary_name()
+        )));
     }
 }
