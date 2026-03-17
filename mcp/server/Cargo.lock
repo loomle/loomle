@@ -282,7 +282,7 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "loomle_mcp_server"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "pretty_assertions",
  "rmcp",
