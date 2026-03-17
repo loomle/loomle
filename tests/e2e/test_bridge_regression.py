@@ -130,13 +130,14 @@ def wait_for_pcg_runtime_snapshot(
     last_payload: dict | None = None
     while time.time() < deadline:
         attempt += 1
+        args["mode"] = "runtime"
         args["graphType"] = "pcg"
-        last_payload = call_tool(client, request_id + attempt, "graph.runtime", args)
+        last_payload = call_tool(client, request_id + attempt, "graph.verify", args)
         if last_payload.get("generated") is True and last_payload.get("generating") is False:
             return last_payload
         time.sleep(interval_s)
 
-    fail(f"graph.runtime did not report generated=true within {timeout_s:.0f}s: {last_payload}")
+    fail(f"graph.verify(mode=runtime) did not report generated=true within {timeout_s:.0f}s: {last_payload}")
     raise RuntimeError("unreachable")
 
 def mutate_with_combined_plan_steps(
@@ -499,6 +500,28 @@ def main() -> int:
         if not any(isinstance(d, dict) and d.get("code") == "LAYOUT_DETAIL_DOWNGRADED" for d in query_diagnostics):
             fail(f"graph.query missing LAYOUT_DETAIL_DOWNGRADED diagnostic: {graph_query}")
         print("[PASS] graph.query structure validated")
+
+        blueprint_health_verify = call_tool(
+            client,
+            6405,
+            "graph.verify",
+            {
+                "mode": "health",
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "limit": 200,
+            },
+        )
+        if blueprint_health_verify.get("mode") != "health":
+            fail(f"graph.verify(mode=health) returned wrong mode: {blueprint_health_verify}")
+        if blueprint_health_verify.get("status") not in {"ok", "warn"}:
+            fail(f"graph.verify(mode=health) returned unexpected status: {blueprint_health_verify}")
+        if not isinstance(blueprint_health_verify.get("healthReport"), dict):
+            fail(f"graph.verify(mode=health) missing healthReport: {blueprint_health_verify}")
+        if not isinstance(blueprint_health_verify.get("diagnostics"), list):
+            fail(f"graph.verify(mode=health) missing diagnostics[]: {blueprint_health_verify}")
+        print("[PASS] graph.verify health summary validated")
 
         graph_ops = call_tool(
             client,
@@ -2500,6 +2523,27 @@ def main() -> int:
         material_revision_r1 = material_revision_after_compile.get("revision")
         print("[PASS] material compile revision metadata validated")
 
+        material_compile_verify = call_tool(
+            client,
+            1001091,
+            "graph.verify",
+            {
+                "mode": "compile",
+                "assetPath": material_asset_path,
+                "graphName": "MaterialGraph",
+                "graphType": "material",
+            },
+        )
+        if material_compile_verify.get("mode") != "compile":
+            fail(f"graph.verify(mode=compile) returned wrong mode: {material_compile_verify}")
+        if material_compile_verify.get("status") != "ok":
+            fail(f"graph.verify(mode=compile) should succeed for material fixture: {material_compile_verify}")
+        compile_report = material_compile_verify.get("compileReport")
+        if not isinstance(compile_report, dict) or compile_report.get("compiled") is not True:
+            fail(f"graph.verify(mode=compile) missing compiled=true: {material_compile_verify}")
+        print("[PASS] graph.verify compile summary validated")
+
+
         material_connect = call_tool(
             client,
             10011,
@@ -3670,50 +3714,50 @@ def main() -> int:
             component_path=pcg_component_path,
         )
         if pcg_runtime_payload.get("componentPath") != pcg_component_path:
-            fail(f"graph.runtime(componentPath) returned wrong componentPath: {pcg_runtime_payload}")
+            fail(f"graph.verify(mode=runtime, componentPath) returned wrong componentPath: {pcg_runtime_payload}")
         if pcg_runtime_payload.get("actorPath") != pcg_actor_path:
-            fail(f"graph.runtime(componentPath) returned wrong actorPath: {pcg_runtime_payload}")
+            fail(f"graph.verify(mode=runtime, componentPath) returned wrong actorPath: {pcg_runtime_payload}")
         if pcg_runtime_payload.get("graphAssetPath") != temp_pcg_asset:
-            fail(f"graph.runtime(componentPath) returned wrong graphAssetPath: {pcg_runtime_payload}")
+            fail(f"graph.verify(mode=runtime, componentPath) returned wrong graphAssetPath: {pcg_runtime_payload}")
 
         generated_graph_output = pcg_runtime_payload.get("generatedGraphOutput")
         if not isinstance(generated_graph_output, dict):
-            fail(f"graph.runtime missing generatedGraphOutput: {pcg_runtime_payload}")
+            fail(f"graph.verify(mode=runtime) missing generatedGraphOutput: {pcg_runtime_payload}")
         if not isinstance(generated_graph_output.get("taggedDataCount"), int):
-            fail(f"graph.runtime generatedGraphOutput missing taggedDataCount: {pcg_runtime_payload}")
+            fail(f"graph.verify(mode=runtime) generatedGraphOutput missing taggedDataCount: {pcg_runtime_payload}")
         if not isinstance(generated_graph_output.get("pins"), list):
-            fail(f"graph.runtime generatedGraphOutput missing pins[]: {pcg_runtime_payload}")
+            fail(f"graph.verify(mode=runtime) generatedGraphOutput missing pins[]: {pcg_runtime_payload}")
         if not isinstance(generated_graph_output.get("dataTypes"), list):
-            fail(f"graph.runtime generatedGraphOutput missing dataTypes[]: {pcg_runtime_payload}")
+            fail(f"graph.verify(mode=runtime) generatedGraphOutput missing dataTypes[]: {pcg_runtime_payload}")
 
         managed_resources = pcg_runtime_payload.get("managedResources")
         if not isinstance(managed_resources, dict):
-            fail(f"graph.runtime missing managedResources: {pcg_runtime_payload}")
+            fail(f"graph.verify(mode=runtime) missing managedResources: {pcg_runtime_payload}")
         for field_name in ["resourceCount", "generatedActorCount", "generatedComponentCount", "totalInstanceCount"]:
             if not isinstance(managed_resources.get(field_name), int):
-                fail(f"graph.runtime managedResources missing {field_name}: {pcg_runtime_payload}")
+                fail(f"graph.verify(mode=runtime) managedResources missing {field_name}: {pcg_runtime_payload}")
         if not isinstance(managed_resources.get("accessible"), bool):
-            fail(f"graph.runtime managedResources missing accessible: {pcg_runtime_payload}")
+            fail(f"graph.verify(mode=runtime) managedResources missing accessible: {pcg_runtime_payload}")
         if not isinstance(managed_resources.get("actors"), list):
-            fail(f"graph.runtime managedResources missing actors[]: {pcg_runtime_payload}")
+            fail(f"graph.verify(mode=runtime) managedResources missing actors[]: {pcg_runtime_payload}")
         if not isinstance(managed_resources.get("components"), list):
-            fail(f"graph.runtime managedResources missing components[]: {pcg_runtime_payload}")
+            fail(f"graph.verify(mode=runtime) managedResources missing components[]: {pcg_runtime_payload}")
 
         inspection_summary = pcg_runtime_payload.get("inspection")
         if not isinstance(inspection_summary, dict):
-            fail(f"graph.runtime missing inspection summary: {pcg_runtime_payload}")
+            fail(f"graph.verify(mode=runtime) missing inspection summary: {pcg_runtime_payload}")
         if not isinstance(inspection_summary.get("available"), bool):
-            fail(f"graph.runtime inspection missing available flag: {pcg_runtime_payload}")
+            fail(f"graph.verify(mode=runtime) inspection missing available flag: {pcg_runtime_payload}")
         if not isinstance(inspection_summary.get("executedNodeCount"), int):
-            fail(f"graph.runtime inspection missing executedNodeCount: {pcg_runtime_payload}")
+            fail(f"graph.verify(mode=runtime) inspection missing executedNodeCount: {pcg_runtime_payload}")
         if not isinstance(inspection_summary.get("producedNodeCount"), int):
-            fail(f"graph.runtime inspection missing producedNodeCount: {pcg_runtime_payload}")
+            fail(f"graph.verify(mode=runtime) inspection missing producedNodeCount: {pcg_runtime_payload}")
         if not isinstance(inspection_summary.get("nodes"), list):
-            fail(f"graph.runtime inspection missing nodes[]: {pcg_runtime_payload}")
+            fail(f"graph.verify(mode=runtime) inspection missing nodes[]: {pcg_runtime_payload}")
 
         runtime_diagnostics = pcg_runtime_payload.get("diagnostics")
         if not isinstance(runtime_diagnostics, list):
-            fail(f"graph.runtime missing diagnostics[]: {pcg_runtime_payload}")
+            fail(f"graph.verify(mode=runtime) missing diagnostics[]: {pcg_runtime_payload}")
         runtime_diag_codes = {
             diag.get("code")
             for diag in runtime_diagnostics
@@ -3721,22 +3765,22 @@ def main() -> int:
         }
         if generated_graph_output.get("taggedDataCount") == 0:
             if "PCG_GENERATED_GRAPH_OUTPUT_EMPTY" not in runtime_diag_codes:
-                fail(f"graph.runtime missing empty-output diagnostic: {pcg_runtime_payload}")
+                fail(f"graph.verify(mode=runtime) missing empty-output diagnostic: {pcg_runtime_payload}")
             if (
                 managed_resources.get("generatedActorCount", 0) > 0
                 or managed_resources.get("generatedComponentCount", 0) > 0
             ) and "PCG_RUNTIME_OUTPUT_COMPONENT_MISMATCH" not in runtime_diag_codes:
-                fail(f"graph.runtime missing mismatch diagnostic: {pcg_runtime_payload}")
+                fail(f"graph.verify(mode=runtime) missing mismatch diagnostic: {pcg_runtime_payload}")
 
         pcg_runtime_from_actor = call_tool(
             client,
             10160,
-            "graph.runtime",
-            {"graphType": "pcg", "actorPath": pcg_actor_path},
+            "graph.verify",
+            {"mode": "runtime", "graphType": "pcg", "actorPath": pcg_actor_path},
         )
         if pcg_runtime_from_actor.get("componentPath") != pcg_component_path:
-            fail(f"graph.runtime(actorPath) did not resolve the expected component: {pcg_runtime_from_actor}")
-        print("[PASS] graph.runtime runtime summaries validated")
+            fail(f"graph.verify(mode=runtime, actorPath) did not resolve the expected component: {pcg_runtime_from_actor}")
+        print("[PASS] graph.verify runtime summaries validated")
 
         editor_open_payload = call_tool(
             client,

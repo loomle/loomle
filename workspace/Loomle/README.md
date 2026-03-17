@@ -30,8 +30,12 @@ Read this file first. It is the top-level usage guide for agents working inside 
    - call `graph.ops` when you need to discover stable semantic operations for the current graph type
    - call `graph.ops.resolve` on the exact target `graphRef` when you need a mutate-ready plan for one or more semantic ops
    - apply the resulting plan with `graph.mutate`
+   - close the loop with `graph.verify`
    Working rule:
-   - prefer `addNode.byClass` plans produced by `graph.ops.resolve`
+    - prefer `addNode.byClass` plans produced by `graph.ops.resolve`
+    - use `graph.verify(mode="health")` to summarize graph diagnostics from the current snapshot
+    - use `graph.verify(mode="compile")` when you want an explicit compile/refresh verification step
+    - use `graph.verify(mode="runtime")` when you need generated-result evidence, currently for PCG
 6. Choose the right workflow guide for the current graph type:
    - `workflows/blueprint.md`
    - `workflows/material.md`
@@ -41,9 +45,12 @@ Read this file first. It is the top-level usage guide for agents working inside 
    - use `fromSeq` as an exclusive cursor
    - reuse returned `nextSeq` on the next poll
    - use `filters` when you want to narrow by severity, category, source, or asset path prefix
-8. When you need generated PCG runtime evidence after a regenerate, call `graph.runtime`.
+8. When you need a verification step after reading or mutating a graph, call `graph.verify`.
    Working rule:
-   - prefer `componentPath` from `graph.resolve` or `context.selection`
+   - use `mode="health"` to summarize graph diagnostics from the current semantic snapshot
+   - use `mode="compile"` to run explicit compile/refresh verification
+   - use `mode="runtime"` when you need generated-result evidence after a PCG regenerate
+   - for `mode="runtime"`, prefer `componentPath` from `graph.resolve` or `context.selection`
    - trust `managedResources` for spawned actors/components and instance counts
    - treat `generatedGraphOutput` as informative but potentially sparse for spawner-style graphs
 
@@ -71,7 +78,7 @@ Working rule:
   Make one tool request and print the result.
 - `Loomle/loomle call diag.tail --args '{"fromSeq":0}'`
   Read persisted diagnostics incrementally. Reuse the returned `nextSeq` as the next cursor.
-- `Loomle/loomle call graph.runtime --args '{"graphType":"pcg","componentPath":"/Game/Maps/MyMap.MyMap:PersistentLevel.PCGVolume_0.PCGComponent0"}'`
+- `Loomle/loomle call graph.verify --args '{"mode":"runtime","graphType":"pcg","componentPath":"/Game/Maps/MyMap.MyMap:PersistentLevel.PCGVolume_0.PCGComponent0"}'`
   Inspect generated PCG runtime output, managed resources, and execution summaries for one PCG component.
 - `Loomle/loomle session`
   Start a persistent stdin/stdout JSON session for repeated requests. Prefer this for high-concurrency or high-volume query workloads.
@@ -143,18 +150,21 @@ Working rule:
 - use `filters.severity`, `filters.category`, `filters.source`, or `filters.assetPathPrefix` to narrow noisy streams
 - persisted diagnostic events live under `Loomle/runtime/diag/diag.jsonl`
 
-## PCG Runtime Inspection
+## Graph Verification
 
-Use `graph.runtime` when you need generated-result evidence after a PCG regenerate instead of only graph topology.
+Use `graph.verify` as the final verification primitive in the graph loop.
 
 Minimal one-shot example:
 
 ```bash
-Loomle/loomle call graph.runtime --args '{"graphType":"pcg","componentPath":"/Game/Maps/MyMap.MyMap:PersistentLevel.PCGVolume_0.PCGComponent0"}'
+Loomle/loomle call graph.verify --args '{"mode":"runtime","graphType":"pcg","componentPath":"/Game/Maps/MyMap.MyMap:PersistentLevel.PCGVolume_0.PCGComponent0"}'
 ```
 
 Working rule:
-- prefer `componentPath` from `graph.resolve(actorPath=...)`, `graph.resolve(componentPath=...)`, or `context.selection`
+- use `mode="health"` when you want structural diagnostics from the latest graph snapshot
+- use `mode="compile"` when you want an explicit compile/refresh verification step
+- use `mode="runtime"` when you want generated-result evidence after a PCG regenerate
+- for `mode="runtime"`, prefer `componentPath` from `graph.resolve(actorPath=...)`, `graph.resolve(componentPath=...)`, or `context.selection`
 - use `managedResources` as the authoritative summary for spawned actors/components and instance counts
 - `generatedGraphOutput` may still be empty or sparse for common spawner-style graphs even when visible results exist
 - use `inspection.nodes[*]` when you need a per-node executed/produced-data summary
@@ -234,7 +244,7 @@ Working rule:
 - Open `workflows/material.md` when the current task is editing or reading Material graphs.
   This is where Material subgraph traversal through `childGraphRef` is explained.
 - Open `workflows/pcg.md` when the current task is editing or reading PCG graphs.
-  This is where graph resolution from selected PCG actors and components, plus `graph.runtime`, should be treated as normal.
+  This is where graph resolution from selected PCG actors and components, plus `graph.verify`, should be treated as normal.
 - Open `examples/README.md` when you want small concrete payload examples before calling tools.
 - Do not treat `runtime/` as documentation. It contains machine-written state such as install metadata.
 

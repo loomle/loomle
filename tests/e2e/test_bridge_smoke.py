@@ -22,7 +22,7 @@ REQUIRED_TOOLS = {
     "graph.ops",
     "graph.ops.resolve",
     "graph.mutate",
-    "graph.runtime",
+    "graph.verify",
     "diag.tail",
     "context",
     "editor.open",

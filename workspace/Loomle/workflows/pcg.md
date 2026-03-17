@@ -6,7 +6,7 @@ Recommended PCG editing rhythm for LOOMLE:
 2. use `graph.ops` and `graph.ops.resolve` when you want a semantic pipeline plan
 3. build or extend a pipeline with ordered `graph.mutate` operations
 4. call `layoutGraph(scope=\"touched\")`
-5. verify the resulting pipeline with `graph.query`
+5. verify the resulting pipeline with `graph.query` and `graph.verify`
 
 Addressing rule:
 - when you start from a selected PCG actor or component in the level, use `context` and then `graph.resolve` on the emitted actor or component path
@@ -23,12 +23,12 @@ Planning rule:
 Readback rule:
 - prefer `graph.query` after every meaningful PCG edit, not just for topology but also for node `effectiveSettings` and node-level `diagnostics`
 - expect `graph.query` to expose selector/spawner details for common runtime-sensitive nodes such as `Get Actor Property`, `Get Spline Data`, and `Static Mesh Spawner`
-- after disconnecting an overridable PCG input pin, you can use `setPinDefault` on that input to write the node setting directly; prefer readback or `graph.runtime` to confirm the resulting behavior
+- after disconnecting an overridable PCG input pin, you can use `setPinDefault` on that input to write the node setting directly; prefer readback or `graph.verify(mode="runtime")` to confirm the resulting behavior
 - when a PCG pipeline looks empty, inspect node `diagnostics` first; LOOMLE now emits empty-input hints for actor selectors, component selectors, and mesh-selector misconfiguration
 - for selector-backed nodes, read the nested `actorSelector`, `componentSelector`, or `meshSelector` objects before assuming the runtime source is correct
 
 Runtime inspection rule:
-- when you need generated-result evidence after a regenerate, call `graph.runtime`
+- when you need generated-result evidence after a regenerate, call `graph.verify(mode="runtime")`
 - prefer passing `componentPath` from `graph.resolve(actorPath=...)`, `graph.resolve(componentPath=...)`, or `context.selection`
 - treat `managedResources` as the authoritative runtime summary for spawned actors/components and instance counts
 - expect `generatedGraphOutput` to be informative but not always complete for spawner-style graphs
@@ -55,11 +55,11 @@ End-to-end pattern: projection -> filter -> static mesh spawn:
 3. apply the returned plan with `graph.mutate`, then run `layoutGraph(scope="touched")`
 4. verify the resulting topology with `graph.query`
 5. confirm node configuration with `effectiveSettings` and node `diagnostics`
-6. if you regenerated the PCG component, call `graph.runtime` and trust `managedResources` / `inspection` over sparse `generatedGraphOutput`
+6. if you regenerated the PCG component, call `graph.verify(mode="runtime")` and trust `managedResources` / `inspection` over sparse `generatedGraphOutput`
 
 Troubleshooting:
 - graph generates in the editor but introspection looks empty:
-  - call `graph.runtime`
+  - call `graph.verify(mode="runtime")`
   - trust `managedResources` and `inspection` first
   - do not treat empty `generatedGraphOutput` alone as proof that generation failed
 - filter produces zero points:

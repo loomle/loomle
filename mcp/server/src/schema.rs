@@ -131,11 +131,11 @@ pub fn tool_descriptors() -> Vec<Value> {
             }),
         ),
         runtime_tool_descriptor(
-            "graph.runtime",
-            "Graph Runtime",
-            "Inspect runtime graph state. The first release supports graphType=\"pcg\" only.",
-            graph_runtime_input_schema(),
-            graph_runtime_output_schema(),
+            "graph.verify",
+            "Graph Verify",
+            "Verify graph health, compile state, or runtime evidence. Runtime verification currently supports graphType=\"pcg\" only.",
+            graph_verify_input_schema(),
+            graph_verify_output_schema(),
         ),
         json!({
             "name": "graph",
@@ -1005,17 +1005,33 @@ fn diag_tail_output_schema() -> Value {
     })
 }
 
-fn graph_runtime_input_schema() -> Value {
+fn graph_verify_input_schema() -> Value {
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
-        "required": ["graphType"],
+        "required": ["mode", "graphType"],
         "properties": {
+            "mode": {
+                "type": "string",
+                "enum": ["health", "compile", "runtime"],
+                "description": "Verification mode. `health` inspects graph diagnostics, `compile` runs an explicit compile/refresh verification, and `runtime` inspects generated runtime evidence."
+            },
             "graphType": {
                 "type": "string",
-                "enum": ["pcg"],
-                "description": "Runtime graph domain. The first release supports only PCG."
+                "enum": ["blueprint", "material", "pcg"],
+                "description": "Graph domain. `runtime` mode currently supports only PCG."
             },
+            "assetPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Unreal asset path for graph-level verification."
+            },
+            "graphName": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Graph name within the asset when verifying a specific Blueprint graph."
+            },
+            "graphRef": graph_ref_schema(),
             "componentPath": {
                 "type": "string",
                 "minLength": 1,
@@ -1035,18 +1051,29 @@ fn graph_runtime_input_schema() -> Value {
                 "type": "string",
                 "minLength": 1,
                 "description": "Alias for objectPath."
-            }
+            },
         },
         "additionalProperties": false
     })
 }
 
-fn graph_runtime_output_schema() -> Value {
+fn graph_verify_output_schema() -> Value {
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
-        "required": ["componentPath", "generated", "generating", "generatedGraphOutput", "managedResources", "inspection", "diagnostics"],
+        "required": ["mode", "status", "diagnostics"],
         "properties": {
+            "mode": { "type": "string", "enum": ["health", "compile", "runtime"] },
+            "status": { "type": "string", "enum": ["ok", "warn", "error"] },
+            "summary": { "type": "string" },
+            "graphType": graph_type_schema(),
+            "assetPath": { "type": "string" },
+            "graphName": { "type": "string" },
+            "graphRef": graph_ref_schema(),
+            "previousRevision": { "type": "string" },
+            "newRevision": { "type": "string" },
+            "healthReport": { "type": "object", "additionalProperties": true },
+            "compileReport": { "type": "object", "additionalProperties": true },
             "componentPath": { "type": "string" },
             "actorPath": { "type": "string" },
             "graphAssetPath": { "type": "string" },
@@ -1093,11 +1120,11 @@ mod tests {
             .any(|v| v.get("name") == Some(&Value::String(String::from("editor.screenshot")))));
         assert!(tools
             .iter()
-            .any(|v| v.get("name") == Some(&Value::String(String::from("graph.runtime")))));
+            .any(|v| v.get("name") == Some(&Value::String(String::from("graph.verify")))));
     }
 
     #[test]
-    fn graph_runtime_tool_schemas_expose_required_fields() {
+    fn graph_verify_tool_schemas_expose_required_fields() {
         let tools = tool_descriptors();
 
         // graph.query: flexible addressing — no required fields at the schema level.
@@ -1198,26 +1225,34 @@ mod tests {
             "diag.tail output should expose nextSeq property"
         );
 
-        let graph_runtime = tools
+        let graph_verify = tools
             .iter()
-            .find(|v| v.get("name") == Some(&Value::String(String::from("graph.runtime"))))
-            .expect("graph.runtime descriptor");
+            .find(|v| v.get("name") == Some(&Value::String(String::from("graph.verify"))))
+            .expect("graph.verify descriptor");
         assert!(
-            graph_runtime["inputSchema"]["properties"]["graphType"].is_object(),
-            "graph.runtime should expose graphType property"
+            graph_verify["inputSchema"]["properties"]["mode"].is_object(),
+            "graph.verify should expose mode property"
         );
         assert!(
-            graph_runtime["inputSchema"]["properties"]["componentPath"].is_object(),
-            "graph.runtime should expose componentPath property"
+            graph_verify["inputSchema"]["properties"]["graphType"].is_object(),
+            "graph.verify should expose graphType property"
         );
         assert!(
-            graph_runtime["outputSchema"]["properties"]["managedResources"].is_object(),
-            "graph.runtime should expose managedResources property"
+            graph_verify["inputSchema"]["properties"]["componentPath"].is_object(),
+            "graph.verify should expose componentPath property"
+        );
+        assert!(
+            graph_verify["outputSchema"]["properties"]["managedResources"].is_object(),
+            "graph.verify should expose managedResources property"
+        );
+        assert!(
+            graph_verify["outputSchema"]["properties"]["compileReport"].is_object(),
+            "graph.verify should expose compileReport property"
         );
     }
 
     #[test]
-    fn graph_runtime_tool_schemas_include_structured_op_and_graph_type_metadata() {
+    fn graph_verify_tool_schemas_include_structured_op_and_graph_type_metadata() {
         let tools = tool_descriptors();
         let graph_list = tools
             .iter()

@@ -38,7 +38,7 @@ cargo run -- skill remove material-weaver
 cargo run -- list-tools --project-root "/Path/To/Project"
 cargo run -- call context --project-root "/Path/To/Project"
 cargo run -- call diag.tail --project-root "/Path/To/Project" --args '{"fromSeq":0,"limit":50}'
-cargo run -- call graph.runtime --project-root "/Path/To/Project" --args '{"graphType":"pcg","componentPath":"/Game/Maps/MyMap.MyMap:PersistentLevel.PCGVolume_0.PCGComponent0"}'
+cargo run -- call graph.verify --project-root "/Path/To/Project" --args '{"mode":"runtime","graphType":"pcg","componentPath":"/Game/Maps/MyMap.MyMap:PersistentLevel.PCGVolume_0.PCGComponent0"}'
 cargo run -- session --project-root "/Path/To/Project"
 ```
 
@@ -52,7 +52,7 @@ If `--project-root` is omitted, the client searches upward from the current dire
 
 `diag.tail` reads persisted LoomleBridge diagnostics incrementally. Treat `fromSeq` as an exclusive cursor and reuse the returned `nextSeq` on the next poll. Persisted events live under `Loomle/runtime/diag/diag.jsonl`.
 
-`graph.runtime` is the stable runtime-facing graph inspection path. The first release supports `graphType="pcg"` only. Use it after regenerating a PCG component when you need generated output summaries, managed spawned actors/components, or per-node execution summaries. For spawner-heavy graphs, prefer `managedResources` over `generatedGraphOutput` when the latter is empty or sparse.
+`graph.verify` is the verification primitive that closes the graph loop. Today it supports `mode="health"`, `mode="compile"`, and `mode="runtime"`. `runtime` currently supports `graphType="pcg"` only. Use `graph.verify(mode="runtime")` after regenerating a PCG component when you need generated output summaries, managed spawned actors/components, or per-node execution summaries. For spawner-heavy graphs, prefer `managedResources` over `generatedGraphOutput` when the latter is empty or sparse.
 
 ## Visual loop
 

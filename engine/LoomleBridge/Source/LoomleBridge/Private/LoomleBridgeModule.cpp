@@ -111,7 +111,7 @@ namespace LoomleBridgeConstants
     static const TCHAR* EditorOpenToolName = TEXT("editor.open");
     static const TCHAR* EditorFocusToolName = TEXT("editor.focus");
     static const TCHAR* EditorScreenshotToolName = TEXT("editor.screenshot");
-    static const TCHAR* GraphRuntimeToolName = TEXT("graph.runtime");
+    static const TCHAR* GraphVerifyToolName = TEXT("graph.verify");
     static const TCHAR* GraphListToolName = TEXT("graph.list");
     static const TCHAR* GraphResolveToolName = TEXT("graph.resolve");
     static const TCHAR* GraphQueryToolName = TEXT("graph.query");

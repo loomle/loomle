@@ -42,7 +42,7 @@ Graph mutate note:
 - `graph.ops.resolve`
 - `graph.query`
 - `graph.mutate`
-- `graph.runtime`
+- `graph.verify`
 - `diag.tail`
 
 ## 4. MCP Tool Contracts
@@ -287,7 +287,7 @@ Execution rule:
 
 ## 4.5 Runtime Tools
 
-For `graph.list`, `graph.query`, `graph.runtime`, `graph.ops`, `graph.ops.resolve`, `graph.mutate`, `diag.tail`:
+For `graph.list`, `graph.query`, `graph.verify`, `graph.ops`, `graph.ops.resolve`, `graph.mutate`, `diag.tail`:
 
 - Input/output schemas are exposed directly through MCP `tools/list` and should be treated as the live contract.
 - `RPC_INTERFACE.md` section 5 documents the same tool payloads at the Unreal RPC boundary.
@@ -308,14 +308,17 @@ Practical client rule:
 - For graph layout-aware flows, prefer `graph.layoutCapabilities` and `graph.query.meta.layoutCapabilities` over hardcoded assumptions. Current runtime support focuses on position reads plus basic move operations.
 - `graph.query` accepts `layoutDetail=basic|measured`. Callers may request `measured`, but should inspect `meta.layoutDetailApplied` and diagnostics before assuming measured geometry was actually returned.
 
-## 4.6 `graph.runtime`
+## 4.6 `graph.verify`
 
-Use this after regenerating a PCG component when you need runtime-facing evidence rather than only graph topology. The first release supports `graphType="pcg"` only.
+Use this as the graph verification primitive after `graph.query`, `graph.ops.resolve`, or `graph.mutate`.
 
 Execution rule:
 
-- Forward via `rpc.invoke` with `tool=graph.runtime`.
-- Prefer `componentPath` from `graph.resolve` or `context.selection`.
+- Forward via `rpc.invoke` with `tool=graph.verify`.
+- `mode="health"` summarizes graph diagnostics from the latest semantic snapshot.
+- `mode="compile"` runs explicit compile/refresh verification for Blueprint, Material, or PCG graphs.
+- `mode="runtime"` inspects generated-result evidence. The current runtime implementation supports `graphType="pcg"` only.
+- For `mode="runtime"`, prefer `componentPath` from `graph.resolve` or `context.selection`.
 - Treat `managedResources` as the authoritative summary for spawned actors/components and instance counts.
 - `generatedGraphOutput` may be empty or sparse for common spawner-style graphs even when visible generated results exist.
 

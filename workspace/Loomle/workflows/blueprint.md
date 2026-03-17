@@ -6,7 +6,8 @@ Recommended Blueprint editing rhythm for LOOMLE:
 2. use `graph.ops` and `graph.ops.resolve` when you need semantic node planning
 3. apply a small batch of `graph.mutate` operations
 4. call `layoutGraph(scope=\"touched\")`
-5. query again if verification is needed
+5. call `graph.verify(mode=\"health\")` or `graph.verify(mode=\"compile\")`
+6. query again if you need a fresh semantic snapshot after verification
 
 When creating nodes:
 - prefer `graph.ops` to discover stable semantic operations for Blueprint

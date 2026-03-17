@@ -91,6 +91,164 @@ bool DiagEventMatchesFilters(const TSharedPtr<FJsonObject>& Event, const TShared
 
     return AssetPath.StartsWith(AssetPathPrefix);
 }
+
+FString NormalizeVerifyMode(FString Mode)
+{
+    Mode = Mode.TrimStartAndEnd().ToLower();
+    return Mode;
+}
+
+FString DetermineVerifyStatusFromDiagnostics(const TArray<TSharedPtr<FJsonValue>>& Diagnostics, const bool bTreatMissingDiagnosticsAsOk = true)
+{
+    bool bHasWarning = false;
+    for (const TSharedPtr<FJsonValue>& DiagnosticValue : Diagnostics)
+    {
+        const TSharedPtr<FJsonObject>* Diagnostic = nullptr;
+        if (!DiagnosticValue.IsValid() || !DiagnosticValue->TryGetObject(Diagnostic) || Diagnostic == nullptr || !(*Diagnostic).IsValid())
+        {
+            continue;
+        }
+
+        FString Severity;
+        if ((*Diagnostic)->TryGetStringField(TEXT("severity"), Severity))
+        {
+            Severity = Severity.ToLower();
+            if (Severity.Equals(TEXT("error")))
+            {
+                return TEXT("error");
+            }
+            if (Severity.Equals(TEXT("warning")))
+            {
+                bHasWarning = true;
+            }
+        }
+    }
+
+    if (bHasWarning)
+    {
+        return TEXT("warn");
+    }
+
+    return bTreatMissingDiagnosticsAsOk ? TEXT("ok") : TEXT("error");
+}
+
+TArray<TSharedPtr<FJsonValue>> CloneJsonArrayField(const TSharedPtr<FJsonObject>& Object, const TCHAR* FieldName)
+{
+    const TArray<TSharedPtr<FJsonValue>>* Field = nullptr;
+    if (Object.IsValid() && Object->TryGetArrayField(FieldName, Field) && Field != nullptr)
+    {
+        return *Field;
+    }
+    return {};
+}
+
+void CopyOptionalStringField(const TSharedPtr<FJsonObject>& Source, const TSharedPtr<FJsonObject>& Dest, const TCHAR* FieldName)
+{
+    FString Value;
+    if (Source.IsValid() && Dest.IsValid() && Source->TryGetStringField(FieldName, Value))
+    {
+        Dest->SetStringField(FieldName, Value);
+    }
+}
+
+void CopyOptionalObjectField(const TSharedPtr<FJsonObject>& Source, const TSharedPtr<FJsonObject>& Dest, const TCHAR* FieldName)
+{
+    const TSharedPtr<FJsonObject>* Value = nullptr;
+    if (Source.IsValid() && Dest.IsValid() && Source->TryGetObjectField(FieldName, Value) && Value != nullptr && (*Value).IsValid())
+    {
+        Dest->SetObjectField(FieldName, CloneJsonObject(*Value));
+    }
+}
+
+TSet<FString> DiagnosticCodeSet(const TArray<TSharedPtr<FJsonValue>>& Diagnostics)
+{
+    TSet<FString> Codes;
+    for (const TSharedPtr<FJsonValue>& DiagnosticValue : Diagnostics)
+    {
+        const TSharedPtr<FJsonObject>* Diagnostic = nullptr;
+        if (!DiagnosticValue.IsValid() || !DiagnosticValue->TryGetObject(Diagnostic) || Diagnostic == nullptr || !(*Diagnostic).IsValid())
+        {
+            continue;
+        }
+
+        FString Code;
+        if ((*Diagnostic)->TryGetStringField(TEXT("code"), Code) && !Code.IsEmpty())
+        {
+            Codes.Add(Code);
+        }
+    }
+    return Codes;
+}
+
+void AddVerifyCheck(
+    TArray<TSharedPtr<FJsonValue>>& Checks,
+    const FString& Name,
+    const bool bPass,
+    const TSharedPtr<FJsonValue>& Expected,
+    const TSharedPtr<FJsonValue>& Actual)
+{
+    TSharedPtr<FJsonObject> Check = MakeShared<FJsonObject>();
+    Check->SetStringField(TEXT("name"), Name);
+    Check->SetBoolField(TEXT("pass"), bPass);
+    if (Expected.IsValid())
+    {
+        Check->SetField(TEXT("expected"), Expected);
+    }
+    if (Actual.IsValid())
+    {
+        Check->SetField(TEXT("actual"), Actual);
+    }
+    Checks.Add(MakeShared<FJsonValueObject>(Check));
+}
+
+bool ReadComparisonInt64(const TSharedPtr<FJsonObject>& Object, const TCHAR* FieldName, int64& OutValue)
+{
+    if (!Object.IsValid())
+    {
+        return false;
+    }
+
+    double Number = 0.0;
+    if (!Object->TryGetNumberField(FieldName, Number))
+    {
+        return false;
+    }
+
+    OutValue = static_cast<int64>(Number);
+    return true;
+}
+
+bool EvaluateNumericExpectation(const TSharedPtr<FJsonObject>& Expectation, const int64 ActualValue)
+{
+    if (!Expectation.IsValid())
+    {
+        return true;
+    }
+
+    int64 Target = 0;
+    if (ReadComparisonInt64(Expectation, TEXT("eq"), Target) && ActualValue != Target)
+    {
+        return false;
+    }
+    if (ReadComparisonInt64(Expectation, TEXT("gt"), Target) && !(ActualValue > Target))
+    {
+        return false;
+    }
+    if (ReadComparisonInt64(Expectation, TEXT("gte"), Target) && !(ActualValue >= Target))
+    {
+        return false;
+    }
+    if (ReadComparisonInt64(Expectation, TEXT("lt"), Target) && !(ActualValue < Target))
+    {
+        return false;
+    }
+    if (ReadComparisonInt64(Expectation, TEXT("lte"), Target) && !(ActualValue <= Target))
+    {
+        return false;
+    }
+
+    return true;
+}
 }
 
 void FLoomleBridgeModule::InitializeDiagStore()
@@ -546,8 +704,123 @@ TSharedPtr<FJsonObject> BuildPcgInspectionSummary(UPCGComponent* Component)
 }
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphRuntimeToolResult(const TSharedPtr<FJsonObject>& Arguments)
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphVerifyToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
+    FString Mode;
+    if (!Arguments.IsValid() || !Arguments->TryGetStringField(TEXT("mode"), Mode))
+    {
+        TSharedPtr<FJsonObject> Error = MakeShared<FJsonObject>();
+        Error->SetBoolField(TEXT("isError"), true);
+        Error->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Error->SetStringField(TEXT("message"), TEXT("graph.verify requires mode=\"health\", \"compile\", or \"runtime\"."));
+        return Error;
+    }
+
+    Mode = NormalizeVerifyMode(Mode);
+
+    if (Mode.Equals(TEXT("health")))
+    {
+        const TSharedPtr<FJsonObject> QueryResult = BuildGraphQueryToolResult(Arguments);
+        bool bQueryError = false;
+        QueryResult->TryGetBoolField(TEXT("isError"), bQueryError);
+        if (bQueryError)
+        {
+            return QueryResult;
+        }
+
+        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+        Result->SetBoolField(TEXT("isError"), false);
+        Result->SetStringField(TEXT("mode"), TEXT("health"));
+        CopyOptionalStringField(QueryResult, Result, TEXT("graphType"));
+        CopyOptionalStringField(QueryResult, Result, TEXT("assetPath"));
+        CopyOptionalStringField(QueryResult, Result, TEXT("graphName"));
+        CopyOptionalObjectField(QueryResult, Result, TEXT("graphRef"));
+
+        const TArray<TSharedPtr<FJsonValue>> Diagnostics = CloneJsonArrayField(QueryResult, TEXT("diagnostics"));
+        Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
+        Result->SetStringField(TEXT("status"), DetermineVerifyStatusFromDiagnostics(Diagnostics));
+
+        TSharedPtr<FJsonObject> HealthReport = MakeShared<FJsonObject>();
+        CopyOptionalStringField(QueryResult, HealthReport, TEXT("revision"));
+        const TSharedPtr<FJsonObject>* Meta = nullptr;
+        if (QueryResult->TryGetObjectField(TEXT("meta"), Meta) && Meta != nullptr && (*Meta).IsValid())
+        {
+            HealthReport->SetObjectField(TEXT("queryMeta"), CloneJsonObject(*Meta));
+        }
+        Result->SetObjectField(TEXT("healthReport"), HealthReport);
+        Result->SetStringField(TEXT("summary"), TEXT("Graph health verified from the current semantic snapshot and diagnostics."));
+        return Result;
+    }
+
+    if (Mode.Equals(TEXT("compile")))
+    {
+        const TSharedPtr<FJsonObject> MutateArgs = CloneJsonObject(Arguments);
+        MutateArgs->RemoveField(TEXT("mode"));
+        TArray<TSharedPtr<FJsonValue>> Ops;
+        TSharedPtr<FJsonObject> CompileOp = MakeShared<FJsonObject>();
+        CompileOp->SetStringField(TEXT("op"), TEXT("compile"));
+        Ops.Add(MakeShared<FJsonValueObject>(CompileOp));
+        MutateArgs->SetArrayField(TEXT("ops"), Ops);
+
+        const TSharedPtr<FJsonObject> MutateResult = BuildGraphMutateToolResult(MutateArgs);
+        bool bMutateError = false;
+        MutateResult->TryGetBoolField(TEXT("isError"), bMutateError);
+        if (bMutateError)
+        {
+            return MutateResult;
+        }
+
+        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+        Result->SetBoolField(TEXT("isError"), false);
+        Result->SetStringField(TEXT("mode"), TEXT("compile"));
+        CopyOptionalStringField(MutateResult, Result, TEXT("graphType"));
+        CopyOptionalStringField(MutateResult, Result, TEXT("assetPath"));
+        CopyOptionalStringField(MutateResult, Result, TEXT("graphName"));
+        CopyOptionalObjectField(MutateResult, Result, TEXT("graphRef"));
+        CopyOptionalStringField(MutateResult, Result, TEXT("previousRevision"));
+        CopyOptionalStringField(MutateResult, Result, TEXT("newRevision"));
+
+        const TArray<TSharedPtr<FJsonValue>> Diagnostics = CloneJsonArrayField(MutateResult, TEXT("diagnostics"));
+        Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
+
+        const TArray<TSharedPtr<FJsonValue>> OpResults = CloneJsonArrayField(MutateResult, TEXT("opResults"));
+        bool bCompiled = false;
+        if (OpResults.Num() > 0)
+        {
+            const TSharedPtr<FJsonObject>* FirstOpResult = nullptr;
+            if (OpResults[0].IsValid() && OpResults[0]->TryGetObject(FirstOpResult) && FirstOpResult != nullptr && (*FirstOpResult).IsValid())
+            {
+                (*FirstOpResult)->TryGetBoolField(TEXT("ok"), bCompiled);
+            }
+        }
+
+        Result->SetStringField(TEXT("status"), bCompiled ? DetermineVerifyStatusFromDiagnostics(Diagnostics) : TEXT("error"));
+        Result->SetStringField(TEXT("summary"), bCompiled
+            ? TEXT("Graph compile/refresh verification succeeded.")
+            : TEXT("Graph compile/refresh verification failed."));
+
+        TSharedPtr<FJsonObject> CompileReport = MakeShared<FJsonObject>();
+        CompileReport->SetBoolField(TEXT("compiled"), bCompiled);
+        bool bApplied = false;
+        bool bPartialApplied = false;
+        MutateResult->TryGetBoolField(TEXT("applied"), bApplied);
+        MutateResult->TryGetBoolField(TEXT("partialApplied"), bPartialApplied);
+        CompileReport->SetBoolField(TEXT("applied"), bApplied);
+        CompileReport->SetBoolField(TEXT("partialApplied"), bPartialApplied);
+        CompileReport->SetArrayField(TEXT("opResults"), OpResults);
+        Result->SetObjectField(TEXT("compileReport"), CompileReport);
+        return Result;
+    }
+
+    if (!Mode.Equals(TEXT("runtime")))
+    {
+        TSharedPtr<FJsonObject> Error = MakeShared<FJsonObject>();
+        Error->SetBoolField(TEXT("isError"), true);
+        Error->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Error->SetStringField(TEXT("message"), TEXT("graph.verify mode must be one of: health, compile, runtime."));
+        return Error;
+    }
+
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 
     FString GraphType;
@@ -555,7 +828,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphRuntimeToolResult(const T
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_GRAPH_TYPE"));
-        Result->SetStringField(TEXT("message"), TEXT("graph.runtime currently supports graphType=\"pcg\" only."));
+        Result->SetStringField(TEXT("message"), TEXT("graph.verify(mode=\"runtime\") currently supports graphType=\"pcg\" only."));
         return Result;
     }
 
@@ -625,6 +898,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphRuntimeToolResult(const T
 
     Result->SetBoolField(TEXT("isError"), false);
     Result->SetBoolField(TEXT("ok"), true);
+    Result->SetStringField(TEXT("mode"), TEXT("runtime"));
+    Result->SetStringField(TEXT("status"), DetermineVerifyStatusFromDiagnostics(Diagnostics));
+    Result->SetStringField(TEXT("summary"), TEXT("PCG runtime verification collected generated-output, managed-resource, and execution-inspection evidence."));
+    Result->SetStringField(TEXT("graphType"), TEXT("pcg"));
     Result->SetStringField(TEXT("resolvedBy"), ResolvedBy);
     Result->SetStringField(TEXT("componentPath"), PcgComponent->GetPathName());
     Result->SetStringField(TEXT("componentName"), PcgComponent->GetName());
