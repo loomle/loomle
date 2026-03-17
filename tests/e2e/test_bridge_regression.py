@@ -3333,6 +3333,51 @@ def main() -> int:
                 f"resolved={pcg_query_by_ref_snapshot} expected={pcg_snapshot}"
             )
 
+        pcg_compile_first = call_tool(
+            client,
+            101031,
+            "graph.mutate",
+            {
+                "assetPath": temp_pcg_asset,
+                "graphName": "PCGGraph",
+                "graphType": "pcg",
+                "ops": [{"op": "compile"}],
+            },
+        )
+        pcg_compile_first_result = op_ok(pcg_compile_first)
+        if pcg_compile_first_result.get("op") != "compile":
+            fail(f"PCG compile wrong op echo: {pcg_compile_first}")
+        pcg_compile_second = call_tool(
+            client,
+            101032,
+            "graph.mutate",
+            {
+                "assetPath": temp_pcg_asset,
+                "graphName": "PCGGraph",
+                "graphType": "pcg",
+                "ops": [{"op": "compile"}],
+            },
+        )
+        pcg_compile_second_result = op_ok(pcg_compile_second)
+        if pcg_compile_second_result.get("op") != "compile":
+            fail(f"PCG second compile wrong op echo: {pcg_compile_second}")
+        if pcg_compile_second_result.get("changed") is not False:
+            fail(f"PCG compile should report changed=false when compiled graph is unchanged: {pcg_compile_second}")
+        if pcg_compile_second.get("previousRevision") != pcg_compile_second.get("newRevision"):
+            fail(f"PCG compile mutate should keep previousRevision/newRevision aligned when graph is unchanged: {pcg_compile_second}")
+        pcg_revision_after_compile = call_tool(
+            client,
+            101033,
+            "graph.query",
+            {"assetPath": temp_pcg_asset, "graphName": "PCGGraph", "graphType": "pcg", "limit": 200},
+        )
+        if pcg_revision_after_compile.get("revision") != pcg_compile_second.get("newRevision"):
+            fail(
+                "PCG compile mutate revision metadata should match graph.query: "
+                f"mutate={pcg_compile_second} query={pcg_revision_after_compile}"
+            )
+        print("[PASS] pcg compile revision metadata validated")
+
         create_pos = require_layout(require_node(pcg_nodes, pcg_create_id)).get("position", {})
         tag_a_pos = require_layout(require_node(pcg_nodes, pcg_tag_a_id)).get("position", {})
         filter_pos = require_layout(require_node(pcg_nodes, pcg_filter_id)).get("position", {})
@@ -3689,6 +3734,11 @@ def main() -> int:
             fail(f"graph.verify should report error for disconnected output graph: {pcg_verify}")
         if not isinstance(pcg_verify.get("queryReport"), dict):
             fail(f"graph.verify missing queryReport for pcg graph: {pcg_verify}")
+        pcg_compile_report = pcg_verify.get("compileReport")
+        if not isinstance(pcg_compile_report, dict):
+            fail(f"graph.verify missing compileReport for pcg graph: {pcg_verify}")
+        if pcg_compile_report.get("compiled") is not True:
+            fail(f"graph.verify should preserve compileReport.compiled=true for structurally invalid pcg graph: {pcg_verify}")
         pcg_health_diagnostics = pcg_verify.get("diagnostics")
         if not isinstance(pcg_health_diagnostics, list):
             fail(f"graph.verify missing diagnostics[]: {pcg_verify}")

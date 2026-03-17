@@ -154,6 +154,143 @@ void CopyOptionalObjectField(const TSharedPtr<FJsonObject>& Source, const TShare
     }
 }
 
+FString DiagnosticSeverityFromVerbosity(const ELogVerbosity::Type Verbosity)
+{
+    const ELogVerbosity::Type MaskedVerbosity = static_cast<ELogVerbosity::Type>(Verbosity & ELogVerbosity::VerbosityMask);
+    if (MaskedVerbosity == ELogVerbosity::Warning)
+    {
+        return TEXT("warning");
+    }
+    if (MaskedVerbosity == ELogVerbosity::Error || MaskedVerbosity == ELogVerbosity::Fatal)
+    {
+        return TEXT("error");
+    }
+    return TEXT("info");
+}
+
+FString BuildDiagnosticIdentityKey(const TSharedPtr<FJsonObject>& Diagnostic)
+{
+    if (!Diagnostic.IsValid())
+    {
+        return TEXT("");
+    }
+
+    FString Code;
+    FString Message;
+    FString NodeId;
+    FString SourceKind;
+    double Seq = 0.0;
+    Diagnostic->TryGetStringField(TEXT("code"), Code);
+    Diagnostic->TryGetStringField(TEXT("message"), Message);
+    Diagnostic->TryGetStringField(TEXT("nodeId"), NodeId);
+    Diagnostic->TryGetStringField(TEXT("sourceKind"), SourceKind);
+    Diagnostic->TryGetNumberField(TEXT("seq"), Seq);
+    return FString::Printf(TEXT("%s|%s|%s|%s|%.0f"), *Code, *Message, *NodeId, *SourceKind, Seq);
+}
+
+void AppendUniqueDiagnostic(
+    TArray<TSharedPtr<FJsonValue>>& Diagnostics,
+    TSet<FString>& SeenDiagnosticKeys,
+    const TSharedPtr<FJsonObject>& Diagnostic)
+{
+    if (!Diagnostic.IsValid())
+    {
+        return;
+    }
+
+    const FString DiagnosticKey = BuildDiagnosticIdentityKey(Diagnostic);
+    if (!DiagnosticKey.IsEmpty() && SeenDiagnosticKeys.Contains(DiagnosticKey))
+    {
+        return;
+    }
+
+    if (!DiagnosticKey.IsEmpty())
+    {
+        SeenDiagnosticKeys.Add(DiagnosticKey);
+    }
+
+    Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
+}
+
+TSet<FString> BuildDiagnosticIdentitySet(const TArray<TSharedPtr<FJsonValue>>& Diagnostics)
+{
+    TSet<FString> SeenDiagnosticKeys;
+    for (const TSharedPtr<FJsonValue>& DiagnosticValue : Diagnostics)
+    {
+        const TSharedPtr<FJsonObject>* Diagnostic = nullptr;
+        if (!DiagnosticValue.IsValid() || !DiagnosticValue->TryGetObject(Diagnostic) || Diagnostic == nullptr || !(*Diagnostic).IsValid())
+        {
+            continue;
+        }
+
+        const FString DiagnosticKey = BuildDiagnosticIdentityKey(*Diagnostic);
+        if (!DiagnosticKey.IsEmpty())
+        {
+            SeenDiagnosticKeys.Add(DiagnosticKey);
+        }
+    }
+
+    return SeenDiagnosticKeys;
+}
+
+TSharedPtr<FJsonObject> MakeRecentDiagEventDiagnostic(const TSharedPtr<FJsonObject>& Event)
+{
+    if (!Event.IsValid())
+    {
+        return nullptr;
+    }
+
+    FString Message;
+    if (!Event->TryGetStringField(TEXT("message"), Message) || Message.IsEmpty())
+    {
+        return nullptr;
+    }
+
+    FString Severity = TEXT("error");
+    Event->TryGetStringField(TEXT("severity"), Severity);
+
+    FString Source = TEXT("log");
+    Event->TryGetStringField(TEXT("source"), Source);
+
+    FString Timestamp;
+    Event->TryGetStringField(TEXT("ts"), Timestamp);
+
+    TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
+    Diagnostic->SetStringField(TEXT("code"), TEXT("PCG_RECENT_LOG_EVENT"));
+    Diagnostic->SetStringField(TEXT("severity"), Severity.IsEmpty() ? TEXT("error") : Severity.ToLower());
+    Diagnostic->SetStringField(TEXT("message"), Message);
+    Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("diagWindow"));
+    Diagnostic->SetStringField(TEXT("source"), Source);
+    if (!Timestamp.IsEmpty())
+    {
+        Diagnostic->SetStringField(TEXT("ts"), Timestamp);
+    }
+
+    double Seq = 0.0;
+    if (Event->TryGetNumberField(TEXT("seq"), Seq))
+    {
+        Diagnostic->SetNumberField(TEXT("seq"), Seq);
+    }
+
+    const TSharedPtr<FJsonObject>* Context = nullptr;
+    if (Event->TryGetObjectField(TEXT("context"), Context) && Context != nullptr && (*Context).IsValid())
+    {
+        FString CategoryName;
+        if ((*Context)->TryGetStringField(TEXT("categoryName"), CategoryName) && !CategoryName.IsEmpty())
+        {
+            Diagnostic->SetStringField(TEXT("logCategory"), CategoryName);
+        }
+    }
+
+    FString AssetPath;
+    if (Event->TryGetStringField(TEXT("assetPath"), AssetPath) && !AssetPath.IsEmpty())
+    {
+        Diagnostic->SetStringField(TEXT("assetPath"), AssetPath);
+    }
+
+    return Diagnostic;
+}
+
 TSet<FString> DiagnosticCodeSet(const TArray<TSharedPtr<FJsonValue>>& Diagnostics)
 {
     TSet<FString> Codes;
@@ -407,6 +544,88 @@ void FLoomleBridgeModule::HandleBlueprintCompiled()
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphVerifyToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
+    if (!bDiagStoreInitialized)
+    {
+        InitializeDiagStore();
+    }
+
+    uint64 DiagSeqBeforeVerify = 0;
+    {
+        FScopeLock Lock(&DiagStoreMutex);
+        DiagSeqBeforeVerify = NextDiagSeq > 0 ? (NextDiagSeq - 1) : 0;
+    }
+
+    auto ReadRecentVerifyDiagEvents = [&](const uint64 FromSeq, const FString& AssetPath) -> TArray<TSharedPtr<FJsonValue>>
+    {
+        TArray<TSharedPtr<FJsonValue>> Items;
+
+        FScopeLock Lock(&DiagStoreMutex);
+        TArray<FString> Lines;
+        if (DiagStoreFilePath.IsEmpty() || !FPaths::FileExists(DiagStoreFilePath))
+        {
+            return Items;
+        }
+
+        FFileHelper::LoadFileToStringArray(Lines, *DiagStoreFilePath);
+        for (const FString& Line : Lines)
+        {
+            if (Line.TrimStartAndEnd().IsEmpty())
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> Event;
+            const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Line);
+            if (!FJsonSerializer::Deserialize(Reader, Event) || !Event.IsValid())
+            {
+                continue;
+            }
+
+            uint64 Seq = 0;
+            if (!TryReadJsonUInt64Field(Event, TEXT("seq"), Seq) || Seq <= FromSeq)
+            {
+                continue;
+            }
+
+            FString EventSource;
+            Event->TryGetStringField(TEXT("source"), EventSource);
+
+            FString EventAssetPath;
+            Event->TryGetStringField(TEXT("assetPath"), EventAssetPath);
+
+            FString CategoryName;
+            const TSharedPtr<FJsonObject>* Context = nullptr;
+            if (Event->TryGetObjectField(TEXT("context"), Context) && Context != nullptr && (*Context).IsValid())
+            {
+                if (EventAssetPath.IsEmpty())
+                {
+                    (*Context)->TryGetStringField(TEXT("assetPath"), EventAssetPath);
+                }
+                (*Context)->TryGetStringField(TEXT("categoryName"), CategoryName);
+            }
+
+            const bool bAssetMatched = !AssetPath.IsEmpty()
+                && !EventAssetPath.IsEmpty()
+                && EventAssetPath.StartsWith(AssetPath);
+            const bool bIsVerifyEvent = EventSource.Equals(TEXT("graph.verify"), ESearchCase::IgnoreCase);
+            const bool bIsPcgLogEvent = CategoryName.Equals(TEXT("LogPCG"), ESearchCase::IgnoreCase)
+                || CategoryName.Equals(TEXT("LogPCGEditor"), ESearchCase::IgnoreCase);
+
+            if (!bAssetMatched && !bIsVerifyEvent && !bIsPcgLogEvent)
+            {
+                continue;
+            }
+
+            Items.Add(MakeShared<FJsonValueObject>(Event));
+            if (Items.Num() >= 64)
+            {
+                break;
+            }
+        }
+
+        return Items;
+    };
+
     const TSharedPtr<FJsonObject> QueryResult = BuildGraphQueryToolResult(Arguments);
     bool bQueryError = false;
     QueryResult->TryGetBoolField(TEXT("isError"), bQueryError);
@@ -425,10 +644,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphVerifyToolResult(const TS
     const TSharedPtr<FJsonObject> MutateResult = BuildGraphMutateToolResult(MutateArgs);
     bool bMutateError = false;
     MutateResult->TryGetBoolField(TEXT("isError"), bMutateError);
-    if (bMutateError)
-    {
-        return MutateResult;
-    }
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
@@ -455,9 +670,19 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphVerifyToolResult(const TS
     CopyOptionalStringField(MutateResult, Result, TEXT("previousRevision"));
     CopyOptionalStringField(MutateResult, Result, TEXT("newRevision"));
 
-    TArray<TSharedPtr<FJsonValue>> Diagnostics = CloneJsonArrayField(QueryResult, TEXT("diagnostics"));
-    Diagnostics.Append(CloneJsonArrayField(MutateResult, TEXT("diagnostics")));
-    Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
+    FString GraphType;
+    Result->TryGetStringField(TEXT("graphType"), GraphType);
+    FString AssetPath;
+    Result->TryGetStringField(TEXT("assetPath"), AssetPath);
+    FString GraphName;
+    Result->TryGetStringField(TEXT("graphName"), GraphName);
+
+    const TArray<TSharedPtr<FJsonValue>> QueryDiagnostics = CloneJsonArrayField(QueryResult, TEXT("diagnostics"));
+    TArray<TSharedPtr<FJsonValue>> CompileDiagnostics = CloneJsonArrayField(MutateResult, TEXT("diagnostics"));
+    TArray<TSharedPtr<FJsonValue>> Diagnostics = QueryDiagnostics;
+    Diagnostics.Append(CompileDiagnostics);
+    TSet<FString> SeenDiagnosticKeys = BuildDiagnosticIdentitySet(Diagnostics);
+    TSet<FString> SeenCompileDiagnosticKeys = BuildDiagnosticIdentitySet(CompileDiagnostics);
 
     TSharedPtr<FJsonObject> QueryReport = MakeShared<FJsonObject>();
     CopyOptionalStringField(QueryResult, QueryReport, TEXT("revision"));
@@ -466,26 +691,166 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphVerifyToolResult(const TS
     {
         QueryReport->SetObjectField(TEXT("queryMeta"), CloneJsonObject(*Meta));
     }
+    QueryReport->SetArrayField(TEXT("diagnostics"), QueryDiagnostics);
     Result->SetObjectField(TEXT("queryReport"), QueryReport);
 
     const TArray<TSharedPtr<FJsonValue>> OpResults = CloneJsonArrayField(MutateResult, TEXT("opResults"));
-    bool bCompiled = false;
+    bool bCompileOpReportedOk = false;
+    bool bHasCompileOpResult = false;
+    bool bCompilationChanged = false;
+    const TSharedPtr<FJsonObject>* FirstOpResult = nullptr;
     if (OpResults.Num() > 0)
     {
-        const TSharedPtr<FJsonObject>* FirstOpResult = nullptr;
         if (OpResults[0].IsValid() && OpResults[0]->TryGetObject(FirstOpResult) && FirstOpResult != nullptr && (*FirstOpResult).IsValid())
         {
-            (*FirstOpResult)->TryGetBoolField(TEXT("ok"), bCompiled);
+            bHasCompileOpResult = true;
+            (*FirstOpResult)->TryGetBoolField(TEXT("ok"), bCompileOpReportedOk);
+            (*FirstOpResult)->TryGetBoolField(TEXT("changed"), bCompilationChanged);
+        }
+    }
+    const bool bCompileSucceeded = !bMutateError && (!bHasCompileOpResult || bCompileOpReportedOk);
+
+    FString MutateCode;
+    FString MutateMessage;
+    MutateResult->TryGetStringField(TEXT("code"), MutateCode);
+    MutateResult->TryGetStringField(TEXT("message"), MutateMessage);
+
+    int32 PcgVisualLogDiagnosticCount = 0;
+    if (GraphType.Equals(TEXT("pcg"), ESearchCase::IgnoreCase))
+    {
+        if (UPCGGraph* PcgGraph = LoadPcgGraphByAssetPath(AssetPath))
+        {
+            if (IPCGEditorModule* PCGEditorModule = IPCGEditorModule::Get())
+            {
+                const FPCGNodeVisualLogs& NodeVisualLogs = PCGEditorModule->GetNodeVisualLogs();
+                for (const UPCGNode* Node : PcgGraph->GetNodes())
+                {
+                    if (Node == nullptr)
+                    {
+                        continue;
+                    }
+
+                    FPCGPerNodeVisualLogs NodeLogs;
+                    TArray<const IPCGGraphExecutionSource*> NodeLogSources;
+                    NodeVisualLogs.GetLogsAndSources(Node, NodeLogs, NodeLogSources);
+                    for (int32 LogIndex = 0; LogIndex < NodeLogs.Num(); ++LogIndex)
+                    {
+                        const FPCGNodeLogEntry& NodeLog = NodeLogs[LogIndex];
+                        TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
+                        Diagnostic->SetStringField(TEXT("code"), TEXT("PCG_NODE_VISUAL_LOG"));
+                        Diagnostic->SetStringField(TEXT("severity"), DiagnosticSeverityFromVerbosity(NodeLog.Verbosity));
+                        Diagnostic->SetStringField(TEXT("message"), NodeLog.Message.ToString());
+                        Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("nodeVisualLog"));
+                        Diagnostic->SetStringField(TEXT("nodeId"), Node->GetPathName());
+                        Diagnostic->SetStringField(TEXT("nodeTitle"), Node->NodeTitle.IsNone() ? Node->GetName() : Node->NodeTitle.ToString());
+                        Diagnostic->SetStringField(
+                            TEXT("nodeClassPath"),
+                            Node->GetSettings() && Node->GetSettings()->GetClass()
+                                ? Node->GetSettings()->GetClass()->GetPathName()
+                                : TEXT(""));
+                        if (NodeLogSources.IsValidIndex(LogIndex) && NodeLogSources[LogIndex] != nullptr)
+                        {
+                            const FString ExecutionSource = NodeLogSources[LogIndex]->GetExecutionState().GetDebugName();
+                            if (!ExecutionSource.IsEmpty())
+                            {
+                                Diagnostic->SetStringField(TEXT("executionSource"), ExecutionSource);
+                            }
+                        }
+                        if (!AssetPath.IsEmpty())
+                        {
+                            Diagnostic->SetStringField(TEXT("assetPath"), AssetPath);
+                        }
+                        if (!GraphName.IsEmpty())
+                        {
+                            Diagnostic->SetStringField(TEXT("graphName"), GraphName);
+                        }
+
+                        ++PcgVisualLogDiagnosticCount;
+                        AppendUniqueDiagnostic(CompileDiagnostics, SeenCompileDiagnosticKeys, Diagnostic);
+                        AppendUniqueDiagnostic(Diagnostics, SeenDiagnosticKeys, Diagnostic);
+                    }
+                }
+            }
         }
     }
 
-    Result->SetStringField(TEXT("status"), bCompiled ? DetermineVerifyStatusFromDiagnostics(Diagnostics) : TEXT("error"));
-    Result->SetStringField(TEXT("summary"), bCompiled
-        ? TEXT("Graph verification succeeded with compile-backed confirmation.")
-        : TEXT("Graph verification failed during compile-backed confirmation."));
+    if (bMutateError)
+    {
+        TSharedPtr<FJsonObject> CompileFailureDiagnostic = MakeShared<FJsonObject>();
+        CompileFailureDiagnostic->SetStringField(
+            TEXT("code"),
+            GraphType.Equals(TEXT("pcg"), ESearchCase::IgnoreCase)
+                ? (MutateCode.IsEmpty() ? TEXT("PCG_COMPILE_FAILED") : MutateCode)
+                : (MutateCode.IsEmpty() ? TEXT("COMPILE_FAILED") : MutateCode));
+        CompileFailureDiagnostic->SetStringField(TEXT("severity"), TEXT("error"));
+        CompileFailureDiagnostic->SetStringField(
+            TEXT("message"),
+            MutateMessage.IsEmpty()
+                ? (GraphType.Equals(TEXT("pcg"), ESearchCase::IgnoreCase)
+                    ? TEXT("PCG graph compile failed.")
+                    : TEXT("Graph compile failed."))
+                : MutateMessage);
+        CompileFailureDiagnostic->SetStringField(TEXT("sourceKind"), TEXT("compile"));
+        if (!AssetPath.IsEmpty())
+        {
+            CompileFailureDiagnostic->SetStringField(TEXT("assetPath"), AssetPath);
+        }
+        if (!GraphName.IsEmpty())
+        {
+            CompileFailureDiagnostic->SetStringField(TEXT("graphName"), GraphName);
+        }
+        AppendUniqueDiagnostic(CompileDiagnostics, SeenCompileDiagnosticKeys, CompileFailureDiagnostic);
+        AppendUniqueDiagnostic(Diagnostics, SeenDiagnosticKeys, CompileFailureDiagnostic);
+    }
+
+    const TArray<TSharedPtr<FJsonValue>> RecentDiagEvents = ReadRecentVerifyDiagEvents(DiagSeqBeforeVerify, AssetPath);
+    for (const TSharedPtr<FJsonValue>& EventValue : RecentDiagEvents)
+    {
+        const TSharedPtr<FJsonObject>* Event = nullptr;
+        if (!EventValue.IsValid() || !EventValue->TryGetObject(Event) || Event == nullptr || !(*Event).IsValid())
+        {
+            continue;
+        }
+
+        const TSharedPtr<FJsonObject> Diagnostic = MakeRecentDiagEventDiagnostic(*Event);
+        AppendUniqueDiagnostic(CompileDiagnostics, SeenCompileDiagnosticKeys, Diagnostic);
+        AppendUniqueDiagnostic(Diagnostics, SeenDiagnosticKeys, Diagnostic);
+    }
+
+    Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
+
+    Result->SetStringField(TEXT("status"), bCompileSucceeded ? DetermineVerifyStatusFromDiagnostics(Diagnostics) : TEXT("error"));
+    if (bCompileSucceeded)
+    {
+        Result->SetStringField(
+            TEXT("summary"),
+            Diagnostics.Num() > 0
+                ? TEXT("Graph verification completed with compile-backed confirmation and surfaced diagnostics.")
+                : TEXT("Graph verification succeeded with compile-backed confirmation."));
+    }
+    else
+    {
+        if (PcgVisualLogDiagnosticCount > 0)
+        {
+            Result->SetStringField(TEXT("summary"), TEXT("Graph verification failed during compile-backed confirmation and surfaced node-level PCG editor diagnostics."));
+        }
+        else if (RecentDiagEvents.Num() > 0)
+        {
+            Result->SetStringField(TEXT("summary"), TEXT("Graph verification failed during compile-backed confirmation and captured recent Unreal diagnostic events."));
+        }
+        else if (Diagnostics.Num() > 0)
+        {
+            Result->SetStringField(TEXT("summary"), TEXT("Graph verification failed during compile-backed confirmation but did surface follow-up diagnostics."));
+        }
+        else
+        {
+            Result->SetStringField(TEXT("summary"), TEXT("Graph verification failed during compile-backed confirmation and Unreal did not expose deeper diagnostics."));
+        }
+    }
 
     TSharedPtr<FJsonObject> CompileReport = MakeShared<FJsonObject>();
-    CompileReport->SetBoolField(TEXT("compiled"), bCompiled);
+    CompileReport->SetBoolField(TEXT("compiled"), bCompileSucceeded);
+    CompileReport->SetBoolField(TEXT("compilationChanged"), bCompilationChanged);
     bool bApplied = false;
     bool bPartialApplied = false;
     MutateResult->TryGetBoolField(TEXT("applied"), bApplied);
@@ -493,7 +858,47 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphVerifyToolResult(const TS
     CompileReport->SetBoolField(TEXT("applied"), bApplied);
     CompileReport->SetBoolField(TEXT("partialApplied"), bPartialApplied);
     CompileReport->SetArrayField(TEXT("opResults"), OpResults);
+    CompileReport->SetArrayField(TEXT("diagnostics"), CompileDiagnostics);
+    CompileReport->SetArrayField(TEXT("recentEvents"), RecentDiagEvents);
+    CompileReport->SetNumberField(TEXT("pcgVisualLogDiagnosticCount"), PcgVisualLogDiagnosticCount);
+    if (!MutateCode.IsEmpty())
+    {
+        CompileReport->SetStringField(TEXT("code"), MutateCode);
+    }
+    if (!MutateMessage.IsEmpty())
+    {
+        CompileReport->SetStringField(TEXT("message"), MutateMessage);
+    }
+    if (FirstOpResult != nullptr && (*FirstOpResult).IsValid())
+    {
+        FString FirstOpErrorCode;
+        FString FirstOpErrorMessage;
+        if ((*FirstOpResult)->TryGetStringField(TEXT("errorCode"), FirstOpErrorCode) && !FirstOpErrorCode.IsEmpty())
+        {
+            CompileReport->SetStringField(TEXT("opErrorCode"), FirstOpErrorCode);
+        }
+        if ((*FirstOpResult)->TryGetStringField(TEXT("errorMessage"), FirstOpErrorMessage) && !FirstOpErrorMessage.IsEmpty())
+        {
+            CompileReport->SetStringField(TEXT("opErrorMessage"), FirstOpErrorMessage);
+        }
+    }
     Result->SetObjectField(TEXT("compileReport"), CompileReport);
+
+    if (bMutateError)
+    {
+        const FString FallbackCompileMessage = GraphType.Equals(TEXT("pcg"), ESearchCase::IgnoreCase)
+            ? TEXT("PCG graph compile failed.")
+            : TEXT("Graph compile failed.");
+        Result->SetStringField(
+            TEXT("code"),
+            GraphType.Equals(TEXT("pcg"), ESearchCase::IgnoreCase)
+                ? (MutateCode.IsEmpty() ? TEXT("PCG_COMPILE_FAILED") : MutateCode)
+                : (MutateCode.IsEmpty() ? TEXT("COMPILE_FAILED") : MutateCode));
+        Result->SetStringField(
+            TEXT("message"),
+            MutateMessage.IsEmpty() ? FallbackCompileMessage : MutateMessage);
+    }
+
     return Result;
 }
 

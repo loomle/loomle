@@ -5961,6 +5961,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
     {
         TMap<FString, FString> LocalNodeRefs;
         TArray<TSharedPtr<FJsonValue>> LocalOpResults;
+        TArray<TSharedPtr<FJsonValue>> LocalDiagnostics;
         bool bAnyErrorLocal = false;
         bool bAnyChangedLocal = false;
         FString FirstErrorLocal;
@@ -7596,16 +7597,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     }
                     else if (Op.Equals(TEXT("compile")))
                     {
-                        bOk = PcgGraph->Recompile();
-                        if (bOk)
-                        {
-                            GraphEventName = TEXT("graph.compiled");
-                            GraphEventData->SetStringField(TEXT("op"), Op);
-                        }
-                        else
-                        {
-                            Error = TEXT("PCG graph compile failed.");
-                        }
+                        const bool bCompilationChanged = PcgGraph->Recompile();
+                        bOk = true;
+                        bChanged = bCompilationChanged;
+                        GraphEventName = TEXT("graph.compiled");
+                        GraphEventData->SetStringField(TEXT("op"), Op);
+                        GraphEventData->SetBoolField(TEXT("compilationChanged"), bCompilationChanged);
                     }
                     else
                     {
@@ -7707,6 +7704,25 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 {
                     FirstErrorCodeLocal = OpErrorCode;
                 }
+                TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
+                Diagnostic->SetStringField(TEXT("code"), OpErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : OpErrorCode);
+                Diagnostic->SetStringField(TEXT("severity"), TEXT("error"));
+                Diagnostic->SetStringField(TEXT("message"), Error.IsEmpty() ? FString::Printf(TEXT("%s failed."), *Op) : Error);
+                Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("mutate"));
+                Diagnostic->SetStringField(TEXT("op"), Op);
+                if (!NodeId.IsEmpty())
+                {
+                    Diagnostic->SetStringField(TEXT("nodeId"), NodeId);
+                }
+                if (!AssetPath.IsEmpty())
+                {
+                    Diagnostic->SetStringField(TEXT("assetPath"), AssetPath);
+                }
+                if (!GraphName.IsEmpty())
+                {
+                    Diagnostic->SetStringField(TEXT("graphName"), GraphName);
+                }
+                LocalDiagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
                 if (bStopOnError)
                 {
                     break;
@@ -7766,7 +7782,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             Result->SetStringField(TEXT("newRevision"), PreviousRevision);
         }
         Result->SetArrayField(TEXT("opResults"), LocalOpResults);
-        Result->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
+        Result->SetArrayField(TEXT("diagnostics"), LocalDiagnostics);
         if (!IdempotencyRegistryKey.IsEmpty() && !bAnyErrorLocal)
         {
             FScopeLock Lock(&MutateIdempotencyRegistryMutex);
