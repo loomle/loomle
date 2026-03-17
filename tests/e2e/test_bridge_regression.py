@@ -3730,15 +3730,15 @@ def main() -> int:
                 "graphType": "pcg",
             },
         )
-        if pcg_verify.get("status") != "error":
-            fail(f"graph.verify should report error for disconnected output graph: {pcg_verify}")
+        if pcg_verify.get("status") != "ok":
+            fail(f"graph.verify should not fail just because a PCG graph is not connected to Output: {pcg_verify}")
         if not isinstance(pcg_verify.get("queryReport"), dict):
             fail(f"graph.verify missing queryReport for pcg graph: {pcg_verify}")
         pcg_compile_report = pcg_verify.get("compileReport")
         if not isinstance(pcg_compile_report, dict):
             fail(f"graph.verify missing compileReport for pcg graph: {pcg_verify}")
         if pcg_compile_report.get("compiled") is not True:
-            fail(f"graph.verify should preserve compileReport.compiled=true for structurally invalid pcg graph: {pcg_verify}")
+            fail(f"graph.verify should preserve compileReport.compiled=true for disconnected-output pcg graph: {pcg_verify}")
         pcg_health_diagnostics = pcg_verify.get("diagnostics")
         if not isinstance(pcg_health_diagnostics, list):
             fail(f"graph.verify missing diagnostics[]: {pcg_verify}")
@@ -3747,15 +3747,15 @@ def main() -> int:
             for diag in pcg_health_diagnostics
             if isinstance(diag, dict) and isinstance(diag.get("code"), str)
         }
-        for expected_code in {
+        for unexpected_code in {
             "PCG_OUTPUT_NODE_MISSING_INPUTS",
             "PCG_NO_TERMINAL_OUTPUT_PATH",
             "PCG_GRAPH_CAN_GENERATE_NO_OUTPUT",
             "PCG_SPAWNER_NOT_CONNECTED_TO_OUTPUT",
         }:
-            if expected_code not in pcg_health_codes:
-                fail(f"graph.verify missing {expected_code}: {pcg_verify}")
-        print("[PASS] pcg graph.verify diagnostics validated")
+            if unexpected_code in pcg_health_codes:
+                fail(f"graph.verify should not invent {unexpected_code} for a disconnected-output pcg graph: {pcg_verify}")
+        print("[PASS] pcg graph.verify no longer invents disconnected-output diagnostics")
 
         pcg_set_default_add = call_tool(
             client,
