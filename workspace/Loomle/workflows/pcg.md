@@ -38,7 +38,7 @@ Projection, filter, and spawn pattern:
 - important projection fields such as `attributeMode`, `attributeList`, and `attributeMergeOperation` live inside `projectionParams`, not at the top level
 - when you plan a landscape layer filter after projection, make sure the projection step keeps the metadata you need; otherwise later `Filter By Tag` / layer-weight filters may appear broken even though the missing metadata is upstream
 - `Filter By Tag` has two meaningful output pins:
-  - `InsideFilter` is the primary “matched” path
+  - `InsideFilter` is the primary matched path
   - `OutsideFilter` is the unmatched branch
 - for mesh spawning, inspect `effectiveSettings.meshSelector` and related diagnostics before assuming the spawner is reading the intended attribute
 
