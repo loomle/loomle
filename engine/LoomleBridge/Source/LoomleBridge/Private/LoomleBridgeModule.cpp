@@ -1853,6 +1853,7 @@ void RefreshSlateWindowForCapture(const TSharedRef<SWindow>& Window)
 #else
     SlateApp.InvalidateAllWidgets(false);
     SlateApp.Tick(ESlateTickType::All);
+#if !PLATFORM_WINDOWS
     SlateApp.ForceRedrawWindow(Window);
 #endif
 }
