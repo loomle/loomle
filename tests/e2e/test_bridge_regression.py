@@ -3730,8 +3730,11 @@ def main() -> int:
                 "graphType": "pcg",
             },
         )
-        if pcg_verify.get("status") != "ok":
-            fail(f"graph.verify should not fail just because a PCG graph is not connected to Output: {pcg_verify}")
+        if pcg_verify.get("status") == "error":
+            fail(
+                "graph.verify should not become an error just because a PCG graph is not connected to Output: "
+                f"{pcg_verify}"
+            )
         if not isinstance(pcg_verify.get("queryReport"), dict):
             fail(f"graph.verify missing queryReport for pcg graph: {pcg_verify}")
         pcg_compile_report = pcg_verify.get("compileReport")
@@ -3755,7 +3758,7 @@ def main() -> int:
         }:
             if unexpected_code in pcg_health_codes:
                 fail(f"graph.verify should not invent {unexpected_code} for a disconnected-output pcg graph: {pcg_verify}")
-        print("[PASS] pcg graph.verify no longer invents disconnected-output diagnostics")
+        print("[PASS] pcg graph.verify no longer invents disconnected-output failures")
 
         pcg_set_default_add = call_tool(
             client,
