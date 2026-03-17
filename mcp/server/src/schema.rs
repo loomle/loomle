@@ -630,20 +630,7 @@ fn graph_mutate_input_schema() -> Value {
                     "properties": {
                         "op": {
                             "type": "string",
-                            "enum": [
-                                "addNode.byClass",
-                                "connectPins",
-                                "disconnectPins",
-                                "breakPinLinks",
-                                "setPinDefault",
-                                "removeNode",
-                                "moveNode",
-                                "moveNodeBy",
-                                "moveNodes",
-                                "layoutGraph",
-                                "compile",
-                                "runScript"
-                            ]
+                            "description": "Graph mutate op id. Discover the graphType-specific supported ops from the graph tool response; runScript is currently blueprint-only."
                         },
                         "clientRef": {
                             "type": "string",
@@ -1266,15 +1253,18 @@ mod tests {
             .iter()
             .find(|v| v.get("name") == Some(&Value::String(String::from("graph.mutate"))))
             .expect("graph.mutate descriptor");
-        let op_enum = graph_mutate["inputSchema"]["properties"]["ops"]["items"]["properties"]["op"]
-            ["enum"]
-            .as_array()
-            .expect("op enum array");
-        assert!(op_enum.contains(&Value::String(String::from("runScript"))));
-        assert!(op_enum.contains(&Value::String(String::from("removeNode"))));
-        assert!(op_enum.contains(&Value::String(String::from("moveNodeBy"))));
-        assert!(op_enum.contains(&Value::String(String::from("moveNodes"))));
-        assert!(op_enum.contains(&Value::String(String::from("layoutGraph"))));
+        assert_eq!(
+            graph_mutate["inputSchema"]["properties"]["ops"]["items"]["properties"]["op"]["type"],
+            Value::String(String::from("string"))
+        );
+        let op_description = graph_mutate["inputSchema"]["properties"]["ops"]["items"]
+            ["properties"]["op"]["description"]
+            .as_str()
+            .expect("graph.mutate op description");
+        assert!(
+            op_description.contains("graphType-specific supported ops"),
+            "graph.mutate op description should direct clients to graph tool capability discovery"
+        );
         assert!(
             graph_mutate["inputSchema"]["properties"]["ops"]["items"]["properties"]
                 ["targetGraphRef"]
