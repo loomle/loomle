@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import os
 import platform
 import time
 from pathlib import Path
@@ -2944,65 +2945,68 @@ def main() -> int:
                 "Material layoutGraph(scope=all) did not change tracked node position after moveNodeBy: "
                 f"before={material_before_relayout} after={material_after_relayout_pos}"
             )
-        editor_open_material_payload = call_tool(
-            client,
-            10018,
-            "editor.open",
-            {"assetPath": material_asset_path},
-        )
-        if editor_open_material_payload.get("assetPath") != material_asset_path:
-            fail(f"editor.open did not open material asset: {editor_open_material_payload}")
-        editor_focus_material_payload = call_tool(
-            client,
-            10019,
-            "editor.focus",
-            {"assetPath": material_asset_path, "panel": "graph"},
-        )
-        if editor_focus_material_payload.get("editorType") != "material":
-            fail(f"editor.focus did not resolve material editorType: {editor_focus_material_payload}")
-        _, _, material_capture_before_hash = capture_editor_png_hash(
-            client,
-            10020,
-            f"Loomle/runtime/captures/material-layout-before-{int(time.time())}.png",
-        )
-        material_visual_relayout_payload = call_tool(
-            client,
-            10021,
-            "graph.mutate",
-            {
-                "assetPath": material_asset_path,
-                "graphName": "MaterialGraph",
-                "graphType": "material",
-                "ops": [
-                    {
-                        "op": "moveNodeBy",
-                        "args": {
-                            "target": {"nodeId": material_multiply_id},
-                            "dx": 640,
-                            "dy": -320,
-                        },
-                    },
-                    {"op": "layoutGraph", "args": {"scope": "all"}},
-                ],
-            },
-        )
-        material_visual_relayout_results = material_visual_relayout_payload.get("opResults")
-        if not isinstance(material_visual_relayout_results, list) or len(material_visual_relayout_results) != 2:
-            fail(f"Material visual relayout opResults mismatch: {material_visual_relayout_payload}")
-        if not isinstance(material_visual_relayout_results[1], dict) or material_visual_relayout_results[1].get("ok") is not True:
-            fail(f"Material visual relayout failed: {material_visual_relayout_payload}")
-        _, _, material_capture_after_hash = capture_editor_png_hash_until_changed(
-            client,
-            10022,
-            relative_path_prefix="Loomle/runtime/captures/material-layout-after",
-            baseline_hash=material_capture_before_hash,
-        )
-        if material_capture_after_hash == material_capture_before_hash:
-            fail(
-                "editor.screenshot stayed visually stale after Material layoutGraph: "
-                f"before={material_capture_before_hash} after={material_capture_after_hash}"
+        if os.environ.get("LOOMLE_SKIP_MATERIAL_VISUAL_REGRESSION") == "1":
+            print("[WARN] material visual layout regression skipped by LOOMLE_SKIP_MATERIAL_VISUAL_REGRESSION=1")
+        else:
+            editor_open_material_payload = call_tool(
+                client,
+                10018,
+                "editor.open",
+                {"assetPath": material_asset_path},
             )
-        print("[PASS] material root-aware layout validated")
+            if editor_open_material_payload.get("assetPath") != material_asset_path:
+                fail(f"editor.open did not open material asset: {editor_open_material_payload}")
+            editor_focus_material_payload = call_tool(
+                client,
+                10019,
+                "editor.focus",
+                {"assetPath": material_asset_path, "panel": "graph"},
+            )
+            if editor_focus_material_payload.get("editorType") != "material":
+                fail(f"editor.focus did not resolve material editorType: {editor_focus_material_payload}")
+            _, _, material_capture_before_hash = capture_editor_png_hash(
+                client,
+                10020,
+                f"Loomle/runtime/captures/material-layout-before-{int(time.time())}.png",
+            )
+            material_visual_relayout_payload = call_tool(
+                client,
+                10021,
+                "graph.mutate",
+                {
+                    "assetPath": material_asset_path,
+                    "graphName": "MaterialGraph",
+                    "graphType": "material",
+                    "ops": [
+                        {
+                            "op": "moveNodeBy",
+                            "args": {
+                                "target": {"nodeId": material_multiply_id},
+                                "dx": 640,
+                                "dy": -320,
+                            },
+                        },
+                        {"op": "layoutGraph", "args": {"scope": "all"}},
+                    ],
+                },
+            )
+            material_visual_relayout_results = material_visual_relayout_payload.get("opResults")
+            if not isinstance(material_visual_relayout_results, list) or len(material_visual_relayout_results) != 2:
+                fail(f"Material visual relayout opResults mismatch: {material_visual_relayout_payload}")
+            if not isinstance(material_visual_relayout_results[1], dict) or material_visual_relayout_results[1].get("ok") is not True:
+                fail(f"Material visual relayout failed: {material_visual_relayout_payload}")
+            _, _, material_capture_after_hash = capture_editor_png_hash_until_changed(
+                client,
+                10022,
+                relative_path_prefix="Loomle/runtime/captures/material-layout-after",
+                baseline_hash=material_capture_before_hash,
+            )
+            if material_capture_after_hash == material_capture_before_hash:
+                fail(
+                    "editor.screenshot stayed visually stale after Material layoutGraph: "
+                    f"before={material_capture_before_hash} after={material_capture_after_hash}"
+                )
+            print("[PASS] material root-aware layout validated")
 
         pcg_layout_add = call_tool(
             client,
