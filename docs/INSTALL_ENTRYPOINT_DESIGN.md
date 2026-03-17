@@ -81,6 +81,7 @@ Suggested sections:
 - run the temporary `loomle-installer` bootstrap if it is not already available in the current command
 - run `loomle-installer install --project-root <ProjectRoot>`
 - run `Loomle/loomle doctor`
+- use `Loomle/loomle update --apply` when the project is already installed and needs an upgrade
 
 #### Platform notes
 
@@ -92,7 +93,7 @@ Suggested sections:
 
 - confirm `Plugins/LoomleBridge` exists
 - confirm `Loomle/` exists
-- run `loomle doctor`
+- run `Loomle/loomle doctor`
 
 ## Prompt design rule
 

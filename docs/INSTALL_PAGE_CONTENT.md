@@ -112,7 +112,7 @@ Suggested copy:
 
 ```text
 Agents should treat this page as the canonical install instruction source for LOOMLE.
-If LOOMLE is already installed, the same command path should be used for upgrade or repair.
+If LOOMLE is already installed, use `Loomle/loomle update --apply` for upgrades and `loomle-installer install --project-root <ProjectRoot>` for repair or reinstall.
 ```
 
 ## Recommended page order
@@ -126,6 +126,7 @@ Use this order:
 5. Agent install instructions
 6. Bootstrap instructions
 7. Verification
+8. Upgrade
 
 This keeps the human experience simple without depriving the agent of detail.
 
@@ -150,18 +151,23 @@ Suggested structure:
 
   <section id="agent-install">
     <h2>Agent install instructions</h2>
-    <pre><code>loomle install --project-root &lt;ProjectRoot&gt;</code></pre>
+    <pre><code>loomle-installer install --project-root &lt;ProjectRoot&gt;</code></pre>
   </section>
 
   <section id="bootstrap">
     <h2>Bootstrap</h2>
-    <pre><code>curl -fsSL https://loomle.ai/install.sh | sh</code></pre>
-    <pre><code>irm https://loomle.ai/install.ps1 | iex</code></pre>
+    <pre><code>curl -fsSL https://loomle.ai/install.sh | sh -s -- install --project-root /path/to/MyProject</code></pre>
+    <pre><code>&amp; ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) install --project-root C:\Path\To\MyProject</code></pre>
   </section>
 
   <section id="verification">
     <h2>Verify</h2>
-    <pre><code>loomle doctor</code></pre>
+    <pre><code>Loomle/loomle doctor</code></pre>
+  </section>
+
+  <section id="upgrade">
+    <h2>Upgrade</h2>
+    <pre><code>Loomle/loomle update --apply</code></pre>
   </section>
 </main>
 ```
@@ -184,15 +190,15 @@ Install LOOMLE from loomle.ai
 
 Paste this into your coding agent from the Unreal project root.
 
-If loomle is not installed on this machine:
-- macOS / Linux: curl -fsSL https://loomle.ai/install.sh | sh
-- Windows PowerShell: irm https://loomle.ai/install.ps1 | iex
+If LOOMLE is not installed in this Unreal project:
+- macOS: curl -fsSL https://loomle.ai/install.sh | sh -s -- install --project-root /path/to/MyProject
+- Windows PowerShell: & ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) install --project-root C:\Path\To\MyProject
 
-Then install LOOMLE into the current Unreal project:
-- loomle install --project-root <ProjectRoot>
+If LOOMLE is already installed and you want to upgrade:
+- Loomle/loomle update --apply
 
 Verify with:
-- loomle doctor
+- Loomle/loomle doctor
 ```
 
 ## Final recommendation
