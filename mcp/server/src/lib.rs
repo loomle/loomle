@@ -9,6 +9,26 @@ pub mod schema;
 pub mod sdk;
 pub mod transport;
 
+fn graph_mutate_ops(graph_type: &str) -> Vec<&'static str> {
+    let mut ops = vec![
+        "addNode.byClass",
+        "connectPins",
+        "disconnectPins",
+        "breakPinLinks",
+        "setPinDefault",
+        "removeNode",
+        "moveNode",
+        "moveNodeBy",
+        "moveNodes",
+        "layoutGraph",
+        "compile",
+    ];
+    if graph_type.eq_ignore_ascii_case("blueprint") {
+        ops.push("runScript");
+    }
+    ops
+}
+
 pub const TOOL_NAMES: [&str; 15] = [
     "loomle",
     "context",
@@ -179,20 +199,7 @@ impl<C: RpcConnector> McpService<C> {
                         "version": "1.0",
                         "domainCode": if h.is_pie { "EDITOR_BUSY" } else { "" },
                         "message": if h.is_pie { "Unreal Editor is currently in Play In Editor (PIE)." } else { "" },
-                        "ops": [
-                            "addNode.byClass",
-                            "connectPins",
-                            "disconnectPins",
-                            "breakPinLinks",
-                            "setPinDefault",
-                            "removeNode",
-                            "moveNode",
-                            "moveNodeBy",
-                            "moveNodes",
-                            "layoutGraph",
-                            "compile",
-                            "runScript"
-                        ],
+                        "ops": graph_mutate_ops(graph_type),
                         "limits": {
                             "defaultLimit": 200,
                             "maxLimit": 1000,

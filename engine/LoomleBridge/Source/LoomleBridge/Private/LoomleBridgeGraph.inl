@@ -6559,7 +6559,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     ? *ArgsObjPtr
                     : MakeShared<FJsonObject>();
 
-            if (!bDryRun)
+            if (Op.Equals(TEXT("runscript")))
+            {
+                bOk = false;
+                Error = TEXT("Unsupported mutate op: runScript");
+            }
+            else if (!bDryRun)
             {
                 if (GraphType.Equals(TEXT("material")))
                 {

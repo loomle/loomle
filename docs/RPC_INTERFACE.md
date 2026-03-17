@@ -199,7 +199,7 @@ Naming note:
 
 ```json
 {
-  "language": "ue-script",
+  "language": "python",
   "mode": "exec|eval",
   "code": "string"
 }
@@ -215,6 +215,13 @@ Naming note:
   "durationMs": 12
 }
 ```
+
+Field notes:
+
+- `execute` runs Python inside the active Unreal Editor process.
+- Prefer `execute` for non-graph editor automation and for graph types or graph-domain capabilities that are not yet covered by `graph.*`.
+- Do not prefer `execute` when a structured `graph.query`, `graph.ops.resolve`, `graph.mutate`, or `graph.verify` path already covers the task.
+- Agent-local Python is a separate local-machine tool. It does not replace Unreal-side `execute`.
 
 ## 5.3 tool=`graph.list`
 
@@ -593,6 +600,9 @@ Notes:
 - `moveNodeBy` accepts a single target plus either `dx`/`dy` or `delta.{x,y}`.
 - `moveNodes` accepts `nodeIds` or `nodes` plus either `dx`/`dy` or `delta.{x,y}` and applies the same delta to every resolved node.
 - `layoutGraph` supports Blueprint, Material, and PCG mutate flows with `args.scope="touched"| "all"`.
+- `runScript` is currently a Blueprint-only graph-scoped fallback after the caller has resolved the exact target graph.
+- Prefer `runScript` only for graph-local gaps that are not yet productized in `graph.*`.
+- Do not use `runScript` for non-graph automation, for Material or PCG graphs, or for graph types not yet covered by `graph.*`; use `execute` for those cases.
 - For `scope="touched"`, LOOMLE uses the current graph's pending touched-node set accumulated from prior successful mutate ops; callers may also pass explicit `nodeIds` / `nodes` to narrow or supplement the layout set.
 
 `payload`:

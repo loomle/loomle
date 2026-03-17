@@ -11,6 +11,7 @@ Rust implementation of LOOMLE MCP protocol defined in:
 - MCP service routing implemented (`loomle`, `context`, `execute`, `graph`, `graph.list`, `graph.resolve`, `graph.query`, `graph.ops`, `graph.ops.resolve`, `graph.mutate`, `diag.tail`).
 - `loomle` and `graph` enforce per-call `rpc.health` probe.
 - Runtime tools perform runtime preflight (`rpc.health`) with a shared short TTL cache (`200ms`), then forward through `rpc.invoke`.
+- `execute` is the Unreal-side Python fallback surface for non-graph editor automation and for graph domains not yet covered by structured `graph.*` tools.
 - Runtime tools fail fast with `EDITOR_BUSY` during PIE and skip `rpc.invoke`.
 - `tools/list` is the supported schema discovery surface for current tool argument contracts.
 - RPC error code mapping to MCP domain codes implemented.

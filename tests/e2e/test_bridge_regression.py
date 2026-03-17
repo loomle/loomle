@@ -888,6 +888,54 @@ def main() -> int:
         }
         if not {"In", "InsideFilter", "OutsideFilter"}.issubset(pcg_pin_names):
             fail(f"graph.ops.resolve(pcg) missing truthful filter pin hints: {pcg_resolve}")
+        pcg_graph_desc = call_tool(client, 101001, "graph", {"graphType": "pcg"})
+        pcg_graph_ops = pcg_graph_desc.get("ops")
+        if not isinstance(pcg_graph_ops, list):
+            fail(f"graph(PCG) missing ops[]: {pcg_graph_desc}")
+        pcg_graph_ops_set = {op for op in pcg_graph_ops if isinstance(op, str)}
+        if "runScript" in pcg_graph_ops_set:
+            fail(f"graph(PCG) should not advertise runScript: {pcg_graph_desc}")
+        if "compile" not in pcg_graph_ops_set:
+            fail(f"graph(PCG) should continue advertising compile: {pcg_graph_desc}")
+        pcg_dry_run_script = call_tool(
+            client,
+            1010011,
+            "graph.mutate",
+            {
+                "assetPath": temp_pcg_asset,
+                "graphName": "PCGGraph",
+                "graphType": "pcg",
+                "dryRun": True,
+                "ops": [
+                    {
+                        "op": "runScript",
+                        "args": {
+                            "mode": "inlineCode",
+                            "entry": "run",
+                            "code": "def run(ctx):\n  return {'ok': True}",
+                        },
+                    }
+                ],
+            },
+            expect_error=True,
+        )
+        pcg_dry_run_script_detail = pcg_dry_run_script.get("detail")
+        if not isinstance(pcg_dry_run_script_detail, str):
+            fail(f"PCG dryRun runScript missing structured detail JSON: {pcg_dry_run_script}")
+        try:
+            pcg_dry_run_script_struct = json.loads(pcg_dry_run_script_detail)
+        except Exception as exc:
+            fail(f"PCG dryRun runScript detail is not valid JSON: {exc} payload={pcg_dry_run_script}")
+        if pcg_dry_run_script_struct.get("code") != "UNSUPPORTED_OP":
+            fail(f"PCG dryRun runScript should surface UNSUPPORTED_OP: {pcg_dry_run_script_struct}")
+        pcg_dry_run_script_results = pcg_dry_run_script_struct.get("opResults")
+        if not isinstance(pcg_dry_run_script_results, list) or not pcg_dry_run_script_results:
+            fail(f"PCG dryRun runScript missing opResults: {pcg_dry_run_script_struct}")
+        pcg_dry_run_script_first = pcg_dry_run_script_results[0] if isinstance(pcg_dry_run_script_results[0], dict) else {}
+        if pcg_dry_run_script_first.get("errorCode") != "UNSUPPORTED_OP":
+            fail(f"PCG dryRun runScript should classify as UNSUPPORTED_OP: {pcg_dry_run_script_struct}")
+        if pcg_dry_run_script_first.get("skipped") is True:
+            fail(f"PCG dryRun runScript should not report skipped=true when unsupported: {pcg_dry_run_script_struct}")
         transform_result = next(
             (item for item in pcg_resolve_results if isinstance(item, dict) and item.get("opId") == "pcg.transform.points"),
             {},

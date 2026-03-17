@@ -23,6 +23,8 @@ Graph mutate note:
 - `graph.mutate` may return operation-specific structured fields such as `opResults[*].details` and `opResults[*].movedNodeIds`; clients should preserve unknown fields on `opResults[]`.
 - `graph.mutate` `layoutGraph` currently supports `scope="touched"` and `scope="all"` for Blueprint, Material, and PCG graphs; `scope="touched"` consumes the graph-local pending touched-node set built from earlier successful mutate ops.
 - `graph.mutate` batches execute in order and are not transactional today; if a later op fails after an earlier op already changed the graph, the top-level result returns `applied=false` and `partialApplied=true`.
+- `graph.mutate` `runScript` is currently a Blueprint-only graph-scoped fallback for already-resolved target graphs.
+- For non-graph operations, Material or PCG graph scripting, unsupported graph types, or graph-domain capabilities not yet covered by `graph.*`, prefer `execute` instead of `runScript`.
 
 4. Tool name style
 - Minimal names kept as project convention.
@@ -161,6 +163,8 @@ Execution rule:
 
 ## 4.3 `execute`
 
+`execute` runs Python inside the Unreal Editor process. Prefer it for non-graph editor automation and for graph types or graph-domain capabilities not yet covered by `graph.*`. Do not prefer it when a structured `graph.query`, `graph.ops.resolve`, `graph.mutate`, or `graph.verify` path already covers the task.
+
 Input schema:
 
 ```json
@@ -169,7 +173,7 @@ Input schema:
   "type": "object",
   "required": ["code"],
   "properties": {
-    "language": { "type": "string", "default": "ue-script" },
+    "language": { "type": "string", "default": "python" },
     "mode": { "type": "string", "enum": ["exec", "eval"], "default": "exec" },
     "code": { "type": "string", "minLength": 1 }
   },
@@ -197,6 +201,7 @@ Output schema:
 Execution rule:
 
 - Forward via `rpc.invoke` with `tool=execute`.
+- Agent-local Python is separate and does not replace Unreal-side `execute`.
 
 ## 4.4 `graph`
 

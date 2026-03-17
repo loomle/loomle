@@ -67,6 +67,7 @@ Execution route:
 - `loomle`: MCP local response + required `rpc.health` probe on every call.
 - `context`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=context`).
 - `execute`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=execute`).
+- `execute` is intentionally the Unreal-Python fallback surface for non-graph operations and for graph domains/capabilities not yet exposed through structured `graph.*` tools.
 - `graph`: MCP local descriptor response + required `rpc.health` probe on every call.
 - `graph.list`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.list`).
 - `graph.ops`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.ops`).

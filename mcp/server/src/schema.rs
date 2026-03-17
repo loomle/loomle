@@ -38,13 +38,13 @@ pub fn tool_descriptors() -> Vec<Value> {
         json!({
             "name": "execute",
             "title": "Execute Script",
-            "description": "Execute Unreal-side script code.",
+            "description": "Execute Unreal-side Python inside the editor process.",
             "inputSchema": {
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "type": "object",
                 "required": ["code"],
                 "properties": {
-                    "language": { "type": "string", "default": "ue-script" },
+                    "language": { "type": "string", "default": "python" },
                     "mode": { "type": "string", "enum": ["exec", "eval"], "default": "exec" },
                     "code": { "type": "string", "minLength": 1 }
                 },

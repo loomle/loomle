@@ -35,16 +35,24 @@ Read this file first. It is the top-level usage guide for agents working inside 
     - prefer `addNode.byClass` plans produced by `graph.ops.resolve`
     - use `graph.query` when you want the current lightweight graph diagnostics
     - use `graph.verify` when you want final compile-backed verification
-6. Choose the right workflow guide for the current graph type:
+6. Follow the fallback policy when the structured graph surface is not enough:
+   - use `graph.*` first for supported graph types and already-covered graph capabilities
+   - use `execute` when the task is non-graph editor automation, or when the graph type or graph-domain capability is not yet covered by `graph.*`
+   - use `graph.mutate` with `op="runScript"` only for Blueprint graph-local gaps after you already have the exact target graph
+   - use agent-local Python only for local file, repo, or payload preparation work; it does not replace Unreal-side `execute`
+   Working rule:
+   - `execute` means running Python inside the Unreal Editor process
+   - `runScript` is Blueprint-only today; it is not a general fallback for Material, PCG, or unsupported graph types
+7. Choose the right workflow guide for the current graph type:
    - `workflows/blueprint.md`
    - `workflows/material.md`
    - `workflows/pcg.md`
-7. When you need recent Unreal-side warnings, compile failures, or runtime diagnostics, call `diag.tail`.
+8. When you need recent Unreal-side warnings, compile failures, or runtime diagnostics, call `diag.tail`.
    Working rule:
    - use `fromSeq` as an exclusive cursor
    - reuse returned `nextSeq` on the next poll
    - use `filters` when you want to narrow by severity, category, source, or asset path prefix
-8. When you need a verification step after reading or mutating a graph, call `graph.verify`.
+9. When you need a verification step after reading or mutating a graph, call `graph.verify`.
    Working rule:
    - use `graph.query` for current lightweight diagnostics from the semantic snapshot
    - use `graph.verify` for final compile/refresh-backed confirmation
@@ -188,6 +196,8 @@ Working rule:
 - if the top-level result returns `applied=true`, the full batch succeeded
 - if it returns `applied=false` and `partialApplied=true`, one or more earlier ops already changed the graph before a later op failed
 - after any failed batch, run `graph.query` again before deciding what to retry
+- reserve `op="runScript"` for Blueprint graph-scoped fallback logic after you already have the exact `graphRef`
+- if the task is non-graph, targets Material or PCG, or the graph type/capability is not yet covered by `graph.*`, use `execute` instead of `runScript`
 
 Do not assume a failed mutate batch automatically rolled back earlier successful ops.
 
