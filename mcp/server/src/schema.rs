@@ -133,7 +133,7 @@ pub fn tool_descriptors() -> Vec<Value> {
         runtime_tool_descriptor(
             "graph.verify",
             "Graph Verify",
-            "Verify graph health or compile state for Blueprint, Material, or PCG graphs.",
+            "Run final graph verification for Blueprint, Material, or PCG graphs.",
             graph_verify_input_schema(),
             graph_verify_output_schema(),
         ),
@@ -1009,17 +1009,12 @@ fn graph_verify_input_schema() -> Value {
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
-        "required": ["mode", "graphType"],
+        "required": ["graphType"],
         "properties": {
-            "mode": {
-                "type": "string",
-                "enum": ["health", "compile"],
-                "description": "Verification mode. `health` inspects graph diagnostics and `compile` runs an explicit compile/refresh verification."
-            },
             "graphType": {
                 "type": "string",
                 "enum": ["blueprint", "material", "pcg"],
-                "description": "Graph domain for graph-level verification."
+                "description": "Graph domain for final graph-level verification."
             },
             "assetPath": {
                 "type": "string",
@@ -1041,9 +1036,8 @@ fn graph_verify_output_schema() -> Value {
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
-        "required": ["mode", "status", "diagnostics"],
+        "required": ["status", "diagnostics"],
         "properties": {
-            "mode": { "type": "string", "enum": ["health", "compile"] },
             "status": { "type": "string", "enum": ["ok", "warn", "error"] },
             "summary": { "type": "string" },
             "graphType": graph_type_schema(),
@@ -1052,7 +1046,7 @@ fn graph_verify_output_schema() -> Value {
             "graphRef": graph_ref_schema(),
             "previousRevision": { "type": "string" },
             "newRevision": { "type": "string" },
-            "healthReport": { "type": "object", "additionalProperties": true },
+            "queryReport": { "type": "object", "additionalProperties": true },
             "compileReport": { "type": "object", "additionalProperties": true },
             "diagnostics": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
         },
@@ -1201,24 +1195,20 @@ mod tests {
             .find(|v| v.get("name") == Some(&Value::String(String::from("graph.verify"))))
             .expect("graph.verify descriptor");
         assert!(
-            graph_verify["inputSchema"]["properties"]["mode"].is_object(),
-            "graph.verify should expose mode property"
-        );
-        assert!(
             graph_verify["inputSchema"]["properties"]["graphType"].is_object(),
             "graph.verify should expose graphType property"
         );
         assert!(
-            graph_verify["outputSchema"]["properties"]["healthReport"].is_object(),
-            "graph.verify should expose healthReport property"
+            graph_verify["outputSchema"]["properties"]["queryReport"].is_object(),
+            "graph.verify should expose queryReport property"
         );
         assert!(
             graph_verify["outputSchema"]["properties"]["compileReport"].is_object(),
             "graph.verify should expose compileReport property"
         );
         assert!(
-            graph_verify["inputSchema"]["properties"]["componentPath"].is_null(),
-            "graph.verify should not expose runtime componentPath property"
+            graph_verify["inputSchema"]["properties"]["mode"].is_null(),
+            "graph.verify should not expose mode property"
         );
     }
 

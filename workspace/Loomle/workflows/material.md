@@ -8,7 +8,7 @@ Recommended Material editing rhythm for LOOMLE:
 4. create and connect expression chains
 5. connect terminal expressions into `__material_root__`
 6. call `layoutGraph(scope=\"touched\")`
-7. call `graph.verify(mode=\"health\")` or `graph.verify(mode=\"compile\")`
+7. call `graph.verify`
 
 Addressing rule:
 - if you already have a Material or MaterialFunction asset path, prefer resolving or querying that asset directly

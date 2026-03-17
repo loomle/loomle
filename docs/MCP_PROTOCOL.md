@@ -315,8 +315,8 @@ Use this as the graph verification primitive after `graph.query`, `graph.ops.res
 Execution rule:
 
 - Forward via `rpc.invoke` with `tool=graph.verify`.
-- `mode="health"` summarizes graph diagnostics from the latest semantic snapshot.
-- `mode="compile"` runs explicit compile/refresh verification for Blueprint, Material, or PCG graphs.
+- `graph.verify` always performs final compile/refresh-backed verification for Blueprint, Material, or PCG graphs.
+- `graph.query` remains the lightweight source of current semantic diagnostics.
 - `graph.verify` is graph-scoped only. It does not inspect scene instances, selected actors/components, or generated runtime output.
 
 ## 4.7 `diag.tail`

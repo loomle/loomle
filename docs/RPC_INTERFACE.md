@@ -653,7 +653,6 @@ When `applied=false`:
 
 ```json
 {
-  "mode": "compile",
   "graphType": "pcg",
   "assetPath": "/Game/PCG/MyGraph"
 }
@@ -661,20 +660,24 @@ When `applied=false`:
 
 Field notes:
 
-- `mode` is required. Current values: `health`, `compile`.
 - `graphType` is required and selects the graph domain to verify.
 - `graph.verify` is graph-scoped. Pass `assetPath`, `graphName`, or `graphRef` for the graph you want to verify.
+- `graph.verify` always performs final compile-backed verification.
+- Lightweight graph diagnostics belong to `graph.query`.
 - `graph.verify` does not inspect scene instances, generated runtime output, or selected actors/components.
 
 `payload`:
 
 ```json
 {
-  "mode": "compile",
   "status": "ok",
-  "summary": "Graph compile/refresh verification succeeded.",
+  "summary": "Graph verification succeeded with compile-backed confirmation.",
   "graphType": "pcg",
   "assetPath": "/Game/PCG/MyGraph",
+  "queryReport": {
+    "revision": "string",
+    "queryMeta": {}
+  },
   "compileReport": {
     "compiled": true,
     "applied": true,

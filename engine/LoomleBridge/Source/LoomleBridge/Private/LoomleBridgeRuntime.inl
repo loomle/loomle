@@ -92,12 +92,6 @@ bool DiagEventMatchesFilters(const TSharedPtr<FJsonObject>& Event, const TShared
     return AssetPath.StartsWith(AssetPathPrefix);
 }
 
-FString NormalizeVerifyMode(FString Mode)
-{
-    Mode = Mode.TrimStartAndEnd().ToLower();
-    return Mode;
-}
-
 FString DetermineVerifyStatusFromDiagnostics(const TArray<TSharedPtr<FJsonValue>>& Diagnostics, const bool bTreatMissingDiagnosticsAsOk = true)
 {
     bool bHasWarning = false;
@@ -413,117 +407,94 @@ void FLoomleBridgeModule::HandleBlueprintCompiled()
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphVerifyToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
-    FString Mode;
-    if (!Arguments.IsValid() || !Arguments->TryGetStringField(TEXT("mode"), Mode))
+    const TSharedPtr<FJsonObject> QueryResult = BuildGraphQueryToolResult(Arguments);
+    bool bQueryError = false;
+    QueryResult->TryGetBoolField(TEXT("isError"), bQueryError);
+    if (bQueryError)
     {
-        TSharedPtr<FJsonObject> Error = MakeShared<FJsonObject>();
-        Error->SetBoolField(TEXT("isError"), true);
-        Error->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Error->SetStringField(TEXT("message"), TEXT("graph.verify requires mode=\"health\" or \"compile\"."));
-        return Error;
+        return QueryResult;
     }
 
-    Mode = NormalizeVerifyMode(Mode);
+    const TSharedPtr<FJsonObject> MutateArgs = CloneJsonObject(Arguments);
+    TArray<TSharedPtr<FJsonValue>> Ops;
+    TSharedPtr<FJsonObject> CompileOp = MakeShared<FJsonObject>();
+    CompileOp->SetStringField(TEXT("op"), TEXT("compile"));
+    Ops.Add(MakeShared<FJsonValueObject>(CompileOp));
+    MutateArgs->SetArrayField(TEXT("ops"), Ops);
 
-    if (Mode.Equals(TEXT("health")))
+    const TSharedPtr<FJsonObject> MutateResult = BuildGraphMutateToolResult(MutateArgs);
+    bool bMutateError = false;
+    MutateResult->TryGetBoolField(TEXT("isError"), bMutateError);
+    if (bMutateError)
     {
-        const TSharedPtr<FJsonObject> QueryResult = BuildGraphQueryToolResult(Arguments);
-        bool bQueryError = false;
-        QueryResult->TryGetBoolField(TEXT("isError"), bQueryError);
-        if (bQueryError)
-        {
-            return QueryResult;
-        }
+        return MutateResult;
+    }
 
-        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-        Result->SetBoolField(TEXT("isError"), false);
-        Result->SetStringField(TEXT("mode"), TEXT("health"));
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+    CopyOptionalStringField(MutateResult, Result, TEXT("graphType"));
+    if (!Result->HasField(TEXT("graphType")))
+    {
         CopyOptionalStringField(QueryResult, Result, TEXT("graphType"));
-        CopyOptionalStringField(QueryResult, Result, TEXT("assetPath"));
-        CopyOptionalStringField(QueryResult, Result, TEXT("graphName"));
-        CopyOptionalObjectField(QueryResult, Result, TEXT("graphRef"));
-
-        const TArray<TSharedPtr<FJsonValue>> Diagnostics = CloneJsonArrayField(QueryResult, TEXT("diagnostics"));
-        Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
-        Result->SetStringField(TEXT("status"), DetermineVerifyStatusFromDiagnostics(Diagnostics));
-
-        TSharedPtr<FJsonObject> HealthReport = MakeShared<FJsonObject>();
-        CopyOptionalStringField(QueryResult, HealthReport, TEXT("revision"));
-        const TSharedPtr<FJsonObject>* Meta = nullptr;
-        if (QueryResult->TryGetObjectField(TEXT("meta"), Meta) && Meta != nullptr && (*Meta).IsValid())
-        {
-            HealthReport->SetObjectField(TEXT("queryMeta"), CloneJsonObject(*Meta));
-        }
-        Result->SetObjectField(TEXT("healthReport"), HealthReport);
-        Result->SetStringField(TEXT("summary"), TEXT("Graph health verified from the current semantic snapshot and diagnostics."));
-        return Result;
     }
-
-    if (Mode.Equals(TEXT("compile")))
+    CopyOptionalStringField(MutateResult, Result, TEXT("assetPath"));
+    if (!Result->HasField(TEXT("assetPath")))
     {
-        const TSharedPtr<FJsonObject> MutateArgs = CloneJsonObject(Arguments);
-        MutateArgs->RemoveField(TEXT("mode"));
-        TArray<TSharedPtr<FJsonValue>> Ops;
-        TSharedPtr<FJsonObject> CompileOp = MakeShared<FJsonObject>();
-        CompileOp->SetStringField(TEXT("op"), TEXT("compile"));
-        Ops.Add(MakeShared<FJsonValueObject>(CompileOp));
-        MutateArgs->SetArrayField(TEXT("ops"), Ops);
+        CopyOptionalStringField(QueryResult, Result, TEXT("assetPath"));
+    }
+    CopyOptionalStringField(MutateResult, Result, TEXT("graphName"));
+    if (!Result->HasField(TEXT("graphName")))
+    {
+        CopyOptionalStringField(QueryResult, Result, TEXT("graphName"));
+    }
+    CopyOptionalObjectField(MutateResult, Result, TEXT("graphRef"));
+    if (!Result->HasField(TEXT("graphRef")))
+    {
+        CopyOptionalObjectField(QueryResult, Result, TEXT("graphRef"));
+    }
+    CopyOptionalStringField(MutateResult, Result, TEXT("previousRevision"));
+    CopyOptionalStringField(MutateResult, Result, TEXT("newRevision"));
 
-        const TSharedPtr<FJsonObject> MutateResult = BuildGraphMutateToolResult(MutateArgs);
-        bool bMutateError = false;
-        MutateResult->TryGetBoolField(TEXT("isError"), bMutateError);
-        if (bMutateError)
+    TArray<TSharedPtr<FJsonValue>> Diagnostics = CloneJsonArrayField(QueryResult, TEXT("diagnostics"));
+    Diagnostics.Append(CloneJsonArrayField(MutateResult, TEXT("diagnostics")));
+    Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
+
+    TSharedPtr<FJsonObject> QueryReport = MakeShared<FJsonObject>();
+    CopyOptionalStringField(QueryResult, QueryReport, TEXT("revision"));
+    const TSharedPtr<FJsonObject>* Meta = nullptr;
+    if (QueryResult->TryGetObjectField(TEXT("meta"), Meta) && Meta != nullptr && (*Meta).IsValid())
+    {
+        QueryReport->SetObjectField(TEXT("queryMeta"), CloneJsonObject(*Meta));
+    }
+    Result->SetObjectField(TEXT("queryReport"), QueryReport);
+
+    const TArray<TSharedPtr<FJsonValue>> OpResults = CloneJsonArrayField(MutateResult, TEXT("opResults"));
+    bool bCompiled = false;
+    if (OpResults.Num() > 0)
+    {
+        const TSharedPtr<FJsonObject>* FirstOpResult = nullptr;
+        if (OpResults[0].IsValid() && OpResults[0]->TryGetObject(FirstOpResult) && FirstOpResult != nullptr && (*FirstOpResult).IsValid())
         {
-            return MutateResult;
+            (*FirstOpResult)->TryGetBoolField(TEXT("ok"), bCompiled);
         }
-
-        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-        Result->SetBoolField(TEXT("isError"), false);
-        Result->SetStringField(TEXT("mode"), TEXT("compile"));
-        CopyOptionalStringField(MutateResult, Result, TEXT("graphType"));
-        CopyOptionalStringField(MutateResult, Result, TEXT("assetPath"));
-        CopyOptionalStringField(MutateResult, Result, TEXT("graphName"));
-        CopyOptionalObjectField(MutateResult, Result, TEXT("graphRef"));
-        CopyOptionalStringField(MutateResult, Result, TEXT("previousRevision"));
-        CopyOptionalStringField(MutateResult, Result, TEXT("newRevision"));
-
-        const TArray<TSharedPtr<FJsonValue>> Diagnostics = CloneJsonArrayField(MutateResult, TEXT("diagnostics"));
-        Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
-
-        const TArray<TSharedPtr<FJsonValue>> OpResults = CloneJsonArrayField(MutateResult, TEXT("opResults"));
-        bool bCompiled = false;
-        if (OpResults.Num() > 0)
-        {
-            const TSharedPtr<FJsonObject>* FirstOpResult = nullptr;
-            if (OpResults[0].IsValid() && OpResults[0]->TryGetObject(FirstOpResult) && FirstOpResult != nullptr && (*FirstOpResult).IsValid())
-            {
-                (*FirstOpResult)->TryGetBoolField(TEXT("ok"), bCompiled);
-            }
-        }
-
-        Result->SetStringField(TEXT("status"), bCompiled ? DetermineVerifyStatusFromDiagnostics(Diagnostics) : TEXT("error"));
-        Result->SetStringField(TEXT("summary"), bCompiled
-            ? TEXT("Graph compile/refresh verification succeeded.")
-            : TEXT("Graph compile/refresh verification failed."));
-
-        TSharedPtr<FJsonObject> CompileReport = MakeShared<FJsonObject>();
-        CompileReport->SetBoolField(TEXT("compiled"), bCompiled);
-        bool bApplied = false;
-        bool bPartialApplied = false;
-        MutateResult->TryGetBoolField(TEXT("applied"), bApplied);
-        MutateResult->TryGetBoolField(TEXT("partialApplied"), bPartialApplied);
-        CompileReport->SetBoolField(TEXT("applied"), bApplied);
-        CompileReport->SetBoolField(TEXT("partialApplied"), bPartialApplied);
-        CompileReport->SetArrayField(TEXT("opResults"), OpResults);
-        Result->SetObjectField(TEXT("compileReport"), CompileReport);
-        return Result;
     }
 
-    TSharedPtr<FJsonObject> Error = MakeShared<FJsonObject>();
-    Error->SetBoolField(TEXT("isError"), true);
-    Error->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-    Error->SetStringField(TEXT("message"), TEXT("graph.verify mode must be one of: health, compile."));
-    return Error;
+    Result->SetStringField(TEXT("status"), bCompiled ? DetermineVerifyStatusFromDiagnostics(Diagnostics) : TEXT("error"));
+    Result->SetStringField(TEXT("summary"), bCompiled
+        ? TEXT("Graph verification succeeded with compile-backed confirmation.")
+        : TEXT("Graph verification failed during compile-backed confirmation."));
+
+    TSharedPtr<FJsonObject> CompileReport = MakeShared<FJsonObject>();
+    CompileReport->SetBoolField(TEXT("compiled"), bCompiled);
+    bool bApplied = false;
+    bool bPartialApplied = false;
+    MutateResult->TryGetBoolField(TEXT("applied"), bApplied);
+    MutateResult->TryGetBoolField(TEXT("partialApplied"), bPartialApplied);
+    CompileReport->SetBoolField(TEXT("applied"), bApplied);
+    CompileReport->SetBoolField(TEXT("partialApplied"), bPartialApplied);
+    CompileReport->SetArrayField(TEXT("opResults"), OpResults);
+    Result->SetObjectField(TEXT("compileReport"), CompileReport);
+    return Result;
 }
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildDiagTailToolResult(const TSharedPtr<FJsonObject>& Arguments)

@@ -38,7 +38,7 @@ cargo run -- skill remove material-weaver
 cargo run -- list-tools --project-root "/Path/To/Project"
 cargo run -- call context --project-root "/Path/To/Project"
 cargo run -- call diag.tail --project-root "/Path/To/Project" --args '{"fromSeq":0,"limit":50}'
-cargo run -- call graph.verify --project-root "/Path/To/Project" --args '{"mode":"compile","graphType":"pcg","assetPath":"/Game/PCG/MyGraph"}'
+cargo run -- call graph.verify --project-root "/Path/To/Project" --args '{"graphType":"pcg","assetPath":"/Game/PCG/MyGraph"}'
 cargo run -- call graph.verify --project-root "/Path/To/Project" --args-file "/Path/To/args.json"
 cargo run -- session --project-root "/Path/To/Project"
 ```
@@ -55,7 +55,7 @@ On Windows PowerShell, prefer `--args-file <json-file>` over inline `--args <jso
 
 `diag.tail` reads persisted LoomleBridge diagnostics incrementally. Treat `fromSeq` as an exclusive cursor and reuse the returned `nextSeq` on the next poll. Persisted events live under `Loomle/runtime/diag/diag.jsonl`.
 
-`graph.verify` is the verification primitive that closes the graph loop. Today it supports `mode="health"` and `mode="compile"` only. It verifies the graph asset itself; scene/runtime debugging stays outside the `graph.*` surface.
+`graph.verify` is the verification primitive that closes the graph loop. It verifies the graph asset itself with final compile-backed confirmation; scene/runtime debugging stays outside the `graph.*` surface. Use `graph.query` when you want the current lightweight diagnostics without the heavier verification step.
 
 ## Visual loop
 

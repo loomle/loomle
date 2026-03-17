@@ -33,8 +33,8 @@ Read this file first. It is the top-level usage guide for agents working inside 
    - close the loop with `graph.verify`
    Working rule:
     - prefer `addNode.byClass` plans produced by `graph.ops.resolve`
-    - use `graph.verify(mode="health")` to summarize graph diagnostics from the current snapshot
-    - use `graph.verify(mode="compile")` when you want an explicit compile/refresh verification step
+    - use `graph.query` when you want the current lightweight graph diagnostics
+    - use `graph.verify` when you want final compile-backed verification
 6. Choose the right workflow guide for the current graph type:
    - `workflows/blueprint.md`
    - `workflows/material.md`
@@ -46,8 +46,8 @@ Read this file first. It is the top-level usage guide for agents working inside 
    - use `filters` when you want to narrow by severity, category, source, or asset path prefix
 8. When you need a verification step after reading or mutating a graph, call `graph.verify`.
    Working rule:
-   - use `mode="health"` to summarize graph diagnostics from the current semantic snapshot
-   - use `mode="compile"` to run explicit compile/refresh verification
+   - use `graph.query` for current lightweight diagnostics from the semantic snapshot
+   - use `graph.verify` for final compile/refresh-backed confirmation
    - `graph.verify` is graph-scoped; do not use it for scene/runtime instance debugging
 
 ## Visual Loop
@@ -74,7 +74,7 @@ Working rule:
   Make one tool request and print the result.
 - `Loomle/loomle call diag.tail --args '{"fromSeq":0}'`
   Read persisted diagnostics incrementally. Reuse the returned `nextSeq` as the next cursor.
-- `Loomle/loomle call graph.verify --args '{"mode":"compile","graphType":"pcg","assetPath":"/Game/PCG/MyGraph"}'`
+- `Loomle/loomle call graph.verify --args '{"graphType":"pcg","assetPath":"/Game/PCG/MyGraph"}'`
   Run an explicit compile/refresh verification for one graph asset.
 - `Loomle/loomle session`
   Start a persistent stdin/stdout JSON session for repeated requests. Prefer this for high-concurrency or high-volume query workloads.
@@ -153,12 +153,12 @@ Use `graph.verify` as the final verification primitive in the graph loop.
 Minimal one-shot example:
 
 ```bash
-Loomle/loomle call graph.verify --args '{"mode":"compile","graphType":"pcg","assetPath":"/Game/PCG/MyGraph"}'
+Loomle/loomle call graph.verify --args '{"graphType":"pcg","assetPath":"/Game/PCG/MyGraph"}'
 ```
 
 Working rule:
-- use `mode="health"` when you want structural diagnostics from the latest graph snapshot
-- use `mode="compile"` when you want an explicit compile/refresh verification step
+- use `graph.query` when you want structural diagnostics from the latest graph snapshot
+- use `graph.verify` when you want final compile/refresh-backed confirmation
 - `graph.verify` is for graph assets only; runtime scene debugging is a separate concern
 
 ## Semantic Planning

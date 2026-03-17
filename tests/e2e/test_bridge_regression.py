@@ -472,27 +472,27 @@ def main() -> int:
             fail(f"graph.query missing LAYOUT_DETAIL_DOWNGRADED diagnostic: {graph_query}")
         print("[PASS] graph.query structure validated")
 
-        blueprint_health_verify = call_tool(
+        blueprint_verify = call_tool(
             client,
             6405,
             "graph.verify",
             {
-                "mode": "health",
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
                 "graphType": "blueprint",
                 "limit": 200,
             },
         )
-        if blueprint_health_verify.get("mode") != "health":
-            fail(f"graph.verify(mode=health) returned wrong mode: {blueprint_health_verify}")
-        if blueprint_health_verify.get("status") not in {"ok", "warn"}:
-            fail(f"graph.verify(mode=health) returned unexpected status: {blueprint_health_verify}")
-        if not isinstance(blueprint_health_verify.get("healthReport"), dict):
-            fail(f"graph.verify(mode=health) missing healthReport: {blueprint_health_verify}")
-        if not isinstance(blueprint_health_verify.get("diagnostics"), list):
-            fail(f"graph.verify(mode=health) missing diagnostics[]: {blueprint_health_verify}")
-        print("[PASS] graph.verify health summary validated")
+        if blueprint_verify.get("status") not in {"ok", "warn"}:
+            fail(f"graph.verify returned unexpected status: {blueprint_verify}")
+        if not isinstance(blueprint_verify.get("queryReport"), dict):
+            fail(f"graph.verify missing queryReport: {blueprint_verify}")
+        blueprint_compile_report = blueprint_verify.get("compileReport")
+        if not isinstance(blueprint_compile_report, dict) or blueprint_compile_report.get("compiled") is not True:
+            fail(f"graph.verify missing compiled=true compileReport: {blueprint_verify}")
+        if not isinstance(blueprint_verify.get("diagnostics"), list):
+            fail(f"graph.verify missing diagnostics[]: {blueprint_verify}")
+        print("[PASS] graph.verify unified summary validated")
 
         graph_ops = call_tool(
             client,
@@ -2494,25 +2494,24 @@ def main() -> int:
         material_revision_r1 = material_revision_after_compile.get("revision")
         print("[PASS] material compile revision metadata validated")
 
-        material_compile_verify = call_tool(
+        material_verify = call_tool(
             client,
             1001091,
             "graph.verify",
             {
-                "mode": "compile",
                 "assetPath": material_asset_path,
                 "graphName": "MaterialGraph",
                 "graphType": "material",
             },
         )
-        if material_compile_verify.get("mode") != "compile":
-            fail(f"graph.verify(mode=compile) returned wrong mode: {material_compile_verify}")
-        if material_compile_verify.get("status") != "ok":
-            fail(f"graph.verify(mode=compile) should succeed for material fixture: {material_compile_verify}")
-        compile_report = material_compile_verify.get("compileReport")
+        if material_verify.get("status") != "ok":
+            fail(f"graph.verify should succeed for material fixture: {material_verify}")
+        if not isinstance(material_verify.get("queryReport"), dict):
+            fail(f"graph.verify missing queryReport: {material_verify}")
+        compile_report = material_verify.get("compileReport")
         if not isinstance(compile_report, dict) or compile_report.get("compiled") is not True:
-            fail(f"graph.verify(mode=compile) missing compiled=true: {material_compile_verify}")
-        print("[PASS] graph.verify compile summary validated")
+            fail(f"graph.verify missing compiled=true: {material_verify}")
+        print("[PASS] graph.verify material summary validated")
 
 
         material_connect = call_tool(
@@ -3628,24 +3627,23 @@ def main() -> int:
         for idx, result in enumerate(pcg_health_results):
             if not isinstance(result, dict) or result.get("ok") is not True:
                 fail(f"PCG health probe opResults[{idx}] failed: {pcg_health_add}")
-        pcg_health_verify = call_tool(
+        pcg_verify = call_tool(
             client,
             1011902,
             "graph.verify",
             {
-                "mode": "health",
                 "assetPath": temp_pcg_health_asset,
                 "graphName": "PCGGraph",
                 "graphType": "pcg",
             },
         )
-        if pcg_health_verify.get("mode") != "health":
-            fail(f"graph.verify(mode=health, pcg) returned wrong mode: {pcg_health_verify}")
-        if pcg_health_verify.get("status") != "error":
-            fail(f"graph.verify(mode=health, pcg) should report error for disconnected output graph: {pcg_health_verify}")
-        pcg_health_diagnostics = pcg_health_verify.get("diagnostics")
+        if pcg_verify.get("status") != "error":
+            fail(f"graph.verify should report error for disconnected output graph: {pcg_verify}")
+        if not isinstance(pcg_verify.get("queryReport"), dict):
+            fail(f"graph.verify missing queryReport for pcg graph: {pcg_verify}")
+        pcg_health_diagnostics = pcg_verify.get("diagnostics")
         if not isinstance(pcg_health_diagnostics, list):
-            fail(f"graph.verify(mode=health, pcg) missing diagnostics[]: {pcg_health_verify}")
+            fail(f"graph.verify missing diagnostics[]: {pcg_verify}")
         pcg_health_codes = {
             diag.get("code")
             for diag in pcg_health_diagnostics
@@ -3658,8 +3656,8 @@ def main() -> int:
             "PCG_SPAWNER_NOT_CONNECTED_TO_OUTPUT",
         }:
             if expected_code not in pcg_health_codes:
-                fail(f"graph.verify(mode=health, pcg) missing {expected_code}: {pcg_health_verify}")
-        print("[PASS] pcg graph.verify health diagnostics validated")
+                fail(f"graph.verify missing {expected_code}: {pcg_verify}")
+        print("[PASS] pcg graph.verify diagnostics validated")
 
         pcg_set_default_add = call_tool(
             client,
