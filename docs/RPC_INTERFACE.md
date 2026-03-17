@@ -653,55 +653,33 @@ When `applied=false`:
 
 ```json
 {
-  "mode": "runtime",
+  "mode": "compile",
   "graphType": "pcg",
-  "componentPath": "/Game/Maps/MyMap.MyMap:PersistentLevel.PCGVolume_0.PCGComponent0",
-  "actorPath": "/Game/Maps/MyMap.MyMap:PersistentLevel.PCGVolume_0"
+  "assetPath": "/Game/PCG/MyGraph"
 }
 ```
 
 Field notes:
 
-- `mode` is required. Current values: `health`, `compile`, `runtime`.
-- `graphType` is required. `runtime` currently accepts only `pcg`.
-- Supply `componentPath` when you already know the exact PCG component to inspect.
-- `actorPath`, `objectPath`, and `path` are accepted as fallbacks; when omitted, the server may fall back to the selected PCG actor/component in the editor.
-- `managedResources` is the authoritative generated-result summary for spawned actors/components and instance counts.
-- `generatedGraphOutput` can still be empty or sparse for common spawner-style graphs even when visible runtime results exist.
+- `mode` is required. Current values: `health`, `compile`.
+- `graphType` is required and selects the graph domain to verify.
+- `graph.verify` is graph-scoped. Pass `assetPath`, `graphName`, or `graphRef` for the graph you want to verify.
+- `graph.verify` does not inspect scene instances, generated runtime output, or selected actors/components.
 
 `payload`:
 
 ```json
 {
-  "mode": "runtime",
+  "mode": "compile",
   "status": "ok",
-  "summary": "PCG runtime verification collected generated-output, managed-resource, and execution-inspection evidence.",
-  "ok": true,
-  "resolvedBy": "componentPath|actorPath|selection|objectPath|path",
-  "componentPath": "string",
-  "actorPath": "string",
-  "graphAssetPath": "/Game/...",
-  "generated": true,
-  "generating": false,
-  "managedResourcesAccessible": true,
-  "generatedGraphOutput": {
-    "taggedDataCount": 0,
-    "dataTypes": [],
-    "pins": []
-  },
-  "managedResources": {
-    "resourceCount": 1,
-    "generatedActorCount": 0,
-    "generatedComponentCount": 1,
-    "totalInstanceCount": 128,
-    "actors": [],
-    "components": []
-  },
-  "inspection": {
-    "available": true,
-    "executedNodeCount": 3,
-    "producedNodeCount": 2,
-    "nodes": []
+  "summary": "Graph compile/refresh verification succeeded.",
+  "graphType": "pcg",
+  "assetPath": "/Game/PCG/MyGraph",
+  "compileReport": {
+    "compiled": true,
+    "applied": true,
+    "partialApplied": false,
+    "opResults": []
   },
   "diagnostics": []
 }

@@ -23,16 +23,9 @@ Planning rule:
 Readback rule:
 - prefer `graph.query` after every meaningful PCG edit, not just for topology but also for node `effectiveSettings` and node-level `diagnostics`
 - expect `graph.query` to expose selector/spawner details for common runtime-sensitive nodes such as `Get Actor Property`, `Get Spline Data`, and `Static Mesh Spawner`
-- after disconnecting an overridable PCG input pin, you can use `setPinDefault` on that input to write the node setting directly; prefer readback or `graph.verify(mode="runtime")` to confirm the resulting behavior
+- after disconnecting an overridable PCG input pin, you can use `setPinDefault` on that input to write the node setting directly; prefer readback plus `graph.verify(mode="compile")` to confirm the resulting graph state
 - when a PCG pipeline looks empty, inspect node `diagnostics` first; LOOMLE now emits empty-input hints for actor selectors, component selectors, and mesh-selector misconfiguration
 - for selector-backed nodes, read the nested `actorSelector`, `componentSelector`, or `meshSelector` objects before assuming the runtime source is correct
-
-Runtime inspection rule:
-- when you need generated-result evidence after a regenerate, call `graph.verify(mode="runtime")`
-- prefer passing `componentPath` from `graph.resolve(actorPath=...)`, `graph.resolve(componentPath=...)`, or `context.selection`
-- treat `managedResources` as the authoritative runtime summary for spawned actors/components and instance counts
-- expect `generatedGraphOutput` to be informative but not always complete for spawner-style graphs
-- if `generatedGraphOutput` is empty while visible spawned results exist, trust `managedResources` and `inspection` instead of assuming generation failed
 
 Observability contract:
 - expect every PCG edge in `graph.query.semanticSnapshot.edges[]` to carry stable endpoint metadata: `fromNodeId`, `fromPin`, `toNodeId`, and `toPin`
@@ -55,13 +48,9 @@ End-to-end pattern: projection -> filter -> static mesh spawn:
 3. apply the returned plan with `graph.mutate`, then run `layoutGraph(scope="touched")`
 4. verify the resulting topology with `graph.query`
 5. confirm node configuration with `effectiveSettings` and node `diagnostics`
-6. if you regenerated the PCG component, call `graph.verify(mode="runtime")` and trust `managedResources` / `inspection` over sparse `generatedGraphOutput`
+6. if you regenerated the PCG component in the level, debug that execution in the scene/editor; `graph.verify` stays graph-scoped
 
 Troubleshooting:
-- graph generates in the editor but introspection looks empty:
-  - call `graph.verify(mode="runtime")`
-  - trust `managedResources` and `inspection` first
-  - do not treat empty `generatedGraphOutput` alone as proof that generation failed
 - filter produces zero points:
   - inspect node `diagnostics`
   - confirm the upstream projection kept the metadata you expect

@@ -317,10 +317,7 @@ Execution rule:
 - Forward via `rpc.invoke` with `tool=graph.verify`.
 - `mode="health"` summarizes graph diagnostics from the latest semantic snapshot.
 - `mode="compile"` runs explicit compile/refresh verification for Blueprint, Material, or PCG graphs.
-- `mode="runtime"` inspects generated-result evidence. The current runtime implementation supports `graphType="pcg"` only.
-- For `mode="runtime"`, prefer `componentPath` from `graph.resolve` or `context.selection`.
-- Treat `managedResources` as the authoritative summary for spawned actors/components and instance counts.
-- `generatedGraphOutput` may be empty or sparse for common spawner-style graphs even when visible generated results exist.
+- `graph.verify` is graph-scoped only. It does not inspect scene instances, selected actors/components, or generated runtime output.
 
 ## 4.7 `diag.tail`
 

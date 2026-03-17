@@ -133,7 +133,7 @@ pub fn tool_descriptors() -> Vec<Value> {
         runtime_tool_descriptor(
             "graph.verify",
             "Graph Verify",
-            "Verify graph health, compile state, or runtime evidence. Runtime verification currently supports graphType=\"pcg\" only.",
+            "Verify graph health or compile state for Blueprint, Material, or PCG graphs.",
             graph_verify_input_schema(),
             graph_verify_output_schema(),
         ),
@@ -1013,13 +1013,13 @@ fn graph_verify_input_schema() -> Value {
         "properties": {
             "mode": {
                 "type": "string",
-                "enum": ["health", "compile", "runtime"],
-                "description": "Verification mode. `health` inspects graph diagnostics, `compile` runs an explicit compile/refresh verification, and `runtime` inspects generated runtime evidence."
+                "enum": ["health", "compile"],
+                "description": "Verification mode. `health` inspects graph diagnostics and `compile` runs an explicit compile/refresh verification."
             },
             "graphType": {
                 "type": "string",
                 "enum": ["blueprint", "material", "pcg"],
-                "description": "Graph domain. `runtime` mode currently supports only PCG."
+                "description": "Graph domain for graph-level verification."
             },
             "assetPath": {
                 "type": "string",
@@ -1032,26 +1032,6 @@ fn graph_verify_input_schema() -> Value {
                 "description": "Graph name within the asset when verifying a specific Blueprint graph."
             },
             "graphRef": graph_ref_schema(),
-            "componentPath": {
-                "type": "string",
-                "minLength": 1,
-                "description": "Runtime object path to a UPCGComponent."
-            },
-            "actorPath": {
-                "type": "string",
-                "minLength": 1,
-                "description": "Runtime object path to an actor that owns a UPCGComponent."
-            },
-            "objectPath": {
-                "type": "string",
-                "minLength": 1,
-                "description": "Generic runtime object path. May resolve to a UPCGComponent or an actor that owns one."
-            },
-            "path": {
-                "type": "string",
-                "minLength": 1,
-                "description": "Alias for objectPath."
-            },
         },
         "additionalProperties": false
     })
@@ -1063,7 +1043,7 @@ fn graph_verify_output_schema() -> Value {
         "type": "object",
         "required": ["mode", "status", "diagnostics"],
         "properties": {
-            "mode": { "type": "string", "enum": ["health", "compile", "runtime"] },
+            "mode": { "type": "string", "enum": ["health", "compile"] },
             "status": { "type": "string", "enum": ["ok", "warn", "error"] },
             "summary": { "type": "string" },
             "graphType": graph_type_schema(),
@@ -1074,15 +1054,6 @@ fn graph_verify_output_schema() -> Value {
             "newRevision": { "type": "string" },
             "healthReport": { "type": "object", "additionalProperties": true },
             "compileReport": { "type": "object", "additionalProperties": true },
-            "componentPath": { "type": "string" },
-            "actorPath": { "type": "string" },
-            "graphAssetPath": { "type": "string" },
-            "generated": { "type": "boolean" },
-            "generating": { "type": "boolean" },
-            "managedResourcesAccessible": { "type": "boolean" },
-            "generatedGraphOutput": { "type": "object", "additionalProperties": true },
-            "managedResources": { "type": "object", "additionalProperties": true },
-            "inspection": { "type": "object", "additionalProperties": true },
             "diagnostics": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
         },
         "additionalProperties": true
@@ -1238,16 +1209,16 @@ mod tests {
             "graph.verify should expose graphType property"
         );
         assert!(
-            graph_verify["inputSchema"]["properties"]["componentPath"].is_object(),
-            "graph.verify should expose componentPath property"
-        );
-        assert!(
-            graph_verify["outputSchema"]["properties"]["managedResources"].is_object(),
-            "graph.verify should expose managedResources property"
+            graph_verify["outputSchema"]["properties"]["healthReport"].is_object(),
+            "graph.verify should expose healthReport property"
         );
         assert!(
             graph_verify["outputSchema"]["properties"]["compileReport"].is_object(),
             "graph.verify should expose compileReport property"
+        );
+        assert!(
+            graph_verify["inputSchema"]["properties"]["componentPath"].is_null(),
+            "graph.verify should not expose runtime componentPath property"
         );
     }
 

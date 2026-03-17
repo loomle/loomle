@@ -35,7 +35,6 @@ Read this file first. It is the top-level usage guide for agents working inside 
     - prefer `addNode.byClass` plans produced by `graph.ops.resolve`
     - use `graph.verify(mode="health")` to summarize graph diagnostics from the current snapshot
     - use `graph.verify(mode="compile")` when you want an explicit compile/refresh verification step
-    - use `graph.verify(mode="runtime")` when you need generated-result evidence, currently for PCG
 6. Choose the right workflow guide for the current graph type:
    - `workflows/blueprint.md`
    - `workflows/material.md`
@@ -49,10 +48,7 @@ Read this file first. It is the top-level usage guide for agents working inside 
    Working rule:
    - use `mode="health"` to summarize graph diagnostics from the current semantic snapshot
    - use `mode="compile"` to run explicit compile/refresh verification
-   - use `mode="runtime"` when you need generated-result evidence after a PCG regenerate
-   - for `mode="runtime"`, prefer `componentPath` from `graph.resolve` or `context.selection`
-   - trust `managedResources` for spawned actors/components and instance counts
-   - treat `generatedGraphOutput` as informative but potentially sparse for spawner-style graphs
+   - `graph.verify` is graph-scoped; do not use it for scene/runtime instance debugging
 
 ## Visual Loop
 
@@ -78,8 +74,8 @@ Working rule:
   Make one tool request and print the result.
 - `Loomle/loomle call diag.tail --args '{"fromSeq":0}'`
   Read persisted diagnostics incrementally. Reuse the returned `nextSeq` as the next cursor.
-- `Loomle/loomle call graph.verify --args '{"mode":"runtime","graphType":"pcg","componentPath":"/Game/Maps/MyMap.MyMap:PersistentLevel.PCGVolume_0.PCGComponent0"}'`
-  Inspect generated PCG runtime output, managed resources, and execution summaries for one PCG component.
+- `Loomle/loomle call graph.verify --args '{"mode":"compile","graphType":"pcg","assetPath":"/Game/PCG/MyGraph"}'`
+  Run an explicit compile/refresh verification for one graph asset.
 - `Loomle/loomle session`
   Start a persistent stdin/stdout JSON session for repeated requests. Prefer this for high-concurrency or high-volume query workloads.
 - `Loomle/loomle skill list`
@@ -157,17 +153,13 @@ Use `graph.verify` as the final verification primitive in the graph loop.
 Minimal one-shot example:
 
 ```bash
-Loomle/loomle call graph.verify --args '{"mode":"runtime","graphType":"pcg","componentPath":"/Game/Maps/MyMap.MyMap:PersistentLevel.PCGVolume_0.PCGComponent0"}'
+Loomle/loomle call graph.verify --args '{"mode":"compile","graphType":"pcg","assetPath":"/Game/PCG/MyGraph"}'
 ```
 
 Working rule:
 - use `mode="health"` when you want structural diagnostics from the latest graph snapshot
 - use `mode="compile"` when you want an explicit compile/refresh verification step
-- use `mode="runtime"` when you want generated-result evidence after a PCG regenerate
-- for `mode="runtime"`, prefer `componentPath` from `graph.resolve(actorPath=...)`, `graph.resolve(componentPath=...)`, or `context.selection`
-- use `managedResources` as the authoritative summary for spawned actors/components and instance counts
-- `generatedGraphOutput` may still be empty or sparse for common spawner-style graphs even when visible results exist
-- use `inspection.nodes[*]` when you need a per-node executed/produced-data summary
+- `graph.verify` is for graph assets only; runtime scene debugging is a separate concern
 
 ## Semantic Planning
 
