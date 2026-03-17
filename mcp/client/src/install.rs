@@ -29,9 +29,15 @@ fn print_install_phase(message: &str) {
 
 fn local_manifest_repair_hint(project_root: &Path) -> String {
     format!(
-        " If needed, repair with `loomle install --project-root {} --manifest-path <manifest.json>` using a locally downloaded manifest/package.",
+        " If needed, repair with `loomle install --project-root {} --manifest-path <manifest.json>` using a locally downloaded manifest/package, or extract the official release zip manually into `Plugins/LoomleBridge` and `Loomle`.",
         project_root.display()
     )
+}
+
+fn top_level_zip_component(path: &Path) -> Option<String> {
+    path.components()
+        .next()
+        .map(|component| component.as_os_str().to_string_lossy().to_string())
 }
 
 #[derive(Debug, Clone)]
@@ -94,7 +100,9 @@ struct RuntimeInstallState {
 
 pub fn install_release(request: InstallRequest) -> Result<serde_json::Value, String> {
     let project_root = validate_project_root(&request.project_root)?;
+    print_install_phase(&format!("resolved project root {}", project_root.display()));
     let temp_dir = TempDir::new().map_err(|error| format!("failed to create temp dir: {error}"))?;
+    print_install_phase("loading release manifest");
     let manifest = load_manifest(&request)?;
     let version = resolve_version(&manifest, request.version.as_deref())?;
     let package = manifest
@@ -115,6 +123,12 @@ pub fn install_release(request: InstallRequest) -> Result<serde_json::Value, Str
             package.format
         ));
     }
+
+    print_install_phase(&format!(
+        "selected version={version} platform={} packageUrl={}",
+        platform_key(),
+        package.url
+    ));
 
     let archive_path = temp_dir.path().join("loomle-release.zip");
     print_install_phase(&format!(
@@ -151,6 +165,13 @@ pub fn install_release(request: InstallRequest) -> Result<serde_json::Value, Str
     })?;
     print_install_phase("copying plugin and workspace into the project");
     let install_state_path = copy_release_tree(&bundle_root, &project_root, &version, package)?;
+    print_install_phase("verifying installed layout");
+    validate_installed_paths(&project_root, package).map_err(|error| {
+        format!(
+            "{error}. The install may be incomplete.{}",
+            local_manifest_repair_hint(&project_root)
+        )
+    })?;
 
     Ok(json!({
         "installedVersion": version,
@@ -175,6 +196,7 @@ pub fn install_release(request: InstallRequest) -> Result<serde_json::Value, Str
 
 pub fn update_release(request: UpdateRequest) -> Result<serde_json::Value, String> {
     let project_root = validate_project_root(&request.project_root)?;
+    print_install_phase(&format!("resolved project root {}", project_root.display()));
     let install_state = read_runtime_install_state(&project_root)?;
     let manifest_request = InstallRequest {
         project_root: project_root.clone(),
@@ -188,6 +210,11 @@ pub fn update_release(request: UpdateRequest) -> Result<serde_json::Value, Strin
     let version_changed = install_state.installed_version != target_version;
     let would_change = version_changed;
     let update_available = install_state.installed_version != latest_version;
+
+    print_install_phase(&format!(
+        "installedVersion={} latestVersion={} targetVersion={}",
+        install_state.installed_version, latest_version, target_version
+    ));
 
     if !request.apply {
         return Ok(json!({
@@ -214,6 +241,10 @@ pub fn update_release(request: UpdateRequest) -> Result<serde_json::Value, Strin
         }));
     }
 
+    print_install_phase(&format!(
+        "applying update {} -> {}",
+        install_state.installed_version, target_version
+    ));
     let install_result = install_release(InstallRequest {
         project_root,
         version: Some(target_version.clone()),
@@ -266,6 +297,7 @@ fn read_runtime_install_state(project_root: &Path) -> Result<RuntimeInstallState
 
 fn load_manifest(request: &InstallRequest) -> Result<ReleaseManifest, String> {
     if let Some(path) = &request.manifest_path {
+        print_install_phase(&format!("reading manifest from {}", path.display()));
         let manifest_json = fs::read_to_string(path)
             .map_err(|error| format!("failed to read manifest {}: {error}", path.display()))?;
         return serde_json::from_str(&manifest_json)
@@ -276,6 +308,7 @@ fn load_manifest(request: &InstallRequest) -> Result<ReleaseManifest, String> {
         .manifest_url
         .clone()
         .unwrap_or_else(|| default_manifest_url(request.version.as_deref()));
+    print_install_phase(&format!("downloading manifest from {manifest_url}"));
     let body = Client::new()
         .get(&manifest_url)
         .send()
@@ -329,6 +362,14 @@ fn resolve_version(
 
 fn fetch_release_archive(package: &ReleasePackage, archive_path: &Path) -> Result<(), String> {
     if let Some(file_path) = file_path_from_uri(&package.url)? {
+        let file_size = fs::metadata(&file_path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        print_install_phase(&format!(
+            "copying local package {} ({} bytes)",
+            file_path.display(),
+            file_size
+        ));
         fs::copy(&file_path, archive_path).map_err(|error| {
             format!(
                 "failed to copy local package {} to {}: {error}",
@@ -336,6 +377,10 @@ fn fetch_release_archive(package: &ReleasePackage, archive_path: &Path) -> Resul
                 archive_path.display()
             )
         })?;
+        print_install_phase(&format!(
+            "package copy complete: {} bytes",
+            fs::metadata(archive_path).map(|metadata| metadata.len()).unwrap_or(file_size)
+        ));
         return Ok(());
     }
 
@@ -344,6 +389,7 @@ fn fetch_release_archive(package: &ReleasePackage, archive_path: &Path) -> Resul
         .send()
         .and_then(|response| response.error_for_status())
         .map_err(|error| format!("failed to download package {}: {error}", package.url))?;
+    let expected_bytes = response.content_length();
 
     let mut output = fs::File::create(archive_path).map_err(|error| {
         format!(
@@ -351,18 +397,39 @@ fn fetch_release_archive(package: &ReleasePackage, archive_path: &Path) -> Resul
             archive_path.display()
         )
     })?;
-    response.copy_to(&mut output).map_err(|error| {
-        format!(
-            "failed to write archive {}: {error}",
-            archive_path.display()
-        )
-    })?;
+    let mut downloaded_bytes: u64 = 0;
+    let mut buffer = [0_u8; 1024 * 256];
+    loop {
+        let bytes_read = response
+            .read(&mut buffer)
+            .map_err(|error| format!("failed to read package {}: {error}", package.url))?;
+        if bytes_read == 0 {
+            break;
+        }
+        output
+            .write_all(&buffer[..bytes_read])
+            .map_err(|error| format!("failed to write archive {}: {error}", archive_path.display()))?;
+        downloaded_bytes += bytes_read as u64;
+    }
     output.flush().map_err(|error| {
         format!(
             "failed to flush archive {}: {error}",
             archive_path.display()
         )
-    })
+    })?;
+    match expected_bytes {
+        Some(expected_bytes) => {
+            print_install_phase(&format!(
+                "package download complete: {downloaded_bytes}/{expected_bytes} bytes"
+            ));
+        }
+        None => {
+            print_install_phase(&format!(
+                "package download complete: {downloaded_bytes} bytes"
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn file_path_from_uri(raw: &str) -> Result<Option<PathBuf>, String> {
@@ -435,6 +502,7 @@ fn extract_zip(archive_path: &Path, bundle_root: &Path) -> Result<(), String> {
         )
     })?;
 
+    let mut last_top_level_component = None::<String>;
     for index in 0..archive.len() {
         let mut entry = archive
             .by_index(index)
@@ -447,6 +515,12 @@ fn extract_zip(archive_path: &Path, bundle_root: &Path) -> Result<(), String> {
         let Some(enclosed_name) = entry.enclosed_name() else {
             return Err(format!("zip entry contains unsafe path: {}", entry.name()));
         };
+        if let Some(top_level_component) = top_level_zip_component(enclosed_name.as_ref()) {
+            if last_top_level_component.as_deref() != Some(top_level_component.as_str()) {
+                print_install_phase(&format!("extracting {top_level_component}/"));
+                last_top_level_component = Some(top_level_component);
+            }
+        }
         let destination = bundle_root.join(enclosed_name);
         if entry.is_dir() || entry.name().ends_with('\\') {
             fs::create_dir_all(&destination).map_err(|error| {
@@ -537,10 +611,62 @@ fn copy_release_tree(
     let workspace_destination = project_root.join(&package.install.workspace.destination);
 
     copy_tree(&plugin_source, &plugin_destination)?;
+    print_install_phase(&format!("copied plugin to {}", plugin_destination.display()));
     copy_tree(&workspace_source, &workspace_destination)?;
+    print_install_phase(&format!("copied workspace to {}", workspace_destination.display()));
     ensure_installed_binaries_executable(project_root, package)?;
     ensure_editor_performance_setting(project_root)?;
     write_runtime_install_state(project_root, version, package)
+}
+
+fn validate_installed_paths(project_root: &Path, package: &ReleasePackage) -> Result<(), String> {
+    let plugin_destination = project_root.join(&package.install.plugin.destination);
+    let workspace_destination = project_root.join(&package.install.workspace.destination);
+    let server_path = installed_destination_path(
+        project_root,
+        PLUGIN_SOURCE_ROOT,
+        &package.install.plugin.destination,
+        &package.server_binary_relpath,
+    )?;
+    let client_path = installed_destination_path(
+        project_root,
+        WORKSPACE_SOURCE_ROOT,
+        &package.install.workspace.destination,
+        &package.client_binary_relpath,
+    )?;
+    let install_state_path = workspace_destination.join("runtime/install.json");
+
+    if !plugin_destination.is_dir() {
+        return Err(format!(
+            "plugin destination missing after install: {}",
+            plugin_destination.display()
+        ));
+    }
+    if !workspace_destination.is_dir() {
+        return Err(format!(
+            "workspace destination missing after install: {}",
+            workspace_destination.display()
+        ));
+    }
+    if !server_path.is_file() {
+        return Err(format!(
+            "installed server binary missing: {}",
+            server_path.display()
+        ));
+    }
+    if !client_path.is_file() {
+        return Err(format!(
+            "installed client binary missing: {}",
+            client_path.display()
+        ));
+    }
+    if !install_state_path.is_file() {
+        return Err(format!(
+            "install state missing after install: {}",
+            install_state_path.display()
+        ));
+    }
+    Ok(())
 }
 
 fn ensure_editor_performance_setting(project_root: &Path) -> Result<(), String> {
