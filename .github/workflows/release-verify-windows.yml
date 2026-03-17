@@ -326,7 +326,7 @@ jobs:
           $projectRoot = "${{ steps.test_project.outputs.test_root }}"
           $uproject = "${{ steps.test_project.outputs.uproject }}"
           $ueEditor = "${{ steps.ue_root_windows.outputs.ue_editor }}"
-          $env:LOOMLE_SKIP_MATERIAL_VISUAL_REGRESSION = "1"
+          $env:LOOMLE_SKIP_EDITOR_VISUAL_REGRESSION = "1"
           $passed = $false
 
           for ($attempt = 1; $attempt -le 2; $attempt++) {

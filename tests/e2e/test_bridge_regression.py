@@ -372,6 +372,13 @@ def main() -> int:
     temp_pcg_asset = make_temp_asset_path("/Game/Codex/PCG_BridgeRegression")
     temp_pcg_health_asset = make_temp_asset_path("/Game/Codex/PCG_HealthRegression")
     temp_material_asset = make_temp_asset_path("/Game/Codex/M_RegressionLayout")
+    skip_editor_visual_regression = os.environ.get("LOOMLE_SKIP_EDITOR_VISUAL_REGRESSION") == "1"
+    skip_material_visual_regression = (
+        skip_editor_visual_regression or os.environ.get("LOOMLE_SKIP_MATERIAL_VISUAL_REGRESSION") == "1"
+    )
+    skip_pcg_visual_regression = (
+        skip_editor_visual_regression or os.environ.get("LOOMLE_SKIP_PCG_VISUAL_REGRESSION") == "1"
+    )
 
     try:
         wait_for_bridge_ready(client)
@@ -2945,8 +2952,11 @@ def main() -> int:
                 "Material layoutGraph(scope=all) did not change tracked node position after moveNodeBy: "
                 f"before={material_before_relayout} after={material_after_relayout_pos}"
             )
-        if os.environ.get("LOOMLE_SKIP_MATERIAL_VISUAL_REGRESSION") == "1":
-            print("[WARN] material visual layout regression skipped by LOOMLE_SKIP_MATERIAL_VISUAL_REGRESSION=1")
+        if skip_material_visual_regression:
+            print(
+                "[WARN] material visual layout regression skipped by "
+                "LOOMLE_SKIP_EDITOR_VISUAL_REGRESSION=1 or LOOMLE_SKIP_MATERIAL_VISUAL_REGRESSION=1"
+            )
         else:
             editor_open_material_payload = call_tool(
                 client,
@@ -3449,64 +3459,70 @@ def main() -> int:
             for edge in pcg_edges
         ):
             fail(f"PCG graph.query missing filter branch edge: {pcg_edges}")
-        editor_open_pcg_payload = call_tool(
-            client,
-            10112,
-            "editor.open",
-            {"assetPath": temp_pcg_asset},
-        )
-        if editor_open_pcg_payload.get("assetPath") != temp_pcg_asset:
-            fail(f"editor.open did not open PCG asset: {editor_open_pcg_payload}")
-        editor_focus_pcg_payload = call_tool(
-            client,
-            10113,
-            "editor.focus",
-            {"assetPath": temp_pcg_asset, "panel": "graph"},
-        )
-        if editor_focus_pcg_payload.get("editorType") != "pcg":
-            fail(f"editor.focus did not resolve PCG editorType: {editor_focus_pcg_payload}")
-        _, _, pcg_capture_before_hash = capture_editor_png_hash(
-            client,
-            10114,
-            f"Loomle/runtime/captures/pcg-layout-before-{int(time.time())}.png",
-        )
-        pcg_visual_relayout_payload = call_tool(
-            client,
-            10115,
-            "graph.mutate",
-            {
-                "assetPath": temp_pcg_asset,
-                "graphName": "PCGGraph",
-                "graphType": "pcg",
-                "ops": [
-                    {
-                        "op": "moveNodeBy",
-                        "args": {
-                            "target": {"nodeId": pcg_create_id},
-                            "dx": 640,
-                            "dy": -320,
-                        },
-                    },
-                    {"op": "layoutGraph", "args": {"scope": "all"}},
-                ],
-            },
-        )
-        pcg_visual_relayout_results = pcg_visual_relayout_payload.get("opResults")
-        if not isinstance(pcg_visual_relayout_results, list) or len(pcg_visual_relayout_results) != 2:
-            fail(f"PCG visual relayout opResults mismatch: {pcg_visual_relayout_payload}")
-        if not isinstance(pcg_visual_relayout_results[1], dict) or pcg_visual_relayout_results[1].get("ok") is not True:
-            fail(f"PCG visual relayout failed: {pcg_visual_relayout_payload}")
-        _, _, pcg_capture_after_hash = capture_editor_png_hash_until_changed(
-            client,
-            10116,
-            relative_path_prefix="Loomle/runtime/captures/pcg-layout-after",
-            baseline_hash=pcg_capture_before_hash,
-        )
-        if pcg_capture_after_hash == pcg_capture_before_hash:
-            fail(
-                "editor.screenshot stayed visually stale after PCG layoutGraph: "
-                f"before={pcg_capture_before_hash} after={pcg_capture_after_hash}"
+        if skip_pcg_visual_regression:
+            print(
+                "[WARN] PCG visual layout regression skipped by "
+                "LOOMLE_SKIP_EDITOR_VISUAL_REGRESSION=1 or LOOMLE_SKIP_PCG_VISUAL_REGRESSION=1"
             )
+        else:
+            editor_open_pcg_payload = call_tool(
+                client,
+                10112,
+                "editor.open",
+                {"assetPath": temp_pcg_asset},
+            )
+            if editor_open_pcg_payload.get("assetPath") != temp_pcg_asset:
+                fail(f"editor.open did not open PCG asset: {editor_open_pcg_payload}")
+            editor_focus_pcg_payload = call_tool(
+                client,
+                10113,
+                "editor.focus",
+                {"assetPath": temp_pcg_asset, "panel": "graph"},
+            )
+            if editor_focus_pcg_payload.get("editorType") != "pcg":
+                fail(f"editor.focus did not resolve PCG editorType: {editor_focus_pcg_payload}")
+            _, _, pcg_capture_before_hash = capture_editor_png_hash(
+                client,
+                10114,
+                f"Loomle/runtime/captures/pcg-layout-before-{int(time.time())}.png",
+            )
+            pcg_visual_relayout_payload = call_tool(
+                client,
+                10115,
+                "graph.mutate",
+                {
+                    "assetPath": temp_pcg_asset,
+                    "graphName": "PCGGraph",
+                    "graphType": "pcg",
+                    "ops": [
+                        {
+                            "op": "moveNodeBy",
+                            "args": {
+                                "target": {"nodeId": pcg_create_id},
+                                "dx": 640,
+                                "dy": -320,
+                            },
+                        },
+                        {"op": "layoutGraph", "args": {"scope": "all"}},
+                    ],
+                },
+            )
+            pcg_visual_relayout_results = pcg_visual_relayout_payload.get("opResults")
+            if not isinstance(pcg_visual_relayout_results, list) or len(pcg_visual_relayout_results) != 2:
+                fail(f"PCG visual relayout opResults mismatch: {pcg_visual_relayout_payload}")
+            if not isinstance(pcg_visual_relayout_results[1], dict) or pcg_visual_relayout_results[1].get("ok") is not True:
+                fail(f"PCG visual relayout failed: {pcg_visual_relayout_payload}")
+            _, _, pcg_capture_after_hash = capture_editor_png_hash_until_changed(
+                client,
+                10116,
+                relative_path_prefix="Loomle/runtime/captures/pcg-layout-after",
+                baseline_hash=pcg_capture_before_hash,
+            )
+            if pcg_capture_after_hash == pcg_capture_before_hash:
+                fail(
+                    "editor.screenshot stayed visually stale after PCG layoutGraph: "
+                    f"before={pcg_capture_before_hash} after={pcg_capture_after_hash}"
+                )
         print("[PASS] pcg pipeline layout validated")
 
         pcg_settings_probe_add = call_tool(
@@ -4000,34 +4016,37 @@ def main() -> int:
             fail(f"PCG FilterByAttribute threshold constant did not update: {pcg_filter_verify}")
         print("[PASS] graph.mutate setPinDefault supports PCG selector and constant threshold paths")
 
-        editor_open_payload = call_tool(
-            client,
-            4001,
-            "editor.open",
-            {"assetPath": temp_asset},
-        )
-        if editor_open_payload.get("assetPath") != temp_asset:
-            fail(f"editor.open did not echo assetPath: {editor_open_payload}")
-        if not isinstance(editor_open_payload.get("assetClassPath"), str) or not editor_open_payload.get("assetClassPath"):
-            fail(f"editor.open missing assetClassPath: {editor_open_payload}")
+        if skip_editor_visual_regression:
+            print("[WARN] editor.open/editor.focus/editor.screenshot regression skipped by LOOMLE_SKIP_EDITOR_VISUAL_REGRESSION=1")
+        else:
+            editor_open_payload = call_tool(
+                client,
+                4001,
+                "editor.open",
+                {"assetPath": temp_asset},
+            )
+            if editor_open_payload.get("assetPath") != temp_asset:
+                fail(f"editor.open did not echo assetPath: {editor_open_payload}")
+            if not isinstance(editor_open_payload.get("assetClassPath"), str) or not editor_open_payload.get("assetClassPath"):
+                fail(f"editor.open missing assetClassPath: {editor_open_payload}")
 
-        editor_focus_payload = call_tool(
-            client,
-            4002,
-            "editor.focus",
-            {"assetPath": temp_asset, "panel": "graph"},
-        )
-        if editor_focus_payload.get("editorType") != "blueprint":
-            fail(f"editor.focus did not resolve blueprint editorType: {editor_focus_payload}")
-        if editor_focus_payload.get("panel") != "graph":
-            fail(f"editor.focus did not echo graph panel: {editor_focus_payload}")
+            editor_focus_payload = call_tool(
+                client,
+                4002,
+                "editor.focus",
+                {"assetPath": temp_asset, "panel": "graph"},
+            )
+            if editor_focus_payload.get("editorType") != "blueprint":
+                fail(f"editor.focus did not resolve blueprint editorType: {editor_focus_payload}")
+            if editor_focus_payload.get("panel") != "graph":
+                fail(f"editor.focus did not echo graph panel: {editor_focus_payload}")
 
-        _, _, _ = capture_editor_png_hash(
-            client,
-            4003,
-            f"Loomle/runtime/captures/editor-open-regression-{int(time.time())}.png",
-        )
-        print("[PASS] editor.open, editor.focus, and editor.screenshot validated")
+            _, _, _ = capture_editor_png_hash(
+                client,
+                4003,
+                f"Loomle/runtime/captures/editor-open-regression-{int(time.time())}.png",
+            )
+            print("[PASS] editor.open, editor.focus, and editor.screenshot validated")
 
         print("[PASS] graph.mutate core ops validated")
         print("[PASS] Bridge regression complete")
