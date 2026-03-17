@@ -3784,6 +3784,165 @@ def main() -> int:
             fail(f"PCG setPinDefault did not update LongitudinalSegments: {pcg_set_default_verify}")
         print("[PASS] graph.mutate setPinDefault supports PCG overridable inputs")
 
+        pcg_filter_add = call_tool(
+            client,
+            101194,
+            "graph.mutate",
+            {
+                "assetPath": temp_pcg_asset,
+                "graphName": "PCGGraph",
+                "graphType": "pcg",
+                "ops": [
+                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGFilterByAttributeSettings"}},
+                ],
+            },
+        )
+        pcg_filter_add_results = pcg_filter_add.get("opResults")
+        if not isinstance(pcg_filter_add_results, list) or len(pcg_filter_add_results) != 1:
+            fail(f"PCG FilterByAttribute probe add op missing results: {pcg_filter_add}")
+        pcg_filter_node_id = pcg_filter_add_results[0].get("nodeId")
+        if not isinstance(pcg_filter_node_id, str) or not pcg_filter_node_id:
+            fail(f"PCG FilterByAttribute probe missing node id: {pcg_filter_add}")
+
+        pcg_filter_query = call_tool(
+            client,
+            101195,
+            "graph.query",
+            {
+                "assetPath": temp_pcg_asset,
+                "graphName": "PCGGraph",
+                "graphType": "pcg",
+                "filter": {"nodeClasses": ["/Script/PCG.PCGFilterByAttributeSettings"]},
+            },
+        )
+        semantic_snapshot = pcg_filter_query.get("semanticSnapshot")
+        snapshot_nodes = semantic_snapshot.get("nodes") if isinstance(semantic_snapshot, dict) else None
+        if not isinstance(snapshot_nodes, list):
+            fail(f"PCG FilterByAttribute graph.query missing semanticSnapshot.nodes: {pcg_filter_query}")
+        filter_node = next(
+            (node for node in snapshot_nodes if isinstance(node, dict) and node.get("id") == pcg_filter_node_id),
+            None,
+        )
+        if not isinstance(filter_node, dict):
+            fail(f"PCG FilterByAttribute node not present in graph.query snapshot: {pcg_filter_query}")
+        filter_pins = filter_node.get("pins")
+        if not isinstance(filter_pins, list):
+            fail(f"PCG FilterByAttribute node missing pins[]: {filter_node}")
+        filter_pin_names = {
+            pin.get("name")
+            for pin in filter_pins
+            if isinstance(pin, dict) and isinstance(pin.get("name"), str)
+        }
+        for expected_pin in {
+            "TargetAttribute",
+            "Threshold/AttributeTypes/Type",
+            "Threshold/AttributeTypes/DoubleValue",
+        }:
+            if expected_pin not in filter_pin_names:
+                fail(f"PCG FilterByAttribute query missing writable pin path {expected_pin}: {filter_node}")
+        print("[PASS] PCG FilterByAttribute query exposes writable constant threshold paths")
+
+        pcg_filter_mutate = call_tool(
+            client,
+            101196,
+            "graph.mutate",
+            {
+                "assetPath": temp_pcg_asset,
+                "graphName": "PCGGraph",
+                "graphType": "pcg",
+                "ops": [
+                    {
+                        "op": "setPinDefault",
+                        "args": {
+                            "target": {"nodeId": pcg_filter_node_id, "pin": "FilterMode"},
+                            "value": "FilterByValue",
+                        },
+                    },
+                    {
+                        "op": "setPinDefault",
+                        "args": {
+                            "target": {"nodeId": pcg_filter_node_id, "pin": "TargetAttribute"},
+                            "value": "Desert_Cactus",
+                        },
+                    },
+                    {
+                        "op": "setPinDefault",
+                        "args": {
+                            "target": {"nodeId": pcg_filter_node_id, "pin": "FilterOperator"},
+                            "value": "GreaterOrEqual",
+                        },
+                    },
+                    {
+                        "op": "setPinDefault",
+                        "args": {
+                            "target": {"nodeId": pcg_filter_node_id, "pin": "Threshold/bUseConstantThreshold"},
+                            "value": True,
+                        },
+                    },
+                    {
+                        "op": "setPinDefault",
+                        "args": {
+                            "target": {"nodeId": pcg_filter_node_id, "pin": "Threshold/AttributeTypes/type"},
+                            "value": "Double",
+                        },
+                    },
+                    {
+                        "op": "setPinDefault",
+                        "args": {
+                            "target": {"nodeId": pcg_filter_node_id, "pin": "Threshold/AttributeTypes/double_value"},
+                            "value": 0.5,
+                        },
+                    },
+                ],
+            },
+        )
+        pcg_filter_mutate_results = pcg_filter_mutate.get("opResults")
+        if not isinstance(pcg_filter_mutate_results, list) or len(pcg_filter_mutate_results) != 6:
+            fail(f"PCG FilterByAttribute mutate missing opResults: {pcg_filter_mutate}")
+        for index, result in enumerate(pcg_filter_mutate_results):
+            if not isinstance(result, dict) or not result.get("ok"):
+                fail(f"PCG FilterByAttribute mutate op[{index}] failed: {pcg_filter_mutate}")
+
+        pcg_filter_verify_payload = call_execute_exec_with_retry(
+            client=client,
+            req_id_base=101197,
+            code=(
+                "import json\n"
+                "import unreal\n"
+                f"node_path = {json.dumps(pcg_filter_node_id, ensure_ascii=False)}\n"
+                "node = unreal.load_object(None, node_path)\n"
+                "if node is None:\n"
+                "    raise RuntimeError(f'failed to load PCG node: {node_path}')\n"
+                "settings = node.get_settings()\n"
+                "if settings is None:\n"
+                "    raise RuntimeError(f'PCG node has no settings: {node_path}')\n"
+                "selector_helpers = unreal.PCGAttributePropertySelectorBlueprintHelpers\n"
+                "target = settings.get_editor_property('target_attribute')\n"
+                "threshold = settings.get_editor_property('threshold')\n"
+                "attribute_types = threshold.get_editor_property('attribute_types')\n"
+                "print(json.dumps({\n"
+                "    'ok': True,\n"
+                "    'targetAttributeName': str(selector_helpers.get_attribute_name(target)),\n"
+                "    'targetPropertyName': str(selector_helpers.get_property_name(target)),\n"
+                "    'thresholdType': str(attribute_types.get_editor_property('type')),\n"
+                "    'thresholdDoubleValue': attribute_types.get_editor_property('double_value'),\n"
+                "}, ensure_ascii=False))\n"
+            ),
+        )
+        pcg_filter_verify = parse_execute_json(pcg_filter_verify_payload)
+        if pcg_filter_verify.get("ok") is not True:
+            fail(f"PCG FilterByAttribute verification failed: {pcg_filter_verify}")
+        if pcg_filter_verify.get("targetAttributeName") != "Desert_Cactus":
+            fail(f"PCG FilterByAttribute TargetAttribute did not update: {pcg_filter_verify}")
+        if pcg_filter_verify.get("targetPropertyName") not in {"None", ""}:
+            fail(f"PCG FilterByAttribute TargetAttribute should not remain a property selector: {pcg_filter_verify}")
+        threshold_type = str(pcg_filter_verify.get("thresholdType", ""))
+        if "Double" not in threshold_type and "DOUBLE" not in threshold_type:
+            fail(f"PCG FilterByAttribute threshold type did not update to Double: {pcg_filter_verify}")
+        if abs(float(pcg_filter_verify.get("thresholdDoubleValue", 0.0)) - 0.5) > 1e-6:
+            fail(f"PCG FilterByAttribute threshold constant did not update: {pcg_filter_verify}")
+        print("[PASS] graph.mutate setPinDefault supports PCG selector and constant threshold paths")
+
         editor_open_payload = call_tool(
             client,
             4001,

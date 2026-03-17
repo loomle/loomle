@@ -98,6 +98,155 @@ TSharedPtr<FJsonObject> MakePcgSelectorObject(const FPCGAttributePropertySelecto
     return Result;
 }
 
+bool HasPcgPinNamed(const TArray<TSharedPtr<FJsonValue>>& Pins, const FString& PinName)
+{
+    for (const TSharedPtr<FJsonValue>& PinValue : Pins)
+    {
+        const TSharedPtr<FJsonObject>* PinObject = nullptr;
+        if (!PinValue.IsValid() || !PinValue->TryGetObject(PinObject) || PinObject == nullptr || !(*PinObject).IsValid())
+        {
+            continue;
+        }
+
+        FString ExistingPinName;
+        if ((*PinObject)->TryGetStringField(TEXT("name"), ExistingPinName)
+            && ExistingPinName.Equals(PinName, ESearchCase::IgnoreCase))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void AppendPcgSyntheticSettingPin(
+    TArray<TSharedPtr<FJsonValue>>& Pins,
+    const FString& PinName,
+    const FString& DefaultValue)
+{
+    if (PinName.IsEmpty() || HasPcgPinNamed(Pins, PinName))
+    {
+        return;
+    }
+
+    TSharedPtr<FJsonObject> PinObj = MakeShared<FJsonObject>();
+    PinObj->SetStringField(TEXT("name"), PinName);
+    PinObj->SetStringField(TEXT("direction"), TEXT("input"));
+    PinObj->SetStringField(TEXT("category"), TEXT("pcg"));
+    PinObj->SetStringField(TEXT("subCategory"), TEXT("setting"));
+    PinObj->SetStringField(TEXT("subCategoryObject"), TEXT(""));
+    PinObj->SetBoolField(TEXT("isReference"), false);
+    PinObj->SetBoolField(TEXT("isConst"), true);
+    PinObj->SetBoolField(TEXT("isArray"), false);
+    PinObj->SetBoolField(TEXT("isSyntheticDefaultTarget"), true);
+    PinObj->SetStringField(TEXT("defaultValue"), DefaultValue);
+    PinObj->SetStringField(TEXT("defaultObject"), TEXT(""));
+    PinObj->SetStringField(TEXT("defaultText"), DefaultValue);
+
+    TSharedPtr<FJsonObject> PinTypeObject = MakeShared<FJsonObject>();
+    PinTypeObject->SetStringField(TEXT("category"), TEXT("pcg"));
+    PinTypeObject->SetStringField(TEXT("subCategory"), TEXT("setting"));
+    PinTypeObject->SetStringField(TEXT("object"), TEXT(""));
+    PinTypeObject->SetStringField(TEXT("container"), TEXT("none"));
+    PinObj->SetObjectField(TEXT("type"), PinTypeObject);
+
+    TSharedPtr<FJsonObject> PinDefaultObject = MakeShared<FJsonObject>();
+    PinDefaultObject->SetStringField(TEXT("value"), DefaultValue);
+    PinDefaultObject->SetStringField(TEXT("object"), TEXT(""));
+    PinDefaultObject->SetStringField(TEXT("text"), DefaultValue);
+    PinObj->SetObjectField(TEXT("default"), PinDefaultObject);
+    PinObj->SetArrayField(TEXT("links"), TArray<TSharedPtr<FJsonValue>>{});
+    PinObj->SetArrayField(TEXT("linkedTo"), TArray<TSharedPtr<FJsonValue>>{});
+    Pins.Add(MakeShared<FJsonValueObject>(PinObj));
+}
+
+FString MakePcgConstantValueString(const FPCGMetadataTypesConstantStruct& ConstantValue, FString& OutLeafPropertyName)
+{
+    OutLeafPropertyName.Empty();
+
+    switch (ConstantValue.Type)
+    {
+    case EPCGMetadataTypes::Float:
+        OutLeafPropertyName = TEXT("FloatValue");
+        return FString::SanitizeFloat(ConstantValue.FloatValue);
+    case EPCGMetadataTypes::Integer32:
+        OutLeafPropertyName = TEXT("Int32Value");
+        return FString::FromInt(ConstantValue.Int32Value);
+    case EPCGMetadataTypes::Double:
+        OutLeafPropertyName = TEXT("DoubleValue");
+        return FString::SanitizeFloat(ConstantValue.DoubleValue);
+    case EPCGMetadataTypes::Integer64:
+        OutLeafPropertyName = TEXT("IntValue");
+        return LexToString(ConstantValue.IntValue);
+    case EPCGMetadataTypes::String:
+        OutLeafPropertyName = TEXT("StringValue");
+        return ConstantValue.StringValue;
+    case EPCGMetadataTypes::Boolean:
+        OutLeafPropertyName = TEXT("BoolValue");
+        return ConstantValue.BoolValue ? TEXT("true") : TEXT("false");
+    case EPCGMetadataTypes::Name:
+        OutLeafPropertyName = TEXT("NameValue");
+        return ConstantValue.NameValue.ToString();
+    case EPCGMetadataTypes::SoftObjectPath:
+        OutLeafPropertyName = TEXT("SoftObjectPathValue");
+        return ConstantValue.SoftObjectPathValue.ToString();
+    case EPCGMetadataTypes::SoftClassPath:
+        OutLeafPropertyName = TEXT("SoftClassPathValue");
+        return ConstantValue.SoftClassPathValue.ToString();
+    default:
+        break;
+    }
+
+    return ConstantValue.ToString();
+}
+
+void AppendPcgConstantStructPins(
+    TArray<TSharedPtr<FJsonValue>>& Pins,
+    const FString& Prefix,
+    const FPCGMetadataTypesConstantStruct& ConstantValue)
+{
+    if (Prefix.IsEmpty())
+    {
+        return;
+    }
+
+    AppendPcgSyntheticSettingPin(
+        Pins,
+        Prefix + TEXT("/Type"),
+        GetPcgEnumName(ConstantValue.Type));
+
+    FString LeafPropertyName;
+    const FString LeafValue = MakePcgConstantValueString(ConstantValue, LeafPropertyName);
+    if (!LeafPropertyName.IsEmpty())
+    {
+        AppendPcgSyntheticSettingPin(Pins, Prefix + TEXT("/") + LeafPropertyName, LeafValue);
+    }
+}
+
+void AppendPcgSyntheticWritablePins(UPCGSettings* Settings, TArray<TSharedPtr<FJsonValue>>& Pins)
+{
+    if (Settings == nullptr)
+    {
+        return;
+    }
+
+    if (const UPCGFilterByAttributeSettings* FilterByAttributeSettings = Cast<UPCGFilterByAttributeSettings>(Settings))
+    {
+        AppendPcgConstantStructPins(Pins, TEXT("Threshold/AttributeTypes"), FilterByAttributeSettings->Threshold.AttributeTypes);
+        AppendPcgConstantStructPins(Pins, TEXT("MinThreshold/AttributeTypes"), FilterByAttributeSettings->MinThreshold.AttributeTypes);
+        AppendPcgConstantStructPins(Pins, TEXT("MaxThreshold/AttributeTypes"), FilterByAttributeSettings->MaxThreshold.AttributeTypes);
+    }
+    else if (const UPCGAttributeFilteringSettings* AttributeFilteringSettings = Cast<UPCGAttributeFilteringSettings>(Settings))
+    {
+        AppendPcgConstantStructPins(Pins, TEXT("AttributeTypes"), AttributeFilteringSettings->AttributeTypes);
+    }
+    else if (const UPCGAttributeFilteringRangeSettings* AttributeFilteringRangeSettings = Cast<UPCGAttributeFilteringRangeSettings>(Settings))
+    {
+        AppendPcgConstantStructPins(Pins, TEXT("MinThreshold/AttributeTypes"), AttributeFilteringRangeSettings->MinThreshold.AttributeTypes);
+        AppendPcgConstantStructPins(Pins, TEXT("MaxThreshold/AttributeTypes"), AttributeFilteringRangeSettings->MaxThreshold.AttributeTypes);
+    }
+}
+
 TSharedPtr<FJsonObject> MakePcgActorSelectorObject(const FPCGActorSelectorSettings& Selector)
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
@@ -2264,6 +2413,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
             {
                 SerializePcgPin(OutputPin, TEXT("output"));
             }
+            AppendPcgSyntheticWritablePins(NodeObj->GetSettings(), Pins);
 
             // Annotate PCG subgraph nodes with childGraphRef via reflection.
             if (NodeClassPath.Contains(TEXT("Subgraph")))

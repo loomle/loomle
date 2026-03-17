@@ -62,6 +62,7 @@
 #include "PCGManagedResource.h"
 #include "Metadata/PCGDefaultValueInterface.h"
 #include "Elements/PCGActorSelector.h"
+#include "Elements/PCGFilterByAttribute.h"
 #include "Elements/PCGDataFromActor.h"
 #include "Elements/PCGGetActorProperty.h"
 #include "Elements/PCGStaticMeshSpawner.h"
@@ -1188,6 +1189,23 @@ UPCGPin* FindPcgPin(UPCGNode* Node, const FString& PinName, bool bOutputPin)
         return nullptr;
     }
 
+    auto NormalizePinToken = [](const FString& Token) -> FString
+    {
+        FString Out;
+        Out.Reserve(Token.Len());
+        for (const TCHAR Character : Token)
+        {
+            if (Character == TEXT('_') || Character == TEXT('-') || FChar::IsWhitespace(Character))
+            {
+                continue;
+            }
+
+            Out.AppendChar(FChar::ToLower(Character));
+        }
+        return Out;
+    };
+
+    const FString NormalizedRequestedPin = NormalizePinToken(PinName);
     const TArray<TObjectPtr<UPCGPin>>& Pins = bOutputPin ? Node->GetOutputPins() : Node->GetInputPins();
     for (UPCGPin* Pin : Pins)
     {
@@ -1198,6 +1216,11 @@ UPCGPin* FindPcgPin(UPCGNode* Node, const FString& PinName, bool bOutputPin)
 
         const FString Label = Pin->Properties.Label.ToString();
         if (Label.Equals(PinName, ESearchCase::IgnoreCase))
+        {
+            return Pin;
+        }
+        if (!NormalizedRequestedPin.IsEmpty()
+            && NormalizePinToken(Label).Equals(NormalizedRequestedPin, ESearchCase::CaseSensitive))
         {
             return Pin;
         }
@@ -1222,6 +1245,211 @@ const FPCGSettingsOverridableParam* FindPcgOverridableParamByPinLabel(UPCGSettin
     }
 
     return nullptr;
+}
+
+FString NormalizePcgPathToken(const FString& Token)
+{
+    FString Out;
+    Out.Reserve(Token.Len());
+    for (const TCHAR Character : Token)
+    {
+        if (Character == TEXT('_') || Character == TEXT('-') || FChar::IsWhitespace(Character))
+        {
+            continue;
+        }
+
+        Out.AppendChar(FChar::ToLower(Character));
+    }
+
+    return Out;
+}
+
+FProperty* FindPcgPropertyByPathToken(UStruct* OwnerStruct, const FString& PathToken)
+{
+    if (OwnerStruct == nullptr || PathToken.IsEmpty())
+    {
+        return nullptr;
+    }
+
+    const FString NormalizedToken = NormalizePcgPathToken(PathToken);
+    for (TFieldIterator<FProperty> It(OwnerStruct, EFieldIterationFlags::IncludeSuper); It; ++It)
+    {
+        FProperty* Property = *It;
+        if (Property == nullptr)
+        {
+            continue;
+        }
+
+        if (NormalizePcgPathToken(Property->GetName()).Equals(NormalizedToken, ESearchCase::CaseSensitive))
+        {
+            return Property;
+        }
+    }
+
+    return nullptr;
+}
+
+bool IsPcgSelectorStruct(const UStruct* Struct)
+{
+    return Struct == FPCGAttributePropertySelector::StaticStruct()
+        || Struct == FPCGAttributePropertyInputSelector::StaticStruct()
+        || Struct == FPCGAttributePropertyOutputNoSourceSelector::StaticStruct()
+        || Struct == FPCGAttributePropertyOutputSelector::StaticStruct();
+}
+
+bool SetPcgSelectorStructValue(FStructProperty* StructProperty, void* ValuePtr, const FString& Value, FString& OutError)
+{
+    if (StructProperty == nullptr || ValuePtr == nullptr || !IsPcgSelectorStruct(StructProperty->Struct))
+    {
+        return false;
+    }
+
+    FPCGAttributePropertySelector* Selector = reinterpret_cast<FPCGAttributePropertySelector*>(ValuePtr);
+    if (Selector == nullptr)
+    {
+        OutError = FString::Printf(
+            TEXT("Invalid PCG default value target: selector '%s' storage is unavailable."),
+            *StructProperty->GetName());
+        return false;
+    }
+
+    const FString TrimmedValue = Value.TrimStartAndEnd();
+    if (TrimmedValue.IsEmpty())
+    {
+        Selector->Reset();
+        return true;
+    }
+
+    if (!Selector->Update(TrimmedValue))
+    {
+        Selector->SetAttributeName(*TrimmedValue);
+    }
+
+    if (!Selector->IsValid())
+    {
+        OutError = FString::Printf(
+            TEXT("Invalid PCG selector value for '%s': %s"),
+            *StructProperty->GetName(),
+            *Value);
+        return false;
+    }
+
+    return true;
+}
+
+bool ResolvePcgPropertyPathTarget(
+    void* RootContainer,
+    UStruct* RootStruct,
+    const TArray<FString>& PathSegments,
+    void*& OutContainer,
+    FProperty*& OutLeafProperty,
+    FString& OutError)
+{
+    OutContainer = nullptr;
+    OutLeafProperty = nullptr;
+
+    if (RootContainer == nullptr || RootStruct == nullptr || PathSegments.Num() == 0)
+    {
+        OutError = TEXT("Invalid PCG default value target: property path is empty.");
+        return false;
+    }
+
+    void* CurrentContainer = RootContainer;
+    UStruct* CurrentStruct = RootStruct;
+    for (int32 SegmentIndex = 0; SegmentIndex < PathSegments.Num(); ++SegmentIndex)
+    {
+        const FString& Segment = PathSegments[SegmentIndex];
+        FProperty* Property = FindPcgPropertyByPathToken(CurrentStruct, Segment);
+        if (Property == nullptr)
+        {
+            OutError = FString::Printf(
+                TEXT("Invalid PCG default value target: property path segment '%s' was not found."),
+                *Segment);
+            return false;
+        }
+
+        const bool bIsLeaf = SegmentIndex == (PathSegments.Num() - 1);
+        if (bIsLeaf)
+        {
+            OutContainer = CurrentContainer;
+            OutLeafProperty = Property;
+            return true;
+        }
+
+        if (FStructProperty* StructProperty = CastField<FStructProperty>(Property))
+        {
+            CurrentContainer = StructProperty->ContainerPtrToValuePtr<void>(CurrentContainer);
+            CurrentStruct = StructProperty->Struct;
+        }
+        else if (FObjectProperty* ObjectProperty = CastField<FObjectProperty>(Property))
+        {
+            UObject* NextObject = ObjectProperty->GetObjectPropertyValue_InContainer(CurrentContainer);
+            if (NextObject == nullptr)
+            {
+                OutError = FString::Printf(
+                    TEXT("Invalid PCG default value target: object property '%s' is null."),
+                    *ObjectProperty->GetName());
+                return false;
+            }
+
+            CurrentContainer = NextObject;
+            CurrentStruct = NextObject->GetClass();
+        }
+        else
+        {
+            OutError = FString::Printf(
+                TEXT("Invalid PCG default value target: property '%s' is not a nested container."),
+                *Property->GetName());
+            return false;
+        }
+    }
+
+    OutError = TEXT("Invalid PCG default value target: property path is empty.");
+    return false;
+}
+
+bool SetPcgPropertyValueFromString(
+    UPCGSettings* Settings,
+    const FString& TargetName,
+    void* Container,
+    FProperty* LeafProperty,
+    const FString& Value,
+    FString& OutError)
+{
+    if (Settings == nullptr || Container == nullptr || LeafProperty == nullptr)
+    {
+        OutError = TEXT("Invalid PCG default value target: property storage is unavailable.");
+        return false;
+    }
+
+    void* ValuePtr = LeafProperty->ContainerPtrToValuePtr<void>(Container);
+    if (ValuePtr == nullptr)
+    {
+        OutError = FString::Printf(
+            TEXT("Invalid PCG default value target: could not resolve value storage for '%s'."),
+            *LeafProperty->GetName());
+        return false;
+    }
+
+    if (FStructProperty* StructProperty = CastField<FStructProperty>(LeafProperty))
+    {
+        if (SetPcgSelectorStructValue(StructProperty, ValuePtr, Value, OutError))
+        {
+            return true;
+        }
+    }
+
+    const TCHAR* ImportResult = LeafProperty->ImportText_Direct(*Value, ValuePtr, Settings, PPF_None);
+    if (ImportResult == nullptr)
+    {
+        OutError = FString::Printf(
+            TEXT("Invalid PCG default value for '%s': %s"),
+            *TargetName,
+            *Value);
+        return false;
+    }
+
+    return true;
 }
 
 bool ResolvePcgOverridableValueTarget(
@@ -1315,26 +1543,7 @@ bool SetPcgOverridableValueFromString(
         return false;
     }
 
-    void* ValuePtr = LeafProperty->ContainerPtrToValuePtr<void>(Container);
-    if (ValuePtr == nullptr)
-    {
-        OutError = FString::Printf(
-            TEXT("Invalid PCG default value target: could not resolve value storage for '%s'."),
-            *LeafProperty->GetName());
-        return false;
-    }
-
-    const TCHAR* ImportResult = LeafProperty->ImportText_Direct(*Value, ValuePtr, Settings, PPF_None);
-    if (ImportResult == nullptr)
-    {
-        OutError = FString::Printf(
-            TEXT("Invalid PCG default value for pin '%s': %s"),
-            *Param.Label.ToString(),
-            *Value);
-        return false;
-    }
-
-    return true;
+    return SetPcgPropertyValueFromString(Settings, Param.Label.ToString(), Container, LeafProperty, Value, OutError);
 }
 
 bool SetPcgPinDefaultValue(UPCGNode* Node, const FString& PinName, const FString& Value, FString& OutError)
@@ -1346,13 +1555,7 @@ bool SetPcgPinDefaultValue(UPCGNode* Node, const FString& PinName, const FString
     }
 
     UPCGPin* TargetPin = FindPcgPin(Node, PinName, false);
-    if (TargetPin == nullptr)
-    {
-        OutError = TEXT("PCG input pin not found.");
-        return false;
-    }
-
-    if (TargetPin->IsConnected())
+    if (TargetPin != nullptr && TargetPin->IsConnected())
     {
         OutError = TEXT("Invalid PCG default value target: input pin is connected. Disconnect it before setting a default value.");
         return false;
@@ -1365,30 +1568,60 @@ bool SetPcgPinDefaultValue(UPCGNode* Node, const FString& PinName, const FString
         return false;
     }
 
-    const FName PinLabel = TargetPin->Properties.Label;
-    if (IPCGSettingsDefaultValueProvider* DefaultValueProvider = Cast<IPCGSettingsDefaultValueProvider>(Settings))
+    if (TargetPin != nullptr)
     {
-        if (DefaultValueProvider->IsPinDefaultValueEnabled(PinLabel))
+        const FName PinLabel = TargetPin->Properties.Label;
+        if (IPCGSettingsDefaultValueProvider* DefaultValueProvider = Cast<IPCGSettingsDefaultValueProvider>(Settings))
+        {
+            if (DefaultValueProvider->IsPinDefaultValueEnabled(PinLabel))
+            {
+                Settings->Modify();
+                DefaultValueProvider->SetPinDefaultValue(PinLabel, Value, true);
+                if (!DefaultValueProvider->IsPinDefaultValueActivated(PinLabel))
+                {
+                    DefaultValueProvider->SetPinDefaultValueIsActivated(PinLabel, true);
+                }
+                return true;
+            }
+        }
+
+        const FPCGSettingsOverridableParam* Param = FindPcgOverridableParamByPinLabel(Settings, PinLabel);
+        if (Param != nullptr)
         {
             Settings->Modify();
-            DefaultValueProvider->SetPinDefaultValue(PinLabel, Value, true);
-            if (!DefaultValueProvider->IsPinDefaultValueActivated(PinLabel))
+            if (!SetPcgOverridableValueFromString(Settings, *Param, Value, OutError))
             {
-                DefaultValueProvider->SetPinDefaultValueIsActivated(PinLabel, true);
+                return false;
             }
+
+#if WITH_EDITOR
+            Settings->OnSettingsChangedDelegate.Broadcast(Settings, EPCGChangeType::Settings);
+#endif
             return true;
         }
     }
 
-    const FPCGSettingsOverridableParam* Param = FindPcgOverridableParamByPinLabel(Settings, PinLabel);
-    if (Param == nullptr)
+    TArray<FString> PathSegments;
+    PinName.ParseIntoArray(PathSegments, TEXT("/"), true);
+    if (PathSegments.Num() == 0)
     {
-        OutError = TEXT("Invalid PCG default value target: input pin does not support default values.");
+        OutError = TEXT("Invalid PCG default value target: input pin/property path is empty.");
+        return false;
+    }
+
+    void* Container = nullptr;
+    FProperty* LeafProperty = nullptr;
+    if (!ResolvePcgPropertyPathTarget(Settings, Settings->GetClass(), PathSegments, Container, LeafProperty, OutError))
+    {
+        if (TargetPin == nullptr && OutError.IsEmpty())
+        {
+            OutError = TEXT("PCG input pin/property path not found.");
+        }
         return false;
     }
 
     Settings->Modify();
-    if (!SetPcgOverridableValueFromString(Settings, *Param, Value, OutError))
+    if (!SetPcgPropertyValueFromString(Settings, PinName, Container, LeafProperty, Value, OutError))
     {
         return false;
     }
