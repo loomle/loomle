@@ -93,7 +93,9 @@ jobs:
           package_sha="$(shasum -a 256 "$archive_path" | awk '{print tolower($1)}')"
           server_sha="$(shasum -a 256 "$server_dst" | awk '{print tolower($1)}')"
           client_sha="$(shasum -a 256 "$client_dst" | awk '{print tolower($1)}')"
+          installer_sha="$(shasum -a 256 "$bootstrap_cli_path" | awk '{print tolower($1)}')"
           asset_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/loomle-darwin.zip"
+          installer_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/loomle-installer"
 
           python3 "$GITHUB_WORKSPACE/packaging/bundle/build_release_manifest.py" \
             --manifest-path "$manifest_path" \
@@ -104,7 +106,9 @@ jobs:
             --server-binary-relpath "$server_relpath" \
             --server-sha256 "$server_sha" \
             --client-binary-relpath "$client_relpath" \
-            --client-sha256 "$client_sha"
+            --client-sha256 "$client_sha" \
+            --installer-url "$installer_url" \
+            --installer-sha256 "$installer_sha"
 
           {
             echo "archive_path=$archive_path"

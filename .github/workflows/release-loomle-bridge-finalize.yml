@@ -212,11 +212,13 @@ jobs:
           version = "${{ steps.tag.outputs.version }}"
           out = {
               "latest": version,
+              "installer": {},
               "versions": {version: {"packages": {}}},
           }
 
           for name in ("loomle-manifest-darwin.json", "loomle-manifest-windows.json"):
               data = json.loads(Path("release-finalize", name).read_text(encoding="utf-8"))
+              out["installer"].update(data.get("installer", {}))
               packages = data["versions"][version]["packages"]
               out["versions"][version]["packages"].update(packages)
 

@@ -119,7 +119,9 @@ jobs:
           $packageSha = Get-Sha256 $archivePath
           $serverSha = Get-Sha256 $serverDst
           $clientSha = Get-Sha256 $clientDst
+          $installerSha = Get-Sha256 $bootstrapCliPath
           $assetUrl = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/loomle-windows.zip"
+          $installerUrl = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/loomle-installer.exe"
 
           python (Join-Path $env:GITHUB_WORKSPACE "packaging\bundle\build_release_manifest.py") `
             --manifest-path $manifestPath `
@@ -130,7 +132,9 @@ jobs:
             --server-binary-relpath $serverRelPath `
             --server-sha256 $serverSha `
             --client-binary-relpath $clientRelPath `
-            --client-sha256 $clientSha
+            --client-sha256 $clientSha `
+            --installer-url $installerUrl `
+            --installer-sha256 $installerSha
 
           "archive_path=$archivePath" >> $env:GITHUB_OUTPUT
           "manifest_path=$manifestPath" >> $env:GITHUB_OUTPUT

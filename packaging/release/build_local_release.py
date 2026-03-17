@@ -112,7 +112,9 @@ def main() -> int:
     package_sha = sha256_file(archive_path)
     server_sha = sha256_file(server_binary)
     client_sha = sha256_file(client_binary)
+    installer_sha = sha256_file(bootstrap_target)
     asset_url = args.asset_url or archive_path.as_uri()
+    installer_url = bootstrap_target.as_uri()
 
     run(
         [
@@ -136,6 +138,10 @@ def main() -> int:
             f"workspace/Loomle/{client_name}",
             "--client-sha256",
             client_sha,
+            "--installer-url",
+            installer_url,
+            "--installer-sha256",
+            installer_sha,
         ],
         cwd=repo_root,
     )

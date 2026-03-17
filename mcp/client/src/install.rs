@@ -30,7 +30,7 @@ fn print_install_phase(message: &str) {
 
 fn local_manifest_repair_hint(project_root: &Path) -> String {
     format!(
-        " If needed, repair with `loomle install --project-root {} --manifest-path <manifest.json>` using a locally downloaded manifest/package, or extract the official release zip manually into `Plugins/LoomleBridge` and `Loomle`.",
+        " If needed, repair with `loomle-installer install --project-root {} --manifest-path <manifest.json>` using a locally downloaded manifest/package, or extract the official release zip manually into `Plugins/LoomleBridge` and `Loomle`.",
         project_root.display()
     )
 }
@@ -58,6 +58,14 @@ pub struct UpdateRequest {
     pub apply: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct InstallerDownloadRequest {
+    pub version: Option<String>,
+    pub manifest_path: Option<PathBuf>,
+    pub manifest_url: Option<String>,
+    pub installer_path: Option<PathBuf>,
+}
+
 pub struct DownloadedInstaller {
     _temp_dir: TempDir,
     path: PathBuf,
@@ -72,6 +80,8 @@ impl DownloadedInstaller {
 #[derive(Debug, Deserialize)]
 struct ReleaseManifest {
     latest: String,
+    #[serde(default)]
+    installer: HashMap<String, ReleaseInstallerPackage>,
     versions: HashMap<String, ReleaseVersion>,
 }
 
@@ -90,6 +100,13 @@ struct ReleasePackage {
     server_binary_relpath: String,
     client_binary_relpath: String,
     install: ReleaseInstall,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReleaseInstallerPackage {
+    url: String,
+    #[serde(default)]
+    sha256: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -288,7 +305,7 @@ fn read_runtime_install_state(project_root: &Path) -> Result<RuntimeInstallState
     let content = fs::read_to_string(&path).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             format!(
-                "install state not found at {}. This project may need repair; run `loomle install --project-root {}` before using `loomle update`.",
+                "install state not found at {}. This project may need repair; run `loomle-installer install --project-root {}` before using `loomle update`.",
                 path.display(),
                 project_root.display()
             )
@@ -308,7 +325,19 @@ fn read_runtime_install_state(project_root: &Path) -> Result<RuntimeInstallState
 }
 
 fn load_manifest(request: &InstallRequest) -> Result<ReleaseManifest, String> {
-    if let Some(path) = &request.manifest_path {
+    load_manifest_from_sources(
+        request.manifest_path.as_deref(),
+        request.manifest_url.as_deref(),
+        request.version.as_deref(),
+    )
+}
+
+fn load_manifest_from_sources(
+    manifest_path: Option<&Path>,
+    manifest_url: Option<&str>,
+    requested_version: Option<&str>,
+) -> Result<ReleaseManifest, String> {
+    if let Some(path) = manifest_path {
         print_install_phase(&format!("reading manifest from {}", path.display()));
         let manifest_json = fs::read_to_string(path)
             .map_err(|error| format!("failed to read manifest {}: {error}", path.display()))?;
@@ -316,21 +345,28 @@ fn load_manifest(request: &InstallRequest) -> Result<ReleaseManifest, String> {
             .map_err(|error| format!("invalid manifest JSON {}: {error}", path.display()));
     }
 
-    let manifest_url = request
-        .manifest_url
-        .clone()
-        .unwrap_or_else(|| default_manifest_url(request.version.as_deref()));
-    print_install_phase(&format!("downloading manifest from {manifest_url}"));
+    let manifest_source = manifest_url
+        .map(str::to_owned)
+        .unwrap_or_else(|| default_manifest_url(requested_version));
+    if let Some(path) = file_path_from_uri(&manifest_source)? {
+        print_install_phase(&format!("reading manifest from {}", path.display()));
+        let manifest_json = fs::read_to_string(&path)
+            .map_err(|error| format!("failed to read manifest {}: {error}", path.display()))?;
+        return serde_json::from_str(&manifest_json)
+            .map_err(|error| format!("invalid manifest JSON {}: {error}", path.display()));
+    }
+
+    print_install_phase(&format!("downloading manifest from {manifest_source}"));
     let body = Client::new()
-        .get(&manifest_url)
+        .get(&manifest_source)
         .send()
         .and_then(|response| response.error_for_status())
-        .map_err(|error| format!("failed to download manifest {manifest_url}: {error}"))?
+        .map_err(|error| format!("failed to download manifest {manifest_source}: {error}"))?
         .text()
-        .map_err(|error| format!("failed to read manifest {manifest_url}: {error}"))?;
+        .map_err(|error| format!("failed to read manifest {manifest_source}: {error}"))?;
 
     serde_json::from_str(&body)
-        .map_err(|error| format!("invalid manifest JSON {manifest_url}: {error}"))
+        .map_err(|error| format!("invalid manifest JSON {manifest_source}: {error}"))
 }
 
 fn default_manifest_url(requested_version: Option<&str>) -> String {
@@ -376,7 +412,7 @@ pub fn installer_download_url(requested_version: Option<&str>) -> Result<String,
     }
 }
 
-pub fn download_temp_installer(requested_version: Option<&str>) -> Result<DownloadedInstaller, String> {
+pub fn download_temp_installer(request: &InstallerDownloadRequest) -> Result<DownloadedInstaller, String> {
     let temp_dir =
         TempDir::new().map_err(|error| format!("failed to create temp dir for installer: {error}"))?;
     let installer_path = temp_dir.path().join(installer_binary_name());
@@ -400,7 +436,49 @@ pub fn download_temp_installer(requested_version: Option<&str>) -> Result<Downlo
             path: installer_path,
         });
     }
-    let download_url = installer_download_url(requested_version)?;
+    if let Some(source_path) = &request.installer_path {
+        print_install_phase(&format!(
+            "copying temporary installer from explicit path {}",
+            source_path.display()
+        ));
+        fs::copy(source_path, &installer_path).map_err(|error| {
+            format!(
+                "failed to copy temporary installer {} to {}: {error}",
+                source_path.display(),
+                installer_path.display()
+            )
+        })?;
+        ensure_executable_file(&installer_path)?;
+        return Ok(DownloadedInstaller {
+            _temp_dir: temp_dir,
+            path: installer_path,
+        });
+    }
+    if request.manifest_path.is_some() || request.manifest_url.is_some() {
+        let manifest = load_manifest_from_sources(
+            request.manifest_path.as_deref(),
+            request.manifest_url.as_deref(),
+            request.version.as_deref(),
+        )?;
+        if let Some(installer) = manifest.installer.get(platform_key()) {
+            print_install_phase(&format!(
+                "acquiring temporary installer from manifest source {}",
+                installer.url
+            ));
+            copy_or_download_to_path(&installer.url, &installer_path)
+                .map_err(|error| format!("failed to acquire temporary installer {}: {error}", installer.url))?;
+            verify_expected_sha("temporary installer", &installer.sha256, &installer_path)?;
+            ensure_executable_file(&installer_path)?;
+            return Ok(DownloadedInstaller {
+                _temp_dir: temp_dir,
+                path: installer_path,
+            });
+        }
+        print_install_phase(
+            "manifest did not declare a platform installer; falling back to published installer asset",
+        );
+    }
+    let download_url = installer_download_url(request.version.as_deref())?;
     print_install_phase(&format!("downloading temporary installer from {download_url}"));
     download_url_to_path(&download_url, &installer_path)
         .map_err(|error| format!("failed to download temporary installer {download_url}: {error}"))?;
@@ -431,35 +509,37 @@ fn resolve_version(
 }
 
 fn fetch_release_archive(package: &ReleasePackage, archive_path: &Path) -> Result<(), String> {
-    if let Some(file_path) = file_path_from_uri(&package.url)? {
-        let file_size = fs::metadata(&file_path)
-            .map(|metadata| metadata.len())
-            .unwrap_or(0);
-        print_install_phase(&format!(
-            "copying local package {} ({} bytes)",
-            file_path.display(),
-            file_size
-        ));
-        fs::copy(&file_path, archive_path).map_err(|error| {
-            format!(
-                "failed to copy local package {} to {}: {error}",
-                file_path.display(),
-                archive_path.display()
-            )
-        })?;
-        print_install_phase(&format!(
-            "package copy complete: {} bytes",
-            fs::metadata(archive_path).map(|metadata| metadata.len()).unwrap_or(file_size)
-        ));
-        return Ok(());
-    }
-
-    let downloaded_bytes = download_url_to_path(&package.url, archive_path)
+    let downloaded_bytes = copy_or_download_to_path(&package.url, archive_path)
         .map_err(|error| format!("failed to download package {}: {error}", package.url))?;
     print_install_phase(&format!(
         "package download complete: {downloaded_bytes} bytes"
     ));
     Ok(())
+}
+
+fn copy_or_download_to_path(source: &str, destination: &Path) -> Result<u64, String> {
+    if let Some(file_path) = file_path_from_uri(source)? {
+        let file_size = fs::metadata(&file_path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        print_install_phase(&format!(
+            "copying local file {} ({} bytes)",
+            file_path.display(),
+            file_size
+        ));
+        fs::copy(&file_path, destination).map_err(|error| {
+            format!(
+                "failed to copy local file {} to {}: {error}",
+                file_path.display(),
+                destination.display()
+            )
+        })?;
+        return Ok(fs::metadata(destination)
+            .map(|metadata| metadata.len())
+            .unwrap_or(file_size));
+    }
+
+    download_url_to_path(source, destination)
 }
 
 fn download_url_to_path(url: &str, destination: &Path) -> Result<u64, String> {
@@ -520,16 +600,20 @@ fn file_path_from_uri(raw: &str) -> Result<Option<PathBuf>, String> {
 }
 
 fn verify_archive_sha(package: &ReleasePackage, archive_path: &Path) -> Result<(), String> {
-    if package.sha256.trim().is_empty() {
+    verify_expected_sha("package", &package.sha256, archive_path)
+}
+
+fn verify_expected_sha(label: &str, expected_sha: &str, path: &Path) -> Result<(), String> {
+    if expected_sha.trim().is_empty() {
         return Ok(());
     }
 
-    let actual = sha256_file(archive_path)?;
-    let expected = package.sha256.trim().to_ascii_lowercase();
+    let actual = sha256_file(path)?;
+    let expected = expected_sha.trim().to_ascii_lowercase();
     if actual != expected {
         return Err(format!(
-            "package sha256 mismatch for {}: expected={} actual={}",
-            archive_path.display(),
+            "{label} sha256 mismatch for {}: expected={} actual={}",
+            path.display(),
             expected,
             actual
         ));
@@ -959,6 +1043,12 @@ fn copy_tree_contents(source: &Path, destination: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
     use zip::write::SimpleFileOptions;
 
     #[test]
@@ -1097,6 +1187,7 @@ mod tests {
 
     #[test]
     fn default_manifest_url_uses_release_base_env() {
+        let _guard = env_lock().lock().expect("env lock");
         std::env::set_var("LOOMLE_RELEASE_REPO", "example/test");
         assert_eq!(
             default_manifest_url(None),
@@ -1111,6 +1202,7 @@ mod tests {
 
     #[test]
     fn installer_download_url_uses_release_alias_and_installer_name() {
+        let _guard = env_lock().lock().expect("env lock");
         std::env::set_var("LOOMLE_RELEASE_REPO", "example/test");
         let latest_url = installer_download_url(None).expect("latest installer url");
         let versioned_url =
@@ -1139,16 +1231,79 @@ mod tests {
 
     #[test]
     fn download_temp_installer_uses_local_override_path() {
+        let _guard = env_lock().lock().expect("env lock");
         let temp_dir = TempDir::new().expect("temp dir");
         let source_path = temp_dir.path().join(installer_binary_name());
         fs::write(&source_path, b"installer-binary").expect("write source installer");
         std::env::set_var(INSTALLER_PATH_OVERRIDE_ENV, &source_path);
 
-        let downloaded = download_temp_installer(None).expect("downloaded installer");
+        let downloaded = download_temp_installer(&InstallerDownloadRequest {
+            version: None,
+            manifest_path: None,
+            manifest_url: None,
+            installer_path: None,
+        })
+        .expect("downloaded installer");
         let copied = fs::read(downloaded.path()).expect("read copied installer");
         assert_eq!(copied, b"installer-binary");
 
         std::env::remove_var(INSTALLER_PATH_OVERRIDE_ENV);
+    }
+
+    #[test]
+    fn download_temp_installer_prefers_explicit_installer_path() {
+        let _guard = env_lock().lock().expect("env lock");
+        std::env::remove_var(INSTALLER_PATH_OVERRIDE_ENV);
+        let temp_dir = TempDir::new().expect("temp dir");
+        let source_path = temp_dir.path().join(installer_binary_name());
+        fs::write(&source_path, b"explicit-installer").expect("write source installer");
+
+        let downloaded = download_temp_installer(&InstallerDownloadRequest {
+            version: None,
+            manifest_path: None,
+            manifest_url: None,
+            installer_path: Some(source_path.clone()),
+        })
+        .expect("downloaded installer");
+        let copied = fs::read(downloaded.path()).expect("read copied installer");
+        assert_eq!(copied, b"explicit-installer");
+    }
+
+    #[test]
+    fn download_temp_installer_uses_manifest_installer_url() {
+        let _guard = env_lock().lock().expect("env lock");
+        std::env::remove_var(INSTALLER_PATH_OVERRIDE_ENV);
+        let temp_dir = TempDir::new().expect("temp dir");
+        let source_path = temp_dir.path().join(installer_binary_name());
+        fs::write(&source_path, b"manifest-installer").expect("write source installer");
+        let source_sha = sha256_file(&source_path).expect("installer sha");
+        let manifest_path = temp_dir.path().join("manifest.json");
+        let manifest_json = json!({
+            "latest": "0.3.32",
+            "installer": {
+                platform_key(): {
+                    "url": source_path.display().to_string(),
+                    "sha256": source_sha
+                }
+            },
+            "versions": {
+                "0.3.32": {
+                    "packages": {}
+                }
+            }
+        });
+        fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest_json).expect("manifest json"))
+            .expect("write manifest");
+
+        let downloaded = download_temp_installer(&InstallerDownloadRequest {
+            version: Some(String::from("0.3.32")),
+            manifest_path: Some(manifest_path),
+            manifest_url: None,
+            installer_path: None,
+        })
+        .expect("downloaded installer");
+        let copied = fs::read(downloaded.path()).expect("read copied installer");
+        assert_eq!(copied, b"manifest-installer");
     }
 
     #[test]
@@ -1523,7 +1678,7 @@ mod tests {
         .expect_err("missing install state should fail");
 
         assert!(error.contains("install state not found"));
-        assert!(error.contains("loomle install --project-root"));
+        assert!(error.contains("loomle-installer install --project-root"));
         assert!(error.contains(&project_root.display().to_string()));
     }
 

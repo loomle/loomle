@@ -26,6 +26,8 @@ def main() -> int:
     parser.add_argument("--plugin-destination", default="Plugins/LoomleBridge")
     parser.add_argument("--workspace-source", default="workspace/Loomle")
     parser.add_argument("--workspace-destination", default="Loomle")
+    parser.add_argument("--installer-url")
+    parser.add_argument("--installer-sha256", default="")
     parser.add_argument("--base-manifest")
     args = parser.parse_args()
 
@@ -34,6 +36,12 @@ def main() -> int:
     manifest = load_manifest(base_manifest)
 
     manifest["latest"] = args.version
+    installer = manifest.setdefault("installer", {})
+    if args.installer_url:
+        installer[args.platform] = {
+            "url": args.installer_url,
+            "sha256": args.installer_sha256,
+        }
     versions = manifest.setdefault("versions", {})
     version_entry = versions.setdefault(args.version, {})
     packages = version_entry.setdefault("packages", {})

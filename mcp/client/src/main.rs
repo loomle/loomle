@@ -1,6 +1,9 @@
 use loomle::{
     connect_client,
-    install::{download_temp_installer, install_release, update_release, InstallRequest, UpdateRequest},
+    install::{
+        download_temp_installer, install_release, update_release, InstallRequest,
+        InstallerDownloadRequest, UpdateRequest,
+    },
     is_installer_binary_path, parse_json_object, render_json_pretty, resolve_project_root,
     skill::{
         install_skill, list_skills, remove_skill, SkillInstallRequest, SkillListRequest,
@@ -58,6 +61,7 @@ async fn main() -> ExitCode {
             version,
             manifest_path,
             manifest_url,
+            installer_path,
             apply,
         } => {
             let project_root = match resolve_project_root(cli.project_root.as_deref()) {
@@ -69,7 +73,13 @@ async fn main() -> ExitCode {
             };
 
             if apply && !current_process_is_installer() {
-                return handoff_update_to_installer(project_root, version, manifest_path, manifest_url);
+                return handoff_update_to_installer(
+                    project_root,
+                    version,
+                    manifest_path,
+                    manifest_url,
+                    installer_path,
+                );
             }
 
             run_blocking_json(move || {
@@ -179,8 +189,14 @@ fn handoff_update_to_installer(
     version: Option<String>,
     manifest_path: Option<PathBuf>,
     manifest_url: Option<String>,
+    installer_path: Option<PathBuf>,
 ) -> ExitCode {
-    let installer = match download_temp_installer(version.as_deref()) {
+    let installer = match download_temp_installer(&InstallerDownloadRequest {
+        version: version.clone(),
+        manifest_path: manifest_path.clone(),
+        manifest_url: manifest_url.clone(),
+        installer_path: installer_path.clone(),
+    }) {
         Ok(installer) => installer,
         Err(message) => {
             eprintln!("[loomle][ERROR] {message}");
@@ -198,6 +214,9 @@ fn handoff_update_to_installer(
     }
     if let Some(manifest_url) = &manifest_url {
         command.arg("--manifest-url").arg(manifest_url);
+    }
+    if let Some(installer_path) = &installer_path {
+        command.arg("--installer-path").arg(installer_path);
     }
 
     eprintln!(
@@ -238,6 +257,7 @@ enum CommandKind {
         version: Option<String>,
         manifest_path: Option<PathBuf>,
         manifest_url: Option<String>,
+        installer_path: Option<PathBuf>,
         apply: bool,
     },
     Skill(SkillCommand),
@@ -286,6 +306,7 @@ impl Cli {
         let mut install_version = None;
         let mut install_manifest_path = None;
         let mut install_manifest_url = None;
+        let mut update_installer_path = None;
         let mut update_apply = false;
         let mut in_skill_namespace = false;
         let mut skill_subcommand = None::<String>;
@@ -351,6 +372,15 @@ impl Cli {
                             .into_string()
                             .map_err(|_| String::from("--manifest-url must be valid UTF-8"))?,
                     );
+                }
+                Some("--installer-path") => {
+                    let value = args
+                        .next()
+                        .ok_or_else(|| String::from("missing value for --installer-path"))?;
+                    if !matches!(command, Some(CommandKind::Update { .. })) {
+                        return Err(String::from("--installer-path is only valid with update"));
+                    }
+                    update_installer_path = Some(PathBuf::from(value));
                 }
                 Some("--apply") => {
                     if !matches!(command, Some(CommandKind::Update { .. })) {
@@ -436,6 +466,7 @@ impl Cli {
                         version: None,
                         manifest_path: None,
                         manifest_url: None,
+                        installer_path: None,
                         apply: false,
                     });
                 }
@@ -526,6 +557,7 @@ impl Cli {
                     version: install_version,
                     manifest_path: install_manifest_path,
                     manifest_url: install_manifest_url,
+                    installer_path: update_installer_path,
                     apply: update_apply,
                 },
                 Some(CommandKind::Call { .. }) => CommandKind::Call {
@@ -936,7 +968,7 @@ fn emit_restart_notice(result: &Value) -> Result<(), String> {
 fn print_usage() {
     eprintln!("Usage:");
     eprintln!("  loomle [--project-root <ProjectRoot>] install [--version <Version>] [--manifest-path <ManifestPath> | --manifest-url <ManifestUrl>]");
-    eprintln!("  loomle [--project-root <ProjectRoot>] update [--apply] [--version <Version>] [--manifest-path <ManifestPath> | --manifest-url <ManifestUrl>]");
+    eprintln!("  loomle [--project-root <ProjectRoot>] update [--apply] [--version <Version>] [--manifest-path <ManifestPath> | --manifest-url <ManifestUrl>] [--installer-path <InstallerPath>]");
     eprintln!("  loomle [--project-root <ProjectRoot>] doctor");
     eprintln!("  loomle skill list [--installed] [--skills-root <SkillsRoot>] [--registry-url <RegistryUrl>]");
     eprintln!("  loomle skill install <skill-name> [--skills-root <SkillsRoot>] [--registry-url <RegistryUrl>]");
@@ -1089,11 +1121,37 @@ mod tests {
                 version,
                 manifest_path,
                 manifest_url,
+                installer_path,
             } => {
                 assert!(!apply);
                 assert!(version.is_none());
                 assert!(manifest_path.is_none());
                 assert!(manifest_url.is_none());
+                assert!(installer_path.is_none());
+            }
+            _ => panic!("expected update"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_update_command_with_installer_path() {
+        let cli = Cli::parse(vec![
+            OsString::from("loomle"),
+            OsString::from("update"),
+            OsString::from("--apply"),
+            OsString::from("--installer-path"),
+            OsString::from("/tmp/loomle-installer"),
+        ])
+        .expect("cli");
+
+        match cli.command {
+            CommandKind::Update {
+                apply,
+                installer_path,
+                ..
+            } => {
+                assert!(apply);
+                assert_eq!(installer_path, Some(PathBuf::from("/tmp/loomle-installer")));
             }
             _ => panic!("expected update"),
         }
