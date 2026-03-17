@@ -61,7 +61,7 @@ The temporary installer may share code with `mcp/client`, but it is a distinct r
 - project-local `loomle`:
   - installed into `Loomle/loomle`
   - provides project runtime entrypoint
-  - may hand off `update --apply` to a temporary installer
+  - may hand off `install` or `update --apply` to a temporary installer
 
 ## Redirect target
 
