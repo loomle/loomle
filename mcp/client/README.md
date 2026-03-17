@@ -47,7 +47,7 @@ If `--project-root` is omitted, the client searches upward from the current dire
 
 `loomle update` checks the installed version against the published latest release. Project-local `loomle update --apply` now hands off to a freshly downloaded temporary `loomle-installer`, which performs the actual in-place upgrade and then exits. If Unreal Editor is already running, restart it afterward so the editor loads the updated LoomleBridge plugin version.
 
-`loomle install` always installs both the prebuilt plugin binaries and the plugin source so Unreal can load quickly and still participate in local target rebuilds. If Unreal Editor is already running, restart it afterward so the editor loads the newly installed LoomleBridge plugin version.
+`loomle-installer install` is the supported write path for project installation and repair. If an already-installed project-local `loomle` receives `install`, it now hands off to a freshly downloaded temporary `loomle-installer`. LOOMLE always installs both the prebuilt plugin binaries and the plugin source so Unreal can load quickly and still participate in local target rebuilds. If Unreal Editor is already running, restart it afterward so the editor loads the newly installed LoomleBridge plugin version.
 
 `loomle skill ...` manages official LOOMLE skills from the published `loomle/skills` registry. These commands install into the local Codex skills directory and do not require `--project-root`.
 

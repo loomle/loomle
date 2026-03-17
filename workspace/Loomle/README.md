@@ -194,7 +194,7 @@ Do not assume a failed mutate batch automatically rolled back earlier successful
 ## Install And Upgrade
 
 Repair or reinstall from the project root:
-- `loomle install --project-root <ProjectRoot>`
+- `loomle-installer install --project-root <ProjectRoot>`
   If Unreal Editor is already running, restart it after install so the newly installed LoomleBridge plugin version is loaded.
 
 LOOMLE installs the plugin's prebuilt binaries and source together so Unreal can load quickly and still participate in local target rebuilds.
