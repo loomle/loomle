@@ -518,7 +518,7 @@ fn sleep_before_retry(
     true
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 fn pipe_open_after_retries_error(
     pipe_path: &str,
     retries: usize,
