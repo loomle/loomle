@@ -88,6 +88,14 @@ jobs:
           cd "$GITHUB_WORKSPACE/mcp/client"
           cargo test
 
+      - name: Stop Stale AutomationTool Before Plugin Sync
+        shell: bash
+        run: |
+          set -euo pipefail
+          pkill -f "AutomationTool\\.dll" || true
+          pkill -f "RunUAT\\.sh" || true
+          sleep 2
+
       - name: Build Plugin From Current Commit And Sync To Test Project
         shell: bash
         run: |
