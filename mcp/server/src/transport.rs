@@ -343,13 +343,16 @@ fn send_and_wait(
 ) -> Result<Value, RpcError> {
     use std::fs::OpenOptions;
 
+    const PIPE_NOT_FOUND_OS_ERROR: i32 = 2;
     const PIPE_BUSY_OS_ERROR: i32 = 231;
+    const PIPE_NOT_FOUND_RETRY_BACKOFF_MS: [u64; 5] = [10, 20, 30, 40, 50];
     const PIPE_BUSY_RETRY_BACKOFF_MS: [u64; 10] = [20, 40, 80, 120, 160, 240, 320, 400, 500, 600];
 
     let pipe_path = match endpoint {
         RpcEndpoint::NamedPipe { pipe_name } => format!("\\\\.\\pipe\\{pipe_name}"),
     };
 
+    let mut not_found_retries: usize = 0;
     let mut busy_retries: usize = 0;
     let mut total_wait = Duration::from_millis(0);
 
@@ -357,6 +360,33 @@ fn send_and_wait(
         match OpenOptions::new().read(true).write(true).open(&pipe_path) {
             Ok(pipe) => break pipe,
             Err(e) => {
+                if e.raw_os_error() == Some(PIPE_NOT_FOUND_OS_ERROR) {
+                    let Some(base_backoff_ms) = PIPE_NOT_FOUND_RETRY_BACKOFF_MS
+                        .get(not_found_retries)
+                        .copied()
+                    else {
+                        return Err(pipe_open_after_retries_error(
+                            &pipe_path,
+                            not_found_retries,
+                            total_wait,
+                            PIPE_NOT_FOUND_OS_ERROR,
+                        ));
+                    };
+
+                    not_found_retries += 1;
+                    let sleep_for =
+                        Duration::from_millis(base_backoff_ms + pipe_open_jitter_ms());
+                    if !sleep_before_retry(deadline, &mut total_wait, sleep_for) {
+                        return Err(pipe_open_after_retries_error(
+                            &pipe_path,
+                            not_found_retries,
+                            total_wait,
+                            PIPE_NOT_FOUND_OS_ERROR,
+                        ));
+                    }
+                    continue;
+                }
+
                 if e.raw_os_error() != Some(PIPE_BUSY_OS_ERROR) {
                     return Err(RpcError {
                         code: 1011,
@@ -368,7 +398,7 @@ fn send_and_wait(
 
                 let Some(base_backoff_ms) = PIPE_BUSY_RETRY_BACKOFF_MS.get(busy_retries).copied()
                 else {
-                    return Err(pipe_busy_after_retries_error(
+                    return Err(pipe_open_after_retries_error(
                         &pipe_path,
                         busy_retries,
                         total_wait,
@@ -377,9 +407,9 @@ fn send_and_wait(
                 };
 
                 busy_retries += 1;
-                let sleep_for = Duration::from_millis(base_backoff_ms + pipe_busy_jitter_ms());
+                let sleep_for = Duration::from_millis(base_backoff_ms + pipe_open_jitter_ms());
                 if !sleep_before_retry(deadline, &mut total_wait, sleep_for) {
-                    return Err(pipe_busy_after_retries_error(
+                    return Err(pipe_open_after_retries_error(
                         &pipe_path,
                         busy_retries,
                         total_wait,
@@ -489,25 +519,32 @@ fn sleep_before_retry(
 }
 
 #[cfg(windows)]
-fn pipe_busy_after_retries_error(
+fn pipe_open_after_retries_error(
     pipe_path: &str,
     retries: usize,
     total_wait: Duration,
     os_error: i32,
 ) -> RpcError {
+    let detail_prefix = if os_error == 2 {
+        "PIPE_NOT_FOUND_AFTER_RETRIES"
+    } else if os_error == 231 {
+        "PIPE_BUSY_AFTER_RETRIES"
+    } else {
+        "PIPE_OPEN_AFTER_RETRIES"
+    };
     RpcError {
         code: 1011,
         message: String::from("INTERNAL_ERROR"),
         retryable: true,
         detail: format!(
-            "PIPE_BUSY_AFTER_RETRIES pipe={pipe_path} retries={retries} waitedMs={} osError={os_error}",
+            "{detail_prefix} pipe={pipe_path} retries={retries} waitedMs={} osError={os_error}",
             total_wait.as_millis()
         ),
     }
 }
 
 #[cfg(windows)]
-fn pipe_busy_jitter_ms() -> u64 {
+fn pipe_open_jitter_ms() -> u64 {
     // Keep jitter tiny to avoid thundering herd without inflating tail latency.
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -535,5 +572,22 @@ mod tests {
         let b = windows_pipe_name_for_project_root(Path::new("D:/OtherProject"));
 
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn windows_pipe_not_found_after_retries_error_is_labeled() {
+        let error = pipe_open_after_retries_error(r"\\.\pipe\loomle-test", 3, Duration::from_millis(60), 2);
+        assert!(error.retryable);
+        assert!(error.detail.contains("PIPE_NOT_FOUND_AFTER_RETRIES"));
+        assert!(error.detail.contains("osError=2"));
+    }
+
+    #[test]
+    fn windows_pipe_busy_after_retries_error_is_labeled() {
+        let error =
+            pipe_open_after_retries_error(r"\\.\pipe\loomle-test", 4, Duration::from_millis(120), 231);
+        assert!(error.retryable);
+        assert!(error.detail.contains("PIPE_BUSY_AFTER_RETRIES"));
+        assert!(error.detail.contains("osError=231"));
     }
 }
