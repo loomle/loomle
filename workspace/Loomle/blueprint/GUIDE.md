@@ -26,6 +26,7 @@ control flow, variable nodes, or node-family boundaries.
 ## Primary References
 
 - `SEMANTICS.md`
+- `catalogs/node-catalog.json`
 - `examples/branch-then-layout.json`
 - `examples/set-variable-then-print.json`
 - `examples/sequence-fanout.json`

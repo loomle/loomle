@@ -1,0 +1,155 @@
+{
+  "graphType": "material",
+  "coverage": "curated",
+  "source": "LOOMLE workspace references",
+  "summary": {
+    "purpose": "Static catalog of common Material graph nodes that LOOMLE agents are expected to use directly with primitive graph.mutate operations.",
+    "notes": [
+      "This is a curated inventory, not a full Material expression universe.",
+      "The material root sink is represented separately in specialNodes.",
+      "Use GUIDE.md for workflow, SEMANTICS.md for behavior, and examples/ for concrete mutate payloads."
+    ]
+  },
+  "specialNodes": [
+    {
+      "nodeId": "__material_root__",
+      "displayName": "Material Root",
+      "kind": "root_sink",
+      "pins": ["Base Color", "Roughness"],
+      "usage": "Special graph sink for material properties. Connect expression outputs here rather than treating it like a normal expression node."
+    }
+  ],
+  "nodes": [
+    {
+      "displayName": "Scalar Constant",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionConstant",
+      "family": "constant",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["default output"],
+      "usage": "Use a fixed local scalar value.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "Constant3Vector",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionConstant3Vector",
+      "family": "constant",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["default output"],
+      "usage": "Use a fixed local color or vector value.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "Scalar Parameter",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter",
+      "family": "parameter",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["default output"],
+      "usage": "Expose a named scalar value on the material interface.",
+      "exampleFiles": [
+        "examples/root-sink-then-layout.json",
+        "examples/scalar-to-roughness.json",
+        "examples/scalar-one-minus-to-roughness.json",
+        "examples/texture-times-scalar-to-base-color.json"
+      ]
+    },
+    {
+      "displayName": "Vector Parameter",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionVectorParameter",
+      "family": "parameter",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["default output"],
+      "usage": "Expose a named vector or color parameter on the material interface.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "Texture Parameter 2D",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionTextureSampleParameter2D",
+      "family": "texture",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["default output"],
+      "usage": "Expose a named texture parameter that can feed downstream expression chains.",
+      "exampleFiles": [
+        "examples/texture-sample-to-base-color.json",
+        "examples/texture-times-scalar-to-base-color.json"
+      ]
+    },
+    {
+      "displayName": "Texture Sample",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionTextureSample",
+      "family": "texture",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["default output", "UVs"],
+      "usage": "Sample a texture object into color data inside the graph.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "Add",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionAdd",
+      "family": "math",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["A", "B"],
+      "usage": "Add two upstream expression inputs.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "Multiply",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionMultiply",
+      "family": "math",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["A", "B"],
+      "usage": "Multiply two upstream expression inputs.",
+      "exampleFiles": [
+        "examples/root-sink-then-layout.json",
+        "examples/texture-times-scalar-to-base-color.json"
+      ]
+    },
+    {
+      "displayName": "Linear Interpolate",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionLinearInterpolate",
+      "family": "math",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["A", "B", "Alpha"],
+      "usage": "Blend between two inputs using an alpha control.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "OneMinus",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionOneMinus",
+      "family": "math",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["Input"],
+      "usage": "Invert a scalar or vector-like signal with 1 - x semantics.",
+      "exampleFiles": ["examples/scalar-one-minus-to-roughness.json"]
+    },
+    {
+      "displayName": "Saturate",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionSaturate",
+      "family": "math",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["Input"],
+      "usage": "Clamp an expression to the 0..1 range.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "Material Function Call",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionMaterialFunctionCall",
+      "family": "function",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["function inputs", "function outputs"],
+      "usage": "Call a referenced material function subgraph.",
+      "exampleFiles": []
+    }
+  ]
+}

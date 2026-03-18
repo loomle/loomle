@@ -1,0 +1,120 @@
+{
+  "graphType": "blueprint",
+  "coverage": "curated",
+  "source": "LOOMLE workspace references",
+  "summary": {
+    "purpose": "Static catalog of common Blueprint graph nodes that LOOMLE agents are expected to use directly with primitive graph.mutate operations.",
+    "notes": [
+      "This is a curated inventory, not a full Blueprint node universe.",
+      "Entry nodes and context-created events are intentionally excluded from the addable node list here.",
+      "Use GUIDE.md for workflow, SEMANTICS.md for behavior, and examples/ for concrete mutate payloads."
+    ]
+  },
+  "nodes": [
+    {
+      "displayName": "Branch",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
+      "family": "control_flow",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["Execute", "Condition", "Then", "Else"],
+      "usage": "Split exec flow on a boolean condition.",
+      "exampleFiles": ["examples/branch-then-layout.json"]
+    },
+    {
+      "displayName": "Sequence",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_ExecutionSequence",
+      "family": "control_flow",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["execute", "Then_0", "Then_1"],
+      "usage": "Fan one exec input out into ordered exec branches.",
+      "exampleFiles": ["examples/sequence-fanout.json"]
+    },
+    {
+      "displayName": "Delay",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+      "family": "control_flow",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary",
+        "functionName": "Delay"
+      },
+      "pinHints": ["execute", "Duration", "then"],
+      "usage": "Insert a latent delay in exec flow.",
+      "exampleFiles": ["examples/delay-then-print.json"]
+    },
+    {
+      "displayName": "DoOnce",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_MacroInstance",
+      "family": "control_flow",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {
+        "macroGraphName": "DoOnce"
+      },
+      "pinHints": ["Execute", "Completed", "Reset"],
+      "usage": "Gate exec flow so it completes only once until reset.",
+      "exampleFiles": ["examples/do-once-then-print.json"]
+    },
+    {
+      "displayName": "Print String",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+      "family": "utility",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary",
+        "functionName": "PrintString"
+      },
+      "pinHints": ["execute", "InString", "then"],
+      "usage": "Emit a debug string from exec flow.",
+      "exampleFiles": [
+        "examples/set-variable-then-print.json",
+        "examples/sequence-fanout.json",
+        "examples/delay-then-print.json",
+        "examples/do-once-then-print.json"
+      ]
+    },
+    {
+      "displayName": "Variable Get",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_VariableGet",
+      "family": "variable",
+      "creationMode": "addNode.byClass",
+      "requiredArgs": ["variableName"],
+      "optionalArgs": ["variableClassPath"],
+      "pinHints": ["value output"],
+      "usage": "Read a variable into data flow.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "Variable Set",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_VariableSet",
+      "family": "variable",
+      "creationMode": "addNode.byClass",
+      "requiredArgs": ["variableName"],
+      "optionalArgs": ["variableClassPath"],
+      "pinHints": ["execute", "then", "value input"],
+      "usage": "Write a variable and usually continue exec flow.",
+      "exampleFiles": ["examples/set-variable-then-print.json"]
+    },
+    {
+      "displayName": "Reroute",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_Knot",
+      "family": "utility",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["Input", "Output"],
+      "usage": "Clarify wiring without changing logic.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "Comment",
+      "nodeClassPath": "/Script/UnrealEd.EdGraphNode_Comment",
+      "family": "utility",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": [],
+      "usage": "Annotate a local graph region for readability.",
+      "exampleFiles": []
+    }
+  ]
+}
