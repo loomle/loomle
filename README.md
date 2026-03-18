@@ -86,14 +86,20 @@ Example requests:
 
 LOOMLE currently exposes these MCP tools for the agent. These are the tools Codex uses behind the scenes; end users normally just work through natural-language requests.
 
+For graph work, the recommended entrypoint is the installed workspace under [workspace/Loomle/README.md](/Users/xartest/dev/loomle/workspace/Loomle/README.md). Agents should start there, then use graph-specific `GUIDE.md`, `SEMANTICS.md`, catalogs, and examples before planning edits.
+
 - `loomle`: Check Bridge health, runtime status, and MCP-side availability.
 - `context`: Read the current Unreal editor context, including asset and selection information.
 - `execute`: Run UE-side code or commands through the Bridge.
 - `graph`: Read graph capability metadata, supported operations, and runtime status.
 - `graph.list`: List graphs available in the current target asset or context.
 - `graph.query`: Inspect graph structure such as nodes, pins, and connections.
-- `graph.ops`: List stable semantic graph operations for a graph type.
-- `graph.ops.resolve`: Resolve semantic graph operations into mutate-ready plans for a concrete graph context.
 - `graph.mutate`: Apply graph changes through ordered mutation operations.
+- `graph.verify`: Run compile-backed graph verification after a read or mutate loop.
+
+Secondary and historical graph-discovery tools still exist:
+
+- `graph.ops`: Live semantic graph catalog for a graph type.
+- `graph.ops.resolve`: Historical plan-generation surface. Keep it as a fallback or inspection tool, not the default graph-editing path.
 
 For protocol details and deeper technical documentation, see [docs/README.md](/Users/xartest/dev/loomle/docs/README.md).

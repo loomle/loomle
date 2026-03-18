@@ -1,6 +1,6 @@
-# Loomle Docs
+# LOOMLE Docs
 
-Project-level technical documentation for `Loomle Bridge` (plugin + MCP server).
+Project-level technical documentation for `LOOMLE` and `LoomleBridge` (plugin + MCP server).
 
 ## Documents
 
@@ -35,7 +35,7 @@ Project-level technical documentation for `Loomle Bridge` (plugin + MCP server).
 - Final proposed LOOMLE PCG semantic-op family tree, canonical names, compatibility aliases, and first-wave op set.
 
 11. `../workspace/Loomle/README.md`
-- Agent-facing workspace entrypoint. Start here for the current graph workflow, then follow each graph domain's `GUIDE.md` and `SEMANTICS.md`.
+- Agent-facing workspace entrypoint. Start here first for the current graph workflow, then follow each graph domain's `GUIDE.md`, `SEMANTICS.md`, catalogs, and examples.
 
 12. `GRAPH_OPS_DESIGN.md`
 - Historical `graph.ops` / `graph.ops.resolve` design plus the current direction toward workspace-local graph references and primitive mutate.
@@ -45,13 +45,13 @@ Project-level technical documentation for `Loomle Bridge` (plugin + MCP server).
 
 ## Recommended Read Order
 
-1. `ARCHITECTURE.md`
-2. `REPO_STRUCTURE.md`
-3. `INSTALL_ENTRYPOINT_DESIGN.md`
-4. `INSTALL_PAGE_CONTENT.md`
-5. `RPC_INTERFACE.md`
-6. `MCP_PROTOCOL.md`
-7. `../workspace/Loomle/README.md`
+1. `../workspace/Loomle/README.md`
+2. `ARCHITECTURE.md`
+3. `REPO_STRUCTURE.md`
+4. `INSTALL_ENTRYPOINT_DESIGN.md`
+5. `INSTALL_PAGE_CONTENT.md`
+6. `RPC_INTERFACE.md`
+7. `MCP_PROTOCOL.md`
 8. `PCG_LEARNING_RESOURCES_UE57.md`
 9. `PCG_NODE_CATALOG_VS_OPS.md`
 10. `PCG_OFFICIAL_CATEGORIES_AND_SEMANTIC_TAXONOMY.md`
