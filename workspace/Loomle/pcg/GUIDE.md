@@ -31,6 +31,8 @@ node-family boundaries, route vs filter behavior, or key parameters and wiring.
 - `examples/actor-data-tag-route.json`
 - `examples/surface-sample-to-static-mesh.json`
 - `examples/attribute-filter-elements.json`
+- `examples/points-ratio-to-tag.json`
+- `examples/project-surface-from-actor-data.json`
 
 ## Execution Style
 

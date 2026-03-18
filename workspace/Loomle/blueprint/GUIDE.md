@@ -29,6 +29,8 @@ control flow, variable nodes, or node-family boundaries.
 - `examples/branch-then-layout.json`
 - `examples/set-variable-then-print.json`
 - `examples/sequence-fanout.json`
+- `examples/delay-then-print.json`
+- `examples/do-once-then-print.json`
 
 ## Execution Style
 

@@ -1,0 +1,69 @@
+{
+  "tool": "graph.mutate",
+  "graphType": "material",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "albedo_tex",
+      "args": {
+        "nodeClassPath": "/Script/Engine.MaterialExpressionTextureSampleParameter2D"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "tint_scalar",
+      "args": {
+        "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "multiply_tint",
+      "args": {
+        "nodeClassPath": "/Script/Engine.MaterialExpressionMultiply"
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "albedo_tex"
+        },
+        "to": {
+          "nodeRef": "multiply_tint",
+          "pin": "A"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "tint_scalar"
+        },
+        "to": {
+          "nodeRef": "multiply_tint",
+          "pin": "B"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "multiply_tint"
+        },
+        "to": {
+          "nodeId": "__material_root__",
+          "pin": "Base Color"
+        }
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "args": {
+        "scope": "touched"
+      }
+    }
+  ]
+}

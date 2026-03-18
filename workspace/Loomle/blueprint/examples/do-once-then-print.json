@@ -1,0 +1,65 @@
+{
+  "tool": "graph.mutate",
+  "graphType": "blueprint",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "do_once_main",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_MacroInstance",
+        "macroGraphName": "DoOnce"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "print_completed",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary",
+        "functionName": "PrintString"
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeId": "EventBeginPlay",
+          "pinName": "Then"
+        },
+        "to": {
+          "nodeRef": "do_once_main",
+          "pinName": "Execute"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "do_once_main",
+          "pinName": "Completed"
+        },
+        "to": {
+          "nodeRef": "print_completed",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "print_completed",
+          "pinName": "InString"
+        },
+        "value": "DoOnce completed"
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "args": {
+        "scope": "touched"
+      }
+    }
+  ]
+}

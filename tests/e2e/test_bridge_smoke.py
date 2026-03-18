@@ -48,15 +48,21 @@ EXPECTED_GRAPH_MUTATE_OPS = {
 
 EXPECTED_WORKSPACE_EXAMPLES = {
     "blueprint/examples/branch-then-layout.json",
+    "blueprint/examples/delay-then-print.json",
+    "blueprint/examples/do-once-then-print.json",
     "blueprint/examples/set-variable-then-print.json",
     "blueprint/examples/sequence-fanout.json",
     "material/examples/root-sink-then-layout.json",
+    "material/examples/scalar-one-minus-to-roughness.json",
     "material/examples/texture-sample-to-base-color.json",
+    "material/examples/texture-times-scalar-to-base-color.json",
     "material/examples/scalar-to-roughness.json",
     "pcg/examples/pipeline-then-layout.json",
     "pcg/examples/actor-data-tag-route.json",
     "pcg/examples/surface-sample-to-static-mesh.json",
     "pcg/examples/attribute-filter-elements.json",
+    "pcg/examples/points-ratio-to-tag.json",
+    "pcg/examples/project-surface-from-actor-data.json",
 }
 
 
@@ -214,6 +220,36 @@ def validate_workspace_examples() -> None:
                 _has_connection(payload, "sequence_main", "Then_1", "print_second", "execute"),
                 f"sequence example missing Then_1 branch: {relpath}",
             )
+        elif relpath == "blueprint/examples/delay-then-print.json":
+            _require(
+                _has_add_node(payload, client_ref="delay_main", class_path="/Script/BlueprintGraph.K2Node_CallFunction"),
+                f"delay example missing delay node: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "EventBeginPlay", "Then", "delay_main", "execute"),
+                f"delay example missing BeginPlay -> delay connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "delay_main", "then", "print_after_delay", "execute"),
+                f"delay example missing delay -> print connection: {relpath}",
+            )
+            _require(
+                _has_set_default(payload, node_ref="delay_main", pin="Duration", value=0.2),
+                f"delay example missing Duration default: {relpath}",
+            )
+        elif relpath == "blueprint/examples/do-once-then-print.json":
+            _require(
+                _has_add_node(payload, client_ref="do_once_main", class_path="/Script/BlueprintGraph.K2Node_MacroInstance"),
+                f"do-once example missing DoOnce node: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "EventBeginPlay", "Then", "do_once_main", "Execute"),
+                f"do-once example missing BeginPlay -> DoOnce connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "do_once_main", "Completed", "print_completed", "execute"),
+                f"do-once example missing Completed -> print connection: {relpath}",
+            )
         elif relpath == "material/examples/root-sink-then-layout.json":
             _require(
                 _has_connection(payload, "multiply_ab", "", "__material_root__", "Base Color"),
@@ -236,6 +272,36 @@ def validate_workspace_examples() -> None:
             _require(
                 _has_connection(payload, "roughness_scalar", "", "__material_root__", "Roughness"),
                 f"scalar roughness example missing Roughness root sink: {relpath}",
+            )
+        elif relpath == "material/examples/scalar-one-minus-to-roughness.json":
+            _require(
+                _has_add_node(payload, client_ref="one_minus_roughness", class_path="/Script/Engine.MaterialExpressionOneMinus"),
+                f"one-minus example missing OneMinus node: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "roughness_scalar", "", "one_minus_roughness", "Input"),
+                f"one-minus example missing scalar -> one-minus connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "one_minus_roughness", "", "__material_root__", "Roughness"),
+                f"one-minus example missing Roughness root sink: {relpath}",
+            )
+        elif relpath == "material/examples/texture-times-scalar-to-base-color.json":
+            _require(
+                _has_add_node(payload, client_ref="multiply_tint", class_path="/Script/Engine.MaterialExpressionMultiply"),
+                f"texture multiply example missing Multiply node: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "albedo_tex", "", "multiply_tint", "A"),
+                f"texture multiply example missing texture -> A connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "tint_scalar", "", "multiply_tint", "B"),
+                f"texture multiply example missing scalar -> B connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "multiply_tint", "", "__material_root__", "Base Color"),
+                f"texture multiply example missing Base Color root sink: {relpath}",
             )
         elif relpath == "pcg/examples/pipeline-then-layout.json":
             _require(
@@ -292,6 +358,32 @@ def validate_workspace_examples() -> None:
             _require(
                 _has_set_default(payload, node_ref="filter_dense_points", pin="AttributeTypes/double_value", value=0.5),
                 f"pcg attribute filter example missing threshold default: {relpath}",
+            )
+        elif relpath == "pcg/examples/points-ratio-to-tag.json":
+            _require(
+                _has_connection(payload, "create_points", "Out", "sample_ratio", "In"),
+                f"pcg points ratio example missing create -> sample connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "sample_ratio", "Out", "tag_sampled", "In"),
+                f"pcg points ratio example missing sample -> tag connection: {relpath}",
+            )
+            _require(
+                _has_set_default(payload, node_ref="sample_ratio", pin="Ratio", value=0.1),
+                f"pcg points ratio example missing ratio default: {relpath}",
+            )
+        elif relpath == "pcg/examples/project-surface-from-actor-data.json":
+            _require(
+                _has_connection(payload, "source_points", "Out", "project_surface", "In"),
+                f"pcg project surface example missing source -> project connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "projection_target", "Out", "project_surface", "Projection Target"),
+                f"pcg project surface example missing target -> projection target connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "project_surface", "Out", "tag_projected", "In"),
+                f"pcg project surface example missing projection -> tag connection: {relpath}",
             )
 
     print("[PASS] workspace graph examples validated")

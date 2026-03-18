@@ -32,6 +32,8 @@ root sinks, function subgraphs, or node-family boundaries.
 - `examples/root-sink-then-layout.json`
 - `examples/texture-sample-to-base-color.json`
 - `examples/scalar-to-roughness.json`
+- `examples/scalar-one-minus-to-roughness.json`
+- `examples/texture-times-scalar-to-base-color.json`
 
 ## Execution Style
 
