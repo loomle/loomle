@@ -38,6 +38,7 @@ root sinks, function subgraphs, or node-family boundaries.
 - `examples/replace-saturate-with-one-minus.json`
 - `examples/replace-multiply-with-lerp.json`
 - `examples/insert-multiply-before-base-color-root.json`
+- `examples/insert-one-minus-before-multiply-b.json`
 
 ## Execution Style
 

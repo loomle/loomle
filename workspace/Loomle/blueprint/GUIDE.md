@@ -35,6 +35,7 @@ control flow, variable nodes, or node-family boundaries.
 - `examples/replace-delay-with-do-once.json`
 - `examples/replace-branch-with-sequence.json`
 - `examples/insert-not-before-branch-condition.json`
+- `examples/insert-delay-on-true-branch.json`
 
 ## Execution Style
 

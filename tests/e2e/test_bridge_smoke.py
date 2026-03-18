@@ -53,10 +53,12 @@ EXPECTED_WORKSPACE_EXAMPLES = {
     "blueprint/examples/replace-delay-with-do-once.json",
     "blueprint/examples/replace-branch-with-sequence.json",
     "blueprint/examples/insert-not-before-branch-condition.json",
+    "blueprint/examples/insert-delay-on-true-branch.json",
     "blueprint/examples/set-variable-then-print.json",
     "blueprint/examples/sequence-fanout.json",
     "material/examples/root-sink-then-layout.json",
     "material/examples/insert-multiply-before-base-color-root.json",
+    "material/examples/insert-one-minus-before-multiply-b.json",
     "material/examples/replace-saturate-with-one-minus.json",
     "material/examples/replace-multiply-with-lerp.json",
     "material/examples/scalar-one-minus-to-roughness.json",
@@ -72,6 +74,7 @@ EXPECTED_WORKSPACE_EXAMPLES = {
     "pcg/examples/replace-tag-with-points-ratio.json",
     "pcg/examples/replace-tag-route-with-attribute-route.json",
     "pcg/examples/insert-density-filter-before-static-mesh.json",
+    "pcg/examples/insert-points-ratio-on-inside-filter.json",
 }
 
 EXPECTED_WORKSPACE_CATALOGS = {
@@ -339,6 +342,27 @@ def validate_workspace_examples() -> None:
                 _has_connection(payload, "invert_condition", "ReturnValue", "branch_main", "Condition"),
                 f"blueprint data-rewrite example missing Not output -> branch condition connection: {relpath}",
             )
+        elif relpath == "blueprint/examples/insert-delay-on-true-branch.json":
+            _require(
+                _has_connection(payload, "branch_main", "Then", "true_print", "execute"),
+                f"blueprint branch insertion example missing initial Then -> true print connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "branch_main", "Else", "false_print", "execute"),
+                f"blueprint branch insertion example missing preserved Else branch connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "branch_main", "Then", "delay_true_branch", "execute"),
+                f"blueprint branch insertion example missing Then -> Delay connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "delay_true_branch", "then", "true_print", "execute"),
+                f"blueprint branch insertion example missing Delay -> true print connection: {relpath}",
+            )
+            _require(
+                _has_set_default(payload, node_ref="delay_true_branch", pin="Duration", value=0.15),
+                f"blueprint branch insertion example missing Delay duration default: {relpath}",
+            )
         elif relpath == "material/examples/root-sink-then-layout.json":
             _require(
                 _has_connection(payload, "multiply_ab", "", "__material_root__", "Base Color"),
@@ -462,6 +486,23 @@ def validate_workspace_examples() -> None:
             _require(
                 _has_connection(payload, "multiply_tint", "", "__material_root__", "Base Color"),
                 f"material insertion example missing multiply -> root reconnection: {relpath}",
+            )
+        elif relpath == "material/examples/insert-one-minus-before-multiply-b.json":
+            _require(
+                _has_connection(payload, "albedo_tex", "", "multiply_tint", "A"),
+                f"material leg insertion example missing preserved texture -> multiply.A connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "tint_scalar", "", "multiply_tint", "B"),
+                f"material leg insertion example missing initial scalar -> multiply.B connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "tint_scalar", "", "invert_tint", "Input"),
+                f"material leg insertion example missing scalar -> one-minus connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "invert_tint", "", "multiply_tint", "B"),
+                f"material leg insertion example missing one-minus -> multiply.B connection: {relpath}",
             )
         elif relpath == "pcg/examples/pipeline-then-layout.json":
             _require(
@@ -627,6 +668,27 @@ def validate_workspace_examples() -> None:
             _require(
                 _has_set_default(payload, node_ref="density_filter", pin="UpperBound", value=0.8),
                 f"pcg insertion example missing density upper bound: {relpath}",
+            )
+        elif relpath == "pcg/examples/insert-points-ratio-on-inside-filter.json":
+            _require(
+                _has_connection(payload, "filter_by_tag", "InsideFilter", "matched_branch", "In"),
+                f"pcg branch-local insertion example missing initial InsideFilter -> matched branch connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "filter_by_tag", "OutsideFilter", "unmatched_branch", "In"),
+                f"pcg branch-local insertion example missing preserved OutsideFilter branch: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "filter_by_tag", "InsideFilter", "sample_inside_branch", "In"),
+                f"pcg branch-local insertion example missing InsideFilter -> sample insertion connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "sample_inside_branch", "Out", "matched_branch", "In"),
+                f"pcg branch-local insertion example missing sample -> matched branch reconnection: {relpath}",
+            )
+            _require(
+                _has_set_default(payload, node_ref="sample_inside_branch", pin="Ratio", value=0.2),
+                f"pcg branch-local insertion example missing ratio default: {relpath}",
             )
 
     print("[PASS] workspace graph examples validated")

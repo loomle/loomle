@@ -1,0 +1,144 @@
+{
+  "tool": "graph.mutate",
+  "graphType": "blueprint",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "branch_main",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "true_print",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary",
+        "functionName": "PrintString"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "false_print",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary",
+        "functionName": "PrintString"
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeId": "EventBeginPlay",
+          "pinName": "Then"
+        },
+        "to": {
+          "nodeRef": "branch_main",
+          "pinName": "Execute"
+        }
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "branch_main",
+          "pinName": "Condition"
+        },
+        "value": true
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "branch_main",
+          "pinName": "Then"
+        },
+        "to": {
+          "nodeRef": "true_print",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "branch_main",
+          "pinName": "Else"
+        },
+        "to": {
+          "nodeRef": "false_print",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "delay_true_branch",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary",
+        "functionName": "Delay"
+      }
+    },
+    {
+      "op": "disconnectPins",
+      "args": {
+        "from": {
+          "nodeRef": "branch_main",
+          "pinName": "Then"
+        },
+        "to": {
+          "nodeRef": "true_print",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "branch_main",
+          "pinName": "Then"
+        },
+        "to": {
+          "nodeRef": "delay_true_branch",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "delay_true_branch",
+          "pinName": "then"
+        },
+        "to": {
+          "nodeRef": "true_print",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "delay_true_branch",
+          "pinName": "Duration"
+        },
+        "value": 0.15
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "args": {
+        "scope": "touched"
+      }
+    }
+  ]
+}

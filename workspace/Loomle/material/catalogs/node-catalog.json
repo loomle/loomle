@@ -55,7 +55,8 @@
         "examples/texture-times-scalar-to-base-color.json",
         "examples/replace-saturate-with-one-minus.json",
         "examples/replace-multiply-with-lerp.json",
-        "examples/insert-multiply-before-base-color-root.json"
+        "examples/insert-multiply-before-base-color-root.json",
+        "examples/insert-one-minus-before-multiply-b.json"
       ]
     },
     {
@@ -114,7 +115,8 @@
         "examples/root-sink-then-layout.json",
         "examples/texture-times-scalar-to-base-color.json",
         "examples/replace-multiply-with-lerp.json",
-        "examples/insert-multiply-before-base-color-root.json"
+        "examples/insert-multiply-before-base-color-root.json",
+        "examples/insert-one-minus-before-multiply-b.json"
       ]
     },
     {
@@ -137,7 +139,8 @@
       "usage": "Invert a scalar or vector-like signal with 1 - x semantics.",
       "exampleFiles": [
         "examples/scalar-one-minus-to-roughness.json",
-        "examples/replace-saturate-with-one-minus.json"
+        "examples/replace-saturate-with-one-minus.json",
+        "examples/insert-one-minus-before-multiply-b.json"
       ]
     },
     {

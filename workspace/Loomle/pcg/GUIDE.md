@@ -36,6 +36,7 @@ node-family boundaries, route vs filter behavior, or key parameters and wiring.
 - `examples/replace-tag-with-points-ratio.json`
 - `examples/replace-tag-route-with-attribute-route.json`
 - `examples/insert-density-filter-before-static-mesh.json`
+- `examples/insert-points-ratio-on-inside-filter.json`
 
 ## Execution Style
 

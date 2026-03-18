@@ -50,7 +50,8 @@
       "usage": "Insert a latent delay in exec flow.",
       "exampleFiles": [
         "examples/delay-then-print.json",
-        "examples/replace-delay-with-do-once.json"
+        "examples/replace-delay-with-do-once.json",
+        "examples/insert-delay-on-true-branch.json"
       ]
     },
     {
@@ -84,7 +85,8 @@
         "examples/sequence-fanout.json",
         "examples/delay-then-print.json",
         "examples/do-once-then-print.json",
-        "examples/replace-delay-with-do-once.json"
+        "examples/replace-delay-with-do-once.json",
+        "examples/insert-delay-on-true-branch.json"
       ]
     },
     {
