@@ -6127,6 +6127,48 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             return ResolveNodeTokenLocal(ArgsObj, OutNodeId);
         };
 
+        auto ResolveStableNodeTokenLocal = [&LocalNodeRefs](const TSharedPtr<FJsonObject>& Obj, FString& OutNodeId) -> bool
+        {
+            OutNodeId.Empty();
+            if (!Obj.IsValid())
+            {
+                return false;
+            }
+            if (Obj->TryGetStringField(TEXT("nodeId"), OutNodeId) && !OutNodeId.IsEmpty())
+            {
+                return true;
+            }
+            FString NodeRef;
+            if (Obj->TryGetStringField(TEXT("nodeRef"), NodeRef) && LocalNodeRefs.Contains(NodeRef))
+            {
+                OutNodeId = LocalNodeRefs[NodeRef];
+                return !OutNodeId.IsEmpty();
+            }
+            if (Obj->TryGetStringField(TEXT("nodePath"), OutNodeId) && !OutNodeId.IsEmpty())
+            {
+                return true;
+            }
+            return Obj->TryGetStringField(TEXT("path"), OutNodeId) && !OutNodeId.IsEmpty();
+        };
+
+        auto ResolveStableNodeTokenFromArgsLocal = [&ResolveStableNodeTokenLocal](const TSharedPtr<FJsonObject>& ArgsObj, FString& OutNodeId) -> bool
+        {
+            OutNodeId.Empty();
+            if (!ArgsObj.IsValid())
+            {
+                return false;
+            }
+
+            const TSharedPtr<FJsonObject>* TargetObj = nullptr;
+            if (ArgsObj->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid()
+                && ResolveStableNodeTokenLocal(*TargetObj, OutNodeId))
+            {
+                return true;
+            }
+
+            return ResolveStableNodeTokenLocal(ArgsObj, OutNodeId);
+        };
+
         auto ResolveNodeTokenArrayFromArgsLocal = [&ResolveNodeTokenLocal](const TSharedPtr<FJsonObject>& ArgsObj, TArray<FString>& OutNodeIds) -> bool
         {
             OutNodeIds.Reset();
@@ -6189,6 +6231,53 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 return true;
             }
             return Obj->TryGetStringField(TEXT("pinName"), OutPinName) && !OutPinName.IsEmpty();
+        };
+
+        auto CollectPcgAdjacentNodeIdsLocal = [](UPCGNode* Node, TArray<FString>& OutNodeIds)
+        {
+            if (Node == nullptr)
+            {
+                return;
+            }
+
+            TSet<FString> UniqueNodeIds;
+            auto AddNeighbor = [&UniqueNodeIds, Node](UPCGPin* Pin)
+            {
+                if (Pin == nullptr)
+                {
+                    return;
+                }
+
+                for (UPCGEdge* Edge : Pin->Edges)
+                {
+                    const UPCGPin* OtherPin = Edge ? Edge->GetOtherPin(Pin) : nullptr;
+                    UPCGNode* OtherNode = OtherPin ? OtherPin->Node : nullptr;
+                    if (OtherNode == nullptr || OtherNode == Node)
+                    {
+                        continue;
+                    }
+
+                    const FString OtherNodeId = OtherNode->GetPathName();
+                    if (!OtherNodeId.IsEmpty())
+                    {
+                        UniqueNodeIds.Add(OtherNodeId);
+                    }
+                }
+            };
+
+            for (UPCGPin* InputPin : Node->GetInputPins())
+            {
+                AddNeighbor(InputPin);
+            }
+            for (UPCGPin* OutputPin : Node->GetOutputPins())
+            {
+                AddNeighbor(OutputPin);
+            }
+
+            for (const FString& NodeId : UniqueNodeIds)
+            {
+                OutNodeIds.Add(NodeId);
+            }
         };
 
         auto ResolveValueStringLocal = [](const TSharedPtr<FJsonObject>& Obj, FString& OutValue) -> bool
@@ -7368,19 +7457,46 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     else if (Op.Equals(TEXT("removenode")))
                     {
                         FString TargetNodeId;
-                        bOk = ResolveNodeTokenFromArgsLocal(ArgsObj, TargetNodeId);
+                        bOk = ResolveStableNodeTokenFromArgsLocal(ArgsObj, TargetNodeId);
                         if (!bOk)
                         {
-                            Error = TEXT("Missing target nodeId/path/name.");
+                            Error = TEXT("PCG removeNode requires a stable target: provide nodeId, nodeRef, nodePath, or path.");
                         }
                         else if (UPCGNode* Node = FindPcgNodeById(PcgGraph, TargetNodeId))
                         {
+                            TArray<FString> AdjacentNodeIds;
+                            CollectPcgAdjacentNodeIdsLocal(Node, AdjacentNodeIds);
+                            const FString RemovedNodePath = Node->GetPathName();
                             PcgGraph->RemoveNode(Node);
-                            bChanged = true;
-                            GraphEventName = TEXT("graph.node_removed");
-                            GraphEventData->SetStringField(TEXT("nodeId"), TargetNodeId);
-                            GraphEventData->SetStringField(TEXT("op"), Op);
-                            NodesTouchedForLayout.Add(TargetNodeId);
+                            bool bStillPresent = false;
+                            for (UPCGNode* RemainingNode : PcgGraph->GetNodes())
+                            {
+                                if (RemainingNode != nullptr && RemainingNode->GetPathName().Equals(RemovedNodePath, ESearchCase::IgnoreCase))
+                                {
+                                    bStillPresent = true;
+                                    break;
+                                }
+                            }
+
+                            if (bStillPresent)
+                            {
+                                bOk = false;
+                                Error = TEXT("PCG node remained in graph after removal attempt.");
+                            }
+                            else
+                            {
+                                bChanged = true;
+                                GraphEventName = TEXT("graph.node_removed");
+                                GraphEventData->SetStringField(TEXT("nodeId"), RemovedNodePath);
+                                GraphEventData->SetStringField(TEXT("op"), Op);
+                                for (const FString& AdjacentNodeId : AdjacentNodeIds)
+                                {
+                                    if (!AdjacentNodeId.IsEmpty())
+                                    {
+                                        NodesTouchedForLayout.Add(AdjacentNodeId);
+                                    }
+                                }
+                            }
                         }
                         else
                         {

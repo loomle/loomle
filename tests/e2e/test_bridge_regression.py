@@ -371,6 +371,7 @@ def main() -> int:
     temp_asset = make_temp_asset_path(args.asset_prefix)
     temp_pcg_asset = make_temp_asset_path("/Game/Codex/PCG_BridgeRegression")
     temp_pcg_health_asset = make_temp_asset_path("/Game/Codex/PCG_HealthRegression")
+    temp_pcg_remove_asset = make_temp_asset_path("/Game/Codex/PCG_RemoveRegression")
     temp_material_asset = make_temp_asset_path("/Game/Codex/M_RegressionLayout")
     skip_editor_visual_regression = os.environ.get("LOOMLE_SKIP_EDITOR_VISUAL_REGRESSION") == "1"
     skip_material_visual_regression = (
@@ -3994,6 +3995,106 @@ def main() -> int:
                 fail(f"graph.verify should not invent {unexpected_code} for a disconnected-output pcg graph: {pcg_verify}")
         print("[PASS] pcg graph.verify no longer invents disconnected-output failures")
 
+        pcg_remove_fixture_payload = call_execute_exec_with_retry(
+            client=client,
+            req_id_base=1011903,
+            code=(
+                "import json\n"
+                "import unreal\n"
+                f"asset={json.dumps(temp_pcg_remove_asset, ensure_ascii=False)}\n"
+                "pkg_path, asset_name = asset.rsplit('/', 1)\n"
+                "asset_tools = unreal.AssetToolsHelpers.get_asset_tools()\n"
+                "graph = unreal.EditorAssetLibrary.load_asset(asset)\n"
+                "if graph is None:\n"
+                "    factory = unreal.PCGGraphFactory()\n"
+                "    graph = asset_tools.create_asset(asset_name, pkg_path, unreal.PCGGraph, factory)\n"
+                "if graph is None:\n"
+                "    raise RuntimeError('failed to create PCG remove graph asset')\n"
+                "print(json.dumps({'ok': True, 'assetPath': asset}, ensure_ascii=False))\n"
+            ),
+        )
+        if parse_execute_json(pcg_remove_fixture_payload).get("ok") is not True:
+            fail(f"PCG remove fixture asset creation failed: {pcg_remove_fixture_payload}")
+        pcg_remove_add = call_tool(
+            client,
+            1011904,
+            "graph.mutate",
+            {
+                "assetPath": temp_pcg_remove_asset,
+                "graphName": "PCGGraph",
+                "graphType": "pcg",
+                "ops": [
+                    {"op": "addNode.byClass", "clientRef": "remove_create", "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"}},
+                    {"op": "addNode.byClass", "clientRef": "remove_tag", "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"}},
+                    {"op": "addNode.byClass", "clientRef": "remove_filter", "args": {"nodeClassPath": "/Script/PCG.PCGFilterByTagSettings"}},
+                    {"op": "connectPins", "args": {"from": {"nodeRef": "remove_create", "pin": "Out"}, "to": {"nodeRef": "remove_tag", "pin": "In"}}},
+                    {"op": "connectPins", "args": {"from": {"nodeRef": "remove_tag", "pin": "Out"}, "to": {"nodeRef": "remove_filter", "pin": "In"}}},
+                ],
+            },
+        )
+        pcg_remove_results = pcg_remove_add.get("opResults")
+        if not isinstance(pcg_remove_results, list) or len(pcg_remove_results) != 5:
+            fail(f"PCG remove fixture ops missing results: {pcg_remove_add}")
+        pcg_remove_tag_id = pcg_remove_results[1].get("nodeId")
+        if not isinstance(pcg_remove_tag_id, str) or not pcg_remove_tag_id:
+            fail(f"PCG remove fixture missing removable node id: {pcg_remove_add}")
+
+        pcg_remove_by_name_failure = call_tool(
+            client,
+            1011905,
+            "graph.mutate",
+            {
+                "assetPath": temp_pcg_remove_asset,
+                "graphName": "PCGGraph",
+                "graphType": "pcg",
+                "ops": [{"op": "removeNode", "args": {"target": {"name": "Add Tag"}}}],
+            },
+            expect_error=True,
+        )
+        if "stable target" not in str(pcg_remove_by_name_failure.get("message", "")):
+            fail(f"PCG removeNode should reject non-stable name targets: {pcg_remove_by_name_failure}")
+
+        pcg_remove_by_id = call_tool(
+            client,
+            1011906,
+            "graph.mutate",
+            {
+                "assetPath": temp_pcg_remove_asset,
+                "graphName": "PCGGraph",
+                "graphType": "pcg",
+                "ops": [{"op": "removeNode", "args": {"target": {"nodeId": pcg_remove_tag_id}}}],
+            },
+        )
+        op_ok(pcg_remove_by_id)
+        pcg_remove_snapshot = query_snapshot(client, 1011907, temp_pcg_remove_asset, "pcg", "PCGGraph")
+        pcg_remove_nodes = pcg_remove_snapshot.get("nodes")
+        pcg_remove_edges = pcg_remove_snapshot.get("edges")
+        if not isinstance(pcg_remove_nodes, list) or not isinstance(pcg_remove_edges, list):
+            fail(f"PCG removeNode query missing nodes/edges: {pcg_remove_snapshot}")
+        require_node_absent(pcg_remove_nodes, pcg_remove_tag_id)
+        if any(
+            isinstance(edge, dict)
+            and (edge.get("fromNodeId") == pcg_remove_tag_id or edge.get("toNodeId") == pcg_remove_tag_id)
+            for edge in pcg_remove_edges
+        ):
+            fail(f"PCG removeNode should clear edges for removed node: {pcg_remove_snapshot}")
+
+        pcg_remove_layout = call_tool(
+            client,
+            1011908,
+            "graph.mutate",
+            {
+                "assetPath": temp_pcg_remove_asset,
+                "graphName": "PCGGraph",
+                "graphType": "pcg",
+                "ops": [{"op": "layoutGraph", "args": {"scope": "touched"}}],
+            },
+        )
+        pcg_remove_layout_result = op_ok(pcg_remove_layout)
+        if pcg_remove_layout_result.get("op") != "layoutgraph":
+            fail(f"PCG removeNode touched layout wrong op echo: {pcg_remove_layout}")
+        print("[PASS] pcg removeNode requires stable targets and preserves touched layout neighbors")
+
         pcg_set_default_add = call_tool(
             client,
             101191,
@@ -4272,6 +4373,7 @@ def main() -> int:
         print(f"[WARN] cleanup skipped for temporary material asset: {temp_material_asset}")
         print(f"[WARN] cleanup skipped for temporary PCG asset: {temp_pcg_asset}")
         print(f"[WARN] cleanup skipped for temporary PCG health asset: {temp_pcg_health_asset}")
+        print(f"[WARN] cleanup skipped for temporary PCG remove asset: {temp_pcg_remove_asset}")
         client.close()
 
 
