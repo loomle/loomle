@@ -1,0 +1,199 @@
+{
+  "tool": "graph.mutate",
+  "graphType": "blueprint",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "old_branch",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "true_print",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary",
+        "functionName": "PrintString"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "false_print",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary",
+        "functionName": "PrintString"
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeId": "EventBeginPlay",
+          "pinName": "Then"
+        },
+        "to": {
+          "nodeRef": "old_branch",
+          "pinName": "Execute"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "old_branch",
+          "pinName": "Then"
+        },
+        "to": {
+          "nodeRef": "true_print",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "old_branch",
+          "pinName": "Else"
+        },
+        "to": {
+          "nodeRef": "false_print",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "old_branch",
+          "pinName": "Condition"
+        },
+        "value": true
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "true_print",
+          "pinName": "InString"
+        },
+        "value": "Legacy true branch"
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "false_print",
+          "pinName": "InString"
+        },
+        "value": "Legacy false branch"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "replacement_sequence",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_ExecutionSequence"
+      }
+    },
+    {
+      "op": "disconnectPins",
+      "args": {
+        "from": {
+          "nodeId": "EventBeginPlay",
+          "pinName": "Then"
+        },
+        "to": {
+          "nodeRef": "old_branch",
+          "pinName": "Execute"
+        }
+      }
+    },
+    {
+      "op": "disconnectPins",
+      "args": {
+        "from": {
+          "nodeRef": "old_branch",
+          "pinName": "Then"
+        },
+        "to": {
+          "nodeRef": "true_print",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "disconnectPins",
+      "args": {
+        "from": {
+          "nodeRef": "old_branch",
+          "pinName": "Else"
+        },
+        "to": {
+          "nodeRef": "false_print",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeId": "EventBeginPlay",
+          "pinName": "Then"
+        },
+        "to": {
+          "nodeRef": "replacement_sequence",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "replacement_sequence",
+          "pinName": "Then_0"
+        },
+        "to": {
+          "nodeRef": "true_print",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "replacement_sequence",
+          "pinName": "Then_1"
+        },
+        "to": {
+          "nodeRef": "false_print",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "removeNode",
+      "args": {
+        "target": {
+          "nodeRef": "old_branch"
+        }
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "args": {
+        "scope": "touched"
+      }
+    }
+  ]
+}

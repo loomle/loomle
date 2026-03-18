@@ -53,7 +53,8 @@
         "examples/scalar-to-roughness.json",
         "examples/scalar-one-minus-to-roughness.json",
         "examples/texture-times-scalar-to-base-color.json",
-        "examples/replace-saturate-with-one-minus.json"
+        "examples/replace-saturate-with-one-minus.json",
+        "examples/replace-multiply-with-lerp.json"
       ]
     },
     {
@@ -64,7 +65,7 @@
       "creationArgs": {},
       "pinHints": ["default output"],
       "usage": "Expose a named vector or color parameter on the material interface.",
-      "exampleFiles": []
+      "exampleFiles": ["examples/replace-multiply-with-lerp.json"]
     },
     {
       "displayName": "Texture Parameter 2D",
@@ -109,7 +110,8 @@
       "usage": "Multiply two upstream expression inputs.",
       "exampleFiles": [
         "examples/root-sink-then-layout.json",
-        "examples/texture-times-scalar-to-base-color.json"
+        "examples/texture-times-scalar-to-base-color.json",
+        "examples/replace-multiply-with-lerp.json"
       ]
     },
     {
@@ -120,7 +122,7 @@
       "creationArgs": {},
       "pinHints": ["A", "B", "Alpha"],
       "usage": "Blend between two inputs using an alpha control.",
-      "exampleFiles": []
+      "exampleFiles": ["examples/replace-multiply-with-lerp.json"]
     },
     {
       "displayName": "OneMinus",

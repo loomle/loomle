@@ -51,10 +51,12 @@ EXPECTED_WORKSPACE_EXAMPLES = {
     "blueprint/examples/delay-then-print.json",
     "blueprint/examples/do-once-then-print.json",
     "blueprint/examples/replace-delay-with-do-once.json",
+    "blueprint/examples/replace-branch-with-sequence.json",
     "blueprint/examples/set-variable-then-print.json",
     "blueprint/examples/sequence-fanout.json",
     "material/examples/root-sink-then-layout.json",
     "material/examples/replace-saturate-with-one-minus.json",
+    "material/examples/replace-multiply-with-lerp.json",
     "material/examples/scalar-one-minus-to-roughness.json",
     "material/examples/texture-sample-to-base-color.json",
     "material/examples/texture-times-scalar-to-base-color.json",
@@ -66,6 +68,7 @@ EXPECTED_WORKSPACE_EXAMPLES = {
     "pcg/examples/points-ratio-to-tag.json",
     "pcg/examples/project-surface-from-actor-data.json",
     "pcg/examples/replace-tag-with-points-ratio.json",
+    "pcg/examples/replace-tag-route-with-attribute-route.json",
 }
 
 EXPECTED_WORKSPACE_CATALOGS = {
@@ -291,6 +294,35 @@ def validate_workspace_examples() -> None:
                 _has_remove_node(payload, node_ref="old_delay"),
                 f"blueprint replacement example missing removeNode for old delay: {relpath}",
             )
+        elif relpath == "blueprint/examples/replace-branch-with-sequence.json":
+            _require(
+                _has_connection(payload, "EventBeginPlay", "Then", "old_branch", "Execute"),
+                f"blueprint multi-branch replacement missing initial BeginPlay -> Branch connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "old_branch", "Then", "true_print", "execute"),
+                f"blueprint multi-branch replacement missing old Branch Then connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "old_branch", "Else", "false_print", "execute"),
+                f"blueprint multi-branch replacement missing old Branch Else connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "EventBeginPlay", "Then", "replacement_sequence", "execute"),
+                f"blueprint multi-branch replacement missing preserved upstream -> Sequence connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "replacement_sequence", "Then_0", "true_print", "execute"),
+                f"blueprint multi-branch replacement missing Sequence Then_0 reconnection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "replacement_sequence", "Then_1", "false_print", "execute"),
+                f"blueprint multi-branch replacement missing Sequence Then_1 reconnection: {relpath}",
+            )
+            _require(
+                _has_remove_node(payload, node_ref="old_branch"),
+                f"blueprint multi-branch replacement missing removeNode for old branch: {relpath}",
+            )
         elif relpath == "material/examples/root-sink-then-layout.json":
             _require(
                 _has_connection(payload, "multiply_ab", "", "__material_root__", "Base Color"),
@@ -364,6 +396,39 @@ def validate_workspace_examples() -> None:
             _require(
                 _has_remove_node(payload, node_ref="old_saturate"),
                 f"material replacement example missing removeNode for old saturate: {relpath}",
+            )
+        elif relpath == "material/examples/replace-multiply-with-lerp.json":
+            _require(
+                _has_connection(payload, "color_a", "", "old_multiply", "A"),
+                f"material multi-input replacement missing initial color_a -> Multiply.A connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "color_b", "", "old_multiply", "B"),
+                f"material multi-input replacement missing initial color_b -> Multiply.B connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "old_multiply", "", "__material_root__", "Base Color"),
+                f"material multi-input replacement missing initial Multiply -> root connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "color_a", "", "replacement_lerp", "A"),
+                f"material multi-input replacement missing preserved color_a -> Lerp.A connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "color_b", "", "replacement_lerp", "B"),
+                f"material multi-input replacement missing preserved color_b -> Lerp.B connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "alpha_control", "", "replacement_lerp", "Alpha"),
+                f"material multi-input replacement missing Alpha connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "replacement_lerp", "", "__material_root__", "Base Color"),
+                f"material multi-input replacement missing Lerp -> root connection: {relpath}",
+            )
+            _require(
+                _has_remove_node(payload, node_ref="old_multiply"),
+                f"material multi-input replacement missing removeNode for old multiply: {relpath}",
             )
         elif relpath == "pcg/examples/pipeline-then-layout.json":
             _require(
@@ -471,6 +536,43 @@ def validate_workspace_examples() -> None:
             _require(
                 _has_remove_node(payload, node_ref="old_add_tag"),
                 f"pcg replacement example missing removeNode for old tag stage: {relpath}",
+            )
+        elif relpath == "pcg/examples/replace-tag-route-with-attribute-route.json":
+            _require(
+                _has_connection(payload, "create_points", "Out", "old_filter_by_tag", "In"),
+                f"pcg multi-route replacement missing initial create -> FilterByTag connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "old_filter_by_tag", "InsideFilter", "matched_branch", "In"),
+                f"pcg multi-route replacement missing initial InsideFilter branch: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "old_filter_by_tag", "OutsideFilter", "unmatched_branch", "In"),
+                f"pcg multi-route replacement missing initial OutsideFilter branch: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "create_points", "Out", "replacement_filter_by_attribute", "In"),
+                f"pcg multi-route replacement missing preserved upstream -> replacement route connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "replacement_filter_by_attribute", "InsideFilter", "matched_branch", "In"),
+                f"pcg multi-route replacement missing replacement InsideFilter reconnection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "replacement_filter_by_attribute", "OutsideFilter", "unmatched_branch", "In"),
+                f"pcg multi-route replacement missing replacement OutsideFilter reconnection: {relpath}",
+            )
+            _require(
+                _has_set_default(payload, node_ref="replacement_filter_by_attribute", pin="FilterMode", value="FilterByExistence"),
+                f"pcg multi-route replacement missing FilterMode default: {relpath}",
+            )
+            _require(
+                _has_set_default(payload, node_ref="replacement_filter_by_attribute", pin="Attribute", value="Density"),
+                f"pcg multi-route replacement missing Attribute default: {relpath}",
+            )
+            _require(
+                _has_remove_node(payload, node_ref="old_filter_by_tag"),
+                f"pcg multi-route replacement missing removeNode for old route node: {relpath}",
             )
 
     print("[PASS] workspace graph examples validated")

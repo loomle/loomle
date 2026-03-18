@@ -19,7 +19,10 @@
       "creationArgs": {},
       "pinHints": ["Execute", "Condition", "Then", "Else"],
       "usage": "Split exec flow on a boolean condition.",
-      "exampleFiles": ["examples/branch-then-layout.json"]
+      "exampleFiles": [
+        "examples/branch-then-layout.json",
+        "examples/replace-branch-with-sequence.json"
+      ]
     },
     {
       "displayName": "Sequence",
@@ -29,7 +32,10 @@
       "creationArgs": {},
       "pinHints": ["execute", "Then_0", "Then_1"],
       "usage": "Fan one exec input out into ordered exec branches.",
-      "exampleFiles": ["examples/sequence-fanout.json"]
+      "exampleFiles": [
+        "examples/sequence-fanout.json",
+        "examples/replace-branch-with-sequence.json"
+      ]
     },
     {
       "displayName": "Delay",
