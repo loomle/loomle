@@ -1,0 +1,105 @@
+{
+  "tool": "graph.mutate",
+  "graphType": "pcg",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "create_points",
+      "args": {
+        "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "static_mesh_spawner",
+      "args": {
+        "nodeClassPath": "/Script/PCG.PCGStaticMeshSpawnerSettings"
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "create_points",
+          "pin": "Out"
+        },
+        "to": {
+          "nodeRef": "static_mesh_spawner",
+          "pin": "In"
+        }
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "density_filter",
+      "args": {
+        "nodeClassPath": "/Script/PCG.PCGDensityFilterSettings"
+      }
+    },
+    {
+      "op": "disconnectPins",
+      "args": {
+        "from": {
+          "nodeRef": "create_points",
+          "pin": "Out"
+        },
+        "to": {
+          "nodeRef": "static_mesh_spawner",
+          "pin": "In"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "create_points",
+          "pin": "Out"
+        },
+        "to": {
+          "nodeRef": "density_filter",
+          "pin": "In"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "density_filter",
+          "pin": "Out"
+        },
+        "to": {
+          "nodeRef": "static_mesh_spawner",
+          "pin": "In"
+        }
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "density_filter",
+          "pin": "LowerBound"
+        },
+        "value": 0.2
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "density_filter",
+          "pin": "UpperBound"
+        },
+        "value": 0.8
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "args": {
+        "scope": "touched"
+      }
+    }
+  ]
+}

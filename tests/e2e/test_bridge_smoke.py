@@ -52,9 +52,11 @@ EXPECTED_WORKSPACE_EXAMPLES = {
     "blueprint/examples/do-once-then-print.json",
     "blueprint/examples/replace-delay-with-do-once.json",
     "blueprint/examples/replace-branch-with-sequence.json",
+    "blueprint/examples/insert-not-before-branch-condition.json",
     "blueprint/examples/set-variable-then-print.json",
     "blueprint/examples/sequence-fanout.json",
     "material/examples/root-sink-then-layout.json",
+    "material/examples/insert-multiply-before-base-color-root.json",
     "material/examples/replace-saturate-with-one-minus.json",
     "material/examples/replace-multiply-with-lerp.json",
     "material/examples/scalar-one-minus-to-roughness.json",
@@ -69,6 +71,7 @@ EXPECTED_WORKSPACE_EXAMPLES = {
     "pcg/examples/project-surface-from-actor-data.json",
     "pcg/examples/replace-tag-with-points-ratio.json",
     "pcg/examples/replace-tag-route-with-attribute-route.json",
+    "pcg/examples/insert-density-filter-before-static-mesh.json",
 }
 
 EXPECTED_WORKSPACE_CATALOGS = {
@@ -323,6 +326,19 @@ def validate_workspace_examples() -> None:
                 _has_remove_node(payload, node_ref="old_branch"),
                 f"blueprint multi-branch replacement missing removeNode for old branch: {relpath}",
             )
+        elif relpath == "blueprint/examples/insert-not-before-branch-condition.json":
+            _require(
+                _has_connection(payload, "condition_get", "ActorHiddenInGame", "branch_main", "Condition"),
+                f"blueprint data-rewrite example missing initial get -> branch condition connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "condition_get", "ActorHiddenInGame", "invert_condition", "A"),
+                f"blueprint data-rewrite example missing get -> Not input connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "invert_condition", "ReturnValue", "branch_main", "Condition"),
+                f"blueprint data-rewrite example missing Not output -> branch condition connection: {relpath}",
+            )
         elif relpath == "material/examples/root-sink-then-layout.json":
             _require(
                 _has_connection(payload, "multiply_ab", "", "__material_root__", "Base Color"),
@@ -429,6 +445,23 @@ def validate_workspace_examples() -> None:
             _require(
                 _has_remove_node(payload, node_ref="old_multiply"),
                 f"material multi-input replacement missing removeNode for old multiply: {relpath}",
+            )
+        elif relpath == "material/examples/insert-multiply-before-base-color-root.json":
+            _require(
+                _has_connection(payload, "albedo_tex", "", "__material_root__", "Base Color"),
+                f"material insertion example missing initial texture -> root connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "albedo_tex", "", "multiply_tint", "A"),
+                f"material insertion example missing preserved upstream -> multiply A connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "tint_scalar", "", "multiply_tint", "B"),
+                f"material insertion example missing scalar -> multiply B connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "multiply_tint", "", "__material_root__", "Base Color"),
+                f"material insertion example missing multiply -> root reconnection: {relpath}",
             )
         elif relpath == "pcg/examples/pipeline-then-layout.json":
             _require(
@@ -573,6 +606,27 @@ def validate_workspace_examples() -> None:
             _require(
                 _has_remove_node(payload, node_ref="old_filter_by_tag"),
                 f"pcg multi-route replacement missing removeNode for old route node: {relpath}",
+            )
+        elif relpath == "pcg/examples/insert-density-filter-before-static-mesh.json":
+            _require(
+                _has_connection(payload, "create_points", "Out", "static_mesh_spawner", "In"),
+                f"pcg insertion example missing initial create -> spawner connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "create_points", "Out", "density_filter", "In"),
+                f"pcg insertion example missing preserved upstream -> density filter connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "density_filter", "Out", "static_mesh_spawner", "In"),
+                f"pcg insertion example missing density filter -> spawner reconnection: {relpath}",
+            )
+            _require(
+                _has_set_default(payload, node_ref="density_filter", pin="LowerBound", value=0.2),
+                f"pcg insertion example missing density lower bound: {relpath}",
+            )
+            _require(
+                _has_set_default(payload, node_ref="density_filter", pin="UpperBound", value=0.8),
+                f"pcg insertion example missing density upper bound: {relpath}",
             )
 
     print("[PASS] workspace graph examples validated")

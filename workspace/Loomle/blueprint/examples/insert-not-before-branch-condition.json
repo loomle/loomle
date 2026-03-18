@@ -1,0 +1,146 @@
+{
+  "tool": "graph.mutate",
+  "graphType": "blueprint",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "condition_get",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_VariableGet",
+        "variableName": "ActorHiddenInGame",
+        "variableClassPath": "/Script/Engine.Actor"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "branch_main",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "true_print",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary",
+        "functionName": "PrintString"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "false_print",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary",
+        "functionName": "PrintString"
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeId": "EventBeginPlay",
+          "pinName": "Then"
+        },
+        "to": {
+          "nodeRef": "branch_main",
+          "pinName": "Execute"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "condition_get",
+          "pinName": "ActorHiddenInGame"
+        },
+        "to": {
+          "nodeRef": "branch_main",
+          "pinName": "Condition"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "branch_main",
+          "pinName": "Then"
+        },
+        "to": {
+          "nodeRef": "true_print",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "branch_main",
+          "pinName": "Else"
+        },
+        "to": {
+          "nodeRef": "false_print",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "invert_condition",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+        "functionClassPath": "/Script/Engine.KismetMathLibrary",
+        "functionName": "Not_PreBool"
+      }
+    },
+    {
+      "op": "disconnectPins",
+      "args": {
+        "from": {
+          "nodeRef": "condition_get",
+          "pinName": "ActorHiddenInGame"
+        },
+        "to": {
+          "nodeRef": "branch_main",
+          "pinName": "Condition"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "condition_get",
+          "pinName": "ActorHiddenInGame"
+        },
+        "to": {
+          "nodeRef": "invert_condition",
+          "pinName": "A"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "invert_condition",
+          "pinName": "ReturnValue"
+        },
+        "to": {
+          "nodeRef": "branch_main",
+          "pinName": "Condition"
+        }
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "args": {
+        "scope": "touched"
+      }
+    }
+  ]
+}

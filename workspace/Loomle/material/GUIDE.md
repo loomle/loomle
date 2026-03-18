@@ -37,6 +37,7 @@ root sinks, function subgraphs, or node-family boundaries.
 - `examples/texture-times-scalar-to-base-color.json`
 - `examples/replace-saturate-with-one-minus.json`
 - `examples/replace-multiply-with-lerp.json`
+- `examples/insert-multiply-before-base-color-root.json`
 
 ## Execution Style
 

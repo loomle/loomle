@@ -88,6 +88,19 @@
       ]
     },
     {
+      "displayName": "Boolean Not",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+      "family": "math",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {
+        "functionClassPath": "/Script/Engine.KismetMathLibrary",
+        "functionName": "Not_PreBool"
+      },
+      "pinHints": ["A", "ReturnValue"],
+      "usage": "Invert a boolean data value before a downstream consumer such as Branch.",
+      "exampleFiles": ["examples/insert-not-before-branch-condition.json"]
+    },
+    {
       "displayName": "Variable Get",
       "nodeClassPath": "/Script/BlueprintGraph.K2Node_VariableGet",
       "family": "variable",
@@ -96,7 +109,7 @@
       "optionalArgs": ["variableClassPath"],
       "pinHints": ["value output"],
       "usage": "Read a variable into data flow.",
-      "exampleFiles": []
+      "exampleFiles": ["examples/insert-not-before-branch-condition.json"]
     },
     {
       "displayName": "Variable Set",
