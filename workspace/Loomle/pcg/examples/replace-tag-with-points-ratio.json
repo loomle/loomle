@@ -1,0 +1,146 @@
+{
+  "tool": "graph.mutate",
+  "graphType": "pcg",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "create_points",
+      "args": {
+        "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "old_add_tag",
+      "args": {
+        "nodeClassPath": "/Script/PCG.PCGAddTagSettings"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "filter_tag",
+      "args": {
+        "nodeClassPath": "/Script/PCG.PCGFilterByTagSettings"
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "create_points",
+          "pin": "Out"
+        },
+        "to": {
+          "nodeRef": "old_add_tag",
+          "pin": "In"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "old_add_tag",
+          "pin": "Out"
+        },
+        "to": {
+          "nodeRef": "filter_tag",
+          "pin": "In"
+        }
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "old_add_tag",
+          "pin": "TagsToAdd"
+        },
+        "value": "Gameplay.Legacy"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "sample_ratio",
+      "args": {
+        "nodeClassPath": "/Script/PCG.PCGSelectPointsSettings"
+      }
+    },
+    {
+      "op": "disconnectPins",
+      "args": {
+        "from": {
+          "nodeRef": "create_points",
+          "pin": "Out"
+        },
+        "to": {
+          "nodeRef": "old_add_tag",
+          "pin": "In"
+        }
+      }
+    },
+    {
+      "op": "disconnectPins",
+      "args": {
+        "from": {
+          "nodeRef": "old_add_tag",
+          "pin": "Out"
+        },
+        "to": {
+          "nodeRef": "filter_tag",
+          "pin": "In"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "create_points",
+          "pin": "Out"
+        },
+        "to": {
+          "nodeRef": "sample_ratio",
+          "pin": "In"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "sample_ratio",
+          "pin": "Out"
+        },
+        "to": {
+          "nodeRef": "filter_tag",
+          "pin": "In"
+        }
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "sample_ratio",
+          "pin": "Ratio"
+        },
+        "value": 0.25
+      }
+    },
+    {
+      "op": "removeNode",
+      "args": {
+        "target": {
+          "nodeRef": "old_add_tag"
+        }
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "args": {
+        "scope": "touched"
+      }
+    }
+  ]
+}

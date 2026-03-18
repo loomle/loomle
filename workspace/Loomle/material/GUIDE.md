@@ -35,6 +35,7 @@ root sinks, function subgraphs, or node-family boundaries.
 - `examples/scalar-to-roughness.json`
 - `examples/scalar-one-minus-to-roughness.json`
 - `examples/texture-times-scalar-to-base-color.json`
+- `examples/replace-saturate-with-one-minus.json`
 
 ## Execution Style
 

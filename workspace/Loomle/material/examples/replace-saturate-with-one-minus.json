@@ -1,0 +1,113 @@
+{
+  "tool": "graph.mutate",
+  "graphType": "material",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "roughness_scalar",
+      "args": {
+        "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "old_saturate",
+      "args": {
+        "nodeClassPath": "/Script/Engine.MaterialExpressionSaturate"
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "roughness_scalar"
+        },
+        "to": {
+          "nodeRef": "old_saturate",
+          "pin": "Input"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "old_saturate"
+        },
+        "to": {
+          "nodeId": "__material_root__",
+          "pin": "Roughness"
+        }
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "replacement_invert",
+      "args": {
+        "nodeClassPath": "/Script/Engine.MaterialExpressionOneMinus"
+      }
+    },
+    {
+      "op": "disconnectPins",
+      "args": {
+        "from": {
+          "nodeRef": "roughness_scalar"
+        },
+        "to": {
+          "nodeRef": "old_saturate",
+          "pin": "Input"
+        }
+      }
+    },
+    {
+      "op": "disconnectPins",
+      "args": {
+        "from": {
+          "nodeRef": "old_saturate"
+        },
+        "to": {
+          "nodeId": "__material_root__",
+          "pin": "Roughness"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "roughness_scalar"
+        },
+        "to": {
+          "nodeRef": "replacement_invert",
+          "pin": "Input"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "replacement_invert"
+        },
+        "to": {
+          "nodeId": "__material_root__",
+          "pin": "Roughness"
+        }
+      }
+    },
+    {
+      "op": "removeNode",
+      "args": {
+        "target": {
+          "nodeRef": "old_saturate"
+        }
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "args": {
+        "scope": "touched"
+      }
+    }
+  ]
+}

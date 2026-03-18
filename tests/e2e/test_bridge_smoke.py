@@ -50,9 +50,11 @@ EXPECTED_WORKSPACE_EXAMPLES = {
     "blueprint/examples/branch-then-layout.json",
     "blueprint/examples/delay-then-print.json",
     "blueprint/examples/do-once-then-print.json",
+    "blueprint/examples/replace-delay-with-do-once.json",
     "blueprint/examples/set-variable-then-print.json",
     "blueprint/examples/sequence-fanout.json",
     "material/examples/root-sink-then-layout.json",
+    "material/examples/replace-saturate-with-one-minus.json",
     "material/examples/scalar-one-minus-to-roughness.json",
     "material/examples/texture-sample-to-base-color.json",
     "material/examples/texture-times-scalar-to-base-color.json",
@@ -63,6 +65,7 @@ EXPECTED_WORKSPACE_EXAMPLES = {
     "pcg/examples/attribute-filter-elements.json",
     "pcg/examples/points-ratio-to-tag.json",
     "pcg/examples/project-surface-from-actor-data.json",
+    "pcg/examples/replace-tag-with-points-ratio.json",
 }
 
 EXPECTED_WORKSPACE_CATALOGS = {
@@ -141,6 +144,17 @@ def _has_set_default(payload: dict[str, Any], *, node_ref: str, pin: str, value:
         target_node = target.get("nodeRef") or target.get("nodeId")
         target_pin = _extract_endpoint_pin(target)
         if target_node == node_ref and target_pin == pin and args.get("value") == value:
+            return True
+    return False
+
+
+def _has_remove_node(payload: dict[str, Any], *, node_ref: str) -> bool:
+    for op in _find_ops(payload, "removeNode"):
+        args = op.get("args")
+        if not isinstance(args, dict):
+            continue
+        target = args.get("target")
+        if isinstance(target, dict) and target.get("nodeRef") == node_ref:
             return True
     return False
 
@@ -256,6 +270,27 @@ def validate_workspace_examples() -> None:
                 _has_connection(payload, "do_once_main", "Completed", "print_completed", "execute"),
                 f"do-once example missing Completed -> print connection: {relpath}",
             )
+        elif relpath == "blueprint/examples/replace-delay-with-do-once.json":
+            _require(
+                _has_connection(payload, "EventBeginPlay", "Then", "old_delay", "execute"),
+                f"blueprint replacement example missing initial BeginPlay -> delay connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "old_delay", "then", "terminal_print", "execute"),
+                f"blueprint replacement example missing initial delay -> print connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "EventBeginPlay", "Then", "replacement_gate", "Execute"),
+                f"blueprint replacement example missing preserved upstream -> replacement connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "replacement_gate", "Completed", "terminal_print", "execute"),
+                f"blueprint replacement example missing replacement -> preserved downstream connection: {relpath}",
+            )
+            _require(
+                _has_remove_node(payload, node_ref="old_delay"),
+                f"blueprint replacement example missing removeNode for old delay: {relpath}",
+            )
         elif relpath == "material/examples/root-sink-then-layout.json":
             _require(
                 _has_connection(payload, "multiply_ab", "", "__material_root__", "Base Color"),
@@ -308,6 +343,27 @@ def validate_workspace_examples() -> None:
             _require(
                 _has_connection(payload, "multiply_tint", "", "__material_root__", "Base Color"),
                 f"texture multiply example missing Base Color root sink: {relpath}",
+            )
+        elif relpath == "material/examples/replace-saturate-with-one-minus.json":
+            _require(
+                _has_connection(payload, "roughness_scalar", "", "old_saturate", "Input"),
+                f"material replacement example missing initial scalar -> saturate connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "old_saturate", "", "__material_root__", "Roughness"),
+                f"material replacement example missing initial saturate -> root connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "roughness_scalar", "", "replacement_invert", "Input"),
+                f"material replacement example missing preserved upstream -> replacement connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "replacement_invert", "", "__material_root__", "Roughness"),
+                f"material replacement example missing replacement -> root connection: {relpath}",
+            )
+            _require(
+                _has_remove_node(payload, node_ref="old_saturate"),
+                f"material replacement example missing removeNode for old saturate: {relpath}",
             )
         elif relpath == "pcg/examples/pipeline-then-layout.json":
             _require(
@@ -390,6 +446,31 @@ def validate_workspace_examples() -> None:
             _require(
                 _has_connection(payload, "project_surface", "Out", "tag_projected", "In"),
                 f"pcg project surface example missing projection -> tag connection: {relpath}",
+            )
+        elif relpath == "pcg/examples/replace-tag-with-points-ratio.json":
+            _require(
+                _has_connection(payload, "create_points", "Out", "old_add_tag", "In"),
+                f"pcg replacement example missing initial create -> tag connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "old_add_tag", "Out", "filter_tag", "In"),
+                f"pcg replacement example missing initial tag -> filter connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "create_points", "Out", "sample_ratio", "In"),
+                f"pcg replacement example missing preserved upstream -> replacement connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "sample_ratio", "Out", "filter_tag", "In"),
+                f"pcg replacement example missing replacement -> preserved downstream connection: {relpath}",
+            )
+            _require(
+                _has_set_default(payload, node_ref="sample_ratio", pin="Ratio", value=0.25),
+                f"pcg replacement example missing ratio default: {relpath}",
+            )
+            _require(
+                _has_remove_node(payload, node_ref="old_add_tag"),
+                f"pcg replacement example missing removeNode for old tag stage: {relpath}",
             )
 
     print("[PASS] workspace graph examples validated")

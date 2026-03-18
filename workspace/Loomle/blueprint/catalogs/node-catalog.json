@@ -42,7 +42,10 @@
       },
       "pinHints": ["execute", "Duration", "then"],
       "usage": "Insert a latent delay in exec flow.",
-      "exampleFiles": ["examples/delay-then-print.json"]
+      "exampleFiles": [
+        "examples/delay-then-print.json",
+        "examples/replace-delay-with-do-once.json"
+      ]
     },
     {
       "displayName": "DoOnce",
@@ -54,7 +57,10 @@
       },
       "pinHints": ["Execute", "Completed", "Reset"],
       "usage": "Gate exec flow so it completes only once until reset.",
-      "exampleFiles": ["examples/do-once-then-print.json"]
+      "exampleFiles": [
+        "examples/do-once-then-print.json",
+        "examples/replace-delay-with-do-once.json"
+      ]
     },
     {
       "displayName": "Print String",
@@ -71,7 +77,8 @@
         "examples/set-variable-then-print.json",
         "examples/sequence-fanout.json",
         "examples/delay-then-print.json",
-        "examples/do-once-then-print.json"
+        "examples/do-once-then-print.json",
+        "examples/replace-delay-with-do-once.json"
       ]
     },
     {

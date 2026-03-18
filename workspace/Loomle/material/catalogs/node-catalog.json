@@ -52,7 +52,8 @@
         "examples/root-sink-then-layout.json",
         "examples/scalar-to-roughness.json",
         "examples/scalar-one-minus-to-roughness.json",
-        "examples/texture-times-scalar-to-base-color.json"
+        "examples/texture-times-scalar-to-base-color.json",
+        "examples/replace-saturate-with-one-minus.json"
       ]
     },
     {
@@ -129,7 +130,10 @@
       "creationArgs": {},
       "pinHints": ["Input"],
       "usage": "Invert a scalar or vector-like signal with 1 - x semantics.",
-      "exampleFiles": ["examples/scalar-one-minus-to-roughness.json"]
+      "exampleFiles": [
+        "examples/scalar-one-minus-to-roughness.json",
+        "examples/replace-saturate-with-one-minus.json"
+      ]
     },
     {
       "displayName": "Saturate",
@@ -139,7 +143,7 @@
       "creationArgs": {},
       "pinHints": ["Input"],
       "usage": "Clamp an expression to the 0..1 range.",
-      "exampleFiles": []
+      "exampleFiles": ["examples/replace-saturate-with-one-minus.json"]
     },
     {
       "displayName": "Material Function Call",

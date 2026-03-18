@@ -1,0 +1,144 @@
+{
+  "tool": "graph.mutate",
+  "graphType": "blueprint",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "old_delay",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary",
+        "functionName": "Delay"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "terminal_print",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary",
+        "functionName": "PrintString"
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeId": "EventBeginPlay",
+          "pinName": "Then"
+        },
+        "to": {
+          "nodeRef": "old_delay",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "old_delay",
+          "pinName": "then"
+        },
+        "to": {
+          "nodeRef": "terminal_print",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "old_delay",
+          "pinName": "Duration"
+        },
+        "value": 0.1
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "terminal_print",
+          "pinName": "InString"
+        },
+        "value": "Preserved downstream consumer"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "replacement_gate",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_MacroInstance",
+        "macroGraphName": "DoOnce"
+      }
+    },
+    {
+      "op": "disconnectPins",
+      "args": {
+        "from": {
+          "nodeId": "EventBeginPlay",
+          "pinName": "Then"
+        },
+        "to": {
+          "nodeRef": "old_delay",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "disconnectPins",
+      "args": {
+        "from": {
+          "nodeRef": "old_delay",
+          "pinName": "then"
+        },
+        "to": {
+          "nodeRef": "terminal_print",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeId": "EventBeginPlay",
+          "pinName": "Then"
+        },
+        "to": {
+          "nodeRef": "replacement_gate",
+          "pinName": "Execute"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "replacement_gate",
+          "pinName": "Completed"
+        },
+        "to": {
+          "nodeRef": "terminal_print",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "removeNode",
+      "args": {
+        "target": {
+          "nodeRef": "old_delay"
+        }
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "args": {
+        "scope": "touched"
+      }
+    }
+  ]
+}

@@ -33,6 +33,7 @@ node-family boundaries, route vs filter behavior, or key parameters and wiring.
 - `examples/attribute-filter-elements.json`
 - `examples/points-ratio-to-tag.json`
 - `examples/project-surface-from-actor-data.json`
+- `examples/replace-tag-with-points-ratio.json`
 
 ## Execution Style
 

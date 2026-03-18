@@ -32,6 +32,7 @@ control flow, variable nodes, or node-family boundaries.
 - `examples/sequence-fanout.json`
 - `examples/delay-then-print.json`
 - `examples/do-once-then-print.json`
+- `examples/replace-delay-with-do-once.json`
 
 ## Execution Style
 
