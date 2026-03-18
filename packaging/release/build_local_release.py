@@ -70,6 +70,7 @@ def main() -> int:
     client_dir = repo_root / "mcp" / "client"
     assemble_script = repo_root / "packaging" / "bundle" / "assemble_release_bundle.py"
     manifest_script = repo_root / "packaging" / "bundle" / "build_release_manifest.py"
+    zip_script = repo_root / "packaging" / "release" / "write_bundle_zip.py"
 
     shutil.rmtree(output_dir, ignore_errors=True)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -108,7 +109,18 @@ def main() -> int:
     )
 
     archive_stem = output_dir / f"loomle-{args.version}-{args.platform}"
-    archive_path = Path(shutil.make_archive(str(archive_stem), "zip", root_dir=str(bundle_dir)))
+    archive_path = archive_stem.with_suffix(".zip")
+    run(
+        [
+            sys.executable,
+            str(zip_script),
+            "--bundle-dir",
+            str(bundle_dir),
+            "--archive-path",
+            str(archive_path),
+        ],
+        cwd=repo_root,
+    )
     package_sha = sha256_file(archive_path)
     server_sha = sha256_file(server_binary)
     client_sha = sha256_file(client_binary)

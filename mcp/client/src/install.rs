@@ -23,6 +23,7 @@ const RESTART_REASON_INSTALL: &str =
     "If Unreal Editor is already running, restart it to load the installed LoomleBridge plugin version.";
 const RESTART_REASON_UPDATE: &str =
     "If Unreal Editor is already running, restart it to load the updated LoomleBridge plugin version.";
+const INVALID_ARCHIVE_PATH_CHARS: [char; 7] = ['<', '>', ':', '"', '|', '?', '*'];
 
 fn print_install_phase(message: &str) {
     eprintln!("[loomle][INFO] {message}");
@@ -39,6 +40,38 @@ fn top_level_zip_component(path: &Path) -> Option<String> {
     path.components()
         .next()
         .map(|component| component.as_os_str().to_string_lossy().to_string())
+}
+
+fn normalize_zip_entry_name(entry_name: &str) -> Result<(PathBuf, bool), String> {
+    if entry_name.starts_with('/') || entry_name.starts_with('\\') {
+        return Err(format!("zip entry contains absolute path: {entry_name}"));
+    }
+
+    let is_directory = entry_name.ends_with('/') || entry_name.ends_with('\\');
+    let mut normalized = PathBuf::new();
+
+    for component in entry_name.split(['/', '\\']) {
+        if component.is_empty() || component == "." {
+            continue;
+        }
+        if component == ".." {
+            return Err(format!("zip entry contains unsafe path traversal: {entry_name}"));
+        }
+        if component.chars().any(|c| c.is_control())
+            || component.chars().any(|c| INVALID_ARCHIVE_PATH_CHARS.contains(&c))
+        {
+            return Err(format!(
+                "zip entry contains invalid path component `{component}`: {entry_name}"
+            ));
+        }
+        normalized.push(component);
+    }
+
+    if normalized.as_os_str().is_empty() {
+        return Err(format!("zip entry has empty normalized path: {entry_name}"));
+    }
+
+    Ok((normalized, is_directory))
 }
 
 #[derive(Debug, Clone)]
@@ -665,17 +698,16 @@ fn extract_zip(archive_path: &Path, bundle_root: &Path) -> Result<(), String> {
                     archive_path.display()
                 )
             })?;
-        let Some(enclosed_name) = entry.enclosed_name() else {
-            return Err(format!("zip entry contains unsafe path: {}", entry.name()));
-        };
-        if let Some(top_level_component) = top_level_zip_component(enclosed_name.as_ref()) {
+        let entry_name = entry.name().to_string();
+        let (normalized_name, is_directory_entry) = normalize_zip_entry_name(&entry_name)?;
+        if let Some(top_level_component) = top_level_zip_component(&normalized_name) {
             if last_top_level_component.as_deref() != Some(top_level_component.as_str()) {
                 print_install_phase(&format!("extracting {top_level_component}/"));
                 last_top_level_component = Some(top_level_component);
             }
         }
-        let destination = bundle_root.join(enclosed_name);
-        if entry.is_dir() || entry.name().ends_with('\\') {
+        let destination = bundle_root.join(&normalized_name);
+        if entry.is_dir() || is_directory_entry {
             fs::create_dir_all(&destination).map_err(|error| {
                 format!(
                     "failed to create extracted dir {}: {error}",
@@ -1840,6 +1872,21 @@ mod tests {
     }
 
     #[test]
+    fn normalize_zip_entry_name_supports_windows_style_directory_entries() {
+        let (normalized, is_directory) =
+            normalize_zip_entry_name("mcp\\client\\").expect("normalize");
+        assert_eq!(normalized, PathBuf::from("mcp").join("client"));
+        assert!(is_directory);
+    }
+
+    #[test]
+    fn normalize_zip_entry_name_rejects_invalid_windows_path_components() {
+        let error =
+            normalize_zip_entry_name("bundle\\mcp\\client\\:").expect_err("should reject");
+        assert!(error.contains("invalid path component `:`"));
+    }
+
+    #[test]
     fn install_release_extracts_windows_directory_entries() {
         let temp = TempDir::new().expect("temp");
         let build_root = temp.path().join("build");
@@ -1938,6 +1985,24 @@ mod tests {
             .join("Plugins/LoomleBridge/LoomleBridge.uplugin")
             .is_file());
         assert!(project_root.join("Loomle").join(client_name).is_file());
+    }
+
+    #[test]
+    fn extract_zip_rejects_invalid_windows_path_component_entries() {
+        let temp = TempDir::new().expect("temp");
+        let archive_path = temp.path().join("loomle.zip");
+        let bundle_root = temp.path().join("bundle");
+
+        let file = fs::File::create(&archive_path).expect("archive");
+        let mut zip = zip::ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        zip.start_file("bundle\\mcp\\client\\:", options)
+            .expect("invalid entry");
+        zip.write_all(b"bad").expect("bad bytes");
+        zip.finish().expect("finish zip");
+
+        let error = extract_zip(&archive_path, &bundle_root).expect_err("extract should fail");
+        assert!(error.contains("invalid path component `:`"));
     }
 
     #[test]

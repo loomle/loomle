@@ -114,7 +114,9 @@ jobs:
           Copy-Item -LiteralPath (Join-Path $inputsDir "mcp\client\windows\loomle.exe") -Destination (Join-Path $bundleDir "mcp\client\windows\loomle.exe") -Force
           Copy-Item -LiteralPath (Join-Path $inputsDir "mcp\client\windows\loomle.exe") -Destination $bootstrapCliPath -Force
 
-          Compress-Archive -Path (Join-Path $bundleDir "*") -DestinationPath $archivePath -Force
+          python (Join-Path $env:GITHUB_WORKSPACE "packaging\release\write_bundle_zip.py") `
+            --bundle-dir $bundleDir `
+            --archive-path $archivePath
 
           $packageSha = Get-Sha256 $archivePath
           $serverSha = Get-Sha256 $serverDst
