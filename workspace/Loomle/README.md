@@ -181,11 +181,9 @@ Working rule:
 - use `SEMANTICS.md` for usage-level semantic distinctions
 - use catalogs for node discovery and static node facts
 - use examples for concrete mutate payload shapes
-- use `graph.ops` only as an optional live curated listing, not as the primary planning dependency
 
 Current expectation:
 - workspace references are static and agent-readable
-- `graph.ops` is curated, not exhaustive
 - execution still happens through primitive `graph.mutate` operations
 - `graph.query` and `graph.verify` are the validation loop after any meaningful edit
 

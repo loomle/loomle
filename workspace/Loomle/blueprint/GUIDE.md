@@ -27,6 +27,8 @@ control flow, variable nodes, or node-family boundaries.
 
 - `SEMANTICS.md`
 - `examples/branch-then-layout.json`
+- `examples/set-variable-then-print.json`
+- `examples/sequence-fanout.json`
 
 ## Execution Style
 

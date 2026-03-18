@@ -1,0 +1,119 @@
+{
+  "tool": "graph.mutate",
+  "graphType": "pcg",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "create_points",
+      "args": {
+        "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "filter_dense_points",
+      "args": {
+        "nodeClassPath": "/Script/PCG.PCGAttributeFilteringSettings"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "tag_dense_points",
+      "args": {
+        "nodeClassPath": "/Script/PCG.PCGAddTagSettings"
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "create_points",
+          "pin": "Out"
+        },
+        "to": {
+          "nodeRef": "filter_dense_points",
+          "pin": "In"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "filter_dense_points",
+          "pin": "InsideFilter"
+        },
+        "to": {
+          "nodeRef": "tag_dense_points",
+          "pin": "In"
+        }
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "filter_dense_points",
+          "pin": "TargetAttribute"
+        },
+        "value": "Density"
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "filter_dense_points",
+          "pin": "bUseConstantThreshold"
+        },
+        "value": true
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "filter_dense_points",
+          "pin": "Operator"
+        },
+        "value": "GreaterOrEqual"
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "filter_dense_points",
+          "pin": "AttributeTypes/type"
+        },
+        "value": "Double"
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "filter_dense_points",
+          "pin": "AttributeTypes/double_value"
+        },
+        "value": 0.5
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "tag_dense_points",
+          "pin": "TagsToAdd"
+        },
+        "value": "Gameplay.Dense"
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "args": {
+        "scope": "touched"
+      }
+    }
+  ]
+}

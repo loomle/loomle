@@ -1,0 +1,69 @@
+{
+  "tool": "graph.mutate",
+  "graphType": "pcg",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "actor_surface",
+      "args": {
+        "nodeClassPath": "/Script/PCG.PCGDataFromActorSettings"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "surface_sampler",
+      "args": {
+        "nodeClassPath": "/Script/PCG.PCGSurfaceSamplerSettings"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "static_mesh_spawner",
+      "args": {
+        "nodeClassPath": "/Script/PCG.PCGStaticMeshSpawnerSettings"
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "actor_surface",
+          "pin": "Out"
+        },
+        "to": {
+          "nodeRef": "surface_sampler",
+          "pin": "Surface"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "surface_sampler",
+          "pin": "Out"
+        },
+        "to": {
+          "nodeRef": "static_mesh_spawner",
+          "pin": "In"
+        }
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "surface_sampler",
+          "pin": "PointsPerSquaredMeter"
+        },
+        "value": 0.2
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "args": {
+        "scope": "touched"
+      }
+    }
+  ]
+}

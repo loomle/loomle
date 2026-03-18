@@ -46,6 +46,256 @@ EXPECTED_GRAPH_MUTATE_OPS = {
     "runScript",
 }
 
+EXPECTED_WORKSPACE_EXAMPLES = {
+    "blueprint/examples/branch-then-layout.json",
+    "blueprint/examples/set-variable-then-print.json",
+    "blueprint/examples/sequence-fanout.json",
+    "material/examples/root-sink-then-layout.json",
+    "material/examples/texture-sample-to-base-color.json",
+    "material/examples/scalar-to-roughness.json",
+    "pcg/examples/pipeline-then-layout.json",
+    "pcg/examples/actor-data-tag-route.json",
+    "pcg/examples/surface-sample-to-static-mesh.json",
+    "pcg/examples/attribute-filter-elements.json",
+}
+
+
+def _require(condition: bool, message: str) -> None:
+    if not condition:
+        fail(message)
+
+
+def _load_json_file(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        fail(f"failed to parse JSON example {path}: {exc}")
+    if not isinstance(value, dict):
+        fail(f"example root must be an object: {path}")
+    return value
+
+
+def _find_ops(payload: dict[str, Any], op_name: str) -> list[dict[str, Any]]:
+    ops = payload.get("ops")
+    if not isinstance(ops, list):
+        fail(f"example missing ops[]: {payload}")
+    return [op for op in ops if isinstance(op, dict) and op.get("op") == op_name]
+
+
+def _extract_endpoint_pin(endpoint: dict[str, Any]) -> Any:
+    if "pinName" in endpoint:
+        return endpoint.get("pinName")
+    if "pin" in endpoint:
+        return endpoint.get("pin")
+    return ""
+
+
+def _has_connection(payload: dict[str, Any], from_node: str, from_pin: str, to_node: str, to_pin: str) -> bool:
+    for op in _find_ops(payload, "connectPins"):
+        args = op.get("args")
+        if not isinstance(args, dict):
+            continue
+        source = args.get("from")
+        target = args.get("to")
+        if not isinstance(source, dict) or not isinstance(target, dict):
+            continue
+        source_node = source.get("nodeRef") or source.get("nodeId")
+        target_node = target.get("nodeRef") or target.get("nodeId")
+        source_pin = _extract_endpoint_pin(source)
+        target_pin = _extract_endpoint_pin(target)
+        if source_node == from_node and source_pin == from_pin and target_node == to_node and target_pin == to_pin:
+            return True
+    return False
+
+
+def _has_add_node(payload: dict[str, Any], *, client_ref: str, class_path: str) -> bool:
+    for op in _find_ops(payload, "addNode.byClass"):
+        args = op.get("args")
+        if not isinstance(args, dict):
+            continue
+        if op.get("clientRef") == client_ref and args.get("nodeClassPath") == class_path:
+            return True
+    return False
+
+
+def _has_set_default(payload: dict[str, Any], *, node_ref: str, pin: str, value: Any) -> bool:
+    for op in _find_ops(payload, "setPinDefault"):
+        args = op.get("args")
+        if not isinstance(args, dict):
+            continue
+        target = args.get("target")
+        if not isinstance(target, dict):
+            continue
+        target_node = target.get("nodeRef") or target.get("nodeId")
+        target_pin = _extract_endpoint_pin(target)
+        if target_node == node_ref and target_pin == pin and args.get("value") == value:
+            return True
+    return False
+
+
+def validate_workspace_examples() -> None:
+    workspace_root = REPO_ROOT / "workspace" / "Loomle"
+    example_paths = sorted(workspace_root.glob("*/examples/*.json"))
+    actual_relpaths = {str(path.relative_to(workspace_root)).replace("\\", "/") for path in example_paths}
+    _require(
+        actual_relpaths == EXPECTED_WORKSPACE_EXAMPLES,
+        f"workspace example set mismatch expected={sorted(EXPECTED_WORKSPACE_EXAMPLES)} actual={sorted(actual_relpaths)}",
+    )
+
+    for path in example_paths:
+        payload = _load_json_file(path)
+        relpath = str(path.relative_to(workspace_root)).replace("\\", "/")
+        graph_dir = path.parent.parent.name
+        _require(payload.get("tool") == "graph.mutate", f"example must target graph.mutate: {relpath}")
+        _require(payload.get("graphType") == graph_dir, f"example graphType mismatch for {relpath}: {payload}")
+        ops = payload.get("ops")
+        _require(isinstance(ops, list) and ops, f"example must contain ops[]: {relpath}")
+        _require(
+            all(isinstance(op, dict) and op.get("op") in EXPECTED_GRAPH_MUTATE_OPS for op in ops),
+            f"example contains unsupported mutate op: {relpath}",
+        )
+        _require(
+            any(isinstance(op, dict) and op.get("op") == "layoutGraph" for op in ops),
+            f"example should end in a touched layout pass: {relpath}",
+        )
+
+        if relpath == "blueprint/examples/branch-then-layout.json":
+            _require(
+                _has_add_node(payload, client_ref="branch_a", class_path="/Script/BlueprintGraph.K2Node_IfThenElse"),
+                f"branch example missing branch node: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "EventBeginPlay", "Then", "branch_a", "Execute"),
+                f"branch example missing EventBeginPlay -> Branch connection: {relpath}",
+            )
+            _require(
+                _has_set_default(payload, node_ref="branch_a", pin="Condition", value=True),
+                f"branch example missing Condition=true default: {relpath}",
+            )
+        elif relpath == "blueprint/examples/set-variable-then-print.json":
+            _require(
+                _has_add_node(payload, client_ref="set_hidden", class_path="/Script/BlueprintGraph.K2Node_VariableSet"),
+                f"set-variable example missing variable set node: {relpath}",
+            )
+            _require(
+                _has_add_node(payload, client_ref="print_result", class_path="/Script/BlueprintGraph.K2Node_CallFunction"),
+                f"set-variable example missing PrintString node: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "EventBeginPlay", "Then", "set_hidden", "execute"),
+                f"set-variable example missing BeginPlay -> set connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "set_hidden", "then", "print_result", "execute"),
+                f"set-variable example missing set -> print connection: {relpath}",
+            )
+            _require(
+                _has_set_default(payload, node_ref="set_hidden", pin="ActorHiddenInGame", value=True),
+                f"set-variable example missing ActorHiddenInGame=true default: {relpath}",
+            )
+            _require(
+                _has_set_default(payload, node_ref="print_result", pin="InString", value="ActorHiddenInGame set to true"),
+                f"set-variable example missing print string default: {relpath}",
+            )
+        elif relpath == "blueprint/examples/sequence-fanout.json":
+            _require(
+                _has_add_node(payload, client_ref="sequence_main", class_path="/Script/BlueprintGraph.K2Node_ExecutionSequence"),
+                f"sequence example missing sequence node: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "EventBeginPlay", "Then", "sequence_main", "execute"),
+                f"sequence example missing BeginPlay -> sequence connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "sequence_main", "Then_0", "print_first", "execute"),
+                f"sequence example missing Then_0 branch: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "sequence_main", "Then_1", "print_second", "execute"),
+                f"sequence example missing Then_1 branch: {relpath}",
+            )
+        elif relpath == "material/examples/root-sink-then-layout.json":
+            _require(
+                _has_connection(payload, "multiply_ab", "", "__material_root__", "Base Color"),
+                f"material root example missing root sink connection: {relpath}",
+            )
+        elif relpath == "material/examples/texture-sample-to-base-color.json":
+            _require(
+                _has_add_node(payload, client_ref="albedo_tex", class_path="/Script/Engine.MaterialExpressionTextureSampleParameter2D"),
+                f"texture sample example missing texture parameter node: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "albedo_tex", "", "__material_root__", "Base Color"),
+                f"texture sample example missing Base Color root sink: {relpath}",
+            )
+        elif relpath == "material/examples/scalar-to-roughness.json":
+            _require(
+                _has_add_node(payload, client_ref="roughness_scalar", class_path="/Script/Engine.MaterialExpressionScalarParameter"),
+                f"scalar roughness example missing scalar parameter node: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "roughness_scalar", "", "__material_root__", "Roughness"),
+                f"scalar roughness example missing Roughness root sink: {relpath}",
+            )
+        elif relpath == "pcg/examples/pipeline-then-layout.json":
+            _require(
+                _has_connection(payload, "create_points", "Out", "add_tag", "In"),
+                f"pcg pipeline example missing create -> tag connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "add_tag", "Out", "filter_tag", "In"),
+                f"pcg pipeline example missing tag -> filter connection: {relpath}",
+            )
+        elif relpath == "pcg/examples/actor-data-tag-route.json":
+            _require(
+                _has_connection(payload, "actor_data", "Out", "filter_by_tag", "In"),
+                f"pcg actor route example missing actor -> filter connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "filter_by_tag", "InsideFilter", "tag_matched_branch", "In"),
+                f"pcg actor route example missing InsideFilter branch: {relpath}",
+            )
+            _require(
+                _has_set_default(payload, node_ref="filter_by_tag", pin="SelectedTags", value="Gameplay.Spawnable"),
+                f"pcg actor route example missing SelectedTags default: {relpath}",
+            )
+        elif relpath == "pcg/examples/surface-sample-to-static-mesh.json":
+            _require(
+                _has_connection(payload, "actor_surface", "Out", "surface_sampler", "Surface"),
+                f"pcg surface sampler example missing source -> Surface connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "surface_sampler", "Out", "static_mesh_spawner", "In"),
+                f"pcg surface sampler example missing sampler -> spawner connection: {relpath}",
+            )
+            _require(
+                _has_set_default(payload, node_ref="surface_sampler", pin="PointsPerSquaredMeter", value=0.2),
+                f"pcg surface sampler example missing density default: {relpath}",
+            )
+        elif relpath == "pcg/examples/attribute-filter-elements.json":
+            _require(
+                _has_add_node(payload, client_ref="filter_dense_points", class_path="/Script/PCG.PCGAttributeFilteringSettings"),
+                f"pcg attribute filter example missing filter node: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "create_points", "Out", "filter_dense_points", "In"),
+                f"pcg attribute filter example missing create -> filter connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "filter_dense_points", "InsideFilter", "tag_dense_points", "In"),
+                f"pcg attribute filter example missing InsideFilter -> tag connection: {relpath}",
+            )
+            _require(
+                _has_set_default(payload, node_ref="filter_dense_points", pin="TargetAttribute", value="Density"),
+                f"pcg attribute filter example missing TargetAttribute default: {relpath}",
+            )
+            _require(
+                _has_set_default(payload, node_ref="filter_dense_points", pin="AttributeTypes/double_value", value=0.5),
+                f"pcg attribute filter example missing threshold default: {relpath}",
+            )
+
+    print("[PASS] workspace graph examples validated")
+
 
 def fail(msg: str) -> None:
     print(f"[FAIL] {msg}")
@@ -526,6 +776,8 @@ def main() -> int:
         if run_script_payload is None:
             fail("graph.mutate runScript retry loop ended without payload")
         print("[PASS] graph.mutate runScript inline execution verified")
+
+        validate_workspace_examples()
 
         print("[PASS] Bridge verification complete")
         return 0

@@ -1,0 +1,31 @@
+{
+  "tool": "graph.mutate",
+  "graphType": "material",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "albedo_tex",
+      "args": {
+        "nodeClassPath": "/Script/Engine.MaterialExpressionTextureSampleParameter2D"
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "albedo_tex"
+        },
+        "to": {
+          "nodeId": "__material_root__",
+          "pin": "Base Color"
+        }
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "args": {
+        "scope": "touched"
+      }
+    }
+  ]
+}

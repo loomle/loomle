@@ -1,0 +1,31 @@
+{
+  "tool": "graph.mutate",
+  "graphType": "material",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "roughness_scalar",
+      "args": {
+        "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "roughness_scalar"
+        },
+        "to": {
+          "nodeId": "__material_root__",
+          "pin": "Roughness"
+        }
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "args": {
+        "scope": "touched"
+      }
+    }
+  ]
+}

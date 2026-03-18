@@ -1,0 +1,79 @@
+{
+  "tool": "graph.mutate",
+  "graphType": "pcg",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "actor_data",
+      "args": {
+        "nodeClassPath": "/Script/PCG.PCGDataFromActorSettings"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "filter_by_tag",
+      "args": {
+        "nodeClassPath": "/Script/PCG.PCGFilterByTagSettings"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "tag_matched_branch",
+      "args": {
+        "nodeClassPath": "/Script/PCG.PCGAddTagSettings"
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "actor_data",
+          "pin": "Out"
+        },
+        "to": {
+          "nodeRef": "filter_by_tag",
+          "pin": "In"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "filter_by_tag",
+          "pin": "InsideFilter"
+        },
+        "to": {
+          "nodeRef": "tag_matched_branch",
+          "pin": "In"
+        }
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "filter_by_tag",
+          "pin": "SelectedTags"
+        },
+        "value": "Gameplay.Spawnable"
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "tag_matched_branch",
+          "pin": "TagsToAdd"
+        },
+        "value": "Gameplay.Routed"
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "args": {
+        "scope": "touched"
+      }
+    }
+  ]
+}

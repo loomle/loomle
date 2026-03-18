@@ -1,0 +1,96 @@
+{
+  "tool": "graph.mutate",
+  "graphType": "blueprint",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "sequence_main",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_ExecutionSequence"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "print_first",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary",
+        "functionName": "PrintString"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "print_second",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary",
+        "functionName": "PrintString"
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeId": "EventBeginPlay",
+          "pinName": "Then"
+        },
+        "to": {
+          "nodeRef": "sequence_main",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "sequence_main",
+          "pinName": "Then_0"
+        },
+        "to": {
+          "nodeRef": "print_first",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "sequence_main",
+          "pinName": "Then_1"
+        },
+        "to": {
+          "nodeRef": "print_second",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "print_first",
+          "pinName": "InString"
+        },
+        "value": "Sequence branch 0"
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "print_second",
+          "pinName": "InString"
+        },
+        "value": "Sequence branch 1"
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "args": {
+        "scope": "touched"
+      }
+    }
+  ]
+}

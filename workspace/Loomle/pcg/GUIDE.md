@@ -28,6 +28,9 @@ node-family boundaries, route vs filter behavior, or key parameters and wiring.
 - `SEMANTICS.md`
 - `catalogs/node-catalog.json`
 - `examples/pipeline-then-layout.json`
+- `examples/actor-data-tag-route.json`
+- `examples/surface-sample-to-static-mesh.json`
+- `examples/attribute-filter-elements.json`
 
 ## Execution Style
 

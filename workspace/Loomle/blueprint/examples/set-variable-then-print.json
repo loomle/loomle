@@ -1,0 +1,76 @@
+{
+  "tool": "graph.mutate",
+  "graphType": "blueprint",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "set_hidden",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_VariableSet",
+        "variableName": "ActorHiddenInGame",
+        "variableClassPath": "/Script/Engine.Actor"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "print_result",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary",
+        "functionName": "PrintString"
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeId": "EventBeginPlay",
+          "pinName": "Then"
+        },
+        "to": {
+          "nodeRef": "set_hidden",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "set_hidden",
+          "pinName": "ActorHiddenInGame"
+        },
+        "value": true
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "set_hidden",
+          "pinName": "then"
+        },
+        "to": {
+          "nodeRef": "print_result",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "print_result",
+          "pinName": "InString"
+        },
+        "value": "ActorHiddenInGame set to true"
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "args": {
+        "scope": "touched"
+      }
+    }
+  ]
+}
