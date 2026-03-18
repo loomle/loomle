@@ -17,16 +17,31 @@ Project-level technical documentation for `Loomle Bridge` (plugin + MCP server).
 - Concrete homepage content and information architecture for `loomle.ai` / `loomle.ai/i`.
 
 5. `RPC_INTERFACE.md`
-- Unreal bridge RPC contract (`rpc.health`, `rpc.capabilities`, `rpc.invoke`), request/response schema, and error shape.
+- Unreal bridge RPC contract (`rpc.health`, `rpc.capabilities`, `rpc.invoke`), request/response schema, error shape, and current status notes for graph-semantic tools.
 
 6. `MCP_PROTOCOL.md`
 - MCP tool surface, tool schemas, routing rules, and behavior contract.
 
 7. `GRAPH_OPS_DESIGN.md`
-- Proposal for `graph.ops` and `graph.ops.resolve` as the graph-semantic planning layer.
+- Historical `graph.ops` / `graph.ops.resolve` design plus the current direction toward workspace-local graph references and primitive mutate.
 
 8. `GRAPH_OPS_PROTOCOL_DRAFT.md`
-- MCP-style draft contract for `graph.ops` and `graph.ops.resolve`.
+- MCP-style draft contract for `graph.ops` and `graph.ops.resolve`, annotated with current workflow positioning.
+
+9. `PCG_LEARNING_RESOURCES_UE57.md`
+- Curated UE 5.7 PCG learning resources, including official docs, videos, and transcript-first video reading guidance.
+
+10. `PCG_NODE_CATALOG_VS_OPS.md`
+- Clarifies the boundary between the `pcg-weaver` node catalog, LOOMLE semantic PCG ops, and generic graph construction.
+
+11. `PCG_OFFICIAL_CATEGORIES_AND_SEMANTIC_TAXONOMY.md`
+- Aligns Epic's official PCG node categories with a behavior-first semantic taxonomy for future LOOMLE PCG ops.
+
+12. `PCG_SEMANTIC_OPS_FINAL_DRAFT.md`
+- Final proposed LOOMLE PCG semantic-op family tree, canonical names, compatibility aliases, and first-wave op set.
+
+13. `../workspace/Loomle/README.md`
+- Agent-facing workspace entrypoint. Start here for the current graph workflow, then follow each graph domain's `GUIDE.md` and `SEMANTICS.md`.
 
 ## Recommended Read Order
 
@@ -36,5 +51,10 @@ Project-level technical documentation for `Loomle Bridge` (plugin + MCP server).
 4. `INSTALL_PAGE_CONTENT.md`
 5. `RPC_INTERFACE.md`
 6. `MCP_PROTOCOL.md`
-7. `GRAPH_OPS_DESIGN.md`
-8. `GRAPH_OPS_PROTOCOL_DRAFT.md`
+7. `../workspace/Loomle/README.md`
+8. `GRAPH_OPS_DESIGN.md`
+9. `GRAPH_OPS_PROTOCOL_DRAFT.md`
+10. `PCG_LEARNING_RESOURCES_UE57.md`
+11. `PCG_NODE_CATALOG_VS_OPS.md`
+12. `PCG_OFFICIAL_CATEGORIES_AND_SEMANTIC_TAXONOMY.md`
+13. `PCG_SEMANTIC_OPS_FINAL_DRAFT.md`

@@ -12,21 +12,30 @@ It covers:
 
 This is still a draft. It does not mean the tools are implemented yet.
 
+Status note:
+
+- `graph.ops` may remain as an optional curated live catalog
+- `graph.ops.resolve` is no longer the preferred public planning path
+- the preferred agent workflow now centers on workspace-local references plus
+  primitive `graph.mutate` and `graph.query` / `graph.verify`
+
 ## 2. Public Direction
 
-Target public graph workflow:
+Current preferred public graph workflow:
 
 1. `graph.list` or `graph.resolve`
 2. `graph.query`
-3. `graph.ops`
-4. `graph.ops.resolve`
+3. workspace-local `GUIDE.md` / `SEMANTICS.md`
+4. optional `graph.ops`
 5. `graph.mutate`
+6. `graph.query` / `graph.verify`
 
 Public graph-semantic direction:
 
-- agents discover stable semantics through `graph.ops`
-- agents turn semantics into execution plans through `graph.ops.resolve`
-- `graph.mutate` executes stable realization ops only
+- workspace-local references are the primary semantic surface
+- `graph.ops` is optional live catalog output
+- `graph.mutate` executes primitive UE-aligned graph edits
+- `graph.query` and `graph.verify` validate the result
 
 ## 3. Tool Catalog Impact
 
@@ -44,6 +53,12 @@ Planned tool catalog:
 - `graph.mutate`
 - `diag.tail`
 
+Tool-presence note:
+
+- tool presence does not imply recommended workflow priority
+- `graph.ops.resolve` may remain implemented while no longer being the primary
+  workflow taught to agents
+
 ## 4. Shared Concepts
 
 ### 4.1 `opId`
@@ -56,7 +71,13 @@ Examples:
 - `core.reroute`
 - `bp.flow.branch`
 - `mat.texture.sample`
-- `pcg.filter.by_tag`
+- `pcg.route.data_by_tag`
+
+Status note:
+
+- useful for curated live catalog output
+- no longer assumed to be the primary naming system agents rely on during
+  everyday graph work
 
 ### 4.2 Resolution Source
 
@@ -83,6 +104,11 @@ Examples:
 
 List stable semantic operations LOOMLE knows how to reason about for a graph
 domain.
+
+Current position:
+
+- useful as optional live catalog output
+- not the primary knowledge surface when workspace references are available
 
 ### 5.2 Input schema draft
 
@@ -170,6 +196,11 @@ domain.
 
 Resolve one or more `opId` values in a concrete graph context into mutate-ready
 plans.
+
+Current position:
+
+- secondary and optional
+- retained as draft protocol material rather than the preferred public path
 
 ### 6.2 Input schema draft
 
@@ -466,11 +497,19 @@ and pin semantics than on topology alone.
 
 ## 9. Public Boundary
 
-The public graph-semantic surface is:
+Historical public graph-semantic surface is:
 
 - `graph.ops`
 - `graph.ops.resolve`
 - `graph.mutate`
+
+Current preferred public workflow is:
+
+- workspace-local graph references define the main semantic surface
+- `graph.mutate` remains the execution surface
+- `graph.query` and `graph.verify` remain the validation surface
+- `graph.ops` is optional
+- `graph.ops.resolve` is not the recommended center of the flow
 
 Internal editor discovery may still survive as a resolver implementation
 detail.
@@ -487,8 +526,9 @@ Recent feedback suggests the next protocol iteration should settle:
 
 ## 11. Proposed v1 Catalog Baseline
 
-This section defines the minimum semantic catalog expected for the first usable
-release.
+This section records the historical semantic catalog baseline proposed for a
+first usable graph-ops release. It is no longer the primary agent teaching
+surface.
 
 ### 11.1 Blueprint
 
@@ -527,7 +567,7 @@ Required:
 
 - `pcg.create.points`
 - `pcg.meta.add_tag`
-- `pcg.filter.by_tag`
+- `pcg.route.data_by_tag`
 - `pcg.sample.surface`
 - `pcg.transform.points`
 - `pcg.sample.spline`
@@ -536,7 +576,7 @@ Required:
 
 Stretch:
 
-- `pcg.filter.by_attribute`
+- `pcg.route.data_if_attribute_value`
 - `pcg.project.surface`
 - `pcg.spawn.actor`
 

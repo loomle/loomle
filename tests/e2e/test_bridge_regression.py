@@ -845,10 +845,18 @@ def main() -> int:
         }
         if not {
             "pcg.meta.add_tag",
-            "pcg.filter.by_tag",
+            "pcg.filter.elements_compare",
+            "pcg.filter.elements_in_range",
+            "pcg.filter.points_by_density",
+            "pcg.route.data_if_attribute_exists",
+            "pcg.route.data_if_attribute_value",
+            "pcg.route.data_if_attribute_in_range",
+            "pcg.route.data_by_tag",
+            "pcg.sample.points_ratio",
             "pcg.sample.surface",
             "pcg.transform.points",
             "pcg.sample.spline",
+            "pcg.source.actor_property",
             "pcg.source.actor_data",
             "pcg.project.surface",
             "pcg.spawn.static_mesh",
@@ -863,8 +871,16 @@ def main() -> int:
                 "graphType": "pcg",
                 "graphRef": graph_ref,
                 "items": [
-                    {"opId": "pcg.filter.by_tag"},
+                    {"opId": "pcg.filter.elements_compare"},
+                    {"opId": "pcg.filter.elements_in_range"},
+                    {"opId": "pcg.filter.points_by_density"},
+                    {"opId": "pcg.route.data_if_attribute_exists"},
+                    {"opId": "pcg.route.data_if_attribute_value"},
+                    {"opId": "pcg.route.data_if_attribute_in_range"},
+                    {"opId": "pcg.route.data_by_tag"},
+                    {"opId": "pcg.sample.points_ratio"},
                     {"opId": "pcg.transform.points"},
+                    {"opId": "pcg.source.actor_property"},
                     {"opId": "pcg.sample.spline"},
                     {"opId": "pcg.source.actor_data"},
                     {"opId": "pcg.project.surface"},
@@ -873,10 +889,157 @@ def main() -> int:
             },
         )
         pcg_resolve_results = pcg_resolve.get("results")
-        if not isinstance(pcg_resolve_results, list) or len(pcg_resolve_results) != 6:
+        if not isinstance(pcg_resolve_results, list) or len(pcg_resolve_results) != 14:
             fail(f"graph.ops.resolve(pcg) missing results[]: {pcg_resolve}")
+        pcg_elements_compare_result = next(
+            (item for item in pcg_resolve_results if isinstance(item, dict) and item.get("opId") == "pcg.filter.elements_compare"),
+            {},
+        )
+        pcg_elements_compare_plan = pcg_elements_compare_result.get("preferredPlan")
+        if pcg_elements_compare_result.get("resolved") is not True or not isinstance(pcg_elements_compare_plan, dict):
+            fail(f"graph.ops.resolve(pcg.filter.elements_compare) invalid result: {pcg_resolve}")
+        pcg_elements_compare_template = pcg_elements_compare_plan.get("settingsTemplate")
+        if not isinstance(pcg_elements_compare_template, dict):
+            fail(f"graph.ops.resolve(pcg.filter.elements_compare) missing settingsTemplate: {pcg_resolve}")
+        if pcg_elements_compare_template.get("targetAttribute") != "$Density":
+            fail(f"graph.ops.resolve(pcg.filter.elements_compare) targetAttribute mismatch: {pcg_resolve}")
+        compare_attribute_types = pcg_elements_compare_template.get("attributeTypes")
+        if not isinstance(compare_attribute_types, dict) or compare_attribute_types.get("type") != "Double":
+            fail(f"graph.ops.resolve(pcg.filter.elements_compare) attributeTypes mismatch: {pcg_resolve}")
+        compare_pin_hints = pcg_elements_compare_plan.get("pinHints")
+        if not isinstance(compare_pin_hints, list):
+            fail(f"graph.ops.resolve(pcg.filter.elements_compare) missing pinHints: {pcg_resolve}")
+        compare_pin_names = {
+            hint.get("pinName")
+            for hint in compare_pin_hints
+            if isinstance(hint, dict) and isinstance(hint.get("pinName"), str)
+        }
+        if not {"In", "Filter", "InsideFilter", "OutsideFilter"}.issubset(compare_pin_names):
+            fail(f"graph.ops.resolve(pcg.filter.elements_compare) missing pin hints: {pcg_resolve}")
+        pcg_elements_range_result = next(
+            (item for item in pcg_resolve_results if isinstance(item, dict) and item.get("opId") == "pcg.filter.elements_in_range"),
+            {},
+        )
+        pcg_elements_range_plan = pcg_elements_range_result.get("preferredPlan")
+        if pcg_elements_range_result.get("resolved") is not True or not isinstance(pcg_elements_range_plan, dict):
+            fail(f"graph.ops.resolve(pcg.filter.elements_in_range) invalid result: {pcg_resolve}")
+        pcg_elements_range_template = pcg_elements_range_plan.get("settingsTemplate")
+        if not isinstance(pcg_elements_range_template, dict):
+            fail(f"graph.ops.resolve(pcg.filter.elements_in_range) missing settingsTemplate: {pcg_resolve}")
+        range_min_threshold = pcg_elements_range_template.get("minThreshold")
+        range_max_threshold = pcg_elements_range_template.get("maxThreshold")
+        if not isinstance(range_min_threshold, dict) or not isinstance(range_max_threshold, dict):
+            fail(f"graph.ops.resolve(pcg.filter.elements_in_range) missing thresholds: {pcg_resolve}")
+        range_pin_hints = pcg_elements_range_plan.get("pinHints")
+        if not isinstance(range_pin_hints, list):
+            fail(f"graph.ops.resolve(pcg.filter.elements_in_range) missing pinHints: {pcg_resolve}")
+        range_pin_names = {
+            hint.get("pinName")
+            for hint in range_pin_hints
+            if isinstance(hint, dict) and isinstance(hint.get("pinName"), str)
+        }
+        if not {"In", "FilterMin", "FilterMax", "InsideFilter", "OutsideFilter"}.issubset(range_pin_names):
+            fail(f"graph.ops.resolve(pcg.filter.elements_in_range) missing pin hints: {pcg_resolve}")
+        pcg_density_result = next(
+            (item for item in pcg_resolve_results if isinstance(item, dict) and item.get("opId") == "pcg.filter.points_by_density"),
+            {},
+        )
+        pcg_density_plan = pcg_density_result.get("preferredPlan")
+        if pcg_density_result.get("resolved") is not True or not isinstance(pcg_density_plan, dict):
+            fail(f"graph.ops.resolve(pcg.filter.points_by_density) invalid result: {pcg_resolve}")
+        pcg_density_template = pcg_density_plan.get("settingsTemplate")
+        if not isinstance(pcg_density_template, dict):
+            fail(f"graph.ops.resolve(pcg.filter.points_by_density) missing settingsTemplate: {pcg_resolve}")
+        if pcg_density_template.get("lowerBound") != 0.25 or pcg_density_template.get("upperBound") != 1.0:
+            fail(f"graph.ops.resolve(pcg.filter.points_by_density) bounds mismatch: {pcg_resolve}")
+        density_pin_hints = pcg_density_plan.get("pinHints")
+        if not isinstance(density_pin_hints, list):
+            fail(f"graph.ops.resolve(pcg.filter.points_by_density) missing pinHints: {pcg_resolve}")
+        density_pin_names = {
+            hint.get("pinName")
+            for hint in density_pin_hints
+            if isinstance(hint, dict) and isinstance(hint.get("pinName"), str)
+        }
+        if not {"In", "Out"}.issubset(density_pin_names):
+            fail(f"graph.ops.resolve(pcg.filter.points_by_density) missing pin hints: {pcg_resolve}")
+        pcg_route_exists_result = next(
+            (item for item in pcg_resolve_results if isinstance(item, dict) and item.get("opId") == "pcg.route.data_if_attribute_exists"),
+            {},
+        )
+        pcg_route_exists_plan = pcg_route_exists_result.get("preferredPlan")
+        if pcg_route_exists_result.get("resolved") is not True or not isinstance(pcg_route_exists_plan, dict):
+            fail(f"graph.ops.resolve(pcg.route.data_if_attribute_exists) invalid result: {pcg_resolve}")
+        pcg_route_exists_template = pcg_route_exists_plan.get("settingsTemplate")
+        if not isinstance(pcg_route_exists_template, dict):
+            fail(f"graph.ops.resolve(pcg.route.data_if_attribute_exists) missing settingsTemplate: {pcg_resolve}")
+        if pcg_route_exists_template.get("filterMode") != "FilterByExistence":
+            fail(f"graph.ops.resolve(pcg.route.data_if_attribute_exists) filterMode mismatch: {pcg_resolve}")
+        if pcg_route_exists_template.get("attribute") != "<required-attribute>":
+            fail(f"graph.ops.resolve(pcg.route.data_if_attribute_exists) attribute template mismatch: {pcg_resolve}")
+        route_exists_hints = pcg_route_exists_plan.get("pinHints")
+        if not isinstance(route_exists_hints, list):
+            fail(f"graph.ops.resolve(pcg.route.data_if_attribute_exists) missing pinHints: {pcg_resolve}")
+        route_exists_pin_names = {
+            hint.get("pinName")
+            for hint in route_exists_hints
+            if isinstance(hint, dict) and isinstance(hint.get("pinName"), str)
+        }
+        if not {"In", "InsideFilter", "OutsideFilter"}.issubset(route_exists_pin_names):
+            fail(f"graph.ops.resolve(pcg.route.data_if_attribute_exists) missing route pin hints: {pcg_resolve}")
+        pcg_route_value_result = next(
+            (item for item in pcg_resolve_results if isinstance(item, dict) and item.get("opId") == "pcg.route.data_if_attribute_value"),
+            {},
+        )
+        pcg_route_value_plan = pcg_route_value_result.get("preferredPlan")
+        if pcg_route_value_result.get("resolved") is not True or not isinstance(pcg_route_value_plan, dict):
+            fail(f"graph.ops.resolve(pcg.route.data_if_attribute_value) invalid result: {pcg_resolve}")
+        pcg_route_value_template = pcg_route_value_plan.get("settingsTemplate")
+        if not isinstance(pcg_route_value_template, dict):
+            fail(f"graph.ops.resolve(pcg.route.data_if_attribute_value) missing settingsTemplate: {pcg_resolve}")
+        threshold_template = pcg_route_value_template.get("threshold")
+        if not isinstance(threshold_template, dict) or threshold_template.get("bUseConstantThreshold") is not True:
+            fail(f"graph.ops.resolve(pcg.route.data_if_attribute_value) threshold template mismatch: {pcg_resolve}")
+        attribute_types = threshold_template.get("attributeTypes")
+        if not isinstance(attribute_types, dict) or attribute_types.get("type") != "Double":
+            fail(f"graph.ops.resolve(pcg.route.data_if_attribute_value) attributeTypes template mismatch: {pcg_resolve}")
+        route_value_hints = pcg_route_value_plan.get("pinHints")
+        if not isinstance(route_value_hints, list):
+            fail(f"graph.ops.resolve(pcg.route.data_if_attribute_value) missing pinHints: {pcg_resolve}")
+        route_value_pin_names = {
+            hint.get("pinName")
+            for hint in route_value_hints
+            if isinstance(hint, dict) and isinstance(hint.get("pinName"), str)
+        }
+        if not {"In", "InsideFilter", "OutsideFilter"}.issubset(route_value_pin_names):
+            fail(f"graph.ops.resolve(pcg.route.data_if_attribute_value) missing route pin hints: {pcg_resolve}")
+        pcg_route_range_result = next(
+            (item for item in pcg_resolve_results if isinstance(item, dict) and item.get("opId") == "pcg.route.data_if_attribute_in_range"),
+            {},
+        )
+        pcg_route_range_plan = pcg_route_range_result.get("preferredPlan")
+        if pcg_route_range_result.get("resolved") is not True or not isinstance(pcg_route_range_plan, dict):
+            fail(f"graph.ops.resolve(pcg.route.data_if_attribute_in_range) invalid result: {pcg_resolve}")
+        pcg_route_range_template = pcg_route_range_plan.get("settingsTemplate")
+        if not isinstance(pcg_route_range_template, dict):
+            fail(f"graph.ops.resolve(pcg.route.data_if_attribute_in_range) missing settingsTemplate: {pcg_resolve}")
+        min_threshold = pcg_route_range_template.get("minThreshold")
+        max_threshold = pcg_route_range_template.get("maxThreshold")
+        if not isinstance(min_threshold, dict) or not isinstance(max_threshold, dict):
+            fail(f"graph.ops.resolve(pcg.route.data_if_attribute_in_range) missing thresholds: {pcg_resolve}")
+        if min_threshold.get("bUseConstantThreshold") is not True or max_threshold.get("bUseConstantThreshold") is not True:
+            fail(f"graph.ops.resolve(pcg.route.data_if_attribute_in_range) threshold defaults mismatch: {pcg_resolve}")
+        route_range_hints = pcg_route_range_plan.get("pinHints")
+        if not isinstance(route_range_hints, list):
+            fail(f"graph.ops.resolve(pcg.route.data_if_attribute_in_range) missing pinHints: {pcg_resolve}")
+        route_range_pin_names = {
+            hint.get("pinName")
+            for hint in route_range_hints
+            if isinstance(hint, dict) and isinstance(hint.get("pinName"), str)
+        }
+        if not {"In", "InsideFilter", "OutsideFilter"}.issubset(route_range_pin_names):
+            fail(f"graph.ops.resolve(pcg.route.data_if_attribute_in_range) missing route pin hints: {pcg_resolve}")
         pcg_filter_result = next(
-            (item for item in pcg_resolve_results if isinstance(item, dict) and item.get("opId") == "pcg.filter.by_tag"),
+            (item for item in pcg_resolve_results if isinstance(item, dict) and item.get("opId") == "pcg.route.data_by_tag"),
             {},
         )
         pcg_plan = pcg_filter_result.get("preferredPlan")
@@ -896,6 +1059,29 @@ def main() -> int:
         }
         if not {"In", "InsideFilter", "OutsideFilter"}.issubset(pcg_pin_names):
             fail(f"graph.ops.resolve(pcg) missing truthful filter pin hints: {pcg_resolve}")
+        pcg_points_ratio_result = next(
+            (item for item in pcg_resolve_results if isinstance(item, dict) and item.get("opId") == "pcg.sample.points_ratio"),
+            {},
+        )
+        pcg_points_ratio_plan = pcg_points_ratio_result.get("preferredPlan")
+        if pcg_points_ratio_result.get("resolved") is not True or not isinstance(pcg_points_ratio_plan, dict):
+            fail(f"graph.ops.resolve(pcg.sample.points_ratio) invalid result: {pcg_resolve}")
+        pcg_points_ratio_args = pcg_points_ratio_plan.get("args")
+        if not isinstance(pcg_points_ratio_args, dict) or pcg_points_ratio_args.get("nodeClassPath") != "/Script/PCG.PCGSelectPointsSettings":
+            fail(f"graph.ops.resolve(pcg.sample.points_ratio) nodeClassPath mismatch: {pcg_resolve}")
+        pcg_points_ratio_template = pcg_points_ratio_plan.get("settingsTemplate")
+        if not isinstance(pcg_points_ratio_template, dict) or pcg_points_ratio_template.get("ratio") != 0.1:
+            fail(f"graph.ops.resolve(pcg.sample.points_ratio) template mismatch: {pcg_resolve}")
+        points_ratio_pin_hints = pcg_points_ratio_plan.get("pinHints")
+        if not isinstance(points_ratio_pin_hints, list):
+            fail(f"graph.ops.resolve(pcg.sample.points_ratio) missing pinHints: {pcg_resolve}")
+        points_ratio_pin_names = {
+            hint.get("pinName")
+            for hint in points_ratio_pin_hints
+            if isinstance(hint, dict) and isinstance(hint.get("pinName"), str)
+        }
+        if not {"In", "Out"}.issubset(points_ratio_pin_names):
+            fail(f"graph.ops.resolve(pcg.sample.points_ratio) missing pin hints: {pcg_resolve}")
         pcg_graph_desc = call_tool(client, 101001, "graph", {"graphType": "pcg"})
         pcg_graph_ops = pcg_graph_desc.get("ops")
         if not isinstance(pcg_graph_ops, list):
@@ -977,6 +1163,34 @@ def main() -> int:
             (item for item in pcg_resolve_results if isinstance(item, dict) and item.get("opId") == "pcg.source.actor_data"),
             {},
         )
+        actor_property_result = next(
+            (item for item in pcg_resolve_results if isinstance(item, dict) and item.get("opId") == "pcg.source.actor_property"),
+            {},
+        )
+        actor_property_plan = actor_property_result.get("preferredPlan")
+        if actor_property_result.get("resolved") is not True or not isinstance(actor_property_plan, dict):
+            fail(f"graph.ops.resolve(pcg.source.actor_property) invalid result: {pcg_resolve}")
+        actor_property_args = actor_property_plan.get("args")
+        if not isinstance(actor_property_args, dict) or actor_property_args.get("nodeClassPath") != "/Script/PCG.PCGGetActorPropertySettings":
+            fail(f"graph.ops.resolve(pcg.source.actor_property) nodeClassPath mismatch: {pcg_resolve}")
+        actor_property_template = actor_property_plan.get("settingsTemplate")
+        if not isinstance(actor_property_template, dict):
+            fail(f"graph.ops.resolve(pcg.source.actor_property) missing settingsTemplate: {pcg_resolve}")
+        actor_selector_template = actor_property_template.get("actorSelector")
+        if not isinstance(actor_selector_template, dict) or actor_selector_template.get("actorFilter") != "FromInput":
+            fail(f"graph.ops.resolve(pcg.source.actor_property) actorSelector template mismatch: {pcg_resolve}")
+        if actor_property_template.get("propertyName") != "Tags":
+            fail(f"graph.ops.resolve(pcg.source.actor_property) propertyName template mismatch: {pcg_resolve}")
+        actor_property_hints = actor_property_plan.get("pinHints")
+        if not isinstance(actor_property_hints, list):
+            fail(f"graph.ops.resolve(pcg.source.actor_property) missing pinHints: {pcg_resolve}")
+        actor_property_pin_names = {
+            hint.get("pinName")
+            for hint in actor_property_hints
+            if isinstance(hint, dict) and isinstance(hint.get("pinName"), str)
+        }
+        if "Out" not in actor_property_pin_names:
+            fail(f"graph.ops.resolve(pcg.source.actor_property) missing output pin hint: {pcg_resolve}")
         actor_data_plan = actor_data_result.get("preferredPlan")
         if actor_data_result.get("resolved") is not True or not isinstance(actor_data_plan, dict):
             fail(f"graph.ops.resolve(pcg.source.actor_data) invalid result: {pcg_resolve}")
@@ -3101,7 +3315,7 @@ def main() -> int:
                         "toPin": {"nodeId": pcg_filter_id, "pinName": "In"},
                     }
                 },
-                "items": [{"opId": "pcg.filter.by_tag", "clientRef": "insert_filter"}],
+                "items": [{"opId": "pcg.route.data_by_tag", "clientRef": "insert_filter"}],
             },
         )
         pcg_edge_results = pcg_edge_resolve.get("results")
@@ -3152,7 +3366,7 @@ def main() -> int:
                 },
                 "items": [
                     {"opId": "pcg.meta.add_tag", "clientRef": "compose_tag"},
-                    {"opId": "pcg.filter.by_tag", "clientRef": "compose_filter"},
+                    {"opId": "pcg.route.data_by_tag", "clientRef": "compose_filter"},
                 ],
             },
         )

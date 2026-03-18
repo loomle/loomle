@@ -47,9 +47,17 @@ void AppendGraphSemanticOpSpecs(const FString& GraphType, TArray<FGraphSemanticO
     {
         OutSpecs.Add({ TEXT("pcg.create.points"), TEXT("pcg"), TEXT("Add a Create Points PCG node."), TEXT("/Script/PCG.PCGCreatePointsSettings") });
         OutSpecs.Add({ TEXT("pcg.meta.add_tag"), TEXT("pcg"), TEXT("Add an Add Tag PCG node."), TEXT("/Script/PCG.PCGAddTagSettings") });
-        OutSpecs.Add({ TEXT("pcg.filter.by_tag"), TEXT("pcg"), TEXT("Add a Filter By Tag PCG node."), TEXT("/Script/PCG.PCGFilterByTagSettings") });
+        OutSpecs.Add({ TEXT("pcg.filter.elements_compare"), TEXT("pcg"), TEXT("Filter elements in the input dataset by comparing an attribute against a threshold."), TEXT("/Script/PCG.PCGAttributeFilteringSettings") });
+        OutSpecs.Add({ TEXT("pcg.filter.elements_in_range"), TEXT("pcg"), TEXT("Filter elements in the input dataset by checking whether an attribute is inside a range."), TEXT("/Script/PCG.PCGAttributeFilteringRangeSettings") });
+        OutSpecs.Add({ TEXT("pcg.filter.points_by_density"), TEXT("pcg"), TEXT("Filter points in the input dataset by density range."), TEXT("/Script/PCG.PCGDensityFilterSettings") });
+        OutSpecs.Add({ TEXT("pcg.route.data_if_attribute_exists"), TEXT("pcg"), TEXT("Route whole input data based on whether an attribute exists."), TEXT("/Script/PCG.PCGFilterByAttributeSettings") });
+        OutSpecs.Add({ TEXT("pcg.route.data_if_attribute_value"), TEXT("pcg"), TEXT("Route whole input data based on an attribute value comparison."), TEXT("/Script/PCG.PCGFilterByAttributeSettings") });
+        OutSpecs.Add({ TEXT("pcg.route.data_if_attribute_in_range"), TEXT("pcg"), TEXT("Route whole input data based on whether an attribute falls in a range."), TEXT("/Script/PCG.PCGFilterByAttributeSettings") });
+        OutSpecs.Add({ TEXT("pcg.route.data_by_tag"), TEXT("pcg"), TEXT("Route whole input data based on tag membership."), TEXT("/Script/PCG.PCGFilterByTagSettings") });
+        OutSpecs.Add({ TEXT("pcg.sample.points_ratio"), TEXT("pcg"), TEXT("Sample a ratio of points from the input dataset."), TEXT("/Script/PCG.PCGSelectPointsSettings") });
         OutSpecs.Add({ TEXT("pcg.sample.surface"), TEXT("pcg"), TEXT("Add a Surface Sampler PCG node."), TEXT("/Script/PCG.PCGSurfaceSamplerSettings") });
         OutSpecs.Add({ TEXT("pcg.transform.points"), TEXT("pcg"), TEXT("Add a Transform Points PCG node."), TEXT("/Script/PCG.PCGTransformPointsSettings") });
+        OutSpecs.Add({ TEXT("pcg.source.actor_property"), TEXT("pcg"), TEXT("Add a Get Actor Property PCG node."), TEXT("/Script/PCG.PCGGetActorPropertySettings") });
         OutSpecs.Add({ TEXT("pcg.sample.spline"), TEXT("pcg"), TEXT("Add a Spline Sampler PCG node."), TEXT("/Script/PCG.PCGSplineSamplerSettings") });
         OutSpecs.Add({ TEXT("pcg.source.actor_data"), TEXT("pcg"), TEXT("Add a Get Actor Data PCG node."), TEXT("/Script/PCG.PCGDataFromActorSettings") });
         OutSpecs.Add({ TEXT("pcg.project.surface"), TEXT("pcg"), TEXT("Add a Projection PCG node."), TEXT("/Script/PCG.PCGProjectionSettings") });
@@ -519,7 +527,15 @@ bool TryReadPinEndpoint(const TSharedPtr<FJsonObject>& EndpointObj, FString& Out
 
 const TCHAR* GetDefaultPcgInputPinName(const FString& OpId)
 {
-    if (OpId.Equals(TEXT("pcg.meta.add_tag")) || OpId.Equals(TEXT("pcg.filter.by_tag")))
+    if (OpId.Equals(TEXT("pcg.meta.add_tag"))
+        || OpId.Equals(TEXT("pcg.filter.elements_compare"))
+        || OpId.Equals(TEXT("pcg.filter.elements_in_range"))
+        || OpId.Equals(TEXT("pcg.filter.points_by_density"))
+        || OpId.Equals(TEXT("pcg.route.data_by_tag"))
+        || OpId.Equals(TEXT("pcg.route.data_if_attribute_exists"))
+        || OpId.Equals(TEXT("pcg.route.data_if_attribute_value"))
+        || OpId.Equals(TEXT("pcg.sample.points_ratio"))
+        || OpId.Equals(TEXT("pcg.route.data_if_attribute_in_range")))
     {
         return TEXT("In");
     }
@@ -529,11 +545,21 @@ const TCHAR* GetDefaultPcgInputPinName(const FString& OpId)
 
 const TCHAR* GetDefaultPcgOutputPinName(const FString& OpId)
 {
-    if (OpId.Equals(TEXT("pcg.filter.by_tag")))
+    if (OpId.Equals(TEXT("pcg.filter.elements_compare"))
+        || OpId.Equals(TEXT("pcg.filter.elements_in_range"))
+        || OpId.Equals(TEXT("pcg.route.data_by_tag"))
+        || OpId.Equals(TEXT("pcg.route.data_if_attribute_exists"))
+        || OpId.Equals(TEXT("pcg.route.data_if_attribute_value"))
+        || OpId.Equals(TEXT("pcg.route.data_if_attribute_in_range")))
     {
         return TEXT("InsideFilter");
     }
     if (OpId.Equals(TEXT("pcg.meta.add_tag")))
+    {
+        return TEXT("Out");
+    }
+    if (OpId.Equals(TEXT("pcg.filter.points_by_density"))
+        || OpId.Equals(TEXT("pcg.sample.points_ratio")))
     {
         return TEXT("Out");
     }
@@ -543,7 +569,15 @@ const TCHAR* GetDefaultPcgOutputPinName(const FString& OpId)
 
 bool IsComposablePcgSemanticOp(const FString& OpId)
 {
-    return OpId.Equals(TEXT("pcg.meta.add_tag")) || OpId.Equals(TEXT("pcg.filter.by_tag"));
+    return OpId.Equals(TEXT("pcg.meta.add_tag"))
+        || OpId.Equals(TEXT("pcg.filter.elements_compare"))
+        || OpId.Equals(TEXT("pcg.filter.elements_in_range"))
+        || OpId.Equals(TEXT("pcg.filter.points_by_density"))
+        || OpId.Equals(TEXT("pcg.route.data_by_tag"))
+        || OpId.Equals(TEXT("pcg.route.data_if_attribute_exists"))
+        || OpId.Equals(TEXT("pcg.route.data_if_attribute_value"))
+        || OpId.Equals(TEXT("pcg.sample.points_ratio"))
+        || OpId.Equals(TEXT("pcg.route.data_if_attribute_in_range"));
 }
 
 FString ResolvePlanStepNodeRef(const FString& ClientRef, int32 Index)
@@ -5026,6 +5060,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
             bool bHasSettingsTemplate = false;
 
             if (OpId.Equals(TEXT("pcg.meta.add_tag"))
+                || OpId.Equals(TEXT("pcg.filter.points_by_density"))
+                || OpId.Equals(TEXT("pcg.sample.points_ratio"))
                 || OpId.Equals(TEXT("pcg.transform.points"))
                 || OpId.Equals(TEXT("pcg.spawn.actor")))
             {
@@ -5038,6 +5074,60 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                 OutHint->SetStringField(TEXT("role"), TEXT("output"));
                 OutHint->SetStringField(TEXT("pinName"), TEXT("Out"));
                 PinHints.Add(MakeShared<FJsonValueObject>(OutHint));
+            }
+            else if (OpId.Equals(TEXT("pcg.filter.elements_compare")) || OpId.Equals(TEXT("pcg.filter.elements_in_range")))
+            {
+                TSharedPtr<FJsonObject> InHint = MakeShared<FJsonObject>();
+                InHint->SetStringField(TEXT("role"), TEXT("input"));
+                InHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                InHint->SetStringField(TEXT("pinName"), TEXT("In"));
+                InHint->SetStringField(TEXT("semanticRole"), TEXT("input_stage"));
+                PinHints.Add(MakeShared<FJsonValueObject>(InHint));
+
+                if (OpId.Equals(TEXT("pcg.filter.elements_compare")))
+                {
+                    TSharedPtr<FJsonObject> FilterHint = MakeShared<FJsonObject>();
+                    FilterHint->SetStringField(TEXT("role"), TEXT("threshold_input"));
+                    FilterHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                    FilterHint->SetStringField(TEXT("pinName"), TEXT("Filter"));
+                    FilterHint->SetStringField(TEXT("semanticRole"), TEXT("comparison_threshold_input"));
+                    FilterHint->SetBoolField(TEXT("isConditional"), true);
+                    PinHints.Add(MakeShared<FJsonValueObject>(FilterHint));
+                }
+                else
+                {
+                    TSharedPtr<FJsonObject> FilterMinHint = MakeShared<FJsonObject>();
+                    FilterMinHint->SetStringField(TEXT("role"), TEXT("threshold_min_input"));
+                    FilterMinHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                    FilterMinHint->SetStringField(TEXT("pinName"), TEXT("FilterMin"));
+                    FilterMinHint->SetStringField(TEXT("semanticRole"), TEXT("range_min_threshold_input"));
+                    FilterMinHint->SetBoolField(TEXT("isConditional"), true);
+                    PinHints.Add(MakeShared<FJsonValueObject>(FilterMinHint));
+
+                    TSharedPtr<FJsonObject> FilterMaxHint = MakeShared<FJsonObject>();
+                    FilterMaxHint->SetStringField(TEXT("role"), TEXT("threshold_max_input"));
+                    FilterMaxHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                    FilterMaxHint->SetStringField(TEXT("pinName"), TEXT("FilterMax"));
+                    FilterMaxHint->SetStringField(TEXT("semanticRole"), TEXT("range_max_threshold_input"));
+                    FilterMaxHint->SetBoolField(TEXT("isConditional"), true);
+                    PinHints.Add(MakeShared<FJsonValueObject>(FilterMaxHint));
+                }
+
+                TSharedPtr<FJsonObject> InsideHint = MakeShared<FJsonObject>();
+                InsideHint->SetStringField(TEXT("role"), TEXT("output"));
+                InsideHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                InsideHint->SetStringField(TEXT("pinName"), TEXT("InsideFilter"));
+                InsideHint->SetStringField(TEXT("semanticRole"), TEXT("primary_output"));
+                InsideHint->SetBoolField(TEXT("isDefaultPath"), true);
+                PinHints.Add(MakeShared<FJsonValueObject>(InsideHint));
+
+                TSharedPtr<FJsonObject> OutsideHint = MakeShared<FJsonObject>();
+                OutsideHint->SetStringField(TEXT("role"), TEXT("output"));
+                OutsideHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                OutsideHint->SetStringField(TEXT("pinName"), TEXT("OutsideFilter"));
+                OutsideHint->SetStringField(TEXT("semanticRole"), TEXT("secondary_output"));
+                OutsideHint->SetBoolField(TEXT("isDefaultPath"), false);
+                PinHints.Add(MakeShared<FJsonValueObject>(OutsideHint));
             }
             else if (OpId.Equals(TEXT("pcg.create.points")))
             {
@@ -5073,7 +5163,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                 OutHint->SetBoolField(TEXT("isDefaultPath"), true);
                 PinHints.Add(MakeShared<FJsonValueObject>(OutHint));
             }
-            else if (OpId.Equals(TEXT("pcg.filter.by_tag")))
+            else if (OpId.Equals(TEXT("pcg.route.data_by_tag"))
+                || OpId.Equals(TEXT("pcg.route.data_if_attribute_exists"))
+                || OpId.Equals(TEXT("pcg.route.data_if_attribute_value"))
+                || OpId.Equals(TEXT("pcg.route.data_if_attribute_in_range")))
             {
                 TSharedPtr<FJsonObject> InHint = MakeShared<FJsonObject>();
                 InHint->SetStringField(TEXT("role"), TEXT("input"));
@@ -5097,6 +5190,24 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                 OutsideHint->SetStringField(TEXT("semanticRole"), TEXT("secondary_output"));
                 OutsideHint->SetBoolField(TEXT("isDefaultPath"), false);
                 PinHints.Add(MakeShared<FJsonValueObject>(OutsideHint));
+            }
+            else if (OpId.Equals(TEXT("pcg.source.actor_property")))
+            {
+                TSharedPtr<FJsonObject> InHint = MakeShared<FJsonObject>();
+                InHint->SetStringField(TEXT("role"), TEXT("input"));
+                InHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                InHint->SetStringField(TEXT("pinName"), TEXT("In"));
+                InHint->SetStringField(TEXT("semanticRole"), TEXT("actor_source_input"));
+                InHint->SetBoolField(TEXT("isConditional"), true);
+                PinHints.Add(MakeShared<FJsonValueObject>(InHint));
+
+                TSharedPtr<FJsonObject> OutHint = MakeShared<FJsonObject>();
+                OutHint->SetStringField(TEXT("role"), TEXT("output"));
+                OutHint->SetStringField(TEXT("kind"), TEXT("pin"));
+                OutHint->SetStringField(TEXT("pinName"), TEXT("Out"));
+                OutHint->SetStringField(TEXT("semanticRole"), TEXT("attribute_output"));
+                OutHint->SetBoolField(TEXT("isDefaultPath"), true);
+                PinHints.Add(MakeShared<FJsonValueObject>(OutHint));
             }
             else if (OpId.Equals(TEXT("pcg.sample.spline")))
             {
@@ -5179,10 +5290,104 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                 SettingsTemplate->SetStringField(TEXT("tag"), TEXT("<required-tag>"));
                 bHasSettingsTemplate = true;
             }
-            else if (OpId.Equals(TEXT("pcg.filter.by_tag")))
+            else if (OpId.Equals(TEXT("pcg.filter.elements_compare")))
+            {
+                SettingsTemplate->SetStringField(TEXT("operator"), TEXT("GreaterOrEqual"));
+                SettingsTemplate->SetStringField(TEXT("targetAttribute"), TEXT("$Density"));
+                SettingsTemplate->SetBoolField(TEXT("bUseConstantThreshold"), true);
+
+                TSharedPtr<FJsonObject> AttributeTypes = MakeShared<FJsonObject>();
+                AttributeTypes->SetStringField(TEXT("type"), TEXT("Double"));
+                AttributeTypes->SetNumberField(TEXT("doubleValue"), 0.5);
+                SettingsTemplate->SetObjectField(TEXT("attributeTypes"), AttributeTypes);
+                SettingsTemplate->SetBoolField(TEXT("bWarnOnDataMissingAttribute"), true);
+                SettingsTemplate->SetBoolField(TEXT("bGenerateOutputDataEvenIfEmpty"), true);
+                bHasSettingsTemplate = true;
+            }
+            else if (OpId.Equals(TEXT("pcg.filter.elements_in_range")))
+            {
+                SettingsTemplate->SetStringField(TEXT("targetAttribute"), TEXT("$Density"));
+
+                TSharedPtr<FJsonObject> MinThresholdTemplate = MakeShared<FJsonObject>();
+                MinThresholdTemplate->SetBoolField(TEXT("bInclusive"), true);
+                MinThresholdTemplate->SetBoolField(TEXT("bUseConstantThreshold"), true);
+                TSharedPtr<FJsonObject> MinAttributeTypes = MakeShared<FJsonObject>();
+                MinAttributeTypes->SetStringField(TEXT("type"), TEXT("Double"));
+                MinAttributeTypes->SetNumberField(TEXT("doubleValue"), 0.25);
+                MinThresholdTemplate->SetObjectField(TEXT("attributeTypes"), MinAttributeTypes);
+                SettingsTemplate->SetObjectField(TEXT("minThreshold"), MinThresholdTemplate);
+
+                TSharedPtr<FJsonObject> MaxThresholdTemplate = MakeShared<FJsonObject>();
+                MaxThresholdTemplate->SetBoolField(TEXT("bInclusive"), true);
+                MaxThresholdTemplate->SetBoolField(TEXT("bUseConstantThreshold"), true);
+                TSharedPtr<FJsonObject> MaxAttributeTypes = MakeShared<FJsonObject>();
+                MaxAttributeTypes->SetStringField(TEXT("type"), TEXT("Double"));
+                MaxAttributeTypes->SetNumberField(TEXT("doubleValue"), 0.75);
+                MaxThresholdTemplate->SetObjectField(TEXT("attributeTypes"), MaxAttributeTypes);
+                SettingsTemplate->SetObjectField(TEXT("maxThreshold"), MaxThresholdTemplate);
+                SettingsTemplate->SetBoolField(TEXT("bWarnOnDataMissingAttribute"), true);
+                SettingsTemplate->SetBoolField(TEXT("bGenerateOutputDataEvenIfEmpty"), true);
+                bHasSettingsTemplate = true;
+            }
+            else if (OpId.Equals(TEXT("pcg.filter.points_by_density")))
+            {
+                SettingsTemplate->SetNumberField(TEXT("lowerBound"), 0.25);
+                SettingsTemplate->SetNumberField(TEXT("upperBound"), 1.0);
+                SettingsTemplate->SetBoolField(TEXT("bInvertFilter"), false);
+                bHasSettingsTemplate = true;
+            }
+            else if (OpId.Equals(TEXT("pcg.route.data_by_tag")))
             {
                 SettingsTemplate->SetStringField(TEXT("tag"), TEXT("<required-tag>"));
                 SettingsTemplate->SetStringField(TEXT("mode"), TEXT("include"));
+                bHasSettingsTemplate = true;
+            }
+            else if (OpId.Equals(TEXT("pcg.route.data_if_attribute_exists")))
+            {
+                SettingsTemplate->SetStringField(TEXT("filterMode"), TEXT("FilterByExistence"));
+                SettingsTemplate->SetStringField(TEXT("attribute"), TEXT("<required-attribute>"));
+                SettingsTemplate->SetStringField(TEXT("operator"), TEXT("Equal"));
+                SettingsTemplate->SetStringField(TEXT("metadataDomain"), TEXT("@Data"));
+                SettingsTemplate->SetBoolField(TEXT("bIgnoreProperties"), false);
+                bHasSettingsTemplate = true;
+            }
+            else if (OpId.Equals(TEXT("pcg.route.data_if_attribute_value")))
+            {
+                SettingsTemplate->SetStringField(TEXT("filterMode"), TEXT("FilterByValue"));
+                SettingsTemplate->SetStringField(TEXT("targetAttribute"), TEXT("<required-attribute>"));
+                SettingsTemplate->SetStringField(TEXT("filterOperator"), TEXT("GreaterOrEqual"));
+
+                TSharedPtr<FJsonObject> ThresholdTemplate = MakeShared<FJsonObject>();
+                ThresholdTemplate->SetBoolField(TEXT("bUseConstantThreshold"), true);
+                TSharedPtr<FJsonObject> AttributeTypes = MakeShared<FJsonObject>();
+                AttributeTypes->SetStringField(TEXT("type"), TEXT("Double"));
+                AttributeTypes->SetNumberField(TEXT("doubleValue"), 0.5);
+                ThresholdTemplate->SetObjectField(TEXT("attributeTypes"), AttributeTypes);
+                SettingsTemplate->SetObjectField(TEXT("threshold"), ThresholdTemplate);
+                bHasSettingsTemplate = true;
+            }
+            else if (OpId.Equals(TEXT("pcg.route.data_if_attribute_in_range")))
+            {
+                SettingsTemplate->SetStringField(TEXT("filterMode"), TEXT("FilterByValueRange"));
+                SettingsTemplate->SetStringField(TEXT("targetAttribute"), TEXT("<required-attribute>"));
+
+                TSharedPtr<FJsonObject> MinThresholdTemplate = MakeShared<FJsonObject>();
+                MinThresholdTemplate->SetBoolField(TEXT("bUseConstantThreshold"), true);
+                MinThresholdTemplate->SetBoolField(TEXT("bInclusive"), true);
+                TSharedPtr<FJsonObject> MinAttributeTypes = MakeShared<FJsonObject>();
+                MinAttributeTypes->SetStringField(TEXT("type"), TEXT("Double"));
+                MinAttributeTypes->SetNumberField(TEXT("doubleValue"), 0.25);
+                MinThresholdTemplate->SetObjectField(TEXT("attributeTypes"), MinAttributeTypes);
+                SettingsTemplate->SetObjectField(TEXT("minThreshold"), MinThresholdTemplate);
+
+                TSharedPtr<FJsonObject> MaxThresholdTemplate = MakeShared<FJsonObject>();
+                MaxThresholdTemplate->SetBoolField(TEXT("bUseConstantThreshold"), true);
+                MaxThresholdTemplate->SetBoolField(TEXT("bInclusive"), true);
+                TSharedPtr<FJsonObject> MaxAttributeTypes = MakeShared<FJsonObject>();
+                MaxAttributeTypes->SetStringField(TEXT("type"), TEXT("Double"));
+                MaxAttributeTypes->SetNumberField(TEXT("doubleValue"), 0.75);
+                MaxThresholdTemplate->SetObjectField(TEXT("attributeTypes"), MaxAttributeTypes);
+                SettingsTemplate->SetObjectField(TEXT("maxThreshold"), MaxThresholdTemplate);
                 bHasSettingsTemplate = true;
             }
             else if (OpId.Equals(TEXT("pcg.transform.points")))
@@ -5219,9 +5424,25 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
                 SettingsTemplate->SetObjectField(TEXT("samplerParams"), SamplerParams);
                 bHasSettingsTemplate = true;
             }
+            else if (OpId.Equals(TEXT("pcg.sample.points_ratio")))
+            {
+                SettingsTemplate->SetNumberField(TEXT("ratio"), 0.1);
+                bHasSettingsTemplate = true;
+            }
             else if (OpId.Equals(TEXT("pcg.source.actor_data")))
             {
                 SettingsTemplate->SetStringField(TEXT("mode"), TEXT("ParseActorComponents"));
+                bHasSettingsTemplate = true;
+            }
+            else if (OpId.Equals(TEXT("pcg.source.actor_property")))
+            {
+                TSharedPtr<FJsonObject> ActorSelectorTemplate = MakeShared<FJsonObject>();
+                ActorSelectorTemplate->SetStringField(TEXT("actorFilter"), TEXT("FromInput"));
+                SettingsTemplate->SetObjectField(TEXT("actorSelector"), ActorSelectorTemplate);
+                SettingsTemplate->SetBoolField(TEXT("selectComponent"), false);
+                SettingsTemplate->SetStringField(TEXT("propertyName"), TEXT("Tags"));
+                SettingsTemplate->SetStringField(TEXT("outputAttributeName"), TEXT("<optional-output-attribute>"));
+                SettingsTemplate->SetBoolField(TEXT("alwaysRequeryActors"), true);
                 bHasSettingsTemplate = true;
             }
             else if (OpId.Equals(TEXT("pcg.project.surface")))
@@ -5276,7 +5497,15 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
             VerificationHints.Add(MakeShared<FJsonValueObject>(VerificationHint));
             PreferredPlan->SetArrayField(TEXT("verificationHints"), VerificationHints);
 
-            if ((OpId.Equals(TEXT("pcg.filter.by_tag")) || OpId.Equals(TEXT("pcg.meta.add_tag")))
+            if ((OpId.Equals(TEXT("pcg.filter.elements_compare"))
+                    || OpId.Equals(TEXT("pcg.filter.elements_in_range"))
+                    || OpId.Equals(TEXT("pcg.filter.points_by_density"))
+                    || OpId.Equals(TEXT("pcg.route.data_by_tag"))
+                    || OpId.Equals(TEXT("pcg.route.data_if_attribute_exists"))
+                    || OpId.Equals(TEXT("pcg.route.data_if_attribute_value"))
+                    || OpId.Equals(TEXT("pcg.route.data_if_attribute_in_range"))
+                    || OpId.Equals(TEXT("pcg.sample.points_ratio"))
+                    || OpId.Equals(TEXT("pcg.meta.add_tag")))
                 && !FromNodeId.IsEmpty() && !FromPinName.IsEmpty())
             {
                 const FString StepNodeRef = ResolvePlanStepNodeRef(ClientRef, Index);

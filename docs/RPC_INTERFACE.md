@@ -220,7 +220,8 @@ Field notes:
 
 - `execute` runs Python inside the active Unreal Editor process.
 - Prefer `execute` for non-graph editor automation and for graph types or graph-domain capabilities that are not yet covered by `graph.*`.
-- Do not prefer `execute` when a structured `graph.query`, `graph.ops.resolve`, `graph.mutate`, or `graph.verify` path already covers the task.
+- Do not prefer `execute` when a structured `graph.query`, `graph.mutate`, or `graph.verify` path already covers the task.
+- Workspace-local guides and semantics are the preferred knowledge source for agents before reaching for optional live catalog tools such as `graph.ops`.
 - Agent-local Python is a separate local-machine tool. It does not replace Unreal-side `execute`.
 
 ## 5.3 tool=`graph.list`
@@ -265,7 +266,7 @@ Field notes:
 
 Field notes:
 
-- `graphRef`: present on all entries. For root graphs the server emits an `asset`-kind ref; for inline subgraphs an `inline`-kind ref. Use this value as input to `graph.query`, `graph.ops.resolve`, or `graph.mutate` for direct addressing.
+- `graphRef`: present on all entries. For root graphs the server emits an `asset`-kind ref; for inline subgraphs an `inline`-kind ref. Use this value as input to `graph.query`, `graph.mutate`, or `graph.verify` for direct addressing. `graph.ops.resolve` may also accept it, but that tool is not part of the preferred primary workflow.
 - `parentGraphRef`: `null` for root-level graphs; set to the parent's `graphRef` for subgraphs when `includeSubgraphs` is `true`.
 - `ownerNodeId`: the `nodeId` of the composite/subgraph node that contains this graph. `null` for root graphs.
 - `loadStatus`: present on `kind: "asset"` entries only. `"loaded"` means the asset is in memory; `"loading"` means an async load is in progress; `"not_found"` means the asset path could not be resolved.
@@ -450,8 +451,16 @@ Notes:
 - `graph.ops` lists LOOMLE's stable semantic operation catalog for the requested graph domain.
 - This is a planning inventory surface, not an editor action-menu export.
 - `graph.ops` results may be curated rather than exhaustive.
+- The preferred primary agent knowledge surface is the workspace-local graph references under `workspace/Loomle/`.
 
 ## 5.6 tool=`graph.ops.resolve`
+
+Status note:
+
+- `graph.ops.resolve` remains part of the RPC surface
+- it is not the preferred public planning path for new agent workflows
+- prefer workspace-local `GUIDE.md` / `SEMANTICS.md` plus primitive `graph.mutate`
+  and `graph.query` / `graph.verify`
 
 `args`:
 
@@ -549,6 +558,7 @@ Notes:
 - `preferredPlan.settingsTemplate` may appear when a semantic op commonly needs key settings filled before the node is useful.
 - `preferredPlan.verificationHints` may appear when readback is especially important after apply, for example on PCG flows.
 - `preferredPlan.executionHints` may appear when a plan needs explicit insertion/composition semantics, especially for PCG.
+- Presence in the RPC surface does not make this the recommended default workflow.
 - richer context, remediation, and execution hints are forward-compatible contract fields; callers should preserve unknown fields rather than assuming the current MVP exhausts the schema.
 - Current MVP step generation is intentionally narrow:
   - Blueprint `core.reroute`, `bp.flow.branch`, `bp.flow.sequence`, `bp.flow.delay`, `bp.debug.print_string`, and `bp.var.set` can emit `steps[]` when `context.fromPin` is supplied.
@@ -557,7 +567,7 @@ Notes:
   - Material `mat.texture.sample` and `mat.param.texture` can emit `steps[]` when `items[*].hints.targetRootPin` is supplied, and may also connect `context.fromPin` into `UVs`.
   - Material `mat.func.call` may return a `settingsTemplate` for `functionAssetPath` even when it does not emit `steps[]`.
   - PCG `pcg.meta.add_tag` can emit `steps[]` when `context.fromPin` is supplied.
-  - PCG `pcg.filter.by_tag` can emit `steps[]` when `context.fromPin` is supplied.
+  - PCG `pcg.route.data_by_tag` can emit `steps[]` when `context.fromPin` is supplied.
 
 ## 5.7 tool=`graph.mutate`
 

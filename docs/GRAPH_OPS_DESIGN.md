@@ -2,7 +2,24 @@
 
 ## 1. Summary
 
-This document proposes a new graph-semantic planning surface:
+This document now serves two purposes:
+
+1. record the historical `graph.ops` / `graph.ops.resolve` design
+2. state the current public direction for LOOMLE graph work
+
+Current public direction:
+
+- agent-first graph guidance should live in `workspace/Loomle/`
+- the primary agent reference surface is:
+  - graph-specific `GUIDE.md`
+  - graph-specific `SEMANTICS.md`
+  - graph-specific `catalogs/` and `examples/`
+- `graph.mutate` remains the stable primitive execution layer
+- `graph.query` and `graph.verify` remain the validation loop
+- `graph.ops` may remain as an optional curated live listing
+- `graph.ops.resolve` is no longer the preferred planning path for new agent workflows
+
+Historical proposal:
 
 - `graph.ops`
 - `graph.ops.resolve`
@@ -11,12 +28,9 @@ The intent is to give agents a stable semantic planning layer that is easier
 to reason about than editor-menu-shaped action discovery with temporary
 `actionToken` values.
 
-This proposal now assumes a hard-cut direction:
-
-- new public graph-semantic flows should use `graph.ops`,
-  `graph.ops.resolve`, and `graph.mutate`
-- legacy action-token-driven public flows are removed rather than kept in
-  long-term coexistence
+That original proposal assumed a hard-cut move toward `graph.ops`,
+`graph.ops.resolve`, and `graph.mutate` as the main public semantic flow. The
+current direction is narrower and puts workspace-local references first.
 
 ## 2. Problem
 
@@ -41,19 +55,26 @@ those concerns ended up bundled behind one public name.
 
 ## 3. Design Goals
 
-1. Expose stable semantic operation identifiers.
-2. Separate operation inventory from context-specific realization.
-3. Keep a uniform agent-facing protocol across graph domains.
-4. Allow domain-specific resolver implementations under that protocol.
-5. Keep `graph.ops` as the public graph-semantic entry point.
+1. Keep workspace-local graph references as the primary agent-facing knowledge surface.
+2. Keep `graph.mutate` primitive and UE-aligned.
+3. Keep `graph.query` and `graph.verify` as the reliable readback and validation loop.
+4. Allow `graph.ops` to exist as an optional curated live listing.
+5. Avoid making `graph.ops.resolve` the center of the public workflow.
 
 ## 4. Non-Goals
 
 - redefining `graph.mutate`
 - promising exhaustive coverage of all Unreal-supported operations
 - forcing all graph domains into one universal operation taxonomy
+- introducing a second required naming layer that agents must memorize before they can use real node names
 
 ## 5. Tool Overview
+
+Status note:
+
+- `graph.ops` still fits the current direction as an optional live catalog.
+- `graph.ops.resolve` should be treated as a historical planning design and an
+  optional secondary capability, not as the default path new agent guidance should teach.
 
 ### 5.1 `graph.ops`
 
@@ -73,6 +94,12 @@ Purpose:
 - report compatibility, determinism, and plan source explicitly
 
 This is a planning surface, not a mutate surface.
+
+Current status:
+
+- no longer the preferred public planning path
+- should not be the main dependency of workspace-local graph guides
+- if retained, it should be documented as optional and secondary
 
 ## 6. Contract Principles
 
@@ -132,7 +159,7 @@ Recommended naming pattern:
 - cross-graph shared ops: `core.comment`, `core.reroute`
 - Blueprint-specific ops: `bp.flow.branch`, `bp.math.multiply`
 - Material-specific ops: `mat.texture.sample`
-- PCG-specific ops: `pcg.filter.by_tag`
+- PCG-specific ops: `pcg.route.data_by_tag`
 
 Rules:
 
@@ -147,6 +174,12 @@ Recommended per-op metadata:
 - `scope`: `cross-graph | blueprint | material | pcg`
 - `summary`: short agent-facing description
 - `tags`: optional discovery tags
+
+Current status note:
+
+- this model is most useful for curated live catalog output
+- it is no longer assumed to be the primary naming system agents rely on during everyday graph work
+- workspace-local `SEMANTICS.md` files should prefer real node names and usage explanations over `opId`-first teaching
 
 ## 8. `graph.ops` Proposal
 
@@ -200,8 +233,19 @@ Optional future filters may include:
 - `graph.ops` lists operations LOOMLE knows how to reason about.
 - It is not expected to mirror the exact current editor menu.
 - It is allowed to be curated.
+- It should be treated as optional live catalog output rather than the primary agent knowledge source.
 
 ## 9. `graph.ops.resolve` Proposal
+
+Status note:
+
+The design below is retained as historical planning design material. It no
+longer defines the preferred public workflow. New agent-facing guidance should
+prefer:
+
+1. workspace-local guides and semantics
+2. primitive `graph.mutate`
+3. `graph.query` / `graph.verify`
 
 ### 9.1 Input
 
@@ -517,7 +561,7 @@ overloading resolve.
 
 ## 13. Public Graph-Semantic Boundary
 
-The public graph-semantic surface is:
+Historical public graph-semantic surface:
 
 - `graph.ops`
 - `graph.ops.resolve`
@@ -526,14 +570,22 @@ The public graph-semantic surface is:
 If editor-native action discovery remains useful internally, it should remain
 an implementation detail of resolvers rather than a public contract.
 
-Recommended positioning:
+Historical positioning:
 
 - `graph.ops`: what stable semantic operations does LOOMLE know
 - `graph.ops.resolve`: how would those operations be realized here
 
+Current preferred boundary:
+
+- workspace-local graph references define the primary semantic surface for agents
+- `graph.mutate` is the primary execution surface
+- `graph.query` and `graph.verify` provide validation
+- `graph.ops` may supplement that flow as a live curated listing
+- `graph.ops.resolve` is optional and secondary
+
 ## 14. Migration Plan
 
-### Phase 1: design and schema
+Historical migration plan:
 
 - define tool names and response contracts
 - add protocol docs
@@ -551,18 +603,24 @@ Recommended positioning:
 - add per-domain resolve logic
 - expand compatibility signaling
 
-### Phase 4: documentation repositioning
+### Historical Phase 4: documentation repositioning
 
 - keep user-facing workflows and examples centered on `graph.ops` and
   `graph.ops.resolve`
 - guide agents only toward `graph.ops` and `graph.ops.resolve`
 - keep `graph.mutate` limited to stable realization ops
 
+Current documentation direction:
+
+- keep user-facing workflows and examples centered on workspace-local
+  graph-specific directories
+- teach agents to begin with `GUIDE.md`, then open `SEMANTICS.md`, then use
+  catalogs/examples when needed
+- keep `graph.mutate` limited to stable primitive realization ops
+
 ## 15. Minimum Viable v1
 
-The first shippable version should stay narrow.
-
-Recommended v1:
+Historical graph-ops v1 proposal:
 
 - `graph.ops` returns curated stable ops per graph type
 - `graph.ops.resolve` supports batch resolution
@@ -574,6 +632,13 @@ Recommended v1:
 - PCG supports a small curated core
 - the public semantic path is fully centered on `graph.ops` and
   `graph.ops.resolve`
+
+Current minimum viable direction:
+
+- workspace-local graph references are the agent-facing teaching surface
+- `graph.mutate` remains primitive
+- `graph.query` and `graph.verify` provide validation
+- optional live catalogs remain curated rather than exhaustive
 
 Additional PCG v1 expectations:
 
@@ -639,7 +704,7 @@ Recommended required v1 ops:
 
 - `pcg.create.points`
 - `pcg.meta.add_tag`
-- `pcg.filter.by_tag`
+- `pcg.route.data_by_tag`
 - `pcg.sample.surface`
 - `pcg.transform.points`
 - `pcg.sample.spline`
@@ -648,7 +713,7 @@ Recommended required v1 ops:
 
 Recommended optional PCG stretch ops:
 
-- `pcg.filter.by_attribute`
+- `pcg.route.data_if_attribute_value`
 - `pcg.project.surface`
 - `pcg.spawn.actor`
 

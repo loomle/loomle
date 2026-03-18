@@ -25,16 +25,17 @@ Read this file first. It is the top-level usage guide for agents working inside 
    Working rule:
    - `context` tells you what the editor is focused on and what is selected
    - `graph.resolve` turns an asset path, object path, actor path, or component path into queryable `graphRef` values
-   - once LOOMLE returns a `graphRef`, prefer reusing that `graphRef` in later `graph.query`, `graph.ops.resolve`, and `graph.mutate` calls
-5. For graph editing, prefer the semantic planning flow:
-   - call `graph.ops` when you need to discover stable semantic operations for the current graph type
-   - call `graph.ops.resolve` on the exact target `graphRef` when you need a mutate-ready plan for one or more semantic ops
-   - apply the resulting plan with `graph.mutate`
-   - close the loop with `graph.verify`
+   - once LOOMLE returns a `graphRef`, prefer reusing that `graphRef` in later `graph.query`, `graph.mutate`, and `graph.verify` calls
+5. For graph editing, prefer the semantic-reference flow:
+   - read the workspace reference files first for the current graph type
+   - use `graph.query` to read the current graph shape, pins, settings, and diagnostics
+   - apply explicit primitive `graph.mutate` operations such as `addNode.byClass`, `connectPins`, and `setPinDefault`
+   - close the loop with `graph.query` and `graph.verify`
    Working rule:
-    - prefer `addNode.byClass` plans produced by `graph.ops.resolve`
-    - use `graph.query` when you want the current lightweight graph diagnostics
-    - use `graph.verify` when you want final compile-backed verification
+   - treat the workspace catalogs and guides as the primary semantic reference
+   - treat `graph.mutate` as the stable execution layer
+   - use `graph.query` when you want the current lightweight graph diagnostics and readback truth
+   - use `graph.verify` when you want final compile-backed verification
 6. Follow the fallback policy when the structured graph surface is not enough:
    - use `graph.*` first for supported graph types and already-covered graph capabilities
    - use `execute` when the task is non-graph editor automation, or when the graph type or graph-domain capability is not yet covered by `graph.*`
@@ -44,9 +45,9 @@ Read this file first. It is the top-level usage guide for agents working inside 
    - `execute` means running Python inside the Unreal Editor process
    - `runScript` is Blueprint-only today; it is not a general fallback for Material, PCG, or unsupported graph types
 7. Choose the right workflow guide for the current graph type:
-   - `workflows/blueprint.md`
-   - `workflows/material.md`
-   - `workflows/pcg.md`
+   - `blueprint/GUIDE.md`
+   - `material/GUIDE.md`
+   - `pcg/GUIDE.md`
 8. When you need recent Unreal-side warnings, compile failures, or runtime diagnostics, call `diag.tail`.
    Working rule:
    - use `fromSeq` as an exclusive cursor
@@ -104,7 +105,7 @@ Working rule:
 Preferred discovery order:
 - use `context` when you want to start from the current editor state or selection
 - use `graph.resolve` when you have a path from selection, an actor, a component, or an asset and need a queryable graph address
-- use returned `graphRef` values as the stable addressing form for follow-up `graph.query`, `graph.ops.resolve`, and `graph.mutate` calls
+- use returned `graphRef` values as the stable addressing form for follow-up `graph.query`, `graph.mutate`, and `graph.verify` calls
 
 Do not guess:
 - that a selected object path is already the right `assetPath`
@@ -170,23 +171,46 @@ Working rule:
 - use `graph.verify` when you want final compile/refresh-backed confirmation
 - `graph.verify` is for graph assets only; runtime scene debugging is a separate concern
 
-## Semantic Planning
+## Semantic References
 
-Use `graph.ops` and `graph.ops.resolve` as the default node-planning surface.
+Use the per-graph directories as the default semantic reference surface.
 
 Working rule:
-- call `graph.ops` when you need the stable semantic catalog for a graph type
-- call `graph.ops.resolve` on the exact target graph when you want mutate-ready plans
-- prefer the returned `preferredPlan` over ad hoc class guessing when the op exists in the semantic catalog
+- start with the graph-specific directory before reaching for external skills
+- use `GUIDE.md` for the shortest working path
+- use `SEMANTICS.md` for usage-level semantic distinctions
+- use catalogs for node discovery and static node facts
+- use examples for concrete mutate payload shapes
+- use `graph.ops` only as an optional live curated listing, not as the primary planning dependency
 
 Current expectation:
+- workspace references are static and agent-readable
 - `graph.ops` is curated, not exhaustive
-- `graph.ops.resolve` is a planning surface only; apply the plan with `graph.mutate`
-- when `preferredPlan.steps[]` is present, those steps can be copied directly into
-  `graph.mutate.ops`
-- richer plans may include `pinHints`, `settingsTemplate`, or
-  `verificationHints`; treat those as execution guidance rather than optional
-  prose
+- execution still happens through primitive `graph.mutate` operations
+- `graph.query` and `graph.verify` are the validation loop after any meaningful edit
+
+## Reference Layers
+
+Each graph-specific directory is organized into reference layers:
+
+- `GUIDE.md`
+  Use for the shortest working path:
+  read the graph, mutate with primitive ops, then validate.
+- `SEMANTICS.md`
+  Use when you need usage-level help:
+  which node family fits, which parameters carry meaning, which pins matter,
+  and which nearby nodes are easy to confuse.
+- `catalogs/`
+  Use for static node facts:
+  class names, properties, dynamic-pin hints, and other inventory-style data.
+- `examples/`
+  Use for concrete payload patterns:
+  small mutate batches that show how to express a real edit.
+
+Working rule:
+- `GUIDE.md` should stay short
+- `SEMANTICS.md` should explain usage, not just concepts
+- catalogs and examples should provide the concrete lookup and execution detail
 
 ## Mutate Batches
 
@@ -243,13 +267,13 @@ Working rule:
 
 ## When To Open Deeper Files
 
-- Open `workflows/blueprint.md` when the current task is editing or reading Blueprint graphs.
-  This is also where the preferred `graph.ops` / `graph.ops.resolve` planning flow is explained.
-- Open `workflows/material.md` when the current task is editing or reading Material graphs.
-  This is where Material subgraph traversal through `childGraphRef` is explained.
-- Open `workflows/pcg.md` when the current task is editing or reading PCG graphs.
-  This is where graph resolution from selected PCG actors and components, plus `graph.verify`, should be treated as normal.
-- Open `examples/README.md` when you want small concrete payload examples before calling tools.
+- Open `blueprint/GUIDE.md` when the current task is editing or reading Blueprint graphs.
+- Open `blueprint/SEMANTICS.md` when the current task needs Blueprint node-family or control-flow semantics.
+- Open `material/GUIDE.md` when the current task is editing or reading Material graphs.
+- Open `material/SEMANTICS.md` when the current task needs root-sink or Material function semantics.
+- Open `pcg/GUIDE.md` when the current task is editing or reading PCG graphs.
+- Open `pcg/SEMANTICS.md` when the current task needs PCG node-family, parameter, or wiring semantics.
+- Open `pcg/catalogs/node-catalog.json` when you need the static UE node inventory for PCG.
 - Do not treat `runtime/` as documentation. It contains machine-written state such as install metadata.
 
 ## Directory Map
@@ -258,13 +282,15 @@ Working rule:
 Loomle/
   README.md
   loomle(.exe)
-  workflows/
-  examples/
+  blueprint/
+  material/
+  pcg/
   runtime/
 ```
 
 - `README.md`: the main agent-facing entrypoint
 - `loomle(.exe)`: the installed project-local client entrypoint
-- `workflows/`: task-oriented operating guides by graph type
-- `examples/`: small payload examples
+- `blueprint/`: Blueprint guide, semantics, and examples
+- `material/`: Material guide, semantics, and examples
+- `pcg/`: PCG guide, semantics, examples, and catalogs
 - `runtime/`: machine-written state, not human guidance
