@@ -47,15 +47,18 @@ EXPECTED_GRAPH_MUTATE_OPS = {
 }
 
 EXPECTED_WORKSPACE_EXAMPLES = {
-    "blueprint/examples/branch-then-layout.json",
-    "blueprint/examples/delay-then-print.json",
-    "blueprint/examples/do-once-then-print.json",
-    "blueprint/examples/replace-delay-with-do-once.json",
-    "blueprint/examples/replace-branch-with-sequence.json",
-    "blueprint/examples/insert-not-before-branch-condition.json",
-    "blueprint/examples/insert-delay-on-true-branch.json",
-    "blueprint/examples/set-variable-then-print.json",
-    "blueprint/examples/sequence-fanout.json",
+    "blueprint/examples/executable/branch-local-subgraph.json",
+    "blueprint/examples/executable/delay-local-chain.json",
+    "blueprint/examples/executable/sequence-local-fanout.json",
+    "blueprint/examples/illustrative/branch-then-layout.json",
+    "blueprint/examples/illustrative/delay-then-print.json",
+    "blueprint/examples/illustrative/do-once-then-print.json",
+    "blueprint/examples/illustrative/replace-delay-with-do-once.json",
+    "blueprint/examples/illustrative/replace-branch-with-sequence.json",
+    "blueprint/examples/illustrative/insert-not-before-branch-condition.json",
+    "blueprint/examples/illustrative/insert-delay-on-true-branch.json",
+    "blueprint/examples/illustrative/set-variable-then-print.json",
+    "blueprint/examples/illustrative/sequence-fanout.json",
     "material/examples/root-sink-then-layout.json",
     "material/examples/insert-multiply-before-base-color-root.json",
     "material/examples/insert-one-minus-before-multiply-b.json",
@@ -168,9 +171,26 @@ def _has_remove_node(payload: dict[str, Any], *, node_ref: str) -> bool:
     return False
 
 
+def _payload_uses_node_id(payload: dict[str, Any]) -> bool:
+    ops = payload.get("ops")
+    if not isinstance(ops, list):
+        return False
+
+    def _walk(value: Any) -> bool:
+        if isinstance(value, dict):
+            if "nodeId" in value:
+                return True
+            return any(_walk(v) for v in value.values())
+        if isinstance(value, list):
+            return any(_walk(v) for v in value)
+        return False
+
+    return any(_walk(op) for op in ops if isinstance(op, dict))
+
+
 def validate_workspace_examples() -> None:
     workspace_root = REPO_ROOT / "workspace" / "Loomle"
-    example_paths = sorted(workspace_root.glob("*/examples/*.json"))
+    example_paths = sorted(workspace_root.glob("*/examples/**/*.json"))
     actual_relpaths = {str(path.relative_to(workspace_root)).replace("\\", "/") for path in example_paths}
     _require(
         actual_relpaths == EXPECTED_WORKSPACE_EXAMPLES,
@@ -180,7 +200,7 @@ def validate_workspace_examples() -> None:
     for path in example_paths:
         payload = _load_json_file(path)
         relpath = str(path.relative_to(workspace_root)).replace("\\", "/")
-        graph_dir = path.parent.parent.name
+        graph_dir = path.relative_to(workspace_root).parts[0]
         _require(payload.get("tool") == "graph.mutate", f"example must target graph.mutate: {relpath}")
         _require(payload.get("graphType") == graph_dir, f"example graphType mismatch for {relpath}: {payload}")
         ops = payload.get("ops")
@@ -193,8 +213,53 @@ def validate_workspace_examples() -> None:
             any(isinstance(op, dict) and op.get("op") == "layoutGraph" for op in ops),
             f"example should end in a touched layout pass: {relpath}",
         )
+        if relpath.startswith("blueprint/examples/executable/"):
+            _require(
+                not _payload_uses_node_id(payload),
+                f"blueprint executable example should not depend on live nodeId addressing: {relpath}",
+            )
+        if relpath.startswith("blueprint/examples/illustrative/"):
+            _require(
+                _payload_uses_node_id(payload),
+                f"blueprint illustrative example should visibly require live graph substitution: {relpath}",
+            )
 
-        if relpath == "blueprint/examples/branch-then-layout.json":
+        if relpath == "blueprint/examples/executable/branch-local-subgraph.json":
+            _require(
+                _has_add_node(payload, client_ref="branch_main", class_path="/Script/BlueprintGraph.K2Node_IfThenElse"),
+                f"blueprint executable branch example missing branch node: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "branch_main", "Then", "true_print", "execute"),
+                f"blueprint executable branch example missing Then connection: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "branch_main", "Else", "false_print", "execute"),
+                f"blueprint executable branch example missing Else connection: {relpath}",
+            )
+            _require(
+                _has_set_default(payload, node_ref="branch_main", pin="Condition", value=True),
+                f"blueprint executable branch example missing Condition=true default: {relpath}",
+            )
+        elif relpath == "blueprint/examples/executable/delay-local-chain.json":
+            _require(
+                _has_connection(payload, "delay_main", "then", "print_after_delay", "execute"),
+                f"blueprint executable delay example missing delay -> print connection: {relpath}",
+            )
+            _require(
+                _has_set_default(payload, node_ref="delay_main", pin="Duration", value=0.2),
+                f"blueprint executable delay example missing Duration default: {relpath}",
+            )
+        elif relpath == "blueprint/examples/executable/sequence-local-fanout.json":
+            _require(
+                _has_connection(payload, "sequence_main", "Then_0", "print_first", "execute"),
+                f"blueprint executable sequence example missing Then_0 branch: {relpath}",
+            )
+            _require(
+                _has_connection(payload, "sequence_main", "Then_1", "print_second", "execute"),
+                f"blueprint executable sequence example missing Then_1 branch: {relpath}",
+            )
+        elif relpath == "blueprint/examples/illustrative/branch-then-layout.json":
             _require(
                 _has_add_node(payload, client_ref="branch_a", class_path="/Script/BlueprintGraph.K2Node_IfThenElse"),
                 f"branch example missing branch node: {relpath}",
@@ -207,7 +272,7 @@ def validate_workspace_examples() -> None:
                 _has_set_default(payload, node_ref="branch_a", pin="Condition", value=True),
                 f"branch example missing Condition=true default: {relpath}",
             )
-        elif relpath == "blueprint/examples/set-variable-then-print.json":
+        elif relpath == "blueprint/examples/illustrative/set-variable-then-print.json":
             _require(
                 _has_add_node(payload, client_ref="set_hidden", class_path="/Script/BlueprintGraph.K2Node_VariableSet"),
                 f"set-variable example missing variable set node: {relpath}",
@@ -232,7 +297,7 @@ def validate_workspace_examples() -> None:
                 _has_set_default(payload, node_ref="print_result", pin="InString", value="ActorHiddenInGame set to true"),
                 f"set-variable example missing print string default: {relpath}",
             )
-        elif relpath == "blueprint/examples/sequence-fanout.json":
+        elif relpath == "blueprint/examples/illustrative/sequence-fanout.json":
             _require(
                 _has_add_node(payload, client_ref="sequence_main", class_path="/Script/BlueprintGraph.K2Node_ExecutionSequence"),
                 f"sequence example missing sequence node: {relpath}",
@@ -249,7 +314,7 @@ def validate_workspace_examples() -> None:
                 _has_connection(payload, "sequence_main", "Then_1", "print_second", "execute"),
                 f"sequence example missing Then_1 branch: {relpath}",
             )
-        elif relpath == "blueprint/examples/delay-then-print.json":
+        elif relpath == "blueprint/examples/illustrative/delay-then-print.json":
             _require(
                 _has_add_node(payload, client_ref="delay_main", class_path="/Script/BlueprintGraph.K2Node_CallFunction"),
                 f"delay example missing delay node: {relpath}",
@@ -266,7 +331,7 @@ def validate_workspace_examples() -> None:
                 _has_set_default(payload, node_ref="delay_main", pin="Duration", value=0.2),
                 f"delay example missing Duration default: {relpath}",
             )
-        elif relpath == "blueprint/examples/do-once-then-print.json":
+        elif relpath == "blueprint/examples/illustrative/do-once-then-print.json":
             _require(
                 _has_add_node(payload, client_ref="do_once_main", class_path="/Script/BlueprintGraph.K2Node_MacroInstance"),
                 f"do-once example missing DoOnce node: {relpath}",
@@ -279,7 +344,7 @@ def validate_workspace_examples() -> None:
                 _has_connection(payload, "do_once_main", "Completed", "print_completed", "execute"),
                 f"do-once example missing Completed -> print connection: {relpath}",
             )
-        elif relpath == "blueprint/examples/replace-delay-with-do-once.json":
+        elif relpath == "blueprint/examples/illustrative/replace-delay-with-do-once.json":
             _require(
                 _has_connection(payload, "EventBeginPlay", "Then", "old_delay", "execute"),
                 f"blueprint replacement example missing initial BeginPlay -> delay connection: {relpath}",
@@ -300,7 +365,7 @@ def validate_workspace_examples() -> None:
                 _has_remove_node(payload, node_ref="old_delay"),
                 f"blueprint replacement example missing removeNode for old delay: {relpath}",
             )
-        elif relpath == "blueprint/examples/replace-branch-with-sequence.json":
+        elif relpath == "blueprint/examples/illustrative/replace-branch-with-sequence.json":
             _require(
                 _has_connection(payload, "EventBeginPlay", "Then", "old_branch", "Execute"),
                 f"blueprint multi-branch replacement missing initial BeginPlay -> Branch connection: {relpath}",
@@ -329,7 +394,7 @@ def validate_workspace_examples() -> None:
                 _has_remove_node(payload, node_ref="old_branch"),
                 f"blueprint multi-branch replacement missing removeNode for old branch: {relpath}",
             )
-        elif relpath == "blueprint/examples/insert-not-before-branch-condition.json":
+        elif relpath == "blueprint/examples/illustrative/insert-not-before-branch-condition.json":
             _require(
                 _has_connection(payload, "condition_get", "ActorHiddenInGame", "branch_main", "Condition"),
                 f"blueprint data-rewrite example missing initial get -> branch condition connection: {relpath}",
@@ -342,7 +407,7 @@ def validate_workspace_examples() -> None:
                 _has_connection(payload, "invert_condition", "ReturnValue", "branch_main", "Condition"),
                 f"blueprint data-rewrite example missing Not output -> branch condition connection: {relpath}",
             )
-        elif relpath == "blueprint/examples/insert-delay-on-true-branch.json":
+        elif relpath == "blueprint/examples/illustrative/insert-delay-on-true-branch.json":
             _require(
                 _has_connection(payload, "branch_main", "Then", "true_print", "execute"),
                 f"blueprint branch insertion example missing initial Then -> true print connection: {relpath}",

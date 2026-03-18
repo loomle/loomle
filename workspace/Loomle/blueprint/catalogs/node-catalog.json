@@ -20,8 +20,9 @@
       "pinHints": ["Execute", "Condition", "Then", "Else"],
       "usage": "Split exec flow on a boolean condition.",
       "exampleFiles": [
-        "examples/branch-then-layout.json",
-        "examples/replace-branch-with-sequence.json"
+        "examples/executable/branch-local-subgraph.json",
+        "examples/illustrative/branch-then-layout.json",
+        "examples/illustrative/replace-branch-with-sequence.json"
       ]
     },
     {
@@ -33,8 +34,9 @@
       "pinHints": ["execute", "Then_0", "Then_1"],
       "usage": "Fan one exec input out into ordered exec branches.",
       "exampleFiles": [
-        "examples/sequence-fanout.json",
-        "examples/replace-branch-with-sequence.json"
+        "examples/executable/sequence-local-fanout.json",
+        "examples/illustrative/sequence-fanout.json",
+        "examples/illustrative/replace-branch-with-sequence.json"
       ]
     },
     {
@@ -49,9 +51,10 @@
       "pinHints": ["execute", "Duration", "then"],
       "usage": "Insert a latent delay in exec flow.",
       "exampleFiles": [
-        "examples/delay-then-print.json",
-        "examples/replace-delay-with-do-once.json",
-        "examples/insert-delay-on-true-branch.json"
+        "examples/executable/delay-local-chain.json",
+        "examples/illustrative/delay-then-print.json",
+        "examples/illustrative/replace-delay-with-do-once.json",
+        "examples/illustrative/insert-delay-on-true-branch.json"
       ]
     },
     {
@@ -65,8 +68,8 @@
       "pinHints": ["Execute", "Completed", "Reset"],
       "usage": "Gate exec flow so it completes only once until reset.",
       "exampleFiles": [
-        "examples/do-once-then-print.json",
-        "examples/replace-delay-with-do-once.json"
+        "examples/illustrative/do-once-then-print.json",
+        "examples/illustrative/replace-delay-with-do-once.json"
       ]
     },
     {
@@ -81,12 +84,15 @@
       "pinHints": ["execute", "InString", "then"],
       "usage": "Emit a debug string from exec flow.",
       "exampleFiles": [
-        "examples/set-variable-then-print.json",
-        "examples/sequence-fanout.json",
-        "examples/delay-then-print.json",
-        "examples/do-once-then-print.json",
-        "examples/replace-delay-with-do-once.json",
-        "examples/insert-delay-on-true-branch.json"
+        "examples/executable/branch-local-subgraph.json",
+        "examples/executable/delay-local-chain.json",
+        "examples/executable/sequence-local-fanout.json",
+        "examples/illustrative/set-variable-then-print.json",
+        "examples/illustrative/sequence-fanout.json",
+        "examples/illustrative/delay-then-print.json",
+        "examples/illustrative/do-once-then-print.json",
+        "examples/illustrative/replace-delay-with-do-once.json",
+        "examples/illustrative/insert-delay-on-true-branch.json"
       ]
     },
     {
@@ -100,7 +106,7 @@
       },
       "pinHints": ["A", "ReturnValue"],
       "usage": "Invert a boolean data value before a downstream consumer such as Branch.",
-      "exampleFiles": ["examples/insert-not-before-branch-condition.json"]
+      "exampleFiles": ["examples/illustrative/insert-not-before-branch-condition.json"]
     },
     {
       "displayName": "Variable Get",
@@ -111,7 +117,7 @@
       "optionalArgs": ["variableClassPath"],
       "pinHints": ["value output"],
       "usage": "Read a variable into data flow.",
-      "exampleFiles": ["examples/insert-not-before-branch-condition.json"]
+      "exampleFiles": ["examples/illustrative/insert-not-before-branch-condition.json"]
     },
     {
       "displayName": "Variable Set",
@@ -122,7 +128,7 @@
       "optionalArgs": ["variableClassPath"],
       "pinHints": ["execute", "then", "value input"],
       "usage": "Write a variable and usually continue exec flow.",
-      "exampleFiles": ["examples/set-variable-then-print.json"]
+      "exampleFiles": ["examples/illustrative/set-variable-then-print.json"]
     },
     {
       "displayName": "Reroute",

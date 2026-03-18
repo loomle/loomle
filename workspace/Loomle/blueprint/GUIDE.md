@@ -27,22 +27,25 @@ control flow, variable nodes, or node-family boundaries.
 
 - `SEMANTICS.md`
 - `catalogs/node-catalog.json`
-- `examples/branch-then-layout.json`
-- `examples/set-variable-then-print.json`
-- `examples/sequence-fanout.json`
-- `examples/delay-then-print.json`
-- `examples/do-once-then-print.json`
-- `examples/replace-delay-with-do-once.json`
-- `examples/replace-branch-with-sequence.json`
-- `examples/insert-not-before-branch-condition.json`
-- `examples/insert-delay-on-true-branch.json`
+- `examples/README.md`
+- `examples/executable/branch-local-subgraph.json`
+- `examples/executable/delay-local-chain.json`
+- `examples/executable/sequence-local-fanout.json`
+- `examples/illustrative/branch-then-layout.json`
+- `examples/illustrative/set-variable-then-print.json`
+- `examples/illustrative/sequence-fanout.json`
+- `examples/illustrative/delay-then-print.json`
+- `examples/illustrative/do-once-then-print.json`
+- `examples/illustrative/replace-delay-with-do-once.json`
+- `examples/illustrative/replace-branch-with-sequence.json`
+- `examples/illustrative/insert-not-before-branch-condition.json`
+- `examples/illustrative/insert-delay-on-true-branch.json`
 
 ## Execution Style
 
 Prefer explicit primitive edits:
 
 - `addNode.byClass`
-- `addNode.byAction`
 - `connectPins`
 - `disconnectPins`
 - `setPinDefault`
@@ -50,6 +53,18 @@ Prefer explicit primitive edits:
 
 Use real Blueprint node names and live graph readback when planning edits. Do
 not introduce a second naming layer here.
+
+## Example Contracts
+
+Blueprint examples come in two types:
+
+- `examples/executable/`
+  Use these when you want a copy-runnable payload that only depends on new
+  nodes created inside the same batch.
+- `examples/illustrative/`
+  Use these when you want a rewrite pattern against an existing graph. Re-query
+  the target graph first and substitute live node ids or exact rewrite
+  boundaries before running them.
 
 ## Validation Style
 

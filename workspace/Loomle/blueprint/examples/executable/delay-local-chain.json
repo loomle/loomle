@@ -1,0 +1,63 @@
+{
+  "tool": "graph.mutate",
+  "graphType": "blueprint",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "delay_main",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary",
+        "functionName": "Delay"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "print_after_delay",
+      "args": {
+        "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary",
+        "functionName": "PrintString"
+      }
+    },
+    {
+      "op": "connectPins",
+      "args": {
+        "from": {
+          "nodeRef": "delay_main",
+          "pinName": "then"
+        },
+        "to": {
+          "nodeRef": "print_after_delay",
+          "pinName": "execute"
+        }
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "delay_main",
+          "pinName": "Duration"
+        },
+        "value": 0.2
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "args": {
+        "target": {
+          "nodeRef": "print_after_delay",
+          "pinName": "InString"
+        },
+        "value": "Executable local delay chain"
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "args": {
+        "scope": "touched"
+      }
+    }
+  ]
+}

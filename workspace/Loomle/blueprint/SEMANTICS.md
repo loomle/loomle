@@ -118,8 +118,6 @@ Prefer direct graph edits over planner-specific payloads.
 Use:
 
 - `addNode.byClass` when you already know the class path
-- `addNode.byAction` when action discovery is the safer creation path for the
-  current graph context
 - explicit `connectPins` and `disconnectPins` when restoring or reshaping local
   flow
 
