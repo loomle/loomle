@@ -730,6 +730,112 @@ namespace LoomleBlueprintAdapterInternal
         return ClassName.Equals(NormalizedFilter) || ClassPath.Equals(NormalizedFilter);
     }
 
+    static bool NodeMatchesListOptions(const UEdGraphNode* Node, const FLoomleBlueprintNodeListOptions* Options)
+    {
+        if (!Node)
+        {
+            return false;
+        }
+        if (Options == nullptr)
+        {
+            return true;
+        }
+
+        const FString NodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+        if (Options->NodeIds.Num() > 0)
+        {
+            bool bIdMatched = false;
+            for (const FString& RequestedId : Options->NodeIds)
+            {
+                if (RequestedId.Equals(NodeGuid, ESearchCase::IgnoreCase))
+                {
+                    bIdMatched = true;
+                    break;
+                }
+            }
+            if (!bIdMatched)
+            {
+                return false;
+            }
+        }
+
+        if (Options->NodeClasses.Num() > 0)
+        {
+            bool bClassMatched = false;
+            for (const FString& NodeClassFilter : Options->NodeClasses)
+            {
+                if (NodeClassMatches(Node, NodeClassFilter))
+                {
+                    bClassMatched = true;
+                    break;
+                }
+            }
+            if (!bClassMatched)
+            {
+                return false;
+            }
+        }
+
+        if (!Options->Text.IsEmpty())
+        {
+            const FString NodeTitle = Node->GetNodeTitle(ENodeTitleType::ListView).ToString();
+            const FString NodeName = Node->GetName();
+            const FString NodeClassPath = Node->GetClass() ? Node->GetClass()->GetPathName() : TEXT("");
+            if (!NodeTitle.Contains(Options->Text, ESearchCase::IgnoreCase)
+                && !NodeName.Contains(Options->Text, ESearchCase::IgnoreCase)
+                && !NodeGuid.Contains(Options->Text, ESearchCase::IgnoreCase)
+                && !NodeClassPath.Contains(Options->Text, ESearchCase::IgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    static void SerializeFilteredNodeList(
+        const TArray<UEdGraphNode*>& GraphNodes,
+        const FString& GraphName,
+        const FLoomleBlueprintNodeListOptions* Options,
+        FString& OutNodesJson,
+        FLoomleBlueprintNodeListStats* OutStats)
+    {
+        TArray<TSharedPtr<FJsonValue>> Nodes;
+        int32 MatchingNodes = 0;
+        const int32 Offset = Options ? FMath::Max(Options->Offset, 0) : 0;
+        const int32 Limit = Options ? FMath::Max(Options->Limit, 1) : TNumericLimits<int32>::Max();
+
+        Nodes.Reserve(FMath::Min(Limit, GraphNodes.Num()));
+        for (const UEdGraphNode* Node : GraphNodes)
+        {
+            if (!NodeMatchesListOptions(Node, Options))
+            {
+                continue;
+            }
+
+            ++MatchingNodes;
+            if (MatchingNodes <= Offset)
+            {
+                continue;
+            }
+            if (Nodes.Num() >= Limit)
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> NodeObject = SerializeNode(Node);
+            NodeObject->SetStringField(TEXT("graphName"), GraphName);
+            Nodes.Add(MakeShared<FJsonValueObject>(NodeObject));
+        }
+
+        if (OutStats)
+        {
+            OutStats->TotalNodes = GraphNodes.Num();
+            OutStats->MatchingNodes = MatchingNodes;
+        }
+        OutNodesJson = JsonArrayToString(Nodes);
+    }
+
     static const FProperty* ResolveVariableProperty(
         UBlueprint* Blueprint,
         const FString& VariableName,
@@ -1726,10 +1832,20 @@ bool FLoomleBlueprintAdapter::ListBlueprintGraphs(const FString& BlueprintAssetP
     return true;
 }
 
-bool FLoomleBlueprintAdapter::ListGraphNodes(const FString& BlueprintAssetPath, const FString& GraphName, FString& OutNodesJson, FString& OutError)
+bool FLoomleBlueprintAdapter::ListGraphNodes(
+    const FString& BlueprintAssetPath,
+    const FString& GraphName,
+    FString& OutNodesJson,
+    FString& OutError,
+    const FLoomleBlueprintNodeListOptions* Options,
+    FLoomleBlueprintNodeListStats* OutStats)
 {
     OutNodesJson = TEXT("[]");
     OutError.Empty();
+    if (OutStats)
+    {
+        *OutStats = FLoomleBlueprintNodeListStats{};
+    }
 
     if (GraphName.IsEmpty())
     {
@@ -1745,23 +1861,31 @@ bool FLoomleBlueprintAdapter::ListGraphNodes(const FString& BlueprintAssetPath, 
         return false;
     }
 
-    TArray<TSharedPtr<FJsonValue>> Nodes;
-    for (const UEdGraphNode* Node : Graph->Nodes)
-    {
-        TSharedPtr<FJsonObject> NodeObject = LoomleBlueprintAdapterInternal::SerializeNode(Node);
-        NodeObject->SetStringField(TEXT("graphName"), Graph->GetName());
-        Nodes.Add(MakeShared<FJsonValueObject>(NodeObject));
-    }
-
-    OutNodesJson = LoomleBlueprintAdapterInternal::JsonArrayToString(Nodes);
+    LoomleBlueprintAdapterInternal::SerializeFilteredNodeList(
+        Graph->Nodes,
+        Graph->GetName(),
+        Options,
+        OutNodesJson,
+        OutStats);
     return true;
 }
 
-bool FLoomleBlueprintAdapter::ListCompositeSubgraphNodes(const FString& BlueprintAssetPath, const FString& CompositeNodeGuid, FString& OutSubgraphName, FString& OutNodesJson, FString& OutError)
+bool FLoomleBlueprintAdapter::ListCompositeSubgraphNodes(
+    const FString& BlueprintAssetPath,
+    const FString& CompositeNodeGuid,
+    FString& OutSubgraphName,
+    FString& OutNodesJson,
+    FString& OutError,
+    const FLoomleBlueprintNodeListOptions* Options,
+    FLoomleBlueprintNodeListStats* OutStats)
 {
     OutSubgraphName.Empty();
     OutNodesJson = TEXT("[]");
     OutError.Empty();
+    if (OutStats)
+    {
+        *OutStats = FLoomleBlueprintNodeListStats{};
+    }
 
     if (CompositeNodeGuid.IsEmpty())
     {
@@ -1819,15 +1943,12 @@ bool FLoomleBlueprintAdapter::ListCompositeSubgraphNodes(const FString& Blueprin
 
             OutSubgraphName = SubGraph->GetName();
 
-            TArray<TSharedPtr<FJsonValue>> Nodes;
-            for (const UEdGraphNode* SubNode : SubGraph->Nodes)
-            {
-                TSharedPtr<FJsonObject> NodeObject = LoomleBlueprintAdapterInternal::SerializeNode(SubNode);
-                NodeObject->SetStringField(TEXT("graphName"), OutSubgraphName);
-                Nodes.Add(MakeShared<FJsonValueObject>(NodeObject));
-            }
-
-            OutNodesJson = LoomleBlueprintAdapterInternal::JsonArrayToString(Nodes);
+            LoomleBlueprintAdapterInternal::SerializeFilteredNodeList(
+                SubGraph->Nodes,
+                OutSubgraphName,
+                Options,
+                OutNodesJson,
+                OutStats);
             return true;
         }
     }

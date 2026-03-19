@@ -22,6 +22,11 @@ use std::process::{Command as StdCommand, ExitCode};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Foundation::{CloseHandle, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::System::Threading::{OpenProcess, WaitForSingleObject, SYNCHRONIZE};
+
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> ExitCode {
     let cli = match Cli::parse(env::args_os()) {
@@ -32,6 +37,13 @@ async fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+
+    if let Some(parent_pid) = cli.wait_for_parent_pid {
+        if let Err(message) = wait_for_parent_exit(parent_pid) {
+            eprintln!("[loomle][ERROR] {message}");
+            return ExitCode::from(1);
+        }
+    }
 
     match cli.command {
         CommandKind::Install {
@@ -274,6 +286,30 @@ fn handoff_to_installer(
         command.arg("--installer-path").arg(installer_path);
     }
 
+    #[cfg(target_os = "windows")]
+    if apply && subcommand == "update" {
+        command
+            .arg("--wait-for-parent-pid")
+            .arg(std::process::id().to_string());
+        eprintln!(
+            "[loomle][INFO] handing off {}{} to temporary installer {} and exiting so Windows can release the current workspace binary",
+            subcommand,
+            if apply { " --apply" } else { "" },
+            installer.path().display()
+        );
+        return match command.spawn() {
+            Ok(_) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!(
+                    "[loomle][ERROR] failed to launch temporary installer {}: {}",
+                    installer.path().display(),
+                    error
+                );
+                ExitCode::from(1)
+            }
+        };
+    }
+
     eprintln!(
         "[loomle][INFO] handing off {}{} to temporary installer {}",
         subcommand,
@@ -300,6 +336,7 @@ fn handoff_to_installer(
 #[derive(Debug)]
 struct Cli {
     project_root: Option<PathBuf>,
+    wait_for_parent_pid: Option<u32>,
     command: CommandKind,
 }
 
@@ -357,6 +394,7 @@ impl Cli {
         let _program = args.next();
 
         let mut project_root = None;
+        let mut wait_for_parent_pid = None;
         let mut command = None;
         let mut call_tool_name = None;
         let mut call_arguments_json = None;
@@ -380,6 +418,17 @@ impl Cli {
                         .next()
                         .ok_or_else(|| String::from("missing value for --project-root"))?;
                     project_root = Some(PathBuf::from(value));
+                }
+                Some("--wait-for-parent-pid") => {
+                    let value = args
+                        .next()
+                        .ok_or_else(|| String::from("missing value for --wait-for-parent-pid"))?;
+                    wait_for_parent_pid = Some(
+                        value
+                            .to_string_lossy()
+                            .parse::<u32>()
+                            .map_err(|_| String::from("--wait-for-parent-pid must be a valid pid"))?,
+                    );
                 }
                 Some("--version") => {
                     let value = args
@@ -638,9 +687,39 @@ impl Cli {
 
         Ok(Self {
             project_root,
+            wait_for_parent_pid,
             command,
         })
     }
+}
+
+#[cfg(target_os = "windows")]
+fn wait_for_parent_exit(pid: u32) -> Result<(), String> {
+    unsafe {
+        let handle = OpenProcess(SYNCHRONIZE, 0, pid);
+        if handle == 0 {
+            return Ok(());
+        }
+        let wait_result = WaitForSingleObject(handle, 30000);
+        CloseHandle(handle);
+        match wait_result {
+            WAIT_OBJECT_0 => Ok(()),
+            WAIT_TIMEOUT => Err(format!(
+                "temporary installer timed out waiting for parent process {pid} to exit"
+            )),
+            WAIT_FAILED => Err(format!(
+                "temporary installer failed while waiting for parent process {pid}"
+            )),
+            other => Err(format!(
+                "temporary installer received unexpected wait result {other} while waiting for parent process {pid}"
+            )),
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn wait_for_parent_exit(_pid: u32) -> Result<(), String> {
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -1168,6 +1247,20 @@ mod tests {
             Cli::parse(vec![OsString::from("loomle"), OsString::from("list-tools")]).expect("cli");
 
         assert!(matches!(cli.command, CommandKind::ListTools));
+    }
+
+    #[test]
+    fn cli_parses_internal_wait_for_parent_pid() {
+        let cli = Cli::parse(vec![
+            OsString::from("loomle"),
+            OsString::from("--wait-for-parent-pid"),
+            OsString::from("4242"),
+            OsString::from("doctor"),
+        ])
+        .expect("cli");
+
+        assert_eq!(cli.wait_for_parent_pid, Some(4242));
+        assert!(matches!(cli.command, CommandKind::Doctor));
     }
 
     #[test]

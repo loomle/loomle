@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::Duration;
 use tempfile::TempDir;
 use zip::ZipArchive;
 
@@ -24,9 +26,41 @@ const RESTART_REASON_INSTALL: &str =
 const RESTART_REASON_UPDATE: &str =
     "If Unreal Editor is already running, restart it to load the updated LoomleBridge plugin version.";
 const INVALID_ARCHIVE_PATH_CHARS: [char; 7] = ['<', '>', ':', '"', '|', '?', '*'];
+const DOWNLOAD_RETRY_ATTEMPTS: u32 = 4;
+const DOWNLOAD_RETRY_BASE_DELAY_MS: u64 = 500;
 
 fn print_install_phase(message: &str) {
     eprintln!("[loomle][INFO] {message}");
+}
+
+fn download_retry_delay(attempt: u32) -> Duration {
+    let multiplier = 1_u64 << attempt.saturating_sub(1);
+    Duration::from_millis(DOWNLOAD_RETRY_BASE_DELAY_MS.saturating_mul(multiplier))
+}
+
+fn with_download_retries<T, F>(label: &str, source: &str, mut action: F) -> Result<T, String>
+where
+    F: FnMut() -> Result<T, String>,
+{
+    let mut last_error = None::<String>;
+    for attempt in 1..=DOWNLOAD_RETRY_ATTEMPTS {
+        match action() {
+            Ok(value) => return Ok(value),
+            Err(error) => {
+                last_error = Some(error.clone());
+                if attempt >= DOWNLOAD_RETRY_ATTEMPTS {
+                    break;
+                }
+                const MAX_ATTEMPT_LABEL: u32 = DOWNLOAD_RETRY_ATTEMPTS;
+                print_install_phase(&format!(
+                    "{label} failed for {source} (attempt {attempt}/{MAX_ATTEMPT_LABEL}): {error}; retrying"
+                ));
+                thread::sleep(download_retry_delay(attempt));
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| format!("{label} failed for {source}")))
 }
 
 fn local_manifest_repair_hint(project_root: &Path) -> String {
@@ -259,7 +293,6 @@ pub fn install_release(request: InstallRequest) -> Result<serde_json::Value, Str
 pub fn update_release(request: UpdateRequest) -> Result<serde_json::Value, String> {
     let project_root = validate_project_root(&request.project_root)?;
     print_install_phase(&format!("resolved project root {}", project_root.display()));
-    let install_state = read_runtime_install_state(&project_root)?;
     let manifest_request = InstallRequest {
         project_root: project_root.clone(),
         version: request.version.clone(),
@@ -269,6 +302,33 @@ pub fn update_release(request: UpdateRequest) -> Result<serde_json::Value, Strin
     let manifest = load_manifest(&manifest_request)?;
     let latest_version = resolve_version(&manifest, None)?;
     let target_version = resolve_version(&manifest, request.version.as_deref())?;
+    let install_state = match read_runtime_install_state(&project_root) {
+        Ok(state) => state,
+        Err(error) => {
+            if request.apply && error.contains("install state not found at ") {
+                print_install_phase(
+                    "install state missing during update --apply; repairing via install flow",
+                );
+                let install_result = install_release(InstallRequest {
+                    project_root,
+                    version: Some(target_version.clone()),
+                    manifest_path: request.manifest_path,
+                    manifest_url: request.manifest_url,
+                })?;
+                return Ok(json!({
+                    "installedVersion": serde_json::Value::Null,
+                    "latestVersion": latest_version,
+                    "targetVersion": target_version,
+                    "updated": true,
+                    "repair": true,
+                    "restartRequired": true,
+                    "restartReason": RESTART_REASON_UPDATE,
+                    "install": install_result,
+                }));
+            }
+            return Err(error);
+        }
+    };
     let version_changed = install_state.installed_version != target_version;
     let would_change = version_changed;
     let update_available = install_state.installed_version != latest_version;
@@ -390,13 +450,15 @@ fn load_manifest_from_sources(
     }
 
     print_install_phase(&format!("downloading manifest from {manifest_source}"));
-    let body = Client::new()
-        .get(&manifest_source)
-        .send()
-        .and_then(|response| response.error_for_status())
-        .map_err(|error| format!("failed to download manifest {manifest_source}: {error}"))?
-        .text()
-        .map_err(|error| format!("failed to read manifest {manifest_source}: {error}"))?;
+    let body = with_download_retries("manifest download", &manifest_source, || {
+        Client::new()
+            .get(&manifest_source)
+            .send()
+            .and_then(|response| response.error_for_status())
+            .map_err(|error| format!("failed to download manifest {manifest_source}: {error}"))?
+            .text()
+            .map_err(|error| format!("failed to read manifest {manifest_source}: {error}"))
+    })?;
 
     serde_json::from_str(&body)
         .map_err(|error| format!("invalid manifest JSON {manifest_source}: {error}"))
@@ -576,42 +638,46 @@ fn copy_or_download_to_path(source: &str, destination: &Path) -> Result<u64, Str
 }
 
 fn download_url_to_path(url: &str, destination: &Path) -> Result<u64, String> {
-    let mut response = Client::new()
-        .get(url)
-        .send()
-        .and_then(|response| response.error_for_status())
-        .map_err(|error| format!("download failed: {error}"))?;
+    with_download_retries("download", url, || {
+        let _ = fs::remove_file(destination);
 
-    let mut output = fs::File::create(destination).map_err(|error| {
-        format!(
-            "failed to create download target {}: {error}",
-            destination.display()
-        )
-    })?;
-    let mut downloaded_bytes: u64 = 0;
-    let mut buffer = [0_u8; 1024 * 256];
-    loop {
-        let bytes_read = response
-            .read(&mut buffer)
-            .map_err(|error| format!("failed to read response body: {error}"))?;
-        if bytes_read == 0 {
-            break;
-        }
-        output.write_all(&buffer[..bytes_read]).map_err(|error| {
+        let mut response = Client::new()
+            .get(url)
+            .send()
+            .and_then(|response| response.error_for_status())
+            .map_err(|error| format!("download failed: {error}"))?;
+
+        let mut output = fs::File::create(destination).map_err(|error| {
             format!(
-                "failed to write download target {}: {error}",
+                "failed to create download target {}: {error}",
                 destination.display()
             )
         })?;
-        downloaded_bytes += bytes_read as u64;
-    }
-    output.flush().map_err(|error| {
-        format!(
-            "failed to flush download target {}: {error}",
-            destination.display()
-        )
-    })?;
-    Ok(downloaded_bytes)
+        let mut downloaded_bytes: u64 = 0;
+        let mut buffer = [0_u8; 1024 * 256];
+        loop {
+            let bytes_read = response
+                .read(&mut buffer)
+                .map_err(|error| format!("failed to read response body: {error}"))?;
+            if bytes_read == 0 {
+                break;
+            }
+            output.write_all(&buffer[..bytes_read]).map_err(|error| {
+                format!(
+                    "failed to write download target {}: {error}",
+                    destination.display()
+                )
+            })?;
+            downloaded_bytes += bytes_read as u64;
+        }
+        output.flush().map_err(|error| {
+            format!(
+                "failed to flush download target {}: {error}",
+                destination.display()
+            )
+        })?;
+        Ok(downloaded_bytes)
+    })
 }
 
 fn file_path_from_uri(raw: &str) -> Result<Option<PathBuf>, String> {
@@ -1712,6 +1778,33 @@ mod tests {
         assert!(error.contains("install state not found"));
         assert!(error.contains("loomle-installer install --project-root"));
         assert!(error.contains(&project_root.display().to_string()));
+    }
+
+    #[test]
+    fn update_release_apply_repairs_when_install_state_is_missing() {
+        let temp = TempDir::new().expect("temp");
+        let build_root = temp.path().join("build");
+        let project_root = temp.path().join("Project");
+        fs::create_dir_all(&build_root).expect("build root");
+        fs::create_dir_all(&project_root).expect("project root");
+        fs::write(project_root.join("Demo.uproject"), "{}").expect("uproject");
+
+        let release_010 = build_release_archive(&build_root, "0.1.0");
+        let manifest_path = write_manifest(&build_root, "0.1.0", &[("0.1.0", &release_010.0, &release_010.1)]);
+
+        let result = update_release(UpdateRequest {
+            project_root: project_root.clone(),
+            version: None,
+            manifest_path: Some(manifest_path),
+            manifest_url: None,
+            apply: true,
+        })
+        .expect("missing install state should repair via install");
+
+        assert_eq!(result["updated"], true);
+        assert_eq!(result["repair"], true);
+        assert_eq!(result["targetVersion"], "0.1.0");
+        assert!(project_root.join("Loomle/runtime/install.json").is_file());
     }
 
     fn build_release_archive(build_root: &Path, version: &str) -> (PathBuf, String) {

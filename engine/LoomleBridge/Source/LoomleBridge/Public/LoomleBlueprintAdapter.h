@@ -2,6 +2,21 @@
 
 #include "CoreMinimal.h"
 
+struct LOOMLEBRIDGE_API FLoomleBlueprintNodeListOptions
+{
+    TArray<FString> NodeClasses;
+    TArray<FString> NodeIds;
+    FString Text;
+    int32 Limit = TNumericLimits<int32>::Max();
+    int32 Offset = 0;
+};
+
+struct LOOMLEBRIDGE_API FLoomleBlueprintNodeListStats
+{
+    int32 TotalNodes = 0;
+    int32 MatchingNodes = 0;
+};
+
 class LOOMLEBRIDGE_API FLoomleBlueprintAdapter
 {
 
@@ -34,8 +49,21 @@ public:
     static bool DescribePinTarget(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeToken, const FString& PinName, FString& OutDetailsJson, FString& OutError);
     static bool ListEventGraphNodes(const FString& BlueprintAssetPath, FString& OutNodesJson, FString& OutError);
     static bool ListBlueprintGraphs(const FString& BlueprintAssetPath, FString& OutGraphsJson, FString& OutError);
-    static bool ListGraphNodes(const FString& BlueprintAssetPath, const FString& GraphName, FString& OutNodesJson, FString& OutError);
-    static bool ListCompositeSubgraphNodes(const FString& BlueprintAssetPath, const FString& CompositeNodeGuid, FString& OutSubgraphName, FString& OutNodesJson, FString& OutError);
+    static bool ListGraphNodes(
+        const FString& BlueprintAssetPath,
+        const FString& GraphName,
+        FString& OutNodesJson,
+        FString& OutError,
+        const FLoomleBlueprintNodeListOptions* Options = nullptr,
+        FLoomleBlueprintNodeListStats* OutStats = nullptr);
+    static bool ListCompositeSubgraphNodes(
+        const FString& BlueprintAssetPath,
+        const FString& CompositeNodeGuid,
+        FString& OutSubgraphName,
+        FString& OutNodesJson,
+        FString& OutError,
+        const FLoomleBlueprintNodeListOptions* Options = nullptr,
+        FLoomleBlueprintNodeListStats* OutStats = nullptr);
     static bool GetNodeDetails(const FString& BlueprintAssetPath, const FString& NodeGuid, FString& OutNodeJson, FString& OutError);
     static bool FindNodesByClass(const FString& BlueprintAssetPath, const FString& NodeClassPathOrName, FString& OutNodesJson, FString& OutError);
     static bool CompileBlueprint(const FString& BlueprintAssetPath, const FString& GraphName, FString& OutError);

@@ -2325,6 +2325,62 @@ def main() -> int:
         print("[PASS] graph.mutate removeNode validated for nodeId/nodePath/nodeName")
         print("[PASS] graph.mutate graphRef(asset) and targetGraphRef(asset) validated")
 
+        bulk_branch_ops = []
+        for index in range(60):
+            bulk_branch_ops.append(
+                {
+                    "op": "addNode.byClass",
+                    "clientRef": f"bulk_branch_{index}",
+                    "args": {
+                        "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
+                        "position": {"x": 2200 + (index * 48), "y": 1800},
+                    },
+                }
+            )
+        bulk_blueprint_insert = call_tool(
+            client,
+            1600,
+            "graph.mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+                "ops": bulk_branch_ops,
+            },
+        )
+        op_ok(bulk_blueprint_insert)
+
+        blueprint_default_page = call_tool(
+            client,
+            1601,
+            "graph.query",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "graphType": "blueprint",
+            },
+        )
+        default_snapshot = blueprint_default_page.get("semanticSnapshot", {})
+        default_nodes = default_snapshot.get("nodes", [])
+        default_meta = blueprint_default_page.get("meta", {})
+        default_cursor = blueprint_default_page.get("nextCursor")
+        if not isinstance(default_nodes, list) or len(default_nodes) != 50:
+            fail(
+                "Blueprint graph.query without explicit limit should default to 50 nodes per page: "
+                f"{blueprint_default_page}"
+            )
+        if default_meta.get("returnedNodes") != 50 or default_meta.get("truncated") is not True:
+            fail(
+                "Blueprint graph.query without explicit limit should report returnedNodes=50 and truncated=true: "
+                f"{blueprint_default_page}"
+            )
+        if not isinstance(default_cursor, str) or not default_cursor:
+            fail(
+                "Blueprint graph.query without explicit limit should provide nextCursor when truncated: "
+                f"{blueprint_default_page}"
+            )
+        print("[PASS] blueprint graph.query default page size validated")
+
         material_fixture_payload = call_execute_exec_with_retry(
             client=client,
             req_id_base=10000,

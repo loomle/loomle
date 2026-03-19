@@ -1098,6 +1098,7 @@ struct FGraphQueryShapeOptions
     FString Text;
     int32 Limit = 200;
     int32 Offset = 0;
+    bool bLimitExplicit = false;
     bool bCursorValid = true;
     FString CursorError;
 };
@@ -1163,6 +1164,7 @@ FGraphQueryShapeOptions ParseGraphQueryShapeOptions(const TSharedPtr<FJsonObject
         if (Arguments->TryGetNumberField(TEXT("limit"), LimitNumber))
         {
             Options.Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, 1000);
+            Options.bLimitExplicit = true;
         }
 
         FString Cursor;
@@ -1359,6 +1361,38 @@ FString BuildGraphQueryRevision(const TSharedPtr<FJsonObject>& Result, const FSt
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryToolResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
+    FString RequestedGraphType;
+    const bool bHasExplicitGraphType =
+        Arguments.IsValid()
+        && Arguments->TryGetStringField(TEXT("graphType"), RequestedGraphType)
+        && !RequestedGraphType.IsEmpty();
+    if (bHasExplicitGraphType && NormalizeGraphType(RequestedGraphType).Equals(TEXT("blueprint")))
+    {
+        if (!IsInGameThread())
+        {
+            TPromise<TSharedPtr<FJsonObject>> ResponsePromise;
+            TFuture<TSharedPtr<FJsonObject>> ResponseFuture = ResponsePromise.GetFuture();
+            AsyncTask(ENamedThreads::GameThread, [this, Arguments, Promise = MoveTemp(ResponsePromise)]() mutable
+            {
+                Promise.SetValue(BuildGraphQueryBaseResult(Arguments));
+            });
+
+            static constexpr uint32 GameThreadTimeoutMs = 30000;
+            if (!ResponseFuture.WaitFor(FTimespan::FromMilliseconds(GameThreadTimeoutMs)))
+            {
+                TSharedPtr<FJsonObject> TimeoutResult = MakeShared<FJsonObject>();
+                TimeoutResult->SetBoolField(TEXT("isError"), true);
+                TimeoutResult->SetStringField(TEXT("code"), TEXT("EXECUTION_TIMEOUT"));
+                TimeoutResult->SetStringField(TEXT("message"), TEXT("EXECUTION_TIMEOUT"));
+                return TimeoutResult;
+            }
+
+            return ResponseFuture.Get();
+        }
+
+        return BuildGraphQueryBaseResult(Arguments);
+    }
+
     TSharedPtr<FJsonObject> BaseArguments = CloneJsonObject(Arguments);
     if (!BaseArguments.IsValid())
     {
@@ -2422,33 +2456,45 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
         return Result;
     }
 
-    TArray<FString> FilterClasses;
-    const TSharedPtr<FJsonObject>* FilterObj = nullptr;
-    if (!bBaseSnapshotRequest && Arguments->TryGetObjectField(TEXT("filter"), FilterObj) && FilterObj && (*FilterObj).IsValid())
+    const FGraphQueryShapeOptions QueryShapeOptions = ParseGraphQueryShapeOptions(Arguments);
+    if (!bBaseSnapshotRequest && !QueryShapeOptions.bCursorValid)
     {
-        const TArray<TSharedPtr<FJsonValue>>* NodeClasses = nullptr;
-        if ((*FilterObj)->TryGetArrayField(TEXT("nodeClasses"), NodeClasses) && NodeClasses)
-        {
-            for (const TSharedPtr<FJsonValue>& NodeClassValue : *NodeClasses)
-            {
-                FString NodeClass;
-                if (NodeClassValue.IsValid() && NodeClassValue->TryGetString(NodeClass) && !NodeClass.IsEmpty())
-                {
-                    FilterClasses.Add(NodeClass);
-                }
-            }
-        }
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_CURSOR"));
+        Result->SetStringField(TEXT("message"), QueryShapeOptions.CursorError.IsEmpty()
+            ? TEXT("graph.query cursor is invalid.")
+            : QueryShapeOptions.CursorError);
+        return Result;
     }
 
     FString NodesJson;
     FString Error;
     bool bOk = false;
+    FLoomleBlueprintNodeListOptions BlueprintListOptions;
+    FLoomleBlueprintNodeListStats BlueprintListStats;
+    if (!bBaseSnapshotRequest && GraphType.Equals(TEXT("blueprint")))
+    {
+        BlueprintListOptions.NodeClasses = QueryShapeOptions.NodeClasses;
+        BlueprintListOptions.NodeIds = QueryShapeOptions.NodeIds.Array();
+        BlueprintListOptions.Text = QueryShapeOptions.Text;
+        BlueprintListOptions.Offset = QueryShapeOptions.Offset;
+        BlueprintListOptions.Limit = QueryShapeOptions.bLimitExplicit
+            ? QueryShapeOptions.Limit
+            : 50;
+    }
 
     if (!InlineNodeGuid.IsEmpty())
     {
         // Mode B inline: query the composite subgraph by node guid.
         FString SubgraphNameOut;
-        bOk = FLoomleBlueprintAdapter::ListCompositeSubgraphNodes(AssetPath, InlineNodeGuid, SubgraphNameOut, NodesJson, Error);
+        bOk = FLoomleBlueprintAdapter::ListCompositeSubgraphNodes(
+            AssetPath,
+            InlineNodeGuid,
+            SubgraphNameOut,
+            NodesJson,
+            Error,
+            (!bBaseSnapshotRequest && GraphType.Equals(TEXT("blueprint"))) ? &BlueprintListOptions : nullptr,
+            (!bBaseSnapshotRequest && GraphType.Equals(TEXT("blueprint"))) ? &BlueprintListStats : nullptr);
         if (bOk && GraphName.IsEmpty())
         {
             GraphName = SubgraphNameOut;
@@ -2466,7 +2512,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
     }
     else
     {
-        bOk = FLoomleBlueprintAdapter::ListGraphNodes(AssetPath, GraphName, NodesJson, Error);
+        bOk = FLoomleBlueprintAdapter::ListGraphNodes(
+            AssetPath,
+            GraphName,
+            NodesJson,
+            Error,
+            (!bBaseSnapshotRequest && GraphType.Equals(TEXT("blueprint"))) ? &BlueprintListOptions : nullptr,
+            (!bBaseSnapshotRequest && GraphType.Equals(TEXT("blueprint"))) ? &BlueprintListStats : nullptr);
         if (!bOk)
         {
             Result->SetBoolField(TEXT("isError"), true);
@@ -2485,12 +2537,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
     int32 Limit = TNumericLimits<int32>::Max();
     if (!bBaseSnapshotRequest)
     {
-        Limit = 200;
-        double LimitNumber = 0.0;
-        if (Arguments->TryGetNumberField(TEXT("limit"), LimitNumber))
-        {
-            Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, 1000);
-        }
+        Limit = GraphType.Equals(TEXT("blueprint"))
+            ? BlueprintListOptions.Limit
+            : QueryShapeOptions.Limit;
     }
 
     TArray<TSharedPtr<FJsonValue>> SnapshotNodes;
@@ -2510,7 +2559,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
             continue;
         }
 
-        if (FilterClasses.Num() > 0)
+        if (QueryShapeOptions.NodeClasses.Num() > 0)
         {
             FString NodeClassPath;
             (*NodeObj)->TryGetStringField(TEXT("nodeClassPath"), NodeClassPath);
@@ -2519,7 +2568,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
                 (*NodeObj)->TryGetStringField(TEXT("classPath"), NodeClassPath);
             }
             bool bClassMatched = false;
-            for (const FString& FilterClass : FilterClasses)
+            for (const FString& FilterClass : QueryShapeOptions.NodeClasses)
             {
                 if (NodeClassPath.Equals(FilterClass))
                 {
@@ -2680,11 +2729,20 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
     Result->SetStringField(TEXT("nextCursor"), TEXT(""));
 
     TSharedPtr<FJsonObject> Meta = MakeShared<FJsonObject>();
-    Meta->SetNumberField(TEXT("totalNodes"), Nodes.Num());
+    const int32 EffectiveTotalNodes =
+        (!bBaseSnapshotRequest && GraphType.Equals(TEXT("blueprint")) && BlueprintListStats.TotalNodes > 0)
+            ? BlueprintListStats.TotalNodes
+            : Nodes.Num();
+    const int32 EffectiveMatchingNodes =
+        (!bBaseSnapshotRequest && GraphType.Equals(TEXT("blueprint")) && BlueprintListStats.MatchingNodes > 0)
+            ? BlueprintListStats.MatchingNodes
+            : AddedCount;
+
+    Meta->SetNumberField(TEXT("totalNodes"), EffectiveTotalNodes);
     Meta->SetNumberField(TEXT("returnedNodes"), SnapshotNodes.Num());
     Meta->SetNumberField(TEXT("totalEdges"), Edges.Num());
     Meta->SetNumberField(TEXT("returnedEdges"), Edges.Num());
-    Meta->SetBoolField(TEXT("truncated"), AddedCount < Nodes.Num() && SnapshotNodes.Num() >= Limit);
+    Meta->SetBoolField(TEXT("truncated"), EffectiveMatchingNodes > (QueryShapeOptions.Offset + SnapshotNodes.Num()));
     Meta->SetObjectField(TEXT("layoutCapabilities"), MakeLayoutCapabilitiesObject());
     Meta->SetStringField(TEXT("layoutDetailRequested"), RequestedLayoutDetail);
     Meta->SetStringField(TEXT("layoutDetailApplied"), AppliedLayoutDetail);
@@ -2699,6 +2757,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
     }
     Result->SetObjectField(TEXT("meta"), Meta);
     Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
+    if (!bBaseSnapshotRequest && GraphType.Equals(TEXT("blueprint")))
+    {
+        const bool bTruncated = EffectiveMatchingNodes > (QueryShapeOptions.Offset + SnapshotNodes.Num());
+        Result->SetStringField(TEXT("nextCursor"), bTruncated ? BuildGraphQueryCursor(QueryShapeOptions.Offset + SnapshotNodes.Num()) : TEXT(""));
+    }
     return Result;
 }
 
