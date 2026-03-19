@@ -29,7 +29,8 @@ root sinks, function subgraphs, or node-family boundaries.
 ## Primary References
 
 - `SEMANTICS.md`
-- `catalogs/node-catalog.json`
+- `catalogs/node-index.json`
+- `catalogs/node-database.json`
 - `examples/root-sink-then-layout.json`
 - `examples/texture-sample-to-base-color.json`
 - `examples/scalar-to-roughness.json`

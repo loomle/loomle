@@ -271,8 +271,10 @@ Working rule:
 - Open `material/SEMANTICS.md` when the current task needs root-sink or Material function semantics.
 - Open `pcg/GUIDE.md` when the current task is editing or reading PCG graphs.
 - Open `pcg/SEMANTICS.md` when the current task needs PCG node-family, parameter, or wiring semantics.
-- Open `blueprint/catalogs/node-catalog.json` when you need the curated common Blueprint node inventory.
-- Open `material/catalogs/node-catalog.json` when you need the curated common Material node inventory.
+- Open `blueprint/catalogs/node-index.json` when you need the curated common Blueprint node working set.
+- Open `blueprint/catalogs/node-database.json` when you need the full source-derived Blueprint K2 node inventory.
+- Open `material/catalogs/node-index.json` when you need the curated common Material node working set.
+- Open `material/catalogs/node-database.json` when you need the full source-derived Material expression inventory.
 - Open `pcg/catalogs/node-catalog.json` when you need the static UE node inventory for PCG.
 - Do not treat `runtime/` as documentation. It contains machine-written state such as install metadata.
 
@@ -290,7 +292,7 @@ Loomle/
 
 - `README.md`: the main agent-facing entrypoint
 - `loomle(.exe)`: the installed project-local client entrypoint
-- `blueprint/`: Blueprint guide, semantics, examples, and curated catalogs
-- `material/`: Material guide, semantics, examples, and curated catalogs
+- `blueprint/`: Blueprint guide, semantics, examples, curated node index, and full node database
+- `material/`: Material guide, semantics, examples, curated node index, and full node database
 - `pcg/`: PCG guide, semantics, examples, and catalogs
 - `runtime/`: machine-written state, not human guidance

@@ -26,7 +26,8 @@ control flow, variable nodes, or node-family boundaries.
 ## Primary References
 
 - `SEMANTICS.md`
-- `catalogs/node-catalog.json`
+- `catalogs/node-index.json`
+- `catalogs/node-database.json`
 - `examples/README.md`
 - `examples/executable/branch-local-subgraph.json`
 - `examples/executable/delay-local-chain.json`

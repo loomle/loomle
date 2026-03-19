@@ -81,8 +81,10 @@ EXPECTED_WORKSPACE_EXAMPLES = {
 }
 
 EXPECTED_WORKSPACE_CATALOGS = {
-    "blueprint/catalogs/node-catalog.json",
-    "material/catalogs/node-catalog.json",
+    "blueprint/catalogs/node-database.json",
+    "blueprint/catalogs/node-index.json",
+    "material/catalogs/node-database.json",
+    "material/catalogs/node-index.json",
     "pcg/catalogs/node-catalog.json",
 }
 
@@ -768,59 +770,85 @@ def validate_workspace_catalogs() -> None:
         f"workspace catalog set mismatch expected={sorted(EXPECTED_WORKSPACE_CATALOGS)} actual={sorted(actual_relpaths)}",
     )
 
-    blueprint_catalog = _load_json_file(workspace_root / "blueprint" / "catalogs" / "node-catalog.json")
-    _require(blueprint_catalog.get("graphType") == "blueprint", "blueprint catalog graphType mismatch")
-    _require(blueprint_catalog.get("coverage") == "curated", "blueprint catalog coverage mismatch")
-    blueprint_nodes = blueprint_catalog.get("nodes")
-    _require(isinstance(blueprint_nodes, list) and blueprint_nodes, "blueprint catalog missing nodes[]")
+    blueprint_index = _load_json_file(workspace_root / "blueprint" / "catalogs" / "node-index.json")
+    _require(blueprint_index.get("graphType") == "blueprint", "blueprint index graphType mismatch")
+    _require(blueprint_index.get("coverage") == "curated", "blueprint index coverage mismatch")
+    blueprint_nodes = blueprint_index.get("nodes")
+    _require(isinstance(blueprint_nodes, list) and blueprint_nodes, "blueprint index missing nodes[]")
     blueprint_names = {node.get("displayName") for node in blueprint_nodes if isinstance(node, dict)}
     _require(
         {"Branch", "Sequence", "Delay", "DoOnce", "Print String", "Variable Get", "Variable Set"}.issubset(blueprint_names),
-        f"blueprint catalog missing expected nodes: {blueprint_names}",
+        f"blueprint index missing expected nodes: {blueprint_names}",
     )
     for node in blueprint_nodes:
-        _require(isinstance(node, dict), f"blueprint catalog node is not an object: {node}")
-        _require(isinstance(node.get("displayName"), str) and node["displayName"], f"blueprint catalog node missing displayName: {node}")
+        _require(isinstance(node, dict), f"blueprint index node is not an object: {node}")
+        _require(isinstance(node.get("displayName"), str) and node["displayName"], f"blueprint index node missing displayName: {node}")
         _require(
             isinstance(node.get("nodeClassPath"), str) and node["nodeClassPath"].startswith("/Script/"),
-            f"blueprint catalog node missing nodeClassPath: {node}",
+            f"blueprint index node missing nodeClassPath: {node}",
         )
         example_files = node.get("exampleFiles", [])
-        _require(isinstance(example_files, list), f"blueprint catalog exampleFiles must be a list: {node}")
+        _require(isinstance(example_files, list), f"blueprint index exampleFiles must be a list: {node}")
         for example_file in example_files:
             _require(
                 isinstance(example_file, str) and (workspace_root / "blueprint" / example_file).exists(),
-                f"blueprint catalog example reference missing: {example_file}",
+                f"blueprint index example reference missing: {example_file}",
             )
 
-    material_catalog = _load_json_file(workspace_root / "material" / "catalogs" / "node-catalog.json")
-    _require(material_catalog.get("graphType") == "material", "material catalog graphType mismatch")
-    _require(material_catalog.get("coverage") == "curated", "material catalog coverage mismatch")
-    material_nodes = material_catalog.get("nodes")
-    _require(isinstance(material_nodes, list) and material_nodes, "material catalog missing nodes[]")
+    blueprint_database = _load_json_file(workspace_root / "blueprint" / "catalogs" / "node-database.json")
+    _require(blueprint_database.get("graphType") == "blueprint", "blueprint database graphType mismatch")
+    _require(blueprint_database.get("coverage") == "source-derived", "blueprint database coverage mismatch")
+    blueprint_database_nodes = blueprint_database.get("nodes")
+    _require(
+        isinstance(blueprint_database_nodes, list) and len(blueprint_database_nodes) >= 100,
+        "blueprint database missing full source-derived node set",
+    )
+    _require(
+        any(node.get("className") == "UK2Node_AddComponent" for node in blueprint_database_nodes if isinstance(node, dict)),
+        "blueprint database missing UK2Node_AddComponent",
+    )
+
+    material_index = _load_json_file(workspace_root / "material" / "catalogs" / "node-index.json")
+    _require(material_index.get("graphType") == "material", "material index graphType mismatch")
+    _require(material_index.get("coverage") == "curated", "material index coverage mismatch")
+    material_nodes = material_index.get("nodes")
+    _require(isinstance(material_nodes, list) and material_nodes, "material index missing nodes[]")
     material_names = {node.get("displayName") for node in material_nodes if isinstance(node, dict)}
     _require(
         {"Scalar Parameter", "Texture Parameter 2D", "Multiply", "OneMinus", "Material Function Call"}.issubset(material_names),
-        f"material catalog missing expected nodes: {material_names}",
+        f"material index missing expected nodes: {material_names}",
     )
-    special_nodes = material_catalog.get("specialNodes")
-    _require(isinstance(special_nodes, list) and special_nodes, "material catalog missing specialNodes[]")
+    special_nodes = material_index.get("specialNodes")
+    _require(isinstance(special_nodes, list) and special_nodes, "material index missing specialNodes[]")
     root_node = next((node for node in special_nodes if isinstance(node, dict) and node.get("nodeId") == "__material_root__"), None)
-    _require(isinstance(root_node, dict), "material catalog missing __material_root__")
+    _require(isinstance(root_node, dict), "material index missing __material_root__")
     for node in material_nodes:
-        _require(isinstance(node, dict), f"material catalog node is not an object: {node}")
-        _require(isinstance(node.get("displayName"), str) and node["displayName"], f"material catalog node missing displayName: {node}")
+        _require(isinstance(node, dict), f"material index node is not an object: {node}")
+        _require(isinstance(node.get("displayName"), str) and node["displayName"], f"material index node missing displayName: {node}")
         _require(
             isinstance(node.get("nodeClassPath"), str) and node["nodeClassPath"].startswith("/Script/"),
-            f"material catalog node missing nodeClassPath: {node}",
+            f"material index node missing nodeClassPath: {node}",
         )
         example_files = node.get("exampleFiles", [])
-        _require(isinstance(example_files, list), f"material catalog exampleFiles must be a list: {node}")
+        _require(isinstance(example_files, list), f"material index exampleFiles must be a list: {node}")
         for example_file in example_files:
             _require(
                 isinstance(example_file, str) and (workspace_root / "material" / example_file).exists(),
-                f"material catalog example reference missing: {example_file}",
+                f"material index example reference missing: {example_file}",
             )
+
+    material_database = _load_json_file(workspace_root / "material" / "catalogs" / "node-database.json")
+    _require(material_database.get("graphType") == "material", "material database graphType mismatch")
+    _require(material_database.get("coverage") == "source-derived", "material database coverage mismatch")
+    material_database_nodes = material_database.get("nodes")
+    _require(
+        isinstance(material_database_nodes, list) and len(material_database_nodes) >= 250,
+        "material database missing full source-derived node set",
+    )
+    _require(
+        any(node.get("className") == "UMaterialExpressionMultiply" for node in material_database_nodes if isinstance(node, dict)),
+        "material database missing UMaterialExpressionMultiply",
+    )
 
     pcg_catalog = _load_json_file(workspace_root / "pcg" / "catalogs" / "node-catalog.json")
     _require(isinstance(pcg_catalog.get("nodes"), list) and pcg_catalog["nodes"], "pcg catalog missing nodes[]")

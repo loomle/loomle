@@ -3,12 +3,13 @@
   "coverage": "curated",
   "source": "LOOMLE workspace references",
   "summary": {
-    "purpose": "Static catalog of common Material graph nodes that LOOMLE agents are expected to use directly with primitive graph.mutate operations.",
+    "purpose": "Curated Material node index for the most common LOOMLE graph-editing tasks. Use node-database.json for the full source-derived Material expression inventory.",
     "notes": [
-      "This is a curated inventory, not a full Material expression universe.",
+      "This is an index, not a full Material expression universe.",
       "The material root sink is represented separately in specialNodes.",
-      "Use GUIDE.md for workflow, SEMANTICS.md for behavior, and examples/ for concrete mutate payloads."
-    ]
+      "Use GUIDE.md for workflow, SEMANTICS.md for behavior, examples/ for concrete mutate payloads, and node-database.json for full source-derived coverage."
+    ],
+    "databaseFile": "node-database.json"
   },
   "specialNodes": [
     {
