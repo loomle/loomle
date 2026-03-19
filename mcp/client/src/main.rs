@@ -25,7 +25,7 @@ use tokio::sync::mpsc;
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::Foundation::{CloseHandle, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::System::Threading::{OpenProcess, WaitForSingleObject, SYNCHRONIZE};
+use windows_sys::Win32::System::Threading::{OpenProcess, WaitForSingleObject};
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> ExitCode {
@@ -695,9 +695,10 @@ impl Cli {
 
 #[cfg(target_os = "windows")]
 fn wait_for_parent_exit(pid: u32) -> Result<(), String> {
+    const PROCESS_SYNCHRONIZE_ACCESS: u32 = 0x0010_0000;
     unsafe {
-        let handle = OpenProcess(SYNCHRONIZE, 0, pid);
-        if handle == 0 {
+        let handle = OpenProcess(PROCESS_SYNCHRONIZE_ACCESS, 0, pid);
+        if handle.is_null() {
             return Ok(());
         }
         let wait_result = WaitForSingleObject(handle, 30000);
