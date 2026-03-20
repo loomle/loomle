@@ -30,6 +30,7 @@ Design references:
 - `GRAPH_TEST_CATALOG_SCHEMA.md` - how testing metadata should live in node databases
 - `GRAPH_TEST_PLAN_SCHEMA.md` - JSON schema for generated per-graph test plans
 - `GRAPH_TEST_ROADMAP.md` - phased implementation order for the `0.4` test refactor
+- `PCG_TEST_HANDOFF.md` - short handoff guide for product engineers using the current PCG test system
 
 For day-to-day local development, prefer the unified script:
 
