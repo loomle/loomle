@@ -69,6 +69,7 @@ Priorities:
 - workflow-truth suites for representative source/filter/route/spawn pipelines
 - multi-surface truth matrices across `mutate`, `queryStructure`, `queryTruth`, `engineTruth`, `verify`, and `diagnostics`
 - negative and boundary suites for contract and diagnostic surfaces
+- negative and boundary suite expansion across operations and family-specific surfaces
 - stability and repeatability suites for repeated query, repeated verify, and fresh-session reproduction
 - selector-heavy nodes
 - dynamic pin truth

@@ -66,6 +66,34 @@ NEGATIVE_CASES = [
         "families": ["struct"],
         "summary": "removeNode should reject non-stable name targets on PCG graphs",
     },
+    {
+        "id": "set_pin_default_bad_nested_filter_path",
+        "fixture": "pcg_graph",
+        "operation": "setPinDefault",
+        "families": ["filter"],
+        "summary": "nested filter threshold targets should reject missing property-path segments",
+    },
+    {
+        "id": "set_pin_default_missing_subgraph_asset",
+        "fixture": "pcg_graph",
+        "operation": "setPinDefault",
+        "families": ["struct"],
+        "summary": "SubgraphOverride should reject clearly missing subgraph asset references",
+    },
+    {
+        "id": "connect_pins_bad_output_pin",
+        "fixture": "pcg_graph",
+        "operation": "connectPins",
+        "families": ["branch", "create"],
+        "summary": "connectPins should reject missing PCG output pins on structured branch graphs",
+    },
+    {
+        "id": "disconnect_pins_bad_output_pin",
+        "fixture": "pcg_graph",
+        "operation": "disconnectPins",
+        "families": ["branch", "create"],
+        "summary": "disconnectPins should reject missing PCG output pins on structured branch graphs",
+    },
 ]
 
 
@@ -361,6 +389,200 @@ def run_remove_node_requires_stable_target(
     }
 
 
+def run_set_pin_default_bad_nested_filter_path(
+    client: McpStdioClient, request_id_base: int, asset_path: str
+) -> dict[str, Any]:
+    surface_matrix = blank_surface_matrix()
+    node_id = add_node_by_class(
+        client,
+        request_id_base + 1,
+        asset_path=asset_path,
+        node_class_path="/Script/PCG.PCGAttributeFilteringRangeSettings",
+    )
+    payload = call_tool(
+        client,
+        request_id_base + 2,
+        "graph.mutate",
+        {
+            "assetPath": asset_path,
+            "graphName": "PCGGraph",
+            "graphType": "pcg",
+            "ops": [
+                {
+                    "op": "setPinDefault",
+                    "args": {
+                        "target": {"nodeId": node_id, "pin": "MinThreshold/DefinitelyMissing"},
+                        "value": True,
+                    },
+                }
+            ],
+        },
+        expect_error=True,
+    )
+    surface_matrix["mutate"] = "pass"
+    expect_error_contains(payload, "property path segment 'DefinitelyMissing' was not found", kind="contract_surface_gap")
+    return {
+        "surfaceMatrix": surface_matrix,
+        "errorPayload": payload,
+    }
+
+
+def run_set_pin_default_missing_subgraph_asset(
+    client: McpStdioClient, request_id_base: int, asset_path: str
+) -> dict[str, Any]:
+    surface_matrix = blank_surface_matrix()
+    payload, has_error = call_tool_allow_error(
+        client,
+        request_id_base + 1,
+        "graph.mutate",
+        {
+            "assetPath": asset_path,
+            "graphName": "PCGGraph",
+            "graphType": "pcg",
+            "ops": [
+                {
+                    "op": "addNode.byClass",
+                    "clientRef": "subgraph_node",
+                    "args": {"nodeClassPath": "/Script/PCG.PCGSubgraphSettings"},
+                },
+                {
+                    "op": "setPinDefault",
+                    "args": {
+                        "target": {"nodeRef": "subgraph_node", "pin": "SubgraphOverride"},
+                        "value": "/Game/Definitely/Missing",
+                    },
+                },
+            ],
+        },
+    )
+    surface_matrix["mutate"] = "pass"
+    if not has_error:
+        surface_matrix["mutate"] = "fail"
+        raise NegativeSuiteError(
+            "contract_surface_gap",
+            f"missing subgraph asset was accepted: {compact_json(payload)}",
+            details={"surfaceMatrix": surface_matrix, "unexpectedPayload": payload},
+        )
+    expect_error_contains(payload, "Missing", kind="contract_surface_gap")
+    return {
+        "surfaceMatrix": surface_matrix,
+        "errorPayload": payload,
+    }
+
+
+def run_connect_pins_bad_output_pin(
+    client: McpStdioClient, request_id_base: int, asset_path: str
+) -> dict[str, Any]:
+    surface_matrix = blank_surface_matrix()
+    setup = call_tool(
+        client,
+        request_id_base + 1,
+        "graph.mutate",
+        {
+            "assetPath": asset_path,
+            "graphName": "PCGGraph",
+            "graphType": "pcg",
+            "ops": [
+                {"op": "addNode.byClass", "clientRef": "create_points", "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"}},
+                {"op": "addNode.byClass", "clientRef": "branch_node", "args": {"nodeClassPath": "/Script/PCG.PCGBranchSettings"}},
+            ],
+        },
+    )
+    op_results = setup.get("opResults")
+    if not isinstance(op_results, list) or len(op_results) < 2:
+        raise NegativeSuiteError("runner_error", f"missing setup opResults: {compact_json(setup)}")
+    create_id = op_results[0].get("nodeId") if isinstance(op_results[0], dict) else None
+    branch_id = op_results[1].get("nodeId") if isinstance(op_results[1], dict) else None
+    if not isinstance(create_id, str) or not isinstance(branch_id, str):
+        raise NegativeSuiteError("runner_error", f"missing setup node ids: {compact_json(setup)}")
+    payload = call_tool(
+        client,
+        request_id_base + 2,
+        "graph.mutate",
+        {
+            "assetPath": asset_path,
+            "graphName": "PCGGraph",
+            "graphType": "pcg",
+            "ops": [
+                {
+                    "op": "connectPins",
+                    "args": {
+                        "from": {"nodeId": create_id, "pin": "DefinitelyMissingOutput"},
+                        "to": {"nodeId": branch_id, "pin": "In"},
+                    },
+                }
+            ],
+        },
+        expect_error=True,
+    )
+    surface_matrix["mutate"] = "pass"
+    expect_error_contains(payload, "PCG output pin not found.", kind="contract_surface_gap")
+    return {
+        "surfaceMatrix": surface_matrix,
+        "errorPayload": payload,
+    }
+
+
+def run_disconnect_pins_bad_output_pin(
+    client: McpStdioClient, request_id_base: int, asset_path: str
+) -> dict[str, Any]:
+    surface_matrix = blank_surface_matrix()
+    setup = call_tool(
+        client,
+        request_id_base + 1,
+        "graph.mutate",
+        {
+            "assetPath": asset_path,
+            "graphName": "PCGGraph",
+            "graphType": "pcg",
+            "ops": [
+                {"op": "addNode.byClass", "clientRef": "create_points", "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"}},
+                {"op": "addNode.byClass", "clientRef": "branch_node", "args": {"nodeClassPath": "/Script/PCG.PCGBranchSettings"}},
+                {
+                    "op": "connectPins",
+                    "args": {
+                        "from": {"nodeRef": "create_points", "pin": "Out"},
+                        "to": {"nodeRef": "branch_node", "pin": "In"},
+                    },
+                },
+            ],
+        },
+    )
+    op_results = setup.get("opResults")
+    if not isinstance(op_results, list) or len(op_results) < 2:
+        raise NegativeSuiteError("runner_error", f"missing setup opResults: {compact_json(setup)}")
+    create_id = op_results[0].get("nodeId") if isinstance(op_results[0], dict) else None
+    branch_id = op_results[1].get("nodeId") if isinstance(op_results[1], dict) else None
+    if not isinstance(create_id, str) or not isinstance(branch_id, str):
+        raise NegativeSuiteError("runner_error", f"missing setup node ids: {compact_json(setup)}")
+    payload = call_tool(
+        client,
+        request_id_base + 2,
+        "graph.mutate",
+        {
+            "assetPath": asset_path,
+            "graphName": "PCGGraph",
+            "graphType": "pcg",
+            "ops": [
+                {
+                    "op": "disconnectPins",
+                    "args": {
+                        "from": {"nodeId": create_id, "pin": "DefinitelyMissingOutput"},
+                        "to": {"nodeId": branch_id, "pin": "In"},
+                    },
+                }
+            ],
+        },
+        expect_error=True,
+    )
+    surface_matrix["mutate"] = "pass"
+    expect_error_contains(payload, "PCG output pin not found.", kind="contract_surface_gap")
+    return {
+        "surfaceMatrix": surface_matrix,
+        "errorPayload": payload,
+    }
+
+
 def run_negative_case(client: McpStdioClient, request_id_base: int, case: dict[str, Any], case_index: int) -> dict[str, Any]:
     result = {
         "caseId": case["id"],
@@ -389,6 +611,14 @@ def run_negative_case(client: McpStdioClient, request_id_base: int, case: dict[s
             details = run_set_pin_default_bad_pin_diagnostics(client, request_id_base + 100, asset_path)
         elif case["id"] == "remove_node_requires_stable_target":
             details = run_remove_node_requires_stable_target(client, request_id_base + 100, asset_path)
+        elif case["id"] == "set_pin_default_bad_nested_filter_path":
+            details = run_set_pin_default_bad_nested_filter_path(client, request_id_base + 100, asset_path)
+        elif case["id"] == "set_pin_default_missing_subgraph_asset":
+            details = run_set_pin_default_missing_subgraph_asset(client, request_id_base + 100, asset_path)
+        elif case["id"] == "connect_pins_bad_output_pin":
+            details = run_connect_pins_bad_output_pin(client, request_id_base + 100, asset_path)
+        elif case["id"] == "disconnect_pins_bad_output_pin":
+            details = run_disconnect_pins_bad_output_pin(client, request_id_base + 100, asset_path)
         else:
             raise NegativeSuiteError("runner_error", f"unsupported case id: {case['id']}")
 

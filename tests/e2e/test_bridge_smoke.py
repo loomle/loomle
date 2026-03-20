@@ -123,8 +123,8 @@ EXPECTED_PCG_WORKFLOW_SUITE_SUMMARY = {
 }
 
 EXPECTED_PCG_NEGATIVE_SUITE_SUMMARY = {
-    "totalCases": 4,
-    "operations": ["removeNode", "setPinDefault"],
+    "totalCases": 8,
+    "operations": ["connectPins", "disconnectPins", "removeNode", "setPinDefault"],
 }
 
 EXPECTED_PCG_STABILITY_SUITE_SUMMARY = {
@@ -1282,6 +1282,26 @@ def validate_generated_pcg_negative_boundary_suite() -> None:
     _require(isinstance(remove_case, dict), "pcg negative suite missing stable target case")
     _require(remove_case.get("operation") == "removeNode", f"pcg negative remove operation mismatch: {remove_case}")
     _require(remove_case.get("families") == ["struct"], f"pcg negative remove families mismatch: {remove_case}")
+
+    filter_case = case_by_id.get("set_pin_default_bad_nested_filter_path")
+    _require(isinstance(filter_case, dict), "pcg negative suite missing nested filter path case")
+    _require(filter_case.get("operation") == "setPinDefault", f"pcg negative filter operation mismatch: {filter_case}")
+    _require(filter_case.get("families") == ["filter"], f"pcg negative filter families mismatch: {filter_case}")
+
+    subgraph_case = case_by_id.get("set_pin_default_missing_subgraph_asset")
+    _require(isinstance(subgraph_case, dict), "pcg negative suite missing subgraph asset case")
+    _require(subgraph_case.get("operation") == "setPinDefault", f"pcg negative subgraph operation mismatch: {subgraph_case}")
+    _require(subgraph_case.get("families") == ["struct"], f"pcg negative subgraph families mismatch: {subgraph_case}")
+
+    connect_case = case_by_id.get("connect_pins_bad_output_pin")
+    _require(isinstance(connect_case, dict), "pcg negative suite missing connect bad output case")
+    _require(connect_case.get("operation") == "connectPins", f"pcg negative connect operation mismatch: {connect_case}")
+    _require(connect_case.get("families") == ["branch", "create"], f"pcg negative connect families mismatch: {connect_case}")
+
+    disconnect_case = case_by_id.get("disconnect_pins_bad_output_pin")
+    _require(isinstance(disconnect_case, dict), "pcg negative suite missing disconnect bad output case")
+    _require(disconnect_case.get("operation") == "disconnectPins", f"pcg negative disconnect operation mismatch: {disconnect_case}")
+    _require(disconnect_case.get("families") == ["branch", "create"], f"pcg negative disconnect families mismatch: {disconnect_case}")
 
     print("[PASS] generated PCG negative boundary suite validated")
 
