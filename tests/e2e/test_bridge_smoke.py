@@ -129,6 +129,11 @@ EXPECTED_BLUEPRINT_WORKFLOW_SUITE_SUMMARY = {
     "exampleBackedCases": 5,
 }
 
+EXPECTED_BLUEPRINT_NEGATIVE_SUITE_SUMMARY = {
+    "totalCases": 4,
+    "operations": ["addNode.byClass", "batch_partial_apply", "setPinDefault"],
+}
+
 EXPECTED_MATERIAL_PLAN_SUMMARY = {
     "totalNodes": 317,
     "readyAutoCases": 316,
@@ -1383,6 +1388,52 @@ def validate_generated_blueprint_workflow_truth_suite() -> None:
     print("[PASS] generated Blueprint workflow truth suite validated")
 
 
+def validate_generated_blueprint_negative_boundary_suite() -> None:
+    payload = subprocess.check_output(
+        [
+            sys.executable,
+            str(TOOLS_DIR / "run_blueprint_negative_boundary_suite.py"),
+            "--list-cases",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+    )
+    suite = json.loads(payload)
+    _require(suite.get("version") == "1", f"blueprint negative suite version mismatch: {suite}")
+    _require(suite.get("suite") == "negative_boundary", f"blueprint negative suite id mismatch: {suite}")
+    _require(suite.get("graphType") == "blueprint", f"blueprint negative suite graphType mismatch: {suite}")
+    summary = suite.get("summary")
+    _require(summary == EXPECTED_BLUEPRINT_NEGATIVE_SUITE_SUMMARY, f"blueprint negative suite summary mismatch: {summary}")
+
+    cases = suite.get("cases")
+    _require(isinstance(cases, list) and len(cases) == EXPECTED_BLUEPRINT_NEGATIVE_SUITE_SUMMARY["totalCases"], f"blueprint negative suite cases mismatch: {suite}")
+    case_by_id = {
+        case.get("id"): case
+        for case in cases
+        if isinstance(case, dict) and isinstance(case.get("id"), str)
+    }
+
+    stale_case = case_by_id.get("stale_expected_revision_conflict")
+    _require(isinstance(stale_case, dict), "blueprint negative suite missing stale_expected_revision_conflict")
+    _require(stale_case.get("fixture") == "blueprint_event_graph", f"blueprint stale revision fixture mismatch: {stale_case}")
+    _require(stale_case.get("families") == ["branch", "utility"], f"blueprint stale revision families mismatch: {stale_case}")
+
+    bad_default_case = case_by_id.get("set_pin_default_bad_target_diagnostics")
+    _require(isinstance(bad_default_case, dict), "blueprint negative suite missing set_pin_default_bad_target_diagnostics")
+    _require(bad_default_case.get("operation") == "setPinDefault", f"blueprint bad setPinDefault operation mismatch: {bad_default_case}")
+    _require(bad_default_case.get("families") == ["branch", "variable"], f"blueprint bad setPinDefault families mismatch: {bad_default_case}")
+
+    partial_case = case_by_id.get("partial_apply_unsupported_op")
+    _require(isinstance(partial_case, dict), "blueprint negative suite missing partial_apply_unsupported_op")
+    _require(partial_case.get("operation") == "batch_partial_apply", f"blueprint partial-apply operation mismatch: {partial_case}")
+    _require(
+        partial_case.get("families") == ["branch", "struct", "utility"],
+        f"blueprint partial-apply families mismatch: {partial_case}",
+    )
+
+    print("[PASS] generated Blueprint negative boundary suite validated")
+
+
 def validate_generated_material_test_plan() -> None:
     with tempfile.TemporaryDirectory(prefix="loomle-material-plan-") as tmpdir:
         output_path = Path(tmpdir) / "material_test_plan.json"
@@ -2523,6 +2574,7 @@ def main() -> int:
         validate_generated_blueprint_test_plan()
         validate_generated_blueprint_coverage_report()
         validate_generated_blueprint_workflow_truth_suite()
+        validate_generated_blueprint_negative_boundary_suite()
         validate_generated_material_test_plan()
         validate_generated_material_coverage_report()
         validate_generated_material_workflow_truth_suite()
