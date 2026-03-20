@@ -21,7 +21,9 @@ Current contents:
 - `GRAPH_TEST_CATALOG_SCHEMA.md`
 - `GRAPH_TEST_PLAN_SCHEMA.md`
 - `GRAPH_TEST_ROADMAP.md`
- - `MATERIAL_TEST_HANDOFF.md`
+- `BLUEPRINT_TEST_HANDOFF.md`
+- `MATERIAL_TEST_HANDOFF.md`
+- `PCG_TEST_HANDOFF.md`
 
 Design references:
 - `GRAPH_TEST_FRAMEWORK.md` - top-level architecture for unified graph testing across Blueprint, Material, and PCG
@@ -31,6 +33,7 @@ Design references:
 - `GRAPH_TEST_CATALOG_SCHEMA.md` - how testing metadata should live in node databases
 - `GRAPH_TEST_PLAN_SCHEMA.md` - JSON schema for generated per-graph test plans
 - `GRAPH_TEST_ROADMAP.md` - phased implementation order for the `0.4` test refactor
+- `BLUEPRINT_TEST_HANDOFF.md` - short handoff guide for product engineers using the current Blueprint test system
 - `MATERIAL_TEST_HANDOFF.md` - short handoff guide for product engineers using the current Material test system
 - `PCG_TEST_HANDOFF.md` - short handoff guide for product engineers using the current PCG test system
 
