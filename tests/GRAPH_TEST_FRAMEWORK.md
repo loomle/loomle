@@ -85,6 +85,8 @@ Phase 3 then turns part of that visibility into hard failure signals and gap tax
 - `missingPins`
 - `unsurfacedFields`
 - `mismatchedFields`
+- workflow-level structure truth
+- workflow-level query truth
 
 So the framework can say not just that `graph.query` is weak, but exactly how it is weak.
 
@@ -128,6 +130,7 @@ Purpose:
 Purpose:
 
 - validate a real user-facing editing workflow, not just a single node
+- assert that a local pipeline edit still has the expected nodes, edges, verification health, and surfaced query truth
 
 See:
 
@@ -208,6 +211,7 @@ Owns:
 - selector and synthetic pin validation
 - settings truth vs query truth comparisons
 - strict query-truth assertions when generated cases can prove Unreal-side truth but `graph.query` does not surface it
+- workflow-truth suites that exercise insert/replace/preserve-interface edits over live PCG pipelines
 
 ## Recommended First Priorities
 

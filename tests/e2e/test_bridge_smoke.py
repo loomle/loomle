@@ -116,6 +116,12 @@ EXPECTED_PCG_COVERAGE_SUMMARY = {
     },
 }
 
+EXPECTED_PCG_WORKFLOW_SUITE_SUMMARY = {
+    "totalCases": 5,
+    "worldContextCases": 3,
+    "families": ["create", "filter", "meta", "route", "sample", "source", "spawn"],
+}
+
 
 def _require(condition: bool, message: str) -> None:
     if not condition:
@@ -1050,6 +1056,53 @@ def validate_generated_pcg_coverage_report() -> None:
     print("[PASS] generated PCG coverage report validated")
 
 
+def validate_generated_pcg_workflow_truth_suite() -> None:
+    payload = subprocess.check_output(
+        [
+            sys.executable,
+            str(TOOLS_DIR / "run_pcg_workflow_truth_suite.py"),
+            "--list-cases",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+    )
+    report = json.loads(payload)
+    _require(report.get("version") == "1", f"pcg workflow suite version mismatch: {report}")
+    _require(report.get("graphType") == "pcg", f"pcg workflow suite graphType mismatch: {report}")
+    summary = report.get("summary")
+    _require(summary == EXPECTED_PCG_WORKFLOW_SUITE_SUMMARY, f"pcg workflow suite summary mismatch: {summary}")
+
+    cases = report.get("cases")
+    _require(isinstance(cases, list) and len(cases) == EXPECTED_PCG_WORKFLOW_SUITE_SUMMARY["totalCases"], "pcg workflow cases mismatch")
+    case_by_id = {
+        case.get("id"): case
+        for case in cases
+        if isinstance(case, dict) and isinstance(case.get("id"), str)
+    }
+
+    actor_route = case_by_id.get("actor_data_tag_route")
+    _require(isinstance(actor_route, dict), "pcg workflow suite missing actor_data_tag_route")
+    _require(actor_route.get("fixture") == "pcg_graph_with_world_actor", f"pcg actor route fixture mismatch: {actor_route}")
+    _require(actor_route.get("families") == ["source", "route", "meta"], f"pcg actor route families mismatch: {actor_route}")
+    _require(actor_route.get("queryDefaults") == 2, f"pcg actor route queryDefaults mismatch: {actor_route}")
+
+    density_insert = case_by_id.get("insert_density_filter_before_static_mesh")
+    _require(isinstance(density_insert, dict), "pcg workflow suite missing insert_density_filter_before_static_mesh")
+    _require(density_insert.get("fixture") == "pcg_graph", f"pcg density insert fixture mismatch: {density_insert}")
+    _require(density_insert.get("families") == ["create", "filter", "spawn"], f"pcg density insert families mismatch: {density_insert}")
+    _require(density_insert.get("expectedEdges") == 2, f"pcg density insert expectedEdges mismatch: {density_insert}")
+
+    attribute_route = case_by_id.get("replace_tag_route_with_attribute_route")
+    _require(isinstance(attribute_route, dict), "pcg workflow suite missing replace_tag_route_with_attribute_route")
+    _require(
+        attribute_route.get("families") == ["create", "filter", "route", "meta"],
+        f"pcg attribute route families mismatch: {attribute_route}",
+    )
+    _require(attribute_route.get("queryDefaults") == 2, f"pcg attribute route queryDefaults mismatch: {attribute_route}")
+
+    print("[PASS] generated PCG workflow truth suite validated")
+
+
 def fail(msg: str) -> None:
     print(f"[FAIL] {msg}")
     raise SystemExit(1)
@@ -1534,6 +1587,7 @@ def main() -> int:
         validate_workspace_examples()
         validate_generated_pcg_test_plan()
         validate_generated_pcg_coverage_report()
+        validate_generated_pcg_workflow_truth_suite()
 
         print("[PASS] Bridge verification complete")
         return 0
