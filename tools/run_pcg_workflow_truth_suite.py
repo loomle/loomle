@@ -333,6 +333,139 @@ WORKFLOW_CASES = [
             ("tag_selected", "TagsToAdd", "Gameplay.Selected"),
         ],
     },
+    {
+        "id": "predicate_get_index_then_tag",
+        "fixture": "pcg_graph",
+        "families": ["create", "meta", "predicate"],
+        "payload": {
+            "tool": "graph.mutate",
+            "graphType": "pcg",
+            "ops": [
+                {
+                    "op": "addNode.byClass",
+                    "clientRef": "create_points",
+                    "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"},
+                },
+                {
+                    "op": "addNode.byClass",
+                    "clientRef": "get_index",
+                    "args": {"nodeClassPath": "/Script/PCG.PCGAttributeGetFromIndexSettings"},
+                },
+                {
+                    "op": "addNode.byClass",
+                    "clientRef": "tag_indexed",
+                    "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"},
+                },
+                {
+                    "op": "connectPins",
+                    "args": {
+                        "from": {"nodeRef": "create_points", "pin": "Out"},
+                        "to": {"nodeRef": "get_index", "pin": "In"},
+                    },
+                },
+                {
+                    "op": "connectPins",
+                    "args": {
+                        "from": {"nodeRef": "get_index", "pin": "Out"},
+                        "to": {"nodeRef": "tag_indexed", "pin": "In"},
+                    },
+                },
+                {
+                    "op": "setPinDefault",
+                    "args": {
+                        "target": {"nodeRef": "get_index", "pin": "Index"},
+                        "value": 2,
+                    },
+                },
+                {
+                    "op": "setPinDefault",
+                    "args": {
+                        "target": {"nodeRef": "tag_indexed", "pin": "TagsToAdd"},
+                        "value": "Gameplay.Predicate",
+                    },
+                },
+                {"op": "layoutGraph", "args": {"scope": "touched"}},
+            ],
+        },
+        "expectedNodes": ["create_points", "get_index", "tag_indexed"],
+        "expectedEdges": [
+            ("create_points", "Out", "get_index", "In"),
+            ("get_index", "Out", "tag_indexed", "In"),
+        ],
+        "queryDefaults": [
+            ("get_index", "Index", 2),
+            ("tag_indexed", "TagsToAdd", "Gameplay.Predicate"),
+        ],
+    },
+    {
+        "id": "subgraph_depth_after_subgraph",
+        "fixture": "pcg_graph",
+        "families": ["create", "meta", "struct"],
+        "payload": {
+            "tool": "graph.mutate",
+            "graphType": "pcg",
+            "ops": [
+                {
+                    "op": "addNode.byClass",
+                    "clientRef": "create_points",
+                    "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"},
+                },
+                {
+                    "op": "addNode.byClass",
+                    "clientRef": "subgraph_node",
+                    "args": {"nodeClassPath": "/Script/PCG.PCGSubgraphSettings"},
+                },
+                {
+                    "op": "addNode.byClass",
+                    "clientRef": "depth_node",
+                    "args": {"nodeClassPath": "/Script/PCG.PCGGetSubgraphDepthSettings"},
+                },
+                {
+                    "op": "addNode.byClass",
+                    "clientRef": "tag_depth",
+                    "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"},
+                },
+                {
+                    "op": "connectPins",
+                    "args": {
+                        "from": {"nodeRef": "create_points", "pin": "Out"},
+                        "to": {"nodeRef": "subgraph_node", "pin": "In"},
+                    },
+                },
+                {
+                    "op": "connectPins",
+                    "args": {
+                        "from": {"nodeRef": "subgraph_node", "pin": "Out"},
+                        "to": {"nodeRef": "tag_depth", "pin": "In"},
+                    },
+                },
+                {
+                    "op": "setPinDefault",
+                    "args": {
+                        "target": {"nodeRef": "depth_node", "pin": "DistanceRelativeToUpstreamGraph"},
+                        "value": 2,
+                    },
+                },
+                {
+                    "op": "setPinDefault",
+                    "args": {
+                        "target": {"nodeRef": "tag_depth", "pin": "TagsToAdd"},
+                        "value": "Gameplay.StructDepth",
+                    },
+                },
+                {"op": "layoutGraph", "args": {"scope": "touched"}},
+            ],
+        },
+        "expectedNodes": ["create_points", "subgraph_node", "depth_node", "tag_depth"],
+        "expectedEdges": [
+            ("create_points", "Out", "subgraph_node", "In"),
+            ("subgraph_node", "Out", "tag_depth", "In"),
+        ],
+        "queryDefaults": [
+            ("depth_node", "DistanceRelativeToUpstreamGraph", 2),
+            ("tag_depth", "TagsToAdd", "Gameplay.StructDepth"),
+        ],
+    },
 ]
 
 

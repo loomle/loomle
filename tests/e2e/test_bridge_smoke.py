@@ -117,9 +117,9 @@ EXPECTED_PCG_COVERAGE_SUMMARY = {
 }
 
 EXPECTED_PCG_WORKFLOW_SUITE_SUMMARY = {
-    "totalCases": 8,
+    "totalCases": 10,
     "worldContextCases": 3,
-    "families": ["branch", "create", "filter", "meta", "route", "sample", "select", "source", "spawn", "transform"],
+    "families": ["branch", "create", "filter", "meta", "predicate", "route", "sample", "select", "source", "spawn", "struct", "transform"],
 }
 
 EXPECTED_PCG_NEGATIVE_SUITE_SUMMARY = {
@@ -1128,6 +1128,18 @@ def validate_generated_pcg_workflow_truth_suite() -> None:
     _require(select_case.get("fixture") == "pcg_graph", f"pcg select workflow fixture mismatch: {select_case}")
     _require(select_case.get("families") == ["create", "meta", "select"], f"pcg select workflow families mismatch: {select_case}")
     _require(select_case.get("queryDefaults") == 2, f"pcg select workflow queryDefaults mismatch: {select_case}")
+
+    predicate_case = case_by_id.get("predicate_get_index_then_tag")
+    _require(isinstance(predicate_case, dict), "pcg workflow suite missing predicate_get_index_then_tag")
+    _require(predicate_case.get("fixture") == "pcg_graph", f"pcg predicate workflow fixture mismatch: {predicate_case}")
+    _require(predicate_case.get("families") == ["create", "meta", "predicate"], f"pcg predicate workflow families mismatch: {predicate_case}")
+    _require(predicate_case.get("queryDefaults") == 2, f"pcg predicate workflow queryDefaults mismatch: {predicate_case}")
+
+    struct_case = case_by_id.get("subgraph_depth_after_subgraph")
+    _require(isinstance(struct_case, dict), "pcg workflow suite missing subgraph_depth_after_subgraph")
+    _require(struct_case.get("fixture") == "pcg_graph", f"pcg struct workflow fixture mismatch: {struct_case}")
+    _require(struct_case.get("families") == ["create", "meta", "struct"], f"pcg struct workflow families mismatch: {struct_case}")
+    _require(struct_case.get("queryDefaults") == 2, f"pcg struct workflow queryDefaults mismatch: {struct_case}")
 
     print("[PASS] generated PCG workflow truth suite validated")
 
