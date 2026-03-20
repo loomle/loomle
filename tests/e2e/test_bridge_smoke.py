@@ -117,9 +117,9 @@ EXPECTED_PCG_COVERAGE_SUMMARY = {
 }
 
 EXPECTED_PCG_WORKFLOW_SUITE_SUMMARY = {
-    "totalCases": 5,
+    "totalCases": 8,
     "worldContextCases": 3,
-    "families": ["create", "filter", "meta", "route", "sample", "source", "spawn"],
+    "families": ["branch", "create", "filter", "meta", "route", "sample", "select", "source", "spawn", "transform"],
 }
 
 EXPECTED_PCG_NEGATIVE_SUITE_SUMMARY = {
@@ -1110,6 +1110,24 @@ def validate_generated_pcg_workflow_truth_suite() -> None:
         f"pcg attribute route families mismatch: {attribute_route}",
     )
     _require(attribute_route.get("queryDefaults") == 2, f"pcg attribute route queryDefaults mismatch: {attribute_route}")
+
+    transform_tag = case_by_id.get("transform_points_then_tag")
+    _require(isinstance(transform_tag, dict), "pcg workflow suite missing transform_points_then_tag")
+    _require(transform_tag.get("fixture") == "pcg_graph", f"pcg transform workflow fixture mismatch: {transform_tag}")
+    _require(transform_tag.get("families") == ["create", "transform", "meta"], f"pcg transform workflow families mismatch: {transform_tag}")
+    _require(transform_tag.get("queryDefaults") == 2, f"pcg transform workflow queryDefaults mismatch: {transform_tag}")
+
+    branch_case = case_by_id.get("branch_to_dual_tags")
+    _require(isinstance(branch_case, dict), "pcg workflow suite missing branch_to_dual_tags")
+    _require(branch_case.get("fixture") == "pcg_graph", f"pcg branch workflow fixture mismatch: {branch_case}")
+    _require(branch_case.get("families") == ["branch", "create", "meta"], f"pcg branch workflow families mismatch: {branch_case}")
+    _require(branch_case.get("expectedEdges") == 3, f"pcg branch workflow expectedEdges mismatch: {branch_case}")
+
+    select_case = case_by_id.get("boolean_select_between_two_sources")
+    _require(isinstance(select_case, dict), "pcg workflow suite missing boolean_select_between_two_sources")
+    _require(select_case.get("fixture") == "pcg_graph", f"pcg select workflow fixture mismatch: {select_case}")
+    _require(select_case.get("families") == ["create", "meta", "select"], f"pcg select workflow families mismatch: {select_case}")
+    _require(select_case.get("queryDefaults") == 2, f"pcg select workflow queryDefaults mismatch: {select_case}")
 
     print("[PASS] generated PCG workflow truth suite validated")
 

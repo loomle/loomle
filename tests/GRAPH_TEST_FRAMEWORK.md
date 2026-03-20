@@ -139,6 +139,11 @@ Purpose:
 - validate a real user-facing editing workflow, not just a single node
 - assert that a local pipeline edit still has the expected nodes, edges, verification health, and surfaced query truth
 
+Workflow cases may be anchored in either:
+
+- shared workspace examples, when the workflow is already part of the public LOOMLE reference surface
+- suite-local payloads, when the test system needs targeted family coverage before a shared example exists
+
 Negative and boundary suites complement the six primary methods:
 
 - they validate contract surfaces

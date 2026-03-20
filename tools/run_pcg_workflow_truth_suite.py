@@ -69,7 +69,7 @@ WORKFLOW_CASES = [
         "id": "project_surface_from_actor_data",
         "example": "workspace/Loomle/pcg/examples/project-surface-from-actor-data.json",
         "fixture": "pcg_graph_with_world_actor",
-        "families": ["source", "sample", "meta"],
+        "families": ["source", "transform", "meta"],
         "expectedNodes": ["source_points", "projection_target", "project_surface", "tag_projected"],
         "expectedEdges": [
             ("source_points", "Out", "project_surface", "In"),
@@ -115,10 +115,231 @@ WORKFLOW_CASES = [
             ("replacement_filter_by_attribute", "Attribute", "Density"),
         ],
     },
+    {
+        "id": "transform_points_then_tag",
+        "fixture": "pcg_graph",
+        "families": ["create", "transform", "meta"],
+        "payload": {
+            "tool": "graph.mutate",
+            "graphType": "pcg",
+            "ops": [
+                {
+                    "op": "addNode.byClass",
+                    "clientRef": "create_points",
+                    "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"},
+                },
+                {
+                    "op": "addNode.byClass",
+                    "clientRef": "transform_points",
+                    "args": {"nodeClassPath": "/Script/PCG.PCGTransformPointsSettings"},
+                },
+                {
+                    "op": "addNode.byClass",
+                    "clientRef": "tag_transformed",
+                    "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"},
+                },
+                {
+                    "op": "connectPins",
+                    "args": {
+                        "from": {"nodeRef": "create_points", "pin": "Out"},
+                        "to": {"nodeRef": "transform_points", "pin": "In"},
+                    },
+                },
+                {
+                    "op": "connectPins",
+                    "args": {
+                        "from": {"nodeRef": "transform_points", "pin": "Out"},
+                        "to": {"nodeRef": "tag_transformed", "pin": "In"},
+                    },
+                },
+                {
+                    "op": "setPinDefault",
+                    "args": {
+                        "target": {"nodeRef": "transform_points", "pin": "bAbsoluteRotation"},
+                        "value": True,
+                    },
+                },
+                {
+                    "op": "setPinDefault",
+                    "args": {
+                        "target": {"nodeRef": "tag_transformed", "pin": "TagsToAdd"},
+                        "value": "Gameplay.Transformed",
+                    },
+                },
+                {"op": "layoutGraph", "args": {"scope": "touched"}},
+            ],
+        },
+        "expectedNodes": ["create_points", "transform_points", "tag_transformed"],
+        "expectedEdges": [
+            ("create_points", "Out", "transform_points", "In"),
+            ("transform_points", "Out", "tag_transformed", "In"),
+        ],
+        "queryDefaults": [
+            ("transform_points", "bAbsoluteRotation", True),
+            ("tag_transformed", "TagsToAdd", "Gameplay.Transformed"),
+        ],
+    },
+    {
+        "id": "branch_to_dual_tags",
+        "fixture": "pcg_graph",
+        "families": ["branch", "create", "meta"],
+        "payload": {
+            "tool": "graph.mutate",
+            "graphType": "pcg",
+            "ops": [
+                {
+                    "op": "addNode.byClass",
+                    "clientRef": "create_points",
+                    "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"},
+                },
+                {
+                    "op": "addNode.byClass",
+                    "clientRef": "branch_node",
+                    "args": {"nodeClassPath": "/Script/PCG.PCGBranchSettings"},
+                },
+                {
+                    "op": "addNode.byClass",
+                    "clientRef": "tag_output_a",
+                    "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"},
+                },
+                {
+                    "op": "addNode.byClass",
+                    "clientRef": "tag_output_b",
+                    "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"},
+                },
+                {
+                    "op": "connectPins",
+                    "args": {
+                        "from": {"nodeRef": "create_points", "pin": "Out"},
+                        "to": {"nodeRef": "branch_node", "pin": "In"},
+                    },
+                },
+                {
+                    "op": "connectPins",
+                    "args": {
+                        "from": {"nodeRef": "branch_node", "pin": "Output A"},
+                        "to": {"nodeRef": "tag_output_a", "pin": "In"},
+                    },
+                },
+                {
+                    "op": "connectPins",
+                    "args": {
+                        "from": {"nodeRef": "branch_node", "pin": "Output B"},
+                        "to": {"nodeRef": "tag_output_b", "pin": "In"},
+                    },
+                },
+                {
+                    "op": "setPinDefault",
+                    "args": {
+                        "target": {"nodeRef": "branch_node", "pin": "bOutputToB"},
+                        "value": True,
+                    },
+                },
+                {
+                    "op": "setPinDefault",
+                    "args": {
+                        "target": {"nodeRef": "tag_output_b", "pin": "TagsToAdd"},
+                        "value": "Gameplay.BranchB",
+                    },
+                },
+                {"op": "layoutGraph", "args": {"scope": "touched"}},
+            ],
+        },
+        "expectedNodes": ["create_points", "branch_node", "tag_output_a", "tag_output_b"],
+        "expectedEdges": [
+            ("create_points", "Out", "branch_node", "In"),
+            ("branch_node", "Output A", "tag_output_a", "In"),
+            ("branch_node", "Output B", "tag_output_b", "In"),
+        ],
+        "queryDefaults": [
+            ("branch_node", "bOutputToB", True),
+            ("tag_output_b", "TagsToAdd", "Gameplay.BranchB"),
+        ],
+    },
+    {
+        "id": "boolean_select_between_two_sources",
+        "fixture": "pcg_graph",
+        "families": ["create", "meta", "select"],
+        "payload": {
+            "tool": "graph.mutate",
+            "graphType": "pcg",
+            "ops": [
+                {
+                    "op": "addNode.byClass",
+                    "clientRef": "create_points_a",
+                    "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"},
+                },
+                {
+                    "op": "addNode.byClass",
+                    "clientRef": "create_points_b",
+                    "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"},
+                },
+                {
+                    "op": "addNode.byClass",
+                    "clientRef": "select_node",
+                    "args": {"nodeClassPath": "/Script/PCG.PCGBooleanSelectSettings"},
+                },
+                {
+                    "op": "addNode.byClass",
+                    "clientRef": "tag_selected",
+                    "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"},
+                },
+                {
+                    "op": "connectPins",
+                    "args": {
+                        "from": {"nodeRef": "create_points_a", "pin": "Out"},
+                        "to": {"nodeRef": "select_node", "pin": "Input A"},
+                    },
+                },
+                {
+                    "op": "connectPins",
+                    "args": {
+                        "from": {"nodeRef": "create_points_b", "pin": "Out"},
+                        "to": {"nodeRef": "select_node", "pin": "Input B"},
+                    },
+                },
+                {
+                    "op": "connectPins",
+                    "args": {
+                        "from": {"nodeRef": "select_node", "pin": "Out"},
+                        "to": {"nodeRef": "tag_selected", "pin": "In"},
+                    },
+                },
+                {
+                    "op": "setPinDefault",
+                    "args": {
+                        "target": {"nodeRef": "select_node", "pin": "bUseInputB"},
+                        "value": True,
+                    },
+                },
+                {
+                    "op": "setPinDefault",
+                    "args": {
+                        "target": {"nodeRef": "tag_selected", "pin": "TagsToAdd"},
+                        "value": "Gameplay.Selected",
+                    },
+                },
+                {"op": "layoutGraph", "args": {"scope": "touched"}},
+            ],
+        },
+        "expectedNodes": ["create_points_a", "create_points_b", "select_node", "tag_selected"],
+        "expectedEdges": [
+            ("create_points_a", "Out", "select_node", "Input A"),
+            ("create_points_b", "Out", "select_node", "Input B"),
+            ("select_node", "Out", "tag_selected", "In"),
+        ],
+        "queryDefaults": [
+            ("select_node", "bUseInputB", True),
+            ("tag_selected", "TagsToAdd", "Gameplay.Selected"),
+        ],
+    },
 ]
 
 
 def load_case_payload(case: dict[str, Any]) -> dict[str, Any]:
+    inline_payload = case.get("payload")
+    if isinstance(inline_payload, dict):
+        return json.loads(json.dumps(inline_payload))
     example_path = REPO_ROOT / case["example"]
     return json.loads(example_path.read_text(encoding="utf-8"))
 
@@ -143,7 +364,7 @@ def list_cases_payload() -> dict[str, Any]:
         "cases": [
             {
                 "id": case["id"],
-                "example": case["example"],
+                "example": case.get("example"),
                 "fixture": case["fixture"],
                 "families": case.get("families", []),
                 "expectedNodes": len(case.get("expectedNodes", [])),
@@ -350,7 +571,7 @@ def run_workflow_case(
 ) -> dict[str, Any]:
     result = {
         "caseId": case["id"],
-        "example": case["example"],
+        "example": case.get("example"),
         "fixture": case["fixture"],
         "families": case.get("families", []),
         "status": "fail",
@@ -446,7 +667,7 @@ def execute_case_with_fresh_client(
     except Exception as exc:
         result = {
             "caseId": case["id"],
-            "example": case["example"],
+            "example": case.get("example"),
             "fixture": case["fixture"],
             "families": case.get("families", []),
             "status": "fail",
