@@ -14,7 +14,6 @@ from test_bridge_smoke import (  # noqa: E402
     call_execute_exec_with_retry,
     call_tool,
     is_tool_error_payload,
-    make_temp_asset_path,
     parse_tool_payload,
     parse_execute_json,
     resolve_default_loomle_binary,
@@ -156,12 +155,17 @@ def create_blueprint_fixture(client: McpStdioClient, request_id_base: int, *, as
             "import unreal\n"
             f"asset={json.dumps(asset_path, ensure_ascii=False)}\n"
             "pkg_path, asset_name = asset.rsplit('/', 1)\n"
+            "deleted_existing = False\n"
+            "if unreal.EditorAssetLibrary.does_asset_exist(asset):\n"
+            "  deleted_existing = unreal.EditorAssetLibrary.delete_asset(asset)\n"
+            "  if not deleted_existing:\n"
+            "    raise RuntimeError(f'failed to delete existing blueprint fixture: {asset}')\n"
             "asset_tools = unreal.AssetToolsHelpers.get_asset_tools()\n"
             "factory = unreal.BlueprintFactory()\n"
             "factory.set_editor_property('ParentClass', unreal.Actor)\n"
             "bp = asset_tools.create_asset(asset_name, pkg_path, unreal.Blueprint, factory)\n"
             "exists = unreal.EditorAssetLibrary.does_asset_exist(asset)\n"
-            "print(json.dumps({'assetPath': asset, 'created': bp is not None, 'exists': exists}, ensure_ascii=False))\n"
+            "print(json.dumps({'assetPath': asset, 'created': bp is not None, 'exists': exists, 'deletedExisting': deleted_existing}, ensure_ascii=False))\n"
         ),
     )
     parsed = parse_execute_json(payload)
@@ -413,7 +417,7 @@ def run_workflow_case(client: McpStdioClient, *, request_id_base: int, case: dic
         "status": "fail",
     }
     surface_matrix = blank_surface_matrix()
-    asset_path = make_temp_asset_path(f"/Game/Codex/BP_WorkflowTruth_{case['id']}")
+    asset_path = f"/Game/Codex/BP_WorkflowTruth_{case['id']}_{request_id_base}"
     try:
         create_blueprint_fixture(client, request_id_base, asset_path=asset_path)
         initial_snapshot = query_blueprint_snapshot(client, request_id_base + 5, asset_path)
