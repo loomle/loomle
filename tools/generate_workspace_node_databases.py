@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 ENGINE_SOURCE_ROOT = Path("/Users/Shared/Epic Games/UE_5.7/Engine/Source")
+PCG_PUBLIC_ROOT = Path("/Users/Shared/Epic Games/UE_5.7/Engine/Plugins/PCG/Source/PCG/Public")
 
 UCLASS_RE = re.compile(
     r"UCLASS(?:\s*\((?P<meta>.*?)\))?\s*"
@@ -15,9 +16,40 @@ UCLASS_RE = re.compile(
     re.DOTALL,
 )
 
+PCG_CLASS_RE = re.compile(
+    r"class\s+(?P<name>\w+)\s*:\s*public\s+(?P<base>\w+)\s*\{(?P<body>.*?)\n\};",
+    re.DOTALL,
+)
+
+PCG_SETTINGS_ROOTS = {
+    "UPCGSettings",
+    "UPCGBaseSubgraphSettings",
+    "UPCGSettingsWithDynamicInputs",
+}
+
 
 def clean_ws(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
+
+
+def parse_nsloctext_arg(expr: str) -> str | None:
+    match = re.search(r'NSLOCTEXT\s*\(\s*"[^"]*"\s*,\s*"[^"]*"\s*,\s*"([^"]*)"\s*\)', expr)
+    if match:
+        return match.group(1)
+    match = re.search(r'FText::FromString\s*\(\s*TEXT\("([^"]*)"\)\s*\)', expr)
+    if match:
+        return match.group(1)
+    return None
+
+
+def parse_fname_arg(expr: str) -> str | None:
+    match = re.search(r'FName\s*\(\s*TEXT\("([^"]*)"\)\s*\)', expr)
+    if match:
+        return match.group(1)
+    match = re.search(r'FName\s*\(\s*"([^"]*)"\s*\)', expr)
+    if match:
+        return match.group(1)
+    return None
 
 
 def humanize_identifier(name: str) -> str:
@@ -26,6 +58,10 @@ def humanize_identifier(name: str) -> str:
         if text.startswith(prefix):
             text = text[len(prefix) :]
             break
+    if text.startswith("UPCG") and text.endswith("Settings"):
+        text = text[len("UPCG") : -len("Settings")]
+    elif text.startswith("UPCG"):
+        text = text[len("UPCG") :]
     text = text.replace("_", " ")
     text = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", text)
     text = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", " ", text)
@@ -78,6 +114,10 @@ def parse_flags(meta: str, extra_flags: tuple[str, ...] = ()) -> list[str]:
     return flags
 
 
+def parse_pcg_flags(meta: str) -> list[str]:
+    return parse_flags(meta, extra_flags=("PCG_Overridable",))
+
+
 def extract_uproperty_entries(body: str) -> list[tuple[str, str]]:
     entries: list[tuple[str, str]] = []
     cursor = 0
@@ -104,6 +144,338 @@ def extract_uproperty_entries(body: str) -> list[tuple[str, str]]:
         entries.append((meta, decl))
         cursor = i + 1
     return entries
+
+
+def parse_pcg_headers(public_root: Path) -> list[dict]:
+    entries: list[dict] = []
+    for path in sorted(public_root.rglob("*.h")):
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for match in PCG_CLASS_RE.finditer(text):
+            name = match.group("name")
+            base = match.group("base")
+            body = match.group("body")
+            rel = path.relative_to(public_root).as_posix()
+            source_group = rel.split("/", 1)[0] if "/" in rel else rel
+            title_match = re.search(r"GetDefaultNodeTitle\s*\(\)\s*const\s*override\s*\{([^}]*)\}", body, re.DOTALL)
+            tooltip_match = re.search(r"GetNodeTooltipText\s*\(\)\s*const\s*override\s*\{([^}]*)\}", body, re.DOTALL)
+            name_match = re.search(r"GetDefaultNodeName\s*\(\)\s*const\s*override\s*\{([^}]*)\}", body, re.DOTALL)
+
+            properties = []
+            for raw_meta, raw_decl in extract_uproperty_entries(body):
+                meta = clean_ws(raw_meta)
+                decl = clean_ws(raw_decl)
+                prop_name = parse_property_name(decl)
+                if not prop_name:
+                    continue
+                properties.append(
+                    {
+                        "name": prop_name,
+                        "cppType": parse_property_type(decl, prop_name),
+                        "declaration": decl,
+                        "category": parse_category(meta),
+                        "flags": parse_pcg_flags(meta),
+                        "meta": meta,
+                    }
+                )
+
+            entries.append(
+                {
+                    "className": name,
+                    "baseClassName": base,
+                    "nodeClassPath": derive_node_class_path("PCG", name),
+                    "moduleName": "PCG",
+                    "sourceGroup": source_group,
+                    "headerPath": str(path),
+                    "relativeHeaderPath": rel,
+                    "defaultNodeName": parse_fname_arg(name_match.group(1)) if name_match else None,
+                    "defaultNodeTitle": parse_nsloctext_arg(title_match.group(1)) if title_match else None,
+                    "nodeTooltip": parse_nsloctext_arg(tooltip_match.group(1)) if tooltip_match else None,
+                    "hasDynamicPins": "HasDynamicPins() const override { return true; }" in body,
+                    "implementsInputPinProperties": "InputPinProperties() const override" in body,
+                    "implementsOutputPinProperties": "OutputPinProperties() const override" in body,
+                    "implementsCreateElement": "CreateElement() const override" in body,
+                    "implementsSupportsBasePointDataInputs": "SupportsBasePointDataInputs" in body,
+                    "properties": properties,
+                }
+            )
+    return entries
+
+
+def derive_pcg_settings_classes(classes: dict[str, dict]) -> dict[str, dict]:
+    derived: dict[str, dict] = {}
+    changed = True
+    while changed:
+        changed = False
+        for name, info in classes.items():
+            base = info["baseClassName"]
+            if name in derived:
+                continue
+            if base in PCG_SETTINGS_ROOTS or base in derived:
+                derived[name] = info
+                changed = True
+    return derived
+
+
+def pcg_text_tokens(entry: dict) -> str:
+    return " ".join(
+        filter(
+            None,
+            [
+                entry["className"],
+                entry.get("defaultNodeTitle"),
+                entry.get("defaultNodeName"),
+            ],
+        )
+    ).lower()
+
+
+def derive_pcg_family(entry: dict) -> str:
+    class_name = entry["className"]
+    title = entry.get("defaultNodeTitle") or ""
+    name = entry.get("defaultNodeName") or ""
+    text = pcg_text_tokens(entry)
+
+    if "subgraph" in text or class_name in {"UPCGSubgraphSettings", "UPCGLoopSettings"}:
+        return "struct"
+    if class_name in {"UPCGBranchSettings", "UPCGSwitchSettings", "UPCGQualityBranchSettings"}:
+        return "branch"
+    if class_name in {"UPCGBooleanSelectSettings", "UPCGMultiSelectSettings", "UPCGQualitySelectSettings"}:
+        return "select"
+    if "filter attribute elements" in title.lower() or class_name in {
+        "UPCGAttributeFilteringSettings",
+        "UPCGAttributeFilteringRangeSettings",
+        "UPCGDensityFilterSettings",
+        "UPCGFilterElementsByIndexSettings",
+        "UPCGFilterByIndexSettings",
+    }:
+        return "filter"
+    if class_name in {
+        "UPCGFilterByAttributeSettings",
+        "UPCGFilterByTagSettings",
+        "UPCGFilterByTypeSettings",
+    }:
+        return "route"
+    if "sampler" in text or class_name in {
+        "UPCGSelectPointsSettings",
+        "UPCGSelectGrammarSettings",
+        "UPCGSampleTextureSettings",
+    }:
+        return "sample"
+    if class_name in {
+        "UPCGTransformPointsSettings",
+        "UPCGProjectionSettings",
+        "UPCGApplyScaleToBoundsSettings",
+        "UPCGCopyPointsSettings",
+        "UPCGAttractSettings",
+        "UPCGApplyHierarchySettings",
+        "UPCGBoundsModifierSettings",
+    }:
+        return "transform"
+    if "create " in title.lower() or name.startswith("Create") or class_name in {
+        "UPCGCreateAttributeSetSettings",
+        "UPCGCreateTargetActor",
+    }:
+        return "create"
+    if "spawner" in text or class_name in {
+        "UPCGAddComponentSettings",
+        "UPCGCreateTargetActor",
+    }:
+        return "spawn"
+    if class_name in {
+        "UPCGAddTagSettings",
+        "UPCGAttributeNoiseSettings",
+        "UPCGPointMatchAndSetSettings",
+        "UPCGMatchAndSetAttributesSettings",
+        "UPCGSortAttributesSettings",
+        "UPCGCreateAttributeSetSettings",
+        "UPCGAttributeCastSettings",
+        "UPCGCopyAttributesSettings",
+        "UPCGMergeAttributesSettings",
+        "UPCGDeleteAttributesSettings",
+        "UPCGExtractAttributeSettings",
+        "UPCGVisualizeAttributeSettings",
+        "UPCGDataAttributesToTagsSettings",
+        "UPCGTagsToDataAttributesSettings",
+        "UPCGTagsToAttributeSetSettings",
+        "UPCGSortTagsSettings",
+        "UPCGReplaceTagsSettings",
+        "UPCGDeleteTagsSettings",
+    }:
+        return "meta"
+    if class_name in {
+        "UPCGDataFromActorSettings",
+        "UPCGDataFromTool",
+        "UPCGGetActorDataLayersSettings",
+        "UPCGGetActorPropertySettings",
+        "UPCGGetAssetListSettings",
+        "UPCGGetAttributesSettings",
+        "UPCGGetBoundsSettings",
+        "UPCGGetConsoleVariableSettings",
+        "UPCGGetExecutionContextSettings",
+        "UPCGGetLandscapeSettings",
+        "UPCGGetLoopIndexSettings",
+        "UPCGGetPCGComponentSettings",
+        "UPCGGetPrimitiveSettings",
+        "UPCGGetPropertyFromObjectPathSettings",
+        "UPCGGetResourcePath",
+        "UPCGGetSegmentSettings",
+        "UPCGGetSplineControlPointsSettings",
+        "UPCGGetSplineSettings",
+        "UPCGGetStaticMeshResourceDataSettings",
+        "UPCGGetSubgraphDepthSettings",
+        "UPCGGetTagsSettings",
+        "UPCGGetVirtualTextureSettings",
+        "UPCGGetVolumeSettings",
+        "UPCGTextureSamplerSettings",
+        "UPCGGenericUserParameterGetSettings",
+        "UPCGUserParameterGetSettings",
+    } or title.lower().startswith("get "):
+        return "source"
+    if class_name in {
+        "UPCGAttributeGetFromIndexSettings",
+        "UPCGAttributeGetFromPointIndexSettings",
+    }:
+        return "predicate"
+    if class_name.startswith("UPCGAttribute") or class_name.startswith("UPCGMetadata"):
+        return "meta"
+    return "source" if title.lower().startswith("get ") else "meta"
+
+
+def default_pcg_profile_for_family(family: str) -> str:
+    return {
+        "source": "construct_and_query",
+        "create": "read_write_roundtrip",
+        "sample": "read_write_roundtrip",
+        "transform": "read_write_roundtrip",
+        "meta": "read_write_roundtrip",
+        "predicate": "construct_and_query",
+        "branch": "semantic_family_represented",
+        "select": "semantic_family_represented",
+        "route": "read_write_roundtrip",
+        "filter": "dynamic_pin_probe",
+        "spawn": "construct_and_query",
+        "struct": "context_recipe_required",
+    }[family]
+
+
+def pick_pcg_representative_fields(entry: dict) -> list[str]:
+    properties = entry.get("properties", [])
+    preferred_names = (
+        "Radius",
+        "CellSize",
+        "Ratio",
+        "RotationMin",
+        "bAbsoluteRotation",
+        "OffsetMin",
+        "FilterMode",
+        "TargetAttribute",
+        "TagsToAdd",
+        "LowerBound",
+        "UpperBound",
+        "Operator",
+        "Attribute",
+        "PointsPerSquaredMeter",
+    )
+    names = [prop["name"] for prop in properties]
+    selected: list[str] = [name for name in preferred_names if name in names][:2]
+    if selected:
+        return selected
+    overridable = [prop["name"] for prop in properties if "PCG_Overridable" in prop.get("flags", [])]
+    if overridable:
+        return overridable[:2]
+    editable = [
+        prop["name"]
+        for prop in properties
+        if any(flag in prop.get("flags", []) for flag in ("EditAnywhere", "BlueprintReadWrite", "BlueprintReadOnly"))
+    ]
+    return editable[:2]
+
+
+def pick_pcg_dynamic_triggers(entry: dict) -> list[str]:
+    property_names = {prop["name"] for prop in entry.get("properties", [])}
+    triggers = [name for name in ("bUseConstantThreshold", "FilterMode", "SelectionMode", "MeshSelectorType") if name in property_names]
+    return triggers[:2]
+
+
+def pick_pcg_workflow_families(entry: dict, family: str) -> list[str]:
+    class_name = entry["className"]
+    if family == "branch":
+        return ["pcg_control_flow"]
+    if family == "select":
+        return ["pcg_selection_flow"]
+    if family == "route":
+        return ["pcg_route_filter_chain"]
+    if family == "spawn":
+        return ["pcg_spawn_chain"]
+    if family == "transform":
+        return ["pcg_pipeline_insert"]
+    if class_name in {"UPCGStaticMeshSpawnerSettings", "UPCGSkinnedMeshSpawnerSettings"}:
+        return ["pcg_spawn_chain"]
+    return []
+
+
+def derive_pcg_recipe(entry: dict, family: str) -> str | None:
+    class_name = entry["className"]
+    title = (entry.get("defaultNodeTitle") or "").lower()
+    if class_name in {
+        "UPCGDataFromActorSettings",
+        "UPCGGetActorPropertySettings",
+        "UPCGGetActorDataLayersSettings",
+        "UPCGGetPrimitiveSettings",
+        "UPCGGetSplineSettings",
+        "UPCGGetLandscapeSettings",
+        "UPCGGetVolumeSettings",
+        "UPCGGetPCGComponentSettings",
+        "UPCGDataFromTool",
+        "UPCGTextureSamplerSettings",
+        "UPCGGetVirtualTextureSettings",
+        "UPCGGetStaticMeshResourceDataSettings",
+        "UPCGGetPropertyFromObjectPathSettings",
+        "UPCGGetBoundsSettings",
+        "UPCGGetSplineControlPointsSettings",
+    } or title.startswith("get "):
+        return "pcg_actor_source_context"
+    return None
+
+
+def derive_pcg_testing(entry: dict) -> dict:
+    family = derive_pcg_family(entry)
+    profile = default_pcg_profile_for_family(family)
+    testing: dict[str, object] = {"profile": profile}
+    class_name = entry["className"]
+
+    if class_name == "UPCGDensityFilterSettings":
+        testing["profile"] = "read_write_roundtrip"
+        testing["focus"] = {"fields": ["LowerBound", "UpperBound"]}
+        return testing
+    if class_name == "UPCGFilterByTagSettings":
+        testing["profile"] = "read_write_roundtrip"
+        testing["focus"] = {"fields": ["SelectedTags", "Operation"]}
+        return testing
+
+    recipe = derive_pcg_recipe(entry, family)
+    if recipe:
+        testing["recipe"] = recipe
+        if family == "source":
+            testing["reason"] = "Depends on world or actor-backed source context."
+    elif family == "struct":
+        testing["reason"] = "Requires subgraph or loop context rather than isolated node coverage."
+    focus: dict[str, object] = {}
+    if profile == "read_write_roundtrip":
+        fields = pick_pcg_representative_fields(entry)
+        if fields:
+            focus["fields"] = fields
+    elif profile == "dynamic_pin_probe":
+        triggers = pick_pcg_dynamic_triggers(entry)
+        if triggers:
+            focus["dynamicTriggers"] = triggers
+    elif profile == "semantic_family_represented":
+        workflows = pick_pcg_workflow_families(entry, family)
+        if workflows:
+            focus["workflowFamilies"] = workflows
+    if focus:
+        testing["focus"] = focus
+    return testing
 
 
 def get_module_name(path: Path, source_root: Path) -> str:
@@ -411,11 +783,82 @@ def build_blueprint_database() -> dict:
     }
 
 
+def build_pcg_database() -> dict:
+    classes = {entry["className"]: entry for entry in parse_pcg_headers(PCG_PUBLIC_ROOT)}
+    settings_classes = derive_pcg_settings_classes(classes)
+    nodes = []
+    family_counts: dict[str, int] = {}
+    profile_counts: dict[str, int] = {}
+    for name in sorted(
+        settings_classes,
+        key=lambda class_name: (
+            settings_classes[class_name]["sourceGroup"],
+            settings_classes[class_name].get("defaultNodeTitle") or settings_classes[class_name]["className"],
+            class_name,
+        ),
+    ):
+        entry = settings_classes[name]
+        family = derive_pcg_family(entry)
+        testing = derive_pcg_testing(entry)
+        family_counts[family] = family_counts.get(family, 0) + 1
+        profile = str(testing["profile"])
+        profile_counts[profile] = profile_counts.get(profile, 0) + 1
+        display_name = entry.get("defaultNodeTitle") or humanize_identifier(entry.get("defaultNodeName") or name)
+        nodes.append(
+            {
+                "className": name,
+                "baseClassName": entry["baseClassName"],
+                "nodeClassPath": entry["nodeClassPath"],
+                "displayName": display_name,
+                "family": family,
+                "moduleName": entry["moduleName"],
+                "sourceGroup": entry["sourceGroup"],
+                "headerPath": entry["headerPath"],
+                "relativeHeaderPath": entry["relativeHeaderPath"],
+                "defaultNodeName": entry.get("defaultNodeName"),
+                "defaultNodeTitle": entry.get("defaultNodeTitle"),
+                "nodeTooltip": entry.get("nodeTooltip"),
+                "hasDynamicPins": entry["hasDynamicPins"],
+                "implementsInputPinProperties": entry["implementsInputPinProperties"],
+                "implementsOutputPinProperties": entry["implementsOutputPinProperties"],
+                "implementsCreateElement": entry["implementsCreateElement"],
+                "implementsSupportsBasePointDataInputs": entry["implementsSupportsBasePointDataInputs"],
+                "properties": entry["properties"],
+                "testing": testing,
+            }
+        )
+
+    source_groups: dict[str, int] = {}
+    for node in nodes:
+        source_groups[node["sourceGroup"]] = source_groups.get(node["sourceGroup"], 0) + 1
+
+    return {
+        "graphType": "pcg",
+        "coverage": "source-derived",
+        "source": "UE 5.7 local source scan",
+        "jsonPath": "workspace/Loomle/pcg/catalogs/node-database.json",
+        "summary": {
+            "purpose": "Full source-derived PCG settings database for LOOMLE workspace agents. Use node-index.json for the smaller curated working set and GUIDE/SEMANTICS/examples for execution guidance.",
+            "notes": [
+                "This database is generated from local Unreal Engine 5.7 PCG public headers.",
+                "Some node display names come from exact default node titles; others are best-effort humanizations of default node names or class names.",
+                "Testing metadata in nodes[].testing is LOOMLE test strategy data, not engine truth.",
+            ],
+            "totalNodeClasses": len(nodes),
+            "dynamicPinClasses": sum(1 for node in nodes if node["hasDynamicPins"]),
+            "familyCounts": family_counts,
+            "testingProfileCounts": profile_counts,
+            "sourceGroups": source_groups,
+        },
+        "nodes": nodes,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--graph-type",
-        choices=("material", "blueprint", "all"),
+        choices=("material", "blueprint", "pcg", "all"),
         default="all",
         help="Which workspace node database(s) to generate.",
     )
@@ -432,6 +875,8 @@ def main() -> None:
         outputs.append((args.workspace_root / "material" / "catalogs" / "node-database.json", build_material_database()))
     if args.graph_type in ("blueprint", "all"):
         outputs.append((args.workspace_root / "blueprint" / "catalogs" / "node-database.json", build_blueprint_database()))
+    if args.graph_type in ("pcg", "all"):
+        outputs.append((args.workspace_root / "pcg" / "catalogs" / "node-database.json", build_pcg_database()))
 
     for path, payload in outputs:
         path.parent.mkdir(parents=True, exist_ok=True)

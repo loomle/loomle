@@ -26,7 +26,8 @@ node-family boundaries, route vs filter behavior, or key parameters and wiring.
 ## Primary References
 
 - `SEMANTICS.md`
-- `catalogs/node-catalog.json`
+- `catalogs/node-index.json`
+- `catalogs/node-database.json`
 - `examples/pipeline-then-layout.json`
 - `examples/actor-data-tag-route.json`
 - `examples/surface-sample-to-static-mesh.json`

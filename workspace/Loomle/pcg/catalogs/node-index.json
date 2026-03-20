@@ -1,0 +1,287 @@
+{
+  "graphType": "pcg",
+  "coverage": "curated",
+  "source": "LOOMLE workspace references",
+  "summary": {
+    "purpose": "Curated PCG node index for the most common LOOMLE graph-editing tasks. Use node-database.json for the full source-derived PCG settings inventory.",
+    "notes": [
+      "This is an index, not the full PCG settings universe.",
+      "Use GUIDE.md for workflow, SEMANTICS.md for family and wiring guidance, examples/ for concrete mutate payloads, and node-database.json for full source-derived coverage.",
+      "PCG node display names can vary by settings implementation, so consult the database when class-level truth matters."
+    ],
+    "databaseFile": "node-database.json"
+  },
+  "nodes": [
+    {
+      "displayName": "Get Actor Data",
+      "nodeClassPath": "/Script/PCG.PCGDataFromActorSettings",
+      "family": "source",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["Out"],
+      "usage": "Read actor-backed or component-backed source data into a PCG pipeline.",
+      "exampleFiles": [
+        "examples/actor-data-tag-route.json",
+        "examples/project-surface-from-actor-data.json"
+      ]
+    },
+    {
+      "displayName": "Get Actor Property",
+      "nodeClassPath": "/Script/PCG.PCGGetActorPropertySettings",
+      "family": "source",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["Out"],
+      "usage": "Read a selected actor or component property into downstream PCG data.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "Create Points",
+      "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings",
+      "family": "create",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["Out"],
+      "usage": "Create synthetic point data as a pipeline starter.",
+      "exampleFiles": [
+        "examples/pipeline-then-layout.json",
+        "examples/points-ratio-to-tag.json",
+        "examples/replace-tag-with-points-ratio.json"
+      ]
+    },
+    {
+      "displayName": "Create Points Grid",
+      "nodeClassPath": "/Script/PCG.PCGCreatePointsGridSettings",
+      "family": "create",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["Out"],
+      "usage": "Create a regular grid of points with explicit cell sizing.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "Create Points Sphere",
+      "nodeClassPath": "/Script/PCG.PCGCreatePointsSphereSettings",
+      "family": "create",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["Out"],
+      "usage": "Create points distributed inside a sphere-shaped region.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "Surface Sampler",
+      "nodeClassPath": "/Script/PCG.PCGSurfaceSamplerSettings",
+      "family": "sample",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["In", "Out"],
+      "usage": "Sample a surface into point data using density-style settings.",
+      "exampleFiles": [
+        "examples/surface-sample-to-static-mesh.json"
+      ]
+    },
+    {
+      "displayName": "Spline Sampler",
+      "nodeClassPath": "/Script/PCG.PCGSplineSamplerSettings",
+      "family": "sample",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["In", "Out"],
+      "usage": "Sample spline input data into evenly spaced or mode-controlled points.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "Select Points",
+      "nodeClassPath": "/Script/PCG.PCGSelectPointsSettings",
+      "family": "sample",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["In", "Out"],
+      "usage": "Keep only a ratio-based subset of upstream points.",
+      "exampleFiles": [
+        "examples/points-ratio-to-tag.json",
+        "examples/replace-tag-with-points-ratio.json",
+        "examples/insert-points-ratio-on-inside-filter.json"
+      ]
+    },
+    {
+      "displayName": "Transform Points",
+      "nodeClassPath": "/Script/PCG.PCGTransformPointsSettings",
+      "family": "transform",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["In", "Out"],
+      "usage": "Adjust point offsets, rotations, scales, and absolute transform behavior.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "Projection",
+      "nodeClassPath": "/Script/PCG.PCGProjectionSettings",
+      "family": "transform",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["In", "Projection Target", "Out"],
+      "usage": "Project upstream points or data onto a target surface.",
+      "exampleFiles": [
+        "examples/project-surface-from-actor-data.json"
+      ]
+    },
+    {
+      "displayName": "Add Tags",
+      "nodeClassPath": "/Script/PCG.PCGAddTagSettings",
+      "family": "meta",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["In", "Out"],
+      "usage": "Add tags to output data for later routing or filtering decisions.",
+      "exampleFiles": [
+        "examples/pipeline-then-layout.json",
+        "examples/points-ratio-to-tag.json"
+      ]
+    },
+    {
+      "displayName": "Attribute Noise",
+      "nodeClassPath": "/Script/PCG.PCGAttributeNoiseSettings",
+      "family": "meta",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["In", "Out"],
+      "usage": "Write controlled attribute variation for later filters, transforms, or spawning.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "Filter By Tag",
+      "nodeClassPath": "/Script/PCG.PCGFilterByTagSettings",
+      "family": "route",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["In", "InsideFilter", "OutsideFilter"],
+      "usage": "Route whole data by tag presence rather than filtering individual elements.",
+      "exampleFiles": [
+        "examples/actor-data-tag-route.json",
+        "examples/replace-tag-route-with-attribute-route.json",
+        "examples/insert-points-ratio-on-inside-filter.json"
+      ]
+    },
+    {
+      "displayName": "Filter Data By Attribute",
+      "nodeClassPath": "/Script/PCG.PCGFilterByAttributeSettings",
+      "family": "route",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["In", "InsideFilter", "OutsideFilter"],
+      "usage": "Route whole data by attribute existence or attribute-based comparison logic.",
+      "exampleFiles": [
+        "examples/replace-tag-route-with-attribute-route.json"
+      ]
+    },
+    {
+      "displayName": "Filter Attribute Elements",
+      "nodeClassPath": "/Script/PCG.PCGAttributeFilteringSettings",
+      "family": "filter",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["In", "InsideFilter", "OutsideFilter", "Threshold"],
+      "usage": "Filter individual elements by comparing a target attribute against a threshold.",
+      "exampleFiles": [
+        "examples/attribute-filter-elements.json"
+      ]
+    },
+    {
+      "displayName": "Filter Attribute Elements by Range",
+      "nodeClassPath": "/Script/PCG.PCGAttributeFilteringRangeSettings",
+      "family": "filter",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["In", "InsideFilter", "OutsideFilter", "MinThreshold", "MaxThreshold"],
+      "usage": "Filter individual elements by checking whether a target attribute falls within a range.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "Density Filter",
+      "nodeClassPath": "/Script/PCG.PCGDensityFilterSettings",
+      "family": "filter",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["In", "Out"],
+      "usage": "Filter point data by density range before downstream sampling or spawning.",
+      "exampleFiles": [
+        "examples/insert-density-filter-before-static-mesh.json"
+      ]
+    },
+    {
+      "displayName": "Branch",
+      "nodeClassPath": "/Script/PCG.PCGBranchSettings",
+      "family": "branch",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["In", "Output A", "Output B"],
+      "usage": "Perform boolean-like control-flow routing once the decision already exists.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "Switch",
+      "nodeClassPath": "/Script/PCG.PCGSwitchSettings",
+      "family": "branch",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["In", "switch outputs"],
+      "usage": "Route one input into one of several outputs based on a selection value.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "Boolean Select",
+      "nodeClassPath": "/Script/PCG.PCGBooleanSelectSettings",
+      "family": "select",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["Input A", "Input B", "Out"],
+      "usage": "Select one of two upstream sources into a single downstream output.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "Select (Multi)",
+      "nodeClassPath": "/Script/PCG.PCGMultiSelectSettings",
+      "family": "select",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["multiple inputs", "Out"],
+      "usage": "Select one upstream source out of several inputs.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "Static Mesh Spawner",
+      "nodeClassPath": "/Script/PCG.PCGStaticMeshSpawnerSettings",
+      "family": "spawn",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["In", "Out"],
+      "usage": "Spawn static mesh instances from upstream PCG points.",
+      "exampleFiles": [
+        "examples/surface-sample-to-static-mesh.json",
+        "examples/insert-density-filter-before-static-mesh.json"
+      ]
+    },
+    {
+      "displayName": "Subgraph",
+      "nodeClassPath": "/Script/PCG.PCGSubgraphSettings",
+      "family": "struct",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["subgraph-defined pins"],
+      "usage": "Invoke a referenced PCG subgraph as a structural stage.",
+      "exampleFiles": []
+    },
+    {
+      "displayName": "Loop",
+      "nodeClassPath": "/Script/PCG.PCGLoopSettings",
+      "family": "struct",
+      "creationMode": "addNode.byClass",
+      "creationArgs": {},
+      "pinHints": ["loop-defined pins"],
+      "usage": "Iterate data through a structural feedback-style loop stage.",
+      "exampleFiles": []
+    }
+  ]
+}

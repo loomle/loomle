@@ -85,7 +85,8 @@ EXPECTED_WORKSPACE_CATALOGS = {
     "blueprint/catalogs/node-index.json",
     "material/catalogs/node-database.json",
     "material/catalogs/node-index.json",
-    "pcg/catalogs/node-catalog.json",
+    "pcg/catalogs/node-database.json",
+    "pcg/catalogs/node-index.json",
 }
 
 
@@ -850,8 +851,41 @@ def validate_workspace_catalogs() -> None:
         "material database missing UMaterialExpressionMultiply",
     )
 
-    pcg_catalog = _load_json_file(workspace_root / "pcg" / "catalogs" / "node-catalog.json")
-    _require(isinstance(pcg_catalog.get("nodes"), list) and pcg_catalog["nodes"], "pcg catalog missing nodes[]")
+    pcg_index = _load_json_file(workspace_root / "pcg" / "catalogs" / "node-index.json")
+    _require(pcg_index.get("graphType") == "pcg", f"pcg index graphType mismatch: {pcg_index}")
+    pcg_index_nodes = pcg_index.get("nodes")
+    _require(isinstance(pcg_index_nodes, list) and pcg_index_nodes, "pcg index missing nodes[]")
+    for node in pcg_index_nodes:
+        _require(isinstance(node, dict), f"pcg index node is not an object: {node}")
+        _require(isinstance(node.get("displayName"), str) and node["displayName"], f"pcg index node missing displayName: {node}")
+        _require(
+            isinstance(node.get("nodeClassPath"), str) and node["nodeClassPath"].startswith("/Script/"),
+            f"pcg index node missing nodeClassPath: {node}",
+        )
+        example_files = node.get("exampleFiles", [])
+        _require(isinstance(example_files, list), f"pcg index exampleFiles must be a list: {node}")
+        for example_file in example_files:
+            _require(
+                isinstance(example_file, str) and (workspace_root / "pcg" / example_file).exists(),
+                f"pcg index example reference missing: {example_file}",
+            )
+
+    pcg_database = _load_json_file(workspace_root / "pcg" / "catalogs" / "node-database.json")
+    _require(pcg_database.get("graphType") == "pcg", "pcg database graphType mismatch")
+    _require(pcg_database.get("coverage") == "source-derived", "pcg database coverage mismatch")
+    pcg_database_nodes = pcg_database.get("nodes")
+    _require(
+        isinstance(pcg_database_nodes, list) and len(pcg_database_nodes) >= 170,
+        "pcg database missing full source-derived node set",
+    )
+    transform_points = next(
+        (node for node in pcg_database_nodes if isinstance(node, dict) and node.get("className") == "UPCGTransformPointsSettings"),
+        None,
+    )
+    _require(isinstance(transform_points, dict), "pcg database missing UPCGTransformPointsSettings")
+    _require(transform_points.get("family") == "transform", f"pcg transform family mismatch: {transform_points}")
+    testing = transform_points.get("testing")
+    _require(isinstance(testing, dict) and testing.get("profile") == "read_write_roundtrip", f"pcg transform testing missing: {transform_points}")
 
     print("[PASS] workspace graph catalogs validated")
 

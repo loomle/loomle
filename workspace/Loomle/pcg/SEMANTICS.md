@@ -10,7 +10,8 @@ This file explains usage semantics.
 
 It does not replace:
 
-- `catalogs/node-catalog.json` for the full static UE node inventory
+- `catalogs/node-index.json` for the curated working set
+- `catalogs/node-database.json` for the full static UE node inventory
 - `examples/` for concrete mutate payloads
 
 ## Core Model
