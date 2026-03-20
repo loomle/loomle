@@ -130,12 +130,15 @@ bool HasPcgPinNamed(const TArray<TSharedPtr<FJsonValue>>& Pins, const FString& P
 void AppendPcgSyntheticSettingPin(
     TArray<TSharedPtr<FJsonValue>>& Pins,
     const FString& PinName,
-    const FString& DefaultValue)
+    const FString& DefaultValue,
+    const FString& DefaultText = FString())
 {
     if (PinName.IsEmpty() || HasPcgPinNamed(Pins, PinName))
     {
         return;
     }
+
+    const FString EffectiveDefaultText = DefaultText.IsEmpty() ? DefaultValue : DefaultText;
 
     TSharedPtr<FJsonObject> PinObj = MakeShared<FJsonObject>();
     PinObj->SetStringField(TEXT("name"), PinName);
@@ -149,7 +152,7 @@ void AppendPcgSyntheticSettingPin(
     PinObj->SetBoolField(TEXT("isSyntheticDefaultTarget"), true);
     PinObj->SetStringField(TEXT("defaultValue"), DefaultValue);
     PinObj->SetStringField(TEXT("defaultObject"), TEXT(""));
-    PinObj->SetStringField(TEXT("defaultText"), DefaultValue);
+    PinObj->SetStringField(TEXT("defaultText"), EffectiveDefaultText);
 
     TSharedPtr<FJsonObject> PinTypeObject = MakeShared<FJsonObject>();
     PinTypeObject->SetStringField(TEXT("category"), TEXT("pcg"));
@@ -161,7 +164,7 @@ void AppendPcgSyntheticSettingPin(
     TSharedPtr<FJsonObject> PinDefaultObject = MakeShared<FJsonObject>();
     PinDefaultObject->SetStringField(TEXT("value"), DefaultValue);
     PinDefaultObject->SetStringField(TEXT("object"), TEXT(""));
-    PinDefaultObject->SetStringField(TEXT("text"), DefaultValue);
+    PinDefaultObject->SetStringField(TEXT("text"), EffectiveDefaultText);
     PinObj->SetObjectField(TEXT("default"), PinDefaultObject);
     PinObj->SetArrayField(TEXT("links"), TArray<TSharedPtr<FJsonValue>>{});
     PinObj->SetArrayField(TEXT("linkedTo"), TArray<TSharedPtr<FJsonValue>>{});
@@ -252,6 +255,17 @@ void AppendPcgSyntheticWritablePins(UPCGSettings* Settings, TArray<TSharedPtr<FJ
     {
         AppendPcgConstantStructPins(Pins, TEXT("MinThreshold/AttributeTypes"), AttributeFilteringRangeSettings->MinThreshold.AttributeTypes);
         AppendPcgConstantStructPins(Pins, TEXT("MaxThreshold/AttributeTypes"), AttributeFilteringRangeSettings->MaxThreshold.AttributeTypes);
+    }
+
+    TArray<FPcgQuerySyntheticTarget> SyntheticTargets;
+    GatherPcgSyntheticPropertyTargetsForQuery(Settings, SyntheticTargets);
+    for (const FPcgQuerySyntheticTarget& SyntheticTarget : SyntheticTargets)
+    {
+        AppendPcgSyntheticSettingPin(
+            Pins,
+            SyntheticTarget.PinName,
+            SyntheticTarget.DefaultValue,
+            SyntheticTarget.DefaultText);
     }
 }
 
@@ -2289,9 +2303,15 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
                 PinObj->SetBoolField(TEXT("isReference"), false);
                 PinObj->SetBoolField(TEXT("isConst"), false);
                 PinObj->SetBoolField(TEXT("isArray"), Pin->Properties.bAllowMultipleData);
-                PinObj->SetStringField(TEXT("defaultValue"), TEXT(""));
+                FString SurfacedDefaultValue;
+                FString SurfacedDefaultText;
+                const bool bHasSurfacedDefault =
+                    Direction.Equals(TEXT("input"))
+                    && !Pin->IsConnected()
+                    && TryReadPcgPinDefaultValueForQuery(NodeObj, PinLabel, SurfacedDefaultValue, SurfacedDefaultText);
+                PinObj->SetStringField(TEXT("defaultValue"), bHasSurfacedDefault ? SurfacedDefaultValue : TEXT(""));
                 PinObj->SetStringField(TEXT("defaultObject"), TEXT(""));
-                PinObj->SetStringField(TEXT("defaultText"), TEXT(""));
+                PinObj->SetStringField(TEXT("defaultText"), bHasSurfacedDefault ? SurfacedDefaultText : TEXT(""));
 
                 TSharedPtr<FJsonObject> PinTypeObject = MakeShared<FJsonObject>();
                 PinTypeObject->SetStringField(TEXT("category"), TEXT("pcg"));
@@ -2301,9 +2321,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
                 PinObj->SetObjectField(TEXT("type"), PinTypeObject);
 
                 TSharedPtr<FJsonObject> PinDefaultObject = MakeShared<FJsonObject>();
-                PinDefaultObject->SetStringField(TEXT("value"), TEXT(""));
+                PinDefaultObject->SetStringField(TEXT("value"), bHasSurfacedDefault ? SurfacedDefaultValue : TEXT(""));
                 PinDefaultObject->SetStringField(TEXT("object"), TEXT(""));
-                PinDefaultObject->SetStringField(TEXT("text"), TEXT(""));
+                PinDefaultObject->SetStringField(TEXT("text"), bHasSurfacedDefault ? SurfacedDefaultText : TEXT(""));
                 PinObj->SetObjectField(TEXT("default"), PinDefaultObject);
 
                 TArray<TSharedPtr<FJsonValue>> Links;
@@ -6104,9 +6124,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         {
             return TEXT("GRAPH_NOT_FOUND");
         }
-        if (ErrorLower.Contains(TEXT("node not found")) || ErrorLower.Contains(TEXT("pin not found")))
+        if (ErrorLower.Contains(TEXT("node not found")))
         {
-            return TEXT("TARGET_NOT_FOUND");
+            return TEXT("NODE_NOT_FOUND");
+        }
+        if (ErrorLower.Contains(TEXT("pin not found")))
+        {
+            return TEXT("PIN_NOT_FOUND");
         }
         if (ErrorLower.Contains(TEXT("failed to resolve")))
         {
@@ -6961,6 +6985,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             TArray<FString> NodesTouchedForLayout;
             FString GraphEventName;
             TSharedPtr<FJsonObject> GraphEventData = MakeShared<FJsonObject>();
+            TSharedPtr<FJsonObject> ErrorDetailsForOp;
             (*OpObj)->TryGetStringField(TEXT("clientRef"), ClientRef);
 
             const TSharedPtr<FJsonObject>* ArgsObjPtr = nullptr;
@@ -6974,7 +6999,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 bOk = false;
                 Error = TEXT("Unsupported mutate op: runScript");
             }
-            else if (!bDryRun)
+            else if (!bDryRun || (GraphType.Equals(TEXT("pcg")) && Op.Equals(TEXT("setpindefault"))))
             {
                 if (GraphType.Equals(TEXT("material")))
                 {
@@ -7800,11 +7825,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                         {
                             bOk = false;
                             Error = TEXT("setPinDefault requires args.target.");
+                            ErrorDetailsForOp = BuildPcgSetPinDefaultDiagnostics(nullptr, FString());
                         }
                         else if (!ResolvePinName(*TargetObj, TargetPinName))
                         {
                             bOk = false;
                             Error = TEXT("setPinDefault requires args.target.pin.");
+                            ErrorDetailsForOp = BuildPcgSetPinDefaultDiagnostics(nullptr, FString());
                         }
                         else if (!ResolveValueStringLocal(ArgsObj, DefaultValue))
                         {
@@ -7813,27 +7840,35 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                         }
                         else if (UPCGNode* Node = FindPcgNodeById(PcgGraph, TargetNodeId))
                         {
-                            bOk = SetPcgPinDefaultValue(Node, TargetPinName, DefaultValue, Error);
+                            bOk = SetPcgPinDefaultValue(Node, TargetPinName, DefaultValue, Error, !bDryRun);
                             if (bOk)
                             {
                                 NodeId = TargetNodeId;
-                                bChanged = true;
-                                GraphEventName = TEXT("graph.pin_default_changed");
-                                GraphEventData->SetStringField(TEXT("nodeId"), TargetNodeId);
-                                GraphEventData->SetStringField(TEXT("pin"), TargetPinName);
-                                GraphEventData->SetStringField(TEXT("value"), DefaultValue);
-                                GraphEventData->SetStringField(TEXT("op"), Op);
-                                NodesTouchedForLayout.Add(TargetNodeId);
+                                if (!bDryRun)
+                                {
+                                    bChanged = true;
+                                    GraphEventName = TEXT("graph.pin_default_changed");
+                                    GraphEventData->SetStringField(TEXT("nodeId"), TargetNodeId);
+                                    GraphEventData->SetStringField(TEXT("pin"), TargetPinName);
+                                    GraphEventData->SetStringField(TEXT("value"), DefaultValue);
+                                    GraphEventData->SetStringField(TEXT("op"), Op);
+                                    NodesTouchedForLayout.Add(TargetNodeId);
+                                }
                             }
                             else if (Error.IsEmpty())
                             {
                                 Error = TEXT("Failed to set PCG pin default value.");
+                            }
+                            if (!bOk)
+                            {
+                                ErrorDetailsForOp = BuildPcgSetPinDefaultDiagnostics(Node, TargetPinName);
                             }
                         }
                         else
                         {
                             bOk = false;
                             Error = TEXT("PCG node not found.");
+                            ErrorDetailsForOp = BuildPcgSetPinDefaultDiagnostics(nullptr, TargetPinName);
                         }
                     }
                     else if (Op.Equals(TEXT("layoutgraph")))
@@ -7961,6 +7996,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             OpResult->SetStringField(TEXT("error"), bOk ? TEXT("") : Error);
             OpResult->SetStringField(TEXT("errorCode"), OpErrorCode);
             OpResult->SetStringField(TEXT("errorMessage"), bOk ? TEXT("") : Error);
+            if (ErrorDetailsForOp.IsValid())
+            {
+                OpResult->SetObjectField(TEXT("details"), ErrorDetailsForOp);
+            }
             if (Op.Equals(TEXT("layoutgraph")))
             {
                 TArray<TSharedPtr<FJsonValue>> MovedNodeValues;
@@ -8007,6 +8046,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 if (!GraphName.IsEmpty())
                 {
                     Diagnostic->SetStringField(TEXT("graphName"), GraphName);
+                }
+                if (ErrorDetailsForOp.IsValid())
+                {
+                    Diagnostic->SetObjectField(TEXT("details"), ErrorDetailsForOp);
                 }
                 LocalDiagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
                 if (bStopOnError)

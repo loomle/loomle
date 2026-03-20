@@ -346,6 +346,10 @@ int32 FLoomleBridgeModule::MapToolErrorCode(const FString& DomainCode) const
     {
         return 1006;
     }
+    if (DomainCode.Equals(TEXT("TARGET_NOT_FOUND")))
+    {
+        return 1006;
+    }
     if (DomainCode.Equals(TEXT("PIN_NOT_FOUND")))
     {
         return 1007;

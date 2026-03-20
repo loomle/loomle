@@ -1299,6 +1299,9 @@ bool IsPcgSelectorStruct(const UStruct* Struct)
         || Struct == FPCGAttributePropertyOutputSelector::StaticStruct();
 }
 
+bool IsPcgGraphReferenceProperty(const FProperty* Property);
+bool ValidatePcgGraphAssetReferenceValue(const FString& Value, FString& OutError);
+
 bool SetPcgSelectorStructValue(FStructProperty* StructProperty, void* ValuePtr, const FString& Value, FString& OutError)
 {
     if (StructProperty == nullptr || ValuePtr == nullptr || !IsPcgSelectorStruct(StructProperty->Struct))
@@ -1441,6 +1444,11 @@ bool SetPcgPropertyValueFromString(
         }
     }
 
+    if (IsPcgGraphReferenceProperty(LeafProperty) && !ValidatePcgGraphAssetReferenceValue(Value, OutError))
+    {
+        return false;
+    }
+
     const TCHAR* ImportResult = LeafProperty->ImportText_Direct(*Value, ValuePtr, Settings, PPF_None);
     if (ImportResult == nullptr)
     {
@@ -1548,7 +1556,501 @@ bool SetPcgOverridableValueFromString(
     return SetPcgPropertyValueFromString(Settings, Param.Label.ToString(), Container, LeafProperty, Value, OutError);
 }
 
-bool SetPcgPinDefaultValue(UPCGNode* Node, const FString& PinName, const FString& Value, FString& OutError)
+bool IsPcgGraphReferenceProperty(const FProperty* Property)
+{
+    if (const FSoftObjectProperty* SoftObjectProperty = CastField<FSoftObjectProperty>(Property))
+    {
+        return SoftObjectProperty->PropertyClass != nullptr
+            && (SoftObjectProperty->PropertyClass->IsChildOf(UPCGGraph::StaticClass())
+                || SoftObjectProperty->PropertyClass->IsChildOf(UPCGGraphInterface::StaticClass()));
+    }
+
+    if (const FObjectPropertyBase* ObjectProperty = CastField<FObjectPropertyBase>(Property))
+    {
+        return ObjectProperty->PropertyClass != nullptr
+            && (ObjectProperty->PropertyClass->IsChildOf(UPCGGraph::StaticClass())
+                || ObjectProperty->PropertyClass->IsChildOf(UPCGGraphInterface::StaticClass()));
+    }
+
+    return false;
+}
+
+FString NormalizePcgGraphAssetReference(const FString& Value)
+{
+    FString Normalized = Value.TrimStartAndEnd();
+    Normalized.RemoveFromStart(TEXT("\""));
+    Normalized.RemoveFromEnd(TEXT("\""));
+    if (Normalized.IsEmpty())
+    {
+        return FString();
+    }
+
+    if (!Normalized.Contains(TEXT(".")) && Normalized.StartsWith(TEXT("/")))
+    {
+        const FString AssetName = FPackageName::GetShortName(Normalized);
+        if (!AssetName.IsEmpty())
+        {
+            Normalized += TEXT(".");
+            Normalized += AssetName;
+        }
+    }
+
+    return Normalized;
+}
+
+bool ValidatePcgGraphAssetReferenceValue(const FString& Value, FString& OutError)
+{
+    const FString ObjectPath = NormalizePcgGraphAssetReference(Value);
+    if (ObjectPath.IsEmpty())
+    {
+        return true;
+    }
+
+    UObject* LoadedGraph = StaticLoadObject(UPCGGraphInterface::StaticClass(), nullptr, *ObjectPath);
+    if (LoadedGraph == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Missing PCG graph asset: %s"), *Value);
+        return false;
+    }
+
+    return true;
+}
+
+struct FPcgQuerySyntheticTarget
+{
+    FString PinName;
+    FString DefaultValue;
+    FString DefaultText;
+};
+
+bool TryReadPcgPropertyValueForQuery(void* Container, FProperty* LeafProperty, FString& OutValue, FString& OutText);
+bool TryReadPcgOverridableValueForQuery(
+    UPCGSettings* Settings,
+    const FPCGSettingsOverridableParam& Param,
+    FString& OutValue,
+    FString& OutText,
+    FString& OutError);
+
+void AddPcgQuerySyntheticTarget(
+    TArray<FPcgQuerySyntheticTarget>& OutTargets,
+    TSet<FString>& SeenPinNames,
+    const FString& PinName,
+    const FString& DefaultValue,
+    const FString& DefaultText)
+{
+    if (PinName.IsEmpty() || SeenPinNames.Contains(PinName))
+    {
+        return;
+    }
+
+    SeenPinNames.Add(PinName);
+    FPcgQuerySyntheticTarget& Target = OutTargets.AddDefaulted_GetRef();
+    Target.PinName = PinName;
+    Target.DefaultValue = DefaultValue;
+    Target.DefaultText = DefaultText;
+}
+
+bool ShouldSurfacePcgSyntheticLeafProperty(const FProperty* Property)
+{
+    if (Property == nullptr || !Property->HasAnyPropertyFlags(CPF_Edit))
+    {
+        return false;
+    }
+
+    if (Property->HasAnyPropertyFlags(CPF_EditConst | CPF_Deprecated | CPF_Transient))
+    {
+        return false;
+    }
+
+    if (Property->GetName().EndsWith(TEXT("_DEPRECATED")))
+    {
+        return false;
+    }
+
+    if (CastField<FArrayProperty>(Property) != nullptr
+        || CastField<FSetProperty>(Property) != nullptr
+        || CastField<FMapProperty>(Property) != nullptr)
+    {
+        return false;
+    }
+
+    return CastField<FBoolProperty>(Property) != nullptr
+        || CastField<FEnumProperty>(Property) != nullptr
+        || CastField<FNumericProperty>(Property) != nullptr
+        || CastField<FStrProperty>(Property) != nullptr
+        || CastField<FNameProperty>(Property) != nullptr
+        || CastField<FTextProperty>(Property) != nullptr
+        || CastField<FObjectPropertyBase>(Property) != nullptr
+        || CastField<FSoftObjectProperty>(Property) != nullptr
+        || (CastField<FStructProperty>(Property) != nullptr
+            && IsPcgSelectorStruct(CastField<FStructProperty>(Property)->Struct));
+}
+
+void GatherPcgOverridableTargetsForQuery(
+    UPCGSettings* Settings,
+    TArray<FPcgQuerySyntheticTarget>& OutTargets,
+    TSet<FString>& SeenPinNames)
+{
+    if (Settings == nullptr)
+    {
+        return;
+    }
+
+    for (const FPCGSettingsOverridableParam& Param : Settings->OverridableParams())
+    {
+        const FString PinName = Param.Label.ToString();
+        if (PinName.IsEmpty() || SeenPinNames.Contains(PinName))
+        {
+            continue;
+        }
+
+        FString DefaultValue;
+        FString DefaultText;
+        FString ReadError;
+        if (TryReadPcgOverridableValueForQuery(Settings, Param, DefaultValue, DefaultText, ReadError))
+        {
+            AddPcgQuerySyntheticTarget(OutTargets, SeenPinNames, PinName, DefaultValue, DefaultText);
+        }
+    }
+}
+
+void GatherPcgEditablePropertyTargetsForQuery(
+    UPCGSettings* Settings,
+    TArray<FPcgQuerySyntheticTarget>& OutTargets,
+    TSet<FString>& SeenPinNames)
+{
+    if (Settings == nullptr)
+    {
+        return;
+    }
+
+    for (UStruct* CurrentStruct = Settings->GetClass();
+         CurrentStruct != nullptr && CurrentStruct != UPCGSettings::StaticClass();
+         CurrentStruct = CurrentStruct->GetSuperStruct())
+    {
+        for (TFieldIterator<FProperty> It(CurrentStruct, EFieldIteratorFlags::ExcludeSuper); It; ++It)
+        {
+            FProperty* Property = *It;
+            if (!ShouldSurfacePcgSyntheticLeafProperty(Property))
+            {
+                continue;
+            }
+
+            const FString PinName = Property->GetName();
+            if (PinName.IsEmpty() || SeenPinNames.Contains(PinName))
+            {
+                continue;
+            }
+
+            FString DefaultValue;
+            FString DefaultText;
+            if (!TryReadPcgPropertyValueForQuery(Settings, Property, DefaultValue, DefaultText))
+            {
+                continue;
+            }
+
+            AddPcgQuerySyntheticTarget(OutTargets, SeenPinNames, PinName, DefaultValue, DefaultText);
+        }
+    }
+}
+
+void GatherPcgSyntheticPropertyTargetsForQuery(UPCGSettings* Settings, TArray<FPcgQuerySyntheticTarget>& OutTargets)
+{
+    OutTargets.Reset();
+    if (Settings == nullptr)
+    {
+        return;
+    }
+
+    TSet<FString> SeenPinNames;
+    GatherPcgOverridableTargetsForQuery(Settings, OutTargets, SeenPinNames);
+    GatherPcgEditablePropertyTargetsForQuery(Settings, OutTargets, SeenPinNames);
+    Algo::SortBy(OutTargets, &FPcgQuerySyntheticTarget::PinName);
+}
+
+bool FindPcgSyntheticPropertyTargetForQuery(
+    UPCGSettings* Settings,
+    const FString& PinName,
+    FPcgQuerySyntheticTarget& OutTarget)
+{
+    if (Settings == nullptr || PinName.IsEmpty())
+    {
+        return false;
+    }
+
+    const FString NormalizedRequestedPin = NormalizePcgPathToken(PinName);
+    TArray<FPcgQuerySyntheticTarget> SyntheticTargets;
+    GatherPcgSyntheticPropertyTargetsForQuery(Settings, SyntheticTargets);
+    for (const FPcgQuerySyntheticTarget& SyntheticTarget : SyntheticTargets)
+    {
+        if (SyntheticTarget.PinName.Equals(PinName, ESearchCase::IgnoreCase)
+            || NormalizePcgPathToken(SyntheticTarget.PinName).Equals(NormalizedRequestedPin, ESearchCase::CaseSensitive))
+        {
+            OutTarget = SyntheticTarget;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool TryReadPcgPropertyValueForQuery(void* Container, FProperty* LeafProperty, FString& OutValue, FString& OutText)
+{
+    OutValue.Empty();
+    OutText.Empty();
+    if (Container == nullptr || LeafProperty == nullptr)
+    {
+        return false;
+    }
+
+    void* ValuePtr = LeafProperty->ContainerPtrToValuePtr<void>(Container);
+    if (ValuePtr == nullptr)
+    {
+        return false;
+    }
+
+    if (FBoolProperty* BoolProperty = CastField<FBoolProperty>(LeafProperty))
+    {
+        OutValue = BoolProperty->GetPropertyValue(ValuePtr) ? TEXT("true") : TEXT("false");
+        OutText = OutValue;
+        return true;
+    }
+
+    if (FStrProperty* StrProperty = CastField<FStrProperty>(LeafProperty))
+    {
+        OutValue = StrProperty->GetPropertyValue(ValuePtr);
+        OutText = OutValue;
+        return true;
+    }
+
+    if (FNameProperty* NameProperty = CastField<FNameProperty>(LeafProperty))
+    {
+        OutValue = NameProperty->GetPropertyValue(ValuePtr).ToString();
+        OutText = OutValue;
+        return true;
+    }
+
+    if (FTextProperty* TextProperty = CastField<FTextProperty>(LeafProperty))
+    {
+        OutValue = TextProperty->GetPropertyValue(ValuePtr).ToString();
+        OutText = OutValue;
+        return true;
+    }
+
+    if (FEnumProperty* EnumProperty = CastField<FEnumProperty>(LeafProperty))
+    {
+        const int64 EnumValue = EnumProperty->GetUnderlyingProperty()->GetSignedIntPropertyValue(ValuePtr);
+        const UEnum* Enum = EnumProperty->GetEnum();
+        OutValue = LexToString(EnumValue);
+        OutText = Enum ? Enum->GetNameStringByValue(EnumValue) : OutValue;
+        return true;
+    }
+
+    if (FByteProperty* ByteProperty = CastField<FByteProperty>(LeafProperty))
+    {
+        const uint8 ByteValue = ByteProperty->GetPropertyValue(ValuePtr);
+        OutValue = LexToString(ByteValue);
+        OutText = ByteProperty->Enum ? ByteProperty->Enum->GetNameStringByValue(ByteValue) : OutValue;
+        return true;
+    }
+
+    if (FSoftObjectProperty* SoftObjectProperty = CastField<FSoftObjectProperty>(LeafProperty))
+    {
+        const FSoftObjectPath ObjectPath = SoftObjectProperty->GetPropertyValue_InContainer(Container).ToSoftObjectPath();
+        OutValue = ObjectPath.IsNull() ? FString() : ObjectPath.GetAssetPathString();
+        OutText = OutValue;
+        return true;
+    }
+
+    if (FObjectPropertyBase* ObjectProperty = CastField<FObjectPropertyBase>(LeafProperty))
+    {
+        UObject* ObjectValue = ObjectProperty->GetObjectPropertyValue_InContainer(Container);
+        if (ObjectValue == nullptr)
+        {
+            return true;
+        }
+
+        UPackage* Package = ObjectValue->GetPackage();
+        OutValue = Package ? Package->GetPathName() : ObjectValue->GetPathName();
+        OutText = OutValue;
+        return true;
+    }
+
+    if (FStructProperty* StructProperty = CastField<FStructProperty>(LeafProperty))
+    {
+        if (IsPcgSelectorStruct(StructProperty->Struct))
+        {
+            const FPCGAttributePropertySelector* Selector = reinterpret_cast<const FPCGAttributePropertySelector*>(ValuePtr);
+            OutValue = Selector ? Selector->ToString() : FString();
+            OutText = OutValue;
+            return true;
+        }
+    }
+
+    LeafProperty->ExportTextItem_Direct(OutValue, ValuePtr, nullptr, nullptr, PPF_None);
+    OutText = OutValue;
+    return true;
+}
+
+bool TryReadPcgPropertyValueToString(void* Container, FProperty* LeafProperty, FString& OutValue)
+{
+    FString IgnoredText;
+    return TryReadPcgPropertyValueForQuery(Container, LeafProperty, OutValue, IgnoredText);
+}
+
+bool TryReadPcgOverridableValueToString(
+    UPCGSettings* Settings,
+    const FPCGSettingsOverridableParam& Param,
+    FString& OutValue,
+    FString& OutError)
+{
+    void* Container = nullptr;
+    FProperty* LeafProperty = nullptr;
+    if (!ResolvePcgOverridableValueTarget(Settings, Param, Container, LeafProperty, OutError))
+    {
+        return false;
+    }
+
+    return TryReadPcgPropertyValueToString(Container, LeafProperty, OutValue);
+}
+
+bool TryReadPcgOverridableValueForQuery(
+    UPCGSettings* Settings,
+    const FPCGSettingsOverridableParam& Param,
+    FString& OutValue,
+    FString& OutText,
+    FString& OutError)
+{
+    void* Container = nullptr;
+    FProperty* LeafProperty = nullptr;
+    if (!ResolvePcgOverridableValueTarget(Settings, Param, Container, LeafProperty, OutError))
+    {
+        return false;
+    }
+
+    return TryReadPcgPropertyValueForQuery(Container, LeafProperty, OutValue, OutText);
+}
+
+bool TryReadPcgPinDefaultValueForQuery(UPCGNode* Node, const FString& PinName, FString& OutValue, FString& OutText)
+{
+    OutValue.Empty();
+    OutText.Empty();
+    if (Node == nullptr || PinName.IsEmpty())
+    {
+        return false;
+    }
+
+    UPCGSettings* Settings = Node->GetSettings();
+    if (Settings == nullptr)
+    {
+        return false;
+    }
+
+    if (UPCGPin* TargetPin = FindPcgPin(Node, PinName, false))
+    {
+        const FPCGSettingsOverridableParam* Param = FindPcgOverridableParamByPinLabel(Settings, TargetPin->Properties.Label);
+        if (Param != nullptr)
+        {
+            FString ReadError;
+            if (TryReadPcgOverridableValueForQuery(Settings, *Param, OutValue, OutText, ReadError))
+            {
+                return true;
+            }
+        }
+    }
+
+    FPcgQuerySyntheticTarget SyntheticTarget;
+    if (FindPcgSyntheticPropertyTargetForQuery(Settings, PinName, SyntheticTarget))
+    {
+        OutValue = SyntheticTarget.DefaultValue;
+        OutText = SyntheticTarget.DefaultText;
+        return true;
+    }
+
+    TArray<FString> PathSegments;
+    PinName.ParseIntoArray(PathSegments, TEXT("/"), true);
+    if (PathSegments.Num() == 0)
+    {
+        return false;
+    }
+
+    void* Container = nullptr;
+    FProperty* LeafProperty = nullptr;
+    FString ResolveError;
+    if (!ResolvePcgPropertyPathTarget(Settings, Settings->GetClass(), PathSegments, Container, LeafProperty, ResolveError))
+    {
+        return false;
+    }
+
+    return TryReadPcgPropertyValueForQuery(Container, LeafProperty, OutValue, OutText);
+}
+
+bool TryReadPcgPinDefaultValue(UPCGNode* Node, const FString& PinName, FString& OutValue)
+{
+    FString IgnoredText;
+    return TryReadPcgPinDefaultValueForQuery(Node, PinName, OutValue, IgnoredText);
+}
+
+TSharedPtr<FJsonObject> BuildPcgSetPinDefaultDiagnostics(UPCGNode* Node, const FString& RequestedPinName)
+{
+    TSharedPtr<FJsonObject> Details = MakeShared<FJsonObject>();
+    if (!RequestedPinName.IsEmpty())
+    {
+        Details->SetStringField(TEXT("requestedPin"), RequestedPinName);
+    }
+
+    TArray<TSharedPtr<FJsonValue>> ExpectedTargetForms;
+    ExpectedTargetForms.Add(MakeShared<FJsonValueString>(TEXT("args.target.nodeId + args.target.pin")));
+    ExpectedTargetForms.Add(MakeShared<FJsonValueString>(TEXT("args.target.nodeRef + args.target.pin")));
+    ExpectedTargetForms.Add(MakeShared<FJsonValueString>(TEXT("args.target.nodePath + args.target.pin")));
+    ExpectedTargetForms.Add(MakeShared<FJsonValueString>(TEXT("args.target.path + args.target.pin")));
+    Details->SetArrayField(TEXT("expectedTargetForms"), ExpectedTargetForms);
+
+    TArray<TSharedPtr<FJsonValue>> CandidatePins;
+    TSet<FString> EmittedPins;
+    auto AddCandidatePin = [&CandidatePins, &EmittedPins](const FString& PinName, const bool bConnected, const bool bSyntheticDefaultTarget)
+    {
+        if (PinName.IsEmpty() || EmittedPins.Contains(PinName))
+        {
+            return;
+        }
+
+        EmittedPins.Add(PinName);
+        TSharedPtr<FJsonObject> Candidate = MakeShared<FJsonObject>();
+        Candidate->SetStringField(TEXT("pinName"), PinName);
+        Candidate->SetBoolField(TEXT("connected"), bConnected);
+        Candidate->SetBoolField(TEXT("isSyntheticDefaultTarget"), bSyntheticDefaultTarget);
+        CandidatePins.Add(MakeShared<FJsonValueObject>(Candidate));
+    };
+
+    if (Node != nullptr)
+    {
+        for (UPCGPin* InputPin : Node->GetInputPins())
+        {
+            if (InputPin == nullptr)
+            {
+                continue;
+            }
+
+            AddCandidatePin(InputPin->Properties.Label.ToString(), InputPin->IsConnected(), false);
+        }
+
+        if (UPCGSettings* Settings = Node->GetSettings())
+        {
+            TArray<FPcgQuerySyntheticTarget> SyntheticTargets;
+            GatherPcgSyntheticPropertyTargetsForQuery(Settings, SyntheticTargets);
+            for (const FPcgQuerySyntheticTarget& SyntheticTarget : SyntheticTargets)
+            {
+                AddCandidatePin(SyntheticTarget.PinName, false, true);
+            }
+        }
+    }
+
+    Details->SetArrayField(TEXT("candidatePins"), CandidatePins);
+    return Details;
+}
+
+bool SetPcgPinDefaultValue(UPCGNode* Node, const FString& PinName, const FString& Value, FString& OutError, const bool bApplyChange = true)
 {
     if (Node == nullptr)
     {
@@ -1570,6 +2072,16 @@ bool SetPcgPinDefaultValue(UPCGNode* Node, const FString& PinName, const FString
         return false;
     }
 
+    if (!bApplyChange)
+    {
+        Settings = DuplicateObject<UPCGSettings>(Settings, GetTransientPackage());
+        if (Settings == nullptr)
+        {
+            OutError = TEXT("Failed to create a temporary PCG settings copy for validation.");
+            return false;
+        }
+    }
+
     if (TargetPin != nullptr)
     {
         const FName PinLabel = TargetPin->Properties.Label;
@@ -1577,7 +2089,10 @@ bool SetPcgPinDefaultValue(UPCGNode* Node, const FString& PinName, const FString
         {
             if (DefaultValueProvider->IsPinDefaultValueEnabled(PinLabel))
             {
-                Settings->Modify();
+                if (bApplyChange)
+                {
+                    Settings->Modify();
+                }
                 DefaultValueProvider->SetPinDefaultValue(PinLabel, Value, true);
                 if (!DefaultValueProvider->IsPinDefaultValueActivated(PinLabel))
                 {
@@ -1590,15 +2105,21 @@ bool SetPcgPinDefaultValue(UPCGNode* Node, const FString& PinName, const FString
         const FPCGSettingsOverridableParam* Param = FindPcgOverridableParamByPinLabel(Settings, PinLabel);
         if (Param != nullptr)
         {
-            Settings->Modify();
+            if (bApplyChange)
+            {
+                Settings->Modify();
+            }
             if (!SetPcgOverridableValueFromString(Settings, *Param, Value, OutError))
             {
                 return false;
             }
 
+            if (bApplyChange)
+            {
 #if WITH_EDITOR
-            Settings->OnSettingsChangedDelegate.Broadcast(Settings, EPCGChangeType::Settings);
+                Settings->OnSettingsChangedDelegate.Broadcast(Settings, EPCGChangeType::Settings);
 #endif
+            }
             return true;
         }
     }
@@ -1622,15 +2143,21 @@ bool SetPcgPinDefaultValue(UPCGNode* Node, const FString& PinName, const FString
         return false;
     }
 
-    Settings->Modify();
+    if (bApplyChange)
+    {
+        Settings->Modify();
+    }
     if (!SetPcgPropertyValueFromString(Settings, PinName, Container, LeafProperty, Value, OutError))
     {
         return false;
     }
 
+    if (bApplyChange)
+    {
 #if WITH_EDITOR
-    Settings->OnSettingsChangedDelegate.Broadcast(Settings, EPCGChangeType::Settings);
+        Settings->OnSettingsChangedDelegate.Broadcast(Settings, EPCGChangeType::Settings);
 #endif
+    }
     return true;
 }
 
