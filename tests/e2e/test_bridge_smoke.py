@@ -92,10 +92,10 @@ EXPECTED_WORKSPACE_CATALOGS = {
 
 EXPECTED_PCG_PLAN_SUMMARY = {
     "totalNodes": 178,
-    "readyAutoCases": 159,
+    "readyAutoCases": 158,
     "readyRecipeCases": 9,
     "workflowOnly": 6,
-    "inventoryOnly": 0,
+    "inventoryOnly": 1,
     "blocked": 4,
 }
 
@@ -970,6 +970,11 @@ def validate_generated_pcg_test_plan() -> None:
         _require(subgraph.get("mode") == "blocked", f"pcg subgraph mode mismatch: {subgraph}")
         _require(subgraph.get("status") == "blocked", f"pcg subgraph status mismatch: {subgraph}")
         _require("missing recipe" in str(subgraph.get("reason")), f"pcg subgraph reason mismatch: {subgraph}")
+
+        deprecated_grass = entry_by_class.get("UDEPRECATED_PCGGenerateGrassMapsSettings")
+        _require(isinstance(deprecated_grass, dict), "pcg plan missing UDEPRECATED_PCGGenerateGrassMapsSettings")
+        _require(deprecated_grass.get("mode") == "inventory", f"pcg deprecated grass mode mismatch: {deprecated_grass}")
+        _require(deprecated_grass.get("status") == "inventory_only", f"pcg deprecated grass status mismatch: {deprecated_grass}")
 
         print("[PASS] generated PCG test plan validated")
 

@@ -465,15 +465,60 @@ def derive_pcg_testing(entry: dict) -> dict:
         return testing
     if class_name == "UPCGAttributeFilteringRangeSettings":
         testing["profile"] = "dynamic_pin_probe"
-        testing["focus"] = {"dynamicTriggers": ["MinThreshold", "MaxThreshold"]}
+        testing["focus"] = {
+            "dynamicTriggers": [
+                "MinThreshold/bUseConstantThreshold",
+                "MaxThreshold/bUseConstantThreshold",
+            ]
+        }
         return testing
     if class_name == "UPCGFilterElementsByIndexSettings":
-        testing["profile"] = "dynamic_pin_probe"
-        testing["focus"] = {"dynamicTriggers": ["bSelectIndicesByInput"]}
+        testing["profile"] = "read_write_roundtrip"
+        testing["focus"] = {"fields": ["SelectedIndices", "bInvertFilter"]}
         return testing
     if class_name == "UPCGFilterByIndexSettings":
         testing["profile"] = "read_write_roundtrip"
         testing["focus"] = {"fields": ["SelectedIndices", "bInvertFilter"]}
+        return testing
+    if class_name == "UPCGCreateTargetActor":
+        testing["profile"] = "read_write_roundtrip"
+        testing["focus"] = {"fields": ["bDeleteActorsBeforeGeneration", "CommaSeparatedActorTags"]}
+        return testing
+    if class_name == "UPCGCreatePointsGridSettings":
+        testing["profile"] = "read_write_roundtrip"
+        testing["focus"] = {"fields": ["CoordinateSpace", "bCullPointsOutsideVolume"]}
+        return testing
+    if class_name == "UPCGLoadDataAssetSettings":
+        testing["profile"] = "read_write_roundtrip"
+        testing["focus"] = {"fields": ["bWarnIfNoAsset", "bSynchronousLoad"]}
+        return testing
+    if class_name == "UPCGAttributeRemoveDuplicatesSettings":
+        testing["profile"] = "construct_and_query"
+        testing["reason"] = "Accessible settings truth is selector-backed rather than simple scalar roundtrip."
+        return testing
+    if class_name == "UPCGMetadataPartitionSettings":
+        testing["profile"] = "construct_and_query"
+        testing["reason"] = "Accessible settings truth is selector-backed rather than simple scalar roundtrip."
+        return testing
+    if class_name == "UPCGCollapsePointsSettings":
+        testing["profile"] = "read_write_roundtrip"
+        testing["focus"] = {"fields": ["DistanceThreshold", "bUseMergeWeightAttribute"]}
+        return testing
+    if class_name == "UPCGPrintElementSettings":
+        testing["profile"] = "read_write_roundtrip"
+        testing["focus"] = {"fields": ["PrintString", "bDisplayOnNode"]}
+        return testing
+    if class_name == "UPCGHiGenGridSizeSettings":
+        testing["profile"] = "construct_and_query"
+        testing["reason"] = "Current graph default-setting path cannot reliably drive this enum-backed setting."
+        return testing
+    if class_name == "UPCGResetPointCenterSettings":
+        testing["profile"] = "construct_and_query"
+        testing["reason"] = "Current graph default-setting path cannot reliably drive this vector-backed setting."
+        return testing
+    if class_name == "UDEPRECATED_PCGGenerateGrassMapsSettings":
+        testing["profile"] = "inventory_only"
+        testing["reason"] = "Deprecated settings class is not valid for direct node construction."
         return testing
 
     recipe = derive_pcg_recipe(entry, family)

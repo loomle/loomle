@@ -26,7 +26,7 @@ sys.path.insert(0, str(REPO_ROOT / "tools"))
 from generate_graph_test_plan import build_plan  # noqa: E402
 
 GRAPH_NAME = "PCGGraph"
-SUPPORTED_ROUNDTRIP_TYPES = {"bool", "int32", "int", "float", "double", "FString", "FName"}
+SUPPORTED_ROUNDTRIP_TYPES = {"bool", "int32", "int", "float", "double", "FString", "FName", "enum"}
 SUPPORTED_DYNAMIC_TRIGGER_TYPES = {"bool", "int32", "int", "float", "double", "FString", "FName"}
 
 
@@ -90,7 +90,27 @@ def property_candidates(field_name: str) -> list[str]:
     return candidates
 
 
+def normalized_cpp_type_for_field(field_name: str, properties_by_name: dict[str, dict[str, Any]]) -> str:
+    prop = properties_by_name.get(field_name)
+    cpp_type = prop.get("cppType") if isinstance(prop, dict) else ""
+    if isinstance(cpp_type, str) and cpp_type:
+        return cpp_type
+
+    if "/" in field_name:
+        leaf = field_name.rsplit("/", 1)[-1]
+        leaf_prop = properties_by_name.get(leaf)
+        leaf_cpp_type = leaf_prop.get("cppType") if isinstance(leaf_prop, dict) else ""
+        if isinstance(leaf_cpp_type, str) and leaf_cpp_type:
+            return leaf_cpp_type
+        if leaf.startswith("b"):
+            return "bool"
+
+    return ""
+
+
 def sample_value_for_type(cpp_type: str, field_name: str) -> Any | None:
+    if cpp_type.startswith("E"):
+        return 1
     if cpp_type == "bool":
         return True
     if cpp_type in {"int32", "int"}:
@@ -251,6 +271,9 @@ def read_back_fields(
             "def normalize(value):\n"
             "    if isinstance(value, (bool, int, float, str)):\n"
             "        return value\n"
+            "    enum_value = getattr(value, 'value', None)\n"
+            "    if isinstance(enum_value, (bool, int, float, str)):\n"
+            "        return enum_value\n"
             "    return str(value)\n"
             "out = {'ok': True, 'fields': {}}\n"
             "for spec in field_specs:\n"
@@ -305,6 +328,7 @@ def execute_roundtrip_case(
             {
                 "field": field,
                 "cppType": cpp_type,
+                "normalizedCppType": "enum" if isinstance(cpp_type, str) and cpp_type.startswith("E") else cpp_type,
                 "sample": sample,
                 "candidates": property_candidates(field),
             }
@@ -341,7 +365,13 @@ def execute_roundtrip_case(
             continue
         expected = spec["sample"]
         actual_value = actual.get("value")
-        if isinstance(expected, float):
+        if spec.get("normalizedCppType") == "enum":
+            try:
+                if int(actual_value) != int(expected):
+                    mismatches.append(spec["field"])
+            except Exception:
+                mismatches.append(spec["field"])
+        elif isinstance(expected, float):
             try:
                 if abs(float(actual_value) - expected) > 1e-6:
                     mismatches.append(spec["field"])
@@ -376,9 +406,8 @@ def execute_dynamic_case(
     supported: list[dict[str, Any]] = []
     skipped_triggers: list[str] = []
     for trigger in triggers:
-        prop = properties_by_name.get(trigger)
-        cpp_type = prop.get("cppType") if isinstance(prop, dict) else ""
-        sample = sample_value_for_type(cpp_type or "", trigger)
+        cpp_type = normalized_cpp_type_for_field(trigger, properties_by_name)
+        sample = sample_value_for_type(cpp_type, trigger)
         if sample is None:
             skipped_triggers.append(trigger)
             continue

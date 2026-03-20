@@ -27,11 +27,12 @@
       "route": 3
     },
     "testingProfileCounts": {
-      "construct_and_query": 62,
-      "read_write_roundtrip": 103,
-      "dynamic_pin_probe": 3,
+      "construct_and_query": 65,
+      "read_write_roundtrip": 100,
+      "dynamic_pin_probe": 2,
       "context_recipe_required": 4,
-      "semantic_family_represented": 6
+      "semantic_family_represented": 6,
+      "inventory_only": 1
     },
     "sourceGroups": {
       "Elements": 173,
@@ -1065,13 +1066,8 @@
         }
       ],
       "testing": {
-        "profile": "read_write_roundtrip",
-        "focus": {
-          "fields": [
-            "PartitionAttributeNames",
-            "bAssignIndexPartition"
-          ]
-        }
+        "profile": "construct_and_query",
+        "reason": "Accessible settings truth is selector-backed rather than simple scalar roundtrip."
       }
     },
     {
@@ -1116,12 +1112,8 @@
         }
       ],
       "testing": {
-        "profile": "read_write_roundtrip",
-        "focus": {
-          "fields": [
-            "AttributeNamesToRemoveDuplicates"
-          ]
-        }
+        "profile": "construct_and_query",
+        "reason": "Accessible settings truth is selector-backed rather than simple scalar roundtrip."
       }
     },
     {
@@ -1696,7 +1688,7 @@
         "focus": {
           "fields": [
             "DistanceThreshold",
-            "Mode"
+            "bUseMergeWeightAttribute"
           ]
         }
       }
@@ -2304,7 +2296,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "CellSize"
+            "CoordinateSpace",
+            "bCullPointsOutsideVolume"
           ]
         }
       }
@@ -3867,8 +3860,8 @@
         "profile": "dynamic_pin_probe",
         "focus": {
           "dynamicTriggers": [
-            "MinThreshold",
-            "MaxThreshold"
+            "MinThreshold/bUseConstantThreshold",
+            "MaxThreshold/bUseConstantThreshold"
           ]
         }
       }
@@ -3952,10 +3945,11 @@
         }
       ],
       "testing": {
-        "profile": "dynamic_pin_probe",
+        "profile": "read_write_roundtrip",
         "focus": {
-          "dynamicTriggers": [
-            "bSelectIndicesByInput"
+          "fields": [
+            "SelectedIndices",
+            "bInvertFilter"
           ]
         }
       }
@@ -6186,7 +6180,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "CommaSeparatedDefaultAttributeOverrides"
+            "bWarnIfNoAsset",
+            "bSynchronousLoad"
           ]
         }
       }
@@ -7232,7 +7227,7 @@
         "focus": {
           "fields": [
             "PrintString",
-            "Verbosity"
+            "bDisplayOnNode"
           ]
         }
       }
@@ -7360,12 +7355,8 @@
         }
       ],
       "testing": {
-        "profile": "read_write_roundtrip",
-        "focus": {
-          "fields": [
-            "PointCenterLocation"
-          ]
-        }
+        "profile": "construct_and_query",
+        "reason": "Current graph default-setting path cannot reliably drive this vector-backed setting."
       }
     },
     {
@@ -9220,8 +9211,8 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "construct_and_query",
-        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
+        "profile": "inventory_only",
+        "reason": "Deprecated settings class is not valid for direct node construction."
       }
     },
     {
@@ -10210,7 +10201,7 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "ActorLabel",
+            "bDeleteActorsBeforeGeneration",
             "CommaSeparatedActorTags"
           ]
         }
@@ -11522,12 +11513,8 @@
         }
       ],
       "testing": {
-        "profile": "read_write_roundtrip",
-        "focus": {
-          "fields": [
-            "HiGenGridSize"
-          ]
-        }
+        "profile": "construct_and_query",
+        "reason": "Current graph default-setting path cannot reliably drive this enum-backed setting."
       }
     },
     {
