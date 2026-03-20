@@ -432,6 +432,21 @@ def pick_pcg_workflow_families(entry: dict, family: str) -> list[str]:
     return []
 
 
+def pick_pcg_selector_fields(entry: dict) -> list[str]:
+    class_name = entry["className"]
+    if class_name == "UPCGFilterByAttributeSettings":
+        return ["TargetAttribute"]
+    if class_name == "UPCGGetActorPropertySettings":
+        return ["ActorSelector", "OutputAttributeName"]
+    if class_name == "UPCGStaticMeshSpawnerSettings":
+        return ["MeshSelectorParameters"]
+    if class_name == "UPCGAttributeRemoveDuplicatesSettings":
+        return ["AttributeSelectors"]
+    if class_name == "UPCGMetadataPartitionSettings":
+        return ["PartitionAttributeSelectors"]
+    return []
+
+
 def derive_pcg_recipe(entry: dict, family: str) -> str | None:
     class_name = entry["className"]
     if class_name in {
@@ -495,11 +510,9 @@ def derive_pcg_testing(entry: dict) -> dict:
     if class_name == "UPCGAttributeRemoveDuplicatesSettings":
         testing["profile"] = "construct_and_query"
         testing["reason"] = "Accessible settings truth is selector-backed rather than simple scalar roundtrip."
-        return testing
     if class_name == "UPCGMetadataPartitionSettings":
         testing["profile"] = "construct_and_query"
         testing["reason"] = "Accessible settings truth is selector-backed rather than simple scalar roundtrip."
-        return testing
     if class_name == "UPCGCollapsePointsSettings":
         testing["profile"] = "read_write_roundtrip"
         testing["focus"] = {"fields": ["DistanceThreshold", "bUseMergeWeightAttribute"]}
@@ -548,6 +561,10 @@ def derive_pcg_testing(entry: dict) -> dict:
         workflows = pick_pcg_workflow_families(entry, family)
         if workflows:
             focus["workflowFamilies"] = workflows
+    selector_fields = pick_pcg_selector_fields(entry)
+    if selector_fields:
+        focus["selectorFields"] = selector_fields
+        testing.setdefault("reason", "Structured selector truth should be validated separately from scalar roundtrip fields.")
     if focus:
         testing["focus"] = focus
     return testing

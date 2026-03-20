@@ -65,7 +65,7 @@ def normalize_focus(testing: dict[str, Any]) -> dict[str, Any]:
         return {}
 
     normalized: dict[str, Any] = {}
-    for key in ("fields", "dynamicTriggers", "workflowFamilies"):
+    for key in ("fields", "dynamicTriggers", "selectorFields", "workflowFamilies"):
         value = focus.get(key)
         if isinstance(value, list) and value:
             normalized[key] = value

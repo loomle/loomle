@@ -99,6 +99,12 @@ So the framework can say not just that `graph.query` is weak, but exactly how it
 
 After one graph type reaches that depth, Phase 4 scales the same testing patterns into other graph types and long-tail serializer surfaces without relaxing the stronger signal model.
 
+Phase 4 should also add a distinct structured-selector layer:
+
+- selector-backed fields should not be treated as ordinary scalar roundtrip fields
+- the framework should separately track whether selector shape is surfaced
+- the framework should separately track whether selector semantics survive read/write roundtrip
+
 ## The Six Test Methods
 
 These are the primary testing methods. Not every node should use every method.
@@ -237,6 +243,7 @@ Owns:
 - source/filter/route/spawn recipes
 - selector and synthetic pin validation
 - settings truth vs query truth comparisons
+- selector-truth classification for selector-backed fields such as attribute selectors, actor selectors, and mesh selectors
 - strict query-truth assertions when generated cases can prove Unreal-side truth but `graph.query` does not surface it
 - workflow-truth suites that exercise insert/replace/preserve-interface edits over live PCG pipelines
 

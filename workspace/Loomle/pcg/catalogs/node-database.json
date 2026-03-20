@@ -1067,7 +1067,16 @@
       ],
       "testing": {
         "profile": "construct_and_query",
-        "reason": "Accessible settings truth is selector-backed rather than simple scalar roundtrip."
+        "reason": "Accessible settings truth is selector-backed rather than simple scalar roundtrip.",
+        "focus": {
+          "fields": [
+            "PartitionAttributeNames",
+            "bAssignIndexPartition"
+          ],
+          "selectorFields": [
+            "PartitionAttributeSelectors"
+          ]
+        }
       }
     },
     {
@@ -1113,7 +1122,15 @@
       ],
       "testing": {
         "profile": "construct_and_query",
-        "reason": "Accessible settings truth is selector-backed rather than simple scalar roundtrip."
+        "reason": "Accessible settings truth is selector-backed rather than simple scalar roundtrip.",
+        "focus": {
+          "fields": [
+            "AttributeNamesToRemoveDuplicates"
+          ],
+          "selectorFields": [
+            "AttributeSelectors"
+          ]
+        }
       }
     },
     {
@@ -4651,7 +4668,13 @@
       "testing": {
         "profile": "construct_and_query",
         "recipe": "pcg_actor_source_context",
-        "reason": "Depends on world or actor-backed source context."
+        "reason": "Depends on world or actor-backed source context.",
+        "focus": {
+          "selectorFields": [
+            "ActorSelector",
+            "OutputAttributeName"
+          ]
+        }
       }
     },
     {
@@ -11061,10 +11084,14 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "reason": "Structured selector truth should be validated separately from scalar roundtrip fields.",
         "focus": {
           "fields": [
             "FilterMode",
             "Operator"
+          ],
+          "selectorFields": [
+            "TargetAttribute"
           ]
         }
       }
@@ -13538,7 +13565,13 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "reason": "Structured selector truth should be validated separately from scalar roundtrip fields.",
+        "focus": {
+          "selectorFields": [
+            "MeshSelectorParameters"
+          ]
+        }
       }
     },
     {

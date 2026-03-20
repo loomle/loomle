@@ -203,6 +203,7 @@ The first version should only allow:
 
 - `fields`
 - `dynamicTriggers`
+- `selectorFields`
 - `workflowFamilies`
 
 Examples:
@@ -216,6 +217,12 @@ Examples:
 ```json
 {
   "dynamicTriggers": ["bUseConstantThreshold"]
+}
+```
+
+```json
+{
+  "selectorFields": ["TargetAttribute"]
 }
 ```
 

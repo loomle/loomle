@@ -86,6 +86,7 @@ Examples:
 
 - `fields`
 - `dynamicTriggers`
+- `selectorFields`
 - `workflowFamilies`
 
 ### `reason`
@@ -119,7 +120,8 @@ Use sparingly.
   "testing": {
     "profile": "read_write_roundtrip",
     "focus": {
-      "fields": ["radius"]
+      "fields": ["radius"],
+      "selectorFields": ["TargetAttribute"]
     }
   }
 }

@@ -990,6 +990,30 @@ def validate_generated_pcg_test_plan() -> None:
         _require(console_variable.get("recipe") is None, f"pcg console-variable recipe mismatch: {console_variable}")
         _require(console_variable.get("status") == "ready", f"pcg console-variable status mismatch: {console_variable}")
 
+        filter_by_attribute = entry_by_class.get("UPCGFilterByAttributeSettings")
+        _require(isinstance(filter_by_attribute, dict), "pcg plan missing UPCGFilterByAttributeSettings")
+        _require(
+            isinstance(filter_by_attribute.get("focus"), dict)
+            and filter_by_attribute["focus"].get("selectorFields") == ["TargetAttribute"],
+            f"pcg FilterByAttribute selectorFields mismatch: {filter_by_attribute}",
+        )
+
+        get_actor_property = entry_by_class.get("UPCGGetActorPropertySettings")
+        _require(isinstance(get_actor_property, dict), "pcg plan missing UPCGGetActorPropertySettings")
+        _require(
+            isinstance(get_actor_property.get("focus"), dict)
+            and get_actor_property["focus"].get("selectorFields") == ["ActorSelector", "OutputAttributeName"],
+            f"pcg GetActorProperty selectorFields mismatch: {get_actor_property}",
+        )
+
+        static_mesh_spawner = entry_by_class.get("UPCGStaticMeshSpawnerSettings")
+        _require(isinstance(static_mesh_spawner, dict), "pcg plan missing UPCGStaticMeshSpawnerSettings")
+        _require(
+            isinstance(static_mesh_spawner.get("focus"), dict)
+            and static_mesh_spawner["focus"].get("selectorFields") == ["MeshSelectorParameters"],
+            f"pcg StaticMeshSpawner selectorFields mismatch: {static_mesh_spawner}",
+        )
+
         branch = entry_by_class.get("UPCGBranchSettings")
         _require(isinstance(branch, dict), "pcg plan missing UPCGBranchSettings")
         _require(branch.get("mode") == "workflow_map", f"pcg branch mode mismatch: {branch}")
