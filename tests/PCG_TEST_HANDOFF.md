@@ -8,12 +8,13 @@ It is intentionally short and action-oriented.
 
 The PCG test system is now strong enough to drive product work directly.
 
-It covers four complementary surfaces:
+It covers five complementary surfaces:
 
 - node-plan coverage
 - workflow truth coverage
 - negative and boundary coverage
 - stability and repeatability coverage
+- selector truth coverage
 
 The current system is designed to expose real product gaps, not just smoke-level breakage.
 
@@ -70,13 +71,14 @@ If you only want one quick readiness check, run:
 python3 /Users/xartest/dev/loomle/tests/e2e/test_bridge_smoke.py --project-root /Users/xartest/dev/LoomleDevHost
 ```
 
-If you want the real PCG product-facing signals, run these four suites:
+If you want the real PCG product-facing signals, run these five suites:
 
 ```bash
 python3 /Users/xartest/dev/loomle/tools/run_pcg_graph_test_plan.py --project-root /Users/xartest/dev/LoomleDevHost
 python3 /Users/xartest/dev/loomle/tools/run_pcg_workflow_truth_suite.py --project-root /Users/xartest/dev/LoomleDevHost
 python3 /Users/xartest/dev/loomle/tools/run_pcg_negative_boundary_suite.py --project-root /Users/xartest/dev/LoomleDevHost
 python3 /Users/xartest/dev/loomle/tools/run_pcg_stability_suite.py --project-root /Users/xartest/dev/LoomleDevHost
+python3 /Users/xartest/dev/loomle/tools/run_pcg_selector_truth_suite.py --project-root /Users/xartest/dev/LoomleDevHost
 ```
 
 If you want JSON artifacts for inspection or sharing, add `--output <path>.json`.
@@ -117,6 +119,17 @@ Across families including:
 - `branch`
 - `create`
 
+## Current Selector Truth Coverage
+
+The selector suite currently covers:
+
+- plain attribute selectors surfaced through writable pin defaults
+- property-accessor selectors such as `Position.Z`
+- actor-selector structure surfaced through `effectiveSettings`
+- mesh-selector structure surfaced through `effectiveSettings`
+
+This means selector-backed PCG fields are now tested as a dedicated class instead of being treated as scalar one-off cases.
+
 ## How To Read Failures
 
 ### If workflow truth fails with `query_truth_unsurfaced`
@@ -147,6 +160,13 @@ Interpret that as:
 
 - the signal itself is drifting across repeated reads, repeated verify calls, or fresh sessions
 
+### If selector truth suite fails
+
+Interpret that as:
+
+- the product and `graph.query` disagree on selector semantics
+- or selector structure is not being surfaced deeply enough for automation to trust it
+
 ## Key Files
 
 Execution:
@@ -155,6 +175,7 @@ Execution:
 - [run_pcg_workflow_truth_suite.py](/Users/xartest/dev/loomle/tools/run_pcg_workflow_truth_suite.py)
 - [run_pcg_negative_boundary_suite.py](/Users/xartest/dev/loomle/tools/run_pcg_negative_boundary_suite.py)
 - [run_pcg_stability_suite.py](/Users/xartest/dev/loomle/tools/run_pcg_stability_suite.py)
+- [run_pcg_selector_truth_suite.py](/Users/xartest/dev/loomle/tools/run_pcg_selector_truth_suite.py)
 
 Design context:
 

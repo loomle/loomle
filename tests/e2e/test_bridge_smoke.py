@@ -133,6 +133,13 @@ EXPECTED_PCG_STABILITY_SUITE_SUMMARY = {
     "families": ["create", "meta", "route", "sample", "source", "spawn", "transform"],
 }
 
+EXPECTED_PCG_SELECTOR_SUITE_SUMMARY = {
+    "totalCases": 4,
+    "worldContextCases": 1,
+    "selectorFields": ["ActorSelector", "MeshSelectorParameters", "OutputAttributeName", "TargetAttribute"],
+    "querySurfaceKinds": ["effective_settings", "pin_default"],
+}
+
 
 def _require(condition: bool, message: str) -> None:
     if not condition:
@@ -1380,6 +1387,62 @@ def validate_generated_pcg_stability_suite() -> None:
     print("[PASS] generated PCG stability suite validated")
 
 
+def validate_generated_pcg_selector_truth_suite() -> None:
+    payload = subprocess.check_output(
+        [
+            sys.executable,
+            str(TOOLS_DIR / "run_pcg_selector_truth_suite.py"),
+            "--list-cases",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+    )
+    report = json.loads(payload)
+    _require(report.get("version") == "1", f"pcg selector suite version mismatch: {report}")
+    _require(report.get("graphType") == "pcg", f"pcg selector suite graphType mismatch: {report}")
+    _require(report.get("suite") == "selector_truth", f"pcg selector suite name mismatch: {report}")
+    summary = report.get("summary")
+    _require(summary == EXPECTED_PCG_SELECTOR_SUITE_SUMMARY, f"pcg selector suite summary mismatch: {summary}")
+    cases = report.get("cases")
+    _require(isinstance(cases, list) and len(cases) == EXPECTED_PCG_SELECTOR_SUITE_SUMMARY["totalCases"], "pcg selector suite cases mismatch")
+    case_by_id = {
+        case.get("id"): case
+        for case in cases
+        if isinstance(case, dict) and isinstance(case.get("id"), str)
+    }
+
+    attribute_case = case_by_id.get("filter_by_attribute_attribute_selector")
+    _require(isinstance(attribute_case, dict), "pcg selector suite missing attribute selector case")
+    _require(attribute_case.get("fixture") == "pcg_graph", f"pcg selector attribute fixture mismatch: {attribute_case}")
+    _require(attribute_case.get("families") == ["filter", "route"], f"pcg selector attribute families mismatch: {attribute_case}")
+    _require(attribute_case.get("selectorFields") == ["TargetAttribute"], f"pcg selector attribute fields mismatch: {attribute_case}")
+    _require(attribute_case.get("querySurfaceKind") == "pin_default", f"pcg selector attribute surface kind mismatch: {attribute_case}")
+
+    property_case = case_by_id.get("filter_by_attribute_property_selector")
+    _require(isinstance(property_case, dict), "pcg selector suite missing property selector case")
+    _require(property_case.get("selectorFields") == ["TargetAttribute"], f"pcg selector property fields mismatch: {property_case}")
+    _require(property_case.get("querySurfaceKind") == "pin_default", f"pcg selector property surface kind mismatch: {property_case}")
+
+    actor_case = case_by_id.get("get_actor_property_selector_surface")
+    _require(isinstance(actor_case, dict), "pcg selector suite missing actor selector case")
+    _require(actor_case.get("fixture") == "pcg_graph_with_world_actor", f"pcg selector actor fixture mismatch: {actor_case}")
+    _require(actor_case.get("families") == ["source"], f"pcg selector actor families mismatch: {actor_case}")
+    _require(
+        actor_case.get("selectorFields") == ["ActorSelector", "OutputAttributeName"],
+        f"pcg selector actor fields mismatch: {actor_case}",
+    )
+    _require(actor_case.get("querySurfaceKind") == "effective_settings", f"pcg selector actor surface kind mismatch: {actor_case}")
+
+    mesh_case = case_by_id.get("static_mesh_spawner_mesh_selector_surface")
+    _require(isinstance(mesh_case, dict), "pcg selector suite missing mesh selector case")
+    _require(mesh_case.get("fixture") == "pcg_graph", f"pcg selector mesh fixture mismatch: {mesh_case}")
+    _require(mesh_case.get("families") == ["spawn"], f"pcg selector mesh families mismatch: {mesh_case}")
+    _require(mesh_case.get("selectorFields") == ["MeshSelectorParameters"], f"pcg selector mesh fields mismatch: {mesh_case}")
+    _require(mesh_case.get("querySurfaceKind") == "effective_settings", f"pcg selector mesh surface kind mismatch: {mesh_case}")
+
+    print("[PASS] generated PCG selector truth suite validated")
+
+
 def fail(msg: str) -> None:
     print(f"[FAIL] {msg}")
     raise SystemExit(1)
@@ -1867,6 +1930,7 @@ def main() -> int:
         validate_generated_pcg_workflow_truth_suite()
         validate_generated_pcg_negative_boundary_suite()
         validate_generated_pcg_stability_suite()
+        validate_generated_pcg_selector_truth_suite()
         validate_generated_graph_test_surface_report()
 
         print("[PASS] Bridge verification complete")

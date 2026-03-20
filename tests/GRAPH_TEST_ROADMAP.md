@@ -130,6 +130,7 @@ Priorities:
 - then do the same for Blueprint, with recipe-heavy and context-heavy adaptations
 - add more long-tail PCG workflow families only when they expand coverage shape rather than duplicate existing signal
 - add structured selector truth as a first-class coverage lane for selector-backed fields instead of treating them as scalar one-off cases
+- extend the first PCG selector-truth suite from attribute/property selectors into more selector-backed families and richer selector reports
 - deepen serializer-surface awareness:
   - generic pin defaults
   - synthetic writable pins
