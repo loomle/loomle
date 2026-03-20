@@ -63,6 +63,7 @@ Goal:
 
 Priorities:
 
+- query-truth audits before hard query-truth assertions
 - `graph.query` vs engine-truth comparisons
 - selector-heavy nodes
 - dynamic pin truth

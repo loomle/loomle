@@ -297,6 +297,89 @@ def read_back_fields(
     return parse_execute_json(payload)
 
 
+def _is_empty_surface_value(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value == ""
+    return False
+
+
+def _normalize_comparable_value(value: Any) -> Any:
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "false"}:
+            return lowered == "true"
+        try:
+            if "." in lowered:
+                return float(lowered)
+            return int(lowered)
+        except Exception:
+            return value
+    return value
+
+
+def audit_roundtrip_query_surface(node: dict[str, Any], supported_specs: list[dict[str, Any]]) -> dict[str, Any]:
+    pins = node.get("pins")
+    pin_by_name: dict[str, dict[str, Any]] = {}
+    if isinstance(pins, list):
+        for pin in pins:
+            if isinstance(pin, dict) and isinstance(pin.get("name"), str):
+                pin_by_name[pin["name"]] = pin
+
+    fields: dict[str, Any] = {}
+    pin_found = 0
+    surfaced = 0
+    matched = 0
+    for spec in supported_specs:
+        field = spec["field"]
+        pin = pin_by_name.get(field)
+        if not isinstance(pin, dict):
+            fields[field] = {
+                "pinFound": False,
+                "surfaced": False,
+                "matched": False,
+                "surfaceValues": [],
+            }
+            continue
+
+        pin_found += 1
+        candidates: list[Any] = []
+        default_obj = pin.get("default")
+        for value in (
+            pin.get("defaultValue"),
+            pin.get("defaultText"),
+            default_obj.get("value") if isinstance(default_obj, dict) else None,
+            default_obj.get("text") if isinstance(default_obj, dict) else None,
+        ):
+            if not _is_empty_surface_value(value) and value not in candidates:
+                candidates.append(value)
+
+        expected_cmp = _normalize_comparable_value(spec["sample"])
+        matched_here = any(_normalize_comparable_value(value) == expected_cmp for value in candidates)
+        surfaced_here = bool(candidates)
+        if surfaced_here:
+            surfaced += 1
+        if matched_here:
+            matched += 1
+        fields[field] = {
+            "pinFound": True,
+            "surfaced": surfaced_here,
+            "matched": matched_here,
+            "surfaceValues": candidates,
+        }
+
+    return {
+        "counts": {
+            "totalFields": len(supported_specs),
+            "pinFoundFields": pin_found,
+            "surfacedFields": surfaced,
+            "matchedFields": matched,
+        },
+        "fields": fields,
+    }
+
+
 def execute_construct_case(client: McpStdioClient, request_id: int, *, asset_path: str, node_class_path: str) -> dict[str, Any]:
     node_id = add_node(client, request_id, asset_path=asset_path, node_class_path=node_class_path)
     snapshot = query_pcg_snapshot(client, request_id + 1, asset_path)
@@ -348,6 +431,10 @@ def execute_roundtrip_case(
             value=spec["sample"],
         )
 
+    query_snapshot = query_pcg_snapshot(client, request_id + 10, asset_path)
+    query_node = find_node(query_snapshot, node_id)
+    query_audit = audit_roundtrip_query_surface(query_node, supported_specs) if isinstance(query_node, dict) else None
+
     readback = read_back_fields(
         client,
         request_id + 20,
@@ -391,6 +478,7 @@ def execute_roundtrip_case(
         "nodeId": node_id,
         "checkedFields": [spec["field"] for spec in supported_specs],
         "skippedFields": skipped_fields,
+        "queryAudit": query_audit,
     }
 
 
@@ -464,6 +552,7 @@ def run_case(
     result = {
         "className": entry["className"],
         "displayName": entry["displayName"],
+        "family": entry.get("family"),
         "profile": entry["profile"],
         "mode": entry["mode"],
         "status": "skip",
@@ -566,14 +655,45 @@ def run_case(
             pass
 
 
-def build_summary(results: list[dict[str, Any]]) -> dict[str, int]:
+def build_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
     counter = Counter(result["status"] for result in results)
-    return {
+    summary: dict[str, Any] = {
         "totalCases": len(results),
         "passed": counter.get("pass", 0),
         "failed": counter.get("fail", 0),
         "skipped": counter.get("skip", 0),
     }
+
+    query_total = 0
+    query_pin_found = 0
+    query_surfaced = 0
+    query_matched = 0
+    for result in results:
+        if result.get("status") != "pass":
+            continue
+        details = result.get("details")
+        if not isinstance(details, dict):
+            continue
+        query_audit = details.get("queryAudit")
+        if not isinstance(query_audit, dict):
+            continue
+        counts = query_audit.get("counts")
+        if not isinstance(counts, dict):
+            continue
+        query_total += int(counts.get("totalFields", 0) or 0)
+        query_pin_found += int(counts.get("pinFoundFields", 0) or 0)
+        query_surfaced += int(counts.get("surfacedFields", 0) or 0)
+        query_matched += int(counts.get("matchedFields", 0) or 0)
+
+    if query_total:
+        summary["queryAudit"] = {
+            "totalFields": query_total,
+            "pinFoundFields": query_pin_found,
+            "surfacedFields": query_surfaced,
+            "matchedFields": query_matched,
+        }
+
+    return summary
 
 
 def execute_case_with_fresh_client(
