@@ -30,6 +30,8 @@ def build_report(run_report: dict[str, Any], source_path: str) -> dict[str, Any]
     query_surfaced = 0
     query_matched = 0
     family_buckets: dict[str, Counter[str]] = defaultdict(Counter)
+    gap_family_buckets: dict[str, Counter[str]] = defaultdict(Counter)
+    gap_reason_buckets = Counter()
     weak_cases: list[dict[str, Any]] = []
 
     for result in results:
@@ -48,6 +50,7 @@ def build_report(run_report: dict[str, Any], source_path: str) -> dict[str, Any]
             failed_cases += 1
         if result.get("reason") == "query_truth_gap":
             query_truth_failed_cases += 1
+            gap_reason_buckets["query_truth_gap"] += 1
         family = str(result.get("family") or "unknown")
         counts = query_audit.get("counts")
         if not isinstance(counts, dict):
@@ -73,6 +76,14 @@ def build_report(run_report: dict[str, Any], source_path: str) -> dict[str, Any]
         family_buckets[family]["surfacedFields"] += surfaced_fields
         family_buckets[family]["matchedFields"] += matched_fields
 
+        if result.get("reason") == "query_truth_gap":
+            gaps = details.get("queryTruthGaps")
+            if isinstance(gaps, dict):
+                for key in ("missingPins", "unsurfacedFields", "mismatchedFields"):
+                    values = gaps.get(key)
+                    if isinstance(values, list):
+                        gap_family_buckets[family][key] += len([value for value in values if isinstance(value, str)])
+
         if surfaced_fields < total_fields or matched_fields < total_fields:
             weak_cases.append(
                 {
@@ -81,6 +92,7 @@ def build_report(run_report: dict[str, Any], source_path: str) -> dict[str, Any]
                     "family": family,
                     "status": result.get("status"),
                     "reason": result.get("reason"),
+                    "queryTruthGaps": details.get("queryTruthGaps"),
                     "queryAudit": counts,
                 }
             )
@@ -88,6 +100,7 @@ def build_report(run_report: dict[str, Any], source_path: str) -> dict[str, Any]
     family_summary = []
     for family in sorted(family_buckets):
         counter = family_buckets[family]
+        gap_counter = gap_family_buckets[family]
         family_summary.append(
             {
                 "family": family,
@@ -98,8 +111,21 @@ def build_report(run_report: dict[str, Any], source_path: str) -> dict[str, Any]
                 "pinFoundFields": counter["pinFoundFields"],
                 "surfacedFields": counter["surfacedFields"],
                 "matchedFields": counter["matchedFields"],
+                "queryTruthGapFields": {
+                    "missingPins": gap_counter.get("missingPins", 0),
+                    "unsurfacedFields": gap_counter.get("unsurfacedFields", 0),
+                    "mismatchedFields": gap_counter.get("mismatchedFields", 0),
+                },
             }
         )
+
+    weak_cases.sort(
+        key=lambda item: (
+            -int(((item.get("queryTruthGaps") or {}).get("missingPins") and len((item["queryTruthGaps"] or {}).get("missingPins", []))) or 0),
+            -int(((item.get("queryTruthGaps") or {}).get("unsurfacedFields") and len((item["queryTruthGaps"] or {}).get("unsurfacedFields", []))) or 0),
+            str(item.get("className") or ""),
+        )
+    )
 
     return {
         "version": REPORT_VERSION,
@@ -118,6 +144,12 @@ def build_report(run_report: dict[str, Any], source_path: str) -> dict[str, Any]
                 "surfacedFields": query_surfaced,
                 "matchedFields": query_matched,
             },
+            "queryTruthGapFields": {
+                "missingPins": sum(bucket.get("missingPins", 0) for bucket in gap_family_buckets.values()),
+                "unsurfacedFields": sum(bucket.get("unsurfacedFields", 0) for bucket in gap_family_buckets.values()),
+                "mismatchedFields": sum(bucket.get("mismatchedFields", 0) for bucket in gap_family_buckets.values()),
+            },
+            "failureReasons": dict(sorted(gap_reason_buckets.items())),
         },
         "familySummary": family_summary,
         "weakCases": weak_cases,

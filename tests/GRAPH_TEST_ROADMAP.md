@@ -65,6 +65,7 @@ Priorities:
 
 - query-truth audits that can be promoted into hard failures
 - `graph.query` vs engine-truth comparisons
+- family-level breakdown of `missingPins`, `unsurfacedFields`, and `mismatchedFields`
 - selector-heavy nodes
 - dynamic pin truth
 - blocked recipe expansion

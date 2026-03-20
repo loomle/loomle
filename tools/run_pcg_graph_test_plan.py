@@ -712,7 +712,12 @@ def build_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
     query_surfaced = 0
     query_matched = 0
     query_truth_failed_cases = 0
+    query_gap_field_totals = Counter()
+    failure_reasons = Counter()
     for result in results:
+        reason = result.get("reason")
+        if isinstance(reason, str) and reason:
+            failure_reasons[reason] += 1
         details = result.get("details")
         if not isinstance(details, dict):
             continue
@@ -728,6 +733,12 @@ def build_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
         query_matched += int(counts.get("matchedFields", 0) or 0)
         if result.get("status") == "fail" and result.get("reason") == "query_truth_gap":
             query_truth_failed_cases += 1
+            gaps = details.get("queryTruthGaps")
+            if isinstance(gaps, dict):
+                for key in ("missingPins", "unsurfacedFields", "mismatchedFields"):
+                    values = gaps.get(key)
+                    if isinstance(values, list):
+                        query_gap_field_totals[key] += len([value for value in values if isinstance(value, str)])
 
     if query_total:
         summary["queryAudit"] = {
@@ -737,6 +748,14 @@ def build_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
             "matchedFields": query_matched,
         }
         summary["queryTruthFailedCases"] = query_truth_failed_cases
+        summary["queryTruthGapFields"] = {
+            "missingPins": query_gap_field_totals.get("missingPins", 0),
+            "unsurfacedFields": query_gap_field_totals.get("unsurfacedFields", 0),
+            "mismatchedFields": query_gap_field_totals.get("mismatchedFields", 0),
+        }
+
+    if failure_reasons:
+        summary["failureReasons"] = dict(sorted(failure_reasons.items()))
 
     return summary
 

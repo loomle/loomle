@@ -80,6 +80,14 @@ The first useful dimensions are:
 
 This lets the framework distinguish broad green coverage from deep truth coverage.
 
+Phase 3 then turns part of that visibility into hard failure signals and gap taxonomy:
+
+- `missingPins`
+- `unsurfacedFields`
+- `mismatchedFields`
+
+So the framework can say not just that `graph.query` is weak, but exactly how it is weak.
+
 ## The Six Test Methods
 
 These are the primary testing methods. Not every node should use every method.
