@@ -99,6 +99,30 @@ EXPECTED_PCG_PLAN_SUMMARY = {
     "blocked": 4,
 }
 
+EXPECTED_BLUEPRINT_PLAN_SUMMARY = {
+    "totalNodes": 101,
+    "readyAutoCases": 86,
+    "readyRecipeCases": 3,
+    "workflowOnly": 1,
+    "inventoryOnly": 5,
+    "blocked": 6,
+}
+
+EXPECTED_BLUEPRINT_COVERAGE_SUMMARY = {
+    "totalNodes": 101,
+    "readyNodes": 89,
+    "blockedNodes": 6,
+    "workflowOnlyNodes": 1,
+    "inventoryOnlyNodes": 5,
+    "coverageDimensions": {
+        "construct": 89,
+        "inventory": 101,
+        "query_structure": 86,
+        "recipe_context": 3,
+        "workflow": 1,
+    },
+}
+
 EXPECTED_MATERIAL_PLAN_SUMMARY = {
     "totalNodes": 317,
     "readyAutoCases": 316,
@@ -900,6 +924,66 @@ def validate_workspace_catalogs() -> None:
         any(node.get("className") == "UK2Node_AddComponent" for node in blueprint_database_nodes if isinstance(node, dict)),
         "blueprint database missing UK2Node_AddComponent",
     )
+    branch_node = next(
+        (node for node in blueprint_database_nodes if isinstance(node, dict) and node.get("className") == "UK2Node_IfThenElse"),
+        None,
+    )
+    _require(isinstance(branch_node, dict), "blueprint database missing UK2Node_IfThenElse")
+    _require(branch_node.get("family") == "branch", f"blueprint branch family mismatch: {branch_node}")
+    branch_testing = branch_node.get("testing")
+    _require(
+        isinstance(branch_testing, dict)
+        and branch_testing.get("profile") == "semantic_family_represented"
+        and isinstance(branch_testing.get("focus"), dict)
+        and branch_testing["focus"].get("workflowFamilies") == ["blueprint_local_control_flow"],
+        f"blueprint branch testing mismatch: {branch_node}",
+    )
+    function_call_node = next(
+        (node for node in blueprint_database_nodes if isinstance(node, dict) and node.get("className") == "UK2Node_CallFunction"),
+        None,
+    )
+    _require(isinstance(function_call_node, dict), "blueprint database missing UK2Node_CallFunction")
+    function_call_testing = function_call_node.get("testing")
+    _require(
+        isinstance(function_call_testing, dict)
+        and function_call_testing.get("profile") == "context_recipe_required"
+        and function_call_testing.get("recipe") == "blueprint_function_call",
+        f"blueprint function-call testing mismatch: {function_call_node}",
+    )
+    variable_get = next(
+        (node for node in blueprint_database_nodes if isinstance(node, dict) and node.get("className") == "UK2Node_VariableGet"),
+        None,
+    )
+    _require(isinstance(variable_get, dict), "blueprint database missing UK2Node_VariableGet")
+    variable_get_testing = variable_get.get("testing")
+    _require(
+        isinstance(variable_get_testing, dict)
+        and variable_get_testing.get("profile") == "context_recipe_required"
+        and variable_get_testing.get("recipe") == "blueprint_variable_access",
+        f"blueprint variable-get testing mismatch: {variable_get}",
+    )
+    summary = blueprint_database.get("summary")
+    _require(isinstance(summary, dict), "blueprint database missing summary")
+    _require(
+        summary.get("familyCounts") == {
+            "branch": 1,
+            "delegate": 8,
+            "function_call": 1,
+            "struct": 6,
+            "utility": 71,
+            "variable": 14,
+        },
+        f"blueprint database familyCounts mismatch: {summary}",
+    )
+    _require(
+        summary.get("testingProfileCounts") == {
+            "construct_and_query": 86,
+            "context_recipe_required": 9,
+            "inventory_only": 5,
+            "semantic_family_represented": 1,
+        },
+        f"blueprint database testingProfileCounts mismatch: {summary}",
+    )
 
     material_index = _load_json_file(workspace_root / "material" / "catalogs" / "node-index.json")
     _require(material_index.get("graphType") == "material", "material index graphType mismatch")
@@ -1014,6 +1098,85 @@ def validate_workspace_catalogs() -> None:
     print("[PASS] workspace graph catalogs validated")
 
 
+def validate_generated_blueprint_test_plan() -> None:
+    with tempfile.TemporaryDirectory(prefix="loomle-blueprint-plan-") as tmpdir:
+        output_path = Path(tmpdir) / "blueprint_test_plan.json"
+        subprocess.run(
+            [
+                sys.executable,
+                str(TOOLS_DIR / "generate_graph_test_plan.py"),
+                "--graph-type",
+                "blueprint",
+                "--output",
+                str(output_path),
+            ],
+            check=True,
+            cwd=str(REPO_ROOT),
+        )
+        plan = _load_json_file(output_path)
+        _require(plan.get("version") == "1", f"blueprint test plan version mismatch: {plan}")
+        _require(plan.get("graphType") == "blueprint", f"blueprint test plan graphType mismatch: {plan}")
+        source_catalog = plan.get("sourceCatalog")
+        _require(isinstance(source_catalog, dict), f"blueprint test plan sourceCatalog missing: {plan}")
+        _require(
+            source_catalog.get("path") == str(REPO_ROOT / "workspace" / "Loomle" / "blueprint" / "catalogs" / "node-database.json"),
+            f"blueprint test plan sourceCatalog path mismatch: {source_catalog}",
+        )
+        summary = plan.get("summary")
+        _require(summary == EXPECTED_BLUEPRINT_PLAN_SUMMARY, f"blueprint test plan summary mismatch: {summary}")
+        entries = plan.get("entries")
+        _require(isinstance(entries, list) and len(entries) == EXPECTED_BLUEPRINT_PLAN_SUMMARY["totalNodes"], "blueprint test plan entries mismatch")
+
+        entry_by_class = {
+            entry.get("className"): entry
+            for entry in entries
+            if isinstance(entry, dict) and isinstance(entry.get("className"), str)
+        }
+
+        branch = entry_by_class.get("UK2Node_IfThenElse")
+        _require(isinstance(branch, dict), "blueprint plan missing UK2Node_IfThenElse")
+        _require(branch.get("profile") == "semantic_family_represented", f"blueprint branch profile mismatch: {branch}")
+        _require(branch.get("mode") == "workflow_map", f"blueprint branch mode mismatch: {branch}")
+        _require(branch.get("status") == "workflow_only", f"blueprint branch status mismatch: {branch}")
+        _require(
+            isinstance(branch.get("focus"), dict) and branch["focus"].get("workflowFamilies") == ["blueprint_local_control_flow"],
+            f"blueprint branch focus mismatch: {branch}",
+        )
+
+        function_call = entry_by_class.get("UK2Node_CallFunction")
+        _require(isinstance(function_call, dict), "blueprint plan missing UK2Node_CallFunction")
+        _require(function_call.get("mode") == "recipe_case", f"blueprint function-call mode mismatch: {function_call}")
+        _require(function_call.get("recipe") == "blueprint_function_call", f"blueprint function-call recipe mismatch: {function_call}")
+        _require(function_call.get("fixture") == "blueprint_function_graph", f"blueprint function-call fixture mismatch: {function_call}")
+        _require(function_call.get("status") == "ready", f"blueprint function-call status mismatch: {function_call}")
+
+        variable_get = entry_by_class.get("UK2Node_VariableGet")
+        _require(isinstance(variable_get, dict), "blueprint plan missing UK2Node_VariableGet")
+        _require(variable_get.get("mode") == "recipe_case", f"blueprint variable-get mode mismatch: {variable_get}")
+        _require(variable_get.get("recipe") == "blueprint_variable_access", f"blueprint variable-get recipe mismatch: {variable_get}")
+        _require(variable_get.get("fixture") == "blueprint_function_graph", f"blueprint variable-get fixture mismatch: {variable_get}")
+        _require(variable_get.get("status") == "ready", f"blueprint variable-get status mismatch: {variable_get}")
+
+        add_component = entry_by_class.get("UK2Node_AddComponent")
+        _require(isinstance(add_component, dict), "blueprint plan missing UK2Node_AddComponent")
+        _require(add_component.get("profile") == "construct_and_query", f"blueprint add-component profile mismatch: {add_component}")
+        _require(add_component.get("mode") == "auto_case", f"blueprint add-component mode mismatch: {add_component}")
+        _require(add_component.get("fixture") == "blueprint_function_graph", f"blueprint add-component fixture mismatch: {add_component}")
+
+        macro_instance = entry_by_class.get("UK2Node_MacroInstance")
+        _require(isinstance(macro_instance, dict), "blueprint plan missing UK2Node_MacroInstance")
+        _require(macro_instance.get("mode") == "blocked", f"blueprint macro-instance mode mismatch: {macro_instance}")
+        _require(macro_instance.get("status") == "blocked", f"blueprint macro-instance status mismatch: {macro_instance}")
+        _require("missing recipe" in str(macro_instance.get("reason")), f"blueprint macro-instance reason mismatch: {macro_instance}")
+
+        variable = entry_by_class.get("UK2Node_Variable")
+        _require(isinstance(variable, dict), "blueprint plan missing UK2Node_Variable")
+        _require(variable.get("mode") == "inventory", f"blueprint variable mode mismatch: {variable}")
+        _require(variable.get("status") == "inventory_only", f"blueprint variable status mismatch: {variable}")
+
+        print("[PASS] generated Blueprint test plan validated")
+
+
 def validate_generated_pcg_test_plan() -> None:
     with tempfile.TemporaryDirectory(prefix="loomle-pcg-plan-") as tmpdir:
         output_path = Path(tmpdir) / "pcg_test_plan.json"
@@ -1115,6 +1278,58 @@ def validate_generated_pcg_test_plan() -> None:
         _require(deprecated_grass.get("status") == "inventory_only", f"pcg deprecated grass status mismatch: {deprecated_grass}")
 
         print("[PASS] generated PCG test plan validated")
+
+
+def validate_generated_blueprint_coverage_report() -> None:
+    payload = subprocess.check_output(
+        [
+            sys.executable,
+            str(TOOLS_DIR / "generate_graph_test_coverage_report.py"),
+            "--graph-type",
+            "blueprint",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+    )
+    report = json.loads(payload)
+    _require(report.get("version") == "1", f"blueprint coverage report version mismatch: {report}")
+    _require(report.get("graphType") == "blueprint", f"blueprint coverage report graphType mismatch: {report}")
+    summary = report.get("summary")
+    _require(summary == EXPECTED_BLUEPRINT_COVERAGE_SUMMARY, f"blueprint coverage report summary mismatch: {summary}")
+
+    blocked_reasons = report.get("blockedReasons")
+    _require(blocked_reasons == {"missing recipe": 6}, f"blueprint coverage blockedReasons mismatch: {blocked_reasons}")
+
+    family_rows = report.get("familySummary")
+    _require(isinstance(family_rows, list), f"blueprint coverage familySummary missing: {report}")
+    family_by_name = {
+        row.get("family"): row
+        for row in family_rows
+        if isinstance(row, dict) and isinstance(row.get("family"), str)
+    }
+
+    utility_family = family_by_name.get("utility")
+    _require(isinstance(utility_family, dict), "blueprint coverage missing utility family")
+    _require(
+        utility_family.get("coverageDimensions") == {"construct": 69, "inventory": 71, "query_structure": 69},
+        f"blueprint coverage utility dimensions mismatch: {utility_family}",
+    )
+
+    variable_family = family_by_name.get("variable")
+    _require(isinstance(variable_family, dict), "blueprint coverage missing variable family")
+    _require(
+        variable_family.get("coverageDimensions") == {"construct": 11, "inventory": 14, "query_structure": 9, "recipe_context": 2},
+        f"blueprint coverage variable dimensions mismatch: {variable_family}",
+    )
+
+    struct_family = family_by_name.get("struct")
+    _require(isinstance(struct_family, dict), "blueprint coverage missing struct family")
+    _require(
+        struct_family.get("coverageDimensions") == {"inventory": 6},
+        f"blueprint coverage struct dimensions mismatch: {struct_family}",
+    )
+
+    print("[PASS] generated Blueprint coverage report validated")
 
 
 def validate_generated_material_test_plan() -> None:
@@ -2254,6 +2469,8 @@ def main() -> int:
 
         validate_workspace_catalogs()
         validate_workspace_examples()
+        validate_generated_blueprint_test_plan()
+        validate_generated_blueprint_coverage_report()
         validate_generated_material_test_plan()
         validate_generated_material_coverage_report()
         validate_generated_material_workflow_truth_suite()

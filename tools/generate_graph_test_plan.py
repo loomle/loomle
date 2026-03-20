@@ -9,10 +9,24 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE_ROOT = REPO_ROOT / "workspace" / "Loomle"
 PLAN_VERSION = "1"
 
-SUPPORTED_GRAPH_TYPES = {"material", "pcg"}
+SUPPORTED_GRAPH_TYPES = {"blueprint", "material", "pcg"}
 AUTO_CASE_PROFILES = {"construct_only", "construct_and_query", "read_write_roundtrip", "dynamic_pin_probe"}
 
 FIXTURE_REGISTRY: dict[str, dict[str, dict[str, Any]]] = {
+    "blueprint": {
+        "blueprint_function_graph": {
+            "graphType": "blueprint",
+            "summary": "Minimal editable Blueprint function graph.",
+        },
+        "blueprint_event_graph": {
+            "graphType": "blueprint",
+            "summary": "Minimal editable Blueprint event graph.",
+        },
+        "blueprint_local_chain": {
+            "graphType": "blueprint",
+            "summary": "Blueprint exec chain with stable upstream and downstream interfaces.",
+        },
+    },
     "material": {
         "material_graph": {
             "graphType": "material",
@@ -48,6 +62,20 @@ FIXTURE_REGISTRY: dict[str, dict[str, dict[str, Any]]] = {
 }
 
 RECIPE_REGISTRY: dict[str, dict[str, dict[str, Any]]] = {
+    "blueprint": {
+        "blueprint_variable_access": {
+            "graphType": "blueprint",
+            "fixture": "blueprint_function_graph",
+        },
+        "blueprint_event_entry": {
+            "graphType": "blueprint",
+            "fixture": "blueprint_event_graph",
+        },
+        "blueprint_function_call": {
+            "graphType": "blueprint",
+            "fixture": "blueprint_function_graph",
+        },
+    },
     "material": {
         "material_function_call": {
             "graphType": "material",
@@ -63,6 +91,12 @@ RECIPE_REGISTRY: dict[str, dict[str, dict[str, Any]]] = {
 }
 
 DEFAULT_FIXTURES: dict[str, dict[str, str]] = {
+    "blueprint": {
+        "construct_only": "blueprint_function_graph",
+        "construct_and_query": "blueprint_function_graph",
+        "read_write_roundtrip": "blueprint_function_graph",
+        "dynamic_pin_probe": "blueprint_function_graph",
+    },
     "material": {
         "construct_only": "material_graph",
         "construct_and_query": "material_graph",

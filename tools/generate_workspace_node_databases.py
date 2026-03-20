@@ -905,6 +905,79 @@ def derive_blueprint_addability(class_name: str, lineage: list[str]) -> tuple[st
     return "by_class", []
 
 
+def derive_blueprint_family(class_name: str, node_kind: str, addability: str, context_requirements: list[str]) -> str:
+    if class_name == "UK2Node_IfThenElse":
+        return "branch"
+    if class_name == "UK2Node_CallFunction":
+        return "function_call"
+    if class_name == "UK2Node_Event":
+        return "event"
+    if class_name == "UK2Node_MacroInstance":
+        return "struct"
+    if node_kind == "variable":
+        return "variable"
+    if node_kind == "delegate":
+        return "delegate"
+    if node_kind == "graph_structure":
+        return "struct"
+    if node_kind == "control_flow":
+        return "flow"
+    if node_kind == "function":
+        return "function_call"
+    if addability == "by_class_with_args" and "functionName" in context_requirements:
+        return "function_call"
+    return "utility"
+
+
+def derive_blueprint_testing(
+    *, class_name: str, family: str, addability: str, context_requirements: list[str]
+) -> dict[str, Any]:
+    if family == "branch":
+        return {
+            "profile": "semantic_family_represented",
+            "focus": {"workflowFamilies": ["blueprint_local_control_flow"]},
+            "reason": "Most useful Blueprint branch coverage comes from local control-flow workflows.",
+        }
+
+    if family == "variable" and "variableName" in context_requirements:
+        return {
+            "profile": "context_recipe_required",
+            "recipe": "blueprint_variable_access",
+            "reason": "Requires an owning Blueprint variable definition.",
+        }
+
+    if family == "function_call" and "functionName" in context_requirements:
+        return {
+            "profile": "context_recipe_required",
+            "recipe": "blueprint_function_call",
+            "reason": "Requires a callable Blueprint function signature.",
+        }
+
+    if family == "event":
+        return {
+            "profile": "context_recipe_required",
+            "recipe": "blueprint_event_entry",
+            "reason": "Requires a legal Blueprint event graph context.",
+        }
+
+    if family == "struct":
+        return {
+            "profile": "context_recipe_required",
+            "reason": "Graph-structure Blueprint nodes usually require a dedicated recipe or owning graph context.",
+        }
+
+    if addability in {"not_direct", "action_only"}:
+        return {
+            "profile": "inventory_only",
+            "reason": "This Blueprint node is not a direct by-class construction target in the current LOOMLE surface.",
+        }
+
+    return {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage.",
+    }
+
+
 def build_blueprint_database() -> dict:
     classes = {entry["className"]: entry for entry in parse_uclass_headers("**/K2Node*.h")}
     derived: dict[str, dict] = {}
@@ -922,19 +995,32 @@ def build_blueprint_database() -> dict:
     nodes = []
     addability_counts: dict[str, int] = {}
     node_kind_counts: dict[str, int] = {}
+    family_counts: dict[str, int] = {}
+    profile_counts: dict[str, int] = {}
     for name in sorted(derived):
         entry = derived[name]
         lineage = blueprint_lineage(name, classes)
         node_kind = derive_blueprint_kind(name, lineage)
         addability, context_requirements = derive_blueprint_addability(name, lineage)
+        family = derive_blueprint_family(name, node_kind, addability, context_requirements)
+        testing = derive_blueprint_testing(
+            class_name=name,
+            family=family,
+            addability=addability,
+            context_requirements=context_requirements,
+        )
         addability_counts[addability] = addability_counts.get(addability, 0) + 1
         node_kind_counts[node_kind] = node_kind_counts.get(node_kind, 0) + 1
+        family_counts[family] = family_counts.get(family, 0) + 1
+        profile = str(testing["profile"])
+        profile_counts[profile] = profile_counts.get(profile, 0) + 1
         nodes.append(
             {
                 "className": name,
                 "baseClassName": entry["baseClassName"],
                 "nodeClassPath": entry["nodeClassPath"],
                 "displayName": humanize_identifier(name),
+                "family": family,
                 "nodeKind": node_kind,
                 "addability": addability,
                 "contextRequirements": context_requirements,
@@ -944,6 +1030,7 @@ def build_blueprint_database() -> dict:
                 "relativeHeaderPath": entry["relativeHeaderPath"],
                 "uclassFlags": entry["uclassFlags"],
                 "properties": entry["properties"],
+                "testing": testing,
             }
         )
 
@@ -962,10 +1049,13 @@ def build_blueprint_database() -> dict:
                 "This database is generated from local Unreal Engine 5.7 headers.",
                 "Function-library calls such as Delay or Print String are usually realized as K2Node_CallFunction instances and therefore belong in the curated node index rather than as standalone source classes here.",
                 "Addability is a best-effort classification that distinguishes direct by-class creation from context-only or helper-style nodes.",
+                "Testing metadata in nodes[].testing is LOOMLE test strategy data, not engine truth.",
             ],
             "totalNodeClasses": len(nodes),
             "addabilityCounts": addability_counts,
+            "familyCounts": family_counts,
             "nodeKindCounts": node_kind_counts,
+            "testingProfileCounts": profile_counts,
             "sourceGroups": source_groups,
         },
         "nodes": nodes,

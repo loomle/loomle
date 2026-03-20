@@ -144,7 +144,7 @@ def build_report(graph_type: str, plan_path: Path | None) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate graph test coverage reports from JSON plans.")
-    parser.add_argument("--graph-type", choices=["material", "pcg"], required=True)
+    parser.add_argument("--graph-type", choices=["blueprint", "material", "pcg"], required=True)
     parser.add_argument("--plan-path", type=Path)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
