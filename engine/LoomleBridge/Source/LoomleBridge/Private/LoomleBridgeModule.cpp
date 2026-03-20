@@ -2210,17 +2210,172 @@ FString MaterialExpressionId(const UMaterialExpression* Expression)
     return Expression ? Expression->GetPathName() : FString();
 }
 
-int32 FindMaterialInputIndexByName(UMaterialExpression* Expression, const FString& PinName)
+void AddUniqueMaterialPinCandidate(TArray<FString>& Candidates, const FString& Candidate)
 {
-    if (Expression == nullptr)
+    if (Candidate.IsEmpty())
     {
-        return INDEX_NONE;
+        return;
     }
 
-    if (PinName.IsEmpty())
+    for (const FString& Existing : Candidates)
     {
-        return 0;
+        if (Existing.Equals(Candidate, ESearchCase::IgnoreCase))
+        {
+            return;
+        }
     }
+
+    Candidates.Add(Candidate);
+}
+
+FString TrimMaterialPinName(const FString& PinName)
+{
+    return PinName.TrimStartAndEnd();
+}
+
+FString StripMaterialPinDisplaySuffix(const FString& PinName)
+{
+    const FString Trimmed = TrimMaterialPinName(PinName);
+    int32 OpenParenIndex = INDEX_NONE;
+    if (Trimmed.EndsWith(TEXT(")")) && Trimmed.FindLastChar(TEXT('('), OpenParenIndex) && OpenParenIndex > 0)
+    {
+        const FString Prefix = Trimmed.Left(OpenParenIndex).TrimEnd();
+        if (!Prefix.IsEmpty())
+        {
+            return Prefix;
+        }
+    }
+    return Trimmed;
+}
+
+FString CanonicalizeMaterialOutputPinName(const FString& PinName)
+{
+    const FString Trimmed = TrimMaterialPinName(PinName);
+    if (Trimmed.IsEmpty()
+        || Trimmed.Equals(TEXT("None"), ESearchCase::IgnoreCase)
+        || Trimmed.Equals(TEXT("Output"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("");
+    }
+    return StripMaterialPinDisplaySuffix(Trimmed);
+}
+
+bool AreMaterialOutputPinNamesEquivalent(const FString& LeftPinName, const FString& RightPinName)
+{
+    return CanonicalizeMaterialOutputPinName(LeftPinName)
+        .Equals(CanonicalizeMaterialOutputPinName(RightPinName), ESearchCase::IgnoreCase);
+}
+
+UMaterialGraphNode* FindMaterialGraphNodeByExpression(UMaterial* Material, UMaterialExpression* Expression)
+{
+    if (Material == nullptr || Expression == nullptr || Material->MaterialGraph == nullptr)
+    {
+        return nullptr;
+    }
+
+    for (UEdGraphNode* Node : Material->MaterialGraph->Nodes)
+    {
+        UMaterialGraphNode* MaterialGraphNode = Cast<UMaterialGraphNode>(Node);
+        if (MaterialGraphNode != nullptr && MaterialGraphNode->MaterialExpression == Expression)
+        {
+            return MaterialGraphNode;
+        }
+    }
+
+    return nullptr;
+}
+
+bool TryResolveMaterialOutputPinName(
+    UMaterial* Material,
+    UMaterialExpression* Expression,
+    const FString& RequestedPinName,
+    FString& OutResolvedPinName,
+    TArray<FString>* OutAvailablePinNames)
+{
+    OutResolvedPinName.Reset();
+    if (OutAvailablePinNames != nullptr)
+    {
+        OutAvailablePinNames->Reset();
+    }
+
+    if (Expression == nullptr)
+    {
+        return false;
+    }
+
+    const FString RequestedTrimmed = TrimMaterialPinName(RequestedPinName);
+    const FString RequestedStripped = StripMaterialPinDisplaySuffix(RequestedTrimmed);
+    const FString RequestedCanonical = CanonicalizeMaterialOutputPinName(RequestedTrimmed);
+    if (RequestedCanonical.IsEmpty())
+    {
+        OutResolvedPinName = TEXT("");
+        return true;
+    }
+
+    UMaterialGraphNode* MaterialGraphNode = FindMaterialGraphNodeByExpression(Material, Expression);
+    if (MaterialGraphNode == nullptr)
+    {
+        return false;
+    }
+
+    for (UEdGraphPin* Pin : MaterialGraphNode->Pins)
+    {
+        if (Pin == nullptr || Pin->Direction != EGPD_Output)
+        {
+            continue;
+        }
+
+        const FString GraphPinName = TrimMaterialPinName(Pin->PinName.ToString());
+        const FString GraphPinNameStripped = StripMaterialPinDisplaySuffix(GraphPinName);
+        const FString GraphPinNameCanonical = CanonicalizeMaterialOutputPinName(GraphPinName);
+        if (OutAvailablePinNames != nullptr)
+        {
+            AddUniqueMaterialPinCandidate(*OutAvailablePinNames, GraphPinNameCanonical.IsEmpty() ? GraphPinName : GraphPinNameCanonical);
+            AddUniqueMaterialPinCandidate(*OutAvailablePinNames, GraphPinNameStripped);
+        }
+
+        const bool bMatches =
+            (!RequestedTrimmed.IsEmpty() && GraphPinName.Equals(RequestedTrimmed, ESearchCase::IgnoreCase))
+            || (!RequestedStripped.IsEmpty() && GraphPinName.Equals(RequestedStripped, ESearchCase::IgnoreCase))
+            || (!RequestedCanonical.IsEmpty() && GraphPinName.Equals(RequestedCanonical, ESearchCase::IgnoreCase))
+            || (!RequestedTrimmed.IsEmpty() && GraphPinNameStripped.Equals(RequestedTrimmed, ESearchCase::IgnoreCase))
+            || (!RequestedStripped.IsEmpty() && GraphPinNameStripped.Equals(RequestedStripped, ESearchCase::IgnoreCase))
+            || (!RequestedCanonical.IsEmpty() && GraphPinNameCanonical.Equals(RequestedCanonical, ESearchCase::IgnoreCase));
+
+        if (bMatches)
+        {
+            OutResolvedPinName = GraphPinNameCanonical;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool TryResolveMaterialInputPinName(
+    UMaterialExpression* Expression,
+    const FString& RequestedPinName,
+    int32& OutInputIndex,
+    FString& OutResolvedPinName,
+    TArray<FString>* OutAvailablePinNames)
+{
+    OutInputIndex = INDEX_NONE;
+    OutResolvedPinName.Reset();
+    if (OutAvailablePinNames != nullptr)
+    {
+        OutAvailablePinNames->Reset();
+    }
+
+    if (Expression == nullptr)
+    {
+        return false;
+    }
+
+    const FString RequestedTrimmed = TrimMaterialPinName(RequestedPinName);
+    const FString RequestedStripped = StripMaterialPinDisplaySuffix(RequestedTrimmed);
+    int32 InputCount = 0;
+    int32 FirstInputIndex = INDEX_NONE;
+    FString FirstResolvedPinName;
 
     const int32 MaxInputs = 128;
     for (int32 Index = 0; Index < MaxInputs; ++Index)
@@ -2231,14 +2386,92 @@ int32 FindMaterialInputIndexByName(UMaterialExpression* Expression, const FStrin
             break;
         }
 
-        const FName InputName = Expression->GetInputName(Index);
-        if (InputName.ToString().Equals(PinName, ESearchCase::IgnoreCase))
+        ++InputCount;
+        if (FirstInputIndex == INDEX_NONE)
         {
-            return Index;
+            FirstInputIndex = Index;
+        }
+
+        const FString DisplayName = TrimMaterialPinName(Expression->GetInputName(Index).ToString());
+        const FString DisplayNameStripped = StripMaterialPinDisplaySuffix(DisplayName);
+        const FString RawName = TrimMaterialPinName(Input->InputName.ToString());
+        const FString RawNameStripped = StripMaterialPinDisplaySuffix(RawName);
+        const FString ResolvedPinName = !DisplayName.IsEmpty()
+            ? DisplayName
+            : (!DisplayNameStripped.IsEmpty()
+                ? DisplayNameStripped
+                : (!RawName.IsEmpty() ? RawName : RawNameStripped));
+
+        if (FirstResolvedPinName.IsEmpty())
+        {
+            FirstResolvedPinName = ResolvedPinName;
+        }
+
+        if (OutAvailablePinNames != nullptr)
+        {
+            AddUniqueMaterialPinCandidate(*OutAvailablePinNames, ResolvedPinName);
+            AddUniqueMaterialPinCandidate(*OutAvailablePinNames, RawNameStripped);
+            AddUniqueMaterialPinCandidate(*OutAvailablePinNames, DisplayName);
+            AddUniqueMaterialPinCandidate(*OutAvailablePinNames, DisplayNameStripped);
+        }
+
+        const bool bMatches =
+            (!RequestedTrimmed.IsEmpty() && DisplayName.Equals(RequestedTrimmed, ESearchCase::IgnoreCase))
+            || (!RequestedStripped.IsEmpty() && DisplayName.Equals(RequestedStripped, ESearchCase::IgnoreCase))
+            || (!RequestedTrimmed.IsEmpty() && DisplayNameStripped.Equals(RequestedTrimmed, ESearchCase::IgnoreCase))
+            || (!RequestedStripped.IsEmpty() && DisplayNameStripped.Equals(RequestedStripped, ESearchCase::IgnoreCase))
+            || (!RequestedTrimmed.IsEmpty() && RawName.Equals(RequestedTrimmed, ESearchCase::IgnoreCase))
+            || (!RequestedStripped.IsEmpty() && RawName.Equals(RequestedStripped, ESearchCase::IgnoreCase))
+            || (!RequestedTrimmed.IsEmpty() && RawNameStripped.Equals(RequestedTrimmed, ESearchCase::IgnoreCase))
+            || (!RequestedStripped.IsEmpty() && RawNameStripped.Equals(RequestedStripped, ESearchCase::IgnoreCase));
+
+        if (bMatches)
+        {
+            OutInputIndex = Index;
+            OutResolvedPinName = ResolvedPinName;
+            return true;
         }
     }
 
-    return INDEX_NONE;
+    if (RequestedTrimmed.IsEmpty() && InputCount == 1)
+    {
+        OutInputIndex = FirstInputIndex;
+        OutResolvedPinName = FirstResolvedPinName;
+        return OutInputIndex != INDEX_NONE;
+    }
+
+    return false;
+}
+
+int32 GetMaterialExpressionInputCount(UMaterialExpression* Expression)
+{
+    if (Expression == nullptr)
+    {
+        return 0;
+    }
+
+    int32 InputCount = 0;
+    const int32 MaxInputs = 128;
+    for (int32 Index = 0; Index < MaxInputs; ++Index)
+    {
+        if (Expression->GetInput(Index) == nullptr)
+        {
+            break;
+        }
+
+        ++InputCount;
+    }
+
+    return InputCount;
+}
+
+int32 FindMaterialInputIndexByName(UMaterialExpression* Expression, const FString& PinName)
+{
+    int32 InputIndex = INDEX_NONE;
+    FString ResolvedPinName;
+    return TryResolveMaterialInputPinName(Expression, PinName, InputIndex, ResolvedPinName, nullptr)
+        ? InputIndex
+        : INDEX_NONE;
 }
 
 UEdGraph* ResolveBlueprintGraph(UBlueprint* Blueprint, const FString& GraphName)

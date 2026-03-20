@@ -6715,107 +6715,58 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
             Input->OutputIndex = 0;
             return true;
         };
-        auto AddUniqueMaterialPinCandidate = [](TArray<FString>& Candidates, const FString& Candidate)
+        auto BuildMaterialPinDiagnostics = [&](const FString& Direction, const FString& NodeId, const FString& RequestedPinName, const TArray<FString>& AvailablePins) -> TSharedPtr<FJsonObject>
         {
-            for (const FString& Existing : Candidates)
+            TSharedPtr<FJsonObject> DetailsObject = MakeShared<FJsonObject>();
+            DetailsObject->SetStringField(TEXT("graphType"), TEXT("material"));
+            DetailsObject->SetStringField(TEXT("pinDirection"), Direction);
+            DetailsObject->SetStringField(TEXT("requestedPin"), RequestedPinName);
+            if (!NodeId.IsEmpty())
             {
-                if (Existing.Equals(Candidate, ESearchCase::IgnoreCase))
+                DetailsObject->SetStringField(TEXT("nodeId"), NodeId);
+            }
+
+            TArray<TSharedPtr<FJsonValue>> AvailablePinValues;
+            for (const FString& AvailablePin : AvailablePins)
+            {
+                if (!AvailablePin.IsEmpty())
                 {
-                    return;
+                    AvailablePinValues.Add(MakeShared<FJsonValueString>(AvailablePin));
                 }
             }
-            Candidates.Add(Candidate);
+            DetailsObject->SetArrayField(TEXT("availablePins"), AvailablePinValues);
+            return DetailsObject;
         };
-        auto TrimMaterialPinName = [](const FString& PinName) -> FString
+        auto ResolveMaterialSourceOutputPin = [&](const FString& SourceNodeId, UMaterialExpression* Expression, const FString& RequestedPinName, FString& OutResolvedPinName, FString& OutErrorMessage, TSharedPtr<FJsonObject>& OutErrorDetails) -> bool
         {
-            return PinName.TrimStartAndEnd();
-        };
-        auto StripMaterialPinDisplaySuffix = [&](const FString& PinName) -> FString
-        {
-            const FString Trimmed = TrimMaterialPinName(PinName);
-            int32 OpenParenIndex = INDEX_NONE;
-            if (Trimmed.EndsWith(TEXT(")")) && Trimmed.FindLastChar(TEXT('('), OpenParenIndex) && OpenParenIndex > 0)
+            TArray<FString> AvailablePins;
+            if (TryResolveMaterialOutputPinName(MaterialAsset, Expression, RequestedPinName, OutResolvedPinName, &AvailablePins))
             {
-                const FString Prefix = Trimmed.Left(OpenParenIndex).TrimEnd();
-                if (!Prefix.IsEmpty())
-                {
-                    return Prefix;
-                }
-            }
-            return Trimmed;
-        };
-        auto CanonicalizeMaterialOutputPinName = [&](const FString& PinName) -> FString
-        {
-            const FString Trimmed = TrimMaterialPinName(PinName);
-            if (Trimmed.IsEmpty()
-                || Trimmed.Equals(TEXT("None"), ESearchCase::IgnoreCase)
-                || Trimmed.Equals(TEXT("Output"), ESearchCase::IgnoreCase))
-            {
-                return TEXT("");
-            }
-            return StripMaterialPinDisplaySuffix(Trimmed);
-        };
-        auto BuildMaterialOutputPinCandidates = [&](const FString& PinName) -> TArray<FString>
-        {
-            TArray<FString> Candidates;
-            AddUniqueMaterialPinCandidate(Candidates, CanonicalizeMaterialOutputPinName(PinName));
-            AddUniqueMaterialPinCandidate(Candidates, TEXT(""));
-            return Candidates;
-        };
-        auto BuildMaterialInputPinCandidates = [&](UMaterialExpression* Expression, const FString& PinName) -> TArray<FString>
-        {
-            TArray<FString> Candidates;
-            const FString Trimmed = TrimMaterialPinName(PinName);
-            const FString Stripped = StripMaterialPinDisplaySuffix(Trimmed);
-            AddUniqueMaterialPinCandidate(Candidates, Trimmed);
-            AddUniqueMaterialPinCandidate(Candidates, Stripped);
-
-            int32 InputCount = 0;
-            if (Expression != nullptr)
-            {
-                const int32 MaxInputs = 128;
-                for (int32 InputIndex = 0; InputIndex < MaxInputs; ++InputIndex)
-                {
-                    FExpressionInput* Input = Expression->GetInput(InputIndex);
-                    if (Input == nullptr)
-                    {
-                        break;
-                    }
-
-                    ++InputCount;
-                    const FString DisplayName = TrimMaterialPinName(Expression->GetInputName(InputIndex).ToString());
-                    const FString DisplayNameStripped = StripMaterialPinDisplaySuffix(DisplayName);
-                    const FString RawName = TrimMaterialPinName(Input->InputName.ToString());
-                    const FString RawNameStripped = StripMaterialPinDisplaySuffix(RawName);
-
-                    const bool bMatchesDisplay =
-                        (!Trimmed.IsEmpty() && DisplayName.Equals(Trimmed, ESearchCase::IgnoreCase))
-                        || (!Stripped.IsEmpty() && DisplayName.Equals(Stripped, ESearchCase::IgnoreCase))
-                        || (!Trimmed.IsEmpty() && DisplayNameStripped.Equals(Trimmed, ESearchCase::IgnoreCase))
-                        || (!Stripped.IsEmpty() && DisplayNameStripped.Equals(Stripped, ESearchCase::IgnoreCase));
-
-                    const bool bMatchesRaw =
-                        (!Trimmed.IsEmpty() && RawName.Equals(Trimmed, ESearchCase::IgnoreCase))
-                        || (!Stripped.IsEmpty() && RawName.Equals(Stripped, ESearchCase::IgnoreCase))
-                        || (!Trimmed.IsEmpty() && RawNameStripped.Equals(Trimmed, ESearchCase::IgnoreCase))
-                        || (!Stripped.IsEmpty() && RawNameStripped.Equals(Stripped, ESearchCase::IgnoreCase));
-
-                    if (bMatchesDisplay || bMatchesRaw)
-                    {
-                        AddUniqueMaterialPinCandidate(Candidates, RawName);
-                        AddUniqueMaterialPinCandidate(Candidates, RawNameStripped);
-                        AddUniqueMaterialPinCandidate(Candidates, DisplayName);
-                        AddUniqueMaterialPinCandidate(Candidates, DisplayNameStripped);
-                    }
-                }
+                return true;
             }
 
-            if (InputCount == 1)
+            OutErrorDetails = BuildMaterialPinDiagnostics(TEXT("output"), SourceNodeId, RequestedPinName, AvailablePins);
+            OutErrorMessage = TEXT("Material output pin not found.");
+            return false;
+        };
+        auto ResolveMaterialTargetInputPin = [&](const FString& TargetNodeId, UMaterialExpression* Expression, const FString& RequestedPinName, int32& OutInputIndex, FString& OutResolvedPinName, FString& OutErrorMessage, TSharedPtr<FJsonObject>& OutErrorDetails) -> bool
+        {
+            TArray<FString> AvailablePins;
+            if (TryResolveMaterialInputPinName(Expression, RequestedPinName, OutInputIndex, OutResolvedPinName, &AvailablePins))
             {
-                AddUniqueMaterialPinCandidate(Candidates, TEXT(""));
+                return true;
             }
 
-            return Candidates;
+            OutErrorDetails = BuildMaterialPinDiagnostics(TEXT("input"), TargetNodeId, RequestedPinName, AvailablePins);
+            OutErrorMessage = TEXT("Material input pin not found.");
+            return false;
+        };
+        auto DisconnectMaterialInputIfMatchesSource = [&](FExpressionInput* Input, UMaterialExpression* SourceExpr, const FString& SourcePinName) -> bool
+        {
+            return Input != nullptr
+                && Input->Expression == SourceExpr
+                && AreMaterialOutputPinNamesEquivalent(Input->InputName.ToString(), SourcePinName)
+                && DisconnectMaterialInput(Input);
         };
         auto BreakMaterialLinksBySourcePin = [&](UMaterialExpression* SourceExpr, const FString& SourcePinName, TArray<FString>& OutTouchedNodeIds) -> bool
         {
@@ -6836,20 +6787,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     return true;
                 }
 
-                const auto CanonicalizeMaterialSourcePinNameLocal = [](const FString& PinName) -> FString
-                {
-                    FString Normalized = PinName.TrimStartAndEnd();
-                    if (Normalized.IsEmpty()
-                        || Normalized.Equals(TEXT("None"), ESearchCase::IgnoreCase)
-                        || Normalized.Equals(TEXT("Output"), ESearchCase::IgnoreCase))
-                    {
-                        return TEXT("__default__");
-                    }
-                    return Normalized.ToLower();
-                };
-
-                return CanonicalizeMaterialSourcePinNameLocal(Input->InputName.ToString())
-                    == CanonicalizeMaterialSourcePinNameLocal(SourcePinName);
+                return AreMaterialOutputPinNamesEquivalent(Input->InputName.ToString(), SourcePinName);
             };
 
             bool bDisconnected = false;
@@ -7218,31 +7156,21 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                 bOk = false;
                                 Error = TEXT("Material expression not found.");
                             }
-                            else if (ToNodeId.Equals(TEXT("__material_root__")))
+                            else
                             {
-                                EMaterialProperty Property = MP_MAX;
-                                if (!ResolveMaterialPropertyByRootPinName(ToPinName, Property))
+                                FString ResolvedFromPinName;
+                                bOk = ResolveMaterialSourceOutputPin(FromNodeId, FromExpr, FromPinName, ResolvedFromPinName, Error, ErrorDetailsForOp);
+                                if (bOk && ToNodeId.Equals(TEXT("__material_root__")))
                                 {
-                                    bOk = false;
-                                    Error = TEXT("Material root pin not found.");
-                                }
-                                else
-                                {
-                                    const TArray<FString> SourcePinCandidates = BuildMaterialOutputPinCandidates(FromPinName);
-                                    FString EffectiveFromPinName = FromPinName;
-                                    bOk = false;
-                                    for (const FString& SourcePinCandidate : SourcePinCandidates)
+                                    EMaterialProperty Property = MP_MAX;
+                                    if (!ResolveMaterialPropertyByRootPinName(ToPinName, Property))
                                     {
-                                        if (UMaterialEditingLibrary::ConnectMaterialProperty(FromExpr, SourcePinCandidate, Property))
-                                        {
-                                            EffectiveFromPinName = SourcePinCandidate;
-                                            bOk = true;
-                                            break;
-                                        }
+                                        bOk = false;
+                                        Error = TEXT("Material root pin not found.");
                                     }
-
-                                    if (!bOk)
+                                    else if (!UMaterialEditingLibrary::ConnectMaterialProperty(FromExpr, ResolvedFromPinName, Property))
                                     {
+                                        bOk = false;
                                         Error = TEXT("Failed to connect material expression to material root.");
                                     }
                                     else
@@ -7250,70 +7178,94 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                         bChanged = true;
                                         GraphEventName = TEXT("graph.node_connected");
                                         GraphEventData->SetStringField(TEXT("fromNodeId"), FromNodeId);
-                                        GraphEventData->SetStringField(TEXT("fromPin"), EffectiveFromPinName);
+                                        GraphEventData->SetStringField(TEXT("fromPin"), ResolvedFromPinName);
                                         GraphEventData->SetStringField(TEXT("toNodeId"), ToNodeId);
                                         GraphEventData->SetStringField(TEXT("toPin"), ToPinName);
                                         GraphEventData->SetStringField(TEXT("op"), Op);
                                         NodesTouchedForLayout.Add(FromNodeId);
                                     }
                                 }
-                            }
-                            else if (ToExpr == nullptr)
-                            {
-                                bOk = false;
-                                Error = TEXT("Material expression not found.");
-                            }
-                            else
-                            {
-                                const TArray<FString> SourcePinCandidates = BuildMaterialOutputPinCandidates(FromPinName);
-                                const TArray<FString> TargetPinCandidates = BuildMaterialInputPinCandidates(ToExpr, ToPinName);
-                                FString EffectiveFromPinName = FromPinName;
-                                FString EffectiveToPinName = ToPinName;
-                                bOk = false;
-                                for (const FString& SourcePinCandidate : SourcePinCandidates)
+                                else if (bOk && ToExpr == nullptr)
                                 {
-                                    for (const FString& TargetPinCandidate : TargetPinCandidates)
-                                    {
-                                        if (UMaterialEditingLibrary::ConnectMaterialExpressions(FromExpr, SourcePinCandidate, ToExpr, TargetPinCandidate))
-                                        {
-                                            EffectiveFromPinName = SourcePinCandidate;
-                                            EffectiveToPinName = TargetPinCandidate;
-                                            bOk = true;
-                                            break;
-                                        }
-                                    }
+                                    bOk = false;
+                                    Error = TEXT("Material expression not found.");
+                                }
+                                else if (bOk)
+                                {
+                                    int32 ResolvedToInputIndex = INDEX_NONE;
+                                    FString ResolvedToPinName;
+                                    bOk = ResolveMaterialTargetInputPin(ToNodeId, ToExpr, ToPinName, ResolvedToInputIndex, ResolvedToPinName, Error, ErrorDetailsForOp);
                                     if (bOk)
                                     {
-                                        break;
-                                    }
-                                }
+                                        TArray<FString> TargetPinCallCandidates;
+                                        AddUniqueMaterialPinCandidate(TargetPinCallCandidates, ResolvedToPinName);
+                                        if (ResolvedToInputIndex == 0 && GetMaterialExpressionInputCount(ToExpr) == 1)
+                                        {
+                                            TargetPinCallCandidates.Add(TEXT(""));
+                                        }
 
-                                if (!bOk)
-                                {
-                                    Error = TEXT("Failed to connect material expressions.");
-                                }
-                                else
-                                {
-                                    bChanged = true;
-                                    GraphEventName = TEXT("graph.node_connected");
-                                    GraphEventData->SetStringField(TEXT("fromNodeId"), FromNodeId);
-                                    GraphEventData->SetStringField(TEXT("fromPin"), EffectiveFromPinName);
-                                    GraphEventData->SetStringField(TEXT("toNodeId"), ToNodeId);
-                                    GraphEventData->SetStringField(TEXT("toPin"), EffectiveToPinName);
-                                    GraphEventData->SetStringField(TEXT("op"), Op);
-                                    NodesTouchedForLayout.Add(FromNodeId);
-                                    NodesTouchedForLayout.Add(ToNodeId);
+                                        bool bConnected = false;
+                                        for (const FString& TargetPinCallCandidate : TargetPinCallCandidates)
+                                        {
+                                            if (UMaterialEditingLibrary::ConnectMaterialExpressions(FromExpr, ResolvedFromPinName, ToExpr, TargetPinCallCandidate))
+                                            {
+                                                if (TargetPinCallCandidate.IsEmpty())
+                                                {
+                                                    ResolvedToPinName = TEXT("");
+                                                }
+                                                bConnected = true;
+                                                break;
+                                            }
+                                        }
+
+                                        if (!bConnected)
+                                        {
+                                            bOk = false;
+                                            Error = TEXT("Failed to connect material expressions.");
+                                        }
+                                    }
+
+                                    if (bOk)
+                                    {
+                                        bChanged = true;
+                                        GraphEventName = TEXT("graph.node_connected");
+                                        GraphEventData->SetStringField(TEXT("fromNodeId"), FromNodeId);
+                                        GraphEventData->SetStringField(TEXT("fromPin"), ResolvedFromPinName);
+                                        GraphEventData->SetStringField(TEXT("toNodeId"), ToNodeId);
+                                        GraphEventData->SetStringField(TEXT("toPin"), ResolvedToPinName);
+                                        GraphEventData->SetStringField(TEXT("op"), Op);
+                                        NodesTouchedForLayout.Add(FromNodeId);
+                                        NodesTouchedForLayout.Add(ToNodeId);
+                                    }
                                 }
                             }
                         }
                     }
                     else if (Op.Equals(TEXT("disconnectpins")) || Op.Equals(TEXT("breakpinlinks")))
                     {
+                        FString SourceNodeId;
+                        FString SourcePinName;
+                        bool bHasSourceFilter = false;
                         FString TargetNodeId;
                         FString TargetPinName;
                         if (Op.Equals(TEXT("disconnectpins")))
                         {
+                            const TSharedPtr<FJsonObject>* FromObj = nullptr;
                             const TSharedPtr<FJsonObject>* ToObj = nullptr;
+                            if (ArgsObj->TryGetObjectField(TEXT("from"), FromObj) && FromObj && (*FromObj).IsValid())
+                            {
+                                if (!ResolveNodeTokenLocal(*FromObj, SourceNodeId))
+                                {
+                                    bOk = false;
+                                    Error = TEXT("disconnectPins requires args.from node reference.");
+                                }
+                                else
+                                {
+                                    ResolvePinName(*FromObj, SourcePinName);
+                                    bHasSourceFilter = true;
+                                }
+                            }
+
                             if (!ArgsObj->TryGetObjectField(TEXT("to"), ToObj) || !ToObj || !(*ToObj).IsValid() || !ResolveNodeTokenLocal(*ToObj, TargetNodeId))
                             {
                                 bOk = false;
@@ -7355,10 +7307,36 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                         bOk = false;
                                         Error = TEXT("No links were removed.");
                                     }
+                                    else if (bHasSourceFilter)
+                                    {
+                                        UMaterialExpression* SourceExpr = FindMaterialExpressionById(MaterialAsset, SourceNodeId);
+                                        if (SourceExpr == nullptr)
+                                        {
+                                            bOk = false;
+                                            Error = TEXT("Material expression not found.");
+                                        }
+                                        else
+                                        {
+                                            FString ResolvedSourcePinName;
+                                            bOk = ResolveMaterialSourceOutputPin(SourceNodeId, SourceExpr, SourcePinName, ResolvedSourcePinName, Error, ErrorDetailsForOp);
+                                            if (bOk && !DisconnectMaterialInputIfMatchesSource(Input, SourceExpr, ResolvedSourcePinName))
+                                            {
+                                                bOk = false;
+                                                Error = TEXT("No links were removed.");
+                                            }
+                                            else if (bOk)
+                                            {
+                                                bChanged = true;
+                                                GraphEventName = TEXT("graph.links_changed");
+                                                GraphEventData->SetStringField(TEXT("nodeId"), TargetNodeId);
+                                                GraphEventData->SetStringField(TEXT("pinName"), TargetPinName);
+                                                GraphEventData->SetStringField(TEXT("op"), Op);
+                                            }
+                                        }
+                                    }
                                     else
                                     {
-                                        Input->Expression = nullptr;
-                                        Input->OutputIndex = 0;
+                                        DisconnectMaterialInput(Input);
                                         bChanged = true;
                                         GraphEventName = TEXT("graph.links_changed");
                                         GraphEventData->SetStringField(TEXT("nodeId"), TargetNodeId);
@@ -7381,18 +7359,40 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                     Error = TEXT("Material expression not found.");
                                     continue;
                                 }
+
+                                UMaterialExpression* SourceExpr = nullptr;
+                                FString ResolvedSourcePinName;
+                                if (bHasSourceFilter)
+                                {
+                                    SourceExpr = FindMaterialExpressionById(MaterialAsset, SourceNodeId);
+                                    if (SourceExpr == nullptr)
+                                    {
+                                        bOk = false;
+                                        Error = TEXT("Material expression not found.");
+                                    }
+                                    else
+                                    {
+                                        bOk = ResolveMaterialSourceOutputPin(SourceNodeId, SourceExpr, SourcePinName, ResolvedSourcePinName, Error, ErrorDetailsForOp);
+                                    }
+                                }
+
                                 bool bDisconnected = false;
-                                if (TargetPinName.IsEmpty())
+                                if (bOk && TargetPinName.IsEmpty())
                                 {
                                     const int32 MaxInputs = 128;
                                     for (int32 InputIndex = 0; InputIndex < MaxInputs; ++InputIndex)
                                     {
                                         if (FExpressionInput* Input = Expr->GetInput(InputIndex))
                                         {
-                                            if (Input->Expression != nullptr)
+                                            if (!bHasSourceFilter)
                                             {
-                                                Input->Expression = nullptr;
-                                                Input->OutputIndex = 0;
+                                                if (DisconnectMaterialInput(Input))
+                                                {
+                                                    bDisconnected = true;
+                                                }
+                                            }
+                                            else if (DisconnectMaterialInputIfMatchesSource(Input, SourceExpr, ResolvedSourcePinName))
+                                            {
                                                 bDisconnected = true;
                                             }
                                         }
@@ -7402,31 +7402,41 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                                         }
                                     }
                                 }
-                                else
+                                else if (bOk)
                                 {
-                                    const int32 InputIndex = FindMaterialInputIndexByName(Expr, TargetPinName);
-                                    if (InputIndex != INDEX_NONE)
+                                    int32 InputIndex = INDEX_NONE;
+                                    FString ResolvedTargetPinName;
+                                    if (ResolveMaterialTargetInputPin(TargetNodeId, Expr, TargetPinName, InputIndex, ResolvedTargetPinName, Error, ErrorDetailsForOp))
                                     {
                                         if (FExpressionInput* Input = Expr->GetInput(InputIndex))
                                         {
-                                            if (DisconnectMaterialInput(Input))
+                                            if (!bHasSourceFilter)
+                                            {
+                                                if (DisconnectMaterialInput(Input))
+                                                {
+                                                    bDisconnected = true;
+                                                }
+                                            }
+                                            else if (DisconnectMaterialInputIfMatchesSource(Input, SourceExpr, ResolvedSourcePinName))
                                             {
                                                 bDisconnected = true;
                                             }
                                         }
                                     }
-                                    else if (BreakMaterialLinksBySourcePin(Expr, TargetPinName, NodesTouchedForLayout))
+                                    else if (Op.Equals(TEXT("breakpinlinks")) && BreakMaterialLinksBySourcePin(Expr, TargetPinName, NodesTouchedForLayout))
                                     {
                                         bDisconnected = true;
+                                        Error.Reset();
+                                        ErrorDetailsForOp.Reset();
                                     }
                                 }
 
-                                if (!bDisconnected)
+                                if (bOk && !bDisconnected)
                                 {
                                     bOk = false;
                                     Error = TEXT("No links were removed.");
                                 }
-                                else
+                                else if (bOk)
                                 {
                                     bChanged = true;
                                     GraphEventName = TEXT("graph.links_changed");
