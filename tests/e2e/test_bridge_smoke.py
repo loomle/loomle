@@ -127,6 +127,12 @@ EXPECTED_PCG_NEGATIVE_SUITE_SUMMARY = {
     "operations": ["removeNode", "setPinDefault"],
 }
 
+EXPECTED_PCG_STABILITY_SUITE_SUMMARY = {
+    "totalCases": 3,
+    "freshSessionCases": 1,
+    "families": ["create", "meta", "route", "sample", "source", "spawn", "transform"],
+}
+
 
 def _require(condition: bool, message: str) -> None:
     if not condition:
@@ -1250,6 +1256,56 @@ def validate_generated_pcg_negative_boundary_suite() -> None:
     print("[PASS] generated PCG negative boundary suite validated")
 
 
+def validate_generated_pcg_stability_suite() -> None:
+    payload = subprocess.check_output(
+        [
+            sys.executable,
+            str(TOOLS_DIR / "run_pcg_stability_suite.py"),
+            "--list-cases",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+    )
+    report = json.loads(payload)
+    _require(report.get("version") == "1", f"pcg stability suite version mismatch: {report}")
+    _require(report.get("graphType") == "pcg", f"pcg stability suite graphType mismatch: {report}")
+    _require(report.get("suite") == "stability", f"pcg stability suite name mismatch: {report}")
+    summary = report.get("summary")
+    _require(summary == EXPECTED_PCG_STABILITY_SUITE_SUMMARY, f"pcg stability suite summary mismatch: {summary}")
+    cases = report.get("cases")
+    _require(isinstance(cases, list) and len(cases) == EXPECTED_PCG_STABILITY_SUITE_SUMMARY["totalCases"], "pcg stability suite cases mismatch")
+    case_by_id = {
+        case.get("id"): case
+        for case in cases
+        if isinstance(case, dict) and isinstance(case.get("id"), str)
+    }
+
+    repeat_query = case_by_id.get("query_snapshot_repeatability_roundtrip")
+    _require(isinstance(repeat_query, dict), "pcg stability suite missing query repeatability case")
+    _require(repeat_query.get("fixture") == "pcg_graph", f"pcg stability query fixture mismatch: {repeat_query}")
+    _require(repeat_query.get("families") == ["create", "transform"], f"pcg stability query families mismatch: {repeat_query}")
+
+    verify_workflow = case_by_id.get("verify_repeatability_workflow")
+    _require(isinstance(verify_workflow, dict), "pcg stability suite missing verify repeatability case")
+    _require(
+        verify_workflow.get("workflowCaseId") == "surface_sample_to_static_mesh",
+        f"pcg stability verify workflowCaseId mismatch: {verify_workflow}",
+    )
+
+    fresh_session = case_by_id.get("workflow_failure_repeatability_fresh_session")
+    _require(isinstance(fresh_session, dict), "pcg stability suite missing fresh-session case")
+    _require(
+        fresh_session.get("workflowCaseId") == "actor_data_tag_route",
+        f"pcg stability fresh-session workflowCaseId mismatch: {fresh_session}",
+    )
+    _require(
+        fresh_session.get("families") == ["meta", "route", "source"],
+        f"pcg stability fresh-session families mismatch: {fresh_session}",
+    )
+
+    print("[PASS] generated PCG stability suite validated")
+
+
 def fail(msg: str) -> None:
     print(f"[FAIL] {msg}")
     raise SystemExit(1)
@@ -1736,6 +1792,7 @@ def main() -> int:
         validate_generated_pcg_coverage_report()
         validate_generated_pcg_workflow_truth_suite()
         validate_generated_pcg_negative_boundary_suite()
+        validate_generated_pcg_stability_suite()
         validate_generated_graph_test_surface_report()
 
         print("[PASS] Bridge verification complete")

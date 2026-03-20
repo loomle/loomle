@@ -69,6 +69,7 @@ Priorities:
 - workflow-truth suites for representative source/filter/route/spawn pipelines
 - multi-surface truth matrices across `mutate`, `queryStructure`, `queryTruth`, `engineTruth`, `verify`, and `diagnostics`
 - negative and boundary suites for contract and diagnostic surfaces
+- stability and repeatability suites for repeated query, repeated verify, and fresh-session reproduction
 - selector-heavy nodes
 - dynamic pin truth
 - blocked recipe expansion
@@ -81,6 +82,7 @@ This phase answers:
 - which workflow edits preserve structure and verification health but still fail query truth
 - which surface is breaking first when a case spans mutate, readback, verify, and engine truth
 - which contract failures and diagnostic details are stable versus missing or inconsistent
+- whether the same query, verify, and failure surfaces stay stable across repeated runs and fresh sessions
 - which workflow families have strong regression protection
 - which remaining gaps are product limits versus test-system limits
 

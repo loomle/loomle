@@ -145,6 +145,12 @@ Negative and boundary suites complement the six primary methods:
 - they validate diagnostic richness
 - they ensure expected failures are expressed consistently
 
+Stability suites add a separate dimension:
+
+- they validate repeated query snapshots in the same session
+- they validate repeated verify surfaces on the same graph
+- they validate that known workflow failures reproduce across fresh sessions
+
 See:
 
 - [GRAPH_TEST_PROFILES.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_PROFILES.md)
