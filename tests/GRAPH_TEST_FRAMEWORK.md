@@ -87,8 +87,15 @@ Phase 3 then turns part of that visibility into hard failure signals and gap tax
 - `mismatchedFields`
 - workflow-level structure truth
 - workflow-level query truth
+- multi-surface truth matrices across:
+  - `mutate`
+  - `queryStructure`
+  - `queryTruth`
+  - `engineTruth`
+  - `verify`
+  - `diagnostics`
 
-So the framework can say not just that `graph.query` is weak, but exactly how it is weak.
+So the framework can say not just that `graph.query` is weak, but exactly how it is weak and which surface failed first.
 
 ## The Six Test Methods
 
@@ -180,6 +187,7 @@ The shared framework should provide:
 - node/edge/pin assertion helpers
 - diagnostics helpers
 - "query truth vs engine truth" comparison helpers
+- multi-surface truth aggregation helpers
 - catalog-driven case generation
 
 ## Graph Adapter Responsibilities

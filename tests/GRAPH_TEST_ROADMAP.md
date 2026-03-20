@@ -67,6 +67,7 @@ Priorities:
 - `graph.query` vs engine-truth comparisons
 - family-level breakdown of `missingPins`, `unsurfacedFields`, and `mismatchedFields`
 - workflow-truth suites for representative source/filter/route/spawn pipelines
+- multi-surface truth matrices across `mutate`, `queryStructure`, `queryTruth`, `engineTruth`, `verify`, and `diagnostics`
 - selector-heavy nodes
 - dynamic pin truth
 - blocked recipe expansion
@@ -77,6 +78,7 @@ This phase answers:
 - where the graph surface disagrees with Unreal truth
 - which disagreements now fail the generated test runner directly
 - which workflow edits preserve structure and verification health but still fail query truth
+- which surface is breaking first when a case spans mutate, readback, verify, and engine truth
 - which workflow families have strong regression protection
 - which remaining gaps are product limits versus test-system limits
 

@@ -1103,6 +1103,107 @@ def validate_generated_pcg_workflow_truth_suite() -> None:
     print("[PASS] generated PCG workflow truth suite validated")
 
 
+def validate_generated_graph_test_surface_report() -> None:
+    with tempfile.TemporaryDirectory(prefix="loomle-surface-report-") as tmpdir:
+        run_report_path = Path(tmpdir) / "run_report.json"
+        run_report_path.write_text(
+            json.dumps(
+                {
+                    "graphType": "pcg",
+                    "suite": "synthetic_surface_matrix",
+                    "results": [
+                        {
+                            "className": "UPCGTransformPointsSettings",
+                            "displayName": "Transform Points",
+                            "family": "transform",
+                            "status": "pass",
+                            "details": {
+                                "surfaceMatrix": {
+                                    "mutate": "pass",
+                                    "queryStructure": "pass",
+                                    "queryTruth": "pass",
+                                    "engineTruth": "pass",
+                                    "verify": "not_run",
+                                    "diagnostics": "not_run",
+                                }
+                            },
+                        },
+                        {
+                            "caseId": "surface_sample_to_static_mesh",
+                            "families": ["source", "spawn"],
+                            "status": "fail",
+                            "failureKind": "query_truth_unsurfaced",
+                            "reason": "workflow query truth missing surfaced default for surface_sampler.PointsPerSquaredMeter",
+                            "details": {
+                                "surfaceMatrix": {
+                                    "mutate": "pass",
+                                    "queryStructure": "pass",
+                                    "queryTruth": "fail",
+                                    "engineTruth": "not_run",
+                                    "verify": "pass",
+                                    "diagnostics": "pass",
+                                }
+                            },
+                        },
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        payload = subprocess.check_output(
+            [
+                sys.executable,
+                str(TOOLS_DIR / "generate_graph_test_surface_report.py"),
+                "--run-report",
+                str(run_report_path),
+            ],
+            cwd=str(REPO_ROOT),
+            text=True,
+        )
+    report = json.loads(payload)
+    _require(report.get("version") == "1", f"graph surface report version mismatch: {report}")
+    _require(report.get("graphType") == "pcg", f"graph surface report graphType mismatch: {report}")
+    _require(report.get("suite") == "synthetic_surface_matrix", f"graph surface report suite mismatch: {report}")
+    summary = report.get("summary")
+    _require(isinstance(summary, dict), f"graph surface report summary missing: {report}")
+    _require(summary.get("totalCases") == 2, f"graph surface totalCases mismatch: {summary}")
+    _require(summary.get("status") == {"fail": 1, "pass": 1}, f"graph surface status mismatch: {summary}")
+    _require(
+        summary.get("surfaceMatrix") == {
+            "mutate": {"pass": 2},
+            "queryStructure": {"pass": 2},
+            "queryTruth": {"fail": 1, "pass": 1},
+            "engineTruth": {"not_run": 1, "pass": 1},
+            "verify": {"not_run": 1, "pass": 1},
+            "diagnostics": {"not_run": 1, "pass": 1},
+        },
+        f"graph surface matrix mismatch: {summary}",
+    )
+    family_rows = report.get("familySummary")
+    _require(isinstance(family_rows, list) and len(family_rows) == 3, f"graph surface familySummary mismatch: {report}")
+    family_by_name = {
+        row.get("family"): row
+        for row in family_rows
+        if isinstance(row, dict) and isinstance(row.get("family"), str)
+    }
+    _require(
+        family_by_name.get("transform", {}).get("surfaceMatrix", {}).get("queryTruth") == {"pass": 1},
+        f"graph surface transform summary mismatch: {family_by_name.get('transform')}",
+    )
+    _require(
+        family_by_name.get("source", {}).get("surfaceMatrix", {}).get("queryTruth") == {"fail": 1},
+        f"graph surface source summary mismatch: {family_by_name.get('source')}",
+    )
+    weak_cases = report.get("weakCases")
+    _require(isinstance(weak_cases, list) and len(weak_cases) == 1, f"graph surface weakCases mismatch: {report}")
+    weak_case = weak_cases[0]
+    _require(weak_case.get("failedSurfaces") == ["queryTruth"], f"graph surface weakCase failedSurfaces mismatch: {weak_case}")
+    _require(weak_case.get("families") == ["source", "spawn"], f"graph surface weakCase families mismatch: {weak_case}")
+
+    print("[PASS] generated graph surface report validated")
+
+
 def fail(msg: str) -> None:
     print(f"[FAIL] {msg}")
     raise SystemExit(1)
@@ -1588,6 +1689,7 @@ def main() -> int:
         validate_generated_pcg_test_plan()
         validate_generated_pcg_coverage_report()
         validate_generated_pcg_workflow_truth_suite()
+        validate_generated_graph_test_surface_report()
 
         print("[PASS] Bridge verification complete")
         return 0

@@ -28,6 +28,18 @@ from generate_graph_test_plan import build_plan  # noqa: E402
 GRAPH_NAME = "PCGGraph"
 SUPPORTED_ROUNDTRIP_TYPES = {"bool", "int32", "int", "float", "double", "FString", "FName", "enum"}
 SUPPORTED_DYNAMIC_TRIGGER_TYPES = {"bool", "int32", "int", "float", "double", "FString", "FName"}
+SURFACE_NOT_RUN = "not_run"
+
+
+def blank_surface_matrix() -> dict[str, str]:
+    return {
+        "mutate": SURFACE_NOT_RUN,
+        "queryStructure": SURFACE_NOT_RUN,
+        "queryTruth": SURFACE_NOT_RUN,
+        "engineTruth": SURFACE_NOT_RUN,
+        "verify": SURFACE_NOT_RUN,
+        "diagnostics": SURFACE_NOT_RUN,
+    }
 
 
 def wait_for_bridge_ready(client: McpStdioClient, timeout_s: float = 120.0, interval_s: float = 2.0) -> None:
@@ -412,7 +424,14 @@ def execute_construct_case(client: McpStdioClient, request_id: int, *, asset_pat
     node = find_node(snapshot, node_id)
     if not isinstance(node, dict):
         raise RuntimeError(f"graph.query did not return added node {node_id}")
-    return {"nodeId": node_id, "pinCount": len(node.get("pins", [])) if isinstance(node.get("pins"), list) else None}
+    surface_matrix = blank_surface_matrix()
+    surface_matrix["mutate"] = "pass"
+    surface_matrix["queryStructure"] = "pass"
+    return {
+        "nodeId": node_id,
+        "pinCount": len(node.get("pins", [])) if isinstance(node.get("pins"), list) else None,
+        "surfaceMatrix": surface_matrix,
+    }
 
 
 def execute_roundtrip_case(
@@ -424,6 +443,7 @@ def execute_roundtrip_case(
     properties_by_name: dict[str, dict[str, Any]],
     focus_fields: list[str],
 ) -> dict[str, Any]:
+    surface_matrix = blank_surface_matrix()
     supported_specs: list[dict[str, Any]] = []
     skipped_fields: list[str] = []
     for field in focus_fields:
@@ -444,9 +464,15 @@ def execute_roundtrip_case(
         )
 
     if not supported_specs:
-        return {"outcome": "skip", "reason": "unsupported_roundtrip_field_types", "skippedFields": skipped_fields}
+        return {
+            "outcome": "skip",
+            "reason": "unsupported_roundtrip_field_types",
+            "skippedFields": skipped_fields,
+            "surfaceMatrix": surface_matrix,
+        }
 
     node_id = add_node(client, request_id, asset_path=asset_path, node_class_path=node_class_path)
+    surface_matrix["mutate"] = "pass"
     for index, spec in enumerate(supported_specs):
         set_pin_default(
             client,
@@ -459,6 +485,7 @@ def execute_roundtrip_case(
 
     query_snapshot = query_pcg_snapshot(client, request_id + 10, asset_path)
     query_node = find_node(query_snapshot, node_id)
+    surface_matrix["queryStructure"] = "pass" if isinstance(query_node, dict) else "fail"
     query_audit = audit_roundtrip_query_surface(query_node, supported_specs) if isinstance(query_node, dict) else None
 
     readback = read_back_fields(
@@ -470,6 +497,7 @@ def execute_roundtrip_case(
     fields = readback.get("fields")
     if not isinstance(fields, dict):
         raise RuntimeError(f"roundtrip readback missing fields: {readback}")
+    surface_matrix["engineTruth"] = "pass"
     mismatches: list[str] = []
     for spec in supported_specs:
         actual = fields.get(spec["field"])
@@ -495,12 +523,14 @@ def execute_roundtrip_case(
                 mismatches.append(spec["field"])
 
     if mismatches:
+        surface_matrix["engineTruth"] = "fail"
         raise RuntimeError(
             f"roundtrip mismatch fields={mismatches} readback={compact_json(readback)} expected={compact_json({spec['field']: spec['sample'] for spec in supported_specs})}"
         )
 
     query_truth_gaps = classify_query_truth_gap(query_audit)
     if any(query_truth_gaps.values()):
+        surface_matrix["queryTruth"] = "fail"
         return {
             "outcome": "fail",
             "reason": "query_truth_gap",
@@ -509,14 +539,17 @@ def execute_roundtrip_case(
             "skippedFields": skipped_fields,
             "queryAudit": query_audit,
             "queryTruthGaps": query_truth_gaps,
+            "surfaceMatrix": surface_matrix,
         }
 
+    surface_matrix["queryTruth"] = "pass"
     return {
         "outcome": "pass",
         "nodeId": node_id,
         "checkedFields": [spec["field"] for spec in supported_specs],
         "skippedFields": skipped_fields,
         "queryAudit": query_audit,
+        "surfaceMatrix": surface_matrix,
     }
 
 
@@ -529,6 +562,7 @@ def execute_dynamic_case(
     properties_by_name: dict[str, dict[str, Any]],
     triggers: list[str],
 ) -> dict[str, Any]:
+    surface_matrix = blank_surface_matrix()
     supported: list[dict[str, Any]] = []
     skipped_triggers: list[str] = []
     for trigger in triggers:
@@ -540,12 +574,19 @@ def execute_dynamic_case(
         supported.append({"field": trigger, "sample": sample})
 
     if not supported:
-        return {"outcome": "skip", "reason": "unsupported_dynamic_trigger_types", "skippedTriggers": skipped_triggers}
+        return {
+            "outcome": "skip",
+            "reason": "unsupported_dynamic_trigger_types",
+            "skippedTriggers": skipped_triggers,
+            "surfaceMatrix": surface_matrix,
+        }
 
     node_id = add_node(client, request_id, asset_path=asset_path, node_class_path=node_class_path)
+    surface_matrix["mutate"] = "pass"
     before_snapshot = query_pcg_snapshot(client, request_id + 1, asset_path)
     before_node = find_node(before_snapshot, node_id)
     if not isinstance(before_node, dict):
+        surface_matrix["queryStructure"] = "fail"
         raise RuntimeError(f"graph.query did not return dynamic node before mutation {node_id}")
     before_pins = before_node.get("pins")
     before_count = len(before_pins) if isinstance(before_pins, list) else 0
@@ -562,13 +603,16 @@ def execute_dynamic_case(
     after_snapshot = query_pcg_snapshot(client, request_id + 3, asset_path)
     after_node = find_node(after_snapshot, node_id)
     if not isinstance(after_node, dict):
+        surface_matrix["queryStructure"] = "fail"
         raise RuntimeError(f"graph.query did not return dynamic node after mutation {node_id}")
     after_pins = after_node.get("pins")
     after_count = len(after_pins) if isinstance(after_pins, list) else 0
     if after_count == before_count:
+        surface_matrix["queryStructure"] = "fail"
         raise RuntimeError(
             f"dynamic pin count did not change for trigger {trigger['field']} before={before_count} after={after_count}"
         )
+    surface_matrix["queryStructure"] = "pass"
     return {
         "outcome": "pass",
         "nodeId": node_id,
@@ -576,6 +620,7 @@ def execute_dynamic_case(
         "beforePinCount": before_count,
         "afterPinCount": after_count,
         "skippedTriggers": skipped_triggers,
+        "surfaceMatrix": surface_matrix,
     }
 
 
@@ -714,6 +759,10 @@ def build_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
     query_truth_failed_cases = 0
     query_gap_field_totals = Counter()
     failure_reasons = Counter()
+    surface_totals: dict[str, Counter[str]] = {
+        surface: Counter()
+        for surface in ("mutate", "queryStructure", "queryTruth", "engineTruth", "verify", "diagnostics")
+    }
     for result in results:
         reason = result.get("reason")
         if isinstance(reason, str) and reason:
@@ -721,6 +770,12 @@ def build_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
         details = result.get("details")
         if not isinstance(details, dict):
             continue
+        surface_matrix = details.get("surfaceMatrix")
+        if isinstance(surface_matrix, dict):
+            for surface, counter in surface_totals.items():
+                value = surface_matrix.get(surface)
+                if isinstance(value, str) and value:
+                    counter[value] += 1
         query_audit = details.get("queryAudit")
         if not isinstance(query_audit, dict):
             continue
@@ -756,6 +811,13 @@ def build_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
 
     if failure_reasons:
         summary["failureReasons"] = dict(sorted(failure_reasons.items()))
+
+    if any(counter for counter in surface_totals.values()):
+        summary["surfaceMatrix"] = {
+            surface: dict(sorted(counter.items()))
+            for surface, counter in surface_totals.items()
+            if counter
+        }
 
     return summary
 

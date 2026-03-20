@@ -20,6 +20,7 @@ from test_bridge_smoke import (  # noqa: E402
 
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 from run_pcg_graph_test_plan import (  # noqa: E402
+    blank_surface_matrix,
     cleanup_pcg_fixture,
     compact_json,
     create_pcg_fixture,
@@ -241,7 +242,6 @@ def assert_workflow_structure(case: dict[str, Any], snapshot: dict[str, Any], re
     details: dict[str, Any] = {
         "nodeChecks": {"present": [], "absent": []},
         "edgeChecks": {"present": [], "absent": []},
-        "queryTruthChecks": [],
     }
 
     for ref in case.get("expectedNodes", []):
@@ -286,6 +286,11 @@ def assert_workflow_structure(case: dict[str, Any], snapshot: dict[str, Any], re
             {"from": from_ref, "fromPin": from_pin, "to": to_ref, "toPin": to_pin}
         )
 
+    return details
+
+
+def audit_workflow_query_truth(case: dict[str, Any], snapshot: dict[str, Any], ref_map: dict[str, str]) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
     for node_ref, pin_name, expected in case.get("queryDefaults", []):
         node_id = ref_map.get(node_ref)
         if not isinstance(node_id, str):
@@ -308,11 +313,10 @@ def assert_workflow_structure(case: dict[str, Any], snapshot: dict[str, Any], re
                 "query_truth_mismatch",
                 f"workflow query truth mismatch for {node_ref}.{pin_name}: expected={expected!r} surfaced={surface_values!r}"
             )
-        details["queryTruthChecks"].append(
+        checks.append(
             {"nodeRef": node_ref, "pin": pin_name, "expected": expected, "surfacedValues": surface_values}
         )
-
-    return details
+    return checks
 
 
 def verify_graph(client: McpStdioClient, request_id: int, asset_path: str) -> dict[str, Any]:
@@ -351,6 +355,7 @@ def run_workflow_case(
         "families": case.get("families", []),
         "status": "fail",
     }
+    surface_matrix = blank_surface_matrix()
     asset_path = f"/Game/Codex/PCGWorkflowTruth/{case['id']}_{case_index}"
     actor_path: str | None = None
     try:
@@ -367,23 +372,46 @@ def run_workflow_case(
         payload["assetPath"] = asset_path
         payload["graphName"] = "PCGGraph"
         mutate_result = call_tool(client, request_id_base + 10, "graph.mutate", payload)
+        surface_matrix["mutate"] = "pass"
         ref_map = build_client_ref_map(payload, mutate_result)
         snapshot = query_pcg_snapshot(client, request_id_base + 20, asset_path)
         structure_details = assert_workflow_structure(case, snapshot, ref_map)
+        surface_matrix["queryStructure"] = "pass"
         verify_details = verify_graph(client, request_id_base + 30, asset_path)
+        surface_matrix["verify"] = "pass"
+        surface_matrix["diagnostics"] = "pass"
+        query_truth_checks = audit_workflow_query_truth(case, snapshot, ref_map)
+        surface_matrix["queryTruth"] = "pass" if query_truth_checks else "not_run"
         result["status"] = "pass"
         result["details"] = {
             "nodeCount": len(snapshot.get("nodes", [])) if isinstance(snapshot.get("nodes"), list) else None,
             "edgeCount": len(snapshot.get("edges", [])) if isinstance(snapshot.get("edges"), list) else None,
-            "structure": structure_details,
+            "structure": {
+                **structure_details,
+                "queryTruthChecks": query_truth_checks,
+            },
             "verify": verify_details,
+            "surfaceMatrix": surface_matrix,
         }
         return result
     except WorkflowSuiteError as exc:
+        if exc.kind == "query_truth_unsurfaced" or exc.kind == "query_truth_mismatch":
+            surface_matrix["queryStructure"] = "pass"
+            surface_matrix["queryTruth"] = "fail"
+        elif exc.kind == "verify_gap":
+            surface_matrix["queryStructure"] = "pass"
+            surface_matrix["verify"] = "fail"
+            surface_matrix["diagnostics"] = "fail"
+        elif exc.kind == "structure_gap":
+            surface_matrix["queryStructure"] = "fail"
+        elif exc.kind == "mutate_result_gap":
+            surface_matrix["mutate"] = "fail"
         result["failureKind"] = exc.kind
         result["reason"] = str(exc)
+        result["details"] = {"surfaceMatrix": surface_matrix}
         return result
     except Exception as exc:
+        result["details"] = {"surfaceMatrix": surface_matrix}
         result["failureKind"] = "runner_error"
         result["reason"] = str(exc)
         return result
@@ -435,7 +463,7 @@ def execute_case_with_fresh_client(
 
 
 def build_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
-    counter = Counter(result["status"] for result in results)
+    status_counter = Counter(result["status"] for result in results)
     kind_counter = Counter(
         result["failureKind"]
         for result in results
@@ -444,8 +472,20 @@ def build_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
     reason_counter = Counter(
         result["reason"] for result in results if result.get("status") == "fail" and isinstance(result.get("reason"), str)
     )
+    surface_totals: dict[str, Counter[str]] = {
+        surface: Counter()
+        for surface in ("mutate", "queryStructure", "queryTruth", "engineTruth", "verify", "diagnostics")
+    }
     family_rows: dict[str, dict[str, Any]] = {}
     for result in results:
+        details = result.get("details")
+        if isinstance(details, dict):
+            surface_matrix = details.get("surfaceMatrix")
+            if isinstance(surface_matrix, dict):
+                for surface, counter in surface_totals.items():
+                    value = surface_matrix.get(surface)
+                    if isinstance(value, str) and value:
+                        counter[value] += 1
         for family in result.get("families", []):
             if not isinstance(family, str) or not family:
                 continue
@@ -463,10 +503,15 @@ def build_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
 
     return {
         "totalCases": len(results),
-        "passed": counter.get("pass", 0),
-        "failed": counter.get("fail", 0),
+        "passed": status_counter.get("pass", 0),
+        "failed": status_counter.get("fail", 0),
         "failureKinds": dict(sorted(kind_counter.items())),
         "failureReasons": dict(sorted(reason_counter.items())),
+        "surfaceMatrix": {
+            surface: dict(sorted(surface_counter.items()))
+            for surface, surface_counter in surface_totals.items()
+            if surface_counter
+        },
         "familySummary": [
             {
                 "family": row["family"],
