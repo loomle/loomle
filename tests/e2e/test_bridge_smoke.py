@@ -92,11 +92,11 @@ EXPECTED_WORKSPACE_CATALOGS = {
 
 EXPECTED_PCG_PLAN_SUMMARY = {
     "totalNodes": 178,
-    "readyAutoCases": 135,
+    "readyAutoCases": 159,
     "readyRecipeCases": 9,
     "workflowOnly": 6,
     "inventoryOnly": 0,
-    "blocked": 28,
+    "blocked": 4,
 }
 
 

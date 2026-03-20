@@ -27,9 +27,9 @@
       "route": 3
     },
     "testingProfileCounts": {
-      "construct_and_query": 30,
-      "read_write_roundtrip": 134,
-      "dynamic_pin_probe": 4,
+      "construct_and_query": 62,
+      "read_write_roundtrip": 103,
+      "dynamic_pin_probe": 3,
       "context_recipe_required": 4,
       "semantic_family_represented": 6
     },
@@ -389,8 +389,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "PointKeyAttributes",
-            "ParentKeyAttributes"
+            "ApplyParentRotation",
+            "ApplyParentScale"
           ]
         }
       }
@@ -498,7 +498,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "ObjectReferenceAttribute"
+            "bSilenceErrorOnEmptyObjectPath",
+            "bPropagateObjectChangeEvent"
           ]
         }
       }
@@ -523,7 +524,8 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -705,7 +707,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "TargetAttribute"
+            "Mode",
+            "Distance"
           ]
         }
       }
@@ -770,7 +773,6 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "InputSource",
             "OutputType"
           ]
         }
@@ -956,8 +958,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "InputSource",
-            "OutputTarget"
+            "Mode",
+            "NoiseMin"
           ]
         }
       }
@@ -1170,7 +1172,6 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "AttributeToRename",
             "NewAttributeName"
           ]
         }
@@ -1237,7 +1238,7 @@
         "focus": {
           "fields": [
             "bMatchAttributeNamesWithPropertyNames",
-            "AttributeToConvert"
+            "bDeleteOriginalRemappedAttribute"
           ]
         }
       }
@@ -2108,7 +2109,6 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "CollisionAttribute",
             "CollisionQueryFlag"
           ]
         }
@@ -2182,8 +2182,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "PointsToCreate",
-            "CoordinateSpace"
+            "CoordinateSpace",
+            "bCullPointsOutsideVolume"
           ]
         }
       }
@@ -2848,7 +2848,8 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -2880,7 +2881,8 @@
         }
       ],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -2950,8 +2952,7 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "RowName",
-            "DataTable"
+            "RowName"
           ]
         }
       }
@@ -2976,7 +2977,8 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -3011,12 +3013,8 @@
         }
       ],
       "testing": {
-        "profile": "read_write_roundtrip",
-        "focus": {
-          "fields": [
-            "TargetActor"
-          ]
-        }
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -3303,7 +3301,7 @@
         "focus": {
           "fields": [
             "bOutputToAttribute",
-            "OutputAttribute"
+            "bOutputDistanceVector"
           ]
         }
       }
@@ -3466,8 +3464,7 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "BlueprintElementType",
-            "BlueprintElementInstance"
+            "bTrackActorsOnlyWithinBounds"
           ]
         }
       }
@@ -3867,7 +3864,13 @@
         }
       ],
       "testing": {
-        "profile": "dynamic_pin_probe"
+        "profile": "dynamic_pin_probe",
+        "focus": {
+          "dynamicTriggers": [
+            "MinThreshold",
+            "MaxThreshold"
+          ]
+        }
       }
     },
     {
@@ -3949,7 +3952,12 @@
         }
       ],
       "testing": {
-        "profile": "dynamic_pin_probe"
+        "profile": "dynamic_pin_probe",
+        "focus": {
+          "dynamicTriggers": [
+            "bSelectIndicesByInput"
+          ]
+        }
       }
     },
     {
@@ -3972,7 +3980,8 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -3995,7 +4004,8 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -4175,8 +4185,7 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "bResetSeedPerInput",
-            "OutputTarget"
+            "bResetSeedPerInput"
           ]
         }
       }
@@ -5766,8 +5775,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "Transform",
-            "bUseAbsoluteTransform"
+            "bUseAbsoluteTransform",
+            "TextureArrayIndex"
           ]
         }
       }
@@ -6177,7 +6186,6 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "Asset",
             "CommaSeparatedDefaultAttributeOverrides"
           ]
         }
@@ -6244,7 +6252,8 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -6405,7 +6414,6 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "OffsetAttribute",
             "Offset"
           ]
         }
@@ -6478,13 +6486,8 @@
         }
       ],
       "testing": {
-        "profile": "read_write_roundtrip",
-        "focus": {
-          "fields": [
-            "ActorReferenceAttribute",
-            "DataLayerReferenceAttribute"
-          ]
-        }
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -6725,7 +6728,7 @@
         "focus": {
           "fields": [
             "SearchDistance",
-            "StartLocationAttribute"
+            "Start"
           ]
         }
       }
@@ -6815,7 +6818,7 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "SetTarget"
+            "SetTargetType"
           ]
         }
       }
@@ -7006,7 +7009,6 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "PropertiesToConvert",
             "bOverrideExistingAttributes"
           ]
         }
@@ -7295,8 +7297,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "ProjectionParams",
-            "bForceCollapseToPoint"
+            "bForceCollapseToPoint",
+            "bKeepZeroDensityPoints"
           ]
         }
       }
@@ -7321,7 +7323,8 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -7628,7 +7631,7 @@
         "focus": {
           "fields": [
             "TextureMappingMethod",
-            "UVCoordinatesAttribute"
+            "TilingMode"
           ]
         }
       }
@@ -7769,7 +7772,6 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "Params",
             "AssetDescription"
           ]
         }
@@ -7808,12 +7810,8 @@
         }
       ],
       "testing": {
-        "profile": "read_write_roundtrip",
-        "focus": {
-          "fields": [
-            "ExporterParams"
-          ]
-        }
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -7887,8 +7885,7 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "PixelFormat",
-            "CaptureSource"
+            "TexelSize"
           ]
         }
       }
@@ -8004,12 +8001,8 @@
         }
       ],
       "testing": {
-        "profile": "read_write_roundtrip",
-        "focus": {
-          "fields": [
-            "Parameters"
-          ]
-        }
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -8248,8 +8241,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "Mode",
-            "EdgeMask2DMode"
+            "Iterations",
+            "bTiling"
           ]
         }
       }
@@ -8495,8 +8488,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "RootActor",
-            "DataLayerSettings"
+            "Option",
+            "bForceDisableActorParsing"
           ]
         }
       }
@@ -8611,8 +8604,7 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "SplineMeshParams",
-            "TargetActor"
+            "bSynchronousLoad"
           ]
         }
       }
@@ -8650,12 +8642,7 @@
         }
       ],
       "testing": {
-        "profile": "read_write_roundtrip",
-        "focus": {
-          "fields": [
-            "SamplerParams"
-          ]
-        }
+        "profile": "construct_and_query"
       }
     },
     {
@@ -9023,7 +9010,8 @@
         }
       ],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -9232,7 +9220,8 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -9345,8 +9334,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "InputSource",
-            "OutputTarget"
+            "bCopyAllAttributes",
+            "bCopyAllDomains"
           ]
         }
       }
@@ -9558,8 +9547,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "InputSource",
-            "OutputAttributeName"
+            "OutputAttributeName",
+            "Operation"
           ]
         }
       }
@@ -9655,8 +9644,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "InputSource",
-            "Operation"
+            "Operation",
+            "Axis"
           ]
         }
       }
@@ -9769,8 +9758,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "InputSource",
-            "OutputTarget"
+            "NumIterations",
+            "SearchDistance"
           ]
         }
       }
@@ -9873,8 +9862,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "MeshAttribute",
-            "bSilenceAttributeNotFoundErrors"
+            "bSilenceAttributeNotFoundErrors",
+            "bSynchronousLoad"
           ]
         }
       }
@@ -9993,7 +9982,8 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -10048,12 +10038,8 @@
         }
       ],
       "testing": {
-        "profile": "read_write_roundtrip",
-        "focus": {
-          "fields": [
-            "OutputTarget"
-          ]
-        }
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -10224,8 +10210,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "RootActor",
-            "ActorLabel"
+            "ActorLabel",
+            "CommaSeparatedActorTags"
           ]
         }
       }
@@ -10699,7 +10685,7 @@
         "focus": {
           "fields": [
             "ExtrudeVector",
-            "ExtrudeVectorAttribute"
+            "bExtraOutputAttributesOnDataDomain"
           ]
         }
       }
@@ -10861,12 +10847,8 @@
         }
       ],
       "testing": {
-        "profile": "read_write_roundtrip",
-        "focus": {
-          "fields": [
-            "AttributeMapping"
-          ]
-        }
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -10929,7 +10911,6 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "InputSource",
             "Index"
           ]
         }
@@ -11092,7 +11073,7 @@
         "focus": {
           "fields": [
             "FilterMode",
-            "TargetAttribute"
+            "Operator"
           ]
         }
       }
@@ -11142,7 +11123,13 @@
         }
       ],
       "testing": {
-        "profile": "dynamic_pin_probe"
+        "profile": "read_write_roundtrip",
+        "focus": {
+          "fields": [
+            "SelectedIndices",
+            "bInvertFilter"
+          ]
+        }
       }
     },
     {
@@ -11267,7 +11254,6 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "TargetType",
             "bShowOutsideFilter"
           ]
         }
@@ -11293,7 +11279,8 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -11622,7 +11609,6 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "Settings",
             "bTagOutputsBasedOnOutputPins"
           ]
         }
@@ -11686,7 +11672,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "DataTable"
+            "OutputType",
+            "bSynchronousLoad"
           ]
         }
       }
@@ -11779,7 +11766,8 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -11974,7 +11962,7 @@
         "focus": {
           "fields": [
             "bMatchAttributes",
-            "InputAttribute"
+            "bKeepUnmatched"
           ]
         }
       }
@@ -11999,7 +11987,8 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -12138,7 +12127,8 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -12161,7 +12151,8 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -12195,12 +12186,8 @@
         }
       ],
       "testing": {
-        "profile": "read_write_roundtrip",
-        "focus": {
-          "fields": [
-            "Declaration"
-          ]
-        }
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -12269,7 +12256,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "Mesh"
+            "MeshPathAttributeName",
+            "bSynchronousLoad"
           ]
         }
       }
@@ -12482,7 +12470,8 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -12930,7 +12919,6 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "InputSource",
             "SortMethod"
           ]
         }
@@ -13106,8 +13094,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "SplineComponent",
-            "bSpawnComponentFromAttribute"
+            "bSpawnComponentFromAttribute",
+            "bOutputSplineComponentReference"
           ]
         }
       }
@@ -13205,8 +13193,7 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "OriginatingSplineIndexAttribute",
-            "IntersectingSplineIndexAttribute"
+            "DistanceThreshold"
           ]
         }
       }
@@ -13379,7 +13366,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "Attribute"
+            "Constant",
+            "bShouldOutputOriginatingSplineIndex"
           ]
         }
       }
@@ -13733,7 +13721,7 @@
         "focus": {
           "fields": [
             "bShouldFlipAxis",
-            "FlipAxisAttribute"
+            "bAcceptIncompleteSubdivision"
           ]
         }
       }
@@ -13943,8 +13931,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "GrammarSelection",
-            "bUseSeedAttribute"
+            "bUseSeedAttribute",
+            "bForwardAttributesFromModulesInfo"
           ]
         }
       }
@@ -14085,7 +14073,8 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -14267,8 +14256,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "CollisionShape",
-            "OriginInputAttribute"
+            "bOverrideRayDirections",
+            "RayDirection"
           ]
         }
       }
@@ -14459,8 +14448,8 @@
         "profile": "read_write_roundtrip",
         "focus": {
           "fields": [
-            "AttributeSource",
-            "CustomPrefixString"
+            "CustomPrefixString",
+            "bPrefixWithIndex"
           ]
         }
       }
@@ -14604,7 +14593,7 @@
         "focus": {
           "fields": [
             "WaitTimeInSeconds",
-            "WaitTimeInEngineFrames"
+            "bEndWaitWhenAllConditionsAreMet"
           ]
         }
       }
@@ -14629,7 +14618,8 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -14677,13 +14667,8 @@
         }
       ],
       "testing": {
-        "profile": "read_write_roundtrip",
-        "focus": {
-          "fields": [
-            "CollisionShape",
-            "QueryParams"
-          ]
-        }
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -14719,12 +14704,8 @@
         }
       ],
       "testing": {
-        "profile": "read_write_roundtrip",
-        "focus": {
-          "fields": [
-            "QueryParams"
-          ]
-        }
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -14783,12 +14764,8 @@
         }
       ],
       "testing": {
-        "profile": "read_write_roundtrip",
-        "focus": {
-          "fields": [
-            "Pins"
-          ]
-        }
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -14811,7 +14788,8 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {
@@ -14843,7 +14821,8 @@
         }
       ],
       "testing": {
-        "profile": "read_write_roundtrip"
+        "profile": "construct_and_query",
+        "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
     {

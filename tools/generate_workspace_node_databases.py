@@ -360,6 +360,15 @@ def default_pcg_profile_for_family(family: str) -> str:
 
 def pick_pcg_representative_fields(entry: dict) -> list[str]:
     properties = entry.get("properties", [])
+    by_name = {prop["name"]: prop for prop in properties}
+
+    def is_simple_type(cpp_type: str) -> bool:
+        if cpp_type in {"bool", "int32", "int", "float", "double", "FString", "FName", "FVector", "FVector2D", "FRotator"}:
+            return True
+        if cpp_type.startswith("E"):
+            return True
+        return False
+
     preferred_names = (
         "Radius",
         "CellSize",
@@ -376,17 +385,26 @@ def pick_pcg_representative_fields(entry: dict) -> list[str]:
         "Attribute",
         "PointsPerSquaredMeter",
     )
-    names = [prop["name"] for prop in properties]
-    selected: list[str] = [name for name in preferred_names if name in names][:2]
+    selected: list[str] = [
+        name
+        for name in preferred_names
+        if name in by_name and is_simple_type(by_name[name].get("cppType", ""))
+    ][:2]
     if selected:
         return selected
-    overridable = [prop["name"] for prop in properties if "PCG_Overridable" in prop.get("flags", [])]
+
+    overridable = [
+        prop["name"]
+        for prop in properties
+        if "PCG_Overridable" in prop.get("flags", []) and is_simple_type(prop.get("cppType", ""))
+    ]
     if overridable:
         return overridable[:2]
     editable = [
         prop["name"]
         for prop in properties
         if any(flag in prop.get("flags", []) for flag in ("EditAnywhere", "BlueprintReadWrite", "BlueprintReadOnly"))
+        and is_simple_type(prop.get("cppType", ""))
     ]
     return editable[:2]
 
@@ -445,6 +463,18 @@ def derive_pcg_testing(entry: dict) -> dict:
         testing["profile"] = "read_write_roundtrip"
         testing["focus"] = {"fields": ["SelectedTags", "Operation"]}
         return testing
+    if class_name == "UPCGAttributeFilteringRangeSettings":
+        testing["profile"] = "dynamic_pin_probe"
+        testing["focus"] = {"dynamicTriggers": ["MinThreshold", "MaxThreshold"]}
+        return testing
+    if class_name == "UPCGFilterElementsByIndexSettings":
+        testing["profile"] = "dynamic_pin_probe"
+        testing["focus"] = {"dynamicTriggers": ["bSelectIndicesByInput"]}
+        return testing
+    if class_name == "UPCGFilterByIndexSettings":
+        testing["profile"] = "read_write_roundtrip"
+        testing["focus"] = {"fields": ["SelectedIndices", "bInvertFilter"]}
+        return testing
 
     recipe = derive_pcg_recipe(entry, family)
     if recipe:
@@ -458,6 +488,13 @@ def derive_pcg_testing(entry: dict) -> dict:
         fields = pick_pcg_representative_fields(entry)
         if fields:
             focus["fields"] = fields
+        else:
+            testing["profile"] = "construct_and_query"
+            if family in {"meta", "transform", "create"}:
+                testing["reason"] = "No stable representative roundtrip fields were identified for first-version coverage."
+            if "recipe" in testing:
+                testing["reason"] = "Depends on world or actor-backed source context."
+            return testing
     elif profile == "dynamic_pin_probe":
         triggers = pick_pcg_dynamic_triggers(entry)
         if triggers:
