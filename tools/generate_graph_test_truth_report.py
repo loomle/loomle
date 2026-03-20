@@ -22,7 +22,9 @@ def build_report(run_report: dict[str, Any], source_path: str) -> dict[str, Any]
         raise ValueError("run report missing results[]")
 
     total_cases = 0
-    roundtrip_cases = 0
+    audited_cases = 0
+    failed_cases = 0
+    query_truth_failed_cases = 0
     query_total = 0
     query_pin_found = 0
     query_surfaced = 0
@@ -33,8 +35,6 @@ def build_report(run_report: dict[str, Any], source_path: str) -> dict[str, Any]
     for result in results:
         if not isinstance(result, dict):
             continue
-        if result.get("status") != "pass":
-            continue
         total_cases += 1
         details = result.get("details")
         if not isinstance(details, dict):
@@ -43,7 +43,11 @@ def build_report(run_report: dict[str, Any], source_path: str) -> dict[str, Any]
         if not isinstance(query_audit, dict):
             continue
 
-        roundtrip_cases += 1
+        audited_cases += 1
+        if result.get("status") == "fail":
+            failed_cases += 1
+        if result.get("reason") == "query_truth_gap":
+            query_truth_failed_cases += 1
         family = str(result.get("family") or "unknown")
         counts = query_audit.get("counts")
         if not isinstance(counts, dict):
@@ -59,7 +63,11 @@ def build_report(run_report: dict[str, Any], source_path: str) -> dict[str, Any]
         query_surfaced += surfaced_fields
         query_matched += matched_fields
 
-        family_buckets[family]["roundtripCases"] += 1
+        family_buckets[family]["auditedCases"] += 1
+        if result.get("status") == "fail":
+            family_buckets[family]["failedCases"] += 1
+        if result.get("reason") == "query_truth_gap":
+            family_buckets[family]["queryTruthFailedCases"] += 1
         family_buckets[family]["totalFields"] += total_fields
         family_buckets[family]["pinFoundFields"] += pin_found_fields
         family_buckets[family]["surfacedFields"] += surfaced_fields
@@ -71,6 +79,8 @@ def build_report(run_report: dict[str, Any], source_path: str) -> dict[str, Any]
                     "className": result.get("className"),
                     "displayName": result.get("displayName"),
                     "family": family,
+                    "status": result.get("status"),
+                    "reason": result.get("reason"),
                     "queryAudit": counts,
                 }
             )
@@ -81,7 +91,9 @@ def build_report(run_report: dict[str, Any], source_path: str) -> dict[str, Any]
         family_summary.append(
             {
                 "family": family,
-                "roundtripCases": counter["roundtripCases"],
+                "auditedCases": counter["auditedCases"],
+                "failedCases": counter["failedCases"],
+                "queryTruthFailedCases": counter["queryTruthFailedCases"],
                 "totalFields": counter["totalFields"],
                 "pinFoundFields": counter["pinFoundFields"],
                 "surfacedFields": counter["surfacedFields"],
@@ -96,8 +108,10 @@ def build_report(run_report: dict[str, Any], source_path: str) -> dict[str, Any]
             "path": source_path,
         },
         "summary": {
-            "passedCases": total_cases,
-            "roundtripCases": roundtrip_cases,
+            "totalCases": total_cases,
+            "auditedCases": audited_cases,
+            "failedCases": failed_cases,
+            "queryTruthFailedCases": query_truth_failed_cases,
             "queryAudit": {
                 "totalFields": query_total,
                 "pinFoundFields": query_pin_found,

@@ -199,6 +199,7 @@ Owns:
 - source/filter/route/spawn recipes
 - selector and synthetic pin validation
 - settings truth vs query truth comparisons
+- strict query-truth assertions when generated cases can prove Unreal-side truth but `graph.query` does not surface it
 
 ## Recommended First Priorities
 

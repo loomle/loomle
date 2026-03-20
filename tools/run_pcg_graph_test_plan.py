@@ -380,6 +380,32 @@ def audit_roundtrip_query_surface(node: dict[str, Any], supported_specs: list[di
     }
 
 
+def classify_query_truth_gap(query_audit: dict[str, Any] | None) -> dict[str, list[str]]:
+    gaps = {
+        "missingPins": [],
+        "unsurfacedFields": [],
+        "mismatchedFields": [],
+    }
+    if not isinstance(query_audit, dict):
+        return gaps
+
+    fields = query_audit.get("fields")
+    if not isinstance(fields, dict):
+        return gaps
+
+    for field_name, audit in fields.items():
+        if not isinstance(field_name, str) or not isinstance(audit, dict):
+            continue
+        if not audit.get("pinFound"):
+            gaps["missingPins"].append(field_name)
+        elif not audit.get("surfaced"):
+            gaps["unsurfacedFields"].append(field_name)
+        elif not audit.get("matched"):
+            gaps["mismatchedFields"].append(field_name)
+
+    return gaps
+
+
 def execute_construct_case(client: McpStdioClient, request_id: int, *, asset_path: str, node_class_path: str) -> dict[str, Any]:
     node_id = add_node(client, request_id, asset_path=asset_path, node_class_path=node_class_path)
     snapshot = query_pcg_snapshot(client, request_id + 1, asset_path)
@@ -472,6 +498,18 @@ def execute_roundtrip_case(
         raise RuntimeError(
             f"roundtrip mismatch fields={mismatches} readback={compact_json(readback)} expected={compact_json({spec['field']: spec['sample'] for spec in supported_specs})}"
         )
+
+    query_truth_gaps = classify_query_truth_gap(query_audit)
+    if any(query_truth_gaps.values()):
+        return {
+            "outcome": "fail",
+            "reason": "query_truth_gap",
+            "nodeId": node_id,
+            "checkedFields": [spec["field"] for spec in supported_specs],
+            "skippedFields": skipped_fields,
+            "queryAudit": query_audit,
+            "queryTruthGaps": query_truth_gaps,
+        }
 
     return {
         "outcome": "pass",
@@ -616,6 +654,11 @@ def run_case(
                 result["reason"] = details.get("reason", "unsupported_roundtrip")
                 result["details"] = details
                 return result
+            if details.get("outcome") == "fail":
+                result["status"] = "fail"
+                result["reason"] = details.get("reason", "roundtrip_failure")
+                result["details"] = details
+                return result
             result["status"] = "pass"
             result["details"] = details
             return result
@@ -668,9 +711,8 @@ def build_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
     query_pin_found = 0
     query_surfaced = 0
     query_matched = 0
+    query_truth_failed_cases = 0
     for result in results:
-        if result.get("status") != "pass":
-            continue
         details = result.get("details")
         if not isinstance(details, dict):
             continue
@@ -684,6 +726,8 @@ def build_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
         query_pin_found += int(counts.get("pinFoundFields", 0) or 0)
         query_surfaced += int(counts.get("surfacedFields", 0) or 0)
         query_matched += int(counts.get("matchedFields", 0) or 0)
+        if result.get("status") == "fail" and result.get("reason") == "query_truth_gap":
+            query_truth_failed_cases += 1
 
     if query_total:
         summary["queryAudit"] = {
@@ -692,6 +736,7 @@ def build_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
             "surfacedFields": query_surfaced,
             "matchedFields": query_matched,
         }
+        summary["queryTruthFailedCases"] = query_truth_failed_cases
 
     return summary
 

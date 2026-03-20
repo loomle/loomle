@@ -63,7 +63,7 @@ Goal:
 
 Priorities:
 
-- query-truth audits before hard query-truth assertions
+- query-truth audits that can be promoted into hard failures
 - `graph.query` vs engine-truth comparisons
 - selector-heavy nodes
 - dynamic pin truth
@@ -73,6 +73,7 @@ Priorities:
 This phase answers:
 
 - where the graph surface disagrees with Unreal truth
+- which disagreements now fail the generated test runner directly
 - which workflow families have strong regression protection
 - which remaining gaps are product limits versus test-system limits
 
