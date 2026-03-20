@@ -35,6 +35,8 @@
 
 namespace LoomleBlueprintAdapterInternal
 {
+    static const TCHAR* DefaultBlueprintMacroLibraryAssetPath = TEXT("/Engine/EditorBlueprintResources/StandardMacros");
+
     static TSharedPtr<FJsonObject> MakeLayoutObject(
         int32 PositionX,
         int32 PositionY,
@@ -186,12 +188,16 @@ namespace LoomleBlueprintAdapterInternal
 
     static UEdGraph* ResolveMacroGraph(const FString& MacroLibraryAssetPath, const FString& MacroGraphName)
     {
-        if (MacroLibraryAssetPath.IsEmpty() || MacroGraphName.IsEmpty())
+        if (MacroGraphName.IsEmpty())
         {
             return nullptr;
         }
 
-        UBlueprint* MacroLibrary = LoadBlueprintByAssetPath(MacroLibraryAssetPath);
+        const FString EffectiveMacroLibraryAssetPath = MacroLibraryAssetPath.IsEmpty()
+            ? FString(DefaultBlueprintMacroLibraryAssetPath)
+            : MacroLibraryAssetPath;
+
+        UBlueprint* MacroLibrary = LoadBlueprintByAssetPath(EffectiveMacroLibraryAssetPath);
         return FindGraphByName(MacroLibrary, MacroGraphName);
     }
 
