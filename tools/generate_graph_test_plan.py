@@ -9,10 +9,24 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE_ROOT = REPO_ROOT / "workspace" / "Loomle"
 PLAN_VERSION = "1"
 
-SUPPORTED_GRAPH_TYPES = {"pcg"}
+SUPPORTED_GRAPH_TYPES = {"material", "pcg"}
 AUTO_CASE_PROFILES = {"construct_only", "construct_and_query", "read_write_roundtrip", "dynamic_pin_probe"}
 
 FIXTURE_REGISTRY: dict[str, dict[str, dict[str, Any]]] = {
+    "material": {
+        "material_graph": {
+            "graphType": "material",
+            "summary": "Minimal editable Material graph with a valid root.",
+        },
+        "material_root_chain": {
+            "graphType": "material",
+            "summary": "Material graph with a minimal valid expression chain already connected to root.",
+        },
+        "material_function_graph": {
+            "graphType": "material",
+            "summary": "Minimal editable Material Function graph with valid function context.",
+        },
+    },
     "pcg": {
         "pcg_graph": {
             "graphType": "pcg",
@@ -34,6 +48,12 @@ FIXTURE_REGISTRY: dict[str, dict[str, dict[str, Any]]] = {
 }
 
 RECIPE_REGISTRY: dict[str, dict[str, dict[str, Any]]] = {
+    "material": {
+        "material_function_call": {
+            "graphType": "material",
+            "fixture": "material_graph",
+        },
+    },
     "pcg": {
         "pcg_actor_source_context": {
             "graphType": "pcg",
@@ -43,6 +63,12 @@ RECIPE_REGISTRY: dict[str, dict[str, dict[str, Any]]] = {
 }
 
 DEFAULT_FIXTURES: dict[str, dict[str, str]] = {
+    "material": {
+        "construct_only": "material_graph",
+        "construct_and_query": "material_graph",
+        "read_write_roundtrip": "material_graph",
+        "dynamic_pin_probe": "material_graph",
+    },
     "pcg": {
         "construct_only": "pcg_graph",
         "construct_and_query": "pcg_graph",

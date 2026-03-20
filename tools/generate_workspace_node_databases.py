@@ -665,6 +665,87 @@ def derive_family_material(class_name: str, ancestry: list[str]) -> str:
     return "expression"
 
 
+def default_material_profile_for_family(family: str) -> str:
+    return {
+        "parameter": "construct_and_query",
+        "texture": "construct_and_query",
+        "custom_output": "construct_and_query",
+        "constant": "construct_only",
+        "utility": "construct_only",
+        "expression": "construct_and_query",
+    }[family]
+
+
+def pick_material_representative_fields(entry: dict) -> list[str]:
+    class_name = entry["className"]
+    if class_name in {"UMaterialExpressionScalarParameter", "UMaterialExpressionVectorParameter"}:
+        return ["ParameterName", "DefaultValue"]
+    if class_name == "UMaterialExpressionCollectionParameter":
+        return ["ParameterName", "SortPriority"]
+    if class_name == "UMaterialExpressionDynamicParameter":
+        return ["ParameterIndex", "DefaultValue"]
+    if class_name in {
+        "UMaterialExpressionFontSampleParameter",
+        "UMaterialExpressionTextureCollectionParameter",
+        "UMaterialExpressionTextureSampleParameter",
+        "UMaterialExpressionRuntimeVirtualTextureSampleParameter",
+        "UMaterialExpressionSparseVolumeTextureSampleParameter",
+    }:
+        return ["ParameterName"]
+    return []
+
+
+def pick_material_workflow_families(entry: dict) -> list[str]:
+    class_name = entry["className"]
+    if class_name in {"UMaterialExpressionMultiply", "UMaterialExpressionOneMinus", "UMaterialExpressionLinearInterpolate"}:
+        return ["material_root_chain"]
+    if class_name in {"UMaterialExpressionTextureSample", "UMaterialExpressionTextureSampleParameter2D"}:
+        return ["material_texture_chain"]
+    return []
+
+
+def derive_material_recipe(entry: dict) -> str | None:
+    if entry["className"] == "UMaterialExpressionMaterialFunctionCall":
+        return "material_function_call"
+    return None
+
+
+def derive_material_testing(entry: dict) -> dict:
+    family = entry["family"]
+    class_name = entry["className"]
+    profile = default_material_profile_for_family(family)
+    testing: dict[str, object] = {"profile": profile}
+
+    recipe = derive_material_recipe(entry)
+    if recipe:
+        testing["profile"] = "context_recipe_required"
+        testing["recipe"] = recipe
+        testing["reason"] = "Requires a child material function asset and material graph context."
+        return testing
+
+    if class_name in {
+        "UMaterialExpressionScalarParameter",
+        "UMaterialExpressionVectorParameter",
+        "UMaterialExpressionCollectionParameter",
+        "UMaterialExpressionDynamicParameter",
+        "UMaterialExpressionFontSampleParameter",
+        "UMaterialExpressionTextureCollectionParameter",
+        "UMaterialExpressionTextureSampleParameter",
+        "UMaterialExpressionRuntimeVirtualTextureSampleParameter",
+        "UMaterialExpressionSparseVolumeTextureSampleParameter",
+    }:
+        fields = pick_material_representative_fields(entry)
+        if fields:
+            testing["profile"] = "read_write_roundtrip"
+            testing["focus"] = {"fields": fields}
+            return testing
+
+    workflows = pick_material_workflow_families(entry)
+    if workflows:
+        testing["focus"] = {"workflowFamilies": workflows}
+    return testing
+
+
 def build_material_database() -> dict:
     classes = {entry["className"]: entry for entry in parse_uclass_headers("**/MaterialExpression*.h")}
     derived: dict[str, dict] = {}
@@ -682,6 +763,8 @@ def build_material_database() -> dict:
     nodes = []
     parameter_count = 0
     custom_output_count = 0
+    family_counts: dict[str, int] = {}
+    profile_counts: dict[str, int] = {}
     for name in sorted(derived):
         entry = derived[name]
         ancestry = [entry["baseClassName"]]
@@ -693,6 +776,16 @@ def build_material_database() -> dict:
         family = derive_family_material(name, ancestry)
         parameter_count += family == "parameter"
         custom_output_count += family == "custom_output"
+        testing = derive_material_testing(
+            {
+                "className": name,
+                "family": family,
+                "properties": entry["properties"],
+            }
+        )
+        family_counts[family] = family_counts.get(family, 0) + 1
+        profile = str(testing["profile"])
+        profile_counts[profile] = profile_counts.get(profile, 0) + 1
         nodes.append(
             {
                 "className": name,
@@ -709,6 +802,7 @@ def build_material_database() -> dict:
                 "isTextureClass": family == "texture",
                 "isCustomOutputClass": family == "custom_output",
                 "properties": entry["properties"],
+                "testing": testing,
             }
         )
 
@@ -727,10 +821,13 @@ def build_material_database() -> dict:
                 "This database is generated from local Unreal Engine 5.7 headers.",
                 "Display names are exact where a literal creation/display name is available in source, otherwise they are best-effort class-name humanizations.",
                 "Use Material GUIDE.md and examples/ for execution patterns, then consult this database for class/property details.",
+                "Testing metadata in nodes[].testing is LOOMLE test strategy data, not engine truth.",
             ],
             "totalNodeClasses": len(nodes),
             "parameterClasses": parameter_count,
             "customOutputClasses": custom_output_count,
+            "familyCounts": family_counts,
+            "testingProfileCounts": profile_counts,
             "sourceGroups": source_groups,
         },
         "specialNodes": [

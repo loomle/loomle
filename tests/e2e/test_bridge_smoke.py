@@ -99,6 +99,15 @@ EXPECTED_PCG_PLAN_SUMMARY = {
     "blocked": 4,
 }
 
+EXPECTED_MATERIAL_PLAN_SUMMARY = {
+    "totalNodes": 317,
+    "readyAutoCases": 316,
+    "readyRecipeCases": 1,
+    "workflowOnly": 0,
+    "inventoryOnly": 0,
+    "blocked": 0,
+}
+
 EXPECTED_PCG_COVERAGE_SUMMARY = {
     "totalNodes": 178,
     "readyNodes": 167,
@@ -901,6 +910,38 @@ def validate_workspace_catalogs() -> None:
         any(node.get("className") == "UMaterialExpressionMultiply" for node in material_database_nodes if isinstance(node, dict)),
         "material database missing UMaterialExpressionMultiply",
     )
+    scalar_parameter = next(
+        (node for node in material_database_nodes if isinstance(node, dict) and node.get("className") == "UMaterialExpressionScalarParameter"),
+        None,
+    )
+    _require(isinstance(scalar_parameter, dict), "material database missing UMaterialExpressionScalarParameter")
+    scalar_testing = scalar_parameter.get("testing")
+    _require(
+        isinstance(scalar_testing, dict) and scalar_testing.get("profile") == "read_write_roundtrip",
+        f"material scalar parameter testing missing: {scalar_parameter}",
+    )
+    multiply_node = next(
+        (node for node in material_database_nodes if isinstance(node, dict) and node.get("className") == "UMaterialExpressionMultiply"),
+        None,
+    )
+    _require(isinstance(multiply_node, dict), "material database missing UMaterialExpressionMultiply node object")
+    multiply_testing = multiply_node.get("testing")
+    _require(
+        isinstance(multiply_testing, dict) and multiply_testing.get("profile") == "construct_and_query",
+        f"material multiply testing missing: {multiply_node}",
+    )
+    function_call = next(
+        (node for node in material_database_nodes if isinstance(node, dict) and node.get("className") == "UMaterialExpressionMaterialFunctionCall"),
+        None,
+    )
+    _require(isinstance(function_call, dict), "material database missing UMaterialExpressionMaterialFunctionCall")
+    function_testing = function_call.get("testing")
+    _require(
+        isinstance(function_testing, dict)
+        and function_testing.get("profile") == "context_recipe_required"
+        and function_testing.get("recipe") == "material_function_call",
+        f"material function call testing missing: {function_call}",
+    )
 
     pcg_index = _load_json_file(workspace_root / "pcg" / "catalogs" / "node-index.json")
     _require(pcg_index.get("graphType") == "pcg", f"pcg index graphType mismatch: {pcg_index}")
@@ -1042,6 +1083,79 @@ def validate_generated_pcg_test_plan() -> None:
         _require(deprecated_grass.get("status") == "inventory_only", f"pcg deprecated grass status mismatch: {deprecated_grass}")
 
         print("[PASS] generated PCG test plan validated")
+
+
+def validate_generated_material_test_plan() -> None:
+    with tempfile.TemporaryDirectory(prefix="loomle-material-plan-") as tmpdir:
+        output_path = Path(tmpdir) / "material_test_plan.json"
+        subprocess.run(
+            [
+                sys.executable,
+                str(TOOLS_DIR / "generate_graph_test_plan.py"),
+                "--graph-type",
+                "material",
+                "--output",
+                str(output_path),
+            ],
+            check=True,
+            cwd=str(REPO_ROOT),
+        )
+        plan = _load_json_file(output_path)
+        _require(plan.get("version") == "1", f"material test plan version mismatch: {plan}")
+        _require(plan.get("graphType") == "material", f"material test plan graphType mismatch: {plan}")
+        source_catalog = plan.get("sourceCatalog")
+        _require(isinstance(source_catalog, dict), f"material test plan sourceCatalog missing: {plan}")
+        _require(
+            source_catalog.get("path") == str(REPO_ROOT / "workspace" / "Loomle" / "material" / "catalogs" / "node-database.json"),
+            f"material test plan sourceCatalog path mismatch: {source_catalog}",
+        )
+        summary = plan.get("summary")
+        _require(summary == EXPECTED_MATERIAL_PLAN_SUMMARY, f"material test plan summary mismatch: {summary}")
+        entries = plan.get("entries")
+        _require(isinstance(entries, list) and len(entries) == EXPECTED_MATERIAL_PLAN_SUMMARY["totalNodes"], "material test plan entries mismatch")
+
+        entry_by_class = {
+            entry.get("className"): entry
+            for entry in entries
+            if isinstance(entry, dict) and isinstance(entry.get("className"), str)
+        }
+
+        scalar_parameter = entry_by_class.get("UMaterialExpressionScalarParameter")
+        _require(isinstance(scalar_parameter, dict), "material plan missing UMaterialExpressionScalarParameter")
+        _require(scalar_parameter.get("profile") == "read_write_roundtrip", f"material scalar parameter profile mismatch: {scalar_parameter}")
+        _require(scalar_parameter.get("mode") == "auto_case", f"material scalar parameter mode mismatch: {scalar_parameter}")
+        _require(scalar_parameter.get("fixture") == "material_graph", f"material scalar parameter fixture mismatch: {scalar_parameter}")
+        _require(
+            isinstance(scalar_parameter.get("focus"), dict)
+            and scalar_parameter["focus"].get("fields") == ["ParameterName", "DefaultValue"],
+            f"material scalar parameter focus mismatch: {scalar_parameter}",
+        )
+
+        multiply = entry_by_class.get("UMaterialExpressionMultiply")
+        _require(isinstance(multiply, dict), "material plan missing UMaterialExpressionMultiply")
+        _require(multiply.get("profile") == "construct_and_query", f"material multiply profile mismatch: {multiply}")
+        _require(multiply.get("mode") == "auto_case", f"material multiply mode mismatch: {multiply}")
+        _require(multiply.get("fixture") == "material_graph", f"material multiply fixture mismatch: {multiply}")
+        _require(
+            isinstance(multiply.get("focus"), dict)
+            and multiply["focus"].get("workflowFamilies") == ["material_root_chain"],
+            f"material multiply workflowFamilies mismatch: {multiply}",
+        )
+
+        function_call = entry_by_class.get("UMaterialExpressionMaterialFunctionCall")
+        _require(isinstance(function_call, dict), "material plan missing UMaterialExpressionMaterialFunctionCall")
+        _require(function_call.get("mode") == "recipe_case", f"material function call mode mismatch: {function_call}")
+        _require(function_call.get("recipe") == "material_function_call", f"material function call recipe mismatch: {function_call}")
+        _require(function_call.get("fixture") == "material_graph", f"material function call fixture mismatch: {function_call}")
+        _require(function_call.get("status") == "ready", f"material function call status mismatch: {function_call}")
+
+        comment = entry_by_class.get("UMaterialExpressionComment")
+        _require(isinstance(comment, dict), "material plan missing UMaterialExpressionComment")
+        _require(comment.get("profile") == "construct_only", f"material comment profile mismatch: {comment}")
+        _require(comment.get("mode") == "auto_case", f"material comment mode mismatch: {comment}")
+        _require(comment.get("fixture") == "material_graph", f"material comment fixture mismatch: {comment}")
+
+        print("[PASS] generated Material test plan validated")
 
 
 def validate_generated_pcg_coverage_report() -> None:
@@ -1925,6 +2039,7 @@ def main() -> int:
 
         validate_workspace_catalogs()
         validate_workspace_examples()
+        validate_generated_material_test_plan()
         validate_generated_pcg_test_plan()
         validate_generated_pcg_coverage_report()
         validate_generated_pcg_workflow_truth_suite()

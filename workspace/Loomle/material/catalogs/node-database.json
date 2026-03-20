@@ -8,11 +8,26 @@
     "notes": [
       "This database is generated from local Unreal Engine 5.7 headers.",
       "Display names are exact where a literal creation/display name is available in source, otherwise they are best-effort class-name humanizations.",
-      "Use Material GUIDE.md and examples/ for execution patterns, then consult this database for class/property details."
+      "Use Material GUIDE.md and examples/ for execution patterns, then consult this database for class/property details.",
+      "Testing metadata in nodes[].testing is LOOMLE test strategy data, not engine truth."
     ],
     "totalNodeClasses": 317,
     "parameterClasses": 24,
     "customOutputClasses": 17,
+    "familyCounts": {
+      "expression": 244,
+      "custom_output": 17,
+      "texture": 25,
+      "parameter": 24,
+      "utility": 1,
+      "constant": 6
+    },
+    "testingProfileCounts": {
+      "construct_and_query": 300,
+      "read_write_roundtrip": 9,
+      "construct_only": 7,
+      "context_recipe_required": 1
+    },
     "sourceGroups": {
       "Runtime/Engine": 309,
       "Runtime/Landscape": 8
@@ -56,7 +71,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionAbsorptionMediumMaterialOutput",
@@ -83,7 +101,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionActorPositionWS",
@@ -110,7 +131,10 @@
           ],
           "meta": "EditAnywhere, Category=UMaterialExpressionActorPositionWS, meta=(DisplayName = \"Origin\", ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionAdd",
@@ -165,7 +189,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionAdd, meta=(OverridingInputProperty = \"B\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionAggregate",
@@ -230,7 +257,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionAntialiasedTextureMask",
@@ -269,7 +299,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionAntialiasedTextureMask"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionAppendVector",
@@ -304,7 +337,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionArccosine",
@@ -331,7 +367,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionArccosineFast",
@@ -356,7 +395,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionArcsine",
@@ -383,7 +425,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionArcsineFast",
@@ -408,7 +453,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionArctangent",
@@ -435,7 +483,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionArctangent2",
@@ -470,7 +521,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionArctangent2Fast",
@@ -503,7 +557,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionArctangentFast",
@@ -528,7 +585,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionAtmosphericFogColor",
@@ -563,7 +623,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionAtmosphericFogColor"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionAtmosphericLightColor",
@@ -579,7 +642,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionAtmosphericLightVector",
@@ -595,7 +661,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionBentNormalCustomOutput",
@@ -620,7 +689,10 @@
           "flags": [],
           "meta": "meta = (RequiredInput = \"true\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionBindlessSwitch",
@@ -655,7 +727,10 @@
           "flags": [],
           "meta": "meta = (RequiredInput = \"true\", ToolTip = \"Input will be used when rendering with bindless support\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionBlackBody",
@@ -682,7 +757,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionBlend",
@@ -745,7 +823,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionBlend"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionBlendMaterialAttributes",
@@ -808,7 +889,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialAttributes"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionBounds",
@@ -837,7 +921,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionBounds, meta = (DisplayName = \"Type\", ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionBreakMaterialAttributes",
@@ -864,7 +951,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionBumpOffset",
@@ -937,7 +1027,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionBumpOffset, meta = (OverridingInputProperty = \"Coordinate\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionCameraPositionWS",
@@ -955,7 +1048,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionCameraVectorWS",
@@ -973,7 +1069,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionCeil",
@@ -1000,7 +1099,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionChannelMaskParameter",
@@ -1037,7 +1139,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionClamp",
@@ -1110,7 +1215,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionClamp, meta=(OverridingInputProperty = \"Max\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionClearCoatNormalCustomOutput",
@@ -1137,7 +1245,10 @@
           "flags": [],
           "meta": "meta = (RequiredInput = \"true\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionCloudSampleAttribute",
@@ -1153,7 +1264,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionCollectionParameter",
@@ -1228,7 +1342,16 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "read_write_roundtrip",
+        "focus": {
+          "fields": [
+            "ParameterName",
+            "SortPriority"
+          ]
+        }
+      }
     },
     {
       "className": "UMaterialExpressionCollectionTransform",
@@ -1293,7 +1416,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionCollectionTransform"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionColorRamp",
@@ -1340,7 +1466,10 @@
           ],
           "meta": "EditAnywhere, Instanced, Category = \"MaterialExpressionColorRamp\""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionComment",
@@ -1415,7 +1544,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionComment"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_only"
+      }
     },
     {
       "className": "UMaterialExpressionComponentMask",
@@ -1442,7 +1574,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionComposite",
@@ -1487,7 +1622,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionConstant",
@@ -1517,7 +1655,10 @@
           ],
           "meta": "EditAnywhere, BlueprintReadWrite, Category=MaterialExpressionConstant, DisplayName=\"Value\", Meta=(ShowAsInputPin = \"Primary\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_only"
+      }
     },
     {
       "className": "UMaterialExpressionConstant2Vector",
@@ -1558,7 +1699,10 @@
           ],
           "meta": "EditAnywhere, BlueprintReadWrite, Category=MaterialExpressionConstant2Vector, DisplayName = \"Y\", Meta = (ShowAsInputPin = \"Primary\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_only"
+      }
     },
     {
       "className": "UMaterialExpressionConstant3Vector",
@@ -1588,7 +1732,10 @@
           ],
           "meta": "EditAnywhere, BlueprintReadWrite, Category=MaterialExpressionConstant3Vector, meta=(HideAlphaChannel, ShowAsInputPin = \"Primary\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_only"
+      }
     },
     {
       "className": "UMaterialExpressionConstant4Vector",
@@ -1618,7 +1765,10 @@
           ],
           "meta": "EditAnywhere, BlueprintReadWrite, Category=MaterialExpressionConstant4Vector, Meta = (ShowAsInputPin = \"Primary\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_only"
+      }
     },
     {
       "className": "UMaterialExpressionConstantBiasScale",
@@ -1665,7 +1815,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionConstantBiasScale, Meta = (ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_only"
+      }
     },
     {
       "className": "UMaterialExpressionConstantDouble",
@@ -1695,7 +1848,10 @@
           ],
           "meta": "EditAnywhere, BlueprintReadWrite, Category = MaterialExpressionConstant, meta = (ShowAsInputPin = \"Primary\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_only"
+      }
     },
     {
       "className": "UMaterialExpressionConvert",
@@ -1752,7 +1908,10 @@
           ],
           "meta": "EditAnywhere, Category = \"MaterialExpressionConvert\""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionCosine",
@@ -1789,7 +1948,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionCosine, Meta = (ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionCrossProduct",
@@ -1824,7 +1986,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionCurveAtlasRowParameter",
@@ -1871,7 +2036,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionCustom",
@@ -1970,7 +2138,10 @@
           ],
           "meta": "VisibleAnywhere, Category=MaterialExpressionCustom"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionCustomOutput",
@@ -1988,7 +2159,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDBufferTexture",
@@ -2023,7 +2197,10 @@
           ],
           "meta": "EditAnywhere, Category = UMaterialExpressionDBufferTexture, meta = (DisplayName = \"DBuffer Texture\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDDX",
@@ -2050,7 +2227,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDDY",
@@ -2077,7 +2257,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDataDrivenShaderPlatformInfoSwitch",
@@ -2122,7 +2305,10 @@
           ],
           "meta": "EditAnywhere, Category = DataDrivenShaderPlatformInfoInput"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDecalColor",
@@ -2138,7 +2324,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDecalDerivative",
@@ -2154,7 +2343,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDecalLifetimeOpacity",
@@ -2170,7 +2362,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDecalMipmapLevel",
@@ -2215,7 +2410,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionDecalMipmapLevel, meta=(OverridingInputProperty = \"TextureSize\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDeltaTime",
@@ -2231,7 +2429,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDepthFade",
@@ -2284,7 +2485,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionDepthFade, meta=(OverridingInputProperty = \"FadeDistance\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDepthOfFieldFunction",
@@ -2319,7 +2523,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDeriveNormalZ",
@@ -2346,7 +2553,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDesaturation",
@@ -2391,7 +2601,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionDesaturation, Meta = (ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDistance",
@@ -2426,7 +2639,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDistanceCullFade",
@@ -2442,7 +2658,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDistanceFieldApproxAO",
@@ -2541,7 +2760,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionDistanceFieldApproxAO, DisplayName = \"Step Scale\", meta = (UIMin = \"1.0\", UIMax = \"8.0\", ShowAsInputPin = \"Advanced\", ToolTip = \"Used to control step distance distribution\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDistanceFieldGradient",
@@ -2576,7 +2798,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionDistanceFieldGradient"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDistanceFieldsRenderingSwitch",
@@ -2609,7 +2834,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDistanceToNearestSurface",
@@ -2644,7 +2872,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionDistanceToNearestSurface"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDivide",
@@ -2699,7 +2930,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionDivide, meta=(OverridingInputProperty = \"B\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDotProduct",
@@ -2734,7 +2968,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDoubleVectorParameter",
@@ -2763,7 +3000,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionVectorParameter, Meta = (ShowAsInputPin = \"Primary\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionDynamicParameter",
@@ -2812,7 +3052,16 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionDynamicParameter, meta = (UIMin = 0, ClampMin = 0, UIMax = 3, ClampMax = 3, ShowAsInputPin = \"Primary\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "read_write_roundtrip",
+        "focus": {
+          "fields": [
+            "ParameterIndex",
+            "DefaultValue"
+          ]
+        }
+      }
     },
     {
       "className": "UMaterialExpressionExponential",
@@ -2839,7 +3088,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionExponential2",
@@ -2866,7 +3118,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionExternalCodeBase",
@@ -2893,7 +3148,10 @@
           "flags": [],
           "meta": "Config"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionEyeAdaptation",
@@ -2909,7 +3167,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionEyeAdaptationInverse",
@@ -2942,7 +3203,10 @@
           "flags": [],
           "meta": "meta = (RequiredInput = \"false\", ToolTip = \"Weight of the conversion. 1.0 means full conversion, 0.0 means no change.\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionFeatureLevelSwitch",
@@ -2969,7 +3233,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionFirstPersonOutput",
@@ -3006,7 +3273,10 @@
           ],
           "meta": "EditAnywhere, Category = \"First Person\", meta = (OverridingInputProperty = \"FirstPersonInterpolationAlpha\", UIMin = 0.0f, UIMax = 1.0f, ClampMin = 0.0f, ClampMax = 1.0f)"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionFloatToUInt",
@@ -3043,7 +3313,10 @@
           ],
           "meta": "EditAnywhere, Category=FloatToInt"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionFloor",
@@ -3070,7 +3343,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionFmod",
@@ -3105,7 +3381,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionFontSample",
@@ -3144,7 +3423,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionFontSample"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionFontSampleParameter",
@@ -3201,7 +3483,15 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionFontSampleParameter"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "read_write_roundtrip",
+        "focus": {
+          "fields": [
+            "ParameterName"
+          ]
+        }
+      }
     },
     {
       "className": "UMaterialExpressionFontSignedDistance",
@@ -3219,7 +3509,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionFrac",
@@ -3246,7 +3539,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionFresnel",
@@ -3309,7 +3605,10 @@
           "flags": [],
           "meta": "meta = (RequiredInput = \"false\", ToolTip = \"Defaults to Pixel World Normal if not specified\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionFunctionInput",
@@ -3408,7 +3707,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionFunctionInput"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionFunctionOutput",
@@ -3474,7 +3776,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionGIReplace",
@@ -3515,7 +3820,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionGenericConstant",
@@ -3533,7 +3841,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionGetMaterialAttributes",
@@ -3570,7 +3881,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialAttributes"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionHairAttributes",
@@ -3588,7 +3902,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionHairColor",
@@ -3631,7 +3948,10 @@
           "flags": [],
           "meta": "meta = (RequiredInput = \"false\", ClampMin = \"0.0\", ClampMax = \"1.0\", UIMin = \"0.0\", UIMax = \"1.0\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionHsvToRgb",
@@ -3658,7 +3978,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionIf",
@@ -3745,7 +4068,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionIfThenElse",
@@ -3788,7 +4114,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionInverseLinearInterpolate",
@@ -3871,7 +4200,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionInverseLinearInterpolate"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionIsFirstPerson",
@@ -3889,7 +4221,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionIsOrthographic",
@@ -3905,7 +4240,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionLandscapeGrassOutput",
@@ -3934,7 +4272,10 @@
           ],
           "meta": "EditAnywhere, Category = UMaterialExpressionLandscapeGrassOutput"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionLandscapeLayerBlend",
@@ -3963,7 +4304,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionLandscapeLayerBlend"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionLandscapeLayerCoords",
@@ -4042,7 +4386,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionLandscapeLayerCoords"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionLandscapeLayerSample",
@@ -4081,7 +4428,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionLandscapeLayerWeight"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionLandscapeLayerSwitch",
@@ -4126,7 +4476,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionLandscapeLayerSwitch"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionLandscapeLayerWeight",
@@ -4191,7 +4544,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionLandscapeLayerWeight, meta = (OverridingInputProperty = \"Base\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionLandscapePhysicalMaterialOutput",
@@ -4220,7 +4576,10 @@
           ],
           "meta": "EditAnywhere, Category = PhysicalMaterial"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionLandscapeVisibilityMask",
@@ -4238,7 +4597,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionLayerStack",
@@ -4285,7 +4647,10 @@
           ],
           "meta": "EditAnywhere, Category = AvailableFunctions, meta = (AllowedClasses = \"/Script/Engine.MaterialFunctionMaterialLayerBlend, /Script/Engine.MaterialFunctionMaterialLayerBlendInstance\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionLegacyBlendMaterialAttributes",
@@ -4346,7 +4711,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialAttributes"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionLength",
@@ -4373,7 +4741,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionLightVector",
@@ -4389,7 +4760,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionLightmapUVs",
@@ -4405,7 +4779,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionLightmassReplace",
@@ -4438,7 +4815,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionLinearInterpolate",
@@ -4511,7 +4891,15 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionLinearInterpolate, meta=(OverridingInputProperty = \"Alpha\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "focus": {
+          "workflowFamilies": [
+            "material_root_chain"
+          ]
+        }
+      }
     },
     {
       "className": "UMaterialExpressionLocalPosition",
@@ -4550,7 +4938,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionLocalPosition, meta=(DisplayName = \"Local Origin\", ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionLogarithm",
@@ -4577,7 +4968,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionLogarithm10",
@@ -4604,7 +4998,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionLogarithm2",
@@ -4631,7 +5028,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionMakeMaterialAttributes",
@@ -4802,7 +5202,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionMapARPassthroughCameraUV",
@@ -4827,7 +5230,10 @@
           "flags": [],
           "meta": "meta = (RequiredInput = \"true\", ToolTip = \"Input UV to map to AR Camera UV\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionMaterialAttributeLayers",
@@ -4924,7 +5330,10 @@
           ],
           "meta": "Transient"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionMaterialCache",
@@ -4985,7 +5394,10 @@
           "flags": [],
           "meta": "meta = (RequiredInput = \"false\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionMaterialFunctionCall",
@@ -5040,7 +5452,12 @@
           ],
           "meta": "Transient"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "context_recipe_required",
+        "recipe": "material_function_call",
+        "reason": "Requires a child material function asset and material graph context."
+      }
     },
     {
       "className": "UMaterialExpressionMaterialLayerOutput",
@@ -5058,7 +5475,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionMaterialProxyReplace",
@@ -5091,7 +5511,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionMaterialSample",
@@ -5120,7 +5543,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionMaterialSample"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionMax",
@@ -5175,7 +5601,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionMax, meta=(OverridingInputProperty = \"B\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionMeshPaintTextureCoordinateIndex",
@@ -5193,7 +5622,10 @@
       "isParameterClass": false,
       "isTextureClass": true,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionMeshPaintTextureObject",
@@ -5211,7 +5643,10 @@
       "isParameterClass": false,
       "isTextureClass": true,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionMeshPaintTextureReplace",
@@ -5246,7 +5681,10 @@
           "flags": [],
           "meta": "meta = (RequiredInput = \"true\", ToolTip = \"Input will be used when a valid MeshPaintTexture is available\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionMin",
@@ -5301,7 +5739,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionMin, meta=(OverridingInputProperty = \"B\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionModulo",
@@ -5336,7 +5777,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionMotionVectorWorldOffsetOutput",
@@ -5363,7 +5807,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionMultiply",
@@ -5418,7 +5865,15 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionMultiply, meta=(OverridingInputProperty = \"B\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "focus": {
+          "workflowFamilies": [
+            "material_root_chain"
+          ]
+        }
+      }
     },
     {
       "className": "UMaterialExpressionNamedRerouteBase",
@@ -5436,7 +5891,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionNamedRerouteDeclaration",
@@ -5491,7 +5949,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionNamedRerouteUsage",
@@ -5526,7 +5987,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionNaniteReplace",
@@ -5559,7 +6023,10 @@
           "flags": [],
           "meta": "meta = (RequiredInput = \"true\", ToolTip = \"Input will be used when rendering into Nanite passes\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionNeuralNetworkInput",
@@ -5612,7 +6079,10 @@
           ],
           "meta": "EditAnywhere, CateGory = \"Default\", meta = (DisplayName = \"Index Type\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionNeuralNetworkOutput",
@@ -5649,7 +6119,10 @@
           ],
           "meta": "EditAnywhere, Category = \"Default\", meta = (DisplayName = \"Index Type\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionNoise",
@@ -5774,7 +6247,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionNoise, meta=(UIMin = \"4\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionNormalize",
@@ -5801,7 +6277,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionObjectBounds",
@@ -5817,7 +6296,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionObjectLocalBounds",
@@ -5833,7 +6315,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionObjectOrientation",
@@ -5851,7 +6336,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionObjectPositionWS",
@@ -5880,7 +6368,10 @@
           ],
           "meta": "EditAnywhere, Category=UMaterialExpressionObjectPositionWS, meta=(DisplayName = \"Origin\", ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionObjectRadius",
@@ -5896,7 +6387,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionOneMinus",
@@ -5923,7 +6417,15 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "focus": {
+          "workflowFamilies": [
+            "material_root_chain"
+          ]
+        }
+      }
     },
     {
       "className": "UMaterialExpressionOperator",
@@ -5962,7 +6464,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionOperator"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionPanner",
@@ -6045,7 +6550,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionPanner"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionParameter",
@@ -6102,7 +6610,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionParameter"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionParticleColor",
@@ -6118,7 +6629,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionParticleDirection",
@@ -6134,7 +6648,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionParticleMacroUV",
@@ -6150,7 +6667,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionParticleMotionBlurFade",
@@ -6166,7 +6686,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionParticlePositionWS",
@@ -6193,7 +6716,10 @@
           ],
           "meta": "EditAnywhere, Category=UMaterialExpressionParticlePositionWS, meta=(DisplayName = \"Origin\", ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionParticleRadius",
@@ -6209,7 +6735,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionParticleRandom",
@@ -6225,7 +6754,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionParticleRelativeTime",
@@ -6241,7 +6773,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionParticleSize",
@@ -6257,7 +6792,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionParticleSpeed",
@@ -6273,7 +6811,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionParticleSpriteRotation",
@@ -6289,7 +6830,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionParticleSubUV",
@@ -6307,7 +6851,10 @@
       "isParameterClass": false,
       "isTextureClass": true,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionParticleSubUVProperties",
@@ -6325,7 +6872,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionPathTracingBufferTexture",
@@ -6360,7 +6910,10 @@
           ],
           "meta": "EditAnywhere, Category = UMaterialExpressionPathTracingBufferTexture, meta = (DisplayName = \"Buffer Texture (Path Tracing)\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionPathTracingQualitySwitch",
@@ -6393,7 +6946,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionPathTracingRayTypeSwitch",
@@ -6450,7 +7006,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionPerInstanceCustomData",
@@ -6495,7 +7054,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionPerInstanceCustomData, meta = (ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionPerInstanceCustomData3Vector",
@@ -6540,7 +7102,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionPerInstanceCustomData, meta = (ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionPerInstanceFadeAmount",
@@ -6556,7 +7121,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionPerInstanceRandom",
@@ -6572,7 +7140,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionPinBase",
@@ -6609,7 +7180,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionPixelDepth",
@@ -6627,7 +7201,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionPixelNormalWS",
@@ -6645,7 +7222,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionPostVolumeUserFlagTest",
@@ -6682,7 +7262,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionPostVolumeUserFlagTest, meta=(OverridingInputProperty = \"BitIndex\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionPower",
@@ -6727,7 +7310,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionPower, meta=(OverridingInputProperty = \"Exponent\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionPreSkinnedLocalBounds",
@@ -6743,7 +7329,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionPreSkinnedNormal",
@@ -6761,7 +7350,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionPreSkinnedPosition",
@@ -6779,7 +7371,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionPrecomputedAOMask",
@@ -6795,7 +7390,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionPreviousFrameSwitch",
@@ -6830,7 +7428,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionQualitySwitch",
@@ -6857,7 +7458,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionRayTracingQualitySwitch",
@@ -6890,7 +7494,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionRecordTextureStreamingInfo",
@@ -6925,7 +7532,10 @@
           "flags": [],
           "meta": "meta = (RequiredInput = \"true\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionReflectionCapturePassSwitch",
@@ -6958,7 +7568,10 @@
           "flags": [],
           "meta": "meta = (RequiredInput = \"true\", ToolTip = \"Input will be used when rendering into reflection passes.\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionReflectionVectorWS",
@@ -6985,7 +7598,10 @@
           "flags": [],
           "meta": "meta = (RequiredInput = \"false\", ToolTip = \"Defaults to Reflection Vector if not specified\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionRequiredSamplersSwitch",
@@ -7030,7 +7646,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionRequiredSamplersSwitch, meta=(UIMin = \"16\", UIMax = \"255\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionReroute",
@@ -7057,7 +7676,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionRerouteBase",
@@ -7075,7 +7697,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionRgbToHsv",
@@ -7102,7 +7727,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionRotateAboutAxis",
@@ -7163,7 +7791,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionRotateAboutAxis, meta = (ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionRotator",
@@ -7238,7 +7869,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionRotator, meta = (OverridingInputProperty = \"Coordinate\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionRound",
@@ -7263,7 +7897,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionRuntimeVirtualTextureCustomData",
@@ -7279,7 +7916,10 @@
       "isParameterClass": false,
       "isTextureClass": true,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionRuntimeVirtualTextureOutput",
@@ -7368,7 +8008,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionRuntimeVirtualTextureReplace",
@@ -7401,7 +8044,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionRuntimeVirtualTextureSample",
@@ -7540,7 +8186,10 @@
           ],
           "meta": "EditAnywhere, Category = TextureSample"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionRuntimeVirtualTextureSampleParameter",
@@ -7597,7 +8246,15 @@
           ],
           "meta": "EditAnywhere, Category = MaterialParameter"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "read_write_roundtrip",
+        "focus": {
+          "fields": [
+            "ParameterName"
+          ]
+        }
+      }
     },
     {
       "className": "UMaterialExpressionSRGBColorToWorkingColorSpace",
@@ -7624,7 +8281,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSamplePhysicsIntegerField",
@@ -7669,7 +8329,10 @@
           ],
           "meta": "EditAnywhere, Category = \"Field Setup\", meta = (DisplayName = \"Target Type\", ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSamplePhysicsScalarField",
@@ -7714,7 +8377,10 @@
           ],
           "meta": "EditAnywhere, Category = \"Field Setup\", meta = (DisplayName = \"Target Type\", ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSamplePhysicsVectorField",
@@ -7759,7 +8425,10 @@
           ],
           "meta": "EditAnywhere, Category = \"Field Setup\", meta = (DisplayName = \"Target Type\", ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSaturate",
@@ -7786,7 +8455,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionScalarBlueNoise",
@@ -7804,7 +8476,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionScalarParameter",
@@ -7903,7 +8578,16 @@
           ],
           "meta": "EditAnywhere, Category = CustomPrimitiveData, meta = (ClampMin = \"0\", EditCondition = \"bUseCustomPrimitiveData\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "read_write_roundtrip",
+        "focus": {
+          "fields": [
+            "ParameterName",
+            "DefaultValue"
+          ]
+        }
+      }
     },
     {
       "className": "UMaterialExpressionSceneColor",
@@ -7956,7 +8640,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionSceneColor, meta = (OverridingInputProperty = \"Input\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSceneDepth",
@@ -8009,7 +8696,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionSceneDepth, meta = (OverridingInputProperty = \"Input\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSceneDepthWithoutWater",
@@ -8064,7 +8754,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionSceneDepthWithoutWater, meta = (ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSceneTexelSize",
@@ -8080,7 +8773,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSceneTexture",
@@ -8127,7 +8823,10 @@
           ],
           "meta": "EditAnywhere, Category=UMaterialExpressionSceneTexture, meta=(DisplayName = \"Filtered\", ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionScreenPosition",
@@ -8143,7 +8842,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSetMaterialAttributes",
@@ -8180,7 +8882,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialAttributes"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionShaderStageSwitch",
@@ -8215,7 +8920,10 @@
           "flags": [],
           "meta": "meta = (RequiredInput = \"true\", ToolTip = \"Input will be in vertex (or tessellation) shader stages\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionShadingModel",
@@ -8244,7 +8952,10 @@
           ],
           "meta": "EditAnywhere, Category=ShadingModel, meta=(ValidEnumValues=\"MSM_DefaultLit, MSM_Subsurface, MSM_PreintegratedSkin, MSM_ClearCoat, MSM_SubsurfaceProfile, MSM_TwoSidedFoliage, MSM_Hair, MSM_Cloth, MSM_Eye\", ShowAsInputPin = \"Primary\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionShadingPathSwitch",
@@ -8271,7 +8982,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionShadowReplace",
@@ -8304,7 +9018,10 @@
           "flags": [],
           "meta": "meta = (RequiredInput = \"true\", ToolTip = \"Input will be used when rendering into ShadowMap\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSign",
@@ -8331,7 +9048,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSine",
@@ -8368,7 +9088,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionSine, Meta = (ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSingleLayerWaterMaterialOutput",
@@ -8419,7 +9142,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSkyAtmosphereAerialPerspective",
@@ -8454,7 +9180,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionSkyAtmosphereAerialPerspective"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSkyAtmosphereDistantLightScatteredLuminance",
@@ -8470,7 +9199,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSkyAtmosphereLightDirection",
@@ -8498,7 +9230,10 @@
           ],
           "meta": "EditAnywhere, BlueprintReadWrite, Category = MaterialExpressionTextureCoordinate, meta = (UIMin = \"0\", UIMax = \"1\", ClampMin = \"0\", ClampMax = \"1\", ShowAsInputPin = \"Primary\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSkyAtmosphereLightDiskLuminance",
@@ -8534,7 +9269,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSkyAtmosphereLightIlluminance",
@@ -8580,7 +9318,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionSkyAtmosphereLightIlluminance"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSkyAtmosphereLightIlluminanceOnGround",
@@ -8608,7 +9349,10 @@
           ],
           "meta": "EditAnywhere, BlueprintReadWrite, Category = MaterialExpressionTextureCoordinate, meta = (UIMin = \"0\", UIMax = \"1\", ClampMin = \"0\", ClampMax = \"1\", ShowAsInputPin = \"Primary\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSkyAtmosphereViewLuminance",
@@ -8633,7 +9377,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSkyLightEnvMapSample",
@@ -8666,7 +9413,10 @@
           "flags": [],
           "meta": "meta = (RequiredInput = \"false\", ToolTip = \"The roughness used to specifiy the sharpness of the sample.\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSmoothStep",
@@ -8739,7 +9489,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionSmoothStep, meta = (OverridingInputProperty = \"Value\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSobol",
@@ -8802,7 +9555,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionSobol, meta = ( OverridingInputProperty = \"Seed\", Tooltip=\"2D Seed for sequence randomization. Only used if Seed is not connected.\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSparseVolumeTextureBase",
@@ -8832,7 +9588,10 @@
           ],
           "meta": "EditAnywhere, BlueprintReadWrite, Category = SparseVolumeTexture"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSparseVolumeTextureObject",
@@ -8850,7 +9609,10 @@
       "isParameterClass": false,
       "isTextureClass": true,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSparseVolumeTextureObjectParameter",
@@ -8868,7 +9630,10 @@
       "isParameterClass": true,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSparseVolumeTextureSample",
@@ -8957,7 +9722,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionTextureSample"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSparseVolumeTextureSampleParameter",
@@ -9014,7 +9782,15 @@
           ],
           "meta": "EditAnywhere, Category = MaterialParameter"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "read_write_roundtrip",
+        "focus": {
+          "fields": [
+            "ParameterName"
+          ]
+        }
+      }
     },
     {
       "className": "UMaterialExpressionSpeedTree",
@@ -9116,7 +9892,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionSpeedTree, AdvancedDisplay, meta=(DisplayName = \"Accurate Wind Velocities\", ToolTip=\"Support accurate velocities from wind. This will incur extra cost per vertex.\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSphereMask",
@@ -9187,7 +9966,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionSphereMask, meta=(UIMin = \"0.0\", UIMax = \"100.0\", ClampMin = \"0.0\", ClampMax = \"100.0\", OverridingInputProperty = \"Hardness\", DisplayName = \"Hardness\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSphericalParticleOpacity",
@@ -9222,7 +10004,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionSphericalParticleOpacity, meta=(OverridingInputProperty = \"Density\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSquareRoot",
@@ -9249,7 +10034,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionStaticBool",
@@ -9267,7 +10055,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionStaticBoolParameter",
@@ -9285,7 +10076,10 @@
       "isParameterClass": true,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionStaticComponentMaskParameter",
@@ -9312,7 +10106,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionStaticSwitch",
@@ -9355,7 +10152,10 @@
           "flags": [],
           "meta": "meta = (RequiredInput = \"false\", ToolTip = \"Ignored if not specified\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionStaticSwitchParameter",
@@ -9390,7 +10190,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionStep",
@@ -9445,7 +10248,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionStep, meta = (OverridingInputProperty = \"X\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateAdd",
@@ -9480,7 +10286,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateBSDF",
@@ -9499,7 +10308,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateConvertMaterialAttributes",
@@ -9579,7 +10391,10 @@
           ],
           "meta": "EditAnywhere, Category = ShadingModel, meta = (ShowAsInputPin = \"Primary\", DisplayName = \"Single Shading Model\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateConvertToDecal",
@@ -9614,7 +10429,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateEyeBSDF",
@@ -9708,7 +10526,10 @@
           ],
           "meta": "EditAnywhere, BlueprintReadOnly, Category = Material, meta = (DisplayName = \"Subsurface Profile\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateHairBSDF",
@@ -9783,7 +10604,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateHazinessToSecondaryRoughness",
@@ -9818,7 +10642,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateHorizontalMixing",
@@ -9861,7 +10688,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateLightFunction",
@@ -9888,7 +10718,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateMetalnessToDiffuseAlbedoF0",
@@ -9931,7 +10764,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstratePostProcess",
@@ -9966,7 +10802,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateSelect",
@@ -10019,7 +10858,10 @@
           ],
           "meta": "EditAnywhere, Category = Mode, meta = (UIMin = 0.0, UIMax = 1.0, ClampMin = 0.0, ClampMax = 1.0)"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateShadingModels",
@@ -10227,7 +11069,10 @@
           ],
           "meta": "EditAnywhere, BlueprintReadOnly, Category = Material, meta = (DisplayName = \"Subsurface Profile\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateSimpleClearCoatBSDF",
@@ -10310,7 +11155,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateSingleLayerWaterBSDF",
@@ -10417,7 +11265,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateSlabBSDF",
@@ -10612,7 +11463,10 @@
           ],
           "meta": "EditAnywhere, Category = Material, meta = (DisplayName = \"Sub-Surface Type\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateThinFilm",
@@ -10671,7 +11525,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateTransmittanceToMFP",
@@ -10706,7 +11563,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateUI",
@@ -10741,7 +11601,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateUnlitBSDF",
@@ -10784,7 +11647,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateUtilityBase",
@@ -10803,7 +11669,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateVerticalLayering",
@@ -10846,7 +11715,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateVolumetricFogCloudBSDF",
@@ -10897,7 +11769,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubstrateWeight",
@@ -10932,7 +11807,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubsurfaceMediumMaterialOutput",
@@ -10967,7 +11845,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSubtract",
@@ -11022,7 +11903,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionSubtract, meta=(OverridingInputProperty = \"B\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionSwitch",
@@ -11097,7 +11981,10 @@
           ],
           "meta": "EditAnywhere, Category= UMaterialExpressionSwitch"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTangent",
@@ -11134,7 +12021,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionTangent, Meta = (ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTangentOutput",
@@ -11161,7 +12051,10 @@
           "flags": [],
           "meta": "meta = (RequiredInput = \"true\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTemporalResponsivenessOutput",
@@ -11188,7 +12081,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTemporalSobol",
@@ -11243,7 +12139,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionSobol, meta = ( OverridingInputProperty = \"Seed\", Tooltip=\"2D Seed for sequence randomization. Only used if Seed is not connected.\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTextureBase",
@@ -11284,7 +12183,10 @@
           ],
           "meta": "EditAnywhere, BlueprintReadWrite, Category=MaterialExpressionTextureBase, meta = (ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTextureCollection",
@@ -11314,7 +12216,10 @@
           ],
           "meta": "EditAnywhere, BlueprintReadWrite, Category=TextureCollection"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTextureCollectionParameter",
@@ -11371,7 +12276,15 @@
           ],
           "meta": "EditAnywhere, Category= MaterialExpressionTextureCollectionParameter"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "read_write_roundtrip",
+        "focus": {
+          "fields": [
+            "ParameterName"
+          ]
+        }
+      }
     },
     {
       "className": "UMaterialExpressionTextureCoordinate",
@@ -11423,7 +12336,10 @@
           ],
           "meta": "EditAnywhere, BlueprintReadWrite, Category=MaterialExpressionTextureCoordinate, meta = (ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTextureObject",
@@ -11441,7 +12357,10 @@
       "isParameterClass": false,
       "isTextureClass": true,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTextureObjectFromCollection",
@@ -11509,7 +12428,10 @@
           ],
           "meta": "EditAnywhere, BlueprintReadWrite, Category=TextureCollection"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTextureObjectParameter",
@@ -11527,7 +12449,10 @@
       "isParameterClass": true,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTextureProperty",
@@ -11564,7 +12489,10 @@
           ],
           "meta": "EditAnywhere, Category=UMaterialExpressionTextureProperty, meta=(DisplayName = \"Texture Property\", ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTextureSample",
@@ -11691,7 +12619,15 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionTextureSample"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "focus": {
+          "workflowFamilies": [
+            "material_texture_chain"
+          ]
+        }
+      }
     },
     {
       "className": "UMaterialExpressionTextureSampleParameter",
@@ -11748,7 +12684,15 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionTextureSampleParameter"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "read_write_roundtrip",
+        "focus": {
+          "fields": [
+            "ParameterName"
+          ]
+        }
+      }
     },
     {
       "className": "UMaterialExpressionTextureSampleParameter2D",
@@ -11766,7 +12710,15 @@
       "isParameterClass": true,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "focus": {
+          "workflowFamilies": [
+            "material_texture_chain"
+          ]
+        }
+      }
     },
     {
       "className": "UMaterialExpressionTextureSampleParameter2DArray",
@@ -11784,7 +12736,10 @@
       "isParameterClass": true,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTextureSampleParameterCube",
@@ -11802,7 +12757,10 @@
       "isParameterClass": true,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTextureSampleParameterCubeArray",
@@ -11820,7 +12778,10 @@
       "isParameterClass": true,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTextureSampleParameterSubUV",
@@ -11838,7 +12799,10 @@
       "isParameterClass": true,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTextureSampleParameterVolume",
@@ -11856,7 +12820,10 @@
       "isParameterClass": true,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionThinTranslucentMaterialOutput",
@@ -11891,7 +12858,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTime",
@@ -11920,7 +12890,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionTime, meta = (editcondition = \"bOverride_Period\", ClampMin = \"0.0\", ToolTip = \"Period at which to wrap around time\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTransform",
@@ -11967,7 +12940,10 @@
           ],
           "meta": "EditAnywhere, Category=MaterialExpressionTransform, meta=(DisplayName = \"Destination\", ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTransformPosition",
@@ -12066,7 +13042,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTruncate",
@@ -12091,7 +13070,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTruncateLWC",
@@ -12118,7 +13100,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionTwoSidedSign",
@@ -12136,7 +13121,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionUIntToFloat",
@@ -12163,7 +13151,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionUserSceneTexture",
@@ -12220,7 +13211,10 @@
           ],
           "meta": "EditAnywhere, Category=UMaterialExpressionUserSceneTexture, meta=(DisplayName = \"Clamped\", ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionVectorNoise",
@@ -12287,7 +13281,10 @@
           ],
           "meta": "EditAnywhere, Category = MaterialExpressionVectorNoise, meta=(UIMin = \"4\", ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionVectorParameter",
@@ -12346,7 +13343,16 @@
           ],
           "meta": "EditAnywhere, Category = ParameterCustomization, meta=(EditorOnlyLocalization)"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "read_write_roundtrip",
+        "focus": {
+          "fields": [
+            "ParameterName",
+            "DefaultValue"
+          ]
+        }
+      }
     },
     {
       "className": "UMaterialExpressionVertexColor",
@@ -12364,7 +13370,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionVertexInterpolator",
@@ -12391,7 +13400,10 @@
           "flags": [],
           "meta": "meta = (RequiredInput = \"true\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionVertexNormalWS",
@@ -12409,7 +13421,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionVertexTangentWS",
@@ -12427,7 +13442,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionViewProperty",
@@ -12456,7 +13474,10 @@
           ],
           "meta": "EditAnywhere, Category=UMaterialExpressionViewProperty, meta=(DisplayName = \"View Property\", ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionViewSize",
@@ -12472,7 +13493,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionVirtualTextureFeatureSwitch",
@@ -12505,7 +13529,10 @@
           "flags": [],
           "meta": ""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionVolumetricAdvancedMaterialInput",
@@ -12521,7 +13548,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionVolumetricAdvancedMaterialOutput",
@@ -12716,7 +13746,10 @@
           ],
           "meta": "EditAnywhere, Category = \"Options\""
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionVolumetricCloudEmptySpaceSkippingInput",
@@ -12732,7 +13765,10 @@
       "isParameterClass": false,
       "isTextureClass": false,
       "isCustomOutputClass": false,
-      "properties": []
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionVolumetricCloudEmptySpaceSkippingOutput",
@@ -12759,7 +13795,10 @@
           "flags": [],
           "meta": "meta = (RequiredInput = \"false\", ToolTip = \"Specify 0 if no matter (cloud or participating media) can be found within the area, otherwise should be set > 0.\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     },
     {
       "className": "UMaterialExpressionWorldPosition",
@@ -12788,7 +13827,10 @@
           ],
           "meta": "EditAnywhere, Category=UMaterialExpressionWorldPosition, meta=(DisplayName = \"Shader Offsets\", ShowAsInputPin = \"Advanced\")"
         }
-      ]
+      ],
+      "testing": {
+        "profile": "construct_and_query"
+      }
     }
   ]
 }
