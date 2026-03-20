@@ -164,6 +164,10 @@ Current Material status entering this phase:
   - duplicate `clientRef` rejection
   - unsupported `setPinDefault`
   - bad output-pin handling for `connectPins` and `disconnectPins`
+- first stability suite now probes:
+  - repeated material query snapshots
+  - repeated verify surfaces on a workflow graph
+  - fresh-session workflow repeatability
 
 ## Recommended Order by Graph Type
 

@@ -134,6 +134,12 @@ EXPECTED_MATERIAL_NEGATIVE_SUITE_SUMMARY = {
     "operations": ["addNode.byClass", "connectPins", "disconnectPins", "setPinDefault"],
 }
 
+EXPECTED_MATERIAL_STABILITY_SUITE_SUMMARY = {
+    "totalCases": 3,
+    "freshSessionCases": 1,
+    "families": ["expression", "parameter", "texture"],
+}
+
 EXPECTED_PCG_COVERAGE_SUMMARY = {
     "totalNodes": 178,
     "readyNodes": 167,
@@ -1328,6 +1334,45 @@ def validate_generated_material_negative_boundary_suite() -> None:
     print("[PASS] generated Material negative boundary suite validated")
 
 
+def validate_generated_material_stability_suite() -> None:
+    payload = subprocess.check_output(
+        [
+            sys.executable,
+            str(TOOLS_DIR / "run_material_stability_suite.py"),
+            "--list-cases",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+    )
+    report = json.loads(payload)
+    _require(report.get("version") == "1", f"material stability suite version mismatch: {report}")
+    _require(report.get("graphType") == "material", f"material stability suite graphType mismatch: {report}")
+    _require(report.get("suite") == "stability", f"material stability suite name mismatch: {report}")
+    summary = report.get("summary")
+    _require(summary == EXPECTED_MATERIAL_STABILITY_SUITE_SUMMARY, f"material stability suite summary mismatch: {summary}")
+    cases = report.get("cases")
+    _require(isinstance(cases, list) and len(cases) == EXPECTED_MATERIAL_STABILITY_SUITE_SUMMARY["totalCases"], "material stability suite cases mismatch")
+    case_by_id = {
+        case.get("id"): case
+        for case in cases
+        if isinstance(case, dict) and isinstance(case.get("id"), str)
+    }
+
+    query_case = case_by_id.get("query_snapshot_repeatability_roundtrip")
+    _require(isinstance(query_case, dict), "material stability suite missing query repeatability case")
+    _require(query_case.get("families") == ["expression", "parameter"], f"material stability query families mismatch: {query_case}")
+
+    verify_case = case_by_id.get("verify_repeatability_workflow")
+    _require(isinstance(verify_case, dict), "material stability suite missing verify repeatability case")
+    _require(verify_case.get("workflowCaseId") == "insert_multiply_before_base_color_root", f"material stability verify workflow mismatch: {verify_case}")
+
+    fresh_case = case_by_id.get("workflow_repeatability_fresh_session")
+    _require(isinstance(fresh_case, dict), "material stability suite missing fresh-session repeatability case")
+    _require(fresh_case.get("workflowCaseId") == "replace_saturate_with_one_minus", f"material stability fresh-session workflow mismatch: {fresh_case}")
+
+    print("[PASS] generated Material stability suite validated")
+
+
 def validate_generated_pcg_coverage_report() -> None:
     payload = subprocess.check_output(
         [
@@ -2213,6 +2258,7 @@ def main() -> int:
         validate_generated_material_coverage_report()
         validate_generated_material_workflow_truth_suite()
         validate_generated_material_negative_boundary_suite()
+        validate_generated_material_stability_suite()
         validate_generated_pcg_test_plan()
         validate_generated_pcg_coverage_report()
         validate_generated_pcg_workflow_truth_suite()
