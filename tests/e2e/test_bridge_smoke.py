@@ -108,6 +108,21 @@ EXPECTED_MATERIAL_PLAN_SUMMARY = {
     "blocked": 0,
 }
 
+EXPECTED_MATERIAL_COVERAGE_SUMMARY = {
+    "totalNodes": 317,
+    "readyNodes": 317,
+    "blockedNodes": 0,
+    "workflowOnlyNodes": 0,
+    "inventoryOnlyNodes": 0,
+    "coverageDimensions": {
+        "construct": 317,
+        "engine_truth": 9,
+        "inventory": 317,
+        "query_structure": 300,
+        "recipe_context": 1,
+    },
+}
+
 EXPECTED_PCG_COVERAGE_SUMMARY = {
     "totalNodes": 178,
     "readyNodes": 167,
@@ -1158,6 +1173,58 @@ def validate_generated_material_test_plan() -> None:
         print("[PASS] generated Material test plan validated")
 
 
+def validate_generated_material_coverage_report() -> None:
+    payload = subprocess.check_output(
+        [
+            sys.executable,
+            str(TOOLS_DIR / "generate_graph_test_coverage_report.py"),
+            "--graph-type",
+            "material",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+    )
+    report = json.loads(payload)
+    _require(report.get("version") == "1", f"material coverage report version mismatch: {report}")
+    _require(report.get("graphType") == "material", f"material coverage report graphType mismatch: {report}")
+    summary = report.get("summary")
+    _require(summary == EXPECTED_MATERIAL_COVERAGE_SUMMARY, f"material coverage report summary mismatch: {summary}")
+
+    blocked_reasons = report.get("blockedReasons")
+    _require(blocked_reasons == {}, f"material coverage blockedReasons mismatch: {blocked_reasons}")
+
+    family_rows = report.get("familySummary")
+    _require(isinstance(family_rows, list), f"material coverage familySummary missing: {report}")
+    family_by_name = {
+        row.get("family"): row
+        for row in family_rows
+        if isinstance(row, dict) and isinstance(row.get("family"), str)
+    }
+
+    parameter_family = family_by_name.get("parameter")
+    _require(isinstance(parameter_family, dict), "material coverage missing parameter family")
+    _require(
+        parameter_family.get("coverageDimensions") == {"construct": 24, "engine_truth": 9, "inventory": 24, "query_structure": 15},
+        f"material coverage parameter dimensions mismatch: {parameter_family}",
+    )
+
+    expression_family = family_by_name.get("expression")
+    _require(isinstance(expression_family, dict), "material coverage missing expression family")
+    _require(
+        expression_family.get("coverageDimensions") == {"construct": 244, "inventory": 244, "query_structure": 243, "recipe_context": 1},
+        f"material coverage expression dimensions mismatch: {expression_family}",
+    )
+
+    constant_family = family_by_name.get("constant")
+    _require(isinstance(constant_family, dict), "material coverage missing constant family")
+    _require(
+        constant_family.get("coverageDimensions") == {"construct": 6, "inventory": 6},
+        f"material coverage constant dimensions mismatch: {constant_family}",
+    )
+
+    print("[PASS] generated Material coverage report validated")
+
+
 def validate_generated_pcg_coverage_report() -> None:
     payload = subprocess.check_output(
         [
@@ -2040,6 +2107,7 @@ def main() -> int:
         validate_workspace_catalogs()
         validate_workspace_examples()
         validate_generated_material_test_plan()
+        validate_generated_material_coverage_report()
         validate_generated_pcg_test_plan()
         validate_generated_pcg_coverage_report()
         validate_generated_pcg_workflow_truth_suite()
