@@ -139,6 +139,12 @@ Purpose:
 - validate a real user-facing editing workflow, not just a single node
 - assert that a local pipeline edit still has the expected nodes, edges, verification health, and surfaced query truth
 
+Negative and boundary suites complement the six primary methods:
+
+- they validate contract surfaces
+- they validate diagnostic richness
+- they ensure expected failures are expressed consistently
+
 See:
 
 - [GRAPH_TEST_PROFILES.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_PROFILES.md)

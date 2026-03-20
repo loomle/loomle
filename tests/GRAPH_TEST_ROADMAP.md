@@ -68,6 +68,7 @@ Priorities:
 - family-level breakdown of `missingPins`, `unsurfacedFields`, and `mismatchedFields`
 - workflow-truth suites for representative source/filter/route/spawn pipelines
 - multi-surface truth matrices across `mutate`, `queryStructure`, `queryTruth`, `engineTruth`, `verify`, and `diagnostics`
+- negative and boundary suites for contract and diagnostic surfaces
 - selector-heavy nodes
 - dynamic pin truth
 - blocked recipe expansion
@@ -79,6 +80,7 @@ This phase answers:
 - which disagreements now fail the generated test runner directly
 - which workflow edits preserve structure and verification health but still fail query truth
 - which surface is breaking first when a case spans mutate, readback, verify, and engine truth
+- which contract failures and diagnostic details are stable versus missing or inconsistent
 - which workflow families have strong regression protection
 - which remaining gaps are product limits versus test-system limits
 

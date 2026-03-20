@@ -122,6 +122,11 @@ EXPECTED_PCG_WORKFLOW_SUITE_SUMMARY = {
     "families": ["create", "filter", "meta", "route", "sample", "source", "spawn"],
 }
 
+EXPECTED_PCG_NEGATIVE_SUITE_SUMMARY = {
+    "totalCases": 4,
+    "operations": ["removeNode", "setPinDefault"],
+}
+
 
 def _require(condition: bool, message: str) -> None:
     if not condition:
@@ -1204,6 +1209,47 @@ def validate_generated_graph_test_surface_report() -> None:
     print("[PASS] generated graph surface report validated")
 
 
+def validate_generated_pcg_negative_boundary_suite() -> None:
+    payload = subprocess.check_output(
+        [
+            sys.executable,
+            str(TOOLS_DIR / "run_pcg_negative_boundary_suite.py"),
+            "--list-cases",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+    )
+    report = json.loads(payload)
+    _require(report.get("version") == "1", f"pcg negative suite version mismatch: {report}")
+    _require(report.get("graphType") == "pcg", f"pcg negative suite graphType mismatch: {report}")
+    _require(report.get("suite") == "negative_boundary", f"pcg negative suite name mismatch: {report}")
+    summary = report.get("summary")
+    _require(summary == EXPECTED_PCG_NEGATIVE_SUITE_SUMMARY, f"pcg negative suite summary mismatch: {summary}")
+    cases = report.get("cases")
+    _require(isinstance(cases, list) and len(cases) == EXPECTED_PCG_NEGATIVE_SUITE_SUMMARY["totalCases"], "pcg negative suite cases mismatch")
+    case_by_id = {
+        case.get("id"): case
+        for case in cases
+        if isinstance(case, dict) and isinstance(case.get("id"), str)
+    }
+
+    dry_run_case = case_by_id.get("set_pin_default_requires_target_dry_run")
+    _require(isinstance(dry_run_case, dict), "pcg negative suite missing dryRun target contract case")
+    _require(dry_run_case.get("operation") == "setPinDefault", f"pcg negative dryRun operation mismatch: {dry_run_case}")
+    _require(dry_run_case.get("families") == ["meta"], f"pcg negative dryRun families mismatch: {dry_run_case}")
+
+    diagnostics_case = case_by_id.get("set_pin_default_bad_pin_diagnostics")
+    _require(isinstance(diagnostics_case, dict), "pcg negative suite missing bad pin diagnostics case")
+    _require(diagnostics_case.get("fixture") == "pcg_graph", f"pcg negative diagnostics fixture mismatch: {diagnostics_case}")
+
+    remove_case = case_by_id.get("remove_node_requires_stable_target")
+    _require(isinstance(remove_case, dict), "pcg negative suite missing stable target case")
+    _require(remove_case.get("operation") == "removeNode", f"pcg negative remove operation mismatch: {remove_case}")
+    _require(remove_case.get("families") == ["struct"], f"pcg negative remove families mismatch: {remove_case}")
+
+    print("[PASS] generated PCG negative boundary suite validated")
+
+
 def fail(msg: str) -> None:
     print(f"[FAIL] {msg}")
     raise SystemExit(1)
@@ -1689,6 +1735,7 @@ def main() -> int:
         validate_generated_pcg_test_plan()
         validate_generated_pcg_coverage_report()
         validate_generated_pcg_workflow_truth_suite()
+        validate_generated_pcg_negative_boundary_suite()
         validate_generated_graph_test_surface_report()
 
         print("[PASS] Bridge verification complete")
