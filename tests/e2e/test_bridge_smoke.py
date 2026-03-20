@@ -134,6 +134,12 @@ EXPECTED_BLUEPRINT_NEGATIVE_SUITE_SUMMARY = {
     "operations": ["addNode.byClass", "batch_partial_apply", "setPinDefault"],
 }
 
+EXPECTED_BLUEPRINT_STABILITY_SUITE_SUMMARY = {
+    "totalCases": 3,
+    "freshSessionCases": 1,
+    "families": ["branch", "function_call", "struct", "utility"],
+}
+
 EXPECTED_MATERIAL_PLAN_SUMMARY = {
     "totalNodes": 317,
     "readyAutoCases": 316,
@@ -1434,6 +1440,45 @@ def validate_generated_blueprint_negative_boundary_suite() -> None:
     print("[PASS] generated Blueprint negative boundary suite validated")
 
 
+def validate_generated_blueprint_stability_suite() -> None:
+    payload = subprocess.check_output(
+        [
+            sys.executable,
+            str(TOOLS_DIR / "run_blueprint_stability_suite.py"),
+            "--list-cases",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+    )
+    suite = json.loads(payload)
+    _require(suite.get("version") == "1", f"blueprint stability suite version mismatch: {suite}")
+    _require(suite.get("graphType") == "blueprint", f"blueprint stability suite graphType mismatch: {suite}")
+    summary = suite.get("summary")
+    _require(summary == EXPECTED_BLUEPRINT_STABILITY_SUITE_SUMMARY, f"blueprint stability suite summary mismatch: {summary}")
+
+    cases = suite.get("cases")
+    _require(isinstance(cases, list) and len(cases) == EXPECTED_BLUEPRINT_STABILITY_SUITE_SUMMARY["totalCases"], f"blueprint stability suite cases mismatch: {suite}")
+    case_by_id = {
+        case.get("id"): case
+        for case in cases
+        if isinstance(case, dict) and isinstance(case.get("id"), str)
+    }
+
+    query_case = case_by_id.get("query_snapshot_repeatability_roundtrip")
+    _require(isinstance(query_case, dict), "blueprint stability suite missing query_snapshot_repeatability_roundtrip")
+    _require(query_case.get("fixture") == "blueprint_event_graph", f"blueprint query repeatability fixture mismatch: {query_case}")
+
+    verify_case = case_by_id.get("verify_repeatability_workflow")
+    _require(isinstance(verify_case, dict), "blueprint stability suite missing verify_repeatability_workflow")
+    _require(verify_case.get("workflowCaseId") == "replace_branch_with_sequence", f"blueprint verify repeatability workflow mismatch: {verify_case}")
+
+    fresh_case = case_by_id.get("workflow_repeatability_fresh_session")
+    _require(isinstance(fresh_case, dict), "blueprint stability suite missing workflow_repeatability_fresh_session")
+    _require(fresh_case.get("workflowCaseId") == "replace_delay_with_do_once", f"blueprint fresh-session workflow mismatch: {fresh_case}")
+
+    print("[PASS] generated Blueprint stability suite validated")
+
+
 def validate_generated_material_test_plan() -> None:
     with tempfile.TemporaryDirectory(prefix="loomle-material-plan-") as tmpdir:
         output_path = Path(tmpdir) / "material_test_plan.json"
@@ -2575,6 +2620,7 @@ def main() -> int:
         validate_generated_blueprint_coverage_report()
         validate_generated_blueprint_workflow_truth_suite()
         validate_generated_blueprint_negative_boundary_suite()
+        validate_generated_blueprint_stability_suite()
         validate_generated_material_test_plan()
         validate_generated_material_coverage_report()
         validate_generated_material_workflow_truth_suite()
