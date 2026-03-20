@@ -123,6 +123,12 @@ EXPECTED_BLUEPRINT_COVERAGE_SUMMARY = {
     },
 }
 
+EXPECTED_BLUEPRINT_WORKFLOW_SUITE_SUMMARY = {
+    "totalCases": 5,
+    "families": ["branch", "function_call", "struct", "utility"],
+    "exampleBackedCases": 5,
+}
+
 EXPECTED_MATERIAL_PLAN_SUMMARY = {
     "totalNodes": 317,
     "readyAutoCases": 316,
@@ -1332,6 +1338,51 @@ def validate_generated_blueprint_coverage_report() -> None:
     print("[PASS] generated Blueprint coverage report validated")
 
 
+def validate_generated_blueprint_workflow_truth_suite() -> None:
+    payload = subprocess.check_output(
+        [
+            sys.executable,
+            str(TOOLS_DIR / "run_blueprint_workflow_truth_suite.py"),
+            "--list-cases",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+    )
+    suite = json.loads(payload)
+    _require(suite.get("version") == "1", f"blueprint workflow suite version mismatch: {suite}")
+    _require(suite.get("suite") == "workflow_truth", f"blueprint workflow suite id mismatch: {suite}")
+    _require(suite.get("graphType") == "blueprint", f"blueprint workflow suite graphType mismatch: {suite}")
+    summary = suite.get("summary")
+    _require(summary == EXPECTED_BLUEPRINT_WORKFLOW_SUITE_SUMMARY, f"blueprint workflow suite summary mismatch: {summary}")
+
+    cases = suite.get("cases")
+    _require(isinstance(cases, list) and len(cases) == EXPECTED_BLUEPRINT_WORKFLOW_SUITE_SUMMARY["totalCases"], f"blueprint workflow suite cases mismatch: {suite}")
+    case_by_id = {
+        case.get("id"): case
+        for case in cases
+        if isinstance(case, dict) and isinstance(case.get("id"), str)
+    }
+
+    branch_case = case_by_id.get("branch_local_subgraph")
+    _require(isinstance(branch_case, dict), "blueprint workflow suite missing branch_local_subgraph")
+    _require(branch_case.get("expectedNodes") == 3, f"blueprint branch workflow expectedNodes mismatch: {branch_case}")
+    _require(branch_case.get("expectedEdges") == 2, f"blueprint branch workflow expectedEdges mismatch: {branch_case}")
+
+    replace_branch_case = case_by_id.get("replace_branch_with_sequence")
+    _require(isinstance(replace_branch_case, dict), "blueprint workflow suite missing replace_branch_with_sequence")
+    _require(replace_branch_case.get("expectedNodes") == 4, f"blueprint replace-branch expectedNodes mismatch: {replace_branch_case}")
+    _require(replace_branch_case.get("expectedEdges") == 3, f"blueprint replace-branch expectedEdges mismatch: {replace_branch_case}")
+
+    replace_delay_case = case_by_id.get("replace_delay_with_do_once")
+    _require(isinstance(replace_delay_case, dict), "blueprint workflow suite missing replace_delay_with_do_once")
+    _require(
+        replace_delay_case.get("families") == ["function_call", "struct", "utility"],
+        f"blueprint replace-delay workflow families mismatch: {replace_delay_case}",
+    )
+
+    print("[PASS] generated Blueprint workflow truth suite validated")
+
+
 def validate_generated_material_test_plan() -> None:
     with tempfile.TemporaryDirectory(prefix="loomle-material-plan-") as tmpdir:
         output_path = Path(tmpdir) / "material_test_plan.json"
@@ -2471,6 +2522,7 @@ def main() -> int:
         validate_workspace_examples()
         validate_generated_blueprint_test_plan()
         validate_generated_blueprint_coverage_report()
+        validate_generated_blueprint_workflow_truth_suite()
         validate_generated_material_test_plan()
         validate_generated_material_coverage_report()
         validate_generated_material_workflow_truth_suite()
