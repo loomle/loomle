@@ -63,6 +63,23 @@ The framework should be able to answer:
 - which nodes support trustworthy readback
 - which nodes are covered through family workflows instead of isolated node tests
 
+Phase 2 adds a second view on top of the basic plan:
+
+- not just whether a node is `ready`
+- but which coverage dimensions are currently exercised
+
+The first useful dimensions are:
+
+- `inventory`
+- `construct`
+- `query_structure`
+- `engine_truth`
+- `dynamic_shape`
+- `recipe_context`
+- `workflow`
+
+This lets the framework distinguish broad green coverage from deep truth coverage.
+
 ## The Six Test Methods
 
 These are the primary testing methods. Not every node should use every method.

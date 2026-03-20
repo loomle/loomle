@@ -99,6 +99,23 @@ EXPECTED_PCG_PLAN_SUMMARY = {
     "blocked": 4,
 }
 
+EXPECTED_PCG_COVERAGE_SUMMARY = {
+    "totalNodes": 178,
+    "readyNodes": 167,
+    "blockedNodes": 4,
+    "workflowOnlyNodes": 6,
+    "inventoryOnlyNodes": 1,
+    "coverageDimensions": {
+        "construct": 167,
+        "dynamic_shape": 2,
+        "engine_truth": 100,
+        "inventory": 178,
+        "query_structure": 67,
+        "recipe_context": 9,
+        "workflow": 6,
+    },
+}
+
 
 def _require(condition: bool, message: str) -> None:
     if not condition:
@@ -979,6 +996,60 @@ def validate_generated_pcg_test_plan() -> None:
         print("[PASS] generated PCG test plan validated")
 
 
+def validate_generated_pcg_coverage_report() -> None:
+    payload = subprocess.check_output(
+        [
+            sys.executable,
+            str(TOOLS_DIR / "generate_graph_test_coverage_report.py"),
+            "--graph-type",
+            "pcg",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+    )
+    report = json.loads(payload)
+    _require(report.get("version") == "1", f"pcg coverage report version mismatch: {report}")
+    _require(report.get("graphType") == "pcg", f"pcg coverage report graphType mismatch: {report}")
+    summary = report.get("summary")
+    _require(summary == EXPECTED_PCG_COVERAGE_SUMMARY, f"pcg coverage report summary mismatch: {summary}")
+
+    blocked_reasons = report.get("blockedReasons")
+    _require(blocked_reasons == {"missing recipe": 4}, f"pcg coverage blockedReasons mismatch: {blocked_reasons}")
+
+    family_rows = report.get("familySummary")
+    _require(isinstance(family_rows, list), f"pcg coverage familySummary missing: {report}")
+    family_by_name = {
+        row.get("family"): row
+        for row in family_rows
+        if isinstance(row, dict) and isinstance(row.get("family"), str)
+    }
+
+    source_family = family_by_name.get("source")
+    _require(isinstance(source_family, dict), "pcg coverage missing source family")
+    _require(source_family.get("readyNodes") == 25, f"pcg coverage source ready mismatch: {source_family}")
+    _require(
+        source_family.get("coverageDimensions", {}).get("recipe_context") == 9,
+        f"pcg coverage source recipe_context mismatch: {source_family}",
+    )
+
+    filter_family = family_by_name.get("filter")
+    _require(isinstance(filter_family, dict), "pcg coverage missing filter family")
+    _require(
+        filter_family.get("coverageDimensions", {}).get("dynamic_shape") == 2,
+        f"pcg coverage filter dynamic_shape mismatch: {filter_family}",
+    )
+
+    struct_family = family_by_name.get("struct")
+    _require(isinstance(struct_family, dict), "pcg coverage missing struct family")
+    _require(struct_family.get("blockedNodes") == 4, f"pcg coverage struct blocked mismatch: {struct_family}")
+    _require(
+        struct_family.get("coverageDimensions") == {"inventory": 4},
+        f"pcg coverage struct dimensions mismatch: {struct_family}",
+    )
+
+    print("[PASS] generated PCG coverage report validated")
+
+
 def fail(msg: str) -> None:
     print(f"[FAIL] {msg}")
     raise SystemExit(1)
@@ -1462,6 +1533,7 @@ def main() -> int:
         validate_workspace_catalogs()
         validate_workspace_examples()
         validate_generated_pcg_test_plan()
+        validate_generated_pcg_coverage_report()
 
         print("[PASS] Bridge verification complete")
         return 0

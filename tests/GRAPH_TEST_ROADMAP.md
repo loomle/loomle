@@ -1,135 +1,126 @@
 # Graph Test Roadmap
 
-This document captures the intended implementation order for the `LOOMLE 0.4` graph test framework.
+This document captures the intended upgrade path for the `LOOMLE 0.4` graph test system.
 
-The goal is to build a scalable testing system without pretending every node needs a bespoke handwritten regression on day one.
+The roadmap is intentionally staged:
 
-## Phase 1: Design and Catalog Shape
+- first make the system runnable
+- then make its coverage visible
+- then deepen truth coverage where bugs are most likely
 
-Establish:
+## Phase 1: Runnable Baseline
 
-- framework overview
-- test profiles
-- recipes
-- fixtures
-- database testing metadata shape
+Goal:
 
-This phase should produce:
+- catalog-backed node classification
+- `testing` metadata in node databases
+- generated JSON test plans
+- graph-type fixtures and recipes
+- first runnable plan runner
+- smoke validation for plan shape
 
-- a stable profile vocabulary
-- a stable recipe vocabulary
-- a stable `testing` schema inside node databases
-- a stable generated test plan schema
+This phase answers:
 
-## Phase 2: Catalog Classification
+- can the system generate a plan
+- can it run ready cases deterministically
+- are `pass`, `fail`, `skip`, and `blocked` trustworthy
 
-Attach testing metadata to node databases.
+PCG is the first target because it is the most mature graph type for this baseline.
 
-Focus:
+## Phase 2: Coverage Visibility
 
-- family defaults
-- exception overrides
-- minimal reasons for special cases
+Goal:
 
-This phase should answer:
+- report not just execution status, but coverage depth
+- distinguish shallow green coverage from strong truth coverage
+- show which families are still blocked or workflow-only
 
-- every node has a testing strategy
-- every node is either directly testable, recipe-bound, or workflow-covered
+This phase adds:
 
-## Phase 3: Fixture and Adapter Foundations
+- coverage dimensions such as:
+  - `inventory`
+  - `construct`
+  - `query_structure`
+  - `engine_truth`
+  - `dynamic_shape`
+  - `recipe_context`
+  - `workflow`
+- generated coverage reports
+- blocked-reason summaries
+- family-level coverage summaries
 
-Build:
+This phase answers:
 
-- common test harness abstractions
-- Blueprint adapter fixtures
-- Material adapter fixtures
-- PCG adapter fixtures
+- how much of the graph type is only lightly covered
+- which families already reach engine-truth coverage
+- where blocked nodes are clustering
 
-Keep this phase focused on:
+## Phase 3: Truth and Workflow Strengthening
 
-- stable bootstrapping
-- deterministic naming
-- cleanup
-- shared assertions
+Goal:
 
-## Phase 4: Generated Baseline Coverage
+- expand from runnable node coverage to high-value correctness coverage
 
-Generate first-pass tests for:
+Priorities:
 
-- inventory coverage
-- construction coverage
-- basic structural read coverage
-
-This is where broad automatic coverage should start paying off.
-
-## Phase 5: High-Value Roundtrip and Dynamic Coverage
-
-Prioritize:
-
-- PCG representative settings nodes
+- `graph.query` vs engine-truth comparisons
 - selector-heavy nodes
-- dynamic pin nodes
-- Material parameter nodes
+- dynamic pin truth
+- blocked recipe expansion
+- semantic workflow regressions
 
-This phase should close the highest-value truth gaps first.
+This phase answers:
 
-## Phase 6: Semantic Workflow Regressions
+- where the graph surface disagrees with Unreal truth
+- which workflow families have strong regression protection
+- which remaining gaps are product limits versus test-system limits
 
-Maintain a smaller hand-authored layer that protects:
+## Recommended Order by Graph Type
 
-- local rewrites
-- route/filter chains
-- root-chain edits
-- exec/data preserving edits
-
-These should remain compact but strong.
-
-## Recommended Implementation Order by Graph Type
-
-### 1. Material
+### 1. PCG
 
 Start here because:
 
-- defaults are relatively regular
-- exception density is lower
-- broad construct/query coverage should be easier
+- family defaults are already useful
+- settings truth drift is a known risk
+- selector and dynamic pin issues are common and valuable
 
-### 2. PCG
+### 2. Material
 
-Then move here because:
+Move here next because:
 
-- family defaults are strong
-- selector and settings truth need focused work
-- read/write drift risk is already known
+- node regularity is high
+- fixture needs are simpler
+- root-chain workflows are strong representatives
 
 ### 3. Blueprint
 
 Do this after the first two because:
 
 - context-bound nodes are more common
-- recipe coverage matters more
-- direct addability assumptions are more fragile
+- recipe density is higher
+- addability and graph legality are more sensitive to context
 
 ## Practical Guardrails
 
-Do not start with:
+Do not start by assuming:
 
-- every node needing a handwritten test
-- every family needing deep workflow coverage immediately
-- every field requiring perfect roundtrip support
+- every node needs a handwritten regression
+- every field needs full roundtrip support immediately
+- every graph type should advance in lockstep
 
-Start with:
+Do start with:
 
 - complete classification
 - generated baseline coverage
-- targeted high-risk truth tests
-- a smaller semantic regression layer
+- visible coverage depth
+- targeted truth strengthening
 
 ## Backbone During Transition
 
-Keep using the current suites as the backbone:
+Keep using the current suites as the execution backbone:
 
 - `tests/e2e/test_bridge_smoke.py`
 - `tests/e2e/test_bridge_regression.py`
 
-The new framework should grow around them, not replace them all at once.
+The new framework should grow around them instead of replacing them all at once.

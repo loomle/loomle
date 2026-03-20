@@ -32,6 +32,15 @@ Examples:
 - `material_test_plan.json`
 - `pcg_test_plan.json`
 
+Coverage-depth reporting is a separate generated view built from the plan.
+
+The plan stays focused on per-node coverage decisions. Coverage reports answer:
+
+- how many nodes currently reach `construct`
+- how many reach `query_structure`
+- how many reach `engine_truth`
+- how many are still only `workflow` or `inventory`
+
 ## Top-Level Schema
 
 Each plan file should have this minimal top-level shape:
