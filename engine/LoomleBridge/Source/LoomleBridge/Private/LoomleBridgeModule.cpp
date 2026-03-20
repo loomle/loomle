@@ -270,6 +270,83 @@ FString SerializeJsonObjectCondensed(const TSharedPtr<FJsonObject>& Source)
     return Serialized;
 }
 
+TSharedPtr<FJsonObject> SummarizeSlateWindow(const TSharedPtr<SWindow>& Window)
+{
+    if (!Window.IsValid())
+    {
+        return nullptr;
+    }
+
+    TSharedPtr<FJsonObject> Summary = MakeShared<FJsonObject>();
+    Summary->SetStringField(TEXT("title"), Window->GetTitle().ToString());
+    Summary->SetBoolField(TEXT("isModal"), Window->IsModalWindow());
+    Summary->SetBoolField(TEXT("isVisible"), Window->IsVisible());
+    Summary->SetBoolField(TEXT("isTopmost"), Window->IsTopmostWindow());
+    return Summary;
+}
+
+TSharedPtr<FJsonObject> BuildGameThreadTimeoutContext(const FString& Scope, const FString& Target, const int32 TimeoutMs)
+{
+    TSharedPtr<FJsonObject> Context = MakeShared<FJsonObject>();
+    Context->SetStringField(TEXT("scope"), Scope);
+    Context->SetStringField(TEXT("target"), Target);
+    Context->SetNumberField(TEXT("timeoutMs"), TimeoutMs);
+
+    const bool bSlateInitialized = FSlateApplication::IsInitialized();
+    Context->SetBoolField(TEXT("slateInitialized"), bSlateInitialized);
+    if (!bSlateInitialized)
+    {
+        Context->SetStringField(TEXT("suspectedCause"), TEXT("GAME_THREAD_BLOCKED"));
+        Context->SetStringField(TEXT("hint"), TEXT("The game thread did not respond before the timeout expired."));
+        return Context;
+    }
+
+    FSlateApplication& SlateApp = FSlateApplication::Get();
+
+    const TSharedPtr<SWindow> ActiveModalWindow = SlateApp.GetActiveModalWindow();
+    Context->SetBoolField(TEXT("hasActiveModalWindow"), ActiveModalWindow.IsValid());
+    if (const TSharedPtr<FJsonObject> ModalSummary = SummarizeSlateWindow(ActiveModalWindow))
+    {
+        Context->SetObjectField(TEXT("activeModalWindow"), ModalSummary);
+    }
+
+    const TSharedPtr<SWindow> ActiveTopLevelWindow = SlateApp.GetActiveTopLevelWindow();
+    if (const TSharedPtr<FJsonObject> ActiveSummary = SummarizeSlateWindow(ActiveTopLevelWindow))
+    {
+        Context->SetObjectField(TEXT("activeTopLevelWindow"), ActiveSummary);
+    }
+
+    TArray<TSharedRef<SWindow>> VisibleWindows;
+    SlateApp.GetAllVisibleWindowsOrdered(VisibleWindows);
+    Context->SetNumberField(TEXT("visibleWindowCount"), VisibleWindows.Num());
+
+    TArray<TSharedPtr<FJsonValue>> VisibleWindowSummaries;
+    constexpr int32 MaxVisibleWindowSummaries = 5;
+    const int32 SummaryCount = FMath::Min(VisibleWindows.Num(), MaxVisibleWindowSummaries);
+    for (int32 Index = 0; Index < SummaryCount; ++Index)
+    {
+        const TSharedPtr<FJsonObject> WindowSummary = SummarizeSlateWindow(VisibleWindows[Index]);
+        if (WindowSummary.IsValid())
+        {
+            VisibleWindowSummaries.Add(MakeShared<FJsonValueObject>(WindowSummary));
+        }
+    }
+    Context->SetArrayField(TEXT("visibleWindows"), VisibleWindowSummaries);
+
+    if (ActiveModalWindow.IsValid())
+    {
+        Context->SetStringField(TEXT("suspectedCause"), TEXT("EDITOR_MODAL_WINDOW"));
+        Context->SetStringField(TEXT("hint"), TEXT("A modal editor window is active and may be blocking the game thread. Dismiss the dialog and retry the request."));
+    }
+    else
+    {
+        Context->SetStringField(TEXT("suspectedCause"), TEXT("GAME_THREAD_BLOCKED"));
+        Context->SetStringField(TEXT("hint"), TEXT("The game thread did not respond before the timeout expired."));
+    }
+
+    return Context;
+}
+
 class FLoomleDiagLogCaptureOutputDevice final : public FOutputDevice
 {
 public:

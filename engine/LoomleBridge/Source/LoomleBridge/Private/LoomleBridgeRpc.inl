@@ -200,6 +200,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcInvokeResult(
             Detail = PayloadText;
         }
         OutErrorData->SetStringField(TEXT("detail"), Detail);
+        const TSharedPtr<FJsonObject>* TimeoutContext = nullptr;
+        if (Payload->TryGetObjectField(TEXT("timeoutContext"), TimeoutContext) && TimeoutContext && (*TimeoutContext).IsValid())
+        {
+            OutErrorData->SetObjectField(TEXT("timeoutContext"), CloneJsonObject(*TimeoutContext));
+        }
         return nullptr;
     }
 
@@ -241,9 +246,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
         }
 
         bOutIsError = true;
+        const TSharedPtr<FJsonObject> TimeoutContext = BuildGameThreadTimeoutContext(TEXT("tool"), Name, static_cast<int32>(GameThreadTimeoutMs));
+        AppendDiagEvent(TEXT("error"), TEXT("runtime"), Name, TEXT("Tool execution timed out on the game thread."), TimeoutContext);
         Payload = MakeShared<FJsonObject>();
         Payload->SetStringField(TEXT("code"), TEXT("EXECUTION_TIMEOUT"));
         Payload->SetStringField(TEXT("message"), TEXT("EXECUTION_TIMEOUT"));
+        Payload->SetObjectField(TEXT("timeoutContext"), TimeoutContext);
         return Payload;
     }
 
