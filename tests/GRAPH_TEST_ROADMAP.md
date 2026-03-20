@@ -159,6 +159,11 @@ Current Material status entering this phase:
   - leg insertion before a multi-input node
   - unary replacement
   - multi-input replacement
+- first negative and boundary suite now probes:
+  - stale `expectedRevision` conflicts
+  - duplicate `clientRef` rejection
+  - unsupported `setPinDefault`
+  - bad output-pin handling for `connectPins` and `disconnectPins`
 
 ## Recommended Order by Graph Type
 

@@ -157,6 +157,7 @@ Negative and boundary suites complement the six primary methods:
 - they validate contract surfaces
 - they validate diagnostic richness
 - they ensure expected failures are expressed consistently
+- they should be expanded graph-by-graph once workflow truth is stable enough to expose meaningful contract gaps
 
 Stability suites add a separate dimension:
 

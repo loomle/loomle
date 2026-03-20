@@ -129,6 +129,11 @@ EXPECTED_MATERIAL_WORKFLOW_SUITE_SUMMARY = {
     "families": ["expression", "parameter", "texture"],
 }
 
+EXPECTED_MATERIAL_NEGATIVE_SUITE_SUMMARY = {
+    "totalCases": 5,
+    "operations": ["addNode.byClass", "connectPins", "disconnectPins", "setPinDefault"],
+}
+
 EXPECTED_PCG_COVERAGE_SUMMARY = {
     "totalNodes": 178,
     "readyNodes": 167,
@@ -1268,6 +1273,61 @@ def validate_generated_material_workflow_truth_suite() -> None:
     print("[PASS] generated Material workflow truth suite validated")
 
 
+def validate_generated_material_negative_boundary_suite() -> None:
+    payload = subprocess.check_output(
+        [
+            sys.executable,
+            str(TOOLS_DIR / "run_material_negative_boundary_suite.py"),
+            "--list-cases",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+    )
+    report = json.loads(payload)
+    _require(report.get("version") == "1", f"material negative suite version mismatch: {report}")
+    _require(report.get("graphType") == "material", f"material negative suite graphType mismatch: {report}")
+    _require(report.get("suite") == "negative_boundary", f"material negative suite name mismatch: {report}")
+    summary = report.get("summary")
+    _require(summary == EXPECTED_MATERIAL_NEGATIVE_SUITE_SUMMARY, f"material negative suite summary mismatch: {summary}")
+    cases = report.get("cases")
+    _require(
+        isinstance(cases, list) and len(cases) == EXPECTED_MATERIAL_NEGATIVE_SUITE_SUMMARY["totalCases"],
+        "material negative suite cases mismatch",
+    )
+    case_by_id = {
+        case.get("id"): case
+        for case in cases
+        if isinstance(case, dict) and isinstance(case.get("id"), str)
+    }
+
+    stale_case = case_by_id.get("stale_expected_revision_conflict")
+    _require(isinstance(stale_case, dict), "material negative suite missing stale expectedRevision case")
+    _require(stale_case.get("operation") == "addNode.byClass", f"material negative stale operation mismatch: {stale_case}")
+    _require(stale_case.get("families") == ["expression", "parameter"], f"material negative stale families mismatch: {stale_case}")
+
+    duplicate_case = case_by_id.get("duplicate_client_ref_rejected")
+    _require(isinstance(duplicate_case, dict), "material negative suite missing duplicate clientRef case")
+    _require(duplicate_case.get("operation") == "addNode.byClass", f"material negative duplicate operation mismatch: {duplicate_case}")
+    _require(duplicate_case.get("families") == ["constant", "parameter"], f"material negative duplicate families mismatch: {duplicate_case}")
+
+    set_default_case = case_by_id.get("set_pin_default_unsupported")
+    _require(isinstance(set_default_case, dict), "material negative suite missing setPinDefault unsupported case")
+    _require(set_default_case.get("operation") == "setPinDefault", f"material negative setPinDefault operation mismatch: {set_default_case}")
+    _require(set_default_case.get("families") == ["parameter"], f"material negative setPinDefault families mismatch: {set_default_case}")
+
+    connect_case = case_by_id.get("connect_pins_bad_output_pin")
+    _require(isinstance(connect_case, dict), "material negative suite missing connectPins bad output case")
+    _require(connect_case.get("operation") == "connectPins", f"material negative connectPins operation mismatch: {connect_case}")
+    _require(connect_case.get("families") == ["expression", "parameter"], f"material negative connectPins families mismatch: {connect_case}")
+
+    disconnect_case = case_by_id.get("disconnect_pins_bad_output_pin")
+    _require(isinstance(disconnect_case, dict), "material negative suite missing disconnectPins bad output case")
+    _require(disconnect_case.get("operation") == "disconnectPins", f"material negative disconnectPins operation mismatch: {disconnect_case}")
+    _require(disconnect_case.get("families") == ["expression", "parameter"], f"material negative disconnectPins families mismatch: {disconnect_case}")
+
+    print("[PASS] generated Material negative boundary suite validated")
+
+
 def validate_generated_pcg_coverage_report() -> None:
     payload = subprocess.check_output(
         [
@@ -2152,6 +2212,7 @@ def main() -> int:
         validate_generated_material_test_plan()
         validate_generated_material_coverage_report()
         validate_generated_material_workflow_truth_suite()
+        validate_generated_material_negative_boundary_suite()
         validate_generated_pcg_test_plan()
         validate_generated_pcg_coverage_report()
         validate_generated_pcg_workflow_truth_suite()
