@@ -234,6 +234,7 @@ Owns:
 - expression-chain assertions
 - function call recipes
 - material-specific validation
+- example-backed workflow truth over root-chain insertion and replacement edits
 
 ### PCG Adapter
 
@@ -269,6 +270,7 @@ Prioritize:
 - construction coverage
 - root-chain structural coverage
 - representative parameter and math nodes
+- example-backed workflow truth around insert/replace/root reconnection
 
 ### Blueprint
 

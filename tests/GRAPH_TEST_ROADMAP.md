@@ -150,6 +150,16 @@ This phase answers:
 - which blocked nodes stay blocked because of test-system limits versus product-surface limits
 - where the next meaningful coverage gains come from after the core families are already under pressure
 
+Current Material status entering this phase:
+
+- runnable baseline and coverage visibility are active
+- first workflow-truth suite is example-backed and covers:
+  - root sink creation
+  - root-chain insertion
+  - leg insertion before a multi-input node
+  - unary replacement
+  - multi-input replacement
+
 ## Recommended Order by Graph Type
 
 ### 1. PCG

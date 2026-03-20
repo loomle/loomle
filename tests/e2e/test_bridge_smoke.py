@@ -123,6 +123,12 @@ EXPECTED_MATERIAL_COVERAGE_SUMMARY = {
     },
 }
 
+EXPECTED_MATERIAL_WORKFLOW_SUITE_SUMMARY = {
+    "totalCases": 5,
+    "exampleBackedCases": 5,
+    "families": ["expression", "parameter", "texture"],
+}
+
 EXPECTED_PCG_COVERAGE_SUMMARY = {
     "totalNodes": 178,
     "readyNodes": 167,
@@ -1225,6 +1231,43 @@ def validate_generated_material_coverage_report() -> None:
     print("[PASS] generated Material coverage report validated")
 
 
+def validate_generated_material_workflow_truth_suite() -> None:
+    payload = subprocess.check_output(
+        [
+            sys.executable,
+            str(TOOLS_DIR / "run_material_workflow_truth_suite.py"),
+            "--list-cases",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+    )
+    suite = json.loads(payload)
+    _require(suite.get("suite") == "workflow_truth", f"material workflow suite id mismatch: {suite}")
+    _require(suite.get("graphType") == "material", f"material workflow suite graphType mismatch: {suite}")
+    summary = suite.get("summary")
+    _require(summary == EXPECTED_MATERIAL_WORKFLOW_SUITE_SUMMARY, f"material workflow suite summary mismatch: {summary}")
+
+    cases = suite.get("cases")
+    _require(isinstance(cases, list) and len(cases) == EXPECTED_MATERIAL_WORKFLOW_SUITE_SUMMARY["totalCases"], f"material workflow suite cases mismatch: {suite}")
+    case_by_id = {
+        case.get("id"): case
+        for case in cases
+        if isinstance(case, dict) and isinstance(case.get("id"), str)
+    }
+
+    replace_lerp = case_by_id.get("replace_multiply_with_lerp")
+    _require(isinstance(replace_lerp, dict), "material workflow suite missing replace_multiply_with_lerp")
+    _require(replace_lerp.get("expectedNodes") == 4, f"material replace_multiply_with_lerp expectedNodes mismatch: {replace_lerp}")
+    _require(replace_lerp.get("expectedEdges") == 4, f"material replace_multiply_with_lerp expectedEdges mismatch: {replace_lerp}")
+
+    root_sink = case_by_id.get("root_sink_then_layout")
+    _require(isinstance(root_sink, dict), "material workflow suite missing root_sink_then_layout")
+    _require(root_sink.get("expectedNodes") == 3, f"material root_sink_then_layout expectedNodes mismatch: {root_sink}")
+    _require(root_sink.get("expectedEdges") == 3, f"material root_sink_then_layout expectedEdges mismatch: {root_sink}")
+
+    print("[PASS] generated Material workflow truth suite validated")
+
+
 def validate_generated_pcg_coverage_report() -> None:
     payload = subprocess.check_output(
         [
@@ -2108,6 +2151,7 @@ def main() -> int:
         validate_workspace_examples()
         validate_generated_material_test_plan()
         validate_generated_material_coverage_report()
+        validate_generated_material_workflow_truth_suite()
         validate_generated_pcg_test_plan()
         validate_generated_pcg_coverage_report()
         validate_generated_pcg_workflow_truth_suite()
