@@ -111,13 +111,18 @@ The workflow suite currently covers:
 
 Current workflow status:
 
-- `4 pass / 1 fail`
+- `5 pass / 0 fail`
 
-Current failing product signal:
+Recently resolved product signal:
 
 - `replace_delay_with_do_once`
-- `graph.mutate` fails while resolving the `DoOnce` macro graph
-- error surface: `Failed to resolve blueprint/target graph/macro graph.`
+- product-side Blueprint macro resolution now falls back correctly for standard macro usage such as `DoOnce`
+
+Residual test-runner signal to fix on the test side:
+
+- fresh-session Blueprint workflow runs can still hit an editor overwrite modal if a temporary fixture asset already exists
+- when that modal blocks the editor game thread, the runner only sees `execute` fail with `EXECUTION_TIMEOUT`
+- the actionable fix belongs in the Blueprint fixture lifecycle: make fixture creation idempotent by loading an existing temp asset or deleting it before `create_asset(...)`
 
 ### Negative / Boundary
 
@@ -142,7 +147,8 @@ The stability suite currently covers:
 
 Current stability status:
 
-- `3 pass / 0 fail`
+- product signal: stable under `dev_verify`
+- residual runner risk: standalone fresh-session reruns can still fail if temporary Blueprint fixture creation triggers an overwrite modal
 
 ## How To Read Failures
 
@@ -171,6 +177,7 @@ Interpret that as:
 Interpret that as:
 
 - the signal itself is drifting across repeated reads, repeated verify calls, or fresh sessions
+- or the runner is hitting a temporary asset lifecycle issue that surfaces as an `execute` timeout rather than a Blueprint graph semantic failure
 
 ## Key Files
 
@@ -191,4 +198,6 @@ Design context:
 
 The Blueprint test system is now ready to act as a product-fix radar.
 
-Right now the most actionable product-side work is to fix the workflow-truth failure around `DoOnce` macro graph resolution.
+Current product-side Blueprint workflow semantics are in good shape.
+
+The next highest-value follow-up is on the test side: make temporary Blueprint fixture creation idempotent so fresh-session stability runs do not block on overwrite modals.
