@@ -61,10 +61,10 @@ STABILITY_CASES = [
         "workflowCaseId": "surface_sample_to_static_mesh",
     },
     {
-        "id": "workflow_failure_repeatability_fresh_session",
+        "id": "workflow_repeatability_fresh_session",
         "fixture": "pcg_graph_with_world_actor",
         "families": ["meta", "route", "source"],
-        "summary": "A workflow query-truth failure should reproduce with the same failure kind and surfaces across fresh sessions.",
+        "summary": "A workflow should produce the same status and surface matrix across fresh sessions.",
         "workflowCaseId": "actor_data_tag_route",
     },
 ]
@@ -87,7 +87,7 @@ def list_cases_payload() -> dict[str, Any]:
         "suite": "stability",
         "summary": {
             "totalCases": len(STABILITY_CASES),
-            "freshSessionCases": sum(1 for case in STABILITY_CASES if case["id"] == "workflow_failure_repeatability_fresh_session"),
+            "freshSessionCases": sum(1 for case in STABILITY_CASES if case["id"] == "workflow_repeatability_fresh_session"),
             "families": families,
         },
         "cases": [
@@ -245,7 +245,7 @@ def execute_verify_repeatability_workflow(
     }
 
 
-def execute_workflow_failure_repeatability_fresh_session(
+def execute_workflow_repeatability_fresh_session(
     *, project_root: Path, loomle_binary: Path, timeout_s: float, workflow_case: dict[str, Any]
 ) -> dict[str, Any]:
     first = execute_workflow_case_with_fresh_client(
@@ -265,13 +265,17 @@ def execute_workflow_failure_repeatability_fresh_session(
         case=workflow_case,
     )
 
-    if first.get("status") != "fail" or second.get("status") != "fail":
+    first_status = first.get("status")
+    second_status = second.get("status")
+    if first_status != second_status:
         raise StabilitySuiteError(
             "fresh_session_repeatability_gap",
-            f"workflow case should fail consistently across fresh sessions: first={compact_json(first)} second={compact_json(second)}",
+            f"workflow status changed across fresh sessions: first={compact_json(first)} second={compact_json(second)}",
         )
 
-    if first.get("failureKind") != second.get("failureKind"):
+    first_failure_kind = first.get("failureKind")
+    second_failure_kind = second.get("failureKind")
+    if first_failure_kind != second_failure_kind:
         raise StabilitySuiteError(
             "fresh_session_repeatability_gap",
             f"workflow failureKind changed across fresh sessions: first={compact_json(first)} second={compact_json(second)}",
@@ -295,7 +299,8 @@ def execute_workflow_failure_repeatability_fresh_session(
 
     return {
         "surfaceMatrix": first_surface or blank_surface_matrix(),
-        "observedFailureKind": first.get("failureKind"),
+        "observedStatus": first_status,
+        "observedFailureKind": first_failure_kind,
         "firstReason": first.get("reason"),
         "secondReason": second.get("reason"),
     }
@@ -318,10 +323,10 @@ def run_case(
         "status": "fail",
     }
 
-    if case["id"] == "workflow_failure_repeatability_fresh_session":
+    if case["id"] == "workflow_repeatability_fresh_session":
         workflow_case = next(workflow for workflow in WORKFLOW_CASES if workflow["id"] == case["workflowCaseId"])
         try:
-            result["details"] = execute_workflow_failure_repeatability_fresh_session(
+            result["details"] = execute_workflow_repeatability_fresh_session(
                 project_root=project_root,
                 loomle_binary=loomle_binary,
                 timeout_s=timeout_s,
@@ -404,7 +409,7 @@ def execute_case_with_fresh_client(
     case_index: int,
     case: dict[str, Any],
 ) -> dict[str, Any]:
-    if case["id"] == "workflow_failure_repeatability_fresh_session":
+    if case["id"] == "workflow_repeatability_fresh_session":
         return run_case(
             None,
             project_root=project_root,

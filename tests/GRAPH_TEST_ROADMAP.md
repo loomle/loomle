@@ -113,7 +113,7 @@ Current PCG end-state for this phase:
 - stability and repeatability suites for:
   - repeated query snapshots
   - repeated verify surfaces
-  - fresh-session failure reproduction
+  - fresh-session workflow repeatability
 
 ## Phase 4: Scale and Long-Tail Strengthening
 

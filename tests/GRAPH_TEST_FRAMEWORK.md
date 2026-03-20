@@ -156,7 +156,7 @@ Stability suites add a separate dimension:
 
 - they validate repeated query snapshots in the same session
 - they validate repeated verify surfaces on the same graph
-- they validate that known workflow failures reproduce across fresh sessions
+- they validate that workflow outcomes reproduce across fresh sessions
 
 See:
 

@@ -1342,7 +1342,7 @@ def validate_generated_pcg_stability_suite() -> None:
         f"pcg stability verify workflowCaseId mismatch: {verify_workflow}",
     )
 
-    fresh_session = case_by_id.get("workflow_failure_repeatability_fresh_session")
+    fresh_session = case_by_id.get("workflow_repeatability_fresh_session")
     _require(isinstance(fresh_session, dict), "pcg stability suite missing fresh-session case")
     _require(
         fresh_session.get("workflowCaseId") == "actor_data_tag_route",
