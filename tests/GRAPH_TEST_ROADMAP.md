@@ -7,6 +7,7 @@ The roadmap is intentionally staged:
 - first make the system runnable
 - then make its coverage visible
 - then deepen truth coverage where bugs are most likely
+- then scale the strongest patterns into broader graph-type and long-tail coverage
 
 ## Phase 1: Runnable Baseline
 
@@ -87,6 +88,66 @@ This phase answers:
 - which workflow families have strong regression protection
 - which remaining gaps are product limits versus test-system limits
 
+Current PCG end-state for this phase:
+
+- generated node plans with hard query-truth failures
+- coverage reports and truth-gap taxonomy
+- workflow-truth suites across:
+  - `branch`
+  - `create`
+  - `filter`
+  - `meta`
+  - `predicate`
+  - `route`
+  - `sample`
+  - `select`
+  - `source`
+  - `spawn`
+  - `struct`
+  - `transform`
+- negative and boundary suites across:
+  - `setPinDefault`
+  - `removeNode`
+  - `connectPins`
+  - `disconnectPins`
+- stability and repeatability suites for:
+  - repeated query snapshots
+  - repeated verify surfaces
+  - fresh-session failure reproduction
+
+## Phase 4: Scale and Long-Tail Strengthening
+
+Goal:
+
+- take the strongest Phase 3 patterns and scale them outward without weakening signal quality
+
+Priorities:
+
+- bring Material up through the same staged ladder:
+  - runnable baseline
+  - coverage visibility
+  - truth and workflow strengthening
+- then do the same for Blueprint, with recipe-heavy and context-heavy adaptations
+- add more long-tail PCG workflow families only when they expand coverage shape rather than duplicate existing signal
+- deepen serializer-surface awareness:
+  - generic pin defaults
+  - synthetic writable pins
+  - settings/effective-settings surfaces
+  - selector-specific surfaces
+- expand recipe support for currently blocked graph families
+- add stronger generated reporting for:
+  - workflow-family completeness
+  - blocked-node aging
+  - surface drift across fresh sessions and reused sessions
+- turn the most stable high-value patterns into reusable cross-graph templates
+
+This phase answers:
+
+- how quickly new graph types can inherit the PCG testing architecture
+- which long-tail surfaces are still uncovered after strong family-level protection exists
+- which blocked nodes stay blocked because of test-system limits versus product-surface limits
+- where the next meaningful coverage gains come from after the core families are already under pressure
+
 ## Recommended Order by Graph Type
 
 ### 1. PCG
@@ -127,6 +188,7 @@ Do start with:
 - generated baseline coverage
 - visible coverage depth
 - targeted truth strengthening
+- staged scale-out only after one graph type has completed the deeper truth loop
 
 ## Backbone During Transition
 

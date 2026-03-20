@@ -97,6 +97,8 @@ Phase 3 then turns part of that visibility into hard failure signals and gap tax
 
 So the framework can say not just that `graph.query` is weak, but exactly how it is weak and which surface failed first.
 
+After one graph type reaches that depth, Phase 4 scales the same testing patterns into other graph types and long-tail serializer surfaces without relaxing the stronger signal model.
+
 ## The Six Test Methods
 
 These are the primary testing methods. Not every node should use every method.
