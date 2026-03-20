@@ -416,7 +416,6 @@ def pick_pcg_workflow_families(entry: dict, family: str) -> list[str]:
 
 def derive_pcg_recipe(entry: dict, family: str) -> str | None:
     class_name = entry["className"]
-    title = (entry.get("defaultNodeTitle") or "").lower()
     if class_name in {
         "UPCGDataFromActorSettings",
         "UPCGGetActorPropertySettings",
@@ -426,14 +425,8 @@ def derive_pcg_recipe(entry: dict, family: str) -> str | None:
         "UPCGGetLandscapeSettings",
         "UPCGGetVolumeSettings",
         "UPCGGetPCGComponentSettings",
-        "UPCGDataFromTool",
-        "UPCGTextureSamplerSettings",
-        "UPCGGetVirtualTextureSettings",
-        "UPCGGetStaticMeshResourceDataSettings",
-        "UPCGGetPropertyFromObjectPathSettings",
-        "UPCGGetBoundsSettings",
         "UPCGGetSplineControlPointsSettings",
-    } or title.startswith("get "):
+    }:
         return "pcg_actor_source_context"
     return None
 

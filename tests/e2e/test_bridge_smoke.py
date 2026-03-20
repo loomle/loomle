@@ -4,6 +4,7 @@ import json
 import queue
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections import deque
@@ -87,6 +88,15 @@ EXPECTED_WORKSPACE_CATALOGS = {
     "material/catalogs/node-index.json",
     "pcg/catalogs/node-database.json",
     "pcg/catalogs/node-index.json",
+}
+
+EXPECTED_PCG_PLAN_SUMMARY = {
+    "totalNodes": 178,
+    "readyAutoCases": 135,
+    "readyRecipeCases": 9,
+    "workflowOnly": 6,
+    "inventoryOnly": 0,
+    "blocked": 28,
 }
 
 
@@ -890,6 +900,80 @@ def validate_workspace_catalogs() -> None:
     print("[PASS] workspace graph catalogs validated")
 
 
+def validate_generated_pcg_test_plan() -> None:
+    with tempfile.TemporaryDirectory(prefix="loomle-pcg-plan-") as tmpdir:
+        output_path = Path(tmpdir) / "pcg_test_plan.json"
+        subprocess.run(
+            [
+                sys.executable,
+                str(TOOLS_DIR / "generate_graph_test_plan.py"),
+                "--graph-type",
+                "pcg",
+                "--output",
+                str(output_path),
+            ],
+            check=True,
+            cwd=str(REPO_ROOT),
+        )
+        plan = _load_json_file(output_path)
+        _require(plan.get("version") == "1", f"pcg test plan version mismatch: {plan}")
+        _require(plan.get("graphType") == "pcg", f"pcg test plan graphType mismatch: {plan}")
+        source_catalog = plan.get("sourceCatalog")
+        _require(isinstance(source_catalog, dict), f"pcg test plan sourceCatalog missing: {plan}")
+        _require(
+            source_catalog.get("path") == str(REPO_ROOT / "workspace" / "Loomle" / "pcg" / "catalogs" / "node-database.json"),
+            f"pcg test plan sourceCatalog path mismatch: {source_catalog}",
+        )
+        summary = plan.get("summary")
+        _require(summary == EXPECTED_PCG_PLAN_SUMMARY, f"pcg test plan summary mismatch: {summary}")
+        entries = plan.get("entries")
+        _require(isinstance(entries, list) and len(entries) == EXPECTED_PCG_PLAN_SUMMARY["totalNodes"], "pcg test plan entries mismatch")
+
+        entry_by_class = {
+            entry.get("className"): entry
+            for entry in entries
+            if isinstance(entry, dict) and isinstance(entry.get("className"), str)
+        }
+
+        transform_points = entry_by_class.get("UPCGTransformPointsSettings")
+        _require(isinstance(transform_points, dict), "pcg plan missing UPCGTransformPointsSettings")
+        _require(transform_points.get("profile") == "read_write_roundtrip", f"pcg transform plan profile mismatch: {transform_points}")
+        _require(transform_points.get("mode") == "auto_case", f"pcg transform plan mode mismatch: {transform_points}")
+        _require(transform_points.get("fixture") == "pcg_graph", f"pcg transform plan fixture mismatch: {transform_points}")
+        _require(transform_points.get("status") == "ready", f"pcg transform plan status mismatch: {transform_points}")
+
+        actor_source = entry_by_class.get("UPCGDataFromActorSettings")
+        _require(isinstance(actor_source, dict), "pcg plan missing UPCGDataFromActorSettings")
+        _require(actor_source.get("mode") == "recipe_case", f"pcg actor-source mode mismatch: {actor_source}")
+        _require(actor_source.get("recipe") == "pcg_actor_source_context", f"pcg actor-source recipe mismatch: {actor_source}")
+        _require(actor_source.get("fixture") == "pcg_graph_with_world_actor", f"pcg actor-source fixture mismatch: {actor_source}")
+        _require(actor_source.get("status") == "ready", f"pcg actor-source status mismatch: {actor_source}")
+
+        console_variable = entry_by_class.get("UPCGGetConsoleVariableSettings")
+        _require(isinstance(console_variable, dict), "pcg plan missing UPCGGetConsoleVariableSettings")
+        _require(console_variable.get("mode") == "auto_case", f"pcg console-variable mode mismatch: {console_variable}")
+        _require(console_variable.get("fixture") == "pcg_graph", f"pcg console-variable fixture mismatch: {console_variable}")
+        _require(console_variable.get("recipe") is None, f"pcg console-variable recipe mismatch: {console_variable}")
+        _require(console_variable.get("status") == "ready", f"pcg console-variable status mismatch: {console_variable}")
+
+        branch = entry_by_class.get("UPCGBranchSettings")
+        _require(isinstance(branch, dict), "pcg plan missing UPCGBranchSettings")
+        _require(branch.get("mode") == "workflow_map", f"pcg branch mode mismatch: {branch}")
+        _require(branch.get("status") == "workflow_only", f"pcg branch status mismatch: {branch}")
+        _require(
+            isinstance(branch.get("focus"), dict) and branch["focus"].get("workflowFamilies") == ["pcg_control_flow"],
+            f"pcg branch focus mismatch: {branch}",
+        )
+
+        subgraph = entry_by_class.get("UPCGSubgraphSettings")
+        _require(isinstance(subgraph, dict), "pcg plan missing UPCGSubgraphSettings")
+        _require(subgraph.get("mode") == "blocked", f"pcg subgraph mode mismatch: {subgraph}")
+        _require(subgraph.get("status") == "blocked", f"pcg subgraph status mismatch: {subgraph}")
+        _require("missing recipe" in str(subgraph.get("reason")), f"pcg subgraph reason mismatch: {subgraph}")
+
+        print("[PASS] generated PCG test plan validated")
+
+
 def fail(msg: str) -> None:
     print(f"[FAIL] {msg}")
     raise SystemExit(1)
@@ -1372,6 +1456,7 @@ def main() -> int:
 
         validate_workspace_catalogs()
         validate_workspace_examples()
+        validate_generated_pcg_test_plan()
 
         print("[PASS] Bridge verification complete")
         return 0

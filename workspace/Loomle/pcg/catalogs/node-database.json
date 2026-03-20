@@ -4733,9 +4733,7 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query",
-        "recipe": "pcg_actor_source_context",
-        "reason": "Depends on world or actor-backed source context."
+        "profile": "construct_and_query"
       }
     },
     {
@@ -4781,9 +4779,7 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query",
-        "recipe": "pcg_actor_source_context",
-        "reason": "Depends on world or actor-backed source context."
+        "profile": "construct_and_query"
       }
     },
     {
@@ -4831,9 +4827,7 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query",
-        "recipe": "pcg_actor_source_context",
-        "reason": "Depends on world or actor-backed source context."
+        "profile": "construct_and_query"
       }
     },
     {
@@ -4869,9 +4863,7 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query",
-        "recipe": "pcg_actor_source_context",
-        "reason": "Depends on world or actor-backed source context."
+        "profile": "construct_and_query"
       }
     },
     {
@@ -4906,9 +4898,7 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query",
-        "recipe": "pcg_actor_source_context",
-        "reason": "Depends on world or actor-backed source context."
+        "profile": "construct_and_query"
       }
     },
     {
@@ -5001,9 +4991,7 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query",
-        "recipe": "pcg_actor_source_context",
-        "reason": "Depends on world or actor-backed source context."
+        "profile": "construct_and_query"
       }
     },
     {
@@ -5065,9 +5053,7 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query",
-        "recipe": "pcg_actor_source_context",
-        "reason": "Depends on world or actor-backed source context."
+        "profile": "construct_and_query"
       }
     },
     {
@@ -5168,9 +5154,7 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query",
-        "recipe": "pcg_actor_source_context",
-        "reason": "Depends on world or actor-backed source context."
+        "profile": "construct_and_query"
       }
     },
     {
@@ -5243,9 +5227,7 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "construct_and_query",
-        "recipe": "pcg_actor_source_context",
-        "reason": "Depends on world or actor-backed source context."
+        "profile": "construct_and_query"
       }
     },
     {
@@ -5350,9 +5332,7 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query",
-        "recipe": "pcg_actor_source_context",
-        "reason": "Depends on world or actor-backed source context."
+        "profile": "construct_and_query"
       }
     },
     {
@@ -5434,9 +5414,7 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query",
-        "recipe": "pcg_actor_source_context",
-        "reason": "Depends on world or actor-backed source context."
+        "profile": "construct_and_query"
       }
     },
     {
@@ -5495,7 +5473,7 @@
       ],
       "testing": {
         "profile": "context_recipe_required",
-        "recipe": "pcg_actor_source_context"
+        "reason": "Requires subgraph or loop context rather than isolated node coverage."
       }
     },
     {
@@ -5530,9 +5508,7 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query",
-        "recipe": "pcg_actor_source_context",
-        "reason": "Depends on world or actor-backed source context."
+        "profile": "construct_and_query"
       }
     },
     {
@@ -5788,7 +5764,6 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
-        "recipe": "pcg_actor_source_context",
         "focus": {
           "fields": [
             "Transform",
@@ -5842,9 +5817,7 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query",
-        "recipe": "pcg_actor_source_context",
-        "reason": "Depends on world or actor-backed source context."
+        "profile": "construct_and_query"
       }
     },
     {
@@ -5867,9 +5840,7 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "construct_and_query",
-        "recipe": "pcg_actor_source_context",
-        "reason": "Depends on world or actor-backed source context."
+        "profile": "construct_and_query"
       }
     },
     {
@@ -11345,9 +11316,7 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "construct_and_query",
-        "recipe": "pcg_actor_source_context",
-        "reason": "Depends on world or actor-backed source context."
+        "profile": "construct_and_query"
       }
     },
     {
@@ -11475,9 +11444,7 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query",
-        "recipe": "pcg_actor_source_context",
-        "reason": "Depends on world or actor-backed source context."
+        "profile": "construct_and_query"
       }
     },
     {
