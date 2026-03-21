@@ -143,6 +143,39 @@ TSharedPtr<FJsonObject> MakeGraphCatalogEntry(
     return Entry;
 }
 
+void SetNodeChildGraphRef(
+    const TSharedPtr<FJsonObject>& Node,
+    const TSharedPtr<FJsonObject>& ChildGraphRef,
+    const FString& ChildLoadStatus = TEXT(""))
+{
+    if (!Node.IsValid() || !ChildGraphRef.IsValid())
+    {
+        return;
+    }
+
+    Node->SetObjectField(TEXT("childGraphRef"), ChildGraphRef);
+    if (!ChildLoadStatus.IsEmpty())
+    {
+        Node->SetStringField(TEXT("childLoadStatus"), ChildLoadStatus);
+    }
+}
+
+void SetNodeAssetChildGraphRef(
+    const TSharedPtr<FJsonObject>& Node,
+    const FString& ChildAssetPath,
+    const FString& ChildLoadStatus)
+{
+    SetNodeChildGraphRef(Node, MakeGraphAssetRef(ChildAssetPath, TEXT("")), ChildLoadStatus);
+}
+
+void SetNodeInlineChildGraphRef(
+    const TSharedPtr<FJsonObject>& Node,
+    const FString& OwnerNodeGuid,
+    const FString& AssetPath)
+{
+    SetNodeChildGraphRef(Node, MakeGraphInlineRef(OwnerNodeGuid, AssetPath));
+}
+
 FString NormalizeBlueprintGraphKind(FString GraphKind)
 {
     if (GraphKind.Equals(TEXT("Event"), ESearchCase::IgnoreCase))
@@ -2084,11 +2117,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
                         int32 DotIdx;
                         if (FuncAssetPath.FindLastChar(TEXT('.'), DotIdx)) { FuncAssetPath = FuncAssetPath.Left(DotIdx); }
                     }
-                    TSharedPtr<FJsonObject> ChildRef = MakeShared<FJsonObject>();
-                    ChildRef->SetStringField(TEXT("kind"), TEXT("asset"));
-                    ChildRef->SetStringField(TEXT("assetPath"), FuncAssetPath);
-                    Node->SetObjectField(TEXT("childGraphRef"), ChildRef);
-                    Node->SetStringField(TEXT("childLoadStatus"), TEXT("loaded"));
+                    SetNodeAssetChildGraphRef(Node, FuncAssetPath, TEXT("loaded"));
                     ++MaterialChildGraphRefCount;
                 }
             }
@@ -2466,11 +2495,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
                             SubAssetPath = SubgraphSoftPath;
                             ChildLoadStatus = TEXT("not_found");
                         }
-                        TSharedPtr<FJsonObject> ChildRef = MakeShared<FJsonObject>();
-                        ChildRef->SetStringField(TEXT("kind"), TEXT("asset"));
-                        ChildRef->SetStringField(TEXT("assetPath"), SubAssetPath);
-                        Node->SetObjectField(TEXT("childGraphRef"), ChildRef);
-                        Node->SetStringField(TEXT("childLoadStatus"), ChildLoadStatus);
+                        SetNodeAssetChildGraphRef(Node, SubAssetPath, ChildLoadStatus);
                     }
                 }
             }
@@ -2735,11 +2760,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
                 UEdGraph* SubGraph = Cast<UEdGraph>(BoundGraphProp->GetObjectPropertyValue_InContainer(*FoundNode));
                 if (!SubGraph) { continue; }
 
-                TSharedPtr<FJsonObject> ChildRef = MakeShared<FJsonObject>();
-                ChildRef->SetStringField(TEXT("kind"), TEXT("inline"));
-                ChildRef->SetStringField(TEXT("nodeGuid"), GuidText);
-                ChildRef->SetStringField(TEXT("assetPath"), AssetPath);
-                (*SnapshotNodeObj)->SetObjectField(TEXT("childGraphRef"), ChildRef);
+                SetNodeInlineChildGraphRef(*SnapshotNodeObj, GuidText, AssetPath);
             }
         }
     }
