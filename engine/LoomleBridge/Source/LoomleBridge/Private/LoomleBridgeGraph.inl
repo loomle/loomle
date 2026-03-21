@@ -102,6 +102,18 @@ TSharedPtr<FJsonObject> MakeGraphInlineRef(const FString& RefNodeGuid, const FSt
     return Ref;
 }
 
+bool TryGetRequiredObjectField(
+    const TSharedPtr<FJsonObject>& Source,
+    const TCHAR* FieldName,
+    const TSharedPtr<FJsonObject>*& OutObject)
+{
+    OutObject = nullptr;
+    return Source.IsValid()
+        && Source->TryGetObjectField(FieldName, OutObject)
+        && OutObject != nullptr
+        && (*OutObject).IsValid();
+}
+
 TSharedPtr<FJsonObject> MakeGraphCatalogEntry(
     const FString& GraphName,
     const FString& GraphKind,
@@ -452,6 +464,48 @@ bool ResolveGraphRefObject(
     OutCode = TEXT("GRAPH_REF_INVALID");
     OutMessage = FString::Printf(TEXT("Unsupported graphRef.kind: %s"), *Kind);
     return false;
+}
+
+FString RewriteGraphRefErrorPrefix(
+    const FString& Message,
+    const FString& OldPrefix,
+    const FString& NewPrefix)
+{
+    if (Message.IsEmpty())
+    {
+        return Message;
+    }
+    return Message.Replace(*OldPrefix, *NewPrefix, ESearchCase::CaseSensitive);
+}
+
+bool ResolveTargetGraphRefObject(
+    const TSharedPtr<FJsonObject>& TargetGraphRefObj,
+    const FString& GraphType,
+    const FString& RequestAssetPath,
+    const FString& DefaultGraphName,
+    FResolvedGraphAddress& OutAddress,
+    FString& OutError)
+{
+    FString IgnoredCode;
+    FString ErrorMessage;
+    FGraphAddressResolutionOptions Options;
+    Options.BlueprintDefaultGraphName = DefaultGraphName;
+    Options.bRejectNonBlueprintInlineGraphRefs = true;
+    Options.bResolveInlineBlueprintGraphName = true;
+    if (!ResolveGraphRefObject(TargetGraphRefObj, GraphType, DefaultGraphName, Options, OutAddress, IgnoredCode, ErrorMessage))
+    {
+        OutError = RewriteGraphRefErrorPrefix(ErrorMessage, TEXT("graphRef"), TEXT("targetGraphRef"));
+        return false;
+    }
+
+    if (!OutAddress.AssetPath.Equals(RequestAssetPath, ESearchCase::CaseSensitive))
+    {
+        OutError = TEXT("targetGraphRef.assetPath must match request assetPath for this mutate call.");
+        return false;
+    }
+
+    OutError.Empty();
+    return true;
 }
 
 bool ResolveGraphRequestAddress(
@@ -2437,12 +2491,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
 
         BuildMinimalSnapshotResult(TEXT("mat"), Nodes, Edges, Diagnostics);
         // Echo effective graphRef at response root.
-        {
-            TSharedPtr<FJsonObject> ResponseGraphRef = MakeShared<FJsonObject>();
-            ResponseGraphRef->SetStringField(TEXT("kind"), TEXT("asset"));
-            ResponseGraphRef->SetStringField(TEXT("assetPath"), AssetPath);
-            Result->SetObjectField(TEXT("graphRef"), ResponseGraphRef);
-        }
+        Result->SetObjectField(TEXT("graphRef"), MakeGraphAssetRef(AssetPath, TEXT("")));
         return Result;
     }
 
@@ -2680,12 +2729,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
 
         BuildMinimalSnapshotResult(TEXT("pcg"), Nodes, Edges, Diagnostics);
         // Echo effective graphRef at response root.
-        {
-            TSharedPtr<FJsonObject> ResponseGraphRef = MakeShared<FJsonObject>();
-            ResponseGraphRef->SetStringField(TEXT("kind"), TEXT("asset"));
-            ResponseGraphRef->SetStringField(TEXT("assetPath"), AssetPath);
-            Result->SetObjectField(TEXT("graphRef"), ResponseGraphRef);
-        }
+        Result->SetObjectField(TEXT("graphRef"), MakeGraphAssetRef(AssetPath, TEXT("")));
         return Result;
     }
 
@@ -4677,10 +4721,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphOpsResolveToolResult(cons
     }
 
     const TSharedPtr<FJsonObject>* GraphRefObj = nullptr;
-    if (!Arguments.IsValid()
-        || !Arguments->TryGetObjectField(TEXT("graphRef"), GraphRefObj)
-        || GraphRefObj == nullptr
-        || !(*GraphRefObj).IsValid())
+    if (!TryGetRequiredObjectField(Arguments, TEXT("graphRef"), GraphRefObj))
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
@@ -8715,57 +8756,16 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         }
         else if (bHasTargetGraphRef)
         {
-            FString TargetKind;
-            if (!(*TargetGraphRefObj)->TryGetStringField(TEXT("kind"), TargetKind) || TargetKind.IsEmpty())
+            FResolvedGraphAddress TargetGraphAddress;
+            FString GraphRefErrorMessage;
+            if (!ResolveTargetGraphRefObject(*TargetGraphRefObj, GraphType, AssetPath, GraphName, TargetGraphAddress, GraphRefErrorMessage))
             {
                 bOk = false;
-                Error = TEXT("targetGraphRef.kind is required.");
+                Error = GraphRefErrorMessage;
             }
             else
             {
-                TargetKind = TargetKind.ToLower();
-                FString TargetAssetPath;
-                if (!(*TargetGraphRefObj)->TryGetStringField(TEXT("assetPath"), TargetAssetPath) || TargetAssetPath.IsEmpty())
-                {
-                    bOk = false;
-                    Error = TEXT("targetGraphRef.assetPath is required.");
-                }
-                else if (!NormalizeAssetPath(TargetAssetPath).Equals(AssetPath, ESearchCase::CaseSensitive))
-                {
-                    bOk = false;
-                    Error = TEXT("targetGraphRef.assetPath must match request assetPath for this mutate call.");
-                }
-                else if (TargetKind.Equals(TEXT("asset")))
-                {
-                    if (!(*TargetGraphRefObj)->TryGetStringField(TEXT("graphName"), OpGraphName) || OpGraphName.IsEmpty())
-                    {
-                        OpGraphName = GraphName;
-                    }
-                }
-                else if (TargetKind.Equals(TEXT("inline")))
-                {
-                    FResolvedGraphAddress TargetGraphAddress;
-                    FString GraphRefErrorMessage;
-                    FGraphAddressResolutionOptions TargetGraphOptions;
-                    TargetGraphOptions.BlueprintDefaultGraphName = GraphName;
-                    TargetGraphOptions.bRejectNonBlueprintInlineGraphRefs = true;
-                    TargetGraphOptions.bResolveInlineBlueprintGraphName = true;
-                    FString IgnoredGraphRefErrorCode;
-                    if (!ResolveGraphRefObject(*TargetGraphRefObj, GraphType, GraphName, TargetGraphOptions, TargetGraphAddress, IgnoredGraphRefErrorCode, GraphRefErrorMessage))
-                    {
-                        bOk = false;
-                        Error = GraphRefErrorMessage;
-                    }
-                    else
-                    {
-                        OpGraphName = TargetGraphAddress.GraphName;
-                    }
-                }
-                else
-                {
-                    bOk = false;
-                    Error = FString::Printf(TEXT("Unsupported targetGraphRef.kind: %s"), *TargetKind);
-                }
+                OpGraphName = TargetGraphAddress.GraphName;
             }
         }
 
