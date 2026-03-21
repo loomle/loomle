@@ -29,7 +29,7 @@ fn graph_mutate_ops(graph_type: &str) -> Vec<&'static str> {
     ops
 }
 
-pub const TOOL_NAMES: [&str; 15] = [
+pub const TOOL_NAMES: [&str; 13] = [
     "loomle",
     "context",
     "editor.open",
@@ -41,8 +41,6 @@ pub const TOOL_NAMES: [&str; 15] = [
     "graph.list",
     "graph.resolve",
     "graph.query",
-    "graph.ops",
-    "graph.ops.resolve",
     "graph.mutate",
     "diag.tail",
 ];
@@ -115,7 +113,7 @@ impl<C: RpcConnector> McpService<C> {
             "loomle" => self.call_loomle(),
             "graph" => self.call_graph(args),
             "context" | "editor.open" | "editor.focus" | "editor.screenshot" | "graph.verify" | "execute" | "graph.list" | "graph.resolve" | "graph.query"
-            | "graph.ops" | "graph.ops.resolve" | "graph.mutate" | "diag.tail" => self.call_runtime(name, args, meta),
+            | "graph.mutate" | "diag.tail" => self.call_runtime(name, args, meta),
             _ => McpToolResult {
                 structured_content: error_payload(
                     1002,
@@ -473,9 +471,7 @@ mod tests {
     #[test]
     fn tools_list_includes_diag_tail() {
         let tools = McpService::<FakeConnector>::tools_list();
-        assert_eq!(tools.len(), 15);
-        assert!(tools.contains(&"graph.ops"));
-        assert!(tools.contains(&"graph.ops.resolve"));
+        assert_eq!(tools.len(), 13);
         assert!(tools.contains(&"graph.resolve"));
         assert!(tools.contains(&"diag.tail"));
         assert!(tools.contains(&"editor.open"));

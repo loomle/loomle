@@ -118,8 +118,6 @@ namespace LoomleBridgeConstants
     static const TCHAR* GraphListToolName = TEXT("graph.list");
     static const TCHAR* GraphResolveToolName = TEXT("graph.resolve");
     static const TCHAR* GraphQueryToolName = TEXT("graph.query");
-    static const TCHAR* GraphOpsToolName = TEXT("graph.ops");
-    static const TCHAR* GraphOpsResolveToolName = TEXT("graph.ops.resolve");
     static const TCHAR* GraphMutateToolName = TEXT("graph.mutate");
     static const TCHAR* DiagTailToolName = TEXT("diag.tail");
     constexpr double MutateIdempotencyTtlSeconds = 1800.0;
