@@ -109,7 +109,7 @@ def main() -> int:
     )
 
     archive_stem = output_dir / f"loomle-{args.version}-{args.platform}"
-    archive_path = archive_stem.with_suffix(".zip")
+    archive_path = output_dir / f"{archive_stem.name}.zip"
     run(
         [
             sys.executable,
