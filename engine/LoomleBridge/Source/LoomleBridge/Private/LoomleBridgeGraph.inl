@@ -114,6 +114,98 @@ bool TryGetRequiredObjectField(
         && (*OutObject).IsValid();
 }
 
+bool TryResolveNodeRef(
+    const TSharedPtr<FJsonObject>& Source,
+    const TMap<FString, FString>& NodeRefs,
+    FString& OutNodeId)
+{
+    FString NodeRef;
+    if (Source.IsValid()
+        && Source->TryGetStringField(TEXT("nodeRef"), NodeRef)
+        && !NodeRef.IsEmpty()
+        && NodeRefs.Contains(NodeRef))
+    {
+        OutNodeId = NodeRefs[NodeRef];
+        return !OutNodeId.IsEmpty();
+    }
+    return false;
+}
+
+bool ResolveNodeTokenWithRefs(
+    const TSharedPtr<FJsonObject>& Source,
+    const TMap<FString, FString>& NodeRefs,
+    FString& OutNodeId,
+    bool bAllowNameAliases)
+{
+    OutNodeId.Empty();
+    if (!Source.IsValid())
+    {
+        return false;
+    }
+    if (Source->TryGetStringField(TEXT("nodeId"), OutNodeId) && !OutNodeId.IsEmpty())
+    {
+        return true;
+    }
+    if (TryResolveNodeRef(Source, NodeRefs, OutNodeId))
+    {
+        return true;
+    }
+    if (Source->TryGetStringField(TEXT("nodePath"), OutNodeId) && !OutNodeId.IsEmpty())
+    {
+        return true;
+    }
+    if (Source->TryGetStringField(TEXT("path"), OutNodeId) && !OutNodeId.IsEmpty())
+    {
+        return true;
+    }
+    if (bAllowNameAliases)
+    {
+        if (Source->TryGetStringField(TEXT("nodeName"), OutNodeId) && !OutNodeId.IsEmpty())
+        {
+            return true;
+        }
+        if (Source->TryGetStringField(TEXT("name"), OutNodeId) && !OutNodeId.IsEmpty())
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ResolveNodeTokenFromArgsWithRefs(
+    const TSharedPtr<FJsonObject>& ArgsObj,
+    const TMap<FString, FString>& NodeRefs,
+    FString& OutNodeId,
+    bool bAllowNameAliases)
+{
+    OutNodeId.Empty();
+    if (!ArgsObj.IsValid())
+    {
+        return false;
+    }
+
+    const TSharedPtr<FJsonObject>* TargetObj = nullptr;
+    if (ArgsObj->TryGetObjectField(TEXT("target"), TargetObj)
+        && TargetObj != nullptr
+        && (*TargetObj).IsValid()
+        && ResolveNodeTokenWithRefs(*TargetObj, NodeRefs, OutNodeId, bAllowNameAliases))
+    {
+        return true;
+    }
+
+    return ResolveNodeTokenWithRefs(ArgsObj, NodeRefs, OutNodeId, bAllowNameAliases);
+}
+
+TSharedPtr<FJsonObject> MakeNodeRefsObject(const TMap<FString, FString>& NodeRefs)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    for (const TPair<FString, FString>& Pair : NodeRefs)
+    {
+        Result->SetStringField(Pair.Key, Pair.Value);
+    }
+    return Result;
+}
+
 TSharedPtr<FJsonObject> MakeGraphCatalogEntry(
     const FString& GraphName,
     const FString& GraphKind,
@@ -6300,97 +6392,22 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
 
         auto ResolveNodeTokenLocal = [&LocalNodeRefs](const TSharedPtr<FJsonObject>& Obj, FString& OutNodeId) -> bool
         {
-            if (!Obj.IsValid())
-            {
-                return false;
-            }
-            if (Obj->TryGetStringField(TEXT("nodeId"), OutNodeId) && !OutNodeId.IsEmpty())
-            {
-                return true;
-            }
-            FString NodeRef;
-            if (Obj->TryGetStringField(TEXT("nodeRef"), NodeRef) && LocalNodeRefs.Contains(NodeRef))
-            {
-                OutNodeId = LocalNodeRefs[NodeRef];
-                return !OutNodeId.IsEmpty();
-            }
-            if (Obj->TryGetStringField(TEXT("nodePath"), OutNodeId) && !OutNodeId.IsEmpty())
-            {
-                return true;
-            }
-            if (Obj->TryGetStringField(TEXT("path"), OutNodeId) && !OutNodeId.IsEmpty())
-            {
-                return true;
-            }
-            if (Obj->TryGetStringField(TEXT("nodeName"), OutNodeId) && !OutNodeId.IsEmpty())
-            {
-                return true;
-            }
-            if (Obj->TryGetStringField(TEXT("name"), OutNodeId) && !OutNodeId.IsEmpty())
-            {
-                return true;
-            }
-            return false;
+            return ResolveNodeTokenWithRefs(Obj, LocalNodeRefs, OutNodeId, true);
         };
 
-        auto ResolveNodeTokenFromArgsLocal = [&ResolveNodeTokenLocal](const TSharedPtr<FJsonObject>& ArgsObj, FString& OutNodeId) -> bool
+        auto ResolveNodeTokenFromArgsLocal = [&LocalNodeRefs](const TSharedPtr<FJsonObject>& ArgsObj, FString& OutNodeId) -> bool
         {
-            OutNodeId.Empty();
-            if (!ArgsObj.IsValid())
-            {
-                return false;
-            }
-
-            const TSharedPtr<FJsonObject>* TargetObj = nullptr;
-            if (ArgsObj->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid()
-                && ResolveNodeTokenLocal(*TargetObj, OutNodeId))
-            {
-                return true;
-            }
-
-            return ResolveNodeTokenLocal(ArgsObj, OutNodeId);
+            return ResolveNodeTokenFromArgsWithRefs(ArgsObj, LocalNodeRefs, OutNodeId, true);
         };
 
         auto ResolveStableNodeTokenLocal = [&LocalNodeRefs](const TSharedPtr<FJsonObject>& Obj, FString& OutNodeId) -> bool
         {
-            OutNodeId.Empty();
-            if (!Obj.IsValid())
-            {
-                return false;
-            }
-            if (Obj->TryGetStringField(TEXT("nodeId"), OutNodeId) && !OutNodeId.IsEmpty())
-            {
-                return true;
-            }
-            FString NodeRef;
-            if (Obj->TryGetStringField(TEXT("nodeRef"), NodeRef) && LocalNodeRefs.Contains(NodeRef))
-            {
-                OutNodeId = LocalNodeRefs[NodeRef];
-                return !OutNodeId.IsEmpty();
-            }
-            if (Obj->TryGetStringField(TEXT("nodePath"), OutNodeId) && !OutNodeId.IsEmpty())
-            {
-                return true;
-            }
-            return Obj->TryGetStringField(TEXT("path"), OutNodeId) && !OutNodeId.IsEmpty();
+            return ResolveNodeTokenWithRefs(Obj, LocalNodeRefs, OutNodeId, false);
         };
 
-        auto ResolveStableNodeTokenFromArgsLocal = [&ResolveStableNodeTokenLocal](const TSharedPtr<FJsonObject>& ArgsObj, FString& OutNodeId) -> bool
+        auto ResolveStableNodeTokenFromArgsLocal = [&LocalNodeRefs](const TSharedPtr<FJsonObject>& ArgsObj, FString& OutNodeId) -> bool
         {
-            OutNodeId.Empty();
-            if (!ArgsObj.IsValid())
-            {
-                return false;
-            }
-
-            const TSharedPtr<FJsonObject>* TargetObj = nullptr;
-            if (ArgsObj->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid()
-                && ResolveStableNodeTokenLocal(*TargetObj, OutNodeId))
-            {
-                return true;
-            }
-
-            return ResolveStableNodeTokenLocal(ArgsObj, OutNodeId);
+            return ResolveNodeTokenFromArgsWithRefs(ArgsObj, LocalNodeRefs, OutNodeId, false);
         };
 
         auto ResolveNodeTokenArrayFromArgsLocal = [&ResolveNodeTokenLocal](const TSharedPtr<FJsonObject>& ArgsObj, TArray<FString>& OutNodeIds) -> bool
@@ -8284,37 +8301,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
 
     auto ResolveNodeToken = [&NodeRefs](const TSharedPtr<FJsonObject>& Obj, FString& OutNodeId) -> bool
     {
-        if (!Obj.IsValid())
-        {
-            return false;
-        }
-        if (Obj->TryGetStringField(TEXT("nodeId"), OutNodeId) && !OutNodeId.IsEmpty())
-        {
-            return true;
-        }
-        FString NodeRef;
-        if (Obj->TryGetStringField(TEXT("nodeRef"), NodeRef) && NodeRefs.Contains(NodeRef))
-        {
-            OutNodeId = NodeRefs[NodeRef];
-            return !OutNodeId.IsEmpty();
-        }
-        if (Obj->TryGetStringField(TEXT("nodePath"), OutNodeId) && !OutNodeId.IsEmpty())
-        {
-            return true;
-        }
-        if (Obj->TryGetStringField(TEXT("path"), OutNodeId) && !OutNodeId.IsEmpty())
-        {
-            return true;
-        }
-        if (Obj->TryGetStringField(TEXT("nodeName"), OutNodeId) && !OutNodeId.IsEmpty())
-        {
-            return true;
-        }
-        if (Obj->TryGetStringField(TEXT("name"), OutNodeId) && !OutNodeId.IsEmpty())
-        {
-            return true;
-        }
-        return false;
+        return ResolveNodeTokenWithRefs(Obj, NodeRefs, OutNodeId, true);
     };
 
     auto ResolveGraphNodeToken = [](UEdGraph* Graph, const FString& NodeToken) -> UEdGraphNode*
@@ -8346,22 +8333,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
         return nullptr;
     };
 
-    auto ResolveNodeTokenFromArgs = [&ResolveNodeToken](const TSharedPtr<FJsonObject>& ArgsObj, FString& OutNodeId) -> bool
+    auto ResolveNodeTokenFromArgs = [&NodeRefs](const TSharedPtr<FJsonObject>& ArgsObj, FString& OutNodeId) -> bool
     {
-        OutNodeId.Empty();
-        if (!ArgsObj.IsValid())
-        {
-            return false;
-        }
-
-        const TSharedPtr<FJsonObject>* TargetObj = nullptr;
-        if (ArgsObj->TryGetObjectField(TEXT("target"), TargetObj) && TargetObj && (*TargetObj).IsValid()
-            && ResolveNodeToken(*TargetObj, OutNodeId))
-        {
-            return true;
-        }
-
-        return ResolveNodeToken(ArgsObj, OutNodeId);
+        return ResolveNodeTokenFromArgsWithRefs(ArgsObj, NodeRefs, OutNodeId, true);
     };
 
     auto ResolveNodeTokenArrayFromArgs = [&ResolveNodeToken](const TSharedPtr<FJsonObject>& ArgsObj, TArray<FString>& OutNodeIds) -> bool
@@ -9145,12 +9119,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                     ScriptContext->SetBoolField(TEXT("dryRun"), bDryRun);
                     ScriptContext->SetObjectField(TEXT("input"), ScriptInput);
 
-                    TSharedPtr<FJsonObject> NodeRefsObject = MakeShared<FJsonObject>();
-                    for (const TPair<FString, FString>& Pair : NodeRefs)
-                    {
-                        NodeRefsObject->SetStringField(Pair.Key, Pair.Value);
-                    }
-                    ScriptContext->SetObjectField(TEXT("nodeRefs"), NodeRefsObject);
+                    ScriptContext->SetObjectField(TEXT("nodeRefs"), MakeNodeRefsObject(NodeRefs));
 
                     const FString ContextJson = SerializeJsonObject(ScriptContext);
                     const FString ContextB64 = FBase64::Encode(ContextJson);
