@@ -37,6 +37,19 @@ namespace LoomleBlueprintAdapterInternal
 {
     static const TCHAR* DefaultBlueprintMacroLibraryAssetPath = TEXT("/Engine/EditorBlueprintResources/StandardMacros");
 
+    struct FBlueprintFunctionDescriptor
+    {
+        FString ClassPath;
+        FString FunctionName;
+        FString SignatureId;
+    };
+
+    struct FBlueprintMacroDescriptor
+    {
+        FString MacroLibraryAssetPath;
+        FString MacroGraphName;
+    };
+
     static TSharedPtr<FJsonObject> MakeLayoutObject(
         int32 PositionX,
         int32 PositionY,
@@ -199,6 +212,190 @@ namespace LoomleBlueprintAdapterInternal
 
         UBlueprint* MacroLibrary = LoadBlueprintByAssetPath(EffectiveMacroLibraryAssetPath);
         return FindGraphByName(MacroLibrary, MacroGraphName);
+    }
+
+    static FBlueprintFunctionDescriptor DescribeCallFunctionNode(const UK2Node_CallFunction* CallNode)
+    {
+        FBlueprintFunctionDescriptor Descriptor;
+        if (CallNode == nullptr)
+        {
+            return Descriptor;
+        }
+
+        const UFunction* TargetFunction = CallNode->GetTargetFunction();
+        UClass* ParentClass = CallNode->FunctionReference.GetMemberParentClass();
+        FName MemberName = CallNode->FunctionReference.GetMemberName();
+        FGuid MemberGuid = CallNode->FunctionReference.GetMemberGuid();
+
+        if ((!ParentClass || MemberName.IsNone()) && TargetFunction)
+        {
+            ParentClass = TargetFunction->GetOuterUClass();
+            MemberName = TargetFunction->GetFName();
+        }
+
+        Descriptor.ClassPath = ParentClass ? ParentClass->GetPathName() : TEXT("");
+        Descriptor.FunctionName = MemberName.ToString();
+        Descriptor.SignatureId = MemberGuid.ToString(EGuidFormats::DigitsWithHyphens);
+        if ((Descriptor.SignatureId.IsEmpty()
+                || Descriptor.SignatureId.Equals(TEXT("00000000-0000-0000-0000-000000000000")))
+            && TargetFunction)
+        {
+            Descriptor.SignatureId = TargetFunction->GetPathName();
+        }
+
+        return Descriptor;
+    }
+
+    static UFunction* ResolveFunctionByDescriptor(const FBlueprintFunctionDescriptor& Descriptor)
+    {
+        if (!Descriptor.SignatureId.IsEmpty()
+            && !Descriptor.SignatureId.Equals(TEXT("00000000-0000-0000-0000-000000000000")))
+        {
+            if (UFunction* FunctionBySignature = FindObject<UFunction>(nullptr, *Descriptor.SignatureId))
+            {
+                return FunctionBySignature;
+            }
+            if (UFunction* LoadedFunctionBySignature = LoadObject<UFunction>(nullptr, *Descriptor.SignatureId))
+            {
+                return LoadedFunctionBySignature;
+            }
+        }
+
+        UClass* FunctionClass = ResolveClass(Descriptor.ClassPath);
+        if (FunctionClass == nullptr || Descriptor.FunctionName.IsEmpty())
+        {
+            return nullptr;
+        }
+        return FunctionClass->FindFunctionByName(*Descriptor.FunctionName);
+    }
+
+    static bool AddCallFunctionNodeByDescriptor(
+        const FString& BlueprintAssetPath,
+        const FString& GraphName,
+        const FBlueprintFunctionDescriptor& Descriptor,
+        const int32 NodePosX,
+        const int32 NodePosY,
+        FString& OutNodeGuid,
+        FString& OutError)
+    {
+        OutNodeGuid.Empty();
+        OutError.Empty();
+
+        UBlueprint* Blueprint = LoadBlueprintByAssetPath(BlueprintAssetPath);
+        UEdGraph* EventGraph = ResolveTargetGraph(Blueprint, GraphName);
+        UFunction* Function = ResolveFunctionByDescriptor(Descriptor);
+        if (!Blueprint || !EventGraph || !Function)
+        {
+            OutError = TEXT("Failed to resolve blueprint/target graph/function.");
+            return false;
+        }
+
+        FGraphNodeCreator<UK2Node_CallFunction> Creator(*EventGraph);
+        UK2Node_CallFunction* Node = Creator.CreateNode();
+        Node->NodePosX = NodePosX;
+        Node->NodePosY = NodePosY;
+        Node->SetFromFunction(Function);
+        Node->AllocateDefaultPins();
+        Creator.Finalize();
+
+        OutNodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+        return true;
+    }
+
+    static FBlueprintFunctionDescriptor ParseFunctionDescriptorFromPayload(const TSharedPtr<FJsonObject>& Payload)
+    {
+        FBlueprintFunctionDescriptor Descriptor;
+        if (!Payload.IsValid())
+        {
+            return Descriptor;
+        }
+
+        const TSharedPtr<FJsonObject>* FunctionReference = nullptr;
+        if (Payload->TryGetObjectField(TEXT("functionReference"), FunctionReference)
+            && FunctionReference != nullptr
+            && (*FunctionReference).IsValid())
+        {
+            (*FunctionReference)->TryGetStringField(TEXT("classPath"), Descriptor.ClassPath);
+            (*FunctionReference)->TryGetStringField(TEXT("functionName"), Descriptor.FunctionName);
+            (*FunctionReference)->TryGetStringField(TEXT("signatureId"), Descriptor.SignatureId);
+        }
+
+        if (Descriptor.ClassPath.IsEmpty())
+        {
+            Payload->TryGetStringField(TEXT("functionClassPath"), Descriptor.ClassPath);
+        }
+        if (Descriptor.FunctionName.IsEmpty())
+        {
+            Payload->TryGetStringField(TEXT("functionName"), Descriptor.FunctionName);
+        }
+        if (Descriptor.SignatureId.IsEmpty())
+        {
+            Payload->TryGetStringField(TEXT("signatureId"), Descriptor.SignatureId);
+        }
+
+        return Descriptor;
+    }
+
+    static FBlueprintMacroDescriptor DescribeMacroNode(const UK2Node_MacroInstance* MacroNode)
+    {
+        FBlueprintMacroDescriptor Descriptor;
+        if (MacroNode == nullptr)
+        {
+            return Descriptor;
+        }
+
+        if (UEdGraph* MacroGraph = MacroNode->GetMacroGraph())
+        {
+            Descriptor.MacroGraphName = MacroGraph->GetName();
+            if (UBlueprint* MacroLibrary = FBlueprintEditorUtils::FindBlueprintForGraph(MacroGraph))
+            {
+                Descriptor.MacroLibraryAssetPath = MacroLibrary->GetPathName();
+            }
+        }
+
+        if (Descriptor.MacroLibraryAssetPath.IsEmpty() && !Descriptor.MacroGraphName.IsEmpty())
+        {
+            Descriptor.MacroLibraryAssetPath = DefaultBlueprintMacroLibraryAssetPath;
+        }
+
+        return Descriptor;
+    }
+
+    static FBlueprintMacroDescriptor ParseMacroDescriptorFromPayload(const TSharedPtr<FJsonObject>& Payload)
+    {
+        FBlueprintMacroDescriptor Descriptor;
+        if (!Payload.IsValid())
+        {
+            return Descriptor;
+        }
+
+        const TSharedPtr<FJsonObject>* MacroObject = nullptr;
+        if (Payload->TryGetObjectField(TEXT("macro"), MacroObject)
+            && MacroObject != nullptr
+            && (*MacroObject).IsValid())
+        {
+            (*MacroObject)->TryGetStringField(TEXT("macroLibraryAssetPath"), Descriptor.MacroLibraryAssetPath);
+            (*MacroObject)->TryGetStringField(TEXT("macroGraphName"), Descriptor.MacroGraphName);
+            if (Descriptor.MacroGraphName.IsEmpty())
+            {
+                (*MacroObject)->TryGetStringField(TEXT("macroGraph"), Descriptor.MacroGraphName);
+            }
+        }
+
+        if (Descriptor.MacroLibraryAssetPath.IsEmpty())
+        {
+            Payload->TryGetStringField(TEXT("macroLibraryAssetPath"), Descriptor.MacroLibraryAssetPath);
+        }
+        if (Descriptor.MacroGraphName.IsEmpty())
+        {
+            Payload->TryGetStringField(TEXT("macroGraphName"), Descriptor.MacroGraphName);
+        }
+        if (Descriptor.MacroGraphName.IsEmpty())
+        {
+            Payload->TryGetStringField(TEXT("macroGraph"), Descriptor.MacroGraphName);
+        }
+
+        return Descriptor;
     }
 
     static bool ParsePayloadJson(const FString& PayloadJson, TSharedPtr<FJsonObject>& OutPayload)
@@ -598,31 +795,15 @@ namespace LoomleBlueprintAdapterInternal
 
         if (const UK2Node_CallFunction* CallNode = Cast<UK2Node_CallFunction>(Node))
         {
-            const UFunction* TargetFunction = CallNode->GetTargetFunction();
-            UClass* ParentClass = CallNode->FunctionReference.GetMemberParentClass();
-            FName MemberName = CallNode->FunctionReference.GetMemberName();
-            FGuid MemberGuid = CallNode->FunctionReference.GetMemberGuid();
-
-            // Fallback: some call-function nodes do not carry a complete FunctionReference.
-            if ((!ParentClass || MemberName.IsNone()) && TargetFunction)
-            {
-                ParentClass = TargetFunction->GetOuterUClass();
-                MemberName = TargetFunction->GetFName();
-            }
-
-            FString SignatureId = MemberGuid.ToString(EGuidFormats::DigitsWithHyphens);
-            if ((SignatureId.IsEmpty() || SignatureId.Equals(TEXT("00000000-0000-0000-0000-000000000000"))) && TargetFunction)
-            {
-                SignatureId = TargetFunction->GetPathName();
-            }
+            const FBlueprintFunctionDescriptor Descriptor = DescribeCallFunctionNode(CallNode);
             MemberReference->SetStringField(TEXT("memberKind"), TEXT("function"));
-            MemberReference->SetStringField(TEXT("ownerClassPath"), ParentClass ? ParentClass->GetPathName() : TEXT(""));
-            MemberReference->SetStringField(TEXT("memberName"), MemberName.ToString());
-            MemberReference->SetStringField(TEXT("signatureId"), SignatureId);
+            MemberReference->SetStringField(TEXT("ownerClassPath"), Descriptor.ClassPath);
+            MemberReference->SetStringField(TEXT("memberName"), Descriptor.FunctionName);
+            MemberReference->SetStringField(TEXT("signatureId"), Descriptor.SignatureId);
 
-            FunctionReference->SetStringField(TEXT("classPath"), ParentClass ? ParentClass->GetPathName() : TEXT(""));
-            FunctionReference->SetStringField(TEXT("functionName"), MemberName.ToString());
-            FunctionReference->SetStringField(TEXT("signatureId"), SignatureId);
+            FunctionReference->SetStringField(TEXT("classPath"), Descriptor.ClassPath);
+            FunctionReference->SetStringField(TEXT("functionName"), Descriptor.FunctionName);
+            FunctionReference->SetStringField(TEXT("signatureId"), Descriptor.SignatureId);
         }
         else if (const UK2Node_VariableGet* VariableGetNode = Cast<UK2Node_VariableGet>(Node))
         {
@@ -663,8 +844,11 @@ namespace LoomleBlueprintAdapterInternal
         }
         if (const UK2Node_MacroInstance* MacroNode = Cast<UK2Node_MacroInstance>(Node))
         {
+            const FBlueprintMacroDescriptor Descriptor = DescribeMacroNode(MacroNode);
             TSharedPtr<FJsonObject> MacroExt = MakeShared<FJsonObject>();
-            MacroExt->SetStringField(TEXT("macroGraph"), MacroNode->GetMacroGraph() ? MacroNode->GetMacroGraph()->GetName() : TEXT(""));
+            MacroExt->SetStringField(TEXT("macroGraph"), Descriptor.MacroGraphName);
+            MacroExt->SetStringField(TEXT("macroGraphName"), Descriptor.MacroGraphName);
+            MacroExt->SetStringField(TEXT("macroLibraryAssetPath"), Descriptor.MacroLibraryAssetPath);
             K2Extensions->SetObjectField(TEXT("macro"), MacroExt);
         }
         if (const UEdGraphNode_Comment* CommentNode = Cast<UEdGraphNode_Comment>(Node))
@@ -1212,29 +1396,17 @@ bool FLoomleBlueprintAdapter::AddCastNode(const FString& BlueprintAssetPath, con
 
 bool FLoomleBlueprintAdapter::AddCallFunctionNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& FunctionClassPath, const FString& FunctionName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
-    OutNodeGuid.Empty();
-    OutError.Empty();
-
-    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
-    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
-    UClass* FunctionClass = LoomleBlueprintAdapterInternal::ResolveClass(FunctionClassPath);
-    UFunction* Function = FunctionClass ? FunctionClass->FindFunctionByName(*FunctionName) : nullptr;
-    if (!Blueprint || !EventGraph || !Function)
-    {
-        OutError = TEXT("Failed to resolve blueprint/target graph/function.");
-        return false;
-    }
-
-    FGraphNodeCreator<UK2Node_CallFunction> Creator(*EventGraph);
-    UK2Node_CallFunction* Node = Creator.CreateNode();
-    Node->NodePosX = NodePosX;
-    Node->NodePosY = NodePosY;
-    Node->SetFromFunction(Function);
-    Node->AllocateDefaultPins();
-    Creator.Finalize();
-
-    OutNodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
-    return true;
+    LoomleBlueprintAdapterInternal::FBlueprintFunctionDescriptor Descriptor;
+    Descriptor.ClassPath = FunctionClassPath;
+    Descriptor.FunctionName = FunctionName;
+    return LoomleBlueprintAdapterInternal::AddCallFunctionNodeByDescriptor(
+        BlueprintAssetPath,
+        GraphName,
+        Descriptor,
+        NodePosX,
+        NodePosY,
+        OutNodeGuid,
+        OutError);
 }
 
 bool FLoomleBlueprintAdapter::AddBranchNode(const FString& BlueprintAssetPath, const FString& GraphName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
@@ -1460,11 +1632,16 @@ bool FLoomleBlueprintAdapter::AddNodeByClass(const FString& BlueprintAssetPath, 
     }
     if (NormalizedClass.Contains(TEXT("k2node_callfunction")))
     {
-        FString FunctionClassPath;
-        FString FunctionName;
-        Payload->TryGetStringField(TEXT("functionClassPath"), FunctionClassPath);
-        Payload->TryGetStringField(TEXT("functionName"), FunctionName);
-        return AddCallFunctionNode(BlueprintAssetPath, GraphName, FunctionClassPath, FunctionName, NodePosX, NodePosY, OutNodeGuid, OutError);
+        const LoomleBlueprintAdapterInternal::FBlueprintFunctionDescriptor Descriptor =
+            LoomleBlueprintAdapterInternal::ParseFunctionDescriptorFromPayload(Payload);
+        return LoomleBlueprintAdapterInternal::AddCallFunctionNodeByDescriptor(
+            BlueprintAssetPath,
+            GraphName,
+            Descriptor,
+            NodePosX,
+            NodePosY,
+            OutNodeGuid,
+            OutError);
     }
     if (NormalizedClass.Contains(TEXT("k2node_executionsequence")))
     {
@@ -1476,11 +1653,17 @@ bool FLoomleBlueprintAdapter::AddNodeByClass(const FString& BlueprintAssetPath, 
     }
     if (NormalizedClass.Contains(TEXT("k2node_macroinstance")))
     {
-        FString MacroLibraryAssetPath;
-        FString MacroGraphName;
-        Payload->TryGetStringField(TEXT("macroLibraryAssetPath"), MacroLibraryAssetPath);
-        Payload->TryGetStringField(TEXT("macroGraphName"), MacroGraphName);
-        return AddMacroNode(BlueprintAssetPath, GraphName, MacroLibraryAssetPath, MacroGraphName, NodePosX, NodePosY, OutNodeGuid, OutError);
+        const LoomleBlueprintAdapterInternal::FBlueprintMacroDescriptor Descriptor =
+            LoomleBlueprintAdapterInternal::ParseMacroDescriptorFromPayload(Payload);
+        return AddMacroNode(
+            BlueprintAssetPath,
+            GraphName,
+            Descriptor.MacroLibraryAssetPath,
+            Descriptor.MacroGraphName,
+            NodePosX,
+            NodePosY,
+            OutNodeGuid,
+            OutError);
     }
     if (NormalizedClass.Contains(TEXT("k2node_variableget")))
     {
