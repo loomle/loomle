@@ -81,6 +81,89 @@ bool TryFindGraphSemanticOpSpec(const FString& GraphType, const FString& OpId, F
     return false;
 }
 
+TSharedPtr<FJsonObject> MakeGraphAssetRef(const FString& RefAssetPath, const FString& RefGraphName)
+{
+    TSharedPtr<FJsonObject> Ref = MakeShared<FJsonObject>();
+    Ref->SetStringField(TEXT("kind"), TEXT("asset"));
+    Ref->SetStringField(TEXT("assetPath"), RefAssetPath);
+    if (!RefGraphName.IsEmpty())
+    {
+        Ref->SetStringField(TEXT("graphName"), RefGraphName);
+    }
+    return Ref;
+}
+
+TSharedPtr<FJsonObject> MakeGraphInlineRef(const FString& RefNodeGuid, const FString& RefAssetPath)
+{
+    TSharedPtr<FJsonObject> Ref = MakeShared<FJsonObject>();
+    Ref->SetStringField(TEXT("kind"), TEXT("inline"));
+    Ref->SetStringField(TEXT("nodeGuid"), RefNodeGuid);
+    Ref->SetStringField(TEXT("assetPath"), RefAssetPath);
+    return Ref;
+}
+
+TSharedPtr<FJsonObject> MakeGraphCatalogEntry(
+    const FString& GraphName,
+    const FString& GraphKind,
+    const FString& GraphClassPath,
+    const TSharedPtr<FJsonObject>& GraphRef,
+    const TSharedPtr<FJsonObject>& ParentGraphRef,
+    const FString& OwnerNodeId,
+    const FString& LoadStatus)
+{
+    TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+    Entry->SetStringField(TEXT("graphName"), GraphName);
+    Entry->SetStringField(TEXT("graphKind"), GraphKind);
+    Entry->SetStringField(TEXT("graphClassPath"), GraphClassPath);
+    if (GraphRef.IsValid())
+    {
+        Entry->SetObjectField(TEXT("graphRef"), GraphRef);
+    }
+    else
+    {
+        Entry->SetField(TEXT("graphRef"), MakeShared<FJsonValueNull>());
+    }
+    if (ParentGraphRef.IsValid())
+    {
+        Entry->SetObjectField(TEXT("parentGraphRef"), ParentGraphRef);
+    }
+    else
+    {
+        Entry->SetField(TEXT("parentGraphRef"), MakeShared<FJsonValueNull>());
+    }
+    if (OwnerNodeId.IsEmpty())
+    {
+        Entry->SetField(TEXT("ownerNodeId"), MakeShared<FJsonValueNull>());
+    }
+    else
+    {
+        Entry->SetStringField(TEXT("ownerNodeId"), OwnerNodeId);
+    }
+    Entry->SetStringField(TEXT("loadStatus"), LoadStatus);
+    return Entry;
+}
+
+FString NormalizeBlueprintGraphKind(FString GraphKind)
+{
+    if (GraphKind.Equals(TEXT("Event"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("root");
+    }
+    if (GraphKind.Equals(TEXT("Function"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("function");
+    }
+    if (GraphKind.Equals(TEXT("Macro"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("macro");
+    }
+    if (GraphKind.Equals(TEXT("Interface"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("function");
+    }
+    return GraphKind;
+}
+
 template <typename TEnum>
 FString GetPcgEnumName(TEnum Value)
 {
@@ -649,29 +732,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
         }
     }
 
-    // Helper: build an asset-kind GraphRef JSON object.
-    auto MakeAssetGraphRef = [](const FString& RefAssetPath, const FString& RefGraphName) -> TSharedPtr<FJsonObject>
-    {
-        TSharedPtr<FJsonObject> Ref = MakeShared<FJsonObject>();
-        Ref->SetStringField(TEXT("kind"), TEXT("asset"));
-        Ref->SetStringField(TEXT("assetPath"), RefAssetPath);
-        if (!RefGraphName.IsEmpty())
-        {
-            Ref->SetStringField(TEXT("graphName"), RefGraphName);
-        }
-        return Ref;
-    };
-
-    // Helper: build an inline-kind GraphRef JSON object.
-    auto MakeInlineGraphRef = [](const FString& RefNodeGuid, const FString& RefAssetPath) -> TSharedPtr<FJsonObject>
-    {
-        TSharedPtr<FJsonObject> Ref = MakeShared<FJsonObject>();
-        Ref->SetStringField(TEXT("kind"), TEXT("inline"));
-        Ref->SetStringField(TEXT("nodeGuid"), RefNodeGuid);
-        Ref->SetStringField(TEXT("assetPath"), RefAssetPath);
-        return Ref;
-    };
-
     bool bIncludeSubgraphs = false;
     Arguments->TryGetBoolField(TEXT("includeSubgraphs"), bIncludeSubgraphs);
 
@@ -699,15 +759,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
         }
 
         TArray<TSharedPtr<FJsonValue>> Graphs;
-        TSharedPtr<FJsonObject> GraphInfo = MakeShared<FJsonObject>();
-        GraphInfo->SetStringField(TEXT("graphName"), TEXT("MaterialGraph"));
-        GraphInfo->SetStringField(TEXT("graphKind"), TEXT("root"));
-        GraphInfo->SetStringField(TEXT("graphClassPath"), TEXT("/Script/Engine.MaterialGraph"));
-        GraphInfo->SetObjectField(TEXT("graphRef"), MakeAssetGraphRef(AssetPath, TEXT("")));
-        GraphInfo->SetField(TEXT("parentGraphRef"), MakeShared<FJsonValueNull>());
-        GraphInfo->SetField(TEXT("ownerNodeId"), MakeShared<FJsonValueNull>());
-        GraphInfo->SetStringField(TEXT("loadStatus"), TEXT("loaded"));
-        Graphs.Add(MakeShared<FJsonValueObject>(GraphInfo));
+        Graphs.Add(MakeShared<FJsonValueObject>(MakeGraphCatalogEntry(
+            TEXT("MaterialGraph"),
+            TEXT("root"),
+            TEXT("/Script/Engine.MaterialGraph"),
+            MakeGraphAssetRef(AssetPath, TEXT("")),
+            nullptr,
+            TEXT(""),
+            TEXT("loaded"))));
 
         if (bIncludeSubgraphs && MaxDepth > 0)
         {
@@ -735,7 +794,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
 
             if (Expressions.Num() > 0)
             {
-                TSharedPtr<FJsonObject> ParentRef = MakeAssetGraphRef(AssetPath, TEXT(""));
+                TSharedPtr<FJsonObject> ParentRef = MakeGraphAssetRef(AssetPath, TEXT(""));
                 for (UMaterialExpression* Expression : Expressions)
                 {
                     UMaterialExpressionMaterialFunctionCall* FuncCall = Cast<UMaterialExpressionMaterialFunctionCall>(Expression);
@@ -749,15 +808,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
                         if (FuncAssetPath.FindLastChar(TEXT('.'), DotIdx)) { FuncAssetPath = FuncAssetPath.Left(DotIdx); }
                     }
 
-                    TSharedPtr<FJsonObject> SubEntry = MakeShared<FJsonObject>();
-                    SubEntry->SetStringField(TEXT("graphName"), FuncCall->MaterialFunction->GetName());
-                    SubEntry->SetStringField(TEXT("graphKind"), TEXT("subgraph"));
-                    SubEntry->SetStringField(TEXT("graphClassPath"), FuncCall->MaterialFunction->GetClass() ? FuncCall->MaterialFunction->GetClass()->GetPathName() : TEXT(""));
-                    SubEntry->SetObjectField(TEXT("graphRef"), MakeAssetGraphRef(FuncAssetPath, TEXT("")));
-                    SubEntry->SetObjectField(TEXT("parentGraphRef"), ParentRef);
-                    SubEntry->SetStringField(TEXT("ownerNodeId"), MaterialExpressionId(Expression));
-                    SubEntry->SetStringField(TEXT("loadStatus"), TEXT("loaded"));
-                    Graphs.Add(MakeShared<FJsonValueObject>(SubEntry));
+                    Graphs.Add(MakeShared<FJsonValueObject>(MakeGraphCatalogEntry(
+                        FuncCall->MaterialFunction->GetName(),
+                        TEXT("subgraph"),
+                        FuncCall->MaterialFunction->GetClass() ? FuncCall->MaterialFunction->GetClass()->GetPathName() : TEXT(""),
+                        MakeGraphAssetRef(FuncAssetPath, TEXT("")),
+                        ParentRef,
+                        MaterialExpressionId(Expression),
+                        TEXT("loaded"))));
                 }
             }
         }
@@ -781,22 +839,21 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
         }
 
         TArray<TSharedPtr<FJsonValue>> Graphs;
-        TSharedPtr<FJsonObject> GraphInfo = MakeShared<FJsonObject>();
-        GraphInfo->SetStringField(TEXT("graphName"), TEXT("PCGGraph"));
-        GraphInfo->SetStringField(TEXT("graphKind"), TEXT("root"));
-        GraphInfo->SetStringField(TEXT("graphClassPath"), Asset->GetClass() ? Asset->GetClass()->GetPathName() : TEXT(""));
-        GraphInfo->SetObjectField(TEXT("graphRef"), MakeAssetGraphRef(AssetPath, TEXT("")));
-        GraphInfo->SetField(TEXT("parentGraphRef"), MakeShared<FJsonValueNull>());
-        GraphInfo->SetField(TEXT("ownerNodeId"), MakeShared<FJsonValueNull>());
-        GraphInfo->SetStringField(TEXT("loadStatus"), TEXT("loaded"));
-        Graphs.Add(MakeShared<FJsonValueObject>(GraphInfo));
+        Graphs.Add(MakeShared<FJsonValueObject>(MakeGraphCatalogEntry(
+            TEXT("PCGGraph"),
+            TEXT("root"),
+            Asset->GetClass() ? Asset->GetClass()->GetPathName() : TEXT(""),
+            MakeGraphAssetRef(AssetPath, TEXT("")),
+            nullptr,
+            TEXT(""),
+            TEXT("loaded"))));
 
         if (bIncludeSubgraphs && MaxDepth > 0)
         {
             UPCGGraph* PcgGraph = LoadPcgGraphByAssetPath(AssetPath);
             if (PcgGraph)
             {
-                TSharedPtr<FJsonObject> ParentRef = MakeAssetGraphRef(AssetPath, TEXT(""));
+                TSharedPtr<FJsonObject> ParentRef = MakeGraphAssetRef(AssetPath, TEXT(""));
                 for (UPCGNode* NodeObj : PcgGraph->GetNodes())
                 {
                     if (NodeObj == nullptr) { continue; }
@@ -855,15 +912,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
                         SubLoadStatus = TEXT("not_found");
                     }
 
-                    TSharedPtr<FJsonObject> SubEntry = MakeShared<FJsonObject>();
-                    SubEntry->SetStringField(TEXT("graphName"), SubgraphAsset ? SubgraphAsset->GetName() : FPaths::GetBaseFilename(SubAssetPath));
-                    SubEntry->SetStringField(TEXT("graphKind"), TEXT("subgraph"));
-                    SubEntry->SetStringField(TEXT("graphClassPath"), (SubgraphAsset && SubgraphAsset->GetClass()) ? SubgraphAsset->GetClass()->GetPathName() : TEXT(""));
-                    SubEntry->SetObjectField(TEXT("graphRef"), MakeAssetGraphRef(SubAssetPath, TEXT("")));
-                    SubEntry->SetObjectField(TEXT("parentGraphRef"), ParentRef);
-                    SubEntry->SetStringField(TEXT("ownerNodeId"), NodeObj->GetPathName());
-                    SubEntry->SetStringField(TEXT("loadStatus"), SubLoadStatus);
-                    Graphs.Add(MakeShared<FJsonValueObject>(SubEntry));
+                    Graphs.Add(MakeShared<FJsonValueObject>(MakeGraphCatalogEntry(
+                        SubgraphAsset ? SubgraphAsset->GetName() : FPaths::GetBaseFilename(SubAssetPath),
+                        TEXT("subgraph"),
+                        (SubgraphAsset && SubgraphAsset->GetClass()) ? SubgraphAsset->GetClass()->GetPathName() : TEXT(""),
+                        MakeGraphAssetRef(SubAssetPath, TEXT("")),
+                        ParentRef,
+                        NodeObj->GetPathName(),
+                        SubLoadStatus)));
                 }
             }
         }
@@ -907,25 +963,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
         // Normalize graphKind to lowercase enum values.
         FString GraphKind;
         (*GraphObj)->TryGetStringField(TEXT("graphKind"), GraphKind);
-        if (GraphKind.Equals(TEXT("Event"), ESearchCase::IgnoreCase))
-        {
-            GraphKind = TEXT("root");
-        }
-        else if (GraphKind.Equals(TEXT("Function"), ESearchCase::IgnoreCase))
-        {
-            GraphKind = TEXT("function");
-        }
-        else if (GraphKind.Equals(TEXT("Macro"), ESearchCase::IgnoreCase))
-        {
-            GraphKind = TEXT("macro");
-        }
-        else if (GraphKind.Equals(TEXT("Interface"), ESearchCase::IgnoreCase))
-        {
-            GraphKind = TEXT("function");
-        }
+        GraphKind = NormalizeBlueprintGraphKind(GraphKind);
         (*GraphObj)->SetStringField(TEXT("graphKind"), GraphKind);
 
-        (*GraphObj)->SetObjectField(TEXT("graphRef"), MakeAssetGraphRef(AssetPath, GraphName));
+        (*GraphObj)->SetObjectField(TEXT("graphRef"), MakeGraphAssetRef(AssetPath, GraphName));
         (*GraphObj)->SetField(TEXT("parentGraphRef"), MakeShared<FJsonValueNull>());
         (*GraphObj)->SetField(TEXT("ownerNodeId"), MakeShared<FJsonValueNull>());
         (*GraphObj)->SetStringField(TEXT("loadStatus"), TEXT("loaded"));
@@ -969,8 +1010,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
                         continue;
                     }
 
-                    SubEntry->SetObjectField(TEXT("graphRef"), MakeInlineGraphRef(OwnerNodeId, AssetPath));
-                    SubEntry->SetObjectField(TEXT("parentGraphRef"), MakeAssetGraphRef(AssetPath, ParentGraphName));
+                    SubEntry->SetObjectField(TEXT("graphRef"), MakeGraphInlineRef(OwnerNodeId, AssetPath));
+                    SubEntry->SetObjectField(TEXT("parentGraphRef"), MakeGraphAssetRef(AssetPath, ParentGraphName));
                     SubEntry->SetStringField(TEXT("loadStatus"), TEXT("loaded"));
                     Graphs.Add(MakeShared<FJsonValueObject>(SubEntry));
                 }
