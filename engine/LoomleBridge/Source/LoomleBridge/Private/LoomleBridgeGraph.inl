@@ -176,6 +176,110 @@ void SetNodeInlineChildGraphRef(
     SetNodeChildGraphRef(Node, MakeGraphInlineRef(OwnerNodeGuid, AssetPath));
 }
 
+FString NormalizeReferencedAssetPath(UObject* AssetObject)
+{
+    if (AssetObject == nullptr)
+    {
+        return TEXT("");
+    }
+
+    UPackage* AssetPackage = AssetObject->GetPackage();
+    FString AssetPath = AssetPackage ? AssetPackage->GetPathName() : AssetObject->GetPathName();
+    if (!AssetPackage)
+    {
+        int32 DotIdx;
+        if (AssetPath.FindLastChar(TEXT('.'), DotIdx))
+        {
+            AssetPath = AssetPath.Left(DotIdx);
+        }
+    }
+    return AssetPath;
+}
+
+bool ResolveMaterialFunctionAssetPath(UMaterialFunctionInterface* MaterialFunction, FString& OutAssetPath)
+{
+    OutAssetPath = NormalizeReferencedAssetPath(MaterialFunction);
+    return !OutAssetPath.IsEmpty();
+}
+
+bool ResolvePcgSubgraphAssetReference(UPCGSettings* NodeSettings, FString& OutAssetPath, FString& OutLoadStatus, FString& OutGraphName, FString& OutGraphClassPath)
+{
+    OutAssetPath.Empty();
+    OutLoadStatus.Empty();
+    OutGraphName.Empty();
+    OutGraphClassPath.Empty();
+
+    if (NodeSettings == nullptr || NodeSettings->GetClass() == nullptr)
+    {
+        return false;
+    }
+
+    UObject* SubgraphAsset = nullptr;
+    FString SubgraphSoftPath;
+    for (TFieldIterator<FObjectPropertyBase> PropIt(NodeSettings->GetClass()); PropIt; ++PropIt)
+    {
+        FObjectPropertyBase* Prop = *PropIt;
+        UObject* PropVal = Prop->GetObjectPropertyValue_InContainer(NodeSettings);
+        if (PropVal && PropVal->GetClass() && PropVal->GetClass()->GetPathName().Contains(TEXT("PCGGraph")))
+        {
+            SubgraphAsset = PropVal;
+            break;
+        }
+    }
+    if (SubgraphAsset == nullptr)
+    {
+        for (TFieldIterator<FSoftObjectProperty> PropIt(NodeSettings->GetClass()); PropIt; ++PropIt)
+        {
+            FSoftObjectProperty* SoftProp = *PropIt;
+            if (!SoftProp->PropertyClass || !SoftProp->PropertyClass->GetPathName().Contains(TEXT("PCGGraph")))
+            {
+                continue;
+            }
+            const FSoftObjectPtr SoftPtr = SoftProp->GetPropertyValue_InContainer(NodeSettings);
+            const FSoftObjectPath SoftPath = SoftPtr.ToSoftObjectPath();
+            if (SoftPath.IsNull())
+            {
+                continue;
+            }
+            UObject* Resolved = SoftPath.ResolveObject();
+            if (Resolved)
+            {
+                SubgraphAsset = Resolved;
+            }
+            else
+            {
+                SubgraphSoftPath = SoftPath.GetAssetPathString();
+                int32 DotIdx;
+                if (SubgraphSoftPath.FindLastChar(TEXT('.'), DotIdx))
+                {
+                    SubgraphSoftPath = SubgraphSoftPath.Left(DotIdx);
+                }
+            }
+            break;
+        }
+    }
+
+    if (SubgraphAsset == nullptr && SubgraphSoftPath.IsEmpty())
+    {
+        return false;
+    }
+
+    if (SubgraphAsset != nullptr)
+    {
+        OutAssetPath = NormalizeReferencedAssetPath(SubgraphAsset);
+        OutLoadStatus = TEXT("loaded");
+        OutGraphName = SubgraphAsset->GetName();
+        OutGraphClassPath = SubgraphAsset->GetClass() ? SubgraphAsset->GetClass()->GetPathName() : TEXT("");
+        return !OutAssetPath.IsEmpty();
+    }
+
+    OutAssetPath = SubgraphSoftPath;
+    OutLoadStatus = TEXT("not_found");
+    OutGraphName = FPaths::GetBaseFilename(SubgraphSoftPath);
+    OutGraphClassPath = TEXT("");
+    return !OutAssetPath.IsEmpty();
+}
+
 FString NormalizeBlueprintGraphKind(FString GraphKind)
 {
     if (GraphKind.Equals(TEXT("Event"), ESearchCase::IgnoreCase))
@@ -833,12 +937,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
                     UMaterialExpressionMaterialFunctionCall* FuncCall = Cast<UMaterialExpressionMaterialFunctionCall>(Expression);
                     if (!FuncCall || !FuncCall->MaterialFunction) { continue; }
 
-                    UPackage* FuncPkg = FuncCall->MaterialFunction->GetPackage();
-                    FString FuncAssetPath = FuncPkg ? FuncPkg->GetPathName() : FuncCall->MaterialFunction->GetPathName();
-                    if (!FuncPkg)
+                    FString FuncAssetPath;
+                    if (!ResolveMaterialFunctionAssetPath(FuncCall->MaterialFunction, FuncAssetPath))
                     {
-                        int32 DotIdx;
-                        if (FuncAssetPath.FindLastChar(TEXT('.'), DotIdx)) { FuncAssetPath = FuncAssetPath.Left(DotIdx); }
+                        continue;
                     }
 
                     Graphs.Add(MakeShared<FJsonValueObject>(MakeGraphCatalogEntry(
@@ -895,60 +997,19 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
                     const FString NodeClassPath = NodeSettings->GetClass()->GetPathName();
                     if (!NodeClassPath.Contains(TEXT("Subgraph"))) { continue; }
 
-                    // Resolve the referenced PCG subgraph: try hard ref first, then soft ref.
-                    UObject* SubgraphAsset = nullptr;
-                    FString SubgraphSoftPath;
-                    for (TFieldIterator<FObjectPropertyBase> PropIt(NodeSettings->GetClass()); PropIt; ++PropIt)
-                    {
-                        FObjectPropertyBase* Prop = *PropIt;
-                        UObject* PropVal = Prop->GetObjectPropertyValue_InContainer(NodeSettings);
-                        if (PropVal && PropVal->GetClass() && PropVal->GetClass()->GetPathName().Contains(TEXT("PCGGraph")))
-                        {
-                            SubgraphAsset = PropVal;
-                            break;
-                        }
-                    }
-                    if (SubgraphAsset == nullptr)
-                    {
-                        for (TFieldIterator<FSoftObjectProperty> PropIt(NodeSettings->GetClass()); PropIt; ++PropIt)
-                        {
-                            FSoftObjectProperty* SoftProp = *PropIt;
-                            if (!SoftProp->PropertyClass || !SoftProp->PropertyClass->GetPathName().Contains(TEXT("PCGGraph"))) { continue; }
-                            const FSoftObjectPtr SoftPtr = SoftProp->GetPropertyValue_InContainer(NodeSettings);
-                            const FSoftObjectPath SoftPath = SoftPtr.ToSoftObjectPath();
-                            if (SoftPath.IsNull()) { continue; }
-                            UObject* Resolved = SoftPath.ResolveObject();
-                            if (Resolved) { SubgraphAsset = Resolved; }
-                            else
-                            {
-                                SubgraphSoftPath = SoftPath.GetAssetPathString();
-                                int32 DotIdx;
-                                if (SubgraphSoftPath.FindLastChar(TEXT('.'), DotIdx)) { SubgraphSoftPath = SubgraphSoftPath.Left(DotIdx); }
-                            }
-                            break;
-                        }
-                    }
-                    if (!SubgraphAsset && SubgraphSoftPath.IsEmpty()) { continue; }
-
                     FString SubAssetPath;
                     FString SubLoadStatus;
-                    if (SubgraphAsset)
+                    FString SubgraphName;
+                    FString SubgraphClassPath;
+                    if (!ResolvePcgSubgraphAssetReference(NodeSettings, SubAssetPath, SubLoadStatus, SubgraphName, SubgraphClassPath))
                     {
-                        UPackage* SubPkg = SubgraphAsset->GetPackage();
-                        SubAssetPath = SubPkg ? SubPkg->GetPathName() : SubgraphAsset->GetPathName();
-                        if (!SubPkg) { int32 DotIdx; if (SubAssetPath.FindLastChar(TEXT('.'), DotIdx)) { SubAssetPath = SubAssetPath.Left(DotIdx); } }
-                        SubLoadStatus = TEXT("loaded");
-                    }
-                    else
-                    {
-                        SubAssetPath = SubgraphSoftPath;
-                        SubLoadStatus = TEXT("not_found");
+                        continue;
                     }
 
                     Graphs.Add(MakeShared<FJsonValueObject>(MakeGraphCatalogEntry(
-                        SubgraphAsset ? SubgraphAsset->GetName() : FPaths::GetBaseFilename(SubAssetPath),
+                        SubgraphName,
                         TEXT("subgraph"),
-                        (SubgraphAsset && SubgraphAsset->GetClass()) ? SubgraphAsset->GetClass()->GetPathName() : TEXT(""),
+                        SubgraphClassPath,
                         MakeGraphAssetRef(SubAssetPath, TEXT("")),
                         ParentRef,
                         NodeObj->GetPathName(),
@@ -2110,15 +2171,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
             {
                 if (FuncCall->MaterialFunction)
                 {
-                    UPackage* FuncPkg = FuncCall->MaterialFunction->GetPackage();
-                    FString FuncAssetPath = FuncPkg ? FuncPkg->GetPathName() : FuncCall->MaterialFunction->GetPathName();
-                    if (!FuncPkg)
+                    FString FuncAssetPath;
+                    if (ResolveMaterialFunctionAssetPath(FuncCall->MaterialFunction, FuncAssetPath))
                     {
-                        int32 DotIdx;
-                        if (FuncAssetPath.FindLastChar(TEXT('.'), DotIdx)) { FuncAssetPath = FuncAssetPath.Left(DotIdx); }
+                        SetNodeAssetChildGraphRef(Node, FuncAssetPath, TEXT("loaded"));
+                        ++MaterialChildGraphRefCount;
                     }
-                    SetNodeAssetChildGraphRef(Node, FuncAssetPath, TEXT("loaded"));
-                    ++MaterialChildGraphRefCount;
                 }
             }
 
@@ -2446,55 +2504,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
                 UPCGSettings* NodeSettings = NodeObj->GetSettings();
                 if (NodeSettings)
                 {
-                    // Resolve the referenced PCG subgraph: try hard ref first, then soft ref.
-                    UObject* SubgraphAsset = nullptr;
-                    FString SubgraphSoftPath;
-                    for (TFieldIterator<FObjectPropertyBase> PropIt(NodeSettings->GetClass()); PropIt; ++PropIt)
+                    FString SubAssetPath;
+                    FString ChildLoadStatus;
+                    FString SubgraphName;
+                    FString SubgraphClassPath;
+                    if (ResolvePcgSubgraphAssetReference(NodeSettings, SubAssetPath, ChildLoadStatus, SubgraphName, SubgraphClassPath))
                     {
-                        FObjectPropertyBase* Prop = *PropIt;
-                        UObject* PropVal = Prop->GetObjectPropertyValue_InContainer(NodeSettings);
-                        if (PropVal && PropVal->GetClass() && PropVal->GetClass()->GetPathName().Contains(TEXT("PCGGraph")))
-                        {
-                            SubgraphAsset = PropVal;
-                            break;
-                        }
-                    }
-                    if (SubgraphAsset == nullptr)
-                    {
-                        for (TFieldIterator<FSoftObjectProperty> PropIt(NodeSettings->GetClass()); PropIt; ++PropIt)
-                        {
-                            FSoftObjectProperty* SoftProp = *PropIt;
-                            if (!SoftProp->PropertyClass || !SoftProp->PropertyClass->GetPathName().Contains(TEXT("PCGGraph"))) { continue; }
-                            const FSoftObjectPtr SoftPtr = SoftProp->GetPropertyValue_InContainer(NodeSettings);
-                            const FSoftObjectPath SoftPath = SoftPtr.ToSoftObjectPath();
-                            if (SoftPath.IsNull()) { continue; }
-                            UObject* Resolved = SoftPath.ResolveObject();
-                            if (Resolved) { SubgraphAsset = Resolved; }
-                            else
-                            {
-                                SubgraphSoftPath = SoftPath.GetAssetPathString();
-                                int32 DotIdx;
-                                if (SubgraphSoftPath.FindLastChar(TEXT('.'), DotIdx)) { SubgraphSoftPath = SubgraphSoftPath.Left(DotIdx); }
-                            }
-                            break;
-                        }
-                    }
-                    if (SubgraphAsset || !SubgraphSoftPath.IsEmpty())
-                    {
-                        FString SubAssetPath;
-                        FString ChildLoadStatus;
-                        if (SubgraphAsset)
-                        {
-                            UPackage* SubPkg = SubgraphAsset->GetPackage();
-                            SubAssetPath = SubPkg ? SubPkg->GetPathName() : SubgraphAsset->GetPathName();
-                            if (!SubPkg) { int32 DotIdx; if (SubAssetPath.FindLastChar(TEXT('.'), DotIdx)) { SubAssetPath = SubAssetPath.Left(DotIdx); } }
-                            ChildLoadStatus = TEXT("loaded");
-                        }
-                        else
-                        {
-                            SubAssetPath = SubgraphSoftPath;
-                            ChildLoadStatus = TEXT("not_found");
-                        }
                         SetNodeAssetChildGraphRef(Node, SubAssetPath, ChildLoadStatus);
                     }
                 }
