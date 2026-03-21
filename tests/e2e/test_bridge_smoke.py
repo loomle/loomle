@@ -20,8 +20,6 @@ REQUIRED_TOOLS = {
     "graph.list",
     "graph.resolve",
     "graph.query",
-    "graph.ops",
-    "graph.ops.resolve",
     "graph.mutate",
     "graph.verify",
     "diag.tail",
