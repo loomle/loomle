@@ -427,6 +427,93 @@ namespace LoomleBlueprintAdapterInternal
         }
     }
 
+    static UEdGraphNode* ResolveNodeByToken(UEdGraph* Graph, const FString& NodeToken);
+
+    static void CollectRootGraphs(UBlueprint* Blueprint, TArray<UEdGraph*>& OutGraphs)
+    {
+        OutGraphs.Reset();
+        if (!Blueprint)
+        {
+            return;
+        }
+
+        OutGraphs.Append(Blueprint->UbergraphPages);
+        OutGraphs.Append(Blueprint->FunctionGraphs);
+        OutGraphs.Append(Blueprint->MacroGraphs);
+    }
+
+    static UEdGraph* ResolveCompositeBoundGraph(UEdGraphNode* Node)
+    {
+        if (Node == nullptr)
+        {
+            return nullptr;
+        }
+
+        FObjectPropertyBase* BoundGraphProp = FindFProperty<FObjectPropertyBase>(Node->GetClass(), TEXT("BoundGraph"));
+        if (BoundGraphProp == nullptr)
+        {
+            return nullptr;
+        }
+
+        return Cast<UEdGraph>(BoundGraphProp->GetObjectPropertyValue_InContainer(Node));
+    }
+
+    static bool ResolveCompositeSubgraphByNodeToken(
+        UBlueprint* Blueprint,
+        const FString& NodeToken,
+        UEdGraph*& OutParentGraph,
+        UEdGraphNode*& OutOwnerNode,
+        UEdGraph*& OutSubgraph,
+        FString& OutError)
+    {
+        OutParentGraph = nullptr;
+        OutOwnerNode = nullptr;
+        OutSubgraph = nullptr;
+        OutError.Empty();
+
+        if (Blueprint == nullptr)
+        {
+            OutError = TEXT("Blueprint is required.");
+            return false;
+        }
+        if (NodeToken.IsEmpty())
+        {
+            OutError = TEXT("CompositeNodeGuid is required.");
+            return false;
+        }
+
+        TArray<UEdGraph*> RootGraphs;
+        CollectRootGraphs(Blueprint, RootGraphs);
+        for (UEdGraph* Graph : RootGraphs)
+        {
+            if (Graph == nullptr)
+            {
+                continue;
+            }
+
+            UEdGraphNode* Node = ResolveNodeByToken(Graph, NodeToken);
+            if (Node == nullptr)
+            {
+                continue;
+            }
+
+            UEdGraph* SubGraph = ResolveCompositeBoundGraph(Node);
+            if (SubGraph == nullptr)
+            {
+                OutError = FString::Printf(TEXT("Node %s is not a composite node (no BoundGraph property)."), *NodeToken);
+                return false;
+            }
+
+            OutParentGraph = Graph;
+            OutOwnerNode = Node;
+            OutSubgraph = SubGraph;
+            return true;
+        }
+
+        OutError = FString::Printf(TEXT("Node with token %s not found in blueprint %s."), *NodeToken, *Blueprint->GetPathName());
+        return false;
+    }
+
     static USCS_Node* FindComponentNode(UBlueprint* Blueprint, const FString& ComponentName)
     {
         if (!Blueprint || !Blueprint->SimpleConstructionScript)
@@ -2089,61 +2176,89 @@ bool FLoomleBlueprintAdapter::ListCompositeSubgraphNodes(
         return false;
     }
 
-    FGuid NodeGuid;
-    if (!FGuid::Parse(CompositeNodeGuid, NodeGuid))
+    UEdGraph* ParentGraph = nullptr;
+    UEdGraphNode* OwnerNode = nullptr;
+    UEdGraph* SubGraph = nullptr;
+    if (!LoomleBlueprintAdapterInternal::ResolveCompositeSubgraphByNodeToken(
+            Blueprint,
+            CompositeNodeGuid,
+            ParentGraph,
+            OwnerNode,
+            SubGraph,
+            OutError))
     {
-        OutError = FString::Printf(TEXT("CompositeNodeGuid is not a valid FGuid: %s"), *CompositeNodeGuid);
+        return false;
+    }
+    (void)ParentGraph;
+    (void)OwnerNode;
+
+    if (SubGraph == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Node %s BoundGraph is null."), *CompositeNodeGuid);
         return false;
     }
 
-    // Search all graphs for a node with this guid.
-    TArray<UEdGraph*> AllGraphs;
-    AllGraphs.Append(Blueprint->UbergraphPages);
-    AllGraphs.Append(Blueprint->FunctionGraphs);
-    AllGraphs.Append(Blueprint->MacroGraphs);
+    OutSubgraphName = SubGraph->GetName();
+    LoomleBlueprintAdapterInternal::SerializeFilteredNodeList(
+        SubGraph->Nodes,
+        OutSubgraphName,
+        Options,
+        OutNodesJson,
+        OutStats);
+    return true;
+}
 
-    for (UEdGraph* Graph : AllGraphs)
+bool FLoomleBlueprintAdapter::ListCompositeSubgraphs(
+    const FString& BlueprintAssetPath,
+    FString& OutGraphsJson,
+    FString& OutError)
+{
+    OutGraphsJson = TEXT("[]");
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    if (!Blueprint)
     {
-        if (!Graph)
+        OutError = FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintAssetPath);
+        return false;
+    }
+
+    TArray<UEdGraph*> RootGraphs;
+    LoomleBlueprintAdapterInternal::CollectRootGraphs(Blueprint, RootGraphs);
+
+    TArray<TSharedPtr<FJsonValue>> Graphs;
+    for (UEdGraph* RootGraph : RootGraphs)
+    {
+        if (RootGraph == nullptr)
         {
             continue;
         }
-        for (UEdGraphNode* Node : Graph->Nodes)
+
+        for (UEdGraphNode* Node : RootGraph->Nodes)
         {
-            if (!Node || Node->NodeGuid != NodeGuid)
+            if (Node == nullptr)
             {
                 continue;
             }
 
-            // Resolve composite subgraph via BoundGraph property.
-            FObjectPropertyBase* BoundGraphProp = FindFProperty<FObjectPropertyBase>(Node->GetClass(), TEXT("BoundGraph"));
-            if (!BoundGraphProp)
+            UEdGraph* SubGraph = LoomleBlueprintAdapterInternal::ResolveCompositeBoundGraph(Node);
+            if (SubGraph == nullptr)
             {
-                OutError = FString::Printf(TEXT("Node %s is not a composite node (no BoundGraph property)."), *CompositeNodeGuid);
-                return false;
+                continue;
             }
 
-            UEdGraph* SubGraph = Cast<UEdGraph>(BoundGraphProp->GetObjectPropertyValue_InContainer(Node));
-            if (!SubGraph)
-            {
-                OutError = FString::Printf(TEXT("Node %s BoundGraph is null."), *CompositeNodeGuid);
-                return false;
-            }
-
-            OutSubgraphName = SubGraph->GetName();
-
-            LoomleBlueprintAdapterInternal::SerializeFilteredNodeList(
-                SubGraph->Nodes,
-                OutSubgraphName,
-                Options,
-                OutNodesJson,
-                OutStats);
-            return true;
+            TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+            Entry->SetStringField(TEXT("graphName"), SubGraph->GetName());
+            Entry->SetStringField(TEXT("graphKind"), TEXT("subgraph"));
+            Entry->SetStringField(TEXT("graphClassPath"), SubGraph->GetClass() ? SubGraph->GetClass()->GetPathName() : TEXT(""));
+            Entry->SetStringField(TEXT("parentGraphName"), RootGraph->GetName());
+            Entry->SetStringField(TEXT("ownerNodeId"), Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
+            Graphs.Add(MakeShared<FJsonValueObject>(Entry));
         }
     }
 
-    OutError = FString::Printf(TEXT("Node with guid %s not found in blueprint %s."), *CompositeNodeGuid, *BlueprintAssetPath);
-    return false;
+    OutGraphsJson = LoomleBlueprintAdapterInternal::JsonArrayToString(Graphs);
+    return true;
 }
 
 bool FLoomleBlueprintAdapter::GetNodeDetails(const FString& BlueprintAssetPath, const FString& NodeGuid, FString& OutNodeJson, FString& OutError)

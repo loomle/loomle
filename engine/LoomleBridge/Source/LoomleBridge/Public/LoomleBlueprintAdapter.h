@@ -56,6 +56,10 @@ public:
         FString& OutError,
         const FLoomleBlueprintNodeListOptions* Options = nullptr,
         FLoomleBlueprintNodeListStats* OutStats = nullptr);
+    static bool ListCompositeSubgraphs(
+        const FString& BlueprintAssetPath,
+        FString& OutGraphsJson,
+        FString& OutError);
     static bool ListCompositeSubgraphNodes(
         const FString& BlueprintAssetPath,
         const FString& CompositeNodeGuid,

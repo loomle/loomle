@@ -934,55 +934,43 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
     // When includeSubgraphs is requested, enumerate K2Node_Composite nodes in each root graph.
     if (bIncludeSubgraphs && MaxDepth > 0)
     {
-        UBlueprint* Blueprint = LoadBlueprintByAssetPath(AssetPath);
-        if (Blueprint)
+        FString SubgraphJson;
+        FString SubgraphError;
+        if (FLoomleBlueprintAdapter::ListCompositeSubgraphs(AssetPath, SubgraphJson, SubgraphError))
         {
-            // Collect all root graphs to scan for composite nodes.
-            TArray<UEdGraph*> RootGraphs;
-            RootGraphs.Append(Blueprint->UbergraphPages);
-            RootGraphs.Append(Blueprint->FunctionGraphs);
-            RootGraphs.Append(Blueprint->MacroGraphs);
-
-            for (UEdGraph* RootGraph : RootGraphs)
+            TArray<TSharedPtr<FJsonValue>> SubgraphEntries;
+            const TSharedRef<TJsonReader<>> SubgraphReader = TJsonReaderFactory<>::Create(SubgraphJson);
+            if (FJsonSerializer::Deserialize(SubgraphReader, SubgraphEntries))
             {
-                if (!RootGraph)
+                for (const TSharedPtr<FJsonValue>& SubgraphValue : SubgraphEntries)
                 {
-                    continue;
-                }
-
-                const FString ParentGraphName = RootGraph->GetName();
-                TSharedPtr<FJsonObject> ParentRef = MakeAssetGraphRef(AssetPath, ParentGraphName);
-
-                for (UEdGraphNode* Node : RootGraph->Nodes)
-                {
-                    if (!Node)
+                    const TSharedPtr<FJsonObject>* SubgraphObj = nullptr;
+                    if (!SubgraphValue.IsValid()
+                        || !SubgraphValue->TryGetObject(SubgraphObj)
+                        || SubgraphObj == nullptr
+                        || !(*SubgraphObj).IsValid())
                     {
                         continue;
                     }
 
-                    FObjectPropertyBase* BoundGraphProp = FindFProperty<FObjectPropertyBase>(Node->GetClass(), TEXT("BoundGraph"));
-                    if (!BoundGraphProp)
+                    FString ParentGraphName;
+                    (*SubgraphObj)->TryGetStringField(TEXT("parentGraphName"), ParentGraphName);
+
+                    FString OwnerNodeId;
+                    (*SubgraphObj)->TryGetStringField(TEXT("ownerNodeId"), OwnerNodeId);
+                    if (OwnerNodeId.IsEmpty())
                     {
                         continue;
                     }
 
-                    UEdGraph* SubGraph = Cast<UEdGraph>(BoundGraphProp->GetObjectPropertyValue_InContainer(Node));
-                    if (!SubGraph)
+                    TSharedPtr<FJsonObject> SubEntry = CloneJsonObject(*SubgraphObj);
+                    if (!SubEntry.IsValid())
                     {
                         continue;
                     }
 
-                    const FString NodeGuidText = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower);
-                    const FString SubgraphName = SubGraph->GetName();
-                    const FString SubgraphClassPath = SubGraph->GetClass() ? SubGraph->GetClass()->GetPathName() : TEXT("");
-
-                    TSharedPtr<FJsonObject> SubEntry = MakeShared<FJsonObject>();
-                    SubEntry->SetStringField(TEXT("graphName"), SubgraphName);
-                    SubEntry->SetStringField(TEXT("graphKind"), TEXT("subgraph"));
-                    SubEntry->SetStringField(TEXT("graphClassPath"), SubgraphClassPath);
-                    SubEntry->SetObjectField(TEXT("graphRef"), MakeInlineGraphRef(NodeGuidText, AssetPath));
-                    SubEntry->SetObjectField(TEXT("parentGraphRef"), ParentRef);
-                    SubEntry->SetStringField(TEXT("ownerNodeId"), NodeGuidText);
+                    SubEntry->SetObjectField(TEXT("graphRef"), MakeInlineGraphRef(OwnerNodeId, AssetPath));
+                    SubEntry->SetObjectField(TEXT("parentGraphRef"), MakeAssetGraphRef(AssetPath, ParentGraphName));
                     SubEntry->SetStringField(TEXT("loadStatus"), TEXT("loaded"));
                     Graphs.Add(MakeShared<FJsonValueObject>(SubEntry));
                 }
