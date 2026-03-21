@@ -78,6 +78,29 @@ def run(cmd: list[str], cwd: Path | None = None, allow_failure: bool = False) ->
     return result
 
 
+def run_capture(
+    cmd: list[str],
+    cwd: Path | None = None,
+    allow_failure: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    printable = " ".join(str(part) for part in cmd)
+    print(f"[RUN]  {printable}", file=sys.stderr)
+    result = subprocess.run(
+        cmd,
+        cwd=str(cwd or REPO_ROOT),
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode != 0 and not allow_failure:
+        stderr = result.stderr.strip()
+        stdout = result.stdout.strip()
+        detail = stderr or stdout
+        if detail:
+            fail(f"command failed ({result.returncode}): {printable}\n{detail}")
+        fail(f"command failed ({result.returncode}): {printable}")
+    return result
+
+
 def overlay_tree(source: Path, destination: Path) -> None:
     if not source.exists():
         fail(f"overlay source not found: {source}")
@@ -199,6 +222,153 @@ def restart_editor(project_root: Path, ue_root: Path, platform: str) -> None:
     start_editor(editor_binary, uproject, platform)
 
 
+def loomle_binary_name(platform: str) -> str:
+    return "loomle.exe" if platform == "windows" else "loomle"
+
+
+def resolve_project_local_loomle_binary(project_root: Path, platform: str) -> Path:
+    candidate = project_root / "Loomle" / loomle_binary_name(platform)
+    if not candidate.is_file():
+        fail(f"project-local loomle binary not found: {candidate}")
+    return candidate
+
+
+def parse_tool_payload(stdout: str, command_name: str) -> dict:
+    try:
+        response = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        fail(f"{command_name} did not return valid JSON: {exc}")
+
+    if not isinstance(response, dict):
+        fail(f"{command_name} returned unexpected JSON payload: {response}")
+
+    structured = response.get("structuredContent")
+    if isinstance(structured, dict):
+        return structured
+
+    content = response.get("content")
+    if not isinstance(content, list) or not content:
+        fail(f"{command_name} response missing content payload: {response}")
+
+    first = content[0]
+    if not isinstance(first, dict):
+        fail(f"{command_name} response content item was malformed: {response}")
+
+    text = first.get("text")
+    if not isinstance(text, str):
+        fail(f"{command_name} response content item missing text: {response}")
+
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        fail(f"{command_name} tool payload was not valid JSON: {exc}")
+    if not isinstance(payload, dict):
+        fail(f"{command_name} tool payload was not an object: {payload}")
+    return payload
+
+
+def is_tool_error_payload(payload: dict) -> bool:
+    if bool(payload.get("isError")):
+        return True
+    domain_code = payload.get("domainCode")
+    if isinstance(domain_code, str) and domain_code.strip():
+        return True
+    message = payload.get("message")
+    if isinstance(message, str) and message.strip():
+        return True
+    return False
+
+
+def ensure_project_local_install_ready(project_root: Path, platform: str) -> Path:
+    loomle_binary = resolve_project_local_loomle_binary(project_root, platform)
+    result = run_capture(
+        [str(loomle_binary), "--project-root", str(project_root), "doctor"],
+        cwd=project_root,
+        allow_failure=True,
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        stdout = result.stdout.strip()
+        detail = stderr or stdout
+        if detail:
+            fail(f"project-local loomle doctor failed:\n{detail}")
+        fail("project-local loomle doctor failed")
+
+    if "status=ok" not in result.stdout:
+        fail(f"project-local loomle doctor did not report status=ok:\n{result.stdout.strip()}")
+    return loomle_binary
+
+
+def wait_for_bridge_runtime_ready(project_root: Path, loomle_binary: Path, timeout_s: float) -> None:
+    deadline = time.time() + timeout_s
+    attempt = 0
+    while time.time() < deadline:
+        attempt += 1
+
+        status_result = run_capture(
+            [str(loomle_binary), "--project-root", str(project_root), "call", "loomle"],
+            cwd=project_root,
+            allow_failure=True,
+        )
+        if status_result.returncode != 0:
+            detail = status_result.stderr.strip() or status_result.stdout.strip()
+            print(
+                f"[WARN] bridge readiness probe failed (attempt {attempt}): {detail or 'unknown error'}",
+                file=sys.stderr,
+            )
+            time.sleep(2.0)
+            continue
+
+        loomle_payload = parse_tool_payload(status_result.stdout, "loomle call loomle")
+        status = loomle_payload.get("status")
+        rpc_health = loomle_payload.get("runtime", {}).get("rpcHealth", {}) if isinstance(loomle_payload, dict) else {}
+        if status not in {"ok", "degraded"} or not isinstance(rpc_health, dict) or rpc_health.get("status") not in {
+            "ok",
+            "degraded",
+        }:
+            print(
+                f"[WARN] bridge not ready yet (attempt {attempt}): status={status} rpc={rpc_health}",
+                file=sys.stderr,
+            )
+            time.sleep(2.0)
+            continue
+
+        execute_args = json.dumps(
+            {
+                "mode": "exec",
+                "code": "import unreal\nunreal.log('loomle dev_verify warmup')",
+            },
+            separators=(",", ":"),
+        )
+        execute_result = run_capture(
+            [str(loomle_binary), "--project-root", str(project_root), "call", "execute", "--args", execute_args],
+            cwd=project_root,
+            allow_failure=True,
+        )
+        if execute_result.returncode != 0:
+            detail = execute_result.stderr.strip() or execute_result.stdout.strip()
+            print(
+                f"[WARN] execute warmup failed (attempt {attempt}): {detail or 'unknown error'}",
+                file=sys.stderr,
+            )
+            time.sleep(2.0)
+            continue
+
+        execute_payload = parse_tool_payload(execute_result.stdout, "loomle call execute")
+        if is_tool_error_payload(execute_payload):
+            print(
+                f"[WARN] execute warmup not ready yet (attempt {attempt}): {execute_payload}",
+                file=sys.stderr,
+            )
+            time.sleep(2.0)
+            continue
+
+        print(f"[PASS] bridge runtime ready after {attempt} attempt(s)", file=sys.stderr)
+        return
+
+    fail(f"bridge runtime did not become ready within {timeout_s:.0f}s")
+
+
 def run_smoke_with_retry(project_root: Path, timeout_s: float) -> None:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
@@ -283,6 +453,7 @@ def main() -> int:
     )
 
     sync_built_plugin_into_project(project_root, ue_root, platform, output_dir)
+    loomle_binary = ensure_project_local_install_ready(project_root, platform)
 
     if args.install_only:
         print("[PASS] dev install completed", file=sys.stderr)
@@ -290,6 +461,9 @@ def main() -> int:
 
     if not args.no_restart:
         restart_editor(project_root, ue_root, platform)
+
+    step("Wait for bridge runtime readiness")
+    wait_for_bridge_runtime_ready(project_root, loomle_binary, args.wait_timeout)
 
     step("Run smoke validation")
     run_smoke_with_retry(project_root, args.wait_timeout)
