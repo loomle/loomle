@@ -43,6 +43,15 @@ Project-level technical documentation for `LOOMLE` and `LoomleBridge` (plugin + 
 13. `GRAPH_OPS_PROTOCOL_DRAFT.md`
 - MCP-style draft contract for `graph.ops` and `graph.ops.resolve`, annotated with current workflow positioning.
 
+14. `UE_SCENE_EDITING_EXECUTE_AUDIT.md`
+- Audit of what Unreal scene editing is already proven through `execute`, what is only partially proven, and what gaps remain before it becomes a comfortable agent workflow.
+
+15. `issues/README.md`
+- Local issue tracker index for detailed design issues that live in-repo.
+
+16. `issues/PCG_GRAPH_QUERY_FULL_COVERAGE_UPGRADE.md`
+- Local parent issue for making PCG `graph.query` the primary full-coverage node readback surface.
+
 ## Recommended Read Order
 
 1. `../workspace/Loomle/README.md`
@@ -58,3 +67,6 @@ Project-level technical documentation for `LOOMLE` and `LoomleBridge` (plugin + 
 11. `PCG_SEMANTIC_OPS_FINAL_DRAFT.md`
 12. `GRAPH_OPS_DESIGN.md`
 13. `GRAPH_OPS_PROTOCOL_DRAFT.md`
+14. `UE_SCENE_EDITING_EXECUTE_AUDIT.md`
+15. `issues/README.md`
+16. `issues/PCG_GRAPH_QUERY_FULL_COVERAGE_UPGRADE.md`

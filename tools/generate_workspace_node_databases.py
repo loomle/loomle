@@ -469,6 +469,41 @@ def derive_pcg_testing(entry: dict) -> dict:
     profile = default_pcg_profile_for_family(family)
     testing: dict[str, object] = {"profile": profile}
     class_name = entry["className"]
+    selector_fields = pick_pcg_selector_fields(entry)
+
+    def set_query_surface(kind: str, groups: list[str] | None = None, fallback: str | None = None) -> None:
+        query_surface: dict[str, object] = {"kind": kind}
+        if groups:
+            query_surface["groups"] = groups
+        if fallback:
+            query_surface["fallback"] = fallback
+        testing["querySurface"] = query_surface
+
+    set_query_surface("pin_default")
+
+    if class_name in {"UPCGSubgraphSettings", "UPCGLoopSettings"}:
+        set_query_surface("child_graph_ref")
+    elif class_name == "UPCGGetActorPropertySettings":
+        set_query_surface("effective_settings", ["actorSelector", "outputAttributeName", "componentSelector"])
+    elif class_name == "UPCGGetSplineSettings":
+        set_query_surface("effective_settings", ["actorSelector", "componentSelector"])
+    elif class_name == "UPCGStaticMeshSpawnerSettings":
+        set_query_surface("effective_settings", ["meshSelector"])
+    elif class_name == "UPCGSpawnActorSettings":
+        set_query_surface(
+            "effective_settings",
+            ["templateIdentity", "spawnBehavior", "propertyOverrides", "dataLayerSettings", "hlodSettings"],
+        )
+    elif class_name == "UPCGDataFromActorSettings":
+        set_query_surface("effective_settings", ["actorSelector", "componentSelector"])
+    elif class_name == "UPCGApplyOnActorSettings":
+        set_query_surface("effective_settings", ["actorSelector", "propertyOverrides", "applyBehavior"])
+    elif class_name == "UPCGSpawnSplineSettings":
+        set_query_surface("effective_settings", ["templateIdentity", "spawnBehavior"])
+    elif class_name == "UPCGSpawnSplineMeshSettings":
+        set_query_surface("effective_settings", ["templateIdentity", "spawnBehavior", "meshSelector"])
+    elif class_name == "UPCGSkinnedMeshSpawnerSettings":
+        set_query_surface("effective_settings", ["templateIdentity", "spawnBehavior", "meshSelector"])
 
     if class_name == "UPCGDensityFilterSettings":
         testing["profile"] = "read_write_roundtrip"
@@ -561,10 +596,14 @@ def derive_pcg_testing(entry: dict) -> dict:
         workflows = pick_pcg_workflow_families(entry, family)
         if workflows:
             focus["workflowFamilies"] = workflows
-    selector_fields = pick_pcg_selector_fields(entry)
     if selector_fields:
         focus["selectorFields"] = selector_fields
         testing.setdefault("reason", "Structured selector truth should be validated separately from scalar roundtrip fields.")
+    query_surface = testing.get("querySurface")
+    if isinstance(query_surface, dict):
+        groups = query_surface.get("groups")
+        if isinstance(groups, list) and groups:
+            focus["effectiveSettingsGroups"] = groups
     if focus:
         testing["focus"] = focus
     return testing

@@ -41,6 +41,14 @@ The plan stays focused on per-node coverage decisions. Coverage reports answer:
 - how many reach `engine_truth`
 - how many are still only `workflow` or `inventory`
 
+Query-surface reporting is a second generated view built from the same plan and
+catalog metadata. It should answer:
+
+- which nodes are primarily `pin_default`
+- which nodes are primarily `effective_settings`
+- which nodes are primarily `child_graph_ref`
+- which nodes are still `residual_gap`
+
 ## Top-Level Schema
 
 Each plan file should have this minimal top-level shape:
@@ -118,6 +126,7 @@ Each entry should contain:
 - `displayName`
 - `family`
 - `profile`
+- `querySurface`
 - `mode`
 - `fixture`
 - `recipe`
@@ -160,6 +169,44 @@ Examples:
 - `construct_only`
 - `read_write_roundtrip`
 - `context_recipe_required`
+
+### `querySurface`
+
+Primary query-surface classification for the node.
+
+Suggested first shape:
+
+- `kind`
+- optional `groups`
+- optional `fallback`
+
+Examples:
+
+```json
+{
+  "kind": "pin_default"
+}
+```
+
+```json
+{
+  "kind": "effective_settings",
+  "groups": ["actorSelector", "propertyOverrides"]
+}
+```
+
+```json
+{
+  "kind": "child_graph_ref"
+}
+```
+
+```json
+{
+  "kind": "residual_gap",
+  "fallback": "execute"
+}
+```
 
 ### `mode`
 
@@ -204,6 +251,7 @@ The first version should only allow:
 - `fields`
 - `dynamicTriggers`
 - `selectorFields`
+- `effectiveSettingsGroups`
 - `workflowFamilies`
 
 Examples:
@@ -223,6 +271,12 @@ Examples:
 ```json
 {
   "selectorFields": ["TargetAttribute"]
+}
+```
+
+```json
+{
+  "effectiveSettingsGroups": ["actorSelector", "propertyOverrides"]
 }
 ```
 

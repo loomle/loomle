@@ -114,6 +114,7 @@ Current PCG end-state for this phase:
   - repeated query snapshots
   - repeated verify surfaces
   - fresh-session workflow repeatability
+- first selector-truth lane for selector-backed readback
 
 ## Phase 4: Scale and Long-Tail Strengthening
 
@@ -131,6 +132,16 @@ Priorities:
 - add more long-tail PCG workflow families only when they expand coverage shape rather than duplicate existing signal
 - add structured selector truth as a first-class coverage lane for selector-backed fields instead of treating them as scalar one-off cases
 - extend the first PCG selector-truth suite from attribute/property selectors into more selector-backed families and richer selector reports
+- add query-surface classification as a first-class test dimension:
+  - `pin_default`
+  - `effective_settings`
+  - `child_graph_ref`
+  - `residual_gap`
+- add dedicated surface suites for:
+  - generic `pin_default` coverage expansion
+  - `effective_settings` presence, shape, and truth
+  - `child_graph_ref` traversal and graph-boundary validation
+  - `residual_gap` accounting and fallback verification
 - deepen serializer-surface awareness:
   - generic pin defaults
   - synthetic writable pins
@@ -149,6 +160,9 @@ This phase answers:
 - which long-tail surfaces are still uncovered after strong family-level protection exists
 - which blocked nodes stay blocked because of test-system limits versus product-surface limits
 - where the next meaningful coverage gains come from after the core families are already under pressure
+- which node families still rely on fallback because they lack a primary query surface
+- which `effective_settings` families are only present versus truly complete
+- which graph-boundary cases are query-native versus incorrectly treated as fallback
 
 Current Material status entering this phase:
 

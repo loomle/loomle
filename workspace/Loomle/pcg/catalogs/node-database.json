@@ -144,7 +144,10 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        }
       }
     },
     {
@@ -227,6 +230,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "TagsToAdd"
@@ -388,6 +394,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "ApplyParentRotation",
@@ -497,10 +506,23 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "effective_settings",
+          "groups": [
+            "actorSelector",
+            "propertyOverrides",
+            "applyBehavior"
+          ]
+        },
         "focus": {
           "fields": [
             "bSilenceErrorOnEmptyObjectPath",
             "bPropagateObjectChangeEvent"
+          ],
+          "effectiveSettingsGroups": [
+            "actorSelector",
+            "propertyOverrides",
+            "applyBehavior"
           ]
         }
       }
@@ -526,6 +548,9 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -706,6 +731,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Mode",
@@ -772,6 +800,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "OutputType"
@@ -957,6 +988,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Mode",
@@ -1067,6 +1101,9 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "Accessible settings truth is selector-backed rather than simple scalar roundtrip.",
         "focus": {
           "fields": [
@@ -1122,6 +1159,9 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "Accessible settings truth is selector-backed rather than simple scalar roundtrip.",
         "focus": {
           "fields": [
@@ -1179,6 +1219,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "NewAttributeName"
@@ -1244,6 +1287,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bMatchAttributeNamesWithPropertyNames",
@@ -1334,6 +1380,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Mode",
@@ -1447,6 +1496,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bFuseColocatedControlPoints",
@@ -1577,6 +1629,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Algorithm",
@@ -1702,6 +1757,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "DistanceThreshold",
@@ -1768,6 +1826,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bCenterPivot",
@@ -1869,6 +1930,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Operation",
@@ -2031,6 +2095,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "RotationInheritance",
@@ -2116,6 +2183,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "CollisionQueryFlag"
@@ -2189,6 +2259,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "CoordinateSpace",
@@ -2311,6 +2384,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "CoordinateSpace",
@@ -2593,6 +2669,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Radius"
@@ -2707,6 +2786,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "InputType",
@@ -2830,6 +2912,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Mode",
@@ -2859,6 +2944,9 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -2892,6 +2980,9 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -2960,6 +3051,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "RowName"
@@ -2988,6 +3082,9 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -3024,6 +3121,9 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -3098,6 +3198,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "LowerBound",
@@ -3174,6 +3277,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "DensityFunction",
@@ -3308,6 +3414,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bOutputToAttribute",
@@ -3398,6 +3507,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Iterations",
@@ -3472,6 +3584,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bTrackActorsOnlyWithinBounds"
@@ -3595,6 +3710,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Format",
@@ -3649,6 +3767,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Extents",
@@ -3780,6 +3901,9 @@
       ],
       "testing": {
         "profile": "dynamic_pin_probe",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "dynamicTriggers": [
             "bUseConstantThreshold"
@@ -3875,6 +3999,9 @@
       ],
       "testing": {
         "profile": "dynamic_pin_probe",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "dynamicTriggers": [
             "MinThreshold/bUseConstantThreshold",
@@ -3963,6 +4090,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "SelectedIndices",
@@ -3992,6 +4122,9 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -4016,6 +4149,9 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -4108,6 +4244,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bExcludeSelectedGrassTypes"
@@ -4194,6 +4333,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bResetSeedPerInput"
@@ -4402,8 +4544,21 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "effective_settings",
+          "groups": [
+            "actorSelector",
+            "componentSelector"
+          ]
+        },
         "recipe": "pcg_actor_source_context",
-        "reason": "Depends on world or actor-backed source context."
+        "reason": "Depends on world or actor-backed source context.",
+        "focus": {
+          "effectiveSettingsGroups": [
+            "actorSelector",
+            "componentSelector"
+          ]
+        }
       }
     },
     {
@@ -4452,6 +4607,9 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "recipe": "pcg_actor_source_context",
         "reason": "Depends on world or actor-backed source context."
       }
@@ -4667,12 +4825,25 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "effective_settings",
+          "groups": [
+            "actorSelector",
+            "outputAttributeName",
+            "componentSelector"
+          ]
+        },
         "recipe": "pcg_actor_source_context",
         "reason": "Depends on world or actor-backed source context.",
         "focus": {
           "selectorFields": [
             "ActorSelector",
             "OutputAttributeName"
+          ],
+          "effectiveSettingsGroups": [
+            "actorSelector",
+            "outputAttributeName",
+            "componentSelector"
           ]
         }
       }
@@ -4759,7 +4930,10 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        }
       }
     },
     {
@@ -4805,7 +4979,10 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        }
       }
     },
     {
@@ -4853,7 +5030,10 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        }
       }
     },
     {
@@ -4889,7 +5069,10 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        }
       }
     },
     {
@@ -4924,7 +5107,10 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        }
       }
     },
     {
@@ -5017,7 +5203,10 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        }
       }
     },
     {
@@ -5079,7 +5268,10 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        }
       }
     },
     {
@@ -5144,6 +5336,9 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "recipe": "pcg_actor_source_context",
         "reason": "Depends on world or actor-backed source context."
       }
@@ -5180,7 +5375,10 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        }
       }
     },
     {
@@ -5204,6 +5402,9 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "recipe": "pcg_actor_source_context",
         "reason": "Depends on world or actor-backed source context."
       }
@@ -5229,6 +5430,9 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "recipe": "pcg_actor_source_context",
         "reason": "Depends on world or actor-backed source context."
       }
@@ -5253,7 +5457,10 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        }
       }
     },
     {
@@ -5358,7 +5565,10 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        }
       }
     },
     {
@@ -5382,8 +5592,21 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "effective_settings",
+          "groups": [
+            "actorSelector",
+            "componentSelector"
+          ]
+        },
         "recipe": "pcg_actor_source_context",
-        "reason": "Depends on world or actor-backed source context."
+        "reason": "Depends on world or actor-backed source context.",
+        "focus": {
+          "effectiveSettingsGroups": [
+            "actorSelector",
+            "componentSelector"
+          ]
+        }
       }
     },
     {
@@ -5440,7 +5663,10 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        }
       }
     },
     {
@@ -5499,6 +5725,9 @@
       ],
       "testing": {
         "profile": "context_recipe_required",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "Requires subgraph or loop context rather than isolated node coverage."
       }
     },
@@ -5534,7 +5763,10 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        }
       }
     },
     {
@@ -5790,6 +6022,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bUseAbsoluteTransform",
@@ -5843,7 +6078,10 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        }
       }
     },
     {
@@ -5866,7 +6104,10 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        }
       }
     },
     {
@@ -5890,6 +6131,9 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "recipe": "pcg_actor_source_context",
         "reason": "Depends on world or actor-backed source context."
       }
@@ -5940,6 +6184,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "DensityFunction",
@@ -6006,6 +6253,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "DensityFunction",
@@ -6201,6 +6451,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bWarnIfNoAsset",
@@ -6243,6 +6496,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bMergeMetadata"
@@ -6271,6 +6527,9 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -6343,6 +6602,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Normal",
@@ -6430,6 +6692,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Offset"
@@ -6505,6 +6770,9 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -6743,6 +7011,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "SearchDistance",
@@ -6834,6 +7105,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "SetTargetType"
@@ -6971,6 +7245,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "SearchDistance",
@@ -7025,6 +7302,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bOverrideExistingAttributes"
@@ -7066,6 +7346,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Grammar"
@@ -7247,6 +7530,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "PrintString",
@@ -7313,6 +7599,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bForceCollapseToPoint",
@@ -7342,6 +7631,9 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -7379,6 +7671,9 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "Current graph default-setting path cannot reliably drive this vector-backed setting."
       }
     },
@@ -7464,6 +7759,9 @@
       ],
       "testing": {
         "profile": "semantic_family_represented",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "workflowFamilies": [
             "pcg_control_flow"
@@ -7553,6 +7851,9 @@
       ],
       "testing": {
         "profile": "semantic_family_represented",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "workflowFamilies": [
             "pcg_selection_flow"
@@ -7642,6 +7943,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "TextureMappingMethod",
@@ -7696,6 +8000,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "MinPointCount",
@@ -7784,6 +8091,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "AssetDescription"
@@ -7825,6 +8135,9 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -7897,6 +8210,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "TexelSize"
@@ -7951,6 +8267,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Ratio"
@@ -8016,6 +8335,9 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -8253,6 +8575,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Iterations",
@@ -8500,10 +8825,27 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "effective_settings",
+          "groups": [
+            "templateIdentity",
+            "spawnBehavior",
+            "propertyOverrides",
+            "dataLayerSettings",
+            "hlodSettings"
+          ]
+        },
         "focus": {
           "fields": [
             "Option",
             "bForceDisableActorParsing"
+          ],
+          "effectiveSettingsGroups": [
+            "templateIdentity",
+            "spawnBehavior",
+            "propertyOverrides",
+            "dataLayerSettings",
+            "hlodSettings"
           ]
         }
       }
@@ -8616,9 +8958,22 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "effective_settings",
+          "groups": [
+            "templateIdentity",
+            "spawnBehavior",
+            "meshSelector"
+          ]
+        },
         "focus": {
           "fields": [
             "bSynchronousLoad"
+          ],
+          "effectiveSettingsGroups": [
+            "templateIdentity",
+            "spawnBehavior",
+            "meshSelector"
           ]
         }
       }
@@ -8656,7 +9011,10 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        }
       }
     },
     {
@@ -8705,6 +9063,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "SplitPosition",
@@ -8853,6 +9214,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bAcceptIncompleteSubdivision",
@@ -8988,6 +9352,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "PointsPerSquaredMeter"
@@ -9025,6 +9392,9 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -9206,6 +9576,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "RotationMin",
@@ -9235,6 +9608,9 @@
       "properties": [],
       "testing": {
         "profile": "inventory_only",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "Deprecated settings class is not valid for direct node construction."
       }
     },
@@ -9346,6 +9722,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bCopyAllAttributes",
@@ -9387,7 +9766,10 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        }
       }
     },
     {
@@ -9455,7 +9837,10 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        }
       }
     },
     {
@@ -9559,6 +9944,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "OutputAttributeName",
@@ -9656,6 +10044,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Operation",
@@ -9770,6 +10161,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "NumIterations",
@@ -9812,6 +10206,9 @@
       ],
       "testing": {
         "profile": "semantic_family_represented",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "workflowFamilies": [
             "pcg_selection_flow"
@@ -9874,6 +10271,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bSilenceAttributeNotFoundErrors",
@@ -9916,6 +10316,9 @@
       ],
       "testing": {
         "profile": "semantic_family_represented",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "workflowFamilies": [
             "pcg_control_flow"
@@ -9969,6 +10372,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "SplineMaxDiscretizationError"
@@ -9997,6 +10403,9 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -10053,6 +10462,9 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -10222,6 +10634,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bDeleteActorsBeforeGeneration",
@@ -10276,6 +10691,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "BoundsExpansion",
@@ -10329,6 +10747,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bDeleteInputsAfterOperation"
@@ -10384,6 +10805,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bDiscardNonParseableAttributeTypes",
@@ -10426,6 +10850,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "OutputAttributeName"
@@ -10521,6 +10948,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Operator"
@@ -10596,6 +11026,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Operator"
@@ -10696,6 +11129,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "ExtrudeVector",
@@ -10821,6 +11257,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "ElevationStart",
@@ -10862,6 +11301,9 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -10923,6 +11365,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Index"
@@ -11084,6 +11529,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "Structured selector truth should be validated separately from scalar roundtrip fields.",
         "focus": {
           "fields": [
@@ -11142,6 +11590,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "SelectedIndices",
@@ -11218,6 +11669,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "SelectedTags",
@@ -11270,6 +11724,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bShowOutsideFilter"
@@ -11298,6 +11755,9 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -11321,7 +11781,10 @@
       "implementsSupportsBasePointDataInputs": false,
       "properties": [],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        }
       }
     },
     {
@@ -11449,7 +11912,10 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        }
       }
     },
     {
@@ -11496,6 +11962,9 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "recipe": "pcg_actor_source_context",
         "reason": "Depends on world or actor-backed source context."
       }
@@ -11541,6 +12010,9 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "Current graph default-setting path cannot reliably drive this enum-backed setting."
       }
     },
@@ -11621,6 +12093,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bTagOutputsBasedOnOutputPins"
@@ -11684,6 +12159,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "OutputType",
@@ -11757,6 +12235,9 @@
       ],
       "testing": {
         "profile": "context_recipe_required",
+        "querySurface": {
+          "kind": "child_graph_ref"
+        },
         "reason": "Requires subgraph or loop context rather than isolated node coverage."
       }
     },
@@ -11781,6 +12262,9 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -11973,6 +12457,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bMatchAttributes",
@@ -12002,6 +12489,9 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -12114,6 +12604,9 @@
       ],
       "testing": {
         "profile": "semantic_family_represented",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "workflowFamilies": [
             "pcg_selection_flow"
@@ -12142,6 +12635,9 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -12166,6 +12662,9 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -12201,6 +12700,9 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -12268,6 +12770,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "MeshPathAttributeName",
@@ -12345,6 +12850,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "SplineMaxDiscretizationError"
@@ -12457,6 +12965,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Ratio"
@@ -12485,6 +12996,9 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -12544,6 +13058,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "SelectedTags",
@@ -12593,6 +13110,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Operation"
@@ -12741,6 +13261,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bKeyAsAttribute",
@@ -12882,7 +13405,22 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query"
+        "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "effective_settings",
+          "groups": [
+            "templateIdentity",
+            "spawnBehavior",
+            "meshSelector"
+          ]
+        },
+        "focus": {
+          "effectiveSettingsGroups": [
+            "templateIdentity",
+            "spawnBehavior",
+            "meshSelector"
+          ]
+        }
       }
     },
     {
@@ -12931,6 +13469,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "SortMethod"
@@ -12984,6 +13525,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Tag",
@@ -13106,10 +13650,21 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "effective_settings",
+          "groups": [
+            "templateIdentity",
+            "spawnBehavior"
+          ]
+        },
         "focus": {
           "fields": [
             "bSpawnComponentFromAttribute",
             "bOutputSplineComponentReference"
+          ],
+          "effectiveSettingsGroups": [
+            "templateIdentity",
+            "spawnBehavior"
           ]
         }
       }
@@ -13205,6 +13760,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "DistanceThreshold"
@@ -13278,6 +13836,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bExtractTangents",
@@ -13378,6 +13939,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Constant",
@@ -13566,10 +14130,19 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "effective_settings",
+          "groups": [
+            "meshSelector"
+          ]
+        },
         "reason": "Structured selector truth should be validated separately from scalar roundtrip fields.",
         "focus": {
           "selectorFields": [
             "MeshSelectorParameters"
+          ],
+          "effectiveSettingsGroups": [
+            "meshSelector"
           ]
         }
       }
@@ -13738,6 +14311,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bShouldFlipAxis",
@@ -13949,6 +14525,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bUseSeedAttribute",
@@ -14066,6 +14645,9 @@
       ],
       "testing": {
         "profile": "semantic_family_represented",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "workflowFamilies": [
             "pcg_control_flow"
@@ -14094,6 +14676,9 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -14274,6 +14859,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "bOverrideRayDirections",
@@ -14328,6 +14916,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "Type",
@@ -14466,6 +15057,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "CustomPrefixString",
@@ -14532,6 +15126,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "VoxelSize",
@@ -14610,6 +15207,9 @@
       ],
       "testing": {
         "profile": "read_write_roundtrip",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "focus": {
           "fields": [
             "WaitTimeInSeconds",
@@ -14639,6 +15239,9 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -14688,6 +15291,9 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -14725,6 +15331,9 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -14785,6 +15394,9 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -14809,6 +15421,9 @@
       "properties": [],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -14842,6 +15457,9 @@
       ],
       "testing": {
         "profile": "construct_and_query",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "No stable representative roundtrip fields were identified for first-version coverage."
       }
     },
@@ -14897,6 +15515,9 @@
       ],
       "testing": {
         "profile": "context_recipe_required",
+        "querySurface": {
+          "kind": "child_graph_ref"
+        },
         "reason": "Requires subgraph or loop context rather than isolated node coverage."
       }
     },
@@ -14921,6 +15542,9 @@
       "properties": [],
       "testing": {
         "profile": "context_recipe_required",
+        "querySurface": {
+          "kind": "pin_default"
+        },
         "reason": "Requires subgraph or loop context rather than isolated node coverage."
       }
     }

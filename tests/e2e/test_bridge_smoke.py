@@ -1109,6 +1109,38 @@ def validate_workspace_catalogs() -> None:
     _require(transform_points.get("family") == "transform", f"pcg transform family mismatch: {transform_points}")
     testing = transform_points.get("testing")
     _require(isinstance(testing, dict) and testing.get("profile") == "read_write_roundtrip", f"pcg transform testing missing: {transform_points}")
+    _require(
+        isinstance(testing.get("querySurface"), dict) and testing["querySurface"].get("kind") == "pin_default",
+        f"pcg transform querySurface mismatch: {transform_points}",
+    )
+
+    get_actor_property = next(
+        (node for node in pcg_database_nodes if isinstance(node, dict) and node.get("className") == "UPCGGetActorPropertySettings"),
+        None,
+    )
+    _require(isinstance(get_actor_property, dict), "pcg database missing UPCGGetActorPropertySettings")
+    get_actor_property_testing = get_actor_property.get("testing")
+    _require(
+        isinstance(get_actor_property_testing, dict)
+        and isinstance(get_actor_property_testing.get("querySurface"), dict)
+        and get_actor_property_testing["querySurface"].get("kind") == "effective_settings"
+        and get_actor_property_testing["querySurface"].get("groups") == ["actorSelector", "outputAttributeName", "componentSelector"],
+        f"pcg GetActorProperty querySurface mismatch: {get_actor_property}",
+    )
+
+    spawn_actor = next(
+        (node for node in pcg_database_nodes if isinstance(node, dict) and node.get("className") == "UPCGSpawnActorSettings"),
+        None,
+    )
+    _require(isinstance(spawn_actor, dict), "pcg database missing UPCGSpawnActorSettings")
+    spawn_actor_testing = spawn_actor.get("testing")
+    _require(
+        isinstance(spawn_actor_testing, dict)
+        and isinstance(spawn_actor_testing.get("querySurface"), dict)
+        and spawn_actor_testing["querySurface"].get("kind") == "effective_settings"
+        and spawn_actor_testing["querySurface"].get("groups") == ["templateIdentity", "spawnBehavior", "propertyOverrides", "dataLayerSettings", "hlodSettings"],
+        f"pcg SpawnActor querySurface mismatch: {spawn_actor}",
+    )
 
     print("[PASS] workspace graph catalogs validated")
 
@@ -1233,6 +1265,11 @@ def validate_generated_pcg_test_plan() -> None:
         _require(transform_points.get("mode") == "auto_case", f"pcg transform plan mode mismatch: {transform_points}")
         _require(transform_points.get("fixture") == "pcg_graph", f"pcg transform plan fixture mismatch: {transform_points}")
         _require(transform_points.get("status") == "ready", f"pcg transform plan status mismatch: {transform_points}")
+        _require(
+            isinstance(transform_points.get("querySurface"), dict)
+            and transform_points["querySurface"].get("kind") == "pin_default",
+            f"pcg transform querySurface mismatch: {transform_points}",
+        )
 
         actor_source = entry_by_class.get("UPCGDataFromActorSettings")
         _require(isinstance(actor_source, dict), "pcg plan missing UPCGDataFromActorSettings")
@@ -1240,6 +1277,12 @@ def validate_generated_pcg_test_plan() -> None:
         _require(actor_source.get("recipe") == "pcg_actor_source_context", f"pcg actor-source recipe mismatch: {actor_source}")
         _require(actor_source.get("fixture") == "pcg_graph_with_world_actor", f"pcg actor-source fixture mismatch: {actor_source}")
         _require(actor_source.get("status") == "ready", f"pcg actor-source status mismatch: {actor_source}")
+        _require(
+            isinstance(actor_source.get("querySurface"), dict)
+            and actor_source["querySurface"].get("kind") == "effective_settings"
+            and actor_source["querySurface"].get("groups") == ["actorSelector", "componentSelector"],
+            f"pcg actor-source querySurface mismatch: {actor_source}",
+        )
 
         console_variable = entry_by_class.get("UPCGGetConsoleVariableSettings")
         _require(isinstance(console_variable, dict), "pcg plan missing UPCGGetConsoleVariableSettings")
@@ -1263,6 +1306,17 @@ def validate_generated_pcg_test_plan() -> None:
             and get_actor_property["focus"].get("selectorFields") == ["ActorSelector", "OutputAttributeName"],
             f"pcg GetActorProperty selectorFields mismatch: {get_actor_property}",
         )
+        _require(
+            isinstance(get_actor_property.get("querySurface"), dict)
+            and get_actor_property["querySurface"].get("kind") == "effective_settings"
+            and get_actor_property["querySurface"].get("groups") == ["actorSelector", "outputAttributeName", "componentSelector"],
+            f"pcg GetActorProperty querySurface mismatch: {get_actor_property}",
+        )
+        _require(
+            isinstance(get_actor_property.get("focus"), dict)
+            and get_actor_property["focus"].get("effectiveSettingsGroups") == ["actorSelector", "outputAttributeName", "componentSelector"],
+            f"pcg GetActorProperty effectiveSettingsGroups mismatch: {get_actor_property}",
+        )
 
         static_mesh_spawner = entry_by_class.get("UPCGStaticMeshSpawnerSettings")
         _require(isinstance(static_mesh_spawner, dict), "pcg plan missing UPCGStaticMeshSpawnerSettings")
@@ -1270,6 +1324,31 @@ def validate_generated_pcg_test_plan() -> None:
             isinstance(static_mesh_spawner.get("focus"), dict)
             and static_mesh_spawner["focus"].get("selectorFields") == ["MeshSelectorParameters"],
             f"pcg StaticMeshSpawner selectorFields mismatch: {static_mesh_spawner}",
+        )
+        _require(
+            isinstance(static_mesh_spawner.get("querySurface"), dict)
+            and static_mesh_spawner["querySurface"].get("kind") == "effective_settings"
+            and static_mesh_spawner["querySurface"].get("groups") == ["meshSelector"],
+            f"pcg StaticMeshSpawner querySurface mismatch: {static_mesh_spawner}",
+        )
+        _require(
+            isinstance(static_mesh_spawner.get("focus"), dict)
+            and static_mesh_spawner["focus"].get("effectiveSettingsGroups") == ["meshSelector"],
+            f"pcg StaticMeshSpawner effectiveSettingsGroups mismatch: {static_mesh_spawner}",
+        )
+
+        spawn_actor = entry_by_class.get("UPCGSpawnActorSettings")
+        _require(isinstance(spawn_actor, dict), "pcg plan missing UPCGSpawnActorSettings")
+        _require(
+            isinstance(spawn_actor.get("querySurface"), dict)
+            and spawn_actor["querySurface"].get("kind") == "effective_settings"
+            and spawn_actor["querySurface"].get("groups") == ["templateIdentity", "spawnBehavior", "propertyOverrides", "dataLayerSettings", "hlodSettings"],
+            f"pcg SpawnActor querySurface mismatch: {spawn_actor}",
+        )
+        _require(
+            isinstance(spawn_actor.get("focus"), dict)
+            and spawn_actor["focus"].get("effectiveSettingsGroups") == ["templateIdentity", "spawnBehavior", "propertyOverrides", "dataLayerSettings", "hlodSettings"],
+            f"pcg SpawnActor effectiveSettingsGroups mismatch: {spawn_actor}",
         )
 
         branch = entry_by_class.get("UPCGBranchSettings")
@@ -1286,6 +1365,11 @@ def validate_generated_pcg_test_plan() -> None:
         _require(subgraph.get("mode") == "blocked", f"pcg subgraph mode mismatch: {subgraph}")
         _require(subgraph.get("status") == "blocked", f"pcg subgraph status mismatch: {subgraph}")
         _require("missing recipe" in str(subgraph.get("reason")), f"pcg subgraph reason mismatch: {subgraph}")
+        _require(
+            isinstance(subgraph.get("querySurface"), dict)
+            and subgraph["querySurface"].get("kind") == "child_graph_ref",
+            f"pcg subgraph querySurface mismatch: {subgraph}",
+        )
 
         deprecated_grass = entry_by_class.get("UDEPRECATED_PCGGenerateGrassMapsSettings")
         _require(isinstance(deprecated_grass, dict), "pcg plan missing UDEPRECATED_PCGGenerateGrassMapsSettings")

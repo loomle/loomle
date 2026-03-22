@@ -50,6 +50,7 @@ The first version of `testing` should stay small.
 ### Optional
 
 - `recipe`
+- `querySurface`
 - `focus`
 - `reason`
 - `notes`
@@ -87,7 +88,51 @@ Examples:
 - `fields`
 - `dynamicTriggers`
 - `selectorFields`
+- `effectiveSettingsGroups`
 - `workflowFamilies`
+
+### `querySurface`
+
+Structured metadata describing where the node's primary query truth is intended
+to live.
+
+This should stay compact and product-facing. It is not a serializer dump.
+
+Suggested first shape:
+
+- `kind`
+- `groups`
+- `fallback`
+
+#### `kind`
+
+One of:
+
+- `pin_default`
+- `effective_settings`
+- `child_graph_ref`
+- `residual_gap`
+
+#### `groups`
+
+Optional list of important structured groups for nodes that use
+`effective_settings`.
+
+Examples:
+
+- `actorSelector`
+- `componentSelector`
+- `meshSelector`
+- `propertyOverrides`
+- `dataLayerSettings`
+- `hlodSettings`
+
+#### `fallback`
+
+Optional short description for `residual_gap` nodes.
+
+This should identify the intended fallback path or the reason the gap still
+exists.
 
 ### `reason`
 
@@ -119,10 +164,58 @@ Use sparingly.
 {
   "testing": {
     "profile": "read_write_roundtrip",
+    "querySurface": {
+      "kind": "pin_default"
+    },
     "focus": {
       "fields": ["radius"],
       "selectorFields": ["TargetAttribute"]
     }
+  }
+}
+```
+
+### Structured Effective-Settings Node
+
+```json
+{
+  "testing": {
+    "profile": "construct_and_query",
+    "querySurface": {
+      "kind": "effective_settings",
+      "groups": ["actorSelector", "propertyOverrides", "dataLayerSettings", "hlodSettings"]
+    },
+    "focus": {
+      "effectiveSettingsGroups": ["actorSelector", "propertyOverrides"]
+    }
+  }
+}
+```
+
+### Child-Graph-Ref Node
+
+```json
+{
+  "testing": {
+    "profile": "context_recipe_required",
+    "querySurface": {
+      "kind": "child_graph_ref"
+    }
+  }
+}
+```
+
+### Residual-Gap Node
+
+```json
+{
+  "testing": {
+    "profile": "context_recipe_required",
+    "querySurface": {
+      "kind": "residual_gap",
+      "fallback": "execute"
+    },
+    "reason": "Important truth is not yet productized in graph.query."
   }
 }
 ```

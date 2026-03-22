@@ -125,10 +125,29 @@ def normalize_focus(testing: dict[str, Any]) -> dict[str, Any]:
         return {}
 
     normalized: dict[str, Any] = {}
-    for key in ("fields", "dynamicTriggers", "selectorFields", "workflowFamilies"):
+    for key in ("fields", "dynamicTriggers", "selectorFields", "effectiveSettingsGroups", "workflowFamilies"):
         value = focus.get(key)
         if isinstance(value, list) and value:
             normalized[key] = value
+    return normalized
+
+
+def normalize_query_surface(testing: dict[str, Any]) -> dict[str, Any] | None:
+    query_surface = testing.get("querySurface")
+    if not isinstance(query_surface, dict):
+        return None
+
+    kind = query_surface.get("kind")
+    if not isinstance(kind, str) or not kind:
+        return None
+
+    normalized: dict[str, Any] = {"kind": kind}
+    groups = query_surface.get("groups")
+    if isinstance(groups, list) and groups:
+        normalized["groups"] = groups
+    fallback = query_surface.get("fallback")
+    if isinstance(fallback, str) and fallback:
+        normalized["fallback"] = fallback
     return normalized
 
 
@@ -144,6 +163,7 @@ def build_entry(graph_type: str, node: dict[str, Any]) -> dict[str, Any]:
             "displayName": display_name,
             "family": family,
             "profile": None,
+            "querySurface": None,
             "mode": "blocked",
             "fixture": None,
             "recipe": None,
@@ -155,6 +175,7 @@ def build_entry(graph_type: str, node: dict[str, Any]) -> dict[str, Any]:
     profile = testing.get("profile")
     recipe = testing.get("recipe")
     focus = normalize_focus(testing)
+    query_surface = normalize_query_surface(testing)
     reason = testing.get("reason")
 
     entry = {
@@ -163,6 +184,7 @@ def build_entry(graph_type: str, node: dict[str, Any]) -> dict[str, Any]:
         "displayName": display_name,
         "family": family,
         "profile": profile,
+        "querySurface": query_surface,
         "mode": "blocked",
         "fixture": None,
         "recipe": recipe if isinstance(recipe, str) and recipe else None,
