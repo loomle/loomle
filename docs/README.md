@@ -52,6 +52,10 @@ Project-level technical documentation for `LOOMLE` and `LoomleBridge` (plugin + 
 16. `issues/PCG_GRAPH_QUERY_FULL_COVERAGE_UPGRADE.md`
 - Local parent issue for making PCG `graph.query` the primary full-coverage node readback surface.
 
+17. `issues/BLUEPRINT_EMBEDDED_TEMPLATE_NODES.md`
+- Local issue for classifying Blueprint embedded-template nodes such as `Timeline`
+  and `AddComponent`, and for defining their testing-system direction.
+
 ## Recommended Read Order
 
 1. `../workspace/Loomle/README.md`
@@ -70,3 +74,4 @@ Project-level technical documentation for `LOOMLE` and `LoomleBridge` (plugin + 
 14. `UE_SCENE_EDITING_EXECUTE_AUDIT.md`
 15. `issues/README.md`
 16. `issues/PCG_GRAPH_QUERY_FULL_COVERAGE_UPGRADE.md`
+17. `issues/BLUEPRINT_EMBEDDED_TEMPLATE_NODES.md`

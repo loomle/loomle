@@ -29,6 +29,20 @@ record.
   - rollout phases
   - acceptance criteria
 
+2. `BLUEPRINT_EMBEDDED_TEMPLATE_NODES.md`
+- Local issue for reclassifying Blueprint nodes whose real truth spans both the
+  graph node and a Blueprint-owned template object.
+- Covers:
+  - `UK2Node_Timeline`
+  - `UK2Node_AddComponent`
+  - `UK2Node_AddComponentByClass` as a nearby but distinct upgrade candidate
+- Defines:
+  - the `embedded-template nodes` category
+  - target testing classification
+  - dedicated recipe direction
+  - rollout phases
+  - acceptance criteria
+
 ## Recommended Structure
 
 Each local issue should try to answer these questions clearly:
