@@ -100,23 +100,23 @@ EXPECTED_PCG_PLAN_SUMMARY = {
 EXPECTED_BLUEPRINT_PLAN_SUMMARY = {
     "totalNodes": 101,
     "readyAutoCases": 83,
-    "readyRecipeCases": 6,
+    "readyRecipeCases": 11,
     "workflowOnly": 1,
     "inventoryOnly": 5,
-    "blocked": 6,
+    "blocked": 1,
 }
 
 EXPECTED_BLUEPRINT_COVERAGE_SUMMARY = {
     "totalNodes": 101,
-    "readyNodes": 89,
-    "blockedNodes": 6,
+    "readyNodes": 94,
+    "blockedNodes": 1,
     "workflowOnlyNodes": 1,
     "inventoryOnlyNodes": 5,
     "coverageDimensions": {
-        "construct": 89,
+        "construct": 94,
         "inventory": 101,
         "query_structure": 83,
-        "recipe_context": 6,
+        "recipe_context": 11,
         "workflow": 1,
     },
 }
@@ -139,11 +139,11 @@ EXPECTED_BLUEPRINT_STABILITY_SUITE_SUMMARY = {
 }
 
 EXPECTED_BLUEPRINT_RESIDUAL_GAP_SUITE_SUMMARY = {
-    "totalCases": 1,
-    "documentedCases": 1,
+    "totalCases": 0,
+    "documentedCases": 0,
     "missingFallback": 0,
     "missingReason": 0,
-    "fallbackKinds": ["execute"],
+    "fallbackKinds": [],
 }
 
 EXPECTED_BLUEPRINT_EMBEDDED_TEMPLATE_SUITE_SUMMARY = {
@@ -1051,9 +1051,10 @@ def validate_workspace_catalogs() -> None:
     macro_testing = macro_instance_node.get("testing")
     _require(
         isinstance(macro_testing, dict)
+        and macro_testing.get("profile") == "context_recipe_required"
+        and macro_testing.get("recipe") == "blueprint_actor_execution_graph"
         and isinstance(macro_testing.get("querySurface"), dict)
-        and macro_testing["querySurface"].get("kind") == "residual_gap"
-        and macro_testing["querySurface"].get("fallback") == "execute",
+        and macro_testing["querySurface"].get("kind") == "graph_boundary_summary",
         f"blueprint macro-instance querySurface mismatch: {macro_instance_node}",
     )
     timeline_node = next(
@@ -1094,7 +1095,8 @@ def validate_workspace_catalogs() -> None:
         isinstance(add_component_by_class_testing, dict)
         and add_component_by_class_testing.get("profile") == "context_recipe_required"
         and add_component_by_class_testing.get("recipe") == "blueprint_actor_execution_graph"
-        and add_component_by_class_testing.get("querySurface") is None,
+        and isinstance(add_component_by_class_testing.get("querySurface"), dict)
+        and add_component_by_class_testing["querySurface"].get("kind") == "context_sensitive_construct",
         f"blueprint add-component-by-class testing mismatch: {add_component_by_class_node}",
     )
 
@@ -1334,19 +1336,82 @@ def validate_generated_blueprint_test_plan() -> None:
         _require(add_component_by_class.get("mode") == "recipe_case", f"blueprint add-component-by-class mode mismatch: {add_component_by_class}")
         _require(add_component_by_class.get("recipe") == "blueprint_actor_execution_graph", f"blueprint add-component-by-class recipe mismatch: {add_component_by_class}")
         _require(add_component_by_class.get("fixture") == "blueprint_actor_execution_graph", f"blueprint add-component-by-class fixture mismatch: {add_component_by_class}")
-        _require(add_component_by_class.get("querySurface") is None, f"blueprint add-component-by-class querySurface mismatch: {add_component_by_class}")
+        _require(
+            isinstance(add_component_by_class.get("querySurface"), dict)
+            and add_component_by_class["querySurface"].get("kind") == "context_sensitive_construct",
+            f"blueprint add-component-by-class querySurface mismatch: {add_component_by_class}",
+        )
 
         macro_instance = entry_by_class.get("UK2Node_MacroInstance")
         _require(isinstance(macro_instance, dict), "blueprint plan missing UK2Node_MacroInstance")
-        _require(macro_instance.get("mode") == "blocked", f"blueprint macro-instance mode mismatch: {macro_instance}")
-        _require(macro_instance.get("status") == "blocked", f"blueprint macro-instance status mismatch: {macro_instance}")
+        _require(macro_instance.get("mode") == "recipe_case", f"blueprint macro-instance mode mismatch: {macro_instance}")
+        _require(macro_instance.get("status") == "ready", f"blueprint macro-instance status mismatch: {macro_instance}")
+        _require(macro_instance.get("recipe") == "blueprint_actor_execution_graph", f"blueprint macro-instance recipe mismatch: {macro_instance}")
+        _require(macro_instance.get("fixture") == "blueprint_actor_execution_graph", f"blueprint macro-instance fixture mismatch: {macro_instance}")
         _require(
             isinstance(macro_instance.get("querySurface"), dict)
-            and macro_instance["querySurface"].get("kind") == "residual_gap"
-            and macro_instance["querySurface"].get("fallback") == "execute",
+            and macro_instance["querySurface"].get("kind") == "graph_boundary_summary",
             f"blueprint macro-instance querySurface mismatch: {macro_instance}",
         )
-        _require("missing recipe" in str(macro_instance.get("reason")), f"blueprint macro-instance reason mismatch: {macro_instance}")
+
+        composite = entry_by_class.get("UK2Node_Composite")
+        _require(isinstance(composite, dict), "blueprint plan missing UK2Node_Composite")
+        _require(composite.get("mode") == "recipe_case", f"blueprint composite mode mismatch: {composite}")
+        _require(composite.get("status") == "ready", f"blueprint composite status mismatch: {composite}")
+        _require(composite.get("recipe") == "blueprint_actor_execution_graph", f"blueprint composite recipe mismatch: {composite}")
+        _require(composite.get("fixture") == "blueprint_actor_execution_graph", f"blueprint composite fixture mismatch: {composite}")
+        _require(
+            isinstance(composite.get("querySurface"), dict)
+            and composite["querySurface"].get("kind") == "graph_boundary_summary",
+            f"blueprint composite querySurface mismatch: {composite}",
+        )
+
+        function_entry = entry_by_class.get("UK2Node_FunctionEntry")
+        _require(isinstance(function_entry, dict), "blueprint plan missing UK2Node_FunctionEntry")
+        _require(function_entry.get("mode") == "recipe_case", f"blueprint function-entry mode mismatch: {function_entry}")
+        _require(function_entry.get("status") == "ready", f"blueprint function-entry status mismatch: {function_entry}")
+        _require(function_entry.get("recipe") == "blueprint_function_graph", f"blueprint function-entry recipe mismatch: {function_entry}")
+        _require(function_entry.get("fixture") == "blueprint_function_graph", f"blueprint function-entry fixture mismatch: {function_entry}")
+        _require(
+            isinstance(function_entry.get("querySurface"), dict)
+            and function_entry["querySurface"].get("kind") == "graph_boundary_summary",
+            f"blueprint function-entry querySurface mismatch: {function_entry}",
+        )
+
+        function_result = entry_by_class.get("UK2Node_FunctionResult")
+        _require(isinstance(function_result, dict), "blueprint plan missing UK2Node_FunctionResult")
+        _require(function_result.get("mode") == "recipe_case", f"blueprint function-result mode mismatch: {function_result}")
+        _require(function_result.get("status") == "ready", f"blueprint function-result status mismatch: {function_result}")
+        _require(function_result.get("recipe") == "blueprint_function_graph", f"blueprint function-result recipe mismatch: {function_result}")
+        _require(function_result.get("fixture") == "blueprint_function_graph", f"blueprint function-result fixture mismatch: {function_result}")
+        _require(
+            isinstance(function_result.get("querySurface"), dict)
+            and function_result["querySurface"].get("kind") == "graph_boundary_summary",
+            f"blueprint function-result querySurface mismatch: {function_result}",
+        )
+
+        tunnel = entry_by_class.get("UK2Node_Tunnel")
+        _require(isinstance(tunnel, dict), "blueprint plan missing UK2Node_Tunnel")
+        _require(tunnel.get("mode") == "recipe_case", f"blueprint tunnel mode mismatch: {tunnel}")
+        _require(tunnel.get("status") == "ready", f"blueprint tunnel status mismatch: {tunnel}")
+        _require(tunnel.get("recipe") == "blueprint_actor_execution_graph", f"blueprint tunnel recipe mismatch: {tunnel}")
+        _require(tunnel.get("fixture") == "blueprint_actor_execution_graph", f"blueprint tunnel fixture mismatch: {tunnel}")
+        _require(
+            isinstance(tunnel.get("querySurface"), dict)
+            and tunnel["querySurface"].get("kind") == "graph_boundary_summary",
+            f"blueprint tunnel querySurface mismatch: {tunnel}",
+        )
+
+        tunnel_boundary = entry_by_class.get("UK2Node_TunnelBoundary")
+        _require(isinstance(tunnel_boundary, dict), "blueprint plan missing UK2Node_TunnelBoundary")
+        _require(tunnel_boundary.get("mode") == "blocked", f"blueprint tunnel-boundary mode mismatch: {tunnel_boundary}")
+        _require(tunnel_boundary.get("status") == "blocked", f"blueprint tunnel-boundary status mismatch: {tunnel_boundary}")
+        _require(
+            isinstance(tunnel_boundary.get("querySurface"), dict)
+            and tunnel_boundary["querySurface"].get("kind") == "graph_boundary_summary",
+            f"blueprint tunnel-boundary querySurface mismatch: {tunnel_boundary}",
+        )
+        _require("missing recipe" in str(tunnel_boundary.get("reason")), f"blueprint tunnel-boundary reason mismatch: {tunnel_boundary}")
 
         variable = entry_by_class.get("UK2Node_Variable")
         _require(isinstance(variable, dict), "blueprint plan missing UK2Node_Variable")
@@ -1529,7 +1594,7 @@ def validate_generated_blueprint_coverage_report() -> None:
     _require(summary == EXPECTED_BLUEPRINT_COVERAGE_SUMMARY, f"blueprint coverage report summary mismatch: {summary}")
 
     blocked_reasons = report.get("blockedReasons")
-    _require(blocked_reasons == {"missing recipe": 6}, f"blueprint coverage blockedReasons mismatch: {blocked_reasons}")
+    _require(blocked_reasons == {"missing recipe": 1}, f"blueprint coverage blockedReasons mismatch: {blocked_reasons}")
 
     family_rows = report.get("familySummary")
     _require(isinstance(family_rows, list), f"blueprint coverage familySummary missing: {report}")
@@ -1556,7 +1621,7 @@ def validate_generated_blueprint_coverage_report() -> None:
     struct_family = family_by_name.get("struct")
     _require(isinstance(struct_family, dict), "blueprint coverage missing struct family")
     _require(
-        struct_family.get("coverageDimensions") == {"inventory": 6},
+        struct_family.get("coverageDimensions") == {"construct": 5, "inventory": 6, "recipe_context": 5},
         f"blueprint coverage struct dimensions mismatch: {struct_family}",
     )
 
@@ -1714,22 +1779,7 @@ def validate_generated_blueprint_residual_gap_suite() -> None:
         isinstance(cases, list) and len(cases) == EXPECTED_BLUEPRINT_RESIDUAL_GAP_SUITE_SUMMARY["totalCases"],
         "blueprint residual-gap suite cases mismatch",
     )
-    case_by_id = {
-        case.get("id"): case
-        for case in cases
-        if isinstance(case, dict) and isinstance(case.get("id"), str)
-    }
-
-    macro_case = case_by_id.get("UK2Node_MacroInstance")
-    _require(isinstance(macro_case, dict), "blueprint residual-gap suite missing UK2Node_MacroInstance")
-    _require(macro_case.get("fallback") == "execute", f"blueprint residual-gap fallback mismatch: {macro_case}")
-    _require(
-        "Graph-structure Blueprint nodes" in str(macro_case.get("reason")),
-        f"blueprint residual-gap reason mismatch: {macro_case}",
-    )
-
-    _require("UK2Node_Timeline" not in case_by_id, f"blueprint residual-gap suite should not include UK2Node_Timeline: {case_by_id}")
-    _require("UK2Node_AddComponent" not in case_by_id, f"blueprint residual-gap suite should not include UK2Node_AddComponent: {case_by_id}")
+    _require(cases == [], f"blueprint residual-gap suite should now be empty: {cases}")
 
     print("[PASS] generated Blueprint residual-gap suite validated")
 

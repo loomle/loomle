@@ -1,5 +1,10 @@
 # LOOMLE Blueprint Query Surface Sync Handoff
 
+Status:
+
+- product-side promotion: complete
+- test-side sync: complete
+
 ## Summary
 
 Blueprint query-surface promotion is now materially ahead of the current test
@@ -97,9 +102,9 @@ The following product-side behaviors were probed directly:
 - `K2Node_Tunnel`
   - inline composite subgraph query returns `graphBoundarySummary`
 
-## Test-Side Sync Required
+## Test-Side Sync Status
 
-The current stale expectations are:
+The earlier stale expectations have now been synchronized:
 
 1. `UK2Node_MacroInstance` is still treated as `residual_gap`
 It should now be `graph_boundary_summary` and `recipe_case / ready`.
@@ -120,20 +125,20 @@ It should now expect:
 - `UK2Node_MacroInstance`
 - `UK2Node_Tunnel`
 
-## Recommended Test Update Order
+## Completed Test Update Order
 
-1. Update smoke/regression metadata expectations for:
+1. Updated smoke/regression metadata expectations for:
 - `MacroInstance`
 - `AddComponentByClass`
 - Blueprint residual-gap suite summary
 
-2. Update generated Blueprint plan expectations for:
+2. Updated generated Blueprint plan expectations for:
 - `Composite`
 - `FunctionEntry`
 - `FunctionResult`
 - `Tunnel`
 
-3. Keep `TunnelBoundary` conservative for now.
+3. Kept `TunnelBoundary` conservative.
 
 ## Important Boundary
 

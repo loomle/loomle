@@ -15,7 +15,7 @@ It currently covers six complementary surfaces:
 - workflow truth coverage
 - negative and boundary coverage
 - stability and repeatability coverage
-- residual-gap accounting
+- query-surface accounting
 
 This means Blueprint is no longer limited to smoke-only validation. The test system can now distinguish:
 
@@ -146,11 +146,17 @@ Current stability status:
 
 - `3 pass / 0 fail`
 
-### Residual Gap
+### Query Surface Promotion
 
-The residual-gap suite currently covers the remaining Blueprint graph-structure node that still requires explicit fallback handling:
+Blueprint query-surface promotion is now materially ahead of the old residual-gap model.
 
-- `Macro Instance`
+The current promoted Blueprint query surfaces are:
+
+- `embedded_template`
+- `graph_boundary_summary`
+- `context_sensitive_construct`
+
+Blueprint `residual_gap` is currently `0` documented cases.
 
 ### Embedded-Template Query Surface
 
@@ -168,7 +174,26 @@ The test system now expects:
 - live `graph.query` presence/shape coverage for both `embeddedTemplate` and `effectiveSettings`
 
 `UK2Node_AddComponentByClass` is now recipe-backed through actor execution
-context, but is not yet treated as an embedded-template node.
+context and now surfaces `context_sensitive_construct`, but is not treated as
+an embedded-template node.
+
+### Graph-Boundary Summary Query Surface
+
+Blueprint now explicitly classifies these nodes as graph-boundary-summary nodes:
+
+- `UK2Node_Composite`
+- `UK2Node_FunctionEntry`
+- `UK2Node_FunctionResult`
+- `UK2Node_MacroInstance`
+- `UK2Node_Tunnel`
+- `UK2Node_TunnelBoundary`
+
+Current plan state:
+
+- `Composite`, `FunctionEntry`, `FunctionResult`, `MacroInstance`, and `Tunnel`
+  are `recipe_case / ready`
+- `TunnelBoundary` remains intentionally conservative as `blocked` because no
+  stable authored recipe has been promoted yet
 
 ## How To Read Failures
 
