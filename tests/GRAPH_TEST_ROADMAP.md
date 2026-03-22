@@ -116,6 +116,8 @@ Current PCG end-state for this phase:
   - fresh-session workflow repeatability
 - first selector-truth lane for selector-backed readback
 - first `effective_settings` suite covering presence, shape, and focused truth checks for high-value PCG families
+- first `child_graph_ref` suite covering graph-native second-hop traversal for `Subgraph` and `Loop`
+- first `residual_gap` accounting suite ensuring fallback gaps remain explicit instead of silent
 
 ## Phase 4: Scale and Long-Tail Strengthening
 

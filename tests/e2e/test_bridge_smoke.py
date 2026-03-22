@@ -228,6 +228,20 @@ EXPECTED_PCG_EFFECTIVE_SETTINGS_SUITE_SUMMARY = {
     "families": ["meta", "source", "spawn"],
 }
 
+EXPECTED_PCG_CHILD_GRAPH_REF_SUITE_SUMMARY = {
+    "totalCases": 2,
+    "families": ["struct"],
+    "querySurfaceKinds": ["child_graph_ref"],
+}
+
+EXPECTED_PCG_RESIDUAL_GAP_SUITE_SUMMARY = {
+    "totalCases": 0,
+    "documentedCases": 0,
+    "missingFallback": 0,
+    "missingReason": 0,
+    "fallbackKinds": [],
+}
+
 
 def _require(condition: bool, message: str) -> None:
     if not condition:
@@ -2280,6 +2294,66 @@ def validate_generated_pcg_effective_settings_suite() -> None:
     print("[PASS] generated PCG effectiveSettings suite validated")
 
 
+def validate_generated_pcg_child_graph_ref_suite() -> None:
+    payload = subprocess.check_output(
+        [
+            sys.executable,
+            str(TOOLS_DIR / "run_pcg_child_graph_ref_suite.py"),
+            "--list-cases",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+    )
+    report = json.loads(payload)
+    _require(report.get("version") == "1", f"pcg childGraphRef suite version mismatch: {report}")
+    _require(report.get("graphType") == "pcg", f"pcg childGraphRef suite graphType mismatch: {report}")
+    _require(report.get("suite") == "child_graph_ref", f"pcg childGraphRef suite name mismatch: {report}")
+    summary = report.get("summary")
+    _require(summary == EXPECTED_PCG_CHILD_GRAPH_REF_SUITE_SUMMARY, f"pcg childGraphRef suite summary mismatch: {summary}")
+    cases = report.get("cases")
+    _require(isinstance(cases, list) and len(cases) == EXPECTED_PCG_CHILD_GRAPH_REF_SUITE_SUMMARY["totalCases"], "pcg childGraphRef suite cases mismatch")
+    case_by_id = {
+        case.get("id"): case
+        for case in cases
+        if isinstance(case, dict) and isinstance(case.get("id"), str)
+    }
+
+    subgraph_case = case_by_id.get("subgraph_child_graph_ref_traversal")
+    _require(isinstance(subgraph_case, dict), "pcg childGraphRef suite missing Subgraph case")
+    _require(subgraph_case.get("fixture") == "pcg_graph", f"pcg childGraphRef subgraph fixture mismatch: {subgraph_case}")
+    _require(subgraph_case.get("families") == ["struct"], f"pcg childGraphRef subgraph families mismatch: {subgraph_case}")
+    _require(subgraph_case.get("querySurfaceKind") == "child_graph_ref", f"pcg childGraphRef subgraph surface mismatch: {subgraph_case}")
+
+    loop_case = case_by_id.get("loop_child_graph_ref_traversal")
+    _require(isinstance(loop_case, dict), "pcg childGraphRef suite missing Loop case")
+    _require(loop_case.get("fixture") == "pcg_graph", f"pcg childGraphRef loop fixture mismatch: {loop_case}")
+    _require(loop_case.get("families") == ["struct"], f"pcg childGraphRef loop families mismatch: {loop_case}")
+    _require(loop_case.get("querySurfaceKind") == "child_graph_ref", f"pcg childGraphRef loop surface mismatch: {loop_case}")
+
+    print("[PASS] generated PCG childGraphRef suite validated")
+
+
+def validate_generated_pcg_residual_gap_suite() -> None:
+    payload = subprocess.check_output(
+        [
+            sys.executable,
+            str(TOOLS_DIR / "run_pcg_residual_gap_suite.py"),
+            "--list-cases",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+    )
+    report = json.loads(payload)
+    _require(report.get("version") == "1", f"pcg residual-gap suite version mismatch: {report}")
+    _require(report.get("graphType") == "pcg", f"pcg residual-gap suite graphType mismatch: {report}")
+    _require(report.get("suite") == "residual_gap", f"pcg residual-gap suite name mismatch: {report}")
+    summary = report.get("summary")
+    _require(summary == EXPECTED_PCG_RESIDUAL_GAP_SUITE_SUMMARY, f"pcg residual-gap suite summary mismatch: {summary}")
+    cases = report.get("cases")
+    _require(isinstance(cases, list) and len(cases) == EXPECTED_PCG_RESIDUAL_GAP_SUITE_SUMMARY["totalCases"], "pcg residual-gap suite cases mismatch")
+    print("[PASS] generated PCG residual-gap suite validated")
+
+
 def fail(msg: str) -> None:
     print(f"[FAIL] {msg}")
     raise SystemExit(1)
@@ -2779,6 +2853,8 @@ def main() -> int:
         validate_generated_pcg_stability_suite()
         validate_generated_pcg_selector_truth_suite()
         validate_generated_pcg_effective_settings_suite()
+        validate_generated_pcg_child_graph_ref_suite()
+        validate_generated_pcg_residual_gap_suite()
         validate_generated_graph_test_surface_report()
 
         print("[PASS] Bridge verification complete")

@@ -8,7 +8,7 @@ It is intentionally short and action-oriented.
 
 The PCG test system is now strong enough to drive product work directly.
 
-It covers six complementary surfaces:
+It covers eight complementary surfaces:
 
 - node-plan coverage
 - workflow truth coverage
@@ -16,6 +16,8 @@ It covers six complementary surfaces:
 - stability and repeatability coverage
 - selector truth coverage
 - effective-settings coverage
+- child-graph-ref coverage
+- residual-gap accounting
 
 The current system is designed to expose real product gaps, not just smoke-level breakage.
 
@@ -72,7 +74,7 @@ If you only want one quick readiness check, run:
 python3 /Users/xartest/dev/loomle/tests/e2e/test_bridge_smoke.py --project-root /Users/xartest/dev/LoomleDevHost
 ```
 
-If you want the real PCG product-facing signals, run these six suites:
+If you want the real PCG product-facing signals, run these eight suites:
 
 ```bash
 python3 /Users/xartest/dev/loomle/tools/run_pcg_graph_test_plan.py --project-root /Users/xartest/dev/LoomleDevHost
@@ -81,6 +83,8 @@ python3 /Users/xartest/dev/loomle/tools/run_pcg_negative_boundary_suite.py --pro
 python3 /Users/xartest/dev/loomle/tools/run_pcg_stability_suite.py --project-root /Users/xartest/dev/LoomleDevHost
 python3 /Users/xartest/dev/loomle/tools/run_pcg_selector_truth_suite.py --project-root /Users/xartest/dev/LoomleDevHost
 python3 /Users/xartest/dev/loomle/tools/run_pcg_effective_settings_suite.py --project-root /Users/xartest/dev/LoomleDevHost
+python3 /Users/xartest/dev/loomle/tools/run_pcg_child_graph_ref_suite.py --project-root /Users/xartest/dev/LoomleDevHost
+python3 /Users/xartest/dev/loomle/tools/run_pcg_residual_gap_suite.py
 ```
 
 If you want JSON artifacts for inspection or sharing, add `--output <path>.json`.
@@ -150,6 +154,30 @@ The effective-settings suite currently covers:
 
 This means high-value PCG nodes can now be tested against a dedicated `effectiveSettings` surface instead of being reduced to pin-default coverage only.
 
+## Current ChildGraphRef Coverage
+
+The child-graph-ref suite currently covers:
+
+- `Subgraph`
+- `Loop`
+
+It verifies:
+
+- `childGraphRef` presence on the node surface
+- graph-native second-hop discovery through `graph.list(includeSubgraphs)`
+- follow-up queryability of the child graph surface
+
+## Current Residual-Gap Accounting
+
+The residual-gap suite currently audits whether any PCG nodes are still
+explicitly declared as fallback-only read surfaces.
+
+Right now this accounting surface is expected to stay narrow. If future
+residual gaps appear, they must declare both:
+
+- why the gap still exists
+- which fallback path is allowed
+
 ## How To Read Failures
 
 ### If workflow truth fails with `query_truth_unsurfaced`
@@ -195,6 +223,21 @@ Interpret that as:
 - but `graph.query` is either not surfacing that object at all
 - or not surfacing enough grouped structure for automation to treat it as a trustworthy primary read surface
 
+### If child-graph-ref suite fails
+
+Interpret that as:
+
+- the node is expected to stay graph-native
+- but `childGraphRef` is missing
+- or the second hop cannot be traversed and queried as a graph surface
+
+### If residual-gap suite fails
+
+Interpret that as:
+
+- the test system has found a fallback-only node that is not explicitly documented
+- or a declared residual gap is missing its fallback policy or reason
+
 ## Key Files
 
 Execution:
@@ -205,6 +248,8 @@ Execution:
 - [run_pcg_stability_suite.py](/Users/xartest/dev/loomle/tools/run_pcg_stability_suite.py)
 - [run_pcg_selector_truth_suite.py](/Users/xartest/dev/loomle/tools/run_pcg_selector_truth_suite.py)
 - [run_pcg_effective_settings_suite.py](/Users/xartest/dev/loomle/tools/run_pcg_effective_settings_suite.py)
+- [run_pcg_child_graph_ref_suite.py](/Users/xartest/dev/loomle/tools/run_pcg_child_graph_ref_suite.py)
+- [run_pcg_residual_gap_suite.py](/Users/xartest/dev/loomle/tools/run_pcg_residual_gap_suite.py)
 
 Design context:
 
