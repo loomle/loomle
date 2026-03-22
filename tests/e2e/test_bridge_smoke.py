@@ -138,6 +138,14 @@ EXPECTED_BLUEPRINT_STABILITY_SUITE_SUMMARY = {
     "families": ["branch", "function_call", "struct", "utility"],
 }
 
+EXPECTED_BLUEPRINT_RESIDUAL_GAP_SUITE_SUMMARY = {
+    "totalCases": 6,
+    "documentedCases": 6,
+    "missingFallback": 0,
+    "missingReason": 0,
+    "fallbackKinds": ["execute"],
+}
+
 EXPECTED_MATERIAL_PLAN_SUMMARY = {
     "totalNodes": 317,
     "readyAutoCases": 316,
@@ -177,6 +185,12 @@ EXPECTED_MATERIAL_STABILITY_SUITE_SUMMARY = {
     "totalCases": 3,
     "freshSessionCases": 1,
     "families": ["expression", "parameter", "texture"],
+}
+
+EXPECTED_MATERIAL_CHILD_GRAPH_REF_SUITE_SUMMARY = {
+    "totalCases": 1,
+    "families": ["expression"],
+    "querySurfaceKinds": ["child_graph_ref"],
 }
 
 EXPECTED_PCG_COVERAGE_SUMMARY = {
@@ -1021,6 +1035,19 @@ def validate_workspace_catalogs() -> None:
         },
         f"blueprint database testingProfileCounts mismatch: {summary}",
     )
+    macro_instance_node = next(
+        (node for node in blueprint_database_nodes if isinstance(node, dict) and node.get("className") == "UK2Node_MacroInstance"),
+        None,
+    )
+    _require(isinstance(macro_instance_node, dict), "blueprint database missing UK2Node_MacroInstance")
+    macro_testing = macro_instance_node.get("testing")
+    _require(
+        isinstance(macro_testing, dict)
+        and isinstance(macro_testing.get("querySurface"), dict)
+        and macro_testing["querySurface"].get("kind") == "residual_gap"
+        and macro_testing["querySurface"].get("fallback") == "execute",
+        f"blueprint macro-instance querySurface mismatch: {macro_instance_node}",
+    )
 
     material_index = _load_json_file(workspace_root / "material" / "catalogs" / "node-index.json")
     _require(material_index.get("graphType") == "material", "material index graphType mismatch")
@@ -1092,7 +1119,9 @@ def validate_workspace_catalogs() -> None:
     _require(
         isinstance(function_testing, dict)
         and function_testing.get("profile") == "context_recipe_required"
-        and function_testing.get("recipe") == "material_function_call",
+        and function_testing.get("recipe") == "material_function_call"
+        and isinstance(function_testing.get("querySurface"), dict)
+        and function_testing["querySurface"].get("kind") == "child_graph_ref",
         f"material function call testing missing: {function_call}",
     )
 
@@ -1236,6 +1265,12 @@ def validate_generated_blueprint_test_plan() -> None:
         _require(isinstance(macro_instance, dict), "blueprint plan missing UK2Node_MacroInstance")
         _require(macro_instance.get("mode") == "blocked", f"blueprint macro-instance mode mismatch: {macro_instance}")
         _require(macro_instance.get("status") == "blocked", f"blueprint macro-instance status mismatch: {macro_instance}")
+        _require(
+            isinstance(macro_instance.get("querySurface"), dict)
+            and macro_instance["querySurface"].get("kind") == "residual_gap"
+            and macro_instance["querySurface"].get("fallback") == "execute",
+            f"blueprint macro-instance querySurface mismatch: {macro_instance}",
+        )
         _require("missing recipe" in str(macro_instance.get("reason")), f"blueprint macro-instance reason mismatch: {macro_instance}")
 
         variable = entry_by_class.get("UK2Node_Variable")
@@ -1583,6 +1618,44 @@ def validate_generated_blueprint_stability_suite() -> None:
     print("[PASS] generated Blueprint stability suite validated")
 
 
+def validate_generated_blueprint_residual_gap_suite() -> None:
+    payload = subprocess.check_output(
+        [
+            sys.executable,
+            str(TOOLS_DIR / "run_blueprint_residual_gap_suite.py"),
+            "--list-cases",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+    )
+    suite = json.loads(payload)
+    _require(suite.get("version") == "1", f"blueprint residual-gap suite version mismatch: {suite}")
+    _require(suite.get("graphType") == "blueprint", f"blueprint residual-gap suite graphType mismatch: {suite}")
+    _require(suite.get("suite") == "residual_gap", f"blueprint residual-gap suite id mismatch: {suite}")
+    summary = suite.get("summary")
+    _require(summary == EXPECTED_BLUEPRINT_RESIDUAL_GAP_SUITE_SUMMARY, f"blueprint residual-gap suite summary mismatch: {summary}")
+    cases = suite.get("cases")
+    _require(
+        isinstance(cases, list) and len(cases) == EXPECTED_BLUEPRINT_RESIDUAL_GAP_SUITE_SUMMARY["totalCases"],
+        "blueprint residual-gap suite cases mismatch",
+    )
+    case_by_id = {
+        case.get("id"): case
+        for case in cases
+        if isinstance(case, dict) and isinstance(case.get("id"), str)
+    }
+
+    macro_case = case_by_id.get("UK2Node_MacroInstance")
+    _require(isinstance(macro_case, dict), "blueprint residual-gap suite missing UK2Node_MacroInstance")
+    _require(macro_case.get("fallback") == "execute", f"blueprint residual-gap fallback mismatch: {macro_case}")
+    _require(
+        "Graph-structure Blueprint nodes" in str(macro_case.get("reason")),
+        f"blueprint residual-gap reason mismatch: {macro_case}",
+    )
+
+    print("[PASS] generated Blueprint residual-gap suite validated")
+
+
 def validate_generated_material_test_plan() -> None:
     with tempfile.TemporaryDirectory(prefix="loomle-material-plan-") as tmpdir:
         output_path = Path(tmpdir) / "material_test_plan.json"
@@ -1646,6 +1719,11 @@ def validate_generated_material_test_plan() -> None:
         _require(function_call.get("recipe") == "material_function_call", f"material function call recipe mismatch: {function_call}")
         _require(function_call.get("fixture") == "material_graph", f"material function call fixture mismatch: {function_call}")
         _require(function_call.get("status") == "ready", f"material function call status mismatch: {function_call}")
+        _require(
+            isinstance(function_call.get("querySurface"), dict)
+            and function_call["querySurface"].get("kind") == "child_graph_ref",
+            f"material function call querySurface mismatch: {function_call}",
+        )
 
         comment = entry_by_class.get("UMaterialExpressionComment")
         _require(isinstance(comment, dict), "material plan missing UMaterialExpressionComment")
@@ -1837,6 +1915,42 @@ def validate_generated_material_stability_suite() -> None:
     _require(fresh_case.get("workflowCaseId") == "replace_saturate_with_one_minus", f"material stability fresh-session workflow mismatch: {fresh_case}")
 
     print("[PASS] generated Material stability suite validated")
+
+
+def validate_generated_material_child_graph_ref_suite() -> None:
+    payload = subprocess.check_output(
+        [
+            sys.executable,
+            str(TOOLS_DIR / "run_material_child_graph_ref_suite.py"),
+            "--list-cases",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+    )
+    suite = json.loads(payload)
+    _require(suite.get("version") == "1", f"material childGraphRef suite version mismatch: {suite}")
+    _require(suite.get("graphType") == "material", f"material childGraphRef suite graphType mismatch: {suite}")
+    _require(suite.get("suite") == "child_graph_ref", f"material childGraphRef suite id mismatch: {suite}")
+    summary = suite.get("summary")
+    _require(summary == EXPECTED_MATERIAL_CHILD_GRAPH_REF_SUITE_SUMMARY, f"material childGraphRef suite summary mismatch: {summary}")
+    cases = suite.get("cases")
+    _require(
+        isinstance(cases, list) and len(cases) == EXPECTED_MATERIAL_CHILD_GRAPH_REF_SUITE_SUMMARY["totalCases"],
+        "material childGraphRef suite cases mismatch",
+    )
+    case_by_id = {
+        case.get("id"): case
+        for case in cases
+        if isinstance(case, dict) and isinstance(case.get("id"), str)
+    }
+
+    function_case = case_by_id.get("material_function_call_child_graph_ref_traversal")
+    _require(isinstance(function_case, dict), "material childGraphRef suite missing function-call case")
+    _require(function_case.get("fixture") == "material_graph", f"material childGraphRef fixture mismatch: {function_case}")
+    _require(function_case.get("families") == ["expression"], f"material childGraphRef families mismatch: {function_case}")
+    _require(function_case.get("querySurfaceKind") == "child_graph_ref", f"material childGraphRef surface mismatch: {function_case}")
+
+    print("[PASS] generated Material childGraphRef suite validated")
 
 
 def validate_generated_pcg_coverage_report() -> None:
@@ -2841,11 +2955,13 @@ def main() -> int:
         validate_generated_blueprint_workflow_truth_suite()
         validate_generated_blueprint_negative_boundary_suite()
         validate_generated_blueprint_stability_suite()
+        validate_generated_blueprint_residual_gap_suite()
         validate_generated_material_test_plan()
         validate_generated_material_coverage_report()
         validate_generated_material_workflow_truth_suite()
         validate_generated_material_negative_boundary_suite()
         validate_generated_material_stability_suite()
+        validate_generated_material_child_graph_ref_suite()
         validate_generated_pcg_test_plan()
         validate_generated_pcg_coverage_report()
         validate_generated_pcg_workflow_truth_suite()

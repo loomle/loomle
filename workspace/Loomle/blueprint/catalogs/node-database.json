@@ -753,6 +753,10 @@
       ],
       "testing": {
         "profile": "context_recipe_required",
+        "querySurface": {
+          "kind": "residual_gap",
+          "fallback": "execute"
+        },
         "reason": "Graph-structure Blueprint nodes usually require a dedicated recipe or owning graph context."
       }
     },
@@ -1215,6 +1219,10 @@
       ],
       "testing": {
         "profile": "context_recipe_required",
+        "querySurface": {
+          "kind": "residual_gap",
+          "fallback": "execute"
+        },
         "reason": "Graph-structure Blueprint nodes usually require a dedicated recipe or owning graph context."
       }
     },
@@ -1237,6 +1245,10 @@
       "properties": [],
       "testing": {
         "profile": "context_recipe_required",
+        "querySurface": {
+          "kind": "residual_gap",
+          "fallback": "execute"
+        },
         "reason": "Graph-structure Blueprint nodes usually require a dedicated recipe or owning graph context."
       }
     },
@@ -1974,6 +1986,10 @@
       ],
       "testing": {
         "profile": "context_recipe_required",
+        "querySurface": {
+          "kind": "residual_gap",
+          "fallback": "execute"
+        },
         "reason": "Graph-structure Blueprint nodes usually require a dedicated recipe or owning graph context."
       }
     },
@@ -2858,6 +2874,10 @@
       ],
       "testing": {
         "profile": "context_recipe_required",
+        "querySurface": {
+          "kind": "residual_gap",
+          "fallback": "execute"
+        },
         "reason": "Graph-structure Blueprint nodes usually require a dedicated recipe or owning graph context."
       }
     },
@@ -2901,6 +2921,10 @@
       ],
       "testing": {
         "profile": "context_recipe_required",
+        "querySurface": {
+          "kind": "residual_gap",
+          "fallback": "execute"
+        },
         "reason": "Graph-structure Blueprint nodes usually require a dedicated recipe or owning graph context."
       }
     },

@@ -5456,6 +5456,9 @@
       "testing": {
         "profile": "context_recipe_required",
         "recipe": "material_function_call",
+        "querySurface": {
+          "kind": "child_graph_ref"
+        },
         "reason": "Requires a child material function asset and material graph context."
       }
     },

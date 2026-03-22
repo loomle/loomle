@@ -8,13 +8,14 @@ It is intentionally short and action-oriented.
 
 The Blueprint test system is now strong enough to drive product work directly.
 
-It currently covers five complementary surfaces:
+It currently covers six complementary surfaces:
 
 - node-plan coverage
 - coverage visibility
 - workflow truth coverage
 - negative and boundary coverage
 - stability and repeatability coverage
+- residual-gap accounting
 
 This means Blueprint is no longer limited to smoke-only validation. The test system can now distinguish:
 
@@ -68,7 +69,7 @@ If you only want one quick readiness check, run:
 python3 /Users/xartest/dev/loomle/tests/e2e/test_bridge_smoke.py --project-root /Users/xartest/dev/LoomleDevHost
 ```
 
-If you want the real Blueprint product-facing signals, run these five suites:
+If you want the real Blueprint product-facing signals, run these suites:
 
 ```bash
 python3 /Users/xartest/dev/loomle/tools/generate_graph_test_plan.py --graph-type blueprint
@@ -76,6 +77,7 @@ python3 /Users/xartest/dev/loomle/tools/generate_graph_test_coverage_report.py -
 python3 /Users/xartest/dev/loomle/tools/run_blueprint_workflow_truth_suite.py --project-root /Users/xartest/dev/LoomleDevHost
 python3 /Users/xartest/dev/loomle/tools/run_blueprint_negative_boundary_suite.py --project-root /Users/xartest/dev/LoomleDevHost
 python3 /Users/xartest/dev/loomle/tools/run_blueprint_stability_suite.py --project-root /Users/xartest/dev/LoomleDevHost
+python3 /Users/xartest/dev/loomle/tools/run_blueprint_residual_gap_suite.py
 ```
 
 If you want JSON artifacts for inspection or sharing, add `--output <path>.json`.
@@ -143,6 +145,17 @@ Current stability status:
 
 - `3 pass / 0 fail`
 
+### Residual Gap
+
+The residual-gap suite currently covers the graph-structure Blueprint nodes that still require explicit fallback handling:
+
+- `Composite`
+- `Function Entry`
+- `Function Result`
+- `Macro Instance`
+- `Tunnel`
+- `Tunnel Boundary`
+
 ## How To Read Failures
 
 ### If workflow truth fails
@@ -180,6 +193,7 @@ Execution:
 - [run_blueprint_workflow_truth_suite.py](/Users/xartest/dev/loomle/tools/run_blueprint_workflow_truth_suite.py)
 - [run_blueprint_negative_boundary_suite.py](/Users/xartest/dev/loomle/tools/run_blueprint_negative_boundary_suite.py)
 - [run_blueprint_stability_suite.py](/Users/xartest/dev/loomle/tools/run_blueprint_stability_suite.py)
+- [run_blueprint_residual_gap_suite.py](/Users/xartest/dev/loomle/tools/run_blueprint_residual_gap_suite.py)
 
 Design context:
 

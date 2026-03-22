@@ -185,6 +185,21 @@ Current Material status entering this phase:
   - repeated material query snapshots
   - repeated verify surfaces on a workflow graph
   - fresh-session workflow repeatability
+- first `child_graph_ref` suite now probes:
+  - `MaterialFunctionCall` surfacing `childGraphRef`
+  - second-hop traversal into the referenced Material Function graph
+
+Current Blueprint status entering this phase:
+
+- runnable baseline and coverage visibility are active
+- workflow, negative, and stability suites are already active
+- first `residual_gap` accounting now covers graph-structure nodes that still require explicit fallback:
+  - `Composite`
+  - `Function Entry`
+  - `Function Result`
+  - `Macro Instance`
+  - `Tunnel`
+  - `Tunnel Boundary`
 
 ## Recommended Order by Graph Type
 

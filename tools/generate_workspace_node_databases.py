@@ -759,6 +759,8 @@ def derive_material_testing(entry: dict) -> dict:
     if recipe:
         testing["profile"] = "context_recipe_required"
         testing["recipe"] = recipe
+        if class_name == "UMaterialExpressionMaterialFunctionCall":
+            testing["querySurface"] = {"kind": "child_graph_ref"}
         testing["reason"] = "Requires a child material function asset and material graph context."
         return testing
 
@@ -1002,6 +1004,7 @@ def derive_blueprint_testing(
     if family == "struct":
         return {
             "profile": "context_recipe_required",
+            "querySurface": {"kind": "residual_gap", "fallback": "execute"},
             "reason": "Graph-structure Blueprint nodes usually require a dedicated recipe or owning graph context.",
         }
 
