@@ -973,6 +973,29 @@ def derive_blueprint_family(class_name: str, node_kind: str, addability: str, co
 def derive_blueprint_testing(
     *, class_name: str, family: str, addability: str, context_requirements: list[str]
 ) -> dict[str, Any]:
+    if class_name == "UK2Node_Timeline":
+        return {
+            "profile": "context_recipe_required",
+            "recipe": "blueprint_timeline_graph",
+            "querySurface": {"kind": "residual_gap", "fallback": "execute"},
+            "reason": "Timeline nodes depend on Blueprint-owned timeline templates and require timeline-capable graph context.",
+        }
+
+    if class_name == "UK2Node_AddComponent":
+        return {
+            "profile": "context_recipe_required",
+            "recipe": "blueprint_component_template_context",
+            "querySurface": {"kind": "residual_gap", "fallback": "execute"},
+            "reason": "AddComponent nodes depend on Blueprint-owned component templates and require component-template-capable graph context.",
+        }
+
+    if class_name == "UK2Node_AddComponentByClass":
+        return {
+            "profile": "context_recipe_required",
+            "recipe": "blueprint_actor_execution_graph",
+            "reason": "AddComponentByClass requires an actor execution context even though it is not yet classified as an embedded-template node.",
+        }
+
     if family == "branch":
         return {
             "profile": "semantic_family_represented",

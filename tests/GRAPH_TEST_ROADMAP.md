@@ -194,12 +194,19 @@ Current Blueprint status entering this phase:
 - runnable baseline and coverage visibility are active
 - workflow, negative, and stability suites are already active
 - first `residual_gap` accounting now covers graph-structure nodes that still require explicit fallback:
+  - `Add Component`
   - `Composite`
   - `Function Entry`
   - `Function Result`
   - `Macro Instance`
+  - `Timeline`
   - `Tunnel`
   - `Tunnel Boundary`
+- first embedded-template classification now explicitly isolates:
+  - `UK2Node_Timeline`
+  - `UK2Node_AddComponent`
+- actor-context construct coverage now separately upgrades:
+  - `UK2Node_AddComponentByClass`
 
 ## Recommended Order by Graph Type
 

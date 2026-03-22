@@ -78,6 +78,7 @@ python3 /Users/xartest/dev/loomle/tools/run_blueprint_workflow_truth_suite.py --
 python3 /Users/xartest/dev/loomle/tools/run_blueprint_negative_boundary_suite.py --project-root /Users/xartest/dev/LoomleDevHost
 python3 /Users/xartest/dev/loomle/tools/run_blueprint_stability_suite.py --project-root /Users/xartest/dev/LoomleDevHost
 python3 /Users/xartest/dev/loomle/tools/run_blueprint_residual_gap_suite.py
+python3 /Users/xartest/dev/loomle/tools/run_blueprint_embedded_template_suite.py
 ```
 
 If you want JSON artifacts for inspection or sharing, add `--output <path>.json`.
@@ -153,8 +154,27 @@ The residual-gap suite currently covers the graph-structure Blueprint nodes that
 - `Function Entry`
 - `Function Result`
 - `Macro Instance`
+- `Add Component`
+- `Timeline`
 - `Tunnel`
 - `Tunnel Boundary`
+
+### Embedded-Template Residual Gaps
+
+Blueprint now explicitly classifies these nodes as embedded-template residual-gap
+nodes:
+
+- `UK2Node_Timeline`
+- `UK2Node_AddComponent`
+
+The test system expects:
+
+- `context_recipe_required`
+- dedicated recipes
+- explicit `residual_gap` query-surface declaration
+
+`UK2Node_AddComponentByClass` is now recipe-backed through actor execution
+context, but is not yet treated as an embedded-template node.
 
 ## How To Read Failures
 
@@ -194,6 +214,7 @@ Execution:
 - [run_blueprint_negative_boundary_suite.py](/Users/xartest/dev/loomle/tools/run_blueprint_negative_boundary_suite.py)
 - [run_blueprint_stability_suite.py](/Users/xartest/dev/loomle/tools/run_blueprint_stability_suite.py)
 - [run_blueprint_residual_gap_suite.py](/Users/xartest/dev/loomle/tools/run_blueprint_residual_gap_suite.py)
+- [run_blueprint_embedded_template_suite.py](/Users/xartest/dev/loomle/tools/run_blueprint_embedded_template_suite.py)
 
 Design context:
 

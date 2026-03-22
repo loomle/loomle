@@ -98,8 +98,47 @@ A short list of the scenarios the fixture is best suited for.
   - the compile baseline is healthy
 - `bestFor`:
   - local control-flow rewrite
-  - branch and sequence insertion
-  - preserve-interface tests
+- branch and sequence insertion
+- preserve-interface tests
+
+### `blueprint_actor_execution_graph`
+
+- `id`: `blueprint_actor_execution_graph`
+- `graphType`: `blueprint`
+- `summary`: actor-based Blueprint execution graph with legal actor-context construct semantics
+- `guarantees`:
+  - an editable actor-based Blueprint asset exists
+  - a legal execution graph exists
+  - actor-context construct nodes can be inserted meaningfully
+- `bestFor`:
+  - actor-bound construct recipes
+  - `AddComponentByClass`
+
+### `blueprint_timeline_graph`
+
+- `id`: `blueprint_timeline_graph`
+- `graphType`: `blueprint`
+- `summary`: timeline-capable Blueprint event graph with legal timeline creation context
+- `guarantees`:
+  - an editable actor-based Blueprint asset exists
+  - a legal event or ubergraph context exists
+  - timeline creation is legal in the fixture context
+- `bestFor`:
+  - timeline recipes
+  - embedded-template timeline coverage
+
+### `blueprint_component_template_context`
+
+- `id`: `blueprint_component_template_context`
+- `graphType`: `blueprint`
+- `summary`: actor-based Blueprint graph with legal component-template side effects
+- `guarantees`:
+  - an editable actor-based Blueprint asset exists
+  - component-template or SCS side effects are legal
+  - component-template carrier nodes can be inserted meaningfully
+- `bestFor`:
+  - `AddComponent`
+  - embedded-template component coverage
 
 ## Material Fixtures
 

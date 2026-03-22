@@ -36,8 +36,8 @@
       "control_flow": 1
     },
     "testingProfileCounts": {
-      "construct_and_query": 86,
-      "context_recipe_required": 9,
+      "construct_and_query": 83,
+      "context_recipe_required": 12,
       "inventory_only": 5,
       "semantic_family_represented": 1
     },
@@ -147,8 +147,13 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query",
-        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+        "profile": "context_recipe_required",
+        "recipe": "blueprint_component_template_context",
+        "querySurface": {
+          "kind": "residual_gap",
+          "fallback": "execute"
+        },
+        "reason": "AddComponent nodes depend on Blueprint-owned component templates and require component-template-capable graph context."
       }
     },
     {
@@ -169,8 +174,9 @@
       ],
       "properties": [],
       "testing": {
-        "profile": "construct_and_query",
-        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+        "profile": "context_recipe_required",
+        "recipe": "blueprint_actor_execution_graph",
+        "reason": "AddComponentByClass requires an actor execution context even though it is not yet classified as an embedded-template node."
       }
     },
     {
@@ -2779,8 +2785,13 @@
         }
       ],
       "testing": {
-        "profile": "construct_and_query",
-        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+        "profile": "context_recipe_required",
+        "recipe": "blueprint_timeline_graph",
+        "querySurface": {
+          "kind": "residual_gap",
+          "fallback": "execute"
+        },
+        "reason": "Timeline nodes depend on Blueprint-owned timeline templates and require timeline-capable graph context."
       }
     },
     {

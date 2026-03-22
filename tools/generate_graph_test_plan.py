@@ -26,6 +26,18 @@ FIXTURE_REGISTRY: dict[str, dict[str, dict[str, Any]]] = {
             "graphType": "blueprint",
             "summary": "Blueprint exec chain with stable upstream and downstream interfaces.",
         },
+        "blueprint_actor_execution_graph": {
+            "graphType": "blueprint",
+            "summary": "Actor-based Blueprint execution graph with legal actor-context construct semantics.",
+        },
+        "blueprint_timeline_graph": {
+            "graphType": "blueprint",
+            "summary": "Timeline-capable Blueprint event graph with legal timeline creation context.",
+        },
+        "blueprint_component_template_context": {
+            "graphType": "blueprint",
+            "summary": "Actor-based Blueprint graph with legal component-template side effects.",
+        },
     },
     "material": {
         "material_graph": {
@@ -74,6 +86,18 @@ RECIPE_REGISTRY: dict[str, dict[str, dict[str, Any]]] = {
         "blueprint_function_call": {
             "graphType": "blueprint",
             "fixture": "blueprint_function_graph",
+        },
+        "blueprint_actor_execution_graph": {
+            "graphType": "blueprint",
+            "fixture": "blueprint_actor_execution_graph",
+        },
+        "blueprint_timeline_graph": {
+            "graphType": "blueprint",
+            "fixture": "blueprint_timeline_graph",
+        },
+        "blueprint_component_template_context": {
+            "graphType": "blueprint",
+            "fixture": "blueprint_component_template_context",
         },
     },
     "material": {

@@ -133,6 +133,55 @@ Best for:
 
 - local function call nodes
 
+### `blueprint_actor_execution_graph`
+
+- `graphType`: `blueprint`
+- `fixture`: `blueprint_actor_execution_graph`
+- `preconditions`:
+  - target Blueprint is actor-based
+  - a legal execution graph exists
+- `setup`:
+  - ensure a stable actor execution insertion point exists
+  - keep self and owner context legal for actor-bound construct nodes
+
+Best for:
+
+- `AddComponentByClass`
+- other actor-context construct nodes
+
+### `blueprint_timeline_graph`
+
+- `graphType`: `blueprint`
+- `fixture`: `blueprint_timeline_graph`
+- `preconditions`:
+  - target Blueprint is actor-based
+  - the graph is an event or ubergraph context
+  - the Blueprint supports timelines
+- `setup`:
+  - create or reuse a legal event-graph insertion point
+  - preserve a timeline-capable Blueprint context
+
+Best for:
+
+- `Timeline`
+- later Blueprint timeline-family nodes
+
+### `blueprint_component_template_context`
+
+- `graphType`: `blueprint`
+- `fixture`: `blueprint_component_template_context`
+- `preconditions`:
+  - target Blueprint is actor-based
+  - the Blueprint supports component-template side effects
+- `setup`:
+  - provide a legal execution insertion point
+  - preserve SCS or component-template-capable Blueprint context
+
+Best for:
+
+- `AddComponent`
+- later Blueprint component-template carrier nodes
+
 ### `material_function_call`
 
 - `graphType`: `material`
