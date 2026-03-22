@@ -14,10 +14,10 @@ This is still a draft. It does not mean the tools are implemented yet.
 
 Status note:
 
-- `graph.ops` may remain as an optional curated live catalog
-- `graph.ops.resolve` is no longer the preferred public planning path
-- the preferred agent workflow now centers on workspace-local references plus
-  primitive `graph.mutate` and `graph.query` / `graph.verify`
+- this document is archival protocol design, not active tool-surface reference
+- `graph.ops` and `graph.ops.resolve` are no longer part of the active LOOMLE tool surface
+- use `docs/MCP_PROTOCOL.md`, `docs/RPC_INTERFACE.md`, and `workspace/Loomle/` for current product-facing guidance
+- this draft records an older direction where these tools were still under discussion
 
 ## 2. Public Direction
 

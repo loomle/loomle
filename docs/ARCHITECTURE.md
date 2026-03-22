@@ -54,12 +54,15 @@ MCP tools:
 - `loomle`
 - `context`
 - `execute`
+- `editor.open`
+- `editor.focus`
+- `editor.screenshot`
 - `graph`
 - `graph.list`
-- `graph.ops`
-- `graph.ops.resolve`
+- `graph.resolve`
 - `graph.query`
 - `graph.mutate`
+- `graph.verify`
 - `diag.tail`
 
 Execution route:
@@ -68,12 +71,15 @@ Execution route:
 - `context`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=context`).
 - `execute`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=execute`).
 - `execute` is intentionally the Unreal-Python fallback surface for non-graph operations and for graph domains/capabilities not yet exposed through structured `graph.*` tools.
+- `editor.open`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=editor.open`).
+- `editor.focus`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=editor.focus`).
+- `editor.screenshot`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=editor.screenshot`).
 - `graph`: MCP local descriptor response + required `rpc.health` probe on every call.
 - `graph.list`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.list`).
-- `graph.ops`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.ops`).
-- `graph.ops.resolve`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.ops.resolve`).
+- `graph.resolve`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.resolve`).
 - `graph.query`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.query`).
 - `graph.mutate`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.mutate`).
+- `graph.verify`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.verify`).
 - `diag.tail`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=diag.tail`).
 
 Windows transport contention handling:

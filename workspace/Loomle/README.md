@@ -50,6 +50,9 @@ Work in three phases:
    Working rule:
    - treat the workspace guides, semantics, catalogs, and examples as the primary semantic reference
    - treat `graph.mutate` as the stable graph execution layer
+   - treat `graph.query` as the primary readback contract:
+     - shared graph-native surfaces center on pin defaults, grouped `effectiveSettings`, and `childGraphRef`
+     - Blueprint may also return richer surfaces such as `embeddedTemplate`, `graphBoundarySummary`, and `contextSensitiveConstruct`
 9. Escalate only when the primary surface is not enough
    - use `graph.*` first for supported graph capabilities
    - use `execute` when the task is non-graph editor automation, or when a graph-domain capability is not yet covered by `graph.*`

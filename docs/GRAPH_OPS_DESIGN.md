@@ -7,6 +7,12 @@ This document now serves two purposes:
 1. record the historical `graph.ops` / `graph.ops.resolve` design
 2. state the current public direction for LOOMLE graph work
 
+Status note:
+
+- this document is historical design context, not active tool-surface reference
+- `graph.ops` and `graph.ops.resolve` are no longer part of the active LOOMLE tool surface
+- use `docs/MCP_PROTOCOL.md`, `docs/RPC_INTERFACE.md`, and `workspace/Loomle/` for current product-facing guidance
+
 Current public direction:
 
 - agent-first graph guidance should live in `workspace/Loomle/`
@@ -16,8 +22,8 @@ Current public direction:
   - graph-specific `catalogs/` and `examples/`
 - `graph.mutate` remains the stable primitive execution layer
 - `graph.query` and `graph.verify` remain the validation loop
-- `graph.ops` may remain as an optional curated live listing
-- `graph.ops.resolve` is no longer the preferred planning path for new agent workflows
+- historical design explored `graph.ops` as an optional curated live listing
+- historical design treated `graph.ops.resolve` as a secondary planning path rather than the preferred one
 
 Historical proposal:
 

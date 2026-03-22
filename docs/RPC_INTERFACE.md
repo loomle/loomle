@@ -119,7 +119,7 @@ Result:
 {
   "rpcVersion": "1.0",
   "methods": ["rpc.health", "rpc.capabilities", "rpc.invoke"],
-  "tools": ["context", "execute", "graph.list", "graph.resolve", "graph.query", "graph.verify", "graph.ops", "graph.ops.resolve", "graph.mutate", "diag.tail"],
+  "tools": ["context", "execute", "editor.open", "editor.focus", "editor.screenshot", "graph.list", "graph.resolve", "graph.query", "graph.verify", "graph.mutate", "diag.tail"],
   "graphTypes": ["blueprint", "material", "pcg"],
   "features": {
     "revision": true,
@@ -138,7 +138,7 @@ Request params:
 
 ```json
 {
-  "tool": "context|execute|graph.list|graph.resolve|graph.query|graph.verify|graph.ops|graph.ops.resolve|graph.mutate|diag.tail",
+  "tool": "context|execute|editor.open|editor.focus|editor.screenshot|graph.list|graph.resolve|graph.query|graph.verify|graph.mutate|diag.tail",
   "args": {},
   "meta": {
     "requestId": "external-id",
@@ -221,10 +221,66 @@ Field notes:
 - `execute` runs Python inside the active Unreal Editor process.
 - Prefer `execute` for non-graph editor automation and for graph types or graph-domain capabilities that are not yet covered by `graph.*`.
 - Do not prefer `execute` when a structured `graph.query`, `graph.mutate`, or `graph.verify` path already covers the task.
-- Workspace-local guides and semantics are the preferred knowledge source for agents before reaching for optional live catalog tools such as `graph.ops`.
+- Workspace-local guides and semantics are the preferred knowledge source for agents before composing structured `graph.resolve`, `graph.query`, `graph.mutate`, and `graph.verify` calls.
 - Agent-local Python is a separate local-machine tool. It does not replace Unreal-side `execute`.
 
-## 5.3 tool=`graph.list`
+## 5.3 tool=`editor.open`
+
+`args`:
+
+```json
+{
+  "assetPath": "/Game/..."
+}
+```
+
+`payload`:
+
+```json
+{
+  "ok": true
+}
+```
+
+## 5.4 tool=`editor.focus`
+
+`args`:
+
+```json
+{
+  "assetPath": "/Game/..."
+}
+```
+
+`payload`:
+
+```json
+{
+  "ok": true
+}
+```
+
+## 5.5 tool=`editor.screenshot`
+
+`args`:
+
+```json
+{
+  "assetPath": "/Game/...",
+  "mode": "viewport|editor"
+}
+```
+
+`payload`:
+
+```json
+{
+  "ok": true,
+  "imagePath": "absolute-or-project-local-path"
+}
+```
+
+## 5.6 tool=`graph.list`
 
 `args`:
 
@@ -266,13 +322,13 @@ Field notes:
 
 Field notes:
 
-- `graphRef`: present on all entries. For root graphs the server emits an `asset`-kind ref; for inline subgraphs an `inline`-kind ref. Use this value as input to `graph.query`, `graph.mutate`, or `graph.verify` for direct addressing. `graph.ops.resolve` may also accept it, but that tool is not part of the preferred primary workflow.
+- `graphRef`: present on all entries. For root graphs the server emits an `asset`-kind ref; for inline subgraphs an `inline`-kind ref. Use this value as input to `graph.query`, `graph.mutate`, or `graph.verify` for direct addressing.
 - `parentGraphRef`: `null` for root-level graphs; set to the parent's `graphRef` for subgraphs when `includeSubgraphs` is `true`.
 - `ownerNodeId`: the `nodeId` of the composite/subgraph node that contains this graph. `null` for root graphs.
 - `loadStatus`: present on `kind: "asset"` entries only. `"loaded"` means the asset is in memory; `"loading"` means an async load is in progress; `"not_found"` means the asset path could not be resolved.
 - For `graphType: "material"`, top-level queries are intentionally non-recursive. Use `graph.list(includeSubgraphs=true)` or follow `childGraphRef` from `MaterialFunctionCall` nodes to inspect referenced `UMaterialFunction` graphs.
 
-## 5.4 tool=`graph.query`
+## 5.7 tool=`graph.query`
 
 `args`:
 
@@ -412,164 +468,19 @@ Node field notes:
 - If the runtime downgrades a measured request to basic layout data, diagnostics may include `LAYOUT_DETAIL_DOWNGRADED`.
 - Current LOOMLE support guarantees node positions and move operations. Size/bounds support is partial today; for Blueprint, comment nodes may include model-derived size/bounds even when ordinary nodes do not.
 
-## 5.5 tool=`graph.ops`
+## 5.8 Historical Note: `graph.ops` and `graph.ops.resolve`
 
-`args`:
-
-```json
-{
-  "graphType": "blueprint|material|pcg",
-  "query": "optional-text",
-  "stability": "stable|experimental",
-  "limit": 1000
-}
-```
-
-`payload`:
-
-```json
-{
-  "graphType": "blueprint|material|pcg",
-  "ops": [
-    {
-      "opId": "string",
-      "stability": "stable|experimental",
-      "scope": "cross-graph|blueprint|material|pcg",
-      "summary": "string"
-    }
-  ],
-  "meta": {
-    "source": "loomle_catalog|mixed",
-    "coverage": "curated|partial"
-  },
-  "diagnostics": []
-}
-```
-
-Notes:
-
-- `graph.ops` lists LOOMLE's stable semantic operation catalog for the requested graph domain.
-- This is a planning inventory surface, not an editor action-menu export.
-- `graph.ops` results may be curated rather than exhaustive.
-- The preferred primary agent knowledge surface is the workspace-local graph references under `workspace/Loomle/`.
-
-## 5.6 tool=`graph.ops.resolve`
-
-Status note:
-
-- `graph.ops.resolve` remains part of the RPC surface
-- it is not the preferred public planning path for new agent workflows
-- prefer workspace-local `GUIDE.md` / `SEMANTICS.md` plus primitive `graph.mutate`
-  and `graph.query` / `graph.verify`
-
-`args`:
-
-```json
-{
-  "graphType": "blueprint|material|pcg",
-  "graphRef": { "kind": "inline|asset", "...": "..." },
-  "context": {
-    "fromPin": {
-      "nodeId": "optional-id",
-      "pinName": "optional-pin"
-    },
-    "toPin": {
-      "nodeId": "optional-id",
-      "pinName": "optional-pin"
-    },
-    "edge": {
-      "fromPin": {
-        "nodeId": "optional-id",
-        "pinName": "optional-pin"
-      },
-      "toPin": {
-        "nodeId": "optional-id",
-        "pinName": "optional-pin"
-      }
-    }
-  },
-  "items": [
-    {
-      "opId": "string",
-      "clientRef": "optional",
-      "hints": {
-        "targetRootPin": "optional-material-root-pin"
-      }
-    }
-  ]
-}
-```
-
-`payload`:
-
-```json
-{
-  "graphType": "blueprint|material|pcg",
-  "graphRef": { "kind": "inline|asset", "...": "..." },
-  "results": [
-    {
-      "opId": "string",
-      "clientRef": "optional",
-      "resolved": true,
-      "compatibility": {
-        "isCompatible": true,
-        "reasons": []
-      },
-      "remediation": {
-        "requiredContext": ["optional-context-kind"],
-        "missingFields": ["optional.path"],
-        "nextAction": "optional-guidance",
-        "fallbackKind": "none|direct_mutate|manual_readback"
-      },
-      "preferredPlan": {
-        "realizationKind": "spawn_node",
-        "preferredMutateOp": "addNode.byClass",
-        "args": {
-          "nodeClassPath": "string"
-        },
-        "executionHints": [
-          {
-            "kind": "pipeline_insert",
-            "preserveUpstream": true,
-            "preserveDownstream": true,
-            "composeMode": "independent|pipeline_segment"
-          }
-        ],
-        "source": "typed_discovery|loomle_catalog|generic_fallback|mixed",
-        "coverage": "contextual|curated|partial",
-        "determinism": "stable|context_sensitive|ephemeral"
-      },
-      "alternatives": []
-    }
-  ],
-  "diagnostics": []
-}
-```
-
-Notes:
-
-- `graph.ops.resolve` is a planning surface. It does not mutate the graph by itself.
-- `graphRef` is required.
-- `items[]` is batch-first so callers can compare several semantic operations under the same graph context.
-- `context` may narrow resolution from graph scope to pin scope or edge scope.
-- If an item cannot be resolved in the supplied context, it remains structured inside `results[]` with `resolved=false` and compatibility reasons.
-- `remediation` may appear on unresolved items to say what narrower context or follow-up is required.
-- `preferredPlan.pinHints` may identify important pin roles for follow-up wiring.
-- `preferredPlan.settingsTemplate` may appear when a semantic op commonly needs key settings filled before the node is useful.
-- `preferredPlan.verificationHints` may appear when readback is especially important after apply, for example on PCG flows.
-- `preferredPlan.executionHints` may appear when a plan needs explicit insertion/composition semantics, especially for PCG.
-- Presence in the RPC surface does not make this the recommended default workflow.
-- richer context, remediation, and execution hints are forward-compatible contract fields; callers should preserve unknown fields rather than assuming the current MVP exhausts the schema.
-- Current MVP step generation is intentionally narrow:
-  - Blueprint `core.reroute`, `bp.flow.branch`, `bp.flow.sequence`, `bp.flow.delay`, `bp.debug.print_string`, and `bp.var.set` can emit `steps[]` when `context.fromPin` is supplied.
-  - Blueprint `bp.var.get` and `bp.var.set` require `items[*].hints.variableName`; unresolved responses should carry remediation when that context is missing.
-  - Material `mat.math.add`, `mat.math.lerp`, `mat.math.multiply`, `mat.math.one_minus`, and `mat.math.saturate` can emit `steps[]` when `items[*].hints.targetRootPin` is supplied.
-  - Material `mat.texture.sample` and `mat.param.texture` can emit `steps[]` when `items[*].hints.targetRootPin` is supplied, and may also connect `context.fromPin` into `UVs`.
-  - Material `mat.func.call` may return a `settingsTemplate` for `functionAssetPath` even when it does not emit `steps[]`.
-  - PCG `pcg.meta.add_tag` can emit `steps[]` when `context.fromPin` is supplied.
-  - PCG `pcg.route.data_by_tag` can emit `steps[]` when `context.fromPin` is supplied.
-
-## 5.7 tool=`graph.mutate`
+- `graph.ops` and `graph.ops.resolve` are no longer part of the active RPC surface.
+- Keep their older design material only as historical context under:
+  - `docs/GRAPH_OPS_DESIGN.md`
+  - `docs/GRAPH_OPS_PROTOCOL_DRAFT.md`
+- Preferred active planning and execution flow is:
+  - workspace-local `GUIDE.md`, `SEMANTICS.md`, and catalogs
+  - `graph.resolve` for typed graph address resolution
+  - `graph.query` for readback and richer query surfaces
+  - `graph.mutate` for edits
+  - `graph.verify` for validation
+## 5.9 tool=`graph.mutate`
 
 `args`:
 
@@ -667,7 +578,7 @@ When `applied=false`:
 - top-level `partialApplied=true` means one or more earlier operations in the ordered batch already committed with `changed=true` before the later failure was encountered.
 - `graph.mutate` is currently ordered but non-transactional: the server does not roll back earlier successful ops when a later op fails.
 
-## 5.9 tool=`graph.verify`
+## 5.10 tool=`graph.verify`
 
 `args`:
 
@@ -709,7 +620,7 @@ Field notes:
 ```
 
 
-## 5.10 tool=`diag.tail`
+## 5.11 tool=`diag.tail`
 
 `args`:
 

@@ -38,10 +38,10 @@ Project-level technical documentation for `LOOMLE` and `LoomleBridge` (plugin + 
 - Agent-facing workspace entrypoint. Start here first for the current graph workflow, then follow each graph domain's `GUIDE.md`, `SEMANTICS.md`, catalogs, and examples.
 
 12. `GRAPH_OPS_DESIGN.md`
-- Historical `graph.ops` / `graph.ops.resolve` design plus the current direction toward workspace-local graph references and primitive mutate.
+- Historical `graph.ops` / `graph.ops.resolve` design. These tools are no longer part of the active product tool surface and remain only as design history.
 
 13. `GRAPH_OPS_PROTOCOL_DRAFT.md`
-- MCP-style draft contract for `graph.ops` and `graph.ops.resolve`, annotated with current workflow positioning.
+- Historical draft protocol for `graph.ops` and `graph.ops.resolve`. Keep only as archival context.
 
 14. `UE_SCENE_EDITING_EXECUTE_AUDIT.md`
 - Audit of what Unreal scene editing is already proven through `execute`, what is only partially proven, and what gaps remain before it becomes a comfortable agent workflow.
@@ -55,6 +55,15 @@ Project-level technical documentation for `LOOMLE` and `LoomleBridge` (plugin + 
 17. `issues/BLUEPRINT_EMBEDDED_TEMPLATE_NODES.md`
 - Local issue for classifying Blueprint embedded-template nodes such as `Timeline`
   and `AddComponent`, and for defining their testing-system direction.
+
+18. `issues/GRAPH_QUERY_SURFACE_MODEL.md`
+- Shared local issue for the cross-graph `graph.query` surface model, including
+  `effectiveSettings`, `childGraphRef`, and explicit promoted surface categories.
+
+19. `issues/BLUEPRINT_GAP_PRODUCT_CAPABILITIES.md`
+- Local issue for promoting Blueprint query gaps into product capabilities such
+  as `embedded_template`, `graph_boundary_summary`, and
+  `context_sensitive_construct`.
 
 ## Recommended Read Order
 
@@ -75,3 +84,5 @@ Project-level technical documentation for `LOOMLE` and `LoomleBridge` (plugin + 
 15. `issues/README.md`
 16. `issues/PCG_GRAPH_QUERY_FULL_COVERAGE_UPGRADE.md`
 17. `issues/BLUEPRINT_EMBEDDED_TEMPLATE_NODES.md`
+18. `issues/GRAPH_QUERY_SURFACE_MODEL.md`
+19. `issues/BLUEPRINT_GAP_PRODUCT_CAPABILITIES.md`

@@ -91,15 +91,28 @@ For graph work, the recommended entrypoint is the installed workspace under [wor
 - `loomle`: Check Bridge health, runtime status, and MCP-side availability.
 - `context`: Read the current Unreal editor context, including asset and selection information.
 - `execute`: Run UE-side code or commands through the Bridge.
+- `editor.open`: Open or focus the editor for a specific Unreal asset.
+- `editor.focus`: Focus a semantic panel inside an asset editor.
+- `editor.screenshot`: Capture the active editor window for visual confirmation.
 - `graph`: Read graph capability metadata, supported operations, and runtime status.
 - `graph.list`: List graphs available in the current target asset or context.
+- `graph.resolve`: Resolve an asset, object, actor, or component path into reusable `graphRef` values.
 - `graph.query`: Inspect graph structure such as nodes, pins, and connections.
 - `graph.mutate`: Apply graph changes through ordered mutation operations.
 - `graph.verify`: Run compile-backed graph verification after a read or mutate loop.
+- `diag.tail`: Read persisted LoomleBridge diagnostics incrementally.
 
-Secondary and historical graph-discovery tools still exist:
+`graph.query` is now the primary graph read contract. Shared graph-native readback
+centers on:
 
-- `graph.ops`: Live semantic graph catalog for a graph type.
-- `graph.ops.resolve`: Historical plan-generation surface. Keep it as a fallback or inspection tool, not the default graph-editing path.
+- pin-default truth
+- grouped `effectiveSettings`
+- `childGraphRef`
+
+Blueprint also promotes richer product-native surfaces where needed, including:
+
+- `embeddedTemplate`
+- `graphBoundarySummary`
+- `contextSensitiveConstruct`
 
 For protocol details and deeper technical documentation, see [docs/README.md](/Users/xartest/dev/loomle/docs/README.md).

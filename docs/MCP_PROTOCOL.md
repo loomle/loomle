@@ -38,10 +38,12 @@ Graph mutate note:
 - `loomle`
 - `context`
 - `execute`
+- `editor.open`
+- `editor.focus`
+- `editor.screenshot`
 - `graph`
 - `graph.list`
-- `graph.ops`
-- `graph.ops.resolve`
+- `graph.resolve`
 - `graph.query`
 - `graph.mutate`
 - `graph.verify`
@@ -163,7 +165,7 @@ Execution rule:
 
 ## 4.3 `execute`
 
-`execute` runs Python inside the Unreal Editor process. Prefer it for non-graph editor automation and for graph types or graph-domain capabilities not yet covered by `graph.*`. Do not prefer it when a structured `graph.query`, `graph.ops.resolve`, `graph.mutate`, or `graph.verify` path already covers the task.
+`execute` runs Python inside the Unreal Editor process. Prefer it for non-graph editor automation and for graph types or graph-domain capabilities not yet covered by `graph.*`. Do not prefer it when a structured `graph.resolve`, `graph.query`, `graph.mutate`, or `graph.verify` path already covers the task.
 
 Input schema:
 
@@ -292,7 +294,7 @@ Execution rule:
 
 ## 4.5 Runtime Tools
 
-For `graph.list`, `graph.query`, `graph.verify`, `graph.ops`, `graph.ops.resolve`, `graph.mutate`, `diag.tail`:
+For `editor.open`, `editor.focus`, `editor.screenshot`, `graph.list`, `graph.resolve`, `graph.query`, `graph.verify`, `graph.mutate`, `diag.tail`:
 
 - Input/output schemas are exposed directly through MCP `tools/list` and should be treated as the live contract.
 - `RPC_INTERFACE.md` section 5 documents the same tool payloads at the Unreal RPC boundary.
@@ -305,17 +307,14 @@ Practical client rule:
 
 - Use `tools/list` when you need the current accepted `inputSchema`.
 - Use `RPC_INTERFACE.md` when you need lower-level transport and payload shape details.
-- Prefer `graph.ops` and `graph.ops.resolve` for new semantic planning flows.
-- `graph.ops.resolve` context may evolve beyond graph-level scope; callers should be prepared for narrower context fields such as pin- or edge-scoped inputs.
-- unresolved `graph.ops.resolve` results may include structured remediation metadata that tells the caller which context or follow-up is missing.
-- resolved `graph.ops.resolve` plans may include richer machine-usable metadata such as `pinHints`, `verificationHints`, and `executionHints`; callers should preserve unknown fields instead of assuming a minimal fixed shape.
+- Prefer workspace-local guides plus `graph.resolve`, `graph.query`, `graph.mutate`, and `graph.verify` for graph planning and execution.
 - For `graph.mutate`, individual `opResults[]` entries may include operation-specific `details` objects on failure; clients should preserve and inspect them rather than relying only on top-level `message`.
 - For graph layout-aware flows, prefer `graph.layoutCapabilities` and `graph.query.meta.layoutCapabilities` over hardcoded assumptions. Current runtime support focuses on position reads plus basic move operations.
 - `graph.query` accepts `layoutDetail=basic|measured`. Callers may request `measured`, but should inspect `meta.layoutDetailApplied` and diagnostics before assuming measured geometry was actually returned.
 
 ## 4.6 `graph.verify`
 
-Use this as the graph verification primitive after `graph.query`, `graph.ops.resolve`, or `graph.mutate`.
+Use this as the graph verification primitive after `graph.query` or `graph.mutate`.
 
 Execution rule:
 
