@@ -150,10 +150,9 @@
         "profile": "context_recipe_required",
         "recipe": "blueprint_component_template_context",
         "querySurface": {
-          "kind": "residual_gap",
-          "fallback": "execute"
+          "kind": "embedded_template"
         },
-        "reason": "AddComponent nodes depend on Blueprint-owned component templates and require component-template-capable graph context."
+        "reason": "AddComponent nodes surface Blueprint-owned component template truth through the embedded-template query layer and still require component-template-capable graph context."
       }
     },
     {
@@ -176,7 +175,10 @@
       "testing": {
         "profile": "context_recipe_required",
         "recipe": "blueprint_actor_execution_graph",
-        "reason": "AddComponentByClass requires an actor execution context even though it is not yet classified as an embedded-template node."
+        "querySurface": {
+          "kind": "context_sensitive_construct"
+        },
+        "reason": "AddComponentByClass requires an actor execution context and now surfaces its stable construct truth through the context-sensitive query layer."
       }
     },
     {
@@ -759,11 +761,11 @@
       ],
       "testing": {
         "profile": "context_recipe_required",
+        "recipe": "blueprint_actor_execution_graph",
         "querySurface": {
-          "kind": "residual_gap",
-          "fallback": "execute"
+          "kind": "graph_boundary_summary"
         },
-        "reason": "Graph-structure Blueprint nodes usually require a dedicated recipe or owning graph context."
+        "reason": "Composite nodes now surface graph-boundary summary and require an owning Blueprint execution graph to author and query their bound subgraph."
       }
     },
     {
@@ -1225,11 +1227,11 @@
       ],
       "testing": {
         "profile": "context_recipe_required",
+        "recipe": "blueprint_function_graph",
         "querySurface": {
-          "kind": "residual_gap",
-          "fallback": "execute"
+          "kind": "graph_boundary_summary"
         },
-        "reason": "Graph-structure Blueprint nodes usually require a dedicated recipe or owning graph context."
+        "reason": "FunctionEntry nodes now surface graph-boundary summary and are stably queryable through a dedicated Blueprint function-graph context."
       }
     },
     {
@@ -1251,11 +1253,11 @@
       "properties": [],
       "testing": {
         "profile": "context_recipe_required",
+        "recipe": "blueprint_function_graph",
         "querySurface": {
-          "kind": "residual_gap",
-          "fallback": "execute"
+          "kind": "graph_boundary_summary"
         },
-        "reason": "Graph-structure Blueprint nodes usually require a dedicated recipe or owning graph context."
+        "reason": "FunctionResult nodes now surface graph-boundary summary and can be authored and queried through a dedicated Blueprint function-graph context."
       }
     },
     {
@@ -1992,11 +1994,11 @@
       ],
       "testing": {
         "profile": "context_recipe_required",
+        "recipe": "blueprint_actor_execution_graph",
         "querySurface": {
-          "kind": "residual_gap",
-          "fallback": "execute"
+          "kind": "graph_boundary_summary"
         },
-        "reason": "Graph-structure Blueprint nodes usually require a dedicated recipe or owning graph context."
+        "reason": "MacroInstance nodes now surface graph-boundary summary and require a macro-capable execution graph plus macro identity context."
       }
     },
     {
@@ -2788,10 +2790,9 @@
         "profile": "context_recipe_required",
         "recipe": "blueprint_timeline_graph",
         "querySurface": {
-          "kind": "residual_gap",
-          "fallback": "execute"
+          "kind": "embedded_template"
         },
-        "reason": "Timeline nodes depend on Blueprint-owned timeline templates and require timeline-capable graph context."
+        "reason": "Timeline nodes surface Blueprint-owned timeline template truth through the embedded-template query layer and still require timeline-capable graph context."
       }
     },
     {
@@ -2885,11 +2886,11 @@
       ],
       "testing": {
         "profile": "context_recipe_required",
+        "recipe": "blueprint_actor_execution_graph",
         "querySurface": {
-          "kind": "residual_gap",
-          "fallback": "execute"
+          "kind": "graph_boundary_summary"
         },
-        "reason": "Graph-structure Blueprint nodes usually require a dedicated recipe or owning graph context."
+        "reason": "Tunnel nodes now surface graph-boundary summary and are stably queryable through composite subgraph contexts inside Blueprint execution graphs."
       }
     },
     {
@@ -2933,10 +2934,9 @@
       "testing": {
         "profile": "context_recipe_required",
         "querySurface": {
-          "kind": "residual_gap",
-          "fallback": "execute"
+          "kind": "graph_boundary_summary"
         },
-        "reason": "Graph-structure Blueprint nodes usually require a dedicated recipe or owning graph context."
+        "reason": "Graph-boundary Blueprint nodes surface structural summary through the graph-boundary query layer and still require an owning graph or macro context."
       }
     },
     {

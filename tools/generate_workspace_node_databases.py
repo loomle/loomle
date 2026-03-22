@@ -977,23 +977,73 @@ def derive_blueprint_testing(
         return {
             "profile": "context_recipe_required",
             "recipe": "blueprint_timeline_graph",
-            "querySurface": {"kind": "residual_gap", "fallback": "execute"},
-            "reason": "Timeline nodes depend on Blueprint-owned timeline templates and require timeline-capable graph context.",
+            "querySurface": {"kind": "embedded_template"},
+            "reason": "Timeline nodes surface Blueprint-owned timeline template truth through the embedded-template query layer and still require timeline-capable graph context.",
         }
 
     if class_name == "UK2Node_AddComponent":
         return {
             "profile": "context_recipe_required",
             "recipe": "blueprint_component_template_context",
-            "querySurface": {"kind": "residual_gap", "fallback": "execute"},
-            "reason": "AddComponent nodes depend on Blueprint-owned component templates and require component-template-capable graph context.",
+            "querySurface": {"kind": "embedded_template"},
+            "reason": "AddComponent nodes surface Blueprint-owned component template truth through the embedded-template query layer and still require component-template-capable graph context.",
         }
 
     if class_name == "UK2Node_AddComponentByClass":
         return {
             "profile": "context_recipe_required",
             "recipe": "blueprint_actor_execution_graph",
-            "reason": "AddComponentByClass requires an actor execution context even though it is not yet classified as an embedded-template node.",
+            "querySurface": {"kind": "context_sensitive_construct"},
+            "reason": "AddComponentByClass requires an actor execution context and now surfaces its stable construct truth through the context-sensitive query layer.",
+        }
+
+    if class_name == "UK2Node_MacroInstance":
+        return {
+            "profile": "context_recipe_required",
+            "recipe": "blueprint_actor_execution_graph",
+            "querySurface": {"kind": "graph_boundary_summary"},
+            "reason": "MacroInstance nodes now surface graph-boundary summary and require a macro-capable execution graph plus macro identity context.",
+        }
+
+    if class_name == "UK2Node_Composite":
+        return {
+            "profile": "context_recipe_required",
+            "recipe": "blueprint_actor_execution_graph",
+            "querySurface": {"kind": "graph_boundary_summary"},
+            "reason": "Composite nodes now surface graph-boundary summary and require an owning Blueprint execution graph to author and query their bound subgraph.",
+        }
+
+    if class_name == "UK2Node_FunctionEntry":
+        return {
+            "profile": "context_recipe_required",
+            "recipe": "blueprint_function_graph",
+            "querySurface": {"kind": "graph_boundary_summary"},
+            "reason": "FunctionEntry nodes now surface graph-boundary summary and are stably queryable through a dedicated Blueprint function-graph context.",
+        }
+
+    if class_name == "UK2Node_FunctionResult":
+        return {
+            "profile": "context_recipe_required",
+            "recipe": "blueprint_function_graph",
+            "querySurface": {"kind": "graph_boundary_summary"},
+            "reason": "FunctionResult nodes now surface graph-boundary summary and can be authored and queried through a dedicated Blueprint function-graph context.",
+        }
+
+    if class_name == "UK2Node_Tunnel":
+        return {
+            "profile": "context_recipe_required",
+            "recipe": "blueprint_actor_execution_graph",
+            "querySurface": {"kind": "graph_boundary_summary"},
+            "reason": "Tunnel nodes now surface graph-boundary summary and are stably queryable through composite subgraph contexts inside Blueprint execution graphs.",
+        }
+
+    if class_name in {
+        "UK2Node_TunnelBoundary",
+    }:
+        return {
+            "profile": "context_recipe_required",
+            "querySurface": {"kind": "graph_boundary_summary"},
+            "reason": "Graph-boundary Blueprint nodes surface structural summary through the graph-boundary query layer and still require an owning graph or macro context.",
         }
 
     if family == "branch":

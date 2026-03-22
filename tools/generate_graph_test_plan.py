@@ -87,6 +87,10 @@ RECIPE_REGISTRY: dict[str, dict[str, dict[str, Any]]] = {
             "graphType": "blueprint",
             "fixture": "blueprint_function_graph",
         },
+        "blueprint_function_graph": {
+            "graphType": "blueprint",
+            "fixture": "blueprint_function_graph",
+        },
         "blueprint_actor_execution_graph": {
             "graphType": "blueprint",
             "fixture": "blueprint_actor_execution_graph",

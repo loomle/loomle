@@ -10,18 +10,26 @@
 #include "EdGraphSchema_K2.h"
 #include "Editor.h"
 #include "Engine/Blueprint.h"
+#include "Engine/TimelineTemplate.h"
 #include "Engine/SCS_Node.h"
 #include "Engine/SimpleConstructionScript.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "K2Node_AddComponent.h"
+#include "K2Node_AddComponentByClass.h"
 #include "K2Node_CallFunction.h"
+#include "K2Node_Composite.h"
 #include "K2Node_DynamicCast.h"
 #include "K2Node_Event.h"
 #include "K2Node_ExecutionSequence.h"
+#include "K2Node_FunctionEntry.h"
+#include "K2Node_FunctionResult.h"
 #include "K2Node_IfThenElse.h"
 #include "K2Node_MacroInstance.h"
 #include "K2Node_Knot.h"
 #include "K2Node_Timeline.h"
+#include "K2Node_Tunnel.h"
+#include "K2Node_TunnelBoundary.h"
 #include "K2Node_Variable.h"
 #include "K2Node_VariableGet.h"
 #include "K2Node_VariableSet.h"
@@ -32,6 +40,7 @@
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "Misc/PackageName.h"
+#include "UObject/UnrealType.h"
 
 namespace LoomleBlueprintAdapterInternal
 {
@@ -49,6 +58,548 @@ namespace LoomleBlueprintAdapterInternal
         FString MacroLibraryAssetPath;
         FString MacroGraphName;
     };
+
+    static FBlueprintMacroDescriptor DescribeMacroNode(const UK2Node_MacroInstance* MacroNode);
+
+    static FString BoolToJsonString(bool bValue)
+    {
+        return bValue ? TEXT("true") : TEXT("false");
+    }
+
+    static FString GetEnumValueName(const UEnum* Enum, int64 Value)
+    {
+        if (Enum == nullptr)
+        {
+            return TEXT("");
+        }
+
+        const FString FullName = Enum->GetNameStringByValue(Value);
+        return FullName;
+    }
+
+    static TSharedPtr<FJsonObject> MakeTransformSummaryObject(const FTransform& Transform)
+    {
+        TSharedPtr<FJsonObject> TransformObject = MakeShared<FJsonObject>();
+
+        const FVector Location = Transform.GetLocation();
+        const FRotator Rotation = Transform.Rotator();
+        const FVector Scale = Transform.GetScale3D();
+
+        TSharedPtr<FJsonObject> LocationObject = MakeShared<FJsonObject>();
+        LocationObject->SetNumberField(TEXT("x"), Location.X);
+        LocationObject->SetNumberField(TEXT("y"), Location.Y);
+        LocationObject->SetNumberField(TEXT("z"), Location.Z);
+        TransformObject->SetObjectField(TEXT("location"), LocationObject);
+
+        TSharedPtr<FJsonObject> RotationObject = MakeShared<FJsonObject>();
+        RotationObject->SetNumberField(TEXT("pitch"), Rotation.Pitch);
+        RotationObject->SetNumberField(TEXT("yaw"), Rotation.Yaw);
+        RotationObject->SetNumberField(TEXT("roll"), Rotation.Roll);
+        TransformObject->SetObjectField(TEXT("rotation"), RotationObject);
+
+        TSharedPtr<FJsonObject> ScaleObject = MakeShared<FJsonObject>();
+        ScaleObject->SetNumberField(TEXT("x"), Scale.X);
+        ScaleObject->SetNumberField(TEXT("y"), Scale.Y);
+        ScaleObject->SetNumberField(TEXT("z"), Scale.Z);
+        TransformObject->SetObjectField(TEXT("scale"), ScaleObject);
+
+        return TransformObject;
+    }
+
+    static bool ShouldSurfaceEmbeddedTemplateProperty(const FProperty* Property)
+    {
+        if (Property == nullptr)
+        {
+            return false;
+        }
+
+        if (Property->HasAnyPropertyFlags(CPF_Transient | CPF_Deprecated | CPF_Parm))
+        {
+            return false;
+        }
+
+        if (!Property->HasAnyPropertyFlags(CPF_Edit | CPF_BlueprintVisible))
+        {
+            return false;
+        }
+
+        if (Property->IsA<FArrayProperty>() || Property->IsA<FSetProperty>() || Property->IsA<FMapProperty>())
+        {
+            return false;
+        }
+
+        if (Property->IsA<FMulticastDelegateProperty>())
+        {
+            return false;
+        }
+
+        if (const FStructProperty* StructProperty = CastField<FStructProperty>(Property))
+        {
+            const UScriptStruct* Struct = StructProperty->Struct;
+            return Struct == TBaseStructure<FVector>::Get()
+                || Struct == TBaseStructure<FRotator>::Get()
+                || Struct == TBaseStructure<FTransform>::Get()
+                || Struct == TBaseStructure<FLinearColor>::Get()
+                || Struct == TBaseStructure<FColor>::Get();
+        }
+
+        return Property->IsA<FBoolProperty>()
+            || Property->IsA<FNumericProperty>()
+            || Property->IsA<FNameProperty>()
+            || Property->IsA<FStrProperty>()
+            || Property->IsA<FTextProperty>()
+            || Property->IsA<FEnumProperty>()
+            || Property->IsA<FObjectPropertyBase>()
+            || Property->IsA<FClassProperty>();
+    }
+
+    static TSharedPtr<FJsonObject> BuildEmbeddedTemplatePropertySummary(UObject* TemplateObject)
+    {
+        if (TemplateObject == nullptr || TemplateObject->GetClass() == nullptr)
+        {
+            return nullptr;
+        }
+
+        UObject* ClassDefaults = TemplateObject->GetClass()->GetDefaultObject(false);
+        if (ClassDefaults == nullptr)
+        {
+            return nullptr;
+        }
+
+        TArray<TSharedPtr<FJsonValue>> Overrides;
+        int32 OverrideCount = 0;
+        constexpr int32 MaxSurfacedOverrides = 24;
+
+        for (TFieldIterator<FProperty> PropertyIt(TemplateObject->GetClass(), EFieldIteratorFlags::IncludeSuper); PropertyIt; ++PropertyIt)
+        {
+            FProperty* Property = *PropertyIt;
+            if (!ShouldSurfaceEmbeddedTemplateProperty(Property))
+            {
+                continue;
+            }
+
+            if (Property->Identical_InContainer(TemplateObject, ClassDefaults))
+            {
+                continue;
+            }
+
+            ++OverrideCount;
+            if (Overrides.Num() >= MaxSurfacedOverrides)
+            {
+                continue;
+            }
+
+            FString ValueText;
+            if (!FBlueprintEditorUtils::PropertyValueToString(
+                    Property,
+                    reinterpret_cast<const uint8*>(TemplateObject),
+                    ValueText,
+                    TemplateObject))
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> PropertyObject = MakeShared<FJsonObject>();
+            PropertyObject->SetStringField(TEXT("name"), Property->GetName());
+            PropertyObject->SetStringField(TEXT("type"), Property->GetClass() ? Property->GetClass()->GetName() : TEXT(""));
+            PropertyObject->SetStringField(TEXT("valueText"), ValueText);
+            Overrides.Add(MakeShared<FJsonValueObject>(PropertyObject));
+        }
+
+        TSharedPtr<FJsonObject> Summary = MakeShared<FJsonObject>();
+        Summary->SetNumberField(TEXT("overrideCount"), OverrideCount);
+        Summary->SetBoolField(TEXT("truncated"), OverrideCount > Overrides.Num());
+        Summary->SetArrayField(TEXT("overrides"), Overrides);
+        return Summary;
+    }
+
+    static TSharedPtr<FJsonObject> BuildTimelineEmbeddedTemplateSummary(const UK2Node_Timeline* TimelineNode)
+    {
+        if (TimelineNode == nullptr)
+        {
+            return nullptr;
+        }
+
+        UBlueprint* Blueprint = FBlueprintEditorUtils::FindBlueprintForNode(const_cast<UK2Node_Timeline*>(TimelineNode));
+        if (Blueprint == nullptr)
+        {
+            return nullptr;
+        }
+
+        UTimelineTemplate* TimelineTemplate = Blueprint->FindTimelineTemplateByVariableName(TimelineNode->TimelineName);
+        if (TimelineTemplate == nullptr)
+        {
+            return nullptr;
+        }
+
+        TSharedPtr<FJsonObject> Summary = MakeShared<FJsonObject>();
+        Summary->SetStringField(TEXT("surfaceKind"), TEXT("embedded_template"));
+        Summary->SetStringField(TEXT("templateKind"), TEXT("timeline"));
+        Summary->SetStringField(TEXT("timelineName"), TimelineNode->TimelineName.ToString());
+        Summary->SetStringField(TEXT("templateName"), TimelineTemplate->GetName());
+        Summary->SetStringField(TEXT("templatePath"), TimelineTemplate->GetPathName());
+        Summary->SetStringField(TEXT("variableName"), TimelineTemplate->GetVariableName().ToString());
+        Summary->SetStringField(TEXT("timelineGuid"), TimelineNode->TimelineGuid.ToString(EGuidFormats::DigitsWithHyphens));
+        Summary->SetNumberField(TEXT("length"), TimelineTemplate->TimelineLength);
+        Summary->SetStringField(TEXT("lengthMode"), GetEnumValueName(StaticEnum<ETimelineLengthMode>(), TimelineTemplate->LengthMode.GetValue()));
+        Summary->SetBoolField(TEXT("autoPlay"), TimelineTemplate->bAutoPlay);
+        Summary->SetBoolField(TEXT("loop"), TimelineTemplate->bLoop);
+        Summary->SetBoolField(TEXT("replicated"), TimelineTemplate->bReplicated);
+        Summary->SetBoolField(TEXT("ignoreTimeDilation"), TimelineTemplate->bIgnoreTimeDilation);
+        Summary->SetStringField(TEXT("updateFunctionName"), TimelineTemplate->GetUpdateFunctionName().ToString());
+        Summary->SetStringField(TEXT("finishedFunctionName"), TimelineTemplate->GetFinishedFunctionName().ToString());
+
+        TSharedPtr<FJsonObject> TrackSummary = MakeShared<FJsonObject>();
+        TrackSummary->SetNumberField(TEXT("eventTrackCount"), TimelineTemplate->EventTracks.Num());
+        TrackSummary->SetNumberField(TEXT("floatTrackCount"), TimelineTemplate->FloatTracks.Num());
+        TrackSummary->SetNumberField(TEXT("vectorTrackCount"), TimelineTemplate->VectorTracks.Num());
+        TrackSummary->SetNumberField(TEXT("linearColorTrackCount"), TimelineTemplate->LinearColorTracks.Num());
+
+        TArray<TSharedPtr<FJsonValue>> Tracks;
+        for (const FTTEventTrack& Track : TimelineTemplate->EventTracks)
+        {
+            TSharedPtr<FJsonObject> TrackObject = MakeShared<FJsonObject>();
+            TrackObject->SetStringField(TEXT("kind"), TEXT("event"));
+            TrackObject->SetStringField(TEXT("name"), Track.GetTrackName().ToString());
+            TrackObject->SetStringField(TEXT("functionName"), Track.GetFunctionName().ToString());
+            TrackObject->SetBoolField(TEXT("externalCurve"), Track.bIsExternalCurve);
+            Tracks.Add(MakeShared<FJsonValueObject>(TrackObject));
+        }
+        for (const FTTFloatTrack& Track : TimelineTemplate->FloatTracks)
+        {
+            TSharedPtr<FJsonObject> TrackObject = MakeShared<FJsonObject>();
+            TrackObject->SetStringField(TEXT("kind"), TEXT("float"));
+            TrackObject->SetStringField(TEXT("name"), Track.GetTrackName().ToString());
+            TrackObject->SetStringField(TEXT("propertyName"), Track.GetPropertyName().ToString());
+            TrackObject->SetBoolField(TEXT("externalCurve"), Track.bIsExternalCurve);
+            Tracks.Add(MakeShared<FJsonValueObject>(TrackObject));
+        }
+        for (const FTTVectorTrack& Track : TimelineTemplate->VectorTracks)
+        {
+            TSharedPtr<FJsonObject> TrackObject = MakeShared<FJsonObject>();
+            TrackObject->SetStringField(TEXT("kind"), TEXT("vector"));
+            TrackObject->SetStringField(TEXT("name"), Track.GetTrackName().ToString());
+            TrackObject->SetStringField(TEXT("propertyName"), Track.GetPropertyName().ToString());
+            TrackObject->SetBoolField(TEXT("externalCurve"), Track.bIsExternalCurve);
+            Tracks.Add(MakeShared<FJsonValueObject>(TrackObject));
+        }
+        for (const FTTLinearColorTrack& Track : TimelineTemplate->LinearColorTracks)
+        {
+            TSharedPtr<FJsonObject> TrackObject = MakeShared<FJsonObject>();
+            TrackObject->SetStringField(TEXT("kind"), TEXT("linear_color"));
+            TrackObject->SetStringField(TEXT("name"), Track.GetTrackName().ToString());
+            TrackObject->SetStringField(TEXT("propertyName"), Track.GetPropertyName().ToString());
+            TrackObject->SetBoolField(TEXT("externalCurve"), Track.bIsExternalCurve);
+            Tracks.Add(MakeShared<FJsonValueObject>(TrackObject));
+        }
+        TrackSummary->SetArrayField(TEXT("tracks"), Tracks);
+        Summary->SetObjectField(TEXT("trackSummary"), TrackSummary);
+
+        return Summary;
+    }
+
+    static TSharedPtr<FJsonObject> BuildAddComponentEmbeddedTemplateSummary(const UK2Node_AddComponent* AddComponentNode)
+    {
+        if (AddComponentNode == nullptr)
+        {
+            return nullptr;
+        }
+
+        TSharedPtr<FJsonObject> Summary = MakeShared<FJsonObject>();
+        Summary->SetStringField(TEXT("surfaceKind"), TEXT("embedded_template"));
+        Summary->SetStringField(TEXT("templateKind"), TEXT("component"));
+        Summary->SetStringField(TEXT("templateBlueprint"), AddComponentNode->TemplateBlueprint);
+        Summary->SetStringField(TEXT("templateTypeClassPath"), AddComponentNode->TemplateType ? AddComponentNode->TemplateType->GetPathName() : TEXT(""));
+
+        if (const UEdGraphPin* TemplateNamePin = AddComponentNode->FindPin(TEXT("TemplateName")))
+        {
+            Summary->SetStringField(TEXT("templateName"), TemplateNamePin->DefaultValue);
+        }
+
+        bool bManualAttachment = false;
+        if (const UEdGraphPin* ManualAttachmentPin = AddComponentNode->FindPin(TEXT("bManualAttachment")))
+        {
+            bManualAttachment = ManualAttachmentPin->DefaultValue.Equals(TEXT("true"), ESearchCase::IgnoreCase);
+            Summary->SetStringField(TEXT("manualAttachmentDefault"), BoolToJsonString(bManualAttachment));
+        }
+        Summary->SetStringField(TEXT("attachPolicy"), bManualAttachment ? TEXT("manual") : TEXT("auto_root"));
+
+        if (UActorComponent* Template = AddComponentNode->GetTemplateFromNode())
+        {
+            Summary->SetBoolField(TEXT("templateResolved"), true);
+            Summary->SetStringField(TEXT("componentClassPath"), Template->GetClass() ? Template->GetClass()->GetPathName() : TEXT(""));
+            Summary->SetStringField(TEXT("templateObjectPath"), Template->GetPathName());
+            if (TSharedPtr<FJsonObject> TemplatePropertySummary = BuildEmbeddedTemplatePropertySummary(Template))
+            {
+                Summary->SetObjectField(TEXT("templatePropertySummary"), TemplatePropertySummary);
+            }
+
+            if (const USceneComponent* SceneTemplate = Cast<USceneComponent>(Template))
+            {
+                Summary->SetObjectField(TEXT("relativeTransformSummary"), MakeTransformSummaryObject(SceneTemplate->GetRelativeTransform()));
+                Summary->SetStringField(TEXT("attachParentName"), SceneTemplate->GetAttachParent() ? SceneTemplate->GetAttachParent()->GetName() : TEXT(""));
+            }
+        }
+        else
+        {
+            Summary->SetBoolField(TEXT("templateResolved"), false);
+        }
+
+        return Summary;
+    }
+
+    static TArray<TSharedPtr<FJsonValue>> MakeStringValueArray(const TArray<FString>& Values)
+    {
+        TArray<TSharedPtr<FJsonValue>> JsonValues;
+        for (const FString& Value : Values)
+        {
+            JsonValues.Add(MakeShared<FJsonValueString>(Value));
+        }
+        return JsonValues;
+    }
+
+    static TSharedPtr<FJsonObject> BuildPinSignatureSummary(const UEdGraphNode* Node)
+    {
+        if (Node == nullptr)
+        {
+            return nullptr;
+        }
+
+        TArray<FString> InputPins;
+        TArray<FString> OutputPins;
+        TArray<FString> ExecInputPins;
+        TArray<FString> ExecOutputPins;
+
+        for (const UEdGraphPin* Pin : Node->Pins)
+        {
+            if (Pin == nullptr)
+            {
+                continue;
+            }
+
+            const FString PinName = Pin->PinName.ToString();
+            if (Pin->Direction == EGPD_Input)
+            {
+                InputPins.Add(PinName);
+                if (Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec)
+                {
+                    ExecInputPins.Add(PinName);
+                }
+            }
+            else if (Pin->Direction == EGPD_Output)
+            {
+                OutputPins.Add(PinName);
+                if (Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec)
+                {
+                    ExecOutputPins.Add(PinName);
+                }
+            }
+        }
+
+        TSharedPtr<FJsonObject> Summary = MakeShared<FJsonObject>();
+        Summary->SetNumberField(TEXT("inputCount"), InputPins.Num());
+        Summary->SetNumberField(TEXT("outputCount"), OutputPins.Num());
+        Summary->SetNumberField(TEXT("execInputCount"), ExecInputPins.Num());
+        Summary->SetNumberField(TEXT("execOutputCount"), ExecOutputPins.Num());
+        Summary->SetArrayField(TEXT("inputPins"), MakeStringValueArray(InputPins));
+        Summary->SetArrayField(TEXT("outputPins"), MakeStringValueArray(OutputPins));
+        Summary->SetArrayField(TEXT("execInputPins"), MakeStringValueArray(ExecInputPins));
+        Summary->SetArrayField(TEXT("execOutputPins"), MakeStringValueArray(ExecOutputPins));
+        return Summary;
+    }
+
+    static TSharedPtr<FJsonObject> BuildAddComponentByClassContextSummary(const UK2Node_AddComponentByClass* AddComponentByClassNode)
+    {
+        if (AddComponentByClassNode == nullptr)
+        {
+            return nullptr;
+        }
+
+        TSharedPtr<FJsonObject> Summary = MakeShared<FJsonObject>();
+        Summary->SetStringField(TEXT("surfaceKind"), TEXT("context_sensitive_construct"));
+        Summary->SetStringField(TEXT("constructKind"), TEXT("add_component_by_class"));
+
+        const UK2Node_ConstructObjectFromClass* ConstructNode = AddComponentByClassNode;
+        const UEdGraphPin* ClassPin = ConstructNode->GetClassPin();
+        const UClass* SelectedClass = ConstructNode->GetClassToSpawn();
+        const UEdGraphPin* ResultPin = ConstructNode->GetResultPin();
+        const UEdGraphPin* ManualAttachmentPin = AddComponentByClassNode->FindPin(TEXT("bManualAttachment"));
+        const UEdGraphPin* RelativeTransformPin = AddComponentByClassNode->FindPin(TEXT("RelativeTransform"));
+
+        Summary->SetStringField(TEXT("selectedClassPath"), SelectedClass ? SelectedClass->GetPathName() : TEXT(""));
+        Summary->SetStringField(TEXT("selectedClassName"), SelectedClass ? SelectedClass->GetName() : TEXT(""));
+        Summary->SetBoolField(TEXT("hasLinkedClassInput"), ClassPin != nullptr && ClassPin->LinkedTo.Num() > 0);
+        Summary->SetBoolField(TEXT("classSelected"), SelectedClass != nullptr);
+
+        const bool bIsSceneComponentClass = SelectedClass != nullptr && SelectedClass->IsChildOf(USceneComponent::StaticClass());
+        Summary->SetBoolField(TEXT("isSceneComponentClass"), bIsSceneComponentClass);
+        Summary->SetStringField(
+            TEXT("constructionMode"),
+            SelectedClass == nullptr ? TEXT("class_unspecified")
+                : (bIsSceneComponentClass ? TEXT("actor_scene_component") : TEXT("actor_component")));
+
+        Summary->SetBoolField(TEXT("manualAttachmentVisible"), ManualAttachmentPin != nullptr && !ManualAttachmentPin->bHidden);
+        Summary->SetBoolField(TEXT("relativeTransformVisible"), RelativeTransformPin != nullptr && !RelativeTransformPin->bHidden);
+        if (ManualAttachmentPin != nullptr)
+        {
+            const bool bManualAttachment =
+                ManualAttachmentPin->DefaultValue.Equals(TEXT("true"), ESearchCase::IgnoreCase)
+                || ManualAttachmentPin->AutogeneratedDefaultValue.Equals(TEXT("true"), ESearchCase::IgnoreCase);
+            Summary->SetStringField(TEXT("manualAttachmentDefault"), BoolToJsonString(bManualAttachment));
+        }
+
+        if (ResultPin != nullptr)
+        {
+            const UObject* ResultClassObject = ResultPin->PinType.PinSubCategoryObject.Get();
+            const UClass* ResultClass = Cast<UClass>(ResultClassObject);
+            Summary->SetStringField(TEXT("resultClassPath"), ResultClass ? ResultClass->GetPathName() : TEXT(""));
+        }
+
+        static const TSet<FName> StaticPins = {
+            UEdGraphSchema_K2::PN_Execute,
+            UEdGraphSchema_K2::PN_Then,
+            UEdGraphSchema_K2::PN_Self,
+            UEdGraphSchema_K2::PN_ReturnValue,
+            FName(TEXT("Class")),
+            FName(TEXT("bManualAttachment")),
+            FName(TEXT("RelativeTransform")),
+        };
+
+        TArray<TSharedPtr<FJsonValue>> DynamicPins;
+        for (const UEdGraphPin* Pin : AddComponentByClassNode->Pins)
+        {
+            if (Pin == nullptr || Pin->Direction != EGPD_Input || StaticPins.Contains(Pin->PinName))
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> PinObject = MakeShared<FJsonObject>();
+            PinObject->SetStringField(TEXT("name"), Pin->PinName.ToString());
+            PinObject->SetBoolField(TEXT("hidden"), Pin->bHidden);
+            PinObject->SetBoolField(TEXT("advanced"), Pin->bAdvancedView);
+            PinObject->SetStringField(TEXT("category"), Pin->PinType.PinCategory.ToString());
+            PinObject->SetStringField(
+                TEXT("subCategoryObject"),
+                Pin->PinType.PinSubCategoryObject.IsValid() && Pin->PinType.PinSubCategoryObject.Get()
+                    ? Pin->PinType.PinSubCategoryObject.Get()->GetPathName()
+                    : TEXT(""));
+            DynamicPins.Add(MakeShared<FJsonValueObject>(PinObject));
+        }
+        Summary->SetNumberField(TEXT("dynamicPinCount"), DynamicPins.Num());
+        Summary->SetArrayField(TEXT("exposedDynamicPins"), DynamicPins);
+
+        TArray<TSharedPtr<FJsonValue>> ContextAssumptions;
+        ContextAssumptions.Add(MakeShared<FJsonValueString>(TEXT("requires_actor_execution_context")));
+        ContextAssumptions.Add(MakeShared<FJsonValueString>(TEXT("dynamic_pins_follow_selected_component_class")));
+        if (bIsSceneComponentClass)
+        {
+            ContextAssumptions.Add(MakeShared<FJsonValueString>(TEXT("scene_component_attachment_controls_enabled")));
+        }
+        Summary->SetArrayField(TEXT("contextAssumptions"), ContextAssumptions);
+
+        return Summary;
+    }
+
+    static TSharedPtr<FJsonObject> BuildGraphBoundarySummary(const UEdGraphNode* Node)
+    {
+        if (Node == nullptr)
+        {
+            return nullptr;
+        }
+
+        TSharedPtr<FJsonObject> Summary = MakeShared<FJsonObject>();
+        Summary->SetStringField(TEXT("surfaceKind"), TEXT("graph_boundary_summary"));
+
+        if (const UEdGraph* OwningGraph = Node->GetGraph())
+        {
+            Summary->SetStringField(TEXT("owningGraphName"), OwningGraph->GetName());
+            Summary->SetStringField(TEXT("owningGraphPath"), OwningGraph->GetPathName());
+        }
+        Summary->SetObjectField(TEXT("pinSignature"), BuildPinSignatureSummary(Node));
+
+        if (const UK2Node_Composite* CompositeNode = Cast<UK2Node_Composite>(Node))
+        {
+            Summary->SetStringField(TEXT("structureRole"), TEXT("graph_boundary"));
+            Summary->SetStringField(TEXT("boundaryKind"), TEXT("composite"));
+            Summary->SetStringField(TEXT("entryExitSemantics"), TEXT("collapsed_subgraph"));
+            Summary->SetBoolField(TEXT("hasBoundGraph"), CompositeNode->BoundGraph != nullptr);
+            Summary->SetStringField(TEXT("boundGraphName"), CompositeNode->BoundGraph ? CompositeNode->BoundGraph->GetName() : TEXT(""));
+            Summary->SetStringField(TEXT("boundGraphPath"), CompositeNode->BoundGraph ? CompositeNode->BoundGraph->GetPathName() : TEXT(""));
+            Summary->SetStringField(TEXT("entryNodeId"), CompositeNode->GetEntryNode() ? CompositeNode->GetEntryNode()->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens) : TEXT(""));
+            Summary->SetStringField(TEXT("exitNodeId"), CompositeNode->GetExitNode() ? CompositeNode->GetExitNode()->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens) : TEXT(""));
+            return Summary;
+        }
+
+        if (const UK2Node_FunctionEntry* FunctionEntryNode = Cast<UK2Node_FunctionEntry>(Node))
+        {
+            Summary->SetStringField(TEXT("structureRole"), TEXT("graph_boundary"));
+            Summary->SetStringField(TEXT("boundaryKind"), TEXT("function_entry"));
+            Summary->SetStringField(TEXT("entryExitSemantics"), TEXT("entry"));
+            Summary->SetStringField(TEXT("functionName"), FunctionEntryNode->FunctionReference.GetMemberName().ToString());
+            Summary->SetStringField(TEXT("customGeneratedFunctionName"), FunctionEntryNode->CustomGeneratedFunctionName.ToString());
+            Summary->SetNumberField(TEXT("localVariableCount"), FunctionEntryNode->LocalVariables.Num());
+            Summary->SetBoolField(TEXT("enforceConstCorrectness"), FunctionEntryNode->bEnforceConstCorrectness);
+            Summary->SetBoolField(TEXT("isEditable"), true);
+            return Summary;
+        }
+
+        if (const UK2Node_FunctionResult* FunctionResultNode = Cast<UK2Node_FunctionResult>(Node))
+        {
+            Summary->SetStringField(TEXT("structureRole"), TEXT("graph_boundary"));
+            Summary->SetStringField(TEXT("boundaryKind"), TEXT("function_result"));
+            Summary->SetStringField(TEXT("entryExitSemantics"), TEXT("exit"));
+            Summary->SetStringField(TEXT("functionName"), FunctionResultNode->FunctionReference.GetMemberName().ToString());
+            Summary->SetNumberField(TEXT("resultNodeCount"), FunctionResultNode->GetAllResultNodes().Num());
+            Summary->SetBoolField(TEXT("isEditable"), true);
+            return Summary;
+        }
+
+        if (const UK2Node_TunnelBoundary* TunnelBoundaryNode = Cast<UK2Node_TunnelBoundary>(Node))
+        {
+            Summary->SetStringField(TEXT("structureRole"), TEXT("graph_boundary"));
+            Summary->SetStringField(TEXT("boundaryKind"), TEXT("tunnel_boundary"));
+            Summary->SetStringField(TEXT("baseName"), TunnelBoundaryNode->BaseName.ToString());
+            Summary->SetStringField(
+                TEXT("boundarySite"),
+                StaticEnum<ETunnelBoundaryType>()
+                    ? StaticEnum<ETunnelBoundaryType>()->GetNameStringByValue(static_cast<int64>(TunnelBoundaryNode->GetTunnelBoundaryType()))
+                    : TEXT(""));
+            Summary->SetStringField(TEXT("entryExitSemantics"), TEXT("boundary_site"));
+            return Summary;
+        }
+
+        if (const UK2Node_MacroInstance* MacroNode = Cast<UK2Node_MacroInstance>(Node))
+        {
+            const FBlueprintMacroDescriptor Descriptor = DescribeMacroNode(MacroNode);
+            Summary->SetStringField(TEXT("structureRole"), TEXT("graph_boundary"));
+            Summary->SetStringField(TEXT("boundaryKind"), TEXT("macro_instance"));
+            Summary->SetStringField(TEXT("entryExitSemantics"), TEXT("macro_bridge"));
+            Summary->SetStringField(TEXT("macroGraphName"), Descriptor.MacroGraphName);
+            Summary->SetStringField(TEXT("macroLibraryAssetPath"), Descriptor.MacroLibraryAssetPath);
+            Summary->SetStringField(TEXT("macroSourceBlueprintPath"), MacroNode->GetSourceBlueprint() ? MacroNode->GetSourceBlueprint()->GetPathName() : TEXT(""));
+            return Summary;
+        }
+
+        if (const UK2Node_Tunnel* TunnelNode = Cast<UK2Node_Tunnel>(Node))
+        {
+            Summary->SetStringField(TEXT("structureRole"), TEXT("graph_boundary"));
+            Summary->SetStringField(
+                TEXT("boundaryKind"),
+                TunnelNode->DrawNodeAsEntry() ? TEXT("tunnel_entry")
+                    : (TunnelNode->DrawNodeAsExit() ? TEXT("tunnel_exit") : TEXT("tunnel")));
+            Summary->SetStringField(
+                TEXT("entryExitSemantics"),
+                TunnelNode->DrawNodeAsEntry() ? TEXT("entry")
+                    : (TunnelNode->DrawNodeAsExit() ? TEXT("exit") : TEXT("bridge")));
+            Summary->SetBoolField(TEXT("canHaveInputs"), TunnelNode->bCanHaveInputs);
+            Summary->SetBoolField(TEXT("canHaveOutputs"), TunnelNode->bCanHaveOutputs);
+            Summary->SetStringField(TEXT("inputSinkNodeId"), TunnelNode->GetInputSink() ? TunnelNode->GetInputSink()->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens) : TEXT(""));
+            Summary->SetStringField(TEXT("outputSourceNodeId"), TunnelNode->GetOutputSource() ? TunnelNode->GetOutputSource()->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens) : TEXT(""));
+            return Summary;
+        }
+
+        return nullptr;
+    }
 
     static TSharedPtr<FJsonObject> MakeLayoutObject(
         int32 PositionX,
@@ -962,6 +1513,34 @@ namespace LoomleBlueprintAdapterInternal
         }
         NodeObject->SetObjectField(TEXT("k2Extensions"), K2Extensions);
 
+        TSharedPtr<FJsonObject> EmbeddedTemplate;
+        if (const UK2Node_Timeline* TimelineNode = Cast<UK2Node_Timeline>(Node))
+        {
+            EmbeddedTemplate = BuildTimelineEmbeddedTemplateSummary(TimelineNode);
+        }
+        else if (const UK2Node_AddComponent* AddComponentNode = Cast<UK2Node_AddComponent>(Node))
+        {
+            EmbeddedTemplate = BuildAddComponentEmbeddedTemplateSummary(AddComponentNode);
+        }
+        if (EmbeddedTemplate.IsValid())
+        {
+            NodeObject->SetObjectField(TEXT("embeddedTemplate"), EmbeddedTemplate);
+            NodeObject->SetObjectField(TEXT("effectiveSettings"), EmbeddedTemplate);
+        }
+
+        if (const UK2Node_AddComponentByClass* AddComponentByClassNode = Cast<UK2Node_AddComponentByClass>(Node))
+        {
+            if (TSharedPtr<FJsonObject> ContextSensitiveConstruct = BuildAddComponentByClassContextSummary(AddComponentByClassNode))
+            {
+                NodeObject->SetObjectField(TEXT("contextSensitiveConstruct"), ContextSensitiveConstruct);
+            }
+        }
+
+        if (TSharedPtr<FJsonObject> GraphBoundarySummary = BuildGraphBoundarySummary(Node))
+        {
+            NodeObject->SetObjectField(TEXT("graphBoundarySummary"), GraphBoundarySummary);
+        }
+
         TArray<TSharedPtr<FJsonValue>> Pins;
         for (const UEdGraphPin* Pin : Node->Pins)
         {
@@ -1195,6 +1774,343 @@ namespace LoomleBlueprintAdapterInternal
         UClass* BlueprintClass = Blueprint->GeneratedClass ? Blueprint->GeneratedClass : Blueprint->SkeletonGeneratedClass;
         bOutSelfContext = (OutOwnerClass == nullptr) || (BlueprintClass != nullptr && OutOwnerClass->IsChildOf(BlueprintClass));
         return Property;
+    }
+
+    static bool AddTimelineNode(
+        const FString& BlueprintAssetPath,
+        const FString& GraphName,
+        const TSharedPtr<FJsonObject>& Payload,
+        int32 NodePosX,
+        int32 NodePosY,
+        FString& OutNodeGuid,
+        FString& OutError)
+    {
+        OutNodeGuid.Empty();
+        OutError.Empty();
+
+        UBlueprint* Blueprint = LoadBlueprintByAssetPath(BlueprintAssetPath);
+        UEdGraph* TargetGraph = ResolveTargetGraph(Blueprint, GraphName);
+        if (!Blueprint || !TargetGraph)
+        {
+            OutError = TEXT("Failed to resolve blueprint/target graph.");
+            return false;
+        }
+
+        FGraphNodeCreator<UK2Node_Timeline> Creator(*TargetGraph);
+        UK2Node_Timeline* Node = Creator.CreateNode();
+        if (Node == nullptr)
+        {
+            OutError = TEXT("Failed to create timeline node.");
+            return false;
+        }
+
+        Node->NodePosX = NodePosX;
+        Node->NodePosY = NodePosY;
+        if (!Node->IsCompatibleWithGraph(TargetGraph))
+        {
+            OutError = TEXT("Timeline is not compatible with the target graph context.");
+            return false;
+        }
+
+        FString RequestedTimelineName;
+        if (Payload.IsValid())
+        {
+            Payload->TryGetStringField(TEXT("timelineName"), RequestedTimelineName);
+        }
+
+        FName TimelineName = NAME_None;
+        if (!RequestedTimelineName.IsEmpty())
+        {
+            const FName RequestedName(*RequestedTimelineName);
+            if (Blueprint->FindTimelineTemplateByVariableName(RequestedName) == nullptr)
+            {
+                TimelineName = RequestedName;
+            }
+        }
+        if (TimelineName.IsNone())
+        {
+            TimelineName = FBlueprintEditorUtils::FindUniqueTimelineName(Blueprint);
+        }
+
+        Node->TimelineName = TimelineName;
+        if (UTimelineTemplate* Template = FBlueprintEditorUtils::AddNewTimeline(Blueprint, TimelineName))
+        {
+            Node->bAutoPlay = Template->bAutoPlay;
+            Node->bLoop = Template->bLoop;
+            Node->bReplicated = Template->bReplicated;
+            Node->bIgnoreTimeDilation = Template->bIgnoreTimeDilation;
+            Node->ErrorMsg.Empty();
+            Node->bHasCompilerMessage = false;
+        }
+        else
+        {
+            OutError = TEXT("Failed to create Blueprint timeline template.");
+            return false;
+        }
+
+        Node->AllocateDefaultPins();
+        Creator.Finalize();
+        OutNodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+        return true;
+    }
+
+    static bool AddEmbeddedAddComponentNode(
+        const FString& BlueprintAssetPath,
+        const FString& GraphName,
+        const TSharedPtr<FJsonObject>& Payload,
+        int32 NodePosX,
+        int32 NodePosY,
+        FString& OutNodeGuid,
+        FString& OutError)
+    {
+        OutNodeGuid.Empty();
+        OutError.Empty();
+
+        UBlueprint* Blueprint = LoadBlueprintByAssetPath(BlueprintAssetPath);
+        UEdGraph* TargetGraph = ResolveTargetGraph(Blueprint, GraphName);
+        if (!Blueprint || !TargetGraph)
+        {
+            OutError = TEXT("Failed to resolve blueprint/target graph.");
+            return false;
+        }
+
+        FString ComponentClassPath;
+        FString RequestedComponentName;
+        if (Payload.IsValid())
+        {
+            Payload->TryGetStringField(TEXT("componentClassPath"), ComponentClassPath);
+            if (ComponentClassPath.IsEmpty())
+            {
+                Payload->TryGetStringField(TEXT("templateTypeClassPath"), ComponentClassPath);
+            }
+            Payload->TryGetStringField(TEXT("componentName"), RequestedComponentName);
+        }
+
+        UClass* ComponentClass = ResolveClass(ComponentClassPath);
+        if (ComponentClass == nullptr || !ComponentClass->IsChildOf(UActorComponent::StaticClass()))
+        {
+            OutError = FString::Printf(TEXT("Failed to resolve component class: %s"), *ComponentClassPath);
+            return false;
+        }
+
+        FGraphNodeCreator<UK2Node_AddComponent> Creator(*TargetGraph);
+        UK2Node_AddComponent* Node = Creator.CreateNode();
+        if (Node == nullptr)
+        {
+            OutError = TEXT("Failed to create AddComponent node.");
+            return false;
+        }
+
+        Node->NodePosX = NodePosX;
+        Node->NodePosY = NodePosY;
+
+        if (!Node->IsCompatibleWithGraph(TargetGraph))
+        {
+            OutError = TEXT("AddComponent is not compatible with the target graph context.");
+            return false;
+        }
+
+        UFunction* AddComponentFunc = FindFieldChecked<UFunction>(AActor::StaticClass(), UK2Node_AddComponent::GetAddComponentFunctionName());
+        Node->FunctionReference.SetFromField<UFunction>(AddComponentFunc, FBlueprintEditorUtils::IsActorBased(Blueprint));
+        Node->TemplateType = ComponentClass;
+        Node->AllocateDefaultPins();
+        Creator.Finalize();
+
+        UActorComponent* ComponentTemplate = nullptr;
+        if (FKismetEditorUtilities::IsClassABlueprintSpawnableComponent(ComponentClass))
+        {
+            UObject* TemplateOuter = Blueprint->GeneratedClass ? static_cast<UObject*>(Blueprint->GeneratedClass) : static_cast<UObject*>(Blueprint);
+            FString RequestedTemplateName = RequestedComponentName.IsEmpty()
+                ? ComponentClass->GetName()
+                : RequestedComponentName;
+            RequestedTemplateName += TEXT("_GEN_VARIABLE");
+            const FName TemplateName = MakeUniqueObjectName(TemplateOuter, ComponentClass, *RequestedTemplateName);
+            ComponentTemplate = NewObject<UActorComponent>(
+                TemplateOuter,
+                ComponentClass,
+                TemplateName,
+                RF_ArchetypeObject | RF_Public | RF_Transactional);
+            Blueprint->ComponentTemplates.Add(ComponentTemplate);
+        }
+
+        if (UEdGraphPin* TemplateNamePin = Node->GetTemplateNamePinChecked())
+        {
+            TemplateNamePin->DefaultValue = ComponentTemplate ? ComponentTemplate->GetName() : TEXT("");
+        }
+        Node->ReconstructNode();
+
+        OutNodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+        return true;
+    }
+
+    static bool AddCompositeNode(
+        const FString& BlueprintAssetPath,
+        const FString& GraphName,
+        const TSharedPtr<FJsonObject>& Payload,
+        int32 NodePosX,
+        int32 NodePosY,
+        FString& OutNodeGuid,
+        FString& OutError)
+    {
+        OutNodeGuid.Empty();
+        OutError.Empty();
+
+        UBlueprint* Blueprint = LoadBlueprintByAssetPath(BlueprintAssetPath);
+        UEdGraph* TargetGraph = ResolveTargetGraph(Blueprint, GraphName);
+        if (!Blueprint || !TargetGraph)
+        {
+            OutError = TEXT("Failed to resolve blueprint/target graph.");
+            return false;
+        }
+
+        FGraphNodeCreator<UK2Node_Composite> Creator(*TargetGraph);
+        UK2Node_Composite* Node = Creator.CreateNode();
+        if (Node == nullptr)
+        {
+            OutError = TEXT("Failed to create Composite node.");
+            return false;
+        }
+
+        Node->NodePosX = NodePosX;
+        Node->NodePosY = NodePosY;
+        if (!Node->IsCompatibleWithGraph(TargetGraph))
+        {
+            OutError = TEXT("Composite node is not compatible with the target graph context.");
+            return false;
+        }
+
+        Node->AllocateDefaultPins();
+        Creator.Finalize();
+
+        FString RequestedGraphName;
+        if (Payload.IsValid())
+        {
+            Payload->TryGetStringField(TEXT("collapsedGraphName"), RequestedGraphName);
+            if (RequestedGraphName.IsEmpty())
+            {
+                Payload->TryGetStringField(TEXT("nodeTitle"), RequestedGraphName);
+            }
+        }
+        if (!RequestedGraphName.IsEmpty())
+        {
+            Node->OnRenameNode(RequestedGraphName);
+        }
+
+        OutNodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+        return true;
+    }
+
+    static bool AddContextSensitiveAddComponentByClassNode(
+        const FString& BlueprintAssetPath,
+        const FString& GraphName,
+        const TSharedPtr<FJsonObject>& Payload,
+        int32 NodePosX,
+        int32 NodePosY,
+        FString& OutNodeGuid,
+        FString& OutError)
+    {
+        OutNodeGuid.Empty();
+        OutError.Empty();
+
+        UBlueprint* Blueprint = LoadBlueprintByAssetPath(BlueprintAssetPath);
+        UEdGraph* TargetGraph = ResolveTargetGraph(Blueprint, GraphName);
+        if (!Blueprint || !TargetGraph)
+        {
+            OutError = TEXT("Failed to resolve blueprint/target graph.");
+            return false;
+        }
+
+        FGraphNodeCreator<UK2Node_AddComponentByClass> Creator(*TargetGraph);
+        UK2Node_AddComponentByClass* Node = Creator.CreateNode();
+        if (Node == nullptr)
+        {
+            OutError = TEXT("Failed to create AddComponentByClass node.");
+            return false;
+        }
+
+        Node->NodePosX = NodePosX;
+        Node->NodePosY = NodePosY;
+        if (!Node->IsCompatibleWithGraph(TargetGraph))
+        {
+            OutError = TEXT("AddComponentByClass is not compatible with the target graph context.");
+            return false;
+        }
+
+        Node->AllocateDefaultPins();
+        Creator.Finalize();
+
+        FString ComponentClassPath;
+        if (Payload.IsValid())
+        {
+            Payload->TryGetStringField(TEXT("componentClassPath"), ComponentClassPath);
+            if (ComponentClassPath.IsEmpty())
+            {
+                Payload->TryGetStringField(TEXT("selectedClassPath"), ComponentClassPath);
+            }
+        }
+
+        if (!ComponentClassPath.IsEmpty())
+        {
+            UClass* ComponentClass = ResolveClass(ComponentClassPath);
+            if (ComponentClass == nullptr || !ComponentClass->IsChildOf(UActorComponent::StaticClass()))
+            {
+                OutError = FString::Printf(TEXT("Failed to resolve component class: %s"), *ComponentClassPath);
+                return false;
+            }
+
+            if (UEdGraphPin* ClassPin = Node->GetClassPin())
+            {
+                ClassPin->DefaultObject = ComponentClass;
+                ClassPin->DefaultValue = ComponentClass->GetPathName();
+                Node->PinDefaultValueChanged(ClassPin);
+            }
+        }
+
+        OutNodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+        return true;
+    }
+
+    static bool AddFunctionResultNode(
+        const FString& BlueprintAssetPath,
+        const FString& GraphName,
+        int32 NodePosX,
+        int32 NodePosY,
+        FString& OutNodeGuid,
+        FString& OutError)
+    {
+        OutNodeGuid.Empty();
+        OutError.Empty();
+
+        UBlueprint* Blueprint = LoadBlueprintByAssetPath(BlueprintAssetPath);
+        UEdGraph* TargetGraph = ResolveTargetGraph(Blueprint, GraphName);
+        if (!Blueprint || !TargetGraph)
+        {
+            OutError = TEXT("Failed to resolve blueprint/target graph.");
+            return false;
+        }
+
+        FGraphNodeCreator<UK2Node_FunctionResult> Creator(*TargetGraph);
+        UK2Node_FunctionResult* Node = Creator.CreateNode();
+        if (Node == nullptr)
+        {
+            OutError = TEXT("Failed to create FunctionResult node.");
+            return false;
+        }
+
+        Node->NodePosX = NodePosX;
+        Node->NodePosY = NodePosY;
+        if (!Node->IsCompatibleWithGraph(TargetGraph))
+        {
+            OutError = TEXT("FunctionResult is not compatible with the target graph context.");
+            return false;
+        }
+
+        Node->AllocateDefaultPins();
+        Creator.Finalize();
+        Node->PostPlacedNewNode();
+
+        OutNodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+        return true;
     }
 }
 
@@ -1716,6 +2632,60 @@ bool FLoomleBlueprintAdapter::AddNodeByClass(const FString& BlueprintAssetPath, 
         FString TargetClassPath;
         Payload->TryGetStringField(TEXT("targetClassPath"), TargetClassPath);
         return AddCastNode(BlueprintAssetPath, GraphName, TargetClassPath, NodePosX, NodePosY, OutNodeGuid, OutError);
+    }
+    if (NormalizedClass.Contains(TEXT("k2node_composite")))
+    {
+        return LoomleBlueprintAdapterInternal::AddCompositeNode(
+            BlueprintAssetPath,
+            GraphName,
+            Payload,
+            NodePosX,
+            NodePosY,
+            OutNodeGuid,
+            OutError);
+    }
+    if (NormalizedClass.Contains(TEXT("k2node_addcomponentbyclass")))
+    {
+        return LoomleBlueprintAdapterInternal::AddContextSensitiveAddComponentByClassNode(
+            BlueprintAssetPath,
+            GraphName,
+            Payload,
+            NodePosX,
+            NodePosY,
+            OutNodeGuid,
+            OutError);
+    }
+    if (NormalizedClass.Contains(TEXT("k2node_functionresult")))
+    {
+        return LoomleBlueprintAdapterInternal::AddFunctionResultNode(
+            BlueprintAssetPath,
+            GraphName,
+            NodePosX,
+            NodePosY,
+            OutNodeGuid,
+            OutError);
+    }
+    if (NormalizedClass.Contains(TEXT("k2node_addcomponent")))
+    {
+        return LoomleBlueprintAdapterInternal::AddEmbeddedAddComponentNode(
+            BlueprintAssetPath,
+            GraphName,
+            Payload,
+            NodePosX,
+            NodePosY,
+            OutNodeGuid,
+            OutError);
+    }
+    if (NormalizedClass.Contains(TEXT("k2node_timeline")))
+    {
+        return LoomleBlueprintAdapterInternal::AddTimelineNode(
+            BlueprintAssetPath,
+            GraphName,
+            Payload,
+            NodePosX,
+            NodePosY,
+            OutNodeGuid,
+            OutError);
     }
     if (NormalizedClass.Contains(TEXT("k2node_callfunction")))
     {

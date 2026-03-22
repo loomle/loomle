@@ -43,6 +43,36 @@ record.
   - rollout phases
   - acceptance criteria
 
+3. `GRAPH_QUERY_SURFACE_MODEL.md`
+- Shared local issue for defining one cross-graph `graph.query` surface model.
+- Covers:
+  - `pin_default`
+  - `effectiveSettings`
+  - `childGraphRef`
+  - `residual_gap`
+  - likely future promoted surface categories
+- Defines:
+  - shared design rules
+  - graph-type mapping
+  - rollout phases
+  - acceptance criteria
+
+4. `BLUEPRINT_GAP_PRODUCT_CAPABILITIES.md`
+- Local issue for promoting Blueprint residual gaps into real product
+  capabilities instead of leaving them as one accounting bucket.
+- Covers:
+  - `embedded_template`
+  - `graph_boundary_summary`
+  - `context_sensitive_construct`
+- Defines:
+  - target node families
+  - proposed query shapes
+  - rollout order
+  - acceptance criteria
+- Current status:
+  - Blueprint catalog has now promoted these lanes into product vocabulary
+  - current documented Blueprint `residual_gap` count is `0`
+
 ## Recommended Structure
 
 Each local issue should try to answer these questions clearly:

@@ -29,17 +29,32 @@ Short-term:
 
 - move these nodes out of plain `construct_and_query`
 - classify them as `context_recipe_required`
-- mark their current query surface as `residual_gap`
+- promote their query surface into `embedded_template`
 
 Long-term:
 
 - give them a stronger structured query surface that exposes the important
   template-backed truth directly
 
-## Current Baseline
+## Current Product Status
 
-Today the following Blueprint nodes are still too shallowly classified in the
-test system:
+`LOOMLE` now has first-pass product support for the confirmed embedded-template
+members:
+
+- `UK2Node_Timeline`
+- `UK2Node_AddComponent`
+
+They now:
+
+- support direct `addNode.byClass` creation through the product surface
+- expose `embeddedTemplate` through `graph.query`
+- mirror that summary into `effectiveSettings`
+- carry `querySurface.kind = embedded_template` in the Blueprint node database
+
+The remaining work in this lane is no longer "surface something at all". It is
+to keep the summaries stable, scoped, and recipe-backed.
+
+## Confirmed Members
 
 ### Confirmed Embedded-Template Nodes
 
@@ -102,9 +117,9 @@ automatically grouped with `Timeline` and `AddComponent`.
 
 Current recommendation:
 
-- move it to `context_recipe_required`
+- keep it separate from the embedded-template bucket
+- treat it as a `context_sensitive_construct`
 - test it through actor-context workflow and negative coverage
-- do not yet classify it as an embedded-template node
 
 ## Testing-System Direction
 
@@ -113,13 +128,14 @@ Current recommendation:
 For confirmed embedded-template nodes:
 
 - `profile = context_recipe_required`
-- `querySurface.kind = residual_gap`
+- `querySurface.kind = embedded_template`
 
 This says:
 
 - these nodes require richer Blueprint context than baseline graph fixtures
-- their real query truth is still only partially surfaced today
-- the residual gap must remain explicit and auditable
+- their real query truth now has a dedicated Blueprint-native surface
+- the remaining work is to strengthen summary depth, not to hide the family in
+  `residual_gap`
 
 ### Required Recipes
 
@@ -164,28 +180,25 @@ Embedded-template nodes should eventually be covered across these layers:
 3. `negative`
 - invalid context fails clearly and consistently
 
-4. `residual-gap accounting`
-- template-backed truth not yet surfaced by query remains explicit
-
-5. `template truth`
-- later phase
+4. `template truth`
 - structured query for template-backed state, not just node identity
+
+5. `deeper summary`
+- later phase
+- only expand beyond the current summary when agent-relevant truth clearly
+  benefits
 
 ## Query-Surface Direction
 
 Short-term:
 
-- keep embedded-template nodes under `residual_gap`
+- keep embedded-template nodes on `embedded_template`
 
 Long-term:
 
-- consider adding a dedicated Blueprint query surface for embedded template truth
-
-Possible future surface name:
-
 - `embedded_template`
 
-This would be distinct from:
+This is distinct from:
 
 - `pin_default`
 - `effective_settings`
@@ -199,14 +212,13 @@ This would be distinct from:
 - define the category
 - confirm current members
 - align testing strategy
+- implement a real product surface for the confirmed members
 - align recipe strategy
 - explicitly separate `AddComponentByClass` from the confirmed set
 
 ### Out Of Scope
 
-- implementing new Blueprint query serializers right now
-- promoting `AddComponentByClass` into the embedded-template class without
-  stronger evidence
+- promoting `AddComponentByClass` into the embedded-template class
 - full track-level Timeline serialization
 - full component-template object mirroring
 
@@ -220,12 +232,13 @@ This would be distinct from:
 
 ### Phase B
 
-- add Blueprint residual-gap coverage specifically for embedded-template nodes
-- make invalid-context behavior explicit
+- implement `embeddedTemplate` query summaries for both nodes
+- mirror those summaries into `effectiveSettings`
 
 ### Phase C
 
-- design and implement a structured Blueprint query surface for embedded-template
+- keep recipe-backed validation aligned with the promoted product surface
+- deepen summaries only where automation needs more than the current stable
   truth
 
 ## Acceptance Criteria
@@ -235,7 +248,7 @@ This local issue is done when:
 1. `Timeline` and `AddComponent` are no longer treated as ordinary baseline
    utility nodes
 2. both are covered through dedicated recipe-backed testing
-3. their current query limitations are explicit in the residual-gap model
+3. both surface stable template-backed truth through `embedded_template`
 4. `AddComponentByClass` is upgraded appropriately without being incorrectly
    folded into the embedded-template category
 
