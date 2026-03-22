@@ -115,6 +115,7 @@ Current PCG end-state for this phase:
   - repeated verify surfaces
   - fresh-session workflow repeatability
 - first selector-truth lane for selector-backed readback
+- first `effective_settings` suite covering presence, shape, and focused truth checks for high-value PCG families
 
 ## Phase 4: Scale and Long-Tail Strengthening
 
@@ -139,7 +140,7 @@ Priorities:
   - `residual_gap`
 - add dedicated surface suites for:
   - generic `pin_default` coverage expansion
-  - `effective_settings` presence, shape, and truth
+  - deeper `effective_settings` presence, shape, and truth beyond the first PCG baseline
   - `child_graph_ref` traversal and graph-boundary validation
   - `residual_gap` accounting and fallback verification
 - deepen serializer-surface awareness:

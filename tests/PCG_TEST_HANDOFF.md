@@ -8,13 +8,14 @@ It is intentionally short and action-oriented.
 
 The PCG test system is now strong enough to drive product work directly.
 
-It covers five complementary surfaces:
+It covers six complementary surfaces:
 
 - node-plan coverage
 - workflow truth coverage
 - negative and boundary coverage
 - stability and repeatability coverage
 - selector truth coverage
+- effective-settings coverage
 
 The current system is designed to expose real product gaps, not just smoke-level breakage.
 
@@ -71,7 +72,7 @@ If you only want one quick readiness check, run:
 python3 /Users/xartest/dev/loomle/tests/e2e/test_bridge_smoke.py --project-root /Users/xartest/dev/LoomleDevHost
 ```
 
-If you want the real PCG product-facing signals, run these five suites:
+If you want the real PCG product-facing signals, run these six suites:
 
 ```bash
 python3 /Users/xartest/dev/loomle/tools/run_pcg_graph_test_plan.py --project-root /Users/xartest/dev/LoomleDevHost
@@ -79,6 +80,7 @@ python3 /Users/xartest/dev/loomle/tools/run_pcg_workflow_truth_suite.py --projec
 python3 /Users/xartest/dev/loomle/tools/run_pcg_negative_boundary_suite.py --project-root /Users/xartest/dev/LoomleDevHost
 python3 /Users/xartest/dev/loomle/tools/run_pcg_stability_suite.py --project-root /Users/xartest/dev/LoomleDevHost
 python3 /Users/xartest/dev/loomle/tools/run_pcg_selector_truth_suite.py --project-root /Users/xartest/dev/LoomleDevHost
+python3 /Users/xartest/dev/loomle/tools/run_pcg_effective_settings_suite.py --project-root /Users/xartest/dev/LoomleDevHost
 ```
 
 If you want JSON artifacts for inspection or sharing, add `--output <path>.json`.
@@ -130,6 +132,24 @@ The selector suite currently covers:
 
 This means selector-backed PCG fields are now tested as a dedicated class instead of being treated as scalar one-off cases.
 
+## Current EffectiveSettings Coverage
+
+The effective-settings suite currently covers:
+
+- truth checks for:
+  - `GetActorProperty`
+  - `GetSpline`
+  - `StaticMeshSpawner`
+- presence and shape checks for:
+  - `DataFromActor`
+  - `ApplyOnActor`
+  - `SpawnActor`
+  - `SpawnSpline`
+  - `SpawnSplineMesh`
+  - `SkinnedMeshSpawner`
+
+This means high-value PCG nodes can now be tested against a dedicated `effectiveSettings` surface instead of being reduced to pin-default coverage only.
+
 ## How To Read Failures
 
 ### If workflow truth fails with `query_truth_unsurfaced`
@@ -167,6 +187,14 @@ Interpret that as:
 - the product and `graph.query` disagree on selector semantics
 - or selector structure is not being surfaced deeply enough for automation to trust it
 
+### If effective-settings suite fails
+
+Interpret that as:
+
+- the node is marked as `effective_settings`
+- but `graph.query` is either not surfacing that object at all
+- or not surfacing enough grouped structure for automation to treat it as a trustworthy primary read surface
+
 ## Key Files
 
 Execution:
@@ -176,6 +204,7 @@ Execution:
 - [run_pcg_negative_boundary_suite.py](/Users/xartest/dev/loomle/tools/run_pcg_negative_boundary_suite.py)
 - [run_pcg_stability_suite.py](/Users/xartest/dev/loomle/tools/run_pcg_stability_suite.py)
 - [run_pcg_selector_truth_suite.py](/Users/xartest/dev/loomle/tools/run_pcg_selector_truth_suite.py)
+- [run_pcg_effective_settings_suite.py](/Users/xartest/dev/loomle/tools/run_pcg_effective_settings_suite.py)
 
 Design context:
 

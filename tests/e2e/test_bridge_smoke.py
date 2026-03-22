@@ -220,6 +220,14 @@ EXPECTED_PCG_SELECTOR_SUITE_SUMMARY = {
     "querySurfaceKinds": ["effective_settings", "pin_default"],
 }
 
+EXPECTED_PCG_EFFECTIVE_SETTINGS_SUITE_SUMMARY = {
+    "totalCases": 9,
+    "truthCases": 3,
+    "presenceShapeCases": 6,
+    "worldContextCases": 4,
+    "families": ["meta", "source", "spawn"],
+}
+
 
 def _require(condition: bool, message: str) -> None:
     if not condition:
@@ -2216,6 +2224,62 @@ def validate_generated_pcg_selector_truth_suite() -> None:
     print("[PASS] generated PCG selector truth suite validated")
 
 
+def validate_generated_pcg_effective_settings_suite() -> None:
+    payload = subprocess.check_output(
+        [
+            sys.executable,
+            str(TOOLS_DIR / "run_pcg_effective_settings_suite.py"),
+            "--list-cases",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+    )
+    report = json.loads(payload)
+    _require(report.get("version") == "1", f"pcg effectiveSettings suite version mismatch: {report}")
+    _require(report.get("graphType") == "pcg", f"pcg effectiveSettings suite graphType mismatch: {report}")
+    _require(report.get("suite") == "effective_settings", f"pcg effectiveSettings suite name mismatch: {report}")
+    summary = report.get("summary")
+    _require(summary == EXPECTED_PCG_EFFECTIVE_SETTINGS_SUITE_SUMMARY, f"pcg effectiveSettings suite summary mismatch: {summary}")
+    cases = report.get("cases")
+    _require(
+        isinstance(cases, list) and len(cases) == EXPECTED_PCG_EFFECTIVE_SETTINGS_SUITE_SUMMARY["totalCases"],
+        "pcg effectiveSettings suite cases mismatch",
+    )
+    case_by_id = {
+        case.get("id"): case
+        for case in cases
+        if isinstance(case, dict) and isinstance(case.get("id"), str)
+    }
+
+    get_actor_property = case_by_id.get("get_actor_property_effective_settings_truth")
+    _require(isinstance(get_actor_property, dict), "pcg effectiveSettings suite missing GetActorProperty truth case")
+    _require(get_actor_property.get("fixture") == "pcg_graph_with_world_actor", f"pcg effectiveSettings actor fixture mismatch: {get_actor_property}")
+    _require(get_actor_property.get("assertionKind") == "truth", f"pcg effectiveSettings actor assertion kind mismatch: {get_actor_property}")
+    _require(
+        get_actor_property.get("effectiveSettingsGroups") == ["actorSelector", "outputAttributeName", "componentSelector"],
+        f"pcg effectiveSettings actor groups mismatch: {get_actor_property}",
+    )
+
+    spawn_actor = case_by_id.get("spawn_actor_effective_settings_presence")
+    _require(isinstance(spawn_actor, dict), "pcg effectiveSettings suite missing SpawnActor presence case")
+    _require(spawn_actor.get("fixture") == "pcg_graph", f"pcg effectiveSettings spawn actor fixture mismatch: {spawn_actor}")
+    _require(spawn_actor.get("assertionKind") == "presence_shape", f"pcg effectiveSettings spawn actor assertion kind mismatch: {spawn_actor}")
+    _require(
+        spawn_actor.get("effectiveSettingsGroups") == ["templateIdentity", "spawnBehavior", "propertyOverrides", "dataLayerSettings", "hlodSettings"],
+        f"pcg effectiveSettings spawn actor groups mismatch: {spawn_actor}",
+    )
+
+    skinned_mesh = case_by_id.get("skinned_mesh_spawner_effective_settings_presence")
+    _require(isinstance(skinned_mesh, dict), "pcg effectiveSettings suite missing SkinnedMeshSpawner presence case")
+    _require(skinned_mesh.get("families") == ["spawn"], f"pcg effectiveSettings skinned mesh family mismatch: {skinned_mesh}")
+    _require(
+        skinned_mesh.get("effectiveSettingsGroups") == ["templateIdentity", "spawnBehavior", "meshSelector"],
+        f"pcg effectiveSettings skinned mesh groups mismatch: {skinned_mesh}",
+    )
+
+    print("[PASS] generated PCG effectiveSettings suite validated")
+
+
 def fail(msg: str) -> None:
     print(f"[FAIL] {msg}")
     raise SystemExit(1)
@@ -2714,6 +2778,7 @@ def main() -> int:
         validate_generated_pcg_negative_boundary_suite()
         validate_generated_pcg_stability_suite()
         validate_generated_pcg_selector_truth_suite()
+        validate_generated_pcg_effective_settings_suite()
         validate_generated_graph_test_surface_report()
 
         print("[PASS] Bridge verification complete")
