@@ -2036,6 +2036,283 @@ TSharedPtr<FJsonObject> MakePcgComponentSelectorObject(const FPCGComponentSelect
     return Result;
 }
 
+template <typename TObjectType>
+FString GetPcgSoftObjectAssetPath(const TSoftObjectPtr<TObjectType>& Object)
+{
+    return Object.ToSoftObjectPath().GetAssetPathString();
+}
+
+template <typename TObjectType>
+FString GetPcgClassPath(const TSubclassOf<TObjectType>& ObjectClass)
+{
+    return ObjectClass ? ObjectClass->GetPathName() : TEXT("");
+}
+
+TArray<TSharedPtr<FJsonValue>> MakePcgStringValueArray(const TArray<FString>& Values)
+{
+    TArray<TSharedPtr<FJsonValue>> Result;
+    Result.Reserve(Values.Num());
+    for (const FString& Value : Values)
+    {
+        Result.Add(MakeShared<FJsonValueString>(Value));
+    }
+    return Result;
+}
+
+TArray<TSharedPtr<FJsonValue>> MakePcgNameValueArray(const TArray<FName>& Values)
+{
+    TArray<TSharedPtr<FJsonValue>> Result;
+    Result.Reserve(Values.Num());
+    for (const FName& Value : Values)
+    {
+        Result.Add(MakeShared<FJsonValueString>(Value.ToString()));
+    }
+    return Result;
+}
+
+void SetPcgNameArrayField(const TSharedPtr<FJsonObject>& Object, const TCHAR* FieldName, const TArray<FName>& Values)
+{
+    if (Object.IsValid())
+    {
+        Object->SetArrayField(FieldName, MakePcgNameValueArray(Values));
+    }
+}
+
+template <typename TObjectType>
+void SetPcgSoftObjectArrayField(
+    const TSharedPtr<FJsonObject>& Object,
+    const TCHAR* FieldName,
+    const TArray<TSoftObjectPtr<TObjectType>>& Values)
+{
+    if (!Object.IsValid())
+    {
+        return;
+    }
+
+    TArray<FString> Paths;
+    Paths.Reserve(Values.Num());
+    for (const TSoftObjectPtr<TObjectType>& Value : Values)
+    {
+        Paths.Add(GetPcgSoftObjectAssetPath(Value));
+    }
+    Object->SetArrayField(FieldName, MakePcgStringValueArray(Paths));
+}
+
+TSharedPtr<FJsonObject> MakePcgPropertyOverrideObject(const FPCGObjectPropertyOverrideDescription& Override)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetObjectField(TEXT("inputSource"), MakePcgSelectorObject(Override.InputSource));
+    Result->SetStringField(TEXT("propertyTarget"), Override.PropertyTarget);
+    return Result;
+}
+
+TSharedPtr<FJsonObject> MakePcgPropertyOverridesObject(const TArray<FPCGObjectPropertyOverrideDescription>& Overrides)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetNumberField(TEXT("count"), Overrides.Num());
+
+    TArray<TSharedPtr<FJsonValue>> Entries;
+    Entries.Reserve(Overrides.Num());
+    for (const FPCGObjectPropertyOverrideDescription& Override : Overrides)
+    {
+        Entries.Add(MakeShared<FJsonValueObject>(MakePcgPropertyOverrideObject(Override)));
+    }
+    Result->SetArrayField(TEXT("entries"), Entries);
+    return Result;
+}
+
+TSharedPtr<FJsonObject> MakePcgDataLayerReferenceSelectorObject(const FPCGDataLayerReferenceSelector& Selector)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("asInput"), Selector.bAsInput);
+    Result->SetObjectField(TEXT("attribute"), MakePcgSelectorObject(Selector.Attribute));
+    SetPcgSoftObjectArrayField(Result, TEXT("dataLayers"), Selector.DataLayers);
+    return Result;
+}
+
+TSharedPtr<FJsonObject> MakePcgDataLayerSettingsObject(const FPCGDataLayerSettings& Settings)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("sourceType"), GetPcgEnumName(Settings.DataLayerSourceType));
+    Result->SetObjectField(TEXT("dataLayerReferenceAttribute"), MakePcgSelectorObject(Settings.DataLayerReferenceAttribute));
+    Result->SetObjectField(TEXT("includedDataLayers"), MakePcgDataLayerReferenceSelectorObject(Settings.IncludedDataLayers));
+    Result->SetObjectField(TEXT("excludedDataLayers"), MakePcgDataLayerReferenceSelectorObject(Settings.ExcludedDataLayers));
+    Result->SetObjectField(TEXT("addDataLayers"), MakePcgDataLayerReferenceSelectorObject(Settings.AddDataLayers));
+    return Result;
+}
+
+TSharedPtr<FJsonObject> MakePcgHlodSettingsObject(const FPCGHLODSettings& Settings)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("sourceType"), GetPcgEnumName(Settings.HLODSourceType));
+    Result->SetStringField(TEXT("hlodLayerPath"), Settings.HLODLayer ? Settings.HLODLayer->GetPathName() : TEXT(""));
+    return Result;
+}
+
+TSharedPtr<FJsonObject> MakePcgGetActorPropertyComponentSelectorObject(const UPCGGetActorPropertySettings& Settings)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("enabled"), Settings.bSelectComponent);
+    Result->SetStringField(
+        TEXT("componentClassPath"),
+        Settings.ComponentClass ? Settings.ComponentClass->GetPathName() : TEXT(""));
+    Result->SetBoolField(TEXT("processAllComponents"), Settings.bProcessAllComponents);
+    Result->SetBoolField(TEXT("outputComponentReference"), Settings.bOutputComponentReference);
+    return Result;
+}
+
+TSharedPtr<FJsonObject> MakePcgApplyActorTargetObject(const UPCGApplyOnActorSettings& Settings)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("kind"), TEXT("objectReferenceAttribute"));
+    Result->SetObjectField(TEXT("objectReferenceAttribute"), MakePcgSelectorObject(Settings.ObjectReferenceAttribute));
+    return Result;
+}
+
+TSharedPtr<FJsonObject> MakePcgApplyBehaviorObject(const UPCGApplyOnActorSettings& Settings)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    SetPcgNameArrayField(Result, TEXT("postProcessFunctionNames"), Settings.PostProcessFunctionNames);
+    Result->SetBoolField(TEXT("silenceErrorOnEmptyObjectPath"), Settings.bSilenceErrorOnEmptyObjectPath);
+    Result->SetBoolField(TEXT("synchronousLoad"), Settings.bSynchronousLoad);
+#if WITH_EDITORONLY_DATA
+    Result->SetBoolField(TEXT("propagateObjectChangeEvent"), Settings.bPropagateObjectChangeEvent);
+#endif
+    return Result;
+}
+
+TSharedPtr<FJsonObject> MakePcgSpawnActorTemplateIdentityObject(const UPCGSpawnActorSettings& Settings)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("templateActorPath"), Settings.TemplateActor ? Settings.TemplateActor->GetPathName() : TEXT(""));
+    Result->SetStringField(TEXT("templateActorClassPath"), GetPcgClassPath(Settings.GetTemplateActorClass()));
+    Result->SetStringField(TEXT("rootActorPath"), GetPcgSoftObjectAssetPath(Settings.RootActor));
+    Result->SetBoolField(TEXT("allowTemplateActorEditing"), Settings.GetAllowTemplateActorEditing());
+    return Result;
+}
+
+TSharedPtr<FJsonObject> MakePcgSpawnActorBehaviorObject(const UPCGSpawnActorSettings& Settings)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("option"), GetPcgEnumName(Settings.Option));
+    Result->SetBoolField(TEXT("forceDisableActorParsing"), Settings.bForceDisableActorParsing);
+    Result->SetStringField(TEXT("generationTrigger"), GetPcgEnumName(Settings.GenerationTrigger));
+    Result->SetStringField(TEXT("attachOptions"), GetPcgEnumName(Settings.AttachOptions));
+    Result->SetBoolField(TEXT("spawnByAttribute"), Settings.bSpawnByAttribute);
+    Result->SetStringField(TEXT("spawnAttribute"), Settings.SpawnAttribute.ToString());
+    Result->SetBoolField(TEXT("inheritActorTags"), Settings.bInheritActorTags);
+    SetPcgNameArrayField(Result, TEXT("tagsToAddOnActors"), Settings.TagsToAddOnActors);
+    SetPcgNameArrayField(Result, TEXT("postSpawnFunctionNames"), Settings.PostSpawnFunctionNames);
+    Result->SetBoolField(TEXT("warnOnIdenticalSpawn"), Settings.bWarnOnIdenticalSpawn);
+    Result->SetBoolField(TEXT("deleteActorsBeforeGeneration"), Settings.bDeleteActorsBeforeGeneration);
+    return Result;
+}
+
+TSharedPtr<FJsonObject> MakePcgSpawnSplineTemplateIdentityObject(const UPCGSpawnSplineSettings& Settings)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("splineComponentClassPath"), GetPcgClassPath(Settings.SplineComponent));
+    Result->SetStringField(TEXT("targetActorPath"), GetPcgSoftObjectAssetPath(Settings.TargetActor));
+    return Result;
+}
+
+TSharedPtr<FJsonObject> MakePcgSpawnSplineBehaviorObject(const UPCGSpawnSplineSettings& Settings)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("spawnComponentFromAttribute"), Settings.bSpawnComponentFromAttribute);
+    Result->SetObjectField(TEXT("spawnComponentFromAttributeName"), MakePcgSelectorObject(Settings.SpawnComponentFromAttributeName));
+    Result->SetBoolField(TEXT("outputSplineComponentReference"), Settings.bOutputSplineComponentReference);
+    Result->SetStringField(TEXT("componentReferenceAttributeName"), Settings.ComponentReferenceAttributeName.ToString());
+    SetPcgNameArrayField(Result, TEXT("postProcessFunctionNames"), Settings.PostProcessFunctionNames);
+    return Result;
+}
+
+TSharedPtr<FJsonObject> MakePcgSpawnSplineMeshTemplateIdentityObject(const UPCGSpawnSplineMeshSettings& Settings)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("targetActorPath"), GetPcgSoftObjectAssetPath(Settings.TargetActor));
+    Result->SetStringField(
+        TEXT("componentClassPath"),
+        GetPcgClassPath(Settings.SplineMeshDescriptor.ComponentClass));
+    return Result;
+}
+
+TSharedPtr<FJsonObject> MakePcgSpawnSplineMeshBehaviorObject(const UPCGSpawnSplineMeshSettings& Settings)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    SetPcgNameArrayField(Result, TEXT("postProcessFunctionNames"), Settings.PostProcessFunctionNames);
+    Result->SetBoolField(TEXT("synchronousLoad"), Settings.bSynchronousLoad);
+    Result->SetStringField(TEXT("forwardAxis"), GetPcgEnumName(Settings.SplineMeshParams.ForwardAxis));
+    Result->SetBoolField(TEXT("scaleMeshToBounds"), Settings.SplineMeshParams.bScaleMeshToBounds);
+    Result->SetBoolField(
+        TEXT("scaleMeshToLandscapeSplineFullWidth"),
+        Settings.SplineMeshParams.bScaleMeshToLandscapeSplineFullWidth);
+    Result->SetBoolField(TEXT("smoothInterpRollScale"), Settings.SplineMeshParams.bSmoothInterpRollScale);
+    return Result;
+}
+
+TSharedPtr<FJsonObject> MakePcgSpawnSplineMeshSelectorObject(const UPCGSpawnSplineMeshSettings& Settings)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("kind"), TEXT("splineMeshDescriptor"));
+    Result->SetStringField(TEXT("staticMeshPath"), GetPcgSoftObjectAssetPath(Settings.SplineMeshDescriptor.StaticMesh));
+    Result->SetStringField(
+        TEXT("componentClassPath"),
+        GetPcgClassPath(Settings.SplineMeshDescriptor.ComponentClass));
+    Result->SetNumberField(TEXT("descriptorOverrideCount"), Settings.SplineMeshOverrideDescriptions.Num());
+    Result->SetNumberField(TEXT("paramsOverrideCount"), Settings.SplineMeshParamsOverride.Num());
+    Result->SetNumberField(TEXT("componentOverrideCount"), Settings.SplineMeshComponentOverride.Num());
+    return Result;
+}
+
+TSharedPtr<FJsonObject> MakePcgSkinnedMeshTemplateIdentityObject(const UPCGSkinnedMeshSpawnerSettings& Settings)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("targetActorPath"), GetPcgSoftObjectAssetPath(Settings.TargetActor));
+    Result->SetStringField(
+        TEXT("instanceDataPackerTypeClassPath"),
+        GetPcgClassPath(Settings.InstanceDataPackerType));
+    Result->SetStringField(
+        TEXT("instanceDataPackerParametersClassPath"),
+        Settings.InstanceDataPackerParameters ? Settings.InstanceDataPackerParameters->GetClass()->GetPathName() : TEXT(""));
+    return Result;
+}
+
+TSharedPtr<FJsonObject> MakePcgSkinnedMeshBehaviorObject(const UPCGSkinnedMeshSpawnerSettings& Settings)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("applyMeshBoundsToPoints"), Settings.bApplyMeshBoundsToPoints);
+    SetPcgNameArrayField(Result, TEXT("postProcessFunctionNames"), Settings.PostProcessFunctionNames);
+    Result->SetBoolField(TEXT("synchronousLoad"), Settings.bSynchronousLoad);
+    Result->SetBoolField(TEXT("silenceOverrideAttributeNotFoundErrors"), Settings.bSilenceOverrideAttributeNotFoundErrors);
+    Result->SetBoolField(TEXT("warnOnIdenticalSpawn"), Settings.bWarnOnIdenticalSpawn);
+    return Result;
+}
+
+TSharedPtr<FJsonObject> MakePcgSkinnedMeshSelectorObject(const UPCGSkinnedMeshSpawnerSettings& Settings)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("kind"), TEXT("skinnedByAttribute"));
+
+    const UPCGSkinnedMeshSelector* MeshSelector = Settings.MeshSelectorParameters;
+    Result->SetStringField(
+        TEXT("selectorClassPath"),
+        MeshSelector ? MeshSelector->GetClass()->GetPathName() : TEXT(""));
+
+    if (MeshSelector != nullptr)
+    {
+        Result->SetObjectField(TEXT("meshAttribute"), MakePcgSelectorObject(MeshSelector->MeshAttribute));
+        Result->SetStringField(
+            TEXT("componentClassPath"),
+            GetPcgClassPath(MeshSelector->TemplateDescriptor.ComponentClass));
+        SetPcgNameArrayField(Result, TEXT("componentTags"), MeshSelector->TemplateDescriptor.ComponentTags);
+        Result->SetBoolField(TEXT("useAttributeMaterialOverrides"), MeshSelector->bUseAttributeMaterialOverrides);
+        SetPcgNameArrayField(Result, TEXT("materialOverrideAttributes"), MeshSelector->MaterialOverrideAttributes);
+    }
+
+    return Result;
+}
+
 void AppendPcgGraphQueryDiagnostic(
     TArray<TSharedPtr<FJsonValue>>& NodeDiagnostics,
     TArray<TSharedPtr<FJsonValue>>& RootDiagnostics,
@@ -2099,6 +2376,9 @@ TSharedPtr<FJsonObject> BuildPcgNodeSettingsObject(
         TSharedPtr<FJsonObject> Settings = MakeShared<FJsonObject>();
         Settings->SetStringField(TEXT("settingsClassPath"), GetActorPropertySettings->GetClass()->GetPathName());
         Settings->SetObjectField(TEXT("actorSelector"), MakePcgActorSelectorObject(GetActorPropertySettings->ActorSelector));
+        Settings->SetObjectField(
+            TEXT("componentSelector"),
+            MakePcgGetActorPropertyComponentSelectorObject(*GetActorPropertySettings));
         Settings->SetBoolField(TEXT("selectComponent"), GetActorPropertySettings->bSelectComponent);
         Settings->SetStringField(
             TEXT("componentClassPath"),
@@ -2131,6 +2411,24 @@ TSharedPtr<FJsonObject> BuildPcgNodeSettingsObject(
         return Settings;
     }
 
+    if (const UPCGApplyOnActorSettings* ApplyOnActorSettings = Cast<UPCGApplyOnActorSettings>(NodeSettings))
+    {
+        TSharedPtr<FJsonObject> Settings = MakeShared<FJsonObject>();
+        Settings->SetStringField(TEXT("settingsClassPath"), ApplyOnActorSettings->GetClass()->GetPathName());
+        Settings->SetObjectField(TEXT("actorSelector"), MakePcgApplyActorTargetObject(*ApplyOnActorSettings));
+        Settings->SetObjectField(
+            TEXT("propertyOverrides"),
+            MakePcgPropertyOverridesObject(ApplyOnActorSettings->PropertyOverrideDescriptions));
+        Settings->SetObjectField(TEXT("applyBehavior"), MakePcgApplyBehaviorObject(*ApplyOnActorSettings));
+        Settings->SetObjectField(
+            TEXT("objectReferenceAttribute"),
+            MakePcgSelectorObject(ApplyOnActorSettings->ObjectReferenceAttribute));
+        SetPcgNameArrayField(Settings, TEXT("postProcessFunctionNames"), ApplyOnActorSettings->PostProcessFunctionNames);
+        Settings->SetBoolField(TEXT("silenceErrorOnEmptyObjectPath"), ApplyOnActorSettings->bSilenceErrorOnEmptyObjectPath);
+        Settings->SetBoolField(TEXT("synchronousLoad"), ApplyOnActorSettings->bSynchronousLoad);
+        return Settings;
+    }
+
     if (const UPCGGetSplineSettings* GetSplineSettings = Cast<UPCGGetSplineSettings>(NodeSettings))
     {
         TSharedPtr<FJsonObject> Settings = MakeShared<FJsonObject>();
@@ -2155,6 +2453,53 @@ TSharedPtr<FJsonObject> BuildPcgNodeSettingsObject(
             TEXT("PCG_COMPONENT_SELECTOR_EMPTY_INPUT_HINT"),
             TEXT("If no spline components match componentSelector, this node yields no spline data."));
 
+        return Settings;
+    }
+
+    if (const UPCGDataFromActorSettings* DataFromActorSettings = Cast<UPCGDataFromActorSettings>(NodeSettings))
+    {
+        TSharedPtr<FJsonObject> Settings = MakeShared<FJsonObject>();
+        Settings->SetStringField(TEXT("settingsClassPath"), DataFromActorSettings->GetClass()->GetPathName());
+        Settings->SetObjectField(TEXT("actorSelector"), MakePcgActorSelectorObject(DataFromActorSettings->ActorSelector));
+        Settings->SetObjectField(TEXT("componentSelector"), MakePcgComponentSelectorObject(DataFromActorSettings->ComponentSelector));
+        Settings->SetStringField(TEXT("mode"), GetPcgEnumName(DataFromActorSettings->Mode));
+        Settings->SetBoolField(TEXT("ignorePCGGeneratedComponents"), DataFromActorSettings->bIgnorePCGGeneratedComponents);
+        Settings->SetBoolField(TEXT("alsoOutputSinglePointData"), DataFromActorSettings->bAlsoOutputSinglePointData);
+        Settings->SetBoolField(TEXT("componentsMustOverlapSelf"), DataFromActorSettings->bComponentsMustOverlapSelf);
+        Settings->SetBoolField(TEXT("getDataOnAllGrids"), DataFromActorSettings->bGetDataOnAllGrids);
+        Settings->SetNumberField(TEXT("allowedGrids"), DataFromActorSettings->AllowedGrids);
+        Settings->SetBoolField(TEXT("mergeSinglePointData"), DataFromActorSettings->bMergeSinglePointData);
+        SetPcgNameArrayField(Settings, TEXT("expectedPins"), DataFromActorSettings->ExpectedPins);
+        Settings->SetStringField(TEXT("propertyName"), DataFromActorSettings->PropertyName.ToString());
+        Settings->SetBoolField(TEXT("alwaysRequeryActors"), DataFromActorSettings->bAlwaysRequeryActors);
+        Settings->SetBoolField(
+            TEXT("silenceSanitizedAttributeNameWarnings"),
+            DataFromActorSettings->bSilenceSanitizedAttributeNameWarnings);
+        Settings->SetBoolField(
+            TEXT("silenceReservedAttributeNameWarnings"),
+            DataFromActorSettings->bSilenceReservedAttributeNameWarnings);
+
+        AppendPcgGraphQueryDiagnostic(
+            NodeDiagnostics,
+            RootDiagnostics,
+            NodeId,
+            TEXT("PCG_SELECTOR_EMPTY_INPUT_HINT"),
+            TEXT("If no actors match actorSelector, this node yields no actor data."));
+
+        return Settings;
+    }
+
+    if (const UPCGSpawnActorSettings* SpawnActorSettings = Cast<UPCGSpawnActorSettings>(NodeSettings))
+    {
+        TSharedPtr<FJsonObject> Settings = MakeShared<FJsonObject>();
+        Settings->SetStringField(TEXT("settingsClassPath"), SpawnActorSettings->GetClass()->GetPathName());
+        Settings->SetObjectField(TEXT("templateIdentity"), MakePcgSpawnActorTemplateIdentityObject(*SpawnActorSettings));
+        Settings->SetObjectField(TEXT("spawnBehavior"), MakePcgSpawnActorBehaviorObject(*SpawnActorSettings));
+        Settings->SetObjectField(
+            TEXT("propertyOverrides"),
+            MakePcgPropertyOverridesObject(SpawnActorSettings->SpawnedActorPropertyOverrideDescriptions));
+        Settings->SetObjectField(TEXT("dataLayerSettings"), MakePcgDataLayerSettingsObject(SpawnActorSettings->DataLayerSettings));
+        Settings->SetObjectField(TEXT("hlodSettings"), MakePcgHlodSettingsObject(SpawnActorSettings->HLODSettings));
         return Settings;
     }
 
@@ -2259,6 +2604,44 @@ TSharedPtr<FJsonObject> BuildPcgNodeSettingsObject(
             }
         }
 
+        return Settings;
+    }
+
+    if (const UPCGSpawnSplineSettings* SpawnSplineSettings = Cast<UPCGSpawnSplineSettings>(NodeSettings))
+    {
+        TSharedPtr<FJsonObject> Settings = MakeShared<FJsonObject>();
+        Settings->SetStringField(TEXT("settingsClassPath"), SpawnSplineSettings->GetClass()->GetPathName());
+        Settings->SetObjectField(TEXT("templateIdentity"), MakePcgSpawnSplineTemplateIdentityObject(*SpawnSplineSettings));
+        Settings->SetObjectField(TEXT("spawnBehavior"), MakePcgSpawnSplineBehaviorObject(*SpawnSplineSettings));
+        Settings->SetObjectField(
+            TEXT("propertyOverrides"),
+            MakePcgPropertyOverridesObject(SpawnSplineSettings->PropertyOverrideDescriptions));
+        return Settings;
+    }
+
+    if (const UPCGSpawnSplineMeshSettings* SpawnSplineMeshSettings = Cast<UPCGSpawnSplineMeshSettings>(NodeSettings))
+    {
+        TSharedPtr<FJsonObject> Settings = MakeShared<FJsonObject>();
+        Settings->SetStringField(TEXT("settingsClassPath"), SpawnSplineMeshSettings->GetClass()->GetPathName());
+        Settings->SetObjectField(TEXT("templateIdentity"), MakePcgSpawnSplineMeshTemplateIdentityObject(*SpawnSplineMeshSettings));
+        Settings->SetObjectField(TEXT("spawnBehavior"), MakePcgSpawnSplineMeshBehaviorObject(*SpawnSplineMeshSettings));
+        Settings->SetObjectField(TEXT("meshSelector"), MakePcgSpawnSplineMeshSelectorObject(*SpawnSplineMeshSettings));
+        Settings->SetObjectField(
+            TEXT("propertyOverrides"),
+            MakePcgPropertyOverridesObject(SpawnSplineMeshSettings->SplineMeshOverrideDescriptions));
+        return Settings;
+    }
+
+    if (const UPCGSkinnedMeshSpawnerSettings* SkinnedMeshSpawnerSettings = Cast<UPCGSkinnedMeshSpawnerSettings>(NodeSettings))
+    {
+        TSharedPtr<FJsonObject> Settings = MakeShared<FJsonObject>();
+        Settings->SetStringField(TEXT("settingsClassPath"), SkinnedMeshSpawnerSettings->GetClass()->GetPathName());
+        Settings->SetObjectField(TEXT("templateIdentity"), MakePcgSkinnedMeshTemplateIdentityObject(*SkinnedMeshSpawnerSettings));
+        Settings->SetObjectField(TEXT("spawnBehavior"), MakePcgSkinnedMeshBehaviorObject(*SkinnedMeshSpawnerSettings));
+        Settings->SetObjectField(TEXT("meshSelector"), MakePcgSkinnedMeshSelectorObject(*SkinnedMeshSpawnerSettings));
+        Settings->SetObjectField(
+            TEXT("propertyOverrides"),
+            MakePcgPropertyOverridesObject(SkinnedMeshSpawnerSettings->SkinnedMeshComponentPropertyOverrides));
         return Settings;
     }
 
