@@ -1525,6 +1525,21 @@ bool ResolvePcgSubgraphAssetReference(UPCGSettings* NodeSettings, FString& OutAs
     return !OutAssetPath.IsEmpty();
 }
 
+bool ResolvePcgChildGraphReference(
+    UPCGSettings* NodeSettings,
+    FString& OutAssetPath,
+    FString& OutLoadStatus,
+    FString& OutGraphName,
+    FString& OutGraphClassPath)
+{
+    return ResolvePcgSubgraphAssetReference(
+        NodeSettings,
+        OutAssetPath,
+        OutLoadStatus,
+        OutGraphName,
+        OutGraphClassPath);
+}
+
 FString NormalizeBlueprintGraphKind(FString GraphKind)
 {
     if (GraphKind.Equals(TEXT("Event"), ESearchCase::IgnoreCase))
@@ -2895,14 +2910,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphListToolResult(const TSha
                     if (NodeObj == nullptr) { continue; }
                     UPCGSettings* NodeSettings = NodeObj->GetSettings();
                     if (!NodeSettings || !NodeSettings->GetClass()) { continue; }
-                    const FString NodeClassPath = NodeSettings->GetClass()->GetPathName();
-                    if (!NodeClassPath.Contains(TEXT("Subgraph"))) { continue; }
-
                     FString SubAssetPath;
                     FString SubLoadStatus;
                     FString SubgraphName;
                     FString SubgraphClassPath;
-                    if (!ResolvePcgSubgraphAssetReference(NodeSettings, SubAssetPath, SubLoadStatus, SubgraphName, SubgraphClassPath))
+                    if (!ResolvePcgChildGraphReference(NodeSettings, SubAssetPath, SubLoadStatus, SubgraphName, SubgraphClassPath))
                     {
                         continue;
                     }
@@ -4307,8 +4319,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
             }
             AppendPcgSyntheticWritablePins(NodeObj->GetSettings(), Pins);
 
-            // Annotate PCG subgraph nodes with childGraphRef via reflection.
-            if (NodeClassPath.Contains(TEXT("Subgraph")))
+            // Annotate PCG child-graph nodes via reflected asset references.
             {
                 UPCGSettings* NodeSettings = NodeObj->GetSettings();
                 if (NodeSettings)
@@ -4317,7 +4328,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
                     FString ChildLoadStatus;
                     FString SubgraphName;
                     FString SubgraphClassPath;
-                    if (ResolvePcgSubgraphAssetReference(NodeSettings, SubAssetPath, ChildLoadStatus, SubgraphName, SubgraphClassPath))
+                    if (ResolvePcgChildGraphReference(NodeSettings, SubAssetPath, ChildLoadStatus, SubgraphName, SubgraphClassPath))
                     {
                         SetNodeAssetChildGraphRef(Node, SubAssetPath, ChildLoadStatus);
                     }
