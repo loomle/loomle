@@ -148,30 +148,24 @@ Current stability status:
 
 ### Residual Gap
 
-The residual-gap suite currently covers the graph-structure Blueprint nodes that still require explicit fallback handling:
+The residual-gap suite currently covers the remaining Blueprint graph-structure node that still requires explicit fallback handling:
 
-- `Composite`
-- `Function Entry`
-- `Function Result`
 - `Macro Instance`
-- `Add Component`
-- `Timeline`
-- `Tunnel`
-- `Tunnel Boundary`
 
-### Embedded-Template Residual Gaps
+### Embedded-Template Query Surface
 
-Blueprint now explicitly classifies these nodes as embedded-template residual-gap
+Blueprint now explicitly classifies these nodes as embedded-template query-surface
 nodes:
 
 - `UK2Node_Timeline`
 - `UK2Node_AddComponent`
 
-The test system expects:
+The test system now expects:
 
 - `context_recipe_required`
 - dedicated recipes
-- explicit `residual_gap` query-surface declaration
+- explicit `embedded_template` query-surface declaration
+- live `graph.query` presence/shape coverage for both `embeddedTemplate` and `effectiveSettings`
 
 `UK2Node_AddComponentByClass` is now recipe-backed through actor execution
 context, but is not yet treated as an embedded-template node.

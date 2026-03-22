@@ -139,8 +139,8 @@ EXPECTED_BLUEPRINT_STABILITY_SUITE_SUMMARY = {
 }
 
 EXPECTED_BLUEPRINT_RESIDUAL_GAP_SUITE_SUMMARY = {
-    "totalCases": 8,
-    "documentedCases": 8,
+    "totalCases": 1,
+    "documentedCases": 1,
     "missingFallback": 0,
     "missingReason": 0,
     "fallbackKinds": ["execute"],
@@ -148,8 +148,9 @@ EXPECTED_BLUEPRINT_RESIDUAL_GAP_SUITE_SUMMARY = {
 
 EXPECTED_BLUEPRINT_EMBEDDED_TEMPLATE_SUITE_SUMMARY = {
     "totalCases": 2,
+    "presenceShapeCases": 2,
     "families": ["utility"],
-    "querySurfaceKinds": ["residual_gap"],
+    "querySurfaceKinds": ["embedded_template"],
     "recipes": ["blueprint_component_template_context", "blueprint_timeline_graph"],
 }
 
@@ -1066,7 +1067,7 @@ def validate_workspace_catalogs() -> None:
         and timeline_testing.get("profile") == "context_recipe_required"
         and timeline_testing.get("recipe") == "blueprint_timeline_graph"
         and isinstance(timeline_testing.get("querySurface"), dict)
-        and timeline_testing["querySurface"].get("kind") == "residual_gap",
+        and timeline_testing["querySurface"].get("kind") == "embedded_template",
         f"blueprint timeline testing mismatch: {timeline_node}",
     )
     add_component_node = next(
@@ -1080,7 +1081,7 @@ def validate_workspace_catalogs() -> None:
         and add_component_testing.get("profile") == "context_recipe_required"
         and add_component_testing.get("recipe") == "blueprint_component_template_context"
         and isinstance(add_component_testing.get("querySurface"), dict)
-        and add_component_testing["querySurface"].get("kind") == "residual_gap",
+        and add_component_testing["querySurface"].get("kind") == "embedded_template",
         f"blueprint add-component testing mismatch: {add_component_node}",
     )
     add_component_by_class_node = next(
@@ -1311,8 +1312,7 @@ def validate_generated_blueprint_test_plan() -> None:
         _require(add_component.get("fixture") == "blueprint_component_template_context", f"blueprint add-component fixture mismatch: {add_component}")
         _require(
             isinstance(add_component.get("querySurface"), dict)
-            and add_component["querySurface"].get("kind") == "residual_gap"
-            and add_component["querySurface"].get("fallback") == "execute",
+            and add_component["querySurface"].get("kind") == "embedded_template",
             f"blueprint add-component querySurface mismatch: {add_component}",
         )
 
@@ -1324,8 +1324,7 @@ def validate_generated_blueprint_test_plan() -> None:
         _require(timeline.get("fixture") == "blueprint_timeline_graph", f"blueprint timeline fixture mismatch: {timeline}")
         _require(
             isinstance(timeline.get("querySurface"), dict)
-            and timeline["querySurface"].get("kind") == "residual_gap"
-            and timeline["querySurface"].get("fallback") == "execute",
+            and timeline["querySurface"].get("kind") == "embedded_template",
             f"blueprint timeline querySurface mismatch: {timeline}",
         )
 
@@ -1729,12 +1728,8 @@ def validate_generated_blueprint_residual_gap_suite() -> None:
         f"blueprint residual-gap reason mismatch: {macro_case}",
     )
 
-    timeline_case = case_by_id.get("UK2Node_Timeline")
-    _require(isinstance(timeline_case, dict), "blueprint residual-gap suite missing UK2Node_Timeline")
-    _require(
-        "timeline templates" in str(timeline_case.get("reason")),
-        f"blueprint residual-gap timeline reason mismatch: {timeline_case}",
-    )
+    _require("UK2Node_Timeline" not in case_by_id, f"blueprint residual-gap suite should not include UK2Node_Timeline: {case_by_id}")
+    _require("UK2Node_AddComponent" not in case_by_id, f"blueprint residual-gap suite should not include UK2Node_AddComponent: {case_by_id}")
 
     print("[PASS] generated Blueprint residual-gap suite validated")
 
@@ -1766,13 +1761,25 @@ def validate_generated_blueprint_embedded_template_suite() -> None:
         if isinstance(case, dict) and isinstance(case.get("id"), str)
     }
 
-    add_component_case = case_by_id.get("UK2Node_AddComponent")
-    _require(isinstance(add_component_case, dict), "blueprint embedded-template suite missing UK2Node_AddComponent")
+    add_component_case = case_by_id.get("add_component_embedded_template_surface")
+    _require(isinstance(add_component_case, dict), "blueprint embedded-template suite missing add_component_embedded_template_surface")
+    _require(add_component_case.get("className") == "UK2Node_AddComponent", f"blueprint embedded-template add-component class mismatch: {add_component_case}")
     _require(add_component_case.get("recipe") == "blueprint_component_template_context", f"blueprint embedded-template add-component recipe mismatch: {add_component_case}")
+    _require(add_component_case.get("querySurfaceKind") == "embedded_template", f"blueprint embedded-template add-component surface mismatch: {add_component_case}")
+    _require(
+        add_component_case.get("requiredStringFields") == ["templateName", "templateObjectPath"],
+        f"blueprint embedded-template add-component required fields mismatch: {add_component_case}",
+    )
 
-    timeline_case = case_by_id.get("UK2Node_Timeline")
-    _require(isinstance(timeline_case, dict), "blueprint embedded-template suite missing UK2Node_Timeline")
+    timeline_case = case_by_id.get("timeline_embedded_template_surface")
+    _require(isinstance(timeline_case, dict), "blueprint embedded-template suite missing timeline_embedded_template_surface")
+    _require(timeline_case.get("className") == "UK2Node_Timeline", f"blueprint embedded-template timeline class mismatch: {timeline_case}")
     _require(timeline_case.get("recipe") == "blueprint_timeline_graph", f"blueprint embedded-template timeline recipe mismatch: {timeline_case}")
+    _require(timeline_case.get("querySurfaceKind") == "embedded_template", f"blueprint embedded-template timeline surface mismatch: {timeline_case}")
+    _require(
+        timeline_case.get("requiredStringFields") == ["templateName", "templatePath", "updateFunctionName", "finishedFunctionName", "timelineGuid"],
+        f"blueprint embedded-template timeline required fields mismatch: {timeline_case}",
+    )
 
     print("[PASS] generated Blueprint embedded-template suite validated")
 
