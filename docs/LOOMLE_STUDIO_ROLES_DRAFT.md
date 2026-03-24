@@ -2,19 +2,44 @@
 
 ## Purpose
 
-This document defines the minimum role set for `LOOMLE Studio`.
+This document defines the minimum role set and collaboration model for
+`LOOMLE Studio`.
 
-The goal is not to imitate a human studio org chart. The goal is to define the
-smallest set of agent roles with clear mental boundaries that can cover the
-core functions of a game studio built on top of LOOMLE.
+`LOOMLE Studio` is not a literal replacement for a human studio org chart.
 
-Each role is defined by:
+It is a personal agent team attached to one human operator.
 
-- core mindset
-- core questions
-- core workflows
+The human remains:
 
-## Design Rule
+- the owner of the work
+- the integrator of different viewpoints
+- the final decision-maker
+
+The agents are specialist lenses that extend the human's working capacity
+across the core functions of a game studio built on top of LOOMLE.
+
+This document focuses on three things:
+
+- the human-agent relationship
+- the project outputs they collaborate around
+- the minimum role set for `LOOMLE Studio v0`
+
+## Core Principles
+
+### Human-Agent Relationship
+
+`LOOMLE Studio` should be understood as a private agent team for one human, not
+as an autonomous multi-agent company.
+
+That means:
+
+- roles do not replace the human's ownership
+- roles do not have independent authority over project direction
+- roles provide structured judgment from a specific professional viewpoint
+- one task may involve several roles called by the same human
+- disagreement between roles is expected and should be resolved by the human
+
+### Role Design Rule
 
 Roles should be separated by cognitive boundary, not by human job title alone.
 
@@ -24,17 +49,172 @@ That means:
 - its workflows should feel like one mental model
 - we should avoid splitting work across roles if it does not actually require a
   different mode of reasoning
+- roles should be easy for one human to call on demand as thinking tools
 
 ## Role Set
 
-LOOMLE Studio v0 uses six roles:
+`LOOMLE Studio v0` uses six roles:
 
-1. `Designer`
-2. `Producer`
-3. `Architect`
-4. `Builder`
-5. `Reviewer`
-6. `QA`
+- `Designer` (`Dora`)
+- `Producer` (`Price`)
+- `Architect` (`Aeris`)
+- `Builder` (`Booker`)
+- `Reviewer` (`Riven`)
+- `QA` (`Queen`)
+
+These names are identity handles for the agents and do not change the
+underlying role boundaries.
+
+## Project Outputs
+
+Human-agent collaboration in `LOOMLE Studio` should be organized around clear
+project outputs, not around chat alone.
+
+The core output set for v0 is:
+
+- `Concept`
+- `Design`
+- `Architecture`
+- `Worklog`
+
+### 1. Concept
+
+`Concept` is the exploration layer.
+
+It is where ideas, directions, hypotheses, rough feature thoughts, and early
+possibilities can be collected before they are formalized.
+
+This layer should allow freedom, incompleteness, and experimentation.
+
+### 2. Design
+
+`Design` is the formal gameplay and experience description layer.
+
+It defines what the game, feature, system, interaction, or content is supposed
+to do from the player's point of view.
+
+This is the main structured design description that turns exploratory thinking
+into an explicit game-facing definition.
+
+### 3. Architecture
+
+`Architecture` is the system-structuring layer between `Design` and
+implementation.
+
+It defines how the intended behavior should be organized into realizable
+boundaries, implementation surfaces, graph structures, and technical
+constraints.
+
+This layer exists to connect requirement intent to implementable structure.
+
+### 4. Worklog
+
+`Worklog` is the collaboration record layer.
+
+It records how humans and agents move the project outputs forward over time.
+
+It may contain structured records, short notes, or freer diary-style entries as
+long as the progression of work remains understandable.
+
+The minimum recommended `Worklog` format is:
+
+- `time`
+- `owner`
+- `worker`
+- `target`
+- `action`
+- `note`
+
+Where:
+
+- `time` records when the entry happened
+- `owner` records the human owner of the work when applicable
+- `worker` records who actually performed the work, whether human or agent
+- `target` records the document, asset, issue, or system being worked on
+- `action` records what was done
+- `note` records optional context, reasoning, or freer diary-style details
+
+This format should stay lightweight. The goal is traceability, not paperwork.
+`owner` may be empty for autonomous or background agent activity. `worker` may
+be a human name or an agent name such as `Dora`, `Booker`, or `Queen`.
+
+## Output Relationship
+
+These outputs should be understood as distinct but connected layers:
+
+- `Concept` explores what may be worth doing
+- `Design` defines what should actually be built
+- `Architecture` defines how it should be structured for implementation
+- `Worklog` records how humans and agents advanced those outputs in practice
+
+## Invocation and Comments
+
+The default way to invoke a `LOOMLE Studio` role is `@name`.
+
+For speed and convenience, each role may also be invoked by its single-letter
+short form.
+
+Invocation is case-insensitive.
+
+Examples:
+
+- `Designer`: `@Dora`, `@d`
+- `Producer`: `@Price`, `@p`
+- `Architect`: `@Aeris`, `@a`
+- `Builder`: `@Booker`, `@b`
+- `Reviewer`: `@Riven`, `@r`
+- `QA`: `@Queen`, `@q`
+
+This keeps role invocation simple and easy to scan in a conversation or
+document.
+
+All project outputs and `Worklog` entries may also contain `@name` comments or
+direct notes to a human or agent.
+
+This is the default lightweight way to request clarification, ask for changes,
+flag a problem, or hand attention to another participant.
+
+That means:
+
+- any document may include `@name` requests or comments
+- `@name` may target a human or an agent
+- comments should stay close to the relevant content
+- once the requested change is handled, the resolved comment should be removed
+- the handling of that comment should then be recorded in `Worklog`
+
+This keeps active discussion near the work itself while keeping finalized
+documents clean.
+
+Diff history may still reveal what changed, but `Worklog` should remain the
+main human-readable record of what was done and why.
+
+When multiple roles are invoked in the same request, the default behavior
+should be parallel comparison, not strict sequential handoff.
+
+Examples:
+
+- `@d @p is this feature worth building?`
+- `@a @b how should this actually be implemented?`
+- `@r @q what are the main risks and how should we validate them?`
+
+This should feel like consulting several specialist agents in the same room.
+
+The goal is not to simulate bureaucracy.
+
+The goal is to let one human quickly compare multiple professional viewpoints
+before deciding how to proceed.
+
+Response format for multi-role invocation should be simple segmented output.
+
+That means:
+
+- each invoked role responds in its own section
+- no forced consensus layer is required
+- no mandatory unified conclusion is required
+- differences in viewpoint should remain visible to the human
+
+The point of multi-role invocation is to expand perspective, not to collapse
+everything into one blended answer too early.
 
 ## 1. Designer
 
@@ -44,6 +224,9 @@ Define player experience, gameplay intent, and content intent.
 
 The Designer is responsible for what the player should feel, understand, and
 be able to do.
+
+This role is the strongest lens for gameplay and experience thinking, but it is
+not the only authority allowed to discuss product choices.
 
 ### Core Questions
 
@@ -76,6 +259,9 @@ Balance direction, market demand, production cost, time, and priority.
 
 The Producer is responsible for deciding what is worth doing now, what should
 be deferred, and what scope is appropriate for the current phase.
+
+Inside `LOOMLE Studio`, this role should be interpreted as a scope and value
+advisor, not as a literal human producer with formal organizational authority.
 
 ### Core Questions
 
@@ -113,6 +299,9 @@ correctness.
 The Architect is responsible for how the system should be organized, not what
 the product should be, and not the minute-by-minute implementation work.
 
+This role exists to sharpen structural reasoning for the human operator, not to
+become an independent technical governor over the whole project.
+
 ### Core Questions
 
 - What is the right implementation surface?
@@ -146,6 +335,8 @@ Turn goals and structure into working output.
 
 The Builder is responsible for making the change real: graph edits, asset
 changes, editor operations, concrete implementation, and bug fixes.
+
+This role is the execution-heavy mode of the personal agent team.
 
 ### Core Questions
 
@@ -182,6 +373,8 @@ Find weaknesses, risks, regressions, and quality gaps.
 The Reviewer is responsible for critical evaluation. This role asks what is
 wrong, incomplete, risky, inconsistent, or likely to regress.
 
+This role is a critical lens, not the final ship/no-ship authority by itself.
+
 ### Core Questions
 
 - What is wrong or weak here?
@@ -217,6 +410,9 @@ QA owns test strategy, test framework thinking, test implementation, validation
 execution, and acceptance evidence. These belong together because they share
 one mental model: proving correctness against the intended behavior.
 
+This role exists to produce validation evidence for the human operator's
+decision, not to replace that decision.
+
 ### Core Questions
 
 - How should this be validated?
@@ -246,14 +442,17 @@ one mental model: proving correctness against the intended behavior.
 
 ## Boundary Summary
 
-- `Designer`: defines the intended experience and feature goal
-- `Producer`: decides what is worth doing now and at what scope
-- `Architect`: defines structure and implementation boundaries
-- `Builder`: executes the change and makes it real
-- `Reviewer`: finds quality gaps and risks
-- `QA`: proves correctness through tests and evidence
+- `Designer`: provides the experience and gameplay-intent lens
+- `Producer`: provides the scope, priority, and value lens
+- `Architect`: provides the structure and implementation-boundary lens
+- `Builder`: provides the execution and concrete-change lens
+- `Reviewer`: provides the critical-risk and weakness-finding lens
+- `QA`: provides the validation and proof-of-correctness lens
 
-## LOOMLE Studio Interpretation
+The human user chooses when to call each role and how to integrate their
+outputs.
+
+## LOOMLE Foundation
 
 These roles are intended to sit on top of LOOMLE's existing Unreal-native
 foundation:
@@ -274,11 +473,17 @@ In other words:
 - LOOMLE provides the runtime and graph-native working surfaces
 - LOOMLE Studio provides role-specific thinking and workflows on top of those
   surfaces
+- the human operator decides which role to invoke, when to switch roles, and
+  what to do with the outputs
 
 ## Next Step
 
 The next design step should define:
 
+- the concrete document formats for `Concept`, `Design`, and `Architecture`
+- the first stable `Worklog` conventions and examples
 - the core workflow set for each role
-- the cross-role handoff rules between those workflows
+- the role-switching and multi-role review patterns within one human workflow
+- the cross-role handoff rules where explicit handoff is actually needed
+- the authority model for conflict resolution between role outputs
 - the first `LOOMLE Studio v0` workflow set to productize
