@@ -18,6 +18,7 @@ from test_bridge_smoke import (
     parse_execute_json,
     resolve_default_loomle_binary,
     resolve_project_root,
+    submit_execute_job,
 )
 
 
@@ -218,6 +219,45 @@ def query_snapshot(
     return snapshot
 
 
+def wait_for_job_terminal(
+    client: McpStdioClient,
+    request_id_base: int,
+    *,
+    job_id: str,
+    max_attempts: int = 20,
+    sleep_s: float = 0.3,
+) -> tuple[dict, list[str]]:
+    seen_statuses: list[str] = []
+    last_payload: dict | None = None
+    for attempt in range(max_attempts):
+        payload = call_tool(client, request_id_base + attempt, "jobs", {"action": "status", "jobId": job_id})
+        last_payload = payload
+        status = payload.get("status")
+        if isinstance(status, str):
+            seen_statuses.append(status)
+        if status in {"succeeded", "failed"}:
+            return payload, seen_statuses
+        time.sleep(sleep_s)
+    fail(f"jobs.status did not reach a terminal state: last={last_payload}")
+    raise RuntimeError("unreachable")
+
+
+def extract_nested_error_code(payload: dict) -> str:
+    code = payload.get("code")
+    if isinstance(code, str) and code:
+        return code
+    detail = payload.get("detail")
+    if isinstance(detail, str) and detail:
+        try:
+            nested = json.loads(detail)
+        except json.JSONDecodeError:
+            return ""
+        nested_code = nested.get("code") if isinstance(nested, dict) else None
+        if isinstance(nested_code, str):
+            return nested_code
+    return ""
+
+
 def query_graph_payload(
     client: McpStdioClient,
     request_id: int,
@@ -397,6 +437,105 @@ def main() -> int:
         if missing:
             fail(f"tools/list missing required tools: {', '.join(missing)}")
         print("[PASS] tools/list baseline tools available")
+
+        jobs_key = f"jobs-regression-{int(time.time() * 1000)}"
+        jobs_submit = submit_execute_job(
+            client,
+            3600,
+            code=(
+                "import time, unreal, json\n"
+                "unreal.log('jobs regression start')\n"
+                "time.sleep(1.2)\n"
+                "unreal.log('jobs regression end')\n"
+                "print(json.dumps({'marker':'jobs-regression-finished'}, ensure_ascii=False))\n"
+            ),
+            idempotency_key=jobs_key,
+            label="jobs regression lifecycle",
+            wait_ms=200,
+        )
+        job = jobs_submit.get("job", {})
+        job_id = job.get("jobId")
+        if not isinstance(job_id, str) or not job_id:
+            fail(f"execute(job) regression missing jobId: {jobs_submit}")
+
+        in_flight_result = call_tool(client, 3601, "jobs", {"action": "result", "jobId": job_id})
+        if in_flight_result.get("jobId") != job_id or in_flight_result.get("tool") != "execute":
+            fail(f"jobs.result in-flight payload mismatch: {in_flight_result}")
+        if in_flight_result.get("status") not in {"queued", "running", "succeeded", "failed"}:
+            fail(f"jobs.result in-flight invalid status: {in_flight_result}")
+        if in_flight_result.get("status") in {"queued", "running"} and in_flight_result.get("resultAvailable") is not False:
+            fail(f"jobs.result non-terminal state should not be marked resultAvailable: {in_flight_result}")
+
+        terminal_status, seen_statuses = wait_for_job_terminal(client, 3610, job_id=job_id)
+        if terminal_status.get("jobId") != job_id or terminal_status.get("tool") != "execute":
+            fail(f"jobs.status terminal payload mismatch: {terminal_status}")
+        if terminal_status.get("status") != "succeeded":
+            fail(f"jobs.status expected succeeded terminal status: {terminal_status}")
+        if not any(status in {"running", "succeeded"} for status in seen_statuses):
+            fail(f"jobs.status did not expose expected lifecycle states: {seen_statuses}")
+
+        jobs_logs = call_tool(client, 3640, "jobs", {"action": "logs", "jobId": job_id, "limit": 200})
+        entries = jobs_logs.get("entries")
+        if not isinstance(entries, list):
+            fail(f"jobs.logs missing entries[]: {jobs_logs}")
+        log_messages = [entry.get("message") for entry in entries if isinstance(entry, dict) and isinstance(entry.get("message"), str)]
+        joined_logs = "\n".join(log_messages)
+        if "jobs regression start" not in joined_logs or "jobs regression end" not in joined_logs:
+            fail(f"jobs.logs missing expected markers: {jobs_logs}")
+        next_cursor = jobs_logs.get("nextCursor")
+        if not isinstance(next_cursor, str):
+            fail(f"jobs.logs missing nextCursor: {jobs_logs}")
+
+        finished_result = call_tool(client, 3650, "jobs", {"action": "result", "jobId": job_id})
+        if finished_result.get("status") != "succeeded" or finished_result.get("resultAvailable") is not True:
+            fail(f"jobs.result terminal payload mismatch: {finished_result}")
+        nested_result = finished_result.get("result")
+        if not isinstance(nested_result, dict):
+            fail(f"jobs.result missing nested final execute payload: {finished_result}")
+        nested_logs = nested_result.get("logs")
+        if not isinstance(nested_logs, list):
+            fail(f"jobs.result missing nested execute logs: {finished_result}")
+        nested_outputs = [
+            entry.get("output")
+            for entry in nested_logs
+            if isinstance(entry, dict) and isinstance(entry.get("output"), str)
+        ]
+        if not any("jobs-regression-finished" in output for output in nested_outputs):
+            fail(f"jobs.result missing final nested log marker: {finished_result}")
+
+        jobs_list = call_tool(client, 3660, "jobs", {"action": "list", "limit": 50})
+        listed_jobs = jobs_list.get("jobs")
+        if not isinstance(listed_jobs, list):
+            fail(f"jobs.list missing jobs[]: {jobs_list}")
+        matching_job = next((entry for entry in listed_jobs if isinstance(entry, dict) and entry.get("jobId") == job_id), None)
+        if not isinstance(matching_job, dict):
+            fail(f"jobs.list did not include submitted job: {jobs_list}")
+        if matching_job.get("tool") != "execute":
+            fail(f"jobs.list tool mismatch: {matching_job}")
+        print("[PASS] jobs runtime lifecycle validated")
+
+        missing_idempotency = call_tool(
+            client,
+            3670,
+            "execute",
+            {
+                "mode": "exec",
+                "code": "print('jobs contract missing key')",
+                "execution": {"mode": "job", "waitMs": 100},
+            },
+            expect_error=True,
+        )
+        if extract_nested_error_code(missing_idempotency) != "IDEMPOTENCY_KEY_REQUIRED":
+            fail(f"execute(job) missing idempotencyKey code mismatch: {missing_idempotency}")
+
+        unknown_job = call_tool(client, 3671, "jobs", {"action": "status", "jobId": "job_missing_regression"}, expect_error=True)
+        if extract_nested_error_code(unknown_job) != "JOB_NOT_FOUND":
+            fail(f"jobs.status unknown job code mismatch: {unknown_job}")
+
+        unsupported_action = call_tool(client, 3672, "jobs", {"action": "cancel", "jobId": job_id}, expect_error=True)
+        if extract_nested_error_code(unsupported_action) != "JOB_ACTION_UNSUPPORTED":
+            fail(f"jobs unsupported action code mismatch: {unsupported_action}")
+        print("[PASS] jobs runtime contract errors validated")
 
         graph_desc = call_tool(client, 3, "graph", {"graphType": "blueprint"})
         ops = graph_desc.get("ops")

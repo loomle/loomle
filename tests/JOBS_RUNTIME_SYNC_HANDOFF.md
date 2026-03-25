@@ -3,7 +3,7 @@
 Status:
 
 - product-side implementation: complete
-- test-side sync: pending
+- test-side sync: complete
 
 ## Summary
 
@@ -155,11 +155,11 @@ The following product behavior has already been proven:
 5. idempotent re-submission with the same key reuses the same job
 6. full `dev_verify` still passes after this change
 
-## Test-Side Sync Targets
+## Test-Side Sync Coverage
 
 ### 1. Tool Inventory
 
-Update live tool-count expectations.
+Live tool-count expectations now include:
 
 Current required tool count is now:
 
@@ -171,7 +171,7 @@ The new required baseline tool is:
 
 ### 2. Execute Semantics
 
-Tests should now distinguish:
+Tests now distinguish:
 
 - `execute` sync mode
 - `execute` job mode
@@ -181,7 +181,7 @@ one call.
 
 ### 3. New Lifecycle Coverage
 
-At minimum, add runtime coverage for:
+Current runtime coverage includes:
 
 1. `execute` job submission returns `job.jobId`
 2. `jobs.status` can observe `queued|running|succeeded|failed`
@@ -191,7 +191,7 @@ At minimum, add runtime coverage for:
 
 ### 4. Error Coverage
 
-At minimum, add contract coverage for:
+Current contract coverage includes:
 
 1. missing `execution.idempotencyKey` in job mode
 - expected: `IDEMPOTENCY_KEY_REQUIRED`
@@ -214,16 +214,17 @@ The test side should not yet assume:
 - `graph.verify` job mode
 - `graph.mutate` job mode
 
-## Recommended First Test Update Order
+## Implemented Test Sync
 
-1. update smoke tool inventory to include `jobs`
-2. add one smoke-level `execute(mode=job)` submission check
-3. add one regression-level end-to-end lifecycle check:
+1. smoke tool inventory now includes `jobs`
+2. smoke includes one `execute(mode=job)` submission check plus basic `jobs` lifecycle reads
+3. regression includes one end-to-end lifecycle check:
 - submit
 - poll status
 - read logs
 - read result
-4. add contract assertions for the three new error codes
+- confirm `jobs.list`
+4. regression includes contract assertions for the three new error codes
 
 ## Suggested Manual Probe
 

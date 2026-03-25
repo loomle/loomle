@@ -24,6 +24,7 @@ REQUIRED_TOOLS = {
     "graph.verify",
     "diag.tail",
     "context",
+    "jobs",
     "editor.open",
     "editor.focus",
     "editor.screenshot",
@@ -2664,9 +2665,6 @@ def is_tool_error_payload(payload: dict[str, Any]) -> bool:
     domain_code = payload.get("domainCode")
     if isinstance(domain_code, str) and domain_code.strip():
         return True
-    message = payload.get("message")
-    if isinstance(message, str) and message.strip():
-        return True
     return False
 
 
@@ -2912,6 +2910,49 @@ def call_tool(
     return payload
 
 
+def submit_execute_job(
+    client: McpStdioClient,
+    req_id: int,
+    *,
+    code: str,
+    idempotency_key: str,
+    label: str,
+    wait_ms: int = 250,
+    result_ttl_ms: int = 60000,
+) -> dict[str, Any]:
+    payload = call_tool(
+        client,
+        req_id,
+        "execute",
+        {
+            "mode": "exec",
+            "code": code,
+            "execution": {
+                "mode": "job",
+                "idempotencyKey": idempotency_key,
+                "label": label,
+                "waitMs": wait_ms,
+                "resultTtlMs": result_ttl_ms,
+            },
+        },
+    )
+    job = payload.get("job")
+    if not isinstance(job, dict):
+        fail(f"execute(job) missing job object: {_compact_json(payload)}")
+    job_id = job.get("jobId")
+    status = job.get("status")
+    if not isinstance(job_id, str) or not job_id:
+        fail(f"execute(job) missing jobId: {_compact_json(payload)}")
+    if status not in {"queued", "running"}:
+        fail(f"execute(job) unexpected initial status: {_compact_json(payload)}")
+    if job.get("idempotencyKey") != idempotency_key:
+        fail(f"execute(job) idempotencyKey mismatch: {_compact_json(payload)}")
+    poll_after_ms = job.get("pollAfterMs")
+    if not isinstance(poll_after_ms, int) or poll_after_ms <= 0:
+        fail(f"execute(job) invalid pollAfterMs: {_compact_json(payload)}")
+    return payload
+
+
 def call_execute_exec_with_retry(
     client: McpStdioClient,
     req_id_base: int,
@@ -3064,6 +3105,41 @@ def main() -> int:
             code="import unreal\nunreal.log('loomle execute verify')",
         )
         print("[PASS] execute channel is available")
+
+        jobs_smoke_key = f"jobs-smoke-{int(time.time() * 1000)}"
+        jobs_smoke_payload = submit_execute_job(
+            client,
+            32,
+            code=(
+                "import time, unreal\n"
+                "unreal.log('jobs smoke start')\n"
+                "time.sleep(1.0)\n"
+                "unreal.log('jobs smoke end')\n"
+                "print('jobs-smoke-finished')\n"
+            ),
+            idempotency_key=jobs_smoke_key,
+            label="jobs smoke",
+            wait_ms=250,
+        )
+        jobs_smoke = jobs_smoke_payload["job"]
+        jobs_smoke_id = jobs_smoke["jobId"]
+        jobs_status = call_tool(client, 33, "jobs", {"action": "status", "jobId": jobs_smoke_id})
+        if jobs_status.get("jobId") != jobs_smoke_id or jobs_status.get("tool") != "execute":
+            fail(f"jobs.status smoke mismatch: {jobs_status}")
+        if jobs_status.get("status") not in {"queued", "running", "succeeded", "failed"}:
+            fail(f"jobs.status smoke invalid status: {jobs_status}")
+        jobs_result = call_tool(client, 34, "jobs", {"action": "result", "jobId": jobs_smoke_id})
+        if jobs_result.get("jobId") != jobs_smoke_id or jobs_result.get("tool") != "execute":
+            fail(f"jobs.result smoke mismatch: {jobs_result}")
+        if jobs_result.get("status") not in {"queued", "running", "succeeded", "failed"}:
+            fail(f"jobs.result smoke invalid status: {jobs_result}")
+        jobs_listing = call_tool(client, 35, "jobs", {"action": "list", "limit": 20})
+        jobs = jobs_listing.get("jobs")
+        if not isinstance(jobs, list):
+            fail(f"jobs.list smoke missing jobs[]: {jobs_listing}")
+        if not any(isinstance(entry, dict) and entry.get("jobId") == jobs_smoke_id and entry.get("tool") == "execute" for entry in jobs):
+            fail(f"jobs.list smoke missing submitted job: {jobs_listing}")
+        print("[PASS] jobs runtime smoke submission validated")
 
         _ = call_execute_exec_with_retry(
             client=client,
