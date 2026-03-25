@@ -119,6 +119,7 @@ fn rpc_meta_for_request(
         .as_ref()
         .and_then(|meta| meta.get("deadlineMs"))
         .and_then(Value::as_u64)
+        .or_else(|| job_wait_ms_from_arguments(request))
         .or_else(|| execute_timeout_ms_from_arguments(request))
         .unwrap_or_else(|| default_deadline_ms_for_tool(request.name.as_ref()));
 
@@ -134,6 +135,24 @@ fn default_deadline_ms_for_tool(tool_name: &str) -> u64 {
         "execute" => 120_000,
         _ => 10_000,
     }
+}
+
+fn job_wait_ms_from_arguments(request: &CallToolRequestParams) -> Option<u64> {
+    request
+        .arguments
+        .as_ref()
+        .and_then(|arguments| arguments.get("execution"))
+        .and_then(Value::as_object)
+        .filter(|execution| {
+            execution
+                .get("mode")
+                .and_then(Value::as_str)
+                .map(|mode| mode == "job")
+                .unwrap_or(false)
+        })
+        .and_then(|execution| execution.get("waitMs"))
+        .and_then(Value::as_u64)
+        .filter(|wait_ms| *wait_ms > 0)
 }
 
 fn execute_timeout_ms_from_arguments(request: &CallToolRequestParams) -> Option<u64> {
@@ -193,9 +212,10 @@ mod tests {
             .expect("server");
         let tools = client.peer().list_all_tools().await.expect("list tools");
 
-        assert_eq!(tools.len(), 13);
+        assert_eq!(tools.len(), 14);
         assert!(tools.iter().any(|tool| tool.name == "graph.query"));
         assert!(tools.iter().any(|tool| tool.name == "diag.tail"));
+        assert!(tools.iter().any(|tool| tool.name == "jobs"));
         assert!(tools.iter().any(|tool| tool.name == "graph.verify"));
         assert!(tools.iter().any(|tool| tool.name == "editor.open"));
         assert!(tools.iter().any(|tool| tool.name == "editor.focus"));
@@ -250,5 +270,23 @@ mod tests {
             ]));
 
         assert_eq!(execute_timeout_ms_from_arguments(&request), Some(45_000));
+    }
+
+    #[test]
+    fn job_wait_ms_overrides_default_deadline() {
+        let request =
+            CallToolRequestParams::new("execute").with_arguments(serde_json::Map::from_iter([
+                (String::from("code"), json!("print('hello')")),
+                (
+                    String::from("execution"),
+                    json!({
+                        "mode": "job",
+                        "idempotencyKey": "job-1",
+                        "waitMs": 2_500_u64
+                    }),
+                ),
+            ]));
+
+        assert_eq!(job_wait_ms_from_arguments(&request), Some(2_500));
     }
 }

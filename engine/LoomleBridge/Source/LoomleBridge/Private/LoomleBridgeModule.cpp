@@ -121,6 +121,7 @@ namespace LoomleBridgeConstants
     static const TCHAR* PipeNamePrefix = TEXT("loomle");
     static const TCHAR* RpcVersion = TEXT("1.0");
     static const TCHAR* ExecuteToolName = TEXT("execute");
+    static const TCHAR* JobsToolName = TEXT("jobs");
     static const TCHAR* EditorOpenToolName = TEXT("editor.open");
     static const TCHAR* EditorFocusToolName = TEXT("editor.focus");
     static const TCHAR* EditorScreenshotToolName = TEXT("editor.screenshot");

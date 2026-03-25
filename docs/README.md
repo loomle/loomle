@@ -65,6 +65,11 @@ Project-level technical documentation for `LOOMLE` and `LoomleBridge` (plugin + 
   as `embedded_template`, `graph_boundary_summary`, and
   `context_sensitive_construct`.
 
+20. `issues/JOBS_LONG_RUNNING_TASK_RUNTIME.md`
+- Local issue for introducing a shared long-task runtime with top-level `jobs`
+  management, action-based lifecycle inspection, and tool-level
+  `execution.mode = "job"` submission.
+
 ## Recommended Read Order
 
 1. `../workspace/Loomle/README.md`
@@ -86,3 +91,4 @@ Project-level technical documentation for `LOOMLE` and `LoomleBridge` (plugin + 
 17. `issues/BLUEPRINT_EMBEDDED_TEMPLATE_NODES.md`
 18. `issues/GRAPH_QUERY_SURFACE_MODEL.md`
 19. `issues/BLUEPRINT_GAP_PRODUCT_CAPABILITIES.md`
+20. `issues/JOBS_LONG_RUNNING_TASK_RUNTIME.md`

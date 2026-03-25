@@ -73,6 +73,24 @@ record.
   - Blueprint catalog has now promoted these lanes into product vocabulary
   - current documented Blueprint `residual_gap` count is `0`
 
+5. `JOBS_LONG_RUNNING_TASK_RUNTIME.md`
+- Local issue for introducing a shared long-task runtime with top-level `jobs`
+  management, action-based lifecycle inspection, and tool-level
+  `execution.mode = "job"` submission.
+- Covers:
+  - top-level `jobs`
+  - tool-level job-mode submission
+  - long-task lifecycle
+  - job registry and polling model
+  - serial-first scheduling for Unreal workloads
+- Defines:
+  - first-version tool shape
+  - protocol draft for submission and polling
+  - job state model
+  - session relationship
+  - rollout phases
+  - acceptance criteria
+
 ## Recommended Structure
 
 Each local issue should try to answer these questions clearly:

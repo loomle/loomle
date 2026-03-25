@@ -113,7 +113,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
 
     Result->SetArrayField(TEXT("methods"), MakeStringArray({TEXT("rpc.health"), TEXT("rpc.capabilities"), TEXT("rpc.invoke")}));
     Result->SetArrayField(TEXT("tools"), MakeStringArray({
-        TEXT("context"), TEXT("editor.open"), TEXT("editor.focus"), TEXT("editor.screenshot"), TEXT("graph.verify"), TEXT("execute"),
+        TEXT("context"), TEXT("jobs"), TEXT("editor.open"), TEXT("editor.focus"), TEXT("editor.screenshot"), TEXT("graph.verify"), TEXT("execute"),
         TEXT("graph.list"), TEXT("graph.resolve"), TEXT("graph.query"),
         TEXT("graph.mutate"),
         TEXT("diag.tail")
@@ -220,7 +220,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     bOutIsError = false;
     TSharedPtr<FJsonObject> Payload;
 
-    if (!IsInGameThread() && !Name.Equals(LoomleBridgeConstants::GraphQueryToolName))
+    if (!IsInGameThread() && !Name.Equals(LoomleBridgeConstants::GraphQueryToolName) && !Name.Equals(LoomleBridgeConstants::JobsToolName))
     {
         struct FDispatchToolResult
         {
@@ -295,6 +295,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     {
         Payload = BuildExecutePythonToolResult(Arguments);
     }
+    else if (Name.Equals(LoomleBridgeConstants::JobsToolName))
+    {
+        Payload = BuildJobsToolResult(Arguments);
+    }
     else if (Name.Equals(LoomleBridgeConstants::DiagTailToolName))
     {
         Payload = BuildDiagTailToolResult(Arguments);
@@ -365,6 +369,34 @@ int32 FLoomleBridgeModule::MapToolErrorCode(const FString& DomainCode) const
     if (DomainCode.Equals(TEXT("EXECUTION_TIMEOUT")))
     {
         return 1010;
+    }
+    if (DomainCode.Equals(TEXT("JOB_NOT_FOUND")))
+    {
+        return 1012;
+    }
+    if (DomainCode.Equals(TEXT("JOB_RESULT_EXPIRED")))
+    {
+        return 1013;
+    }
+    if (DomainCode.Equals(TEXT("JOB_ACTION_UNSUPPORTED")))
+    {
+        return 1014;
+    }
+    if (DomainCode.Equals(TEXT("JOB_MODE_UNSUPPORTED")))
+    {
+        return 1015;
+    }
+    if (DomainCode.Equals(TEXT("INVALID_EXECUTION_ENVELOPE")))
+    {
+        return 1000;
+    }
+    if (DomainCode.Equals(TEXT("IDEMPOTENCY_KEY_REQUIRED")))
+    {
+        return 1000;
+    }
+    if (DomainCode.Equals(TEXT("JOB_RUNTIME_UNAVAILABLE")))
+    {
+        return 1011;
     }
     return 1011;
 }

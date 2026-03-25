@@ -498,7 +498,13 @@ void FLoomleBridgeModule::HandleLogLine(const FString& Message, ELogVerbosity::T
         return;
     }
 
-    const FString Severity = (Verbosity == ELogVerbosity::Warning) ? TEXT("warning") : TEXT("error");
+    const ELogVerbosity::Type VerbosityMask = static_cast<ELogVerbosity::Type>(Verbosity & ELogVerbosity::VerbosityMask);
+    const FString JobLevel = VerbosityMask == ELogVerbosity::Error
+        ? TEXT("error")
+        : (VerbosityMask == ELogVerbosity::Warning ? TEXT("warning") : TEXT("info"));
+    const FString Severity = VerbosityMask == ELogVerbosity::Warning ? TEXT("warning") : TEXT("error");
+    AppendJobLogLine(TEXT(""), JobLevel, Message);
+
     TSharedPtr<FJsonObject> Context = MakeShared<FJsonObject>();
     Context->SetStringField(TEXT("categoryName"), CategoryName);
     AppendDiagEvent(Severity, TEXT("runtime"), TEXT("log"), Message, Context);
@@ -999,6 +1005,411 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildDiagTailToolResult(const TShar
     Result->SetNumberField(TEXT("nextSeq"), static_cast<double>(NextSeq));
     Result->SetBoolField(TEXT("hasMore"), bHasMore);
     Result->SetNumberField(TEXT("highWatermark"), static_cast<double>(HighWatermark));
+    return Result;
+}
+
+namespace
+{
+FString LoomleJobIso8601OrEmpty(const FDateTime& Value)
+{
+    return Value.GetTicks() > 0 ? Value.ToIso8601() : TEXT("");
+}
+
+TSharedPtr<FJsonObject> CloneJobBusinessArguments(const TSharedPtr<FJsonObject>& Arguments)
+{
+    TSharedPtr<FJsonObject> BusinessArguments = CloneJsonObject(Arguments);
+    if (!BusinessArguments.IsValid())
+    {
+        BusinessArguments = MakeShared<FJsonObject>();
+    }
+
+    BusinessArguments->RemoveField(TEXT("execution"));
+    BusinessArguments->RemoveField(TEXT("timeoutMs"));
+    return BusinessArguments;
+}
+
+FString NormalizeJobFingerprint(const FString& ToolName, const TSharedPtr<FJsonObject>& BusinessArguments)
+{
+    return ToolName + TEXT("|") + SerializeJsonObjectCondensed(BusinessArguments);
+}
+
+int32 ReadOptionalPositiveIntField(const TSharedPtr<FJsonObject>& Object, const TCHAR* FieldName, const int32 DefaultValue)
+{
+    if (!Object.IsValid())
+    {
+        return DefaultValue;
+    }
+
+    double ValueNumber = 0.0;
+    if (!Object->TryGetNumberField(FieldName, ValueNumber))
+    {
+        return DefaultValue;
+    }
+
+    if (ValueNumber < 1.0)
+    {
+        return DefaultValue;
+    }
+
+    return static_cast<int32>(ValueNumber);
+}
+}
+
+void FLoomleBridgeModule::AppendJobLogLine(const FString& JobId, const FString& Level, const FString& Message)
+{
+    if (Message.IsEmpty())
+    {
+        return;
+    }
+
+    FScopeLock Lock(&JobRegistryMutex);
+    const FString ResolvedJobId = JobId.IsEmpty() ? ActiveJobId : JobId;
+    if (ResolvedJobId.IsEmpty())
+    {
+        return;
+    }
+
+    FToolJobEntry* JobEntry = JobRegistry.Find(ResolvedJobId);
+    if (JobEntry == nullptr)
+    {
+        return;
+    }
+
+    FJobLogEntry LogEntry;
+    LogEntry.Time = FDateTime::UtcNow().ToIso8601();
+    LogEntry.Level = Level;
+    LogEntry.Message = Message;
+    JobEntry->Logs.Add(MoveTemp(LogEntry));
+    JobEntry->HeartbeatAt = FDateTime::UtcNow();
+}
+
+void FLoomleBridgeModule::StartNextJobIfNeeded()
+{
+    FString JobIdToRun;
+    {
+        FScopeLock Lock(&JobRegistryMutex);
+        if (bJobRunnerActive || JobQueue.IsEmpty())
+        {
+            return;
+        }
+
+        JobIdToRun = JobQueue[0];
+        JobQueue.RemoveAt(0);
+
+        FToolJobEntry* JobEntry = JobRegistry.Find(JobIdToRun);
+        if (JobEntry == nullptr)
+        {
+            return;
+        }
+
+        bJobRunnerActive = true;
+        ActiveJobId = JobIdToRun;
+        JobEntry->Status = TEXT("running");
+        JobEntry->StartedAt = FDateTime::UtcNow();
+        JobEntry->HeartbeatAt = JobEntry->StartedAt;
+    }
+
+    Async(EAsyncExecution::ThreadPool, [this, JobIdToRun]()
+    {
+        RunQueuedJob(JobIdToRun);
+    });
+}
+
+void FLoomleBridgeModule::RunQueuedJob(const FString& JobId)
+{
+    FString ToolName;
+    TSharedPtr<FJsonObject> BusinessArguments;
+    {
+        FScopeLock Lock(&JobRegistryMutex);
+        if (const FToolJobEntry* JobEntry = JobRegistry.Find(JobId))
+        {
+            ToolName = JobEntry->ToolName;
+            BusinessArguments = CloneJsonObject(JobEntry->BusinessArguments);
+        }
+    }
+
+    TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+    bool bIsError = false;
+
+    if (ToolName.Equals(LoomleBridgeConstants::ExecuteToolName))
+    {
+        struct FAsyncExecuteResult
+        {
+            TSharedPtr<FJsonObject> Payload;
+            bool bIsError = false;
+        };
+
+        TPromise<FAsyncExecuteResult> Promise;
+        TFuture<FAsyncExecuteResult> Future = Promise.GetFuture();
+        AsyncTask(ENamedThreads::GameThread, [this, BusinessArguments, Promise = MoveTemp(Promise)]() mutable
+        {
+            FAsyncExecuteResult ExecuteResult;
+            ExecuteResult.Payload = BuildExecutePythonToolResult(BusinessArguments);
+            if (ExecuteResult.Payload.IsValid())
+            {
+                ExecuteResult.Payload->TryGetBoolField(TEXT("isError"), ExecuteResult.bIsError);
+            }
+            Promise.SetValue(MoveTemp(ExecuteResult));
+        });
+
+        const FAsyncExecuteResult ExecuteResult = Future.Get();
+        Payload = ExecuteResult.Payload;
+        bIsError = ExecuteResult.bIsError;
+    }
+    else
+    {
+        bIsError = true;
+        Payload->SetBoolField(TEXT("isError"), true);
+        Payload->SetStringField(TEXT("code"), TEXT("JOB_MODE_UNSUPPORTED"));
+        Payload->SetStringField(TEXT("message"), TEXT("Job mode is not supported for this tool."));
+    }
+
+    if (Payload.IsValid())
+    {
+        const TArray<TSharedPtr<FJsonValue>>* PayloadLogs = nullptr;
+        if (Payload->TryGetArrayField(TEXT("logs"), PayloadLogs) && PayloadLogs != nullptr)
+        {
+            for (const TSharedPtr<FJsonValue>& LogValue : *PayloadLogs)
+            {
+                const TSharedPtr<FJsonObject>* LogObject = nullptr;
+                if (!LogValue.IsValid() || !LogValue->TryGetObject(LogObject) || LogObject == nullptr || !(*LogObject).IsValid())
+                {
+                    continue;
+                }
+
+                FString PythonLogType;
+                FString PythonLogOutput;
+                (*LogObject)->TryGetStringField(TEXT("type"), PythonLogType);
+                (*LogObject)->TryGetStringField(TEXT("output"), PythonLogOutput);
+                const FString PythonLogLevel = PythonLogType.Contains(TEXT("Error"), ESearchCase::IgnoreCase)
+                    ? TEXT("error")
+                    : (PythonLogType.Contains(TEXT("Warning"), ESearchCase::IgnoreCase) ? TEXT("warning") : TEXT("info"));
+                AppendJobLogLine(JobId, PythonLogLevel, PythonLogOutput);
+            }
+        }
+    }
+
+    {
+        FScopeLock Lock(&JobRegistryMutex);
+        if (FToolJobEntry* JobEntry = JobRegistry.Find(JobId))
+        {
+            JobEntry->HeartbeatAt = FDateTime::UtcNow();
+            JobEntry->FinishedAt = JobEntry->HeartbeatAt;
+            JobEntry->FinalPayload = CloneJsonObject(Payload);
+            JobEntry->bResultAvailable = !bIsError;
+            JobEntry->Status = bIsError ? TEXT("failed") : TEXT("succeeded");
+            if (bIsError)
+            {
+                JobEntry->ErrorPayload = CloneJsonObject(Payload);
+            }
+        }
+
+        if (ActiveJobId == JobId)
+        {
+            ActiveJobId.Empty();
+        }
+        bJobRunnerActive = false;
+    }
+
+    StartNextJobIfNeeded();
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildJobsToolResult(const TSharedPtr<FJsonObject>& Arguments)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+    FString Action;
+    if (!Arguments.IsValid() || !Arguments->TryGetStringField(TEXT("action"), Action) || Action.IsEmpty())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("arguments.action is required."));
+        return Result;
+    }
+
+    Action = Action.ToLower();
+    const auto BuildJobNotFound = [&]() -> TSharedPtr<FJsonObject>
+    {
+        TSharedPtr<FJsonObject> Error = MakeShared<FJsonObject>();
+        Error->SetBoolField(TEXT("isError"), true);
+        Error->SetStringField(TEXT("code"), TEXT("JOB_NOT_FOUND"));
+        Error->SetStringField(TEXT("message"), TEXT("The requested jobId was not found."));
+        return Error;
+    };
+
+    const auto IsResultExpired = [](const FToolJobEntry& Entry) -> bool
+    {
+        return Entry.FinishedAt.GetTicks() > 0
+            && Entry.ResultTtlMs > 0
+            && FDateTime::UtcNow() > (Entry.FinishedAt + FTimespan::FromMilliseconds(Entry.ResultTtlMs));
+    };
+
+    if (Action.Equals(TEXT("status")) || Action.Equals(TEXT("result")) || Action.Equals(TEXT("logs")))
+    {
+        FString JobId;
+        if (!Arguments->TryGetStringField(TEXT("jobId"), JobId) || JobId.IsEmpty())
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Result->SetStringField(TEXT("message"), TEXT("jobId is required."));
+            return Result;
+        }
+
+        FScopeLock Lock(&JobRegistryMutex);
+        const FToolJobEntry* Entry = JobRegistry.Find(JobId);
+        if (Entry == nullptr)
+        {
+            return BuildJobNotFound();
+        }
+
+        if (Action.Equals(TEXT("status")))
+        {
+            Result->SetBoolField(TEXT("isError"), false);
+            Result->SetStringField(TEXT("jobId"), Entry->JobId);
+            Result->SetStringField(TEXT("tool"), Entry->ToolName);
+            Result->SetStringField(TEXT("status"), Entry->Status);
+            Result->SetStringField(TEXT("acceptedAt"), LoomleJobIso8601OrEmpty(Entry->AcceptedAt));
+            if (Entry->StartedAt.GetTicks() > 0)
+            {
+                Result->SetStringField(TEXT("startedAt"), LoomleJobIso8601OrEmpty(Entry->StartedAt));
+            }
+            if (Entry->FinishedAt.GetTicks() > 0)
+            {
+                Result->SetStringField(TEXT("finishedAt"), LoomleJobIso8601OrEmpty(Entry->FinishedAt));
+            }
+            if (Entry->HeartbeatAt.GetTicks() > 0)
+            {
+                Result->SetStringField(TEXT("heartbeatAt"), LoomleJobIso8601OrEmpty(Entry->HeartbeatAt));
+            }
+            Result->SetBoolField(TEXT("resultAvailable"), Entry->bResultAvailable && !IsResultExpired(*Entry));
+            if (!Entry->Logs.IsEmpty())
+            {
+                Result->SetStringField(TEXT("logCursor"), FString::FromInt(Entry->Logs.Num()));
+            }
+            if (!Entry->Label.IsEmpty())
+            {
+                Result->SetStringField(TEXT("message"), Entry->Label);
+            }
+            return Result;
+        }
+
+        if (IsResultExpired(*Entry))
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("JOB_RESULT_EXPIRED"));
+            Result->SetStringField(TEXT("message"), TEXT("The requested job result is no longer retained."));
+            return Result;
+        }
+
+        if (Action.Equals(TEXT("result")))
+        {
+            Result->SetBoolField(TEXT("isError"), false);
+            Result->SetStringField(TEXT("jobId"), Entry->JobId);
+            Result->SetStringField(TEXT("tool"), Entry->ToolName);
+            Result->SetStringField(TEXT("status"), Entry->Status);
+            Result->SetBoolField(TEXT("resultAvailable"), Entry->bResultAvailable);
+            if (Entry->Status.Equals(TEXT("queued")) || Entry->Status.Equals(TEXT("running")))
+            {
+                return Result;
+            }
+
+            if (Entry->FinalPayload.IsValid())
+            {
+                Result->SetObjectField(TEXT("result"), CloneJsonObject(Entry->FinalPayload));
+                FString Stdout;
+                Entry->FinalPayload->TryGetStringField(TEXT("result"), Stdout);
+                if (!Stdout.IsEmpty())
+                {
+                    Result->SetStringField(TEXT("stdout"), Stdout);
+                }
+            }
+
+            if (Entry->ErrorPayload.IsValid())
+            {
+                TSharedPtr<FJsonObject> ErrorObject = MakeShared<FJsonObject>();
+                FString ErrorCode;
+                FString ErrorMessage;
+                Entry->ErrorPayload->TryGetStringField(TEXT("code"), ErrorCode);
+                Entry->ErrorPayload->TryGetStringField(TEXT("message"), ErrorMessage);
+                ErrorObject->SetStringField(TEXT("code"), ErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : ErrorCode);
+                ErrorObject->SetStringField(TEXT("message"), ErrorMessage.IsEmpty() ? TEXT("Job execution failed.") : ErrorMessage);
+                Result->SetObjectField(TEXT("error"), ErrorObject);
+            }
+            return Result;
+        }
+
+        const int32 Limit = FMath::Clamp(ReadOptionalPositiveIntField(Arguments, TEXT("limit"), 200), 1, 1000);
+        int32 StartIndex = 0;
+        FString Cursor;
+        if (Arguments->TryGetStringField(TEXT("cursor"), Cursor) && !Cursor.IsEmpty())
+        {
+            StartIndex = FMath::Max(0, FCString::Atoi(*Cursor));
+        }
+
+        Result->SetBoolField(TEXT("isError"), false);
+        Result->SetStringField(TEXT("jobId"), Entry->JobId);
+        TArray<TSharedPtr<FJsonValue>> Entries;
+        const int32 EndIndex = FMath::Min(StartIndex + Limit, Entry->Logs.Num());
+        for (int32 Index = StartIndex; Index < EndIndex; ++Index)
+        {
+            const FJobLogEntry& LogEntry = Entry->Logs[Index];
+            TSharedPtr<FJsonObject> LogObject = MakeShared<FJsonObject>();
+            LogObject->SetStringField(TEXT("time"), LogEntry.Time);
+            LogObject->SetStringField(TEXT("level"), LogEntry.Level);
+            LogObject->SetStringField(TEXT("message"), LogEntry.Message);
+            Entries.Add(MakeShared<FJsonValueObject>(LogObject));
+        }
+        Result->SetArrayField(TEXT("entries"), Entries);
+        Result->SetStringField(TEXT("nextCursor"), FString::FromInt(EndIndex));
+        Result->SetBoolField(TEXT("hasMore"), EndIndex < Entry->Logs.Num());
+        return Result;
+    }
+
+    if (Action.Equals(TEXT("list")))
+    {
+        FString StatusFilter;
+        Arguments->TryGetStringField(TEXT("status"), StatusFilter);
+        FString ToolFilter;
+        Arguments->TryGetStringField(TEXT("tool"), ToolFilter);
+        const int32 Limit = FMath::Clamp(ReadOptionalPositiveIntField(Arguments, TEXT("limit"), 100), 1, 1000);
+
+        Result->SetBoolField(TEXT("isError"), false);
+        TArray<TSharedPtr<FJsonValue>> Jobs;
+        FScopeLock Lock(&JobRegistryMutex);
+        for (const TPair<FString, FToolJobEntry>& Pair : JobRegistry)
+        {
+            const FToolJobEntry& Entry = Pair.Value;
+            if (!StatusFilter.IsEmpty() && !Entry.Status.Equals(StatusFilter, ESearchCase::IgnoreCase))
+            {
+                continue;
+            }
+            if (!ToolFilter.IsEmpty() && !Entry.ToolName.Equals(ToolFilter, ESearchCase::IgnoreCase))
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> JobObject = MakeShared<FJsonObject>();
+            JobObject->SetStringField(TEXT("jobId"), Entry.JobId);
+            JobObject->SetStringField(TEXT("tool"), Entry.ToolName);
+            JobObject->SetStringField(TEXT("status"), Entry.Status);
+            JobObject->SetStringField(TEXT("acceptedAt"), LoomleJobIso8601OrEmpty(Entry.AcceptedAt));
+            if (!Entry.Label.IsEmpty())
+            {
+                JobObject->SetStringField(TEXT("label"), Entry.Label);
+            }
+            Jobs.Add(MakeShared<FJsonValueObject>(JobObject));
+            if (Jobs.Num() >= Limit)
+            {
+                break;
+            }
+        }
+        Result->SetArrayField(TEXT("jobs"), Jobs);
+        return Result;
+    }
+
+    Result->SetBoolField(TEXT("isError"), true);
+    Result->SetStringField(TEXT("code"), TEXT("JOB_ACTION_UNSUPPORTED"));
+    Result->SetStringField(TEXT("message"), TEXT("The requested jobs action is not supported."));
     return Result;
 }
 
@@ -1643,6 +2054,93 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorScreenshotToolResult(con
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildExecutePythonToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+    const TSharedPtr<FJsonObject>* ExecutionPtr = nullptr;
+    if (Arguments.IsValid() && Arguments->TryGetObjectField(TEXT("execution"), ExecutionPtr) && ExecutionPtr && (*ExecutionPtr).IsValid())
+    {
+        FString ExecutionMode;
+        (*ExecutionPtr)->TryGetStringField(TEXT("mode"), ExecutionMode);
+        if (ExecutionMode.Equals(TEXT("job"), ESearchCase::IgnoreCase))
+        {
+            FString IdempotencyKey;
+            (*ExecutionPtr)->TryGetStringField(TEXT("idempotencyKey"), IdempotencyKey);
+            IdempotencyKey = IdempotencyKey.TrimStartAndEnd();
+            if (IdempotencyKey.IsEmpty())
+            {
+                Result->SetBoolField(TEXT("isError"), true);
+                Result->SetStringField(TEXT("code"), TEXT("IDEMPOTENCY_KEY_REQUIRED"));
+                Result->SetStringField(TEXT("message"), TEXT("execution.idempotencyKey is required when execution.mode is 'job'."));
+                return Result;
+            }
+
+            const TSharedPtr<FJsonObject> BusinessArguments = CloneJobBusinessArguments(Arguments);
+            const FString RequestFingerprint = NormalizeJobFingerprint(LoomleBridgeConstants::ExecuteToolName, BusinessArguments);
+            FString ExistingJobId;
+            {
+                FScopeLock Lock(&JobRegistryMutex);
+                for (const TPair<FString, FToolJobEntry>& Pair : JobRegistry)
+                {
+                    const FToolJobEntry& ExistingEntry = Pair.Value;
+                    if (!ExistingEntry.ToolName.Equals(LoomleBridgeConstants::ExecuteToolName)
+                        || !ExistingEntry.IdempotencyKey.Equals(IdempotencyKey))
+                    {
+                        continue;
+                    }
+
+                    if (!ExistingEntry.RequestFingerprint.Equals(RequestFingerprint))
+                    {
+                        Result->SetBoolField(TEXT("isError"), true);
+                        Result->SetStringField(TEXT("code"), TEXT("INVALID_EXECUTION_ENVELOPE"));
+                        Result->SetStringField(TEXT("message"), TEXT("execution.idempotencyKey is already associated with a different execute payload."));
+                        return Result;
+                    }
+
+                    ExistingJobId = ExistingEntry.JobId;
+                    break;
+                }
+
+                if (ExistingJobId.IsEmpty())
+                {
+                    FToolJobEntry NewEntry;
+                    NewEntry.JobId = FString::Printf(TEXT("job_%llu"), static_cast<unsigned long long>(NextJobId++));
+                    NewEntry.ToolName = LoomleBridgeConstants::ExecuteToolName;
+                    NewEntry.Status = TEXT("queued");
+                    NewEntry.RequestFingerprint = RequestFingerprint;
+                    NewEntry.IdempotencyKey = IdempotencyKey;
+                    NewEntry.BusinessArguments = BusinessArguments;
+                    NewEntry.AcceptedAt = FDateTime::UtcNow();
+                    NewEntry.PollAfterMs = FMath::Clamp(ReadOptionalPositiveIntField(*ExecutionPtr, TEXT("waitMs"), 1000), 1, 60000);
+                    NewEntry.ResultTtlMs = FMath::Clamp(ReadOptionalPositiveIntField(*ExecutionPtr, TEXT("resultTtlMs"), 3600000), 1, 86400000);
+                    (*ExecutionPtr)->TryGetStringField(TEXT("label"), NewEntry.Label);
+                    ExistingJobId = NewEntry.JobId;
+                    JobRegistry.Add(NewEntry.JobId, MoveTemp(NewEntry));
+                    JobQueue.Add(ExistingJobId);
+                }
+            }
+
+            StartNextJobIfNeeded();
+
+            FScopeLock Lock(&JobRegistryMutex);
+            const FToolJobEntry* AcceptedEntry = JobRegistry.Find(ExistingJobId);
+            if (AcceptedEntry == nullptr)
+            {
+                Result->SetBoolField(TEXT("isError"), true);
+                Result->SetStringField(TEXT("code"), TEXT("JOB_RUNTIME_UNAVAILABLE"));
+                Result->SetStringField(TEXT("message"), TEXT("The shared jobs runtime could not accept the request."));
+                return Result;
+            }
+
+            TSharedPtr<FJsonObject> JobObject = MakeShared<FJsonObject>();
+            JobObject->SetStringField(TEXT("jobId"), AcceptedEntry->JobId);
+            JobObject->SetStringField(TEXT("status"), AcceptedEntry->Status);
+            JobObject->SetStringField(TEXT("acceptedAt"), LoomleJobIso8601OrEmpty(AcceptedEntry->AcceptedAt));
+            JobObject->SetStringField(TEXT("idempotencyKey"), AcceptedEntry->IdempotencyKey);
+            JobObject->SetNumberField(TEXT("pollAfterMs"), AcceptedEntry->PollAfterMs);
+            Result->SetBoolField(TEXT("isError"), false);
+            Result->SetObjectField(TEXT("job"), JobObject);
+            return Result;
+        }
+    }
 
     FString Code;
     if (!Arguments->TryGetStringField(TEXT("code"), Code))

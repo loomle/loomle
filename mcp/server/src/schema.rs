@@ -47,6 +47,7 @@ pub fn tool_descriptors() -> Vec<Value> {
                     "language": { "type": "string", "default": "python" },
                     "mode": { "type": "string", "enum": ["exec", "eval"], "default": "exec" },
                     "code": { "type": "string", "minLength": 1 },
+                    "execution": execution_schema(),
                     "timeoutMs": {
                         "type": "integer",
                         "minimum": 1,
@@ -61,6 +62,16 @@ pub fn tool_descriptors() -> Vec<Value> {
                 "type": "object"
             }
         }),
+        runtime_tool_descriptor(
+            "jobs",
+            "Jobs",
+            "Inspect or retrieve long-running job state, results, and logs.",
+            jobs_input_schema(),
+            json!({
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object"
+            }),
+        ),
         runtime_tool_descriptor(
             "editor.open",
             "Open Asset Editor",
@@ -196,6 +207,75 @@ pub fn tool_descriptors() -> Vec<Value> {
             diag_tail_output_schema(),
         ),
     ]
+}
+
+fn execution_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "mode": {
+                "type": "string",
+                "enum": ["sync", "job"],
+                "default": "sync"
+            },
+            "idempotencyKey": {
+                "type": "string",
+                "minLength": 1
+            },
+            "label": {
+                "type": "string",
+                "minLength": 1
+            },
+            "waitMs": {
+                "type": "integer",
+                "minimum": 1
+            },
+            "resultTtlMs": {
+                "type": "integer",
+                "minimum": 1
+            }
+        },
+        "additionalProperties": false
+    })
+}
+
+fn jobs_input_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["action"],
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["status", "result", "logs", "list"]
+            },
+            "jobId": {
+                "type": "string",
+                "minLength": 1
+            },
+            "cursor": {
+                "type": "string"
+            },
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+            },
+            "status": {
+                "type": "string",
+                "enum": ["queued", "running", "succeeded", "failed"]
+            },
+            "tool": {
+                "type": "string",
+                "minLength": 1
+            },
+            "sessionId": {
+                "type": "string",
+                "minLength": 1
+            }
+        },
+        "additionalProperties": false
+    })
 }
 
 fn runtime_tool_descriptor(
@@ -692,10 +772,13 @@ mod tests {
     #[test]
     fn tools_list_contains_graph_resolve_and_diag_tail() {
         let tools = tool_descriptors();
-        assert_eq!(tools.len(), 13);
+        assert_eq!(tools.len(), 14);
         assert!(tools
             .iter()
             .any(|v| v.get("name") == Some(&Value::String(String::from("graph.resolve")))));
+        assert!(tools
+            .iter()
+            .any(|v| v.get("name") == Some(&Value::String(String::from("jobs")))));
         assert!(tools
             .iter()
             .any(|v| v.get("name") == Some(&Value::String(String::from("diag.tail")))));

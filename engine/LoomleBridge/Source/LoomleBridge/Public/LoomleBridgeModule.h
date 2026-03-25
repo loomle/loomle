@@ -38,6 +38,7 @@ private:
     TSharedPtr<FJsonObject> BuildEditorScreenshotToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildGraphVerifyToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildExecutePythonToolResult(const TSharedPtr<FJsonObject>& Arguments);
+    TSharedPtr<FJsonObject> BuildJobsToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildDiagTailToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> DispatchTool(const FString& Name, const TSharedPtr<FJsonObject>& Arguments, bool& bOutIsError);
     int32 MapToolErrorCode(const FString& DomainCode) const;
@@ -96,6 +97,9 @@ private:
         const TArray<FString>& RequestedNodeIds,
         TArray<FString>& OutMovedNodeIds,
         FString& OutError);
+    void StartNextJobIfNeeded();
+    void RunQueuedJob(const FString& JobId);
+    void AppendJobLogLine(const FString& JobId, const FString& Level, const FString& Message);
 
 private:
     TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> PipeServer;
@@ -103,6 +107,42 @@ private:
     FCriticalSection PendingGraphLayoutStatesMutex;
     TMap<FString, FMutateIdempotencyEntry> MutateIdempotencyRegistry;
     FCriticalSection MutateIdempotencyRegistryMutex;
+
+    struct FJobLogEntry
+    {
+        FString Time;
+        FString Level;
+        FString Message;
+    };
+
+    struct FToolJobEntry
+    {
+        FString JobId;
+        FString ToolName;
+        FString Status;
+        FString RequestFingerprint;
+        FString IdempotencyKey;
+        FString Label;
+        TSharedPtr<FJsonObject> BusinessArguments;
+        TSharedPtr<FJsonObject> FinalPayload;
+        TSharedPtr<FJsonObject> ErrorPayload;
+        TArray<FJobLogEntry> Logs;
+        FDateTime AcceptedAt;
+        FDateTime StartedAt;
+        FDateTime FinishedAt;
+        FDateTime HeartbeatAt;
+        int32 PollAfterMs = 1000;
+        int32 ResultTtlMs = 3600000;
+        bool bResultAvailable = false;
+    };
+
+    TMap<FString, FToolJobEntry> JobRegistry;
+    TArray<FString> JobQueue;
+    FString ActiveJobId;
+    uint64 NextJobId = 1;
+    FCriticalSection JobRegistryMutex;
+    bool bJobRunnerActive = false;
+
     FCriticalSection DiagStoreMutex;
     FString DiagStoreDirPath;
     FString DiagStoreFilePath;

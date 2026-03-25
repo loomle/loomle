@@ -1038,7 +1038,8 @@ async fn run_call(
         }
     };
 
-    let deadline_ms = execute_timeout_ms_from_arguments(tool_name, &arguments);
+    let deadline_ms = job_wait_ms_from_arguments(&arguments)
+        .or_else(|| execute_timeout_ms_from_arguments(tool_name, &arguments));
     let mut request = CallToolRequestParams::new(tool_name.to_owned()).with_arguments(arguments);
     if let Some(deadline_ms) = deadline_ms {
         request.meta = Some(Meta(serde_json::Map::from_iter([(
@@ -1083,6 +1084,22 @@ fn execute_timeout_ms_from_arguments(
         .get("timeoutMs")
         .and_then(Value::as_u64)
         .filter(|timeout_ms| *timeout_ms > 0)
+}
+
+fn job_wait_ms_from_arguments(arguments: &serde_json::Map<String, Value>) -> Option<u64> {
+    arguments
+        .get("execution")
+        .and_then(Value::as_object)
+        .filter(|execution| {
+            execution
+                .get("mode")
+                .and_then(Value::as_str)
+                .map(|mode| mode == "job")
+                .unwrap_or(false)
+        })
+        .and_then(|execution| execution.get("waitMs"))
+        .and_then(Value::as_u64)
+        .filter(|wait_ms| *wait_ms > 0)
 }
 
 fn print_json<T: serde::Serialize>(value: &T) -> Result<(), String> {
@@ -1161,7 +1178,7 @@ fn print_usage() {
 
 #[cfg(test)]
 mod tests {
-    use super::{execute_timeout_ms_from_arguments, Cli, CommandKind, SkillCommand};
+    use super::{execute_timeout_ms_from_arguments, job_wait_ms_from_arguments, Cli, CommandKind, SkillCommand};
     use serde_json::json;
     use std::ffi::OsString;
     use std::path::PathBuf;
@@ -1481,5 +1498,19 @@ mod tests {
             execute_timeout_ms_from_arguments("graph.query", &arguments),
             None
         );
+    }
+
+    #[test]
+    fn job_wait_ms_is_read_from_execution_arguments() {
+        let arguments = serde_json::Map::from_iter([(
+            String::from("execution"),
+            json!({
+                "mode": "job",
+                "idempotencyKey": "job-1",
+                "waitMs": 2_500_u64
+            }),
+        )]);
+
+        assert_eq!(job_wait_ms_from_arguments(&arguments), Some(2_500));
     }
 }
