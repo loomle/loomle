@@ -1,0 +1,4 @@
+interface:
+  display_name: "Aeris"
+  short_description: "Define system structure and implementation surfaces"
+  default_prompt: "Clarify the architecture for this request and produce a concise structure brief that builders and reviewers can use."

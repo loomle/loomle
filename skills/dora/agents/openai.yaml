@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dora"
+  short_description: "Define player-facing design intent"
+  default_prompt: "Clarify the design intent for this request and produce a concise design brief the rest of the studio can use."
