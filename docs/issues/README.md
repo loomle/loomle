@@ -91,6 +91,32 @@ record.
   - rollout phases
   - acceptance criteria
 
+6. `PROFILING_RUNTIME_ANALYSIS_INTERFACE.md`
+- Local issue for introducing a top-level `profiling` interface as an official
+  Unreal profiling data bridge instead of forcing agents to infer performance
+  state from screenshots or raw console text.
+- Covers:
+  - `unit`
+  - `game`
+  - `gpu`
+  - `ticks`
+  - `memory`
+  - `capture`
+- Defines:
+  - official-family action model
+  - native data-shape rules
+  - direct structured bridge targets
+  - jobs integration for heavy captures
+  - rollout phases
+  - acceptance criteria
+- Current status:
+  - `profiling.action = "unit"` is implemented
+  - `profiling.action = "game"` is implemented
+  - `profiling.action = "gpu"` is implemented
+  - `profiling.action = "ticks"` is implemented
+  - `profiling.action = "memory"` is implemented for `kind = "summary"`
+  - `capture` and memory modes beyond `summary` remain follow-up work
+
 ## Recommended Structure
 
 Each local issue should try to answer these questions clearly:

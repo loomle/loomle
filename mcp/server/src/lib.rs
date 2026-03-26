@@ -29,10 +29,11 @@ fn graph_mutate_ops(graph_type: &str) -> Vec<&'static str> {
     ops
 }
 
-pub const TOOL_NAMES: [&str; 14] = [
+pub const TOOL_NAMES: [&str; 15] = [
     "loomle",
     "context",
     "jobs",
+    "profiling",
     "editor.open",
     "editor.focus",
     "editor.screenshot",
@@ -113,7 +114,7 @@ impl<C: RpcConnector> McpService<C> {
         match name {
             "loomle" => self.call_loomle(),
             "graph" => self.call_graph(args),
-            "context" | "jobs" | "editor.open" | "editor.focus" | "editor.screenshot" | "graph.verify" | "execute" | "graph.list" | "graph.resolve" | "graph.query"
+            "context" | "jobs" | "profiling" | "editor.open" | "editor.focus" | "editor.screenshot" | "graph.verify" | "execute" | "graph.list" | "graph.resolve" | "graph.query"
             | "graph.mutate" | "diag.tail" => self.call_runtime(name, args, meta),
             _ => McpToolResult {
                 structured_content: error_payload(
@@ -279,13 +280,14 @@ impl<C: RpcConnector> McpService<C> {
 }
 
 fn runtime_tool_blocked_during_pie(tool: &str) -> bool {
-    !matches!(tool, "execute" | "jobs")
+    !matches!(tool, "execute" | "jobs" | "profiling")
 }
 
 fn runtime_capabilities(health: &RpcHealth) -> Value {
     json!({
         "executeAvailable": true,
         "jobsAvailable": true,
+        "profilingAvailable": true,
         "graphToolsAvailable": !health.is_pie,
         "editorToolsAvailable": !health.is_pie,
     })
@@ -365,6 +367,14 @@ fn map_error_code(code: u16) -> &'static str {
         1012 => "GRAPH_REF_INVALID",
         1013 => "GRAPH_REF_ASSET_NOT_LOADED",
         1014 => "GRAPH_REF_NOT_COMPOSITE",
+        1015 => "WORLD_NOT_FOUND",
+        1016 => "GAME_VIEWPORT_UNAVAILABLE",
+        1017 => "STAT_UNIT_DATA_UNAVAILABLE",
+        1018 => "PROFILING_ACTION_UNSUPPORTED",
+        1019 => "STAT_UNIT_WARMUP_REQUIRED",
+        1020 => "STATS_GROUP_UNAVAILABLE",
+        1021 => "STATS_GROUP_WARMUP_REQUIRED",
+        1022 => "TICKS_DATA_UNAVAILABLE",
         _ => "INTERNAL_ERROR",
     }
 }
@@ -478,9 +488,10 @@ mod tests {
     #[test]
     fn tools_list_includes_diag_tail() {
         let tools = McpService::<FakeConnector>::tools_list();
-        assert_eq!(tools.len(), 14);
+        assert_eq!(tools.len(), 15);
         assert!(tools.contains(&"graph.resolve"));
         assert!(tools.contains(&"jobs"));
+        assert!(tools.contains(&"profiling"));
         assert!(tools.contains(&"diag.tail"));
         assert!(tools.contains(&"editor.open"));
         assert!(tools.contains(&"editor.focus"));
@@ -562,6 +573,10 @@ mod tests {
             true
         );
         assert_eq!(
+            result.structured_content["runtime"]["capabilities"]["profilingAvailable"],
+            true
+        );
+        assert_eq!(
             result.structured_content["runtime"]["capabilities"]["graphToolsAvailable"],
             false
         );
@@ -635,6 +650,25 @@ mod tests {
         assert!(!result.is_error);
         let (tool, _, _) = connector.last_invoke().expect("invoke call recorded");
         assert_eq!(tool, "jobs");
+    }
+
+    #[test]
+    fn profiling_is_allowed_during_pie() {
+        let connector = FakeConnector::new();
+        connector.set_health_result(RpcHealth {
+            status: "ok".to_string(),
+            rpc_version: "1.0".to_string(),
+            timestamp: "2026-03-10T12:00:00Z".to_string(),
+            is_pie: true,
+            editor_busy_reason: "PIE_ACTIVE".to_string(),
+        });
+
+        let service = McpService::new(connector.clone());
+        let result = service.call_tool("profiling", json!({ "action": "unit" }), meta("12p"));
+
+        assert!(!result.is_error);
+        let (tool, _, _) = connector.last_invoke().expect("invoke call recorded");
+        assert_eq!(tool, "profiling");
     }
 
     #[test]

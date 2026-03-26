@@ -119,7 +119,7 @@ Result:
 {
   "rpcVersion": "1.0",
   "methods": ["rpc.health", "rpc.capabilities", "rpc.invoke"],
-  "tools": ["context", "execute", "jobs", "editor.open", "editor.focus", "editor.screenshot", "graph.list", "graph.resolve", "graph.query", "graph.verify", "graph.mutate", "diag.tail"],
+  "tools": ["context", "execute", "jobs", "profiling", "editor.open", "editor.focus", "editor.screenshot", "graph.list", "graph.resolve", "graph.query", "graph.verify", "graph.mutate", "diag.tail"],
   "graphTypes": ["blueprint", "material", "pcg"],
   "features": {
     "revision": true,
@@ -138,7 +138,7 @@ Request params:
 
 ```json
 {
-  "tool": "context|execute|jobs|editor.open|editor.focus|editor.screenshot|graph.list|graph.resolve|graph.query|graph.verify|graph.mutate|diag.tail",
+  "tool": "context|execute|jobs|profiling|editor.open|editor.focus|editor.screenshot|graph.list|graph.resolve|graph.query|graph.verify|graph.mutate|diag.tail",
   "args": {},
   "meta": {
     "requestId": "external-id",
@@ -271,6 +271,54 @@ Field notes:
 - Use `jobs.status` to poll lifecycle state, `jobs.result` to collect the final execute payload, `jobs.logs` for incremental logs, and `jobs.list` to recover outstanding work.
 - `jobs` is top-level. Do not model it as `execute.jobs`.
 - `jobs` remains callable during `PIE`.
+
+## 5.2.2 tool=`profiling`
+
+`args`:
+
+```json
+{
+  "action": "unit|game|gpu|ticks|memory|capture",
+  "world": "active|editor|pie",
+  "gpuIndex": 0,
+  "includeRaw": true,
+  "includeGpuUtilization": true,
+  "includeHistory": false,
+  "group": "string",
+  "displayMode": "flat|hierarchical|both",
+  "includeThreadBreakdown": false,
+  "sortBy": "sum|call_count|name",
+  "maxDepth": 8,
+  "mode": "all|grouped|enabled|disabled",
+  "kind": "summary"
+}
+```
+
+`payload`:
+
+```json
+{
+  "runtime": {},
+  "source": {
+    "officialCommand": "stat unit|stat game|stat gpu|dumpticks|memreport",
+    "backend": "string"
+  },
+  "data": {}
+}
+```
+
+Field notes:
+
+- `profiling` returns official Unreal profiling data in structured form.
+- It is a data bridge, not an analysis layer.
+- Current live actions are:
+  - `unit`
+  - `game`
+  - `gpu`
+  - `ticks`
+  - `memory` with `kind=\"summary\"`
+- `profiling` remains callable during `PIE`.
+- `unit`, `game`, and `gpu` may return retryable warmup errors before official engine data is ready.
 
 ## 5.3 tool=`editor.open`
 

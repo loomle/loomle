@@ -20,6 +20,7 @@
 #include "Engine/Engine.h"
 #include "Engine/Selection.h"
 #include "ImageUtils.h"
+#include "UnrealClient.h"
 #include "Engine/SCS_Node.h"
 #include "Engine/SimpleConstructionScript.h"
 #include "Engine/StaticMesh.h"
@@ -27,7 +28,10 @@
 #include "GameFramework/Actor.h"
 #include "GameFramework/Character.h"
 #include "Framework/Application/SlateApplication.h"
+#include "GenericPlatform/GenericPlatformMemory.h"
 #include "HAL/PlatformTime.h"
+#include "HAL/MemoryBase.h"
+#include "HAL/MemoryMisc.h"
 #include "IPythonScriptPlugin.h"
 #include "Input/HittestGrid.h"
 #include "Json.h"
@@ -96,12 +100,17 @@
 #include "Misc/Paths.h"
 #include "Misc/ScopeLock.h"
 #include "Misc/OutputDevice.h"
+#include "Stats/StatsData.h"
 #include "Subsystems/AssetEditorSubsystem.h"
+#include "TickTaskManagerInterface.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/UObjectIterator.h"
 #include "UObject/UnrealType.h"
 #include "Misc/TransactionObjectEvent.h"
 #include "Slate/WidgetRenderer.h"
+#include "DynamicRHI.h"
+#include "GPUProfiler.h"
+#include "RHIStats.h"
 #include "Widgets/SWidget.h"
 #include "Widgets/SWindow.h"
 #include "BlueprintEditor.h"
@@ -122,6 +131,7 @@ namespace LoomleBridgeConstants
     static const TCHAR* RpcVersion = TEXT("1.0");
     static const TCHAR* ExecuteToolName = TEXT("execute");
     static const TCHAR* JobsToolName = TEXT("jobs");
+    static const TCHAR* ProfilingToolName = TEXT("profiling");
     static const TCHAR* EditorOpenToolName = TEXT("editor.open");
     static const TCHAR* EditorFocusToolName = TEXT("editor.focus");
     static const TCHAR* EditorScreenshotToolName = TEXT("editor.screenshot");

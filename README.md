@@ -92,6 +92,7 @@ For graph work, the recommended entrypoint is the installed workspace under [wor
 - `context`: Read the current Unreal editor context, including asset and selection information.
 - `execute`: Run UE-side code or commands through the Bridge. Supports synchronous execution by default and long-running submission through `execution.mode = "job"`.
 - `jobs`: Inspect long-running job state, logs, results, and outstanding work for job-mode submissions.
+- `profiling`: Read official Unreal profiling data families such as `stat unit`, `stat game`, `stat gpu`, `dumpticks`, and memory summary bridges.
 - `editor.open`: Open or focus the editor for a specific Unreal asset.
 - `editor.focus`: Focus a semantic panel inside an asset editor.
 - `editor.screenshot`: Capture the active editor window for visual confirmation.

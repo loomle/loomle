@@ -57,12 +57,14 @@ Work in three phases:
 9. Escalate only when the primary surface is not enough
    - use `graph.*` first for supported graph capabilities
    - use `execute` when the task is non-graph editor automation, or when a graph-domain capability is not yet covered by `graph.*`
+   - use `profiling` when the task is runtime performance data collection and you want official Unreal profiling families in structured form
    - when `execute` may run for a while, submit it with `execution.mode = "job"` and inspect lifecycle through top-level `jobs`
    - use `graph.mutate` with `op="runScript"` only for Blueprint graph-local gaps after you already have the exact target graph
    - use agent-local Python only for local file, repo, or payload preparation work; it does not replace Unreal-side `execute`
 10. Validate the result
    - use `graph.query` for current graph readback truth
    - use `graph.verify` for final graph compile/refresh-backed confirmation
+   - use `profiling` for official runtime performance data such as `unit`, `game`, `gpu`, `ticks`, and memory summary
    - use `diag.tail` for recent Unreal-side diagnostics
    - use `jobs` to inspect long-running `execute` submissions, especially during `PIE`
    - use `editor.open`, `editor.focus`, and `editor.screenshot` when you need visual confirmation

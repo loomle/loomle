@@ -1053,6 +1053,755 @@ TSharedPtr<FJsonObject> BuildExecuteRuntimeContext()
     return Runtime;
 }
 
+UWorld* ResolveProfilingWorld(const TSharedPtr<FJsonObject>& Arguments)
+{
+    FString RequestedWorld = TEXT("active");
+    if (Arguments.IsValid())
+    {
+        Arguments->TryGetStringField(TEXT("world"), RequestedWorld);
+    }
+    RequestedWorld = RequestedWorld.TrimStartAndEnd().ToLower();
+
+    UWorld* EditorWorld = GEditor != nullptr ? GEditor->GetEditorWorldContext().World() : nullptr;
+    UWorld* PieWorld = GEditor != nullptr ? GEditor->PlayWorld : nullptr;
+
+    if (RequestedWorld.IsEmpty() || RequestedWorld.Equals(TEXT("active")))
+    {
+        if (PieWorld != nullptr)
+        {
+            return PieWorld;
+        }
+        return EditorWorld;
+    }
+
+    if (RequestedWorld.Equals(TEXT("pie")))
+    {
+        return PieWorld;
+    }
+
+    if (RequestedWorld.Equals(TEXT("editor")))
+    {
+        return EditorWorld;
+    }
+
+    return nullptr;
+}
+
+TSharedPtr<FJsonObject> BuildProfilingRuntimeContext(UWorld* World, UGameViewportClient* GameViewport)
+{
+    TSharedPtr<FJsonObject> Runtime = BuildExecuteRuntimeContext();
+    Runtime->SetStringField(TEXT("worldName"), World ? World->GetName() : TEXT(""));
+    Runtime->SetStringField(TEXT("worldType"), World ? LoomleWorldTypeToString(World->WorldType) : TEXT("none"));
+    Runtime->SetStringField(TEXT("viewportKind"), GameViewport != nullptr ? TEXT("game") : TEXT("none"));
+    return Runtime;
+}
+
+TSharedPtr<FJsonObject> MakeProfilingError(const FString& Code, const FString& Message)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), true);
+    Result->SetStringField(TEXT("code"), Code);
+    Result->SetStringField(TEXT("message"), Message);
+    return Result;
+}
+
+FString LoomleMemoryPressureStatusToString(const FGenericPlatformMemoryStats::EMemoryPressureStatus Status)
+{
+    switch (Status)
+    {
+    case FGenericPlatformMemoryStats::EMemoryPressureStatus::Nominal:
+        return TEXT("nominal");
+    case FGenericPlatformMemoryStats::EMemoryPressureStatus::Warning:
+        return TEXT("warning");
+    case FGenericPlatformMemoryStats::EMemoryPressureStatus::Critical:
+        return TEXT("critical");
+    case FGenericPlatformMemoryStats::EMemoryPressureStatus::Unknown:
+    default:
+        return TEXT("unknown");
+    }
+}
+
+FString LoomleMemoryAllocatorToString(const FGenericPlatformMemory::EMemoryAllocatorToUse Allocator)
+{
+    switch (Allocator)
+    {
+    case FGenericPlatformMemory::EMemoryAllocatorToUse::Ansi:
+        return TEXT("ansi");
+    case FGenericPlatformMemory::EMemoryAllocatorToUse::Stomp:
+        return TEXT("stomp");
+    case FGenericPlatformMemory::EMemoryAllocatorToUse::TBB:
+        return TEXT("tbb");
+    case FGenericPlatformMemory::EMemoryAllocatorToUse::Jemalloc:
+        return TEXT("jemalloc");
+    case FGenericPlatformMemory::EMemoryAllocatorToUse::Binned:
+        return TEXT("binned");
+    case FGenericPlatformMemory::EMemoryAllocatorToUse::Binned2:
+        return TEXT("binned2");
+    case FGenericPlatformMemory::EMemoryAllocatorToUse::Binned3:
+        return TEXT("binned3");
+    case FGenericPlatformMemory::EMemoryAllocatorToUse::Platform:
+        return TEXT("platform");
+    case FGenericPlatformMemory::EMemoryAllocatorToUse::Mimalloc:
+        return TEXT("mimalloc");
+    case FGenericPlatformMemory::EMemoryAllocatorToUse::Libpas:
+        return TEXT("libpas");
+    default:
+        return TEXT("unknown");
+    }
+}
+
+TArray<TSharedPtr<FJsonValue>> BuildProfilingGenericMemoryStatRows(const FGenericMemoryStats& Stats)
+{
+    struct FRow
+    {
+        FString Name;
+        SIZE_T Value = 0;
+    };
+
+    TArray<FRow> SortedRows;
+    for (const auto& Pair : Stats)
+    {
+        FRow& Row = SortedRows.AddDefaulted_GetRef();
+        Row.Name = FString(Pair.Key);
+        Row.Value = Pair.Value;
+    }
+
+    SortedRows.Sort([](const FRow& A, const FRow& B)
+    {
+        return A.Name < B.Name;
+    });
+
+    TArray<TSharedPtr<FJsonValue>> Rows;
+    Rows.Reserve(SortedRows.Num());
+    for (const FRow& Row : SortedRows)
+    {
+        TSharedPtr<FJsonObject> RowObject = MakeShared<FJsonObject>();
+        RowObject->SetStringField(TEXT("name"), Row.Name);
+        RowObject->SetNumberField(TEXT("value"), static_cast<double>(Row.Value));
+        Rows.Add(MakeShared<FJsonValueObject>(RowObject));
+    }
+    return Rows;
+}
+
+TArray<TSharedPtr<FJsonValue>> BuildProfilingPlatformSpecificMemoryRows(const TArray<FGenericPlatformMemoryStats::FPlatformSpecificStat>& Stats)
+{
+    struct FRow
+    {
+        FString Name;
+        uint64 Value = 0;
+    };
+
+    TArray<FRow> SortedRows;
+    SortedRows.Reserve(Stats.Num());
+    for (const FGenericPlatformMemoryStats::FPlatformSpecificStat& Stat : Stats)
+    {
+        FRow& Row = SortedRows.AddDefaulted_GetRef();
+        Row.Name = Stat.Name != nullptr ? FString(Stat.Name) : TEXT("");
+        Row.Value = Stat.Value;
+    }
+
+    SortedRows.Sort([](const FRow& A, const FRow& B)
+    {
+        return A.Name < B.Name;
+    });
+
+    TArray<TSharedPtr<FJsonValue>> Rows;
+    Rows.Reserve(SortedRows.Num());
+    for (const FRow& Row : SortedRows)
+    {
+        TSharedPtr<FJsonObject> RowObject = MakeShared<FJsonObject>();
+        RowObject->SetStringField(TEXT("name"), Row.Name);
+        RowObject->SetNumberField(TEXT("value"), static_cast<double>(Row.Value));
+        Rows.Add(MakeShared<FJsonValueObject>(RowObject));
+    }
+    return Rows;
+}
+
+bool EnsureProfilingUnitStatsEnabled(UWorld* World, UGameViewportClient* GameViewport)
+{
+    if (World == nullptr || GameViewport == nullptr || GEngine == nullptr)
+    {
+        return false;
+    }
+
+    if (GameViewport->IsStatEnabled(TEXT("Unit")))
+    {
+        return false;
+    }
+
+    GEngine->SetEngineStat(World, GameViewport, TEXT("Unit"), true);
+    return true;
+}
+
+bool ProfilingUnitDataNeedsWarmup(const FStatUnitData* StatUnitData, const int32 GpuIndex)
+{
+    if (StatUnitData == nullptr)
+    {
+        return true;
+    }
+
+    return FMath::IsNearlyZero(StatUnitData->FrameTime)
+        && FMath::IsNearlyZero(StatUnitData->RawFrameTime)
+        && FMath::IsNearlyZero(StatUnitData->GameThreadTime)
+        && FMath::IsNearlyZero(StatUnitData->RawGameThreadTime)
+        && FMath::IsNearlyZero(StatUnitData->RenderThreadTime)
+        && FMath::IsNearlyZero(StatUnitData->RawRenderThreadTime)
+        && FMath::IsNearlyZero(StatUnitData->GPUFrameTime[GpuIndex])
+        && FMath::IsNearlyZero(StatUnitData->RawGPUFrameTime[GpuIndex]);
+}
+
+FString NormalizeProfilingStatGroupName(const FString& RequestedGroup)
+{
+    FString Normalized = RequestedGroup.TrimStartAndEnd();
+    if (Normalized.IsEmpty())
+    {
+        return TEXT("game");
+    }
+
+    if (Normalized.StartsWith(TEXT("statgroup_"), ESearchCase::IgnoreCase))
+    {
+        Normalized.RightChopInline(10, EAllowShrinking::No);
+    }
+
+    return Normalized.ToLower();
+}
+
+bool EnsureProfilingStatsGroupEnabled(UWorld* World, UGameViewportClient* GameViewport, const FString& RequestedGroup)
+{
+#if STATS
+    if (World == nullptr || GEngine == nullptr || GameViewport == nullptr)
+    {
+        return false;
+    }
+
+    const FString NormalizedGroup = NormalizeProfilingStatGroupName(RequestedGroup);
+    if (NormalizedGroup.Equals(TEXT("game")) && GameViewport->IsStatEnabled(TEXT("Game")))
+    {
+        return false;
+    }
+
+    const FString Command = FString::Printf(TEXT("stat %s -nodisplay"), *NormalizedGroup);
+    return GEngine->Exec(World, *Command, *GLog);
+#else
+    return false;
+#endif
+}
+
+bool EnsureProfilingGpuStatsEnabled(UWorld* World, UGameViewportClient* GameViewport)
+{
+#if STATS
+    if (World == nullptr || GEngine == nullptr || GameViewport == nullptr)
+    {
+        return false;
+    }
+
+    static bool bRequestedGpuStats = false;
+    if (bRequestedGpuStats)
+    {
+        return false;
+    }
+
+    const bool bExecuted = GEngine->Exec(World, TEXT("stat gpu -nodisplay"), *GLog);
+    if (bExecuted)
+    {
+        bRequestedGpuStats = true;
+    }
+    return bExecuted;
+#else
+    return false;
+#endif
+}
+
+const FActiveStatGroupInfo* FindProfilingActiveStatGroup(
+    const FGameThreadStatsData* StatsData,
+    const FString& RequestedGroup,
+    FString& OutResolvedGroupName,
+    FString& OutGroupDescription)
+{
+#if STATS
+    OutResolvedGroupName.Reset();
+    OutGroupDescription.Reset();
+
+    if (StatsData == nullptr)
+    {
+        return nullptr;
+    }
+
+    const FString NormalizedGroup = NormalizeProfilingStatGroupName(RequestedGroup);
+    for (int32 Index = 0; Index < StatsData->GroupNames.Num() && Index < StatsData->ActiveStatGroups.Num(); ++Index)
+    {
+        const FString FullGroupName = StatsData->GroupNames[Index].ToString();
+        FString CandidateName = FullGroupName;
+        if (CandidateName.StartsWith(TEXT("STATGROUP_"), ESearchCase::IgnoreCase))
+        {
+            CandidateName.RightChopInline(10, EAllowShrinking::No);
+        }
+
+        if (CandidateName.Equals(NormalizedGroup, ESearchCase::IgnoreCase))
+        {
+            OutResolvedGroupName = FullGroupName;
+            if (StatsData->GroupDescriptions.IsValidIndex(Index))
+            {
+                OutGroupDescription = StatsData->GroupDescriptions[Index];
+            }
+            return &StatsData->ActiveStatGroups[Index];
+        }
+    }
+#endif
+
+    return nullptr;
+}
+
+TSharedPtr<FJsonObject> BuildProfilingCycleColumns()
+{
+    TSharedPtr<FJsonObject> Table = MakeShared<FJsonObject>();
+    TArray<TSharedPtr<FJsonValue>> Columns;
+
+    auto AddColumn = [&](const TCHAR* Key, const TCHAR* Label, const TCHAR* Unit = nullptr)
+    {
+        TSharedPtr<FJsonObject> Column = MakeShared<FJsonObject>();
+        Column->SetStringField(TEXT("key"), Key);
+        Column->SetStringField(TEXT("label"), Label);
+        if (Unit != nullptr && FCString::Strlen(Unit) > 0)
+        {
+            Column->SetStringField(TEXT("unit"), Unit);
+        }
+        Columns.Add(MakeShared<FJsonValueObject>(Column));
+    };
+
+    AddColumn(TEXT("name"), TEXT("Name"));
+    AddColumn(TEXT("callCountAverage"), TEXT("Calls"));
+    AddColumn(TEXT("inclusiveAverageMs"), TEXT("Inclusive Avg"), TEXT("ms"));
+    AddColumn(TEXT("inclusiveMaxMs"), TEXT("Inclusive Max"), TEXT("ms"));
+    AddColumn(TEXT("exclusiveAverageMs"), TEXT("Exclusive Avg"), TEXT("ms"));
+    AddColumn(TEXT("exclusiveMaxMs"), TEXT("Exclusive Max"), TEXT("ms"));
+
+    Table->SetArrayField(TEXT("columns"), Columns);
+    return Table;
+}
+
+TSharedPtr<FJsonObject> BuildProfilingStatValueFields(const FComplexStatMessage& StatMessage)
+{
+    TSharedPtr<FJsonObject> Values = MakeShared<FJsonObject>();
+    const bool bIsCycle = StatMessage.NameAndInfo.GetFlag(EStatMetaFlags::IsCycle);
+    const bool bIsPackedCycle = bIsCycle && StatMessage.NameAndInfo.GetFlag(EStatMetaFlags::IsPackedCCAndDuration);
+    const EStatDataType::Type DataType = StatMessage.NameAndInfo.GetField<EStatDataType>();
+
+    auto SetDurationFields = [&](TSharedPtr<FJsonObject>& Target, const TCHAR* Prefix, const EComplexStatField::Type Sum, const EComplexStatField::Type Ave, const EComplexStatField::Type Max, const EComplexStatField::Type Min)
+    {
+        Target->SetNumberField(FString::Printf(TEXT("%sSumMs"), Prefix), FPlatformTime::ToMilliseconds64(StatMessage.GetValue_Duration(Sum)));
+        Target->SetNumberField(FString::Printf(TEXT("%sAverageMs"), Prefix), FPlatformTime::ToMilliseconds64(StatMessage.GetValue_Duration(Ave)));
+        Target->SetNumberField(FString::Printf(TEXT("%sMaxMs"), Prefix), FPlatformTime::ToMilliseconds64(StatMessage.GetValue_Duration(Max)));
+        Target->SetNumberField(FString::Printf(TEXT("%sMinMs"), Prefix), FPlatformTime::ToMilliseconds64(StatMessage.GetValue_Duration(Min)));
+    };
+
+    if (bIsCycle)
+    {
+        SetDurationFields(Values, TEXT("inclusive"), EComplexStatField::IncSum, EComplexStatField::IncAve, EComplexStatField::IncMax, EComplexStatField::IncMin);
+        SetDurationFields(Values, TEXT("exclusive"), EComplexStatField::ExcSum, EComplexStatField::ExcAve, EComplexStatField::ExcMax, EComplexStatField::ExcMin);
+
+        if (bIsPackedCycle)
+        {
+            Values->SetNumberField(TEXT("callCountSum"), static_cast<double>(StatMessage.GetValue_CallCount(EComplexStatField::IncSum)));
+            Values->SetNumberField(TEXT("callCountAverage"), static_cast<double>(StatMessage.GetValue_CallCount(EComplexStatField::IncAve)));
+            Values->SetNumberField(TEXT("callCountMax"), static_cast<double>(StatMessage.GetValue_CallCount(EComplexStatField::IncMax)));
+            Values->SetNumberField(TEXT("callCountMin"), static_cast<double>(StatMessage.GetValue_CallCount(EComplexStatField::IncMin)));
+        }
+        return Values;
+    }
+
+    auto SetScalarField = [&](const TCHAR* Prefix, const EComplexStatField::Type Index)
+    {
+        const FString FieldName = FString::Printf(TEXT("%sValue"), Prefix);
+        if (DataType == EStatDataType::ST_int64)
+        {
+            Values->SetNumberField(FieldName, static_cast<double>(StatMessage.GetValue_int64(Index)));
+        }
+        else if (DataType == EStatDataType::ST_double)
+        {
+            Values->SetNumberField(FieldName, StatMessage.GetValue_double(Index));
+        }
+    };
+
+    SetScalarField(TEXT("inclusiveAverage"), EComplexStatField::IncAve);
+    SetScalarField(TEXT("inclusiveMax"), EComplexStatField::IncMax);
+    SetScalarField(TEXT("inclusiveMin"), EComplexStatField::IncMin);
+    return Values;
+}
+
+TSharedPtr<FJsonObject> BuildProfilingComplexStatRow(const FComplexStatMessage& StatMessage, const int32 Indentation)
+{
+    TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+    const EStatDataType::Type DataType = StatMessage.NameAndInfo.GetField<EStatDataType>();
+    const bool bIsCycle = StatMessage.NameAndInfo.GetFlag(EStatMetaFlags::IsCycle);
+    const bool bIsPackedCycle = bIsCycle && StatMessage.NameAndInfo.GetFlag(EStatMetaFlags::IsPackedCCAndDuration);
+
+    Row->SetStringField(TEXT("name"), StatMessage.GetShortName().ToString());
+    Row->SetStringField(TEXT("rawName"), StatMessage.NameAndInfo.GetRawName().ToString());
+    Row->SetStringField(TEXT("description"), StatMessage.GetDescription());
+    Row->SetBoolField(TEXT("isCycle"), bIsCycle);
+    Row->SetBoolField(TEXT("isMemory"), StatMessage.NameAndInfo.GetFlag(EStatMetaFlags::IsMemory));
+    Row->SetBoolField(TEXT("isGpu"), StatMessage.NameAndInfo.GetFlag(EStatMetaFlags::IsGPU));
+    Row->SetBoolField(TEXT("isPackedCallCountAndDuration"), bIsPackedCycle);
+    Row->SetStringField(
+        TEXT("dataType"),
+        DataType == EStatDataType::ST_int64 ? TEXT("int64") : (DataType == EStatDataType::ST_double ? TEXT("double") : TEXT("other")));
+
+    if (Indentation >= 0)
+    {
+        Row->SetNumberField(TEXT("indentation"), static_cast<double>(Indentation));
+    }
+
+    TSharedPtr<FJsonObject> Values = BuildProfilingStatValueFields(StatMessage);
+    Row->SetObjectField(TEXT("values"), Values);
+
+    const TSharedPtr<FJsonObject>* ValuesObject = nullptr;
+    if (Row->TryGetObjectField(TEXT("values"), ValuesObject) && ValuesObject && (*ValuesObject).IsValid())
+    {
+        double CallCountAverage = 0.0;
+        if ((*ValuesObject)->TryGetNumberField(TEXT("callCountAverage"), CallCountAverage))
+        {
+            Row->SetNumberField(TEXT("callCountAverage"), CallCountAverage);
+        }
+
+        double InclusiveAverageMs = 0.0;
+        if ((*ValuesObject)->TryGetNumberField(TEXT("inclusiveAverageMs"), InclusiveAverageMs))
+        {
+            Row->SetNumberField(TEXT("inclusiveAverageMs"), InclusiveAverageMs);
+        }
+
+        double InclusiveMaxMs = 0.0;
+        if ((*ValuesObject)->TryGetNumberField(TEXT("inclusiveMaxMs"), InclusiveMaxMs))
+        {
+            Row->SetNumberField(TEXT("inclusiveMaxMs"), InclusiveMaxMs);
+        }
+
+        double ExclusiveAverageMs = 0.0;
+        if ((*ValuesObject)->TryGetNumberField(TEXT("exclusiveAverageMs"), ExclusiveAverageMs))
+        {
+            Row->SetNumberField(TEXT("exclusiveAverageMs"), ExclusiveAverageMs);
+        }
+
+        double ExclusiveMaxMs = 0.0;
+        if ((*ValuesObject)->TryGetNumberField(TEXT("exclusiveMaxMs"), ExclusiveMaxMs))
+        {
+            Row->SetNumberField(TEXT("exclusiveMaxMs"), ExclusiveMaxMs);
+        }
+    }
+
+    return Row;
+}
+
+TArray<TSharedPtr<FJsonValue>> BuildProfilingComplexStatRows(
+    const TArray<FComplexStatMessage>& SourceRows,
+    const TArray<int32>* Indentation,
+    const int32 MaxDepth)
+{
+    TArray<TSharedPtr<FJsonValue>> Rows;
+    Rows.Reserve(SourceRows.Num());
+    for (int32 Index = 0; Index < SourceRows.Num(); ++Index)
+    {
+        const int32 CurrentIndent = (Indentation != nullptr && Indentation->IsValidIndex(Index)) ? (*Indentation)[Index] : -1;
+        if (MaxDepth >= 0 && CurrentIndent > MaxDepth)
+        {
+            continue;
+        }
+
+        Rows.Add(MakeShared<FJsonValueObject>(BuildProfilingComplexStatRow(SourceRows[Index], CurrentIndent)));
+    }
+    return Rows;
+}
+
+TSharedPtr<FJsonObject> BuildProfilingGpuColumns()
+{
+    TSharedPtr<FJsonObject> Table = MakeShared<FJsonObject>();
+    TArray<TSharedPtr<FJsonValue>> Columns;
+
+    auto AddColumn = [&](const TCHAR* Key, const TCHAR* Label, const TCHAR* Unit = nullptr)
+    {
+        TSharedPtr<FJsonObject> Column = MakeShared<FJsonObject>();
+        Column->SetStringField(TEXT("key"), Key);
+        Column->SetStringField(TEXT("label"), Label);
+        if (Unit != nullptr && FCString::Strlen(Unit) > 0)
+        {
+            Column->SetStringField(TEXT("unit"), Unit);
+        }
+        Columns.Add(MakeShared<FJsonValueObject>(Column));
+    };
+
+    AddColumn(TEXT("name"), TEXT("Name"));
+    AddColumn(TEXT("busyAverageMs"), TEXT("Busy Avg"), TEXT("ms"));
+    AddColumn(TEXT("busyMaxMs"), TEXT("Busy Max"), TEXT("ms"));
+    AddColumn(TEXT("busyMinMs"), TEXT("Busy Min"), TEXT("ms"));
+    AddColumn(TEXT("waitAverageMs"), TEXT("Wait Avg"), TEXT("ms"));
+    AddColumn(TEXT("waitMaxMs"), TEXT("Wait Max"), TEXT("ms"));
+    AddColumn(TEXT("waitMinMs"), TEXT("Wait Min"), TEXT("ms"));
+    AddColumn(TEXT("idleAverageMs"), TEXT("Idle Avg"), TEXT("ms"));
+    AddColumn(TEXT("idleMaxMs"), TEXT("Idle Max"), TEXT("ms"));
+    AddColumn(TEXT("idleMinMs"), TEXT("Idle Min"), TEXT("ms"));
+
+    Table->SetArrayField(TEXT("columns"), Columns);
+    return Table;
+}
+
+#if RHI_NEW_GPU_PROFILER
+struct FLoomleProfilingGpuRowState
+{
+    const FComplexStatMessage* Busy = nullptr;
+    const FComplexStatMessage* Wait = nullptr;
+    const FComplexStatMessage* Idle = nullptr;
+};
+#endif
+
+void PopulateProfilingGpuTimingFields(
+    const TSharedPtr<FJsonObject>& Row,
+    const FComplexStatMessage* Message,
+    const TCHAR* Prefix)
+{
+    if (!Row.IsValid() || Message == nullptr || Prefix == nullptr)
+    {
+        return;
+    }
+
+    auto GetFieldValue = [&](const EComplexStatField::Type Field) -> double
+    {
+        const EStatDataType::Type DataType = Message->NameAndInfo.GetField<EStatDataType>();
+        if (DataType == EStatDataType::ST_int64)
+        {
+            return static_cast<double>(Message->GetValue_int64(Field));
+        }
+        if (DataType == EStatDataType::ST_double)
+        {
+            return Message->GetValue_double(Field);
+        }
+        return 0.0;
+    };
+
+    Row->SetNumberField(FString::Printf(TEXT("%sAverageMs"), Prefix), GetFieldValue(EComplexStatField::IncAve));
+    Row->SetNumberField(FString::Printf(TEXT("%sMaxMs"), Prefix), GetFieldValue(EComplexStatField::IncMax));
+    Row->SetNumberField(FString::Printf(TEXT("%sMinMs"), Prefix), GetFieldValue(EComplexStatField::IncMin));
+}
+
+#if RHI_NEW_GPU_PROFILER
+TArray<TSharedPtr<FJsonValue>> BuildProfilingGpuRows(const TArray<FComplexStatMessage>& SourceRows)
+{
+    TMap<FName, FLoomleProfilingGpuRowState> GroupedRows;
+    for (const FComplexStatMessage& Message : SourceRows)
+    {
+        FName ShortName = Message.GetShortName();
+        const int32 TypeOrdinal = ShortName.GetNumber();
+        ShortName.SetNumber(0);
+
+        using EGpuStatType = UE::RHI::GPUProfiler::FGPUStat::EType;
+
+        FLoomleProfilingGpuRowState& RowState = GroupedRows.FindOrAdd(ShortName);
+        switch (static_cast<EGpuStatType>(TypeOrdinal))
+        {
+        case EGpuStatType::Busy:
+            RowState.Busy = &Message;
+            break;
+        case EGpuStatType::Wait:
+            RowState.Wait = &Message;
+            break;
+        case EGpuStatType::Idle:
+            RowState.Idle = &Message;
+            break;
+        default:
+            break;
+        }
+    }
+
+    TArray<FName> SortedNames;
+    GroupedRows.GetKeys(SortedNames);
+    SortedNames.Sort(FNameLexicalLess());
+
+    TArray<TSharedPtr<FJsonValue>> Rows;
+    Rows.Reserve(SortedNames.Num());
+    for (const FName& Name : SortedNames)
+    {
+        const FLoomleProfilingGpuRowState* RowState = GroupedRows.Find(Name);
+        if (RowState == nullptr)
+        {
+            continue;
+        }
+
+        const FComplexStatMessage* LabelStat =
+            RowState->Busy ? RowState->Busy :
+            (RowState->Wait ? RowState->Wait : RowState->Idle);
+        if (LabelStat == nullptr)
+        {
+            continue;
+        }
+
+        TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+        Row->SetStringField(TEXT("name"), LabelStat->GetShortName().GetPlainNameString());
+        Row->SetStringField(TEXT("rawName"), LabelStat->NameAndInfo.GetRawName().ToString());
+        Row->SetStringField(TEXT("description"), LabelStat->GetDescription());
+
+        PopulateProfilingGpuTimingFields(Row, RowState->Busy, TEXT("busy"));
+        PopulateProfilingGpuTimingFields(Row, RowState->Wait, TEXT("wait"));
+        PopulateProfilingGpuTimingFields(Row, RowState->Idle, TEXT("idle"));
+
+        Rows.Add(MakeShared<FJsonValueObject>(Row));
+    }
+
+    return Rows;
+}
+#endif
+
+class FProfilingOutputDevice final : public FOutputDevice
+{
+public:
+    virtual void Serialize(const TCHAR* V, ELogVerbosity::Type Verbosity, const class FName& Category) override
+    {
+        (void)Verbosity;
+        (void)Category;
+        Lines.Add(V ? FString(V) : FString());
+    }
+
+    TArray<FString> Lines;
+};
+
+TSharedPtr<FJsonObject> BuildProfilingTicksColumns()
+{
+    TSharedPtr<FJsonObject> Table = MakeShared<FJsonObject>();
+    TArray<TSharedPtr<FJsonValue>> Columns;
+
+    auto AddColumn = [&](const TCHAR* Key, const TCHAR* Label)
+    {
+        TSharedPtr<FJsonObject> Column = MakeShared<FJsonObject>();
+        Column->SetStringField(TEXT("key"), Key);
+        Column->SetStringField(TEXT("label"), Label);
+        Columns.Add(MakeShared<FJsonValueObject>(Column));
+    };
+
+    AddColumn(TEXT("diagnosticMessage"), TEXT("Diagnostic"));
+    AddColumn(TEXT("state"), TEXT("State"));
+    AddColumn(TEXT("actualStartTickGroup"), TEXT("Actual Start Tick Group"));
+    AddColumn(TEXT("prerequisiteCount"), TEXT("Prerequisites"));
+    Table->SetArrayField(TEXT("columns"), Columns);
+    return Table;
+}
+
+TSharedPtr<FJsonObject> ParseProfilingTickRow(const FString& Line)
+{
+    const FString PrereqToken = TEXT(", Prerequesities: ");
+    const FString GroupToken = TEXT(", ActualStartTickGroup: ");
+
+    int32 PrereqIndex = INDEX_NONE;
+    if (!Line.FindLastChar(TEXT(':'), PrereqIndex) || !Line.Contains(PrereqToken))
+    {
+        return nullptr;
+    }
+
+    PrereqIndex = Line.Find(PrereqToken, ESearchCase::CaseSensitive, ESearchDir::FromEnd);
+    const int32 GroupIndex = Line.Find(GroupToken, ESearchCase::CaseSensitive, ESearchDir::FromEnd);
+    if (PrereqIndex == INDEX_NONE || GroupIndex == INDEX_NONE || GroupIndex >= PrereqIndex)
+    {
+        return nullptr;
+    }
+
+    const FString PrereqText = Line.Mid(PrereqIndex + PrereqToken.Len()).TrimStartAndEnd();
+    const FString GroupName = Line.Mid(GroupIndex + GroupToken.Len(), PrereqIndex - (GroupIndex + GroupToken.Len())).TrimStartAndEnd();
+    const FString Prefix = Line.Left(GroupIndex);
+
+    FString DiagnosticMessage;
+    FString State;
+    FString CoolingDownPrefix = TEXT(", Cooling Down for ");
+    int32 StateSplitIndex = Prefix.Find(TEXT(", Disabled"), ESearchCase::CaseSensitive, ESearchDir::FromEnd);
+    if (StateSplitIndex != INDEX_NONE)
+    {
+        DiagnosticMessage = Prefix.Left(StateSplitIndex).TrimStartAndEnd();
+        State = TEXT("Disabled");
+    }
+    else
+    {
+        StateSplitIndex = Prefix.Find(TEXT(", Enabled"), ESearchCase::CaseSensitive, ESearchDir::FromEnd);
+        if (StateSplitIndex != INDEX_NONE)
+        {
+            DiagnosticMessage = Prefix.Left(StateSplitIndex).TrimStartAndEnd();
+            State = TEXT("Enabled");
+        }
+        else
+        {
+            StateSplitIndex = Prefix.Find(CoolingDownPrefix, ESearchCase::CaseSensitive, ESearchDir::FromEnd);
+            if (StateSplitIndex != INDEX_NONE)
+            {
+                DiagnosticMessage = Prefix.Left(StateSplitIndex).TrimStartAndEnd();
+                State = Prefix.Mid(StateSplitIndex + 2).TrimStartAndEnd();
+            }
+        }
+    }
+
+    if (DiagnosticMessage.IsEmpty() || State.IsEmpty())
+    {
+        return nullptr;
+    }
+
+    TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+    Row->SetStringField(TEXT("diagnosticMessage"), DiagnosticMessage);
+    Row->SetStringField(TEXT("state"), State);
+    Row->SetStringField(TEXT("actualStartTickGroup"), GroupName);
+    Row->SetNumberField(TEXT("prerequisiteCount"), static_cast<double>(FCString::Atoi(*PrereqText)));
+
+    if (State.StartsWith(TEXT("Cooling Down for "), ESearchCase::CaseSensitive))
+    {
+        const FString SecondsText = State.RightChop(FCString::Strlen(TEXT("Cooling Down for "))).Replace(TEXT(" seconds"), TEXT(""));
+        Row->SetNumberField(TEXT("remainingCooldownSeconds"), FCString::Atof(*SecondsText));
+    }
+
+    return Row;
+}
+
+TSharedPtr<FJsonObject> ParseProfilingTickPrerequisite(const FString& Line)
+{
+    const FString Trimmed = Line.TrimStartAndEnd();
+    if (Trimmed.IsEmpty())
+    {
+        return nullptr;
+    }
+
+    TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+    if (Trimmed.Equals(TEXT("Invalid Prerequisite")))
+    {
+        Row->SetBoolField(TEXT("isValid"), false);
+        Row->SetStringField(TEXT("message"), Trimmed);
+        return Row;
+    }
+
+    int32 SeparatorIndex = INDEX_NONE;
+    if (!Trimmed.FindChar(TEXT(','), SeparatorIndex))
+    {
+        Row->SetBoolField(TEXT("isValid"), true);
+        Row->SetStringField(TEXT("message"), Trimmed);
+        return Row;
+    }
+
+    Row->SetBoolField(TEXT("isValid"), true);
+    Row->SetStringField(TEXT("object"), Trimmed.Left(SeparatorIndex).TrimStartAndEnd());
+    Row->SetStringField(TEXT("diagnosticMessage"), Trimmed.Mid(SeparatorIndex + 1).TrimStartAndEnd());
+    return Row;
+}
+
+void AddJsonNumberArrayField(
+    const TSharedPtr<FJsonObject>& Target,
+    const TCHAR* FieldName,
+    const TArray<float>& Values)
+{
+    if (!Target.IsValid())
+    {
+        return;
+    }
+
+    TArray<TSharedPtr<FJsonValue>> ArrayValues;
+    ArrayValues.Reserve(Values.Num());
+    for (const float Value : Values)
+    {
+        ArrayValues.Add(MakeShared<FJsonValueNumber>(static_cast<double>(Value)));
+    }
+    Target->SetArrayField(FieldName, ArrayValues);
+}
+
 FString LoomleJobIso8601OrEmpty(const FDateTime& Value)
 {
     return Value.GetTicks() > 0 ? Value.ToIso8601() : TEXT("");
@@ -1454,6 +2203,533 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildJobsToolResult(const TSharedPt
     Result->SetStringField(TEXT("code"), TEXT("JOB_ACTION_UNSUPPORTED"));
     Result->SetStringField(TEXT("message"), TEXT("The requested jobs action is not supported."));
     return Result;
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildProfilingToolResult(const TSharedPtr<FJsonObject>& Arguments)
+{
+    FString Action;
+    if (!Arguments.IsValid() || !Arguments->TryGetStringField(TEXT("action"), Action) || Action.IsEmpty())
+    {
+        return MakeProfilingError(TEXT("INVALID_ARGUMENT"), TEXT("arguments.action is required."));
+    }
+
+    Action = Action.TrimStartAndEnd().ToLower();
+    if (!Action.Equals(TEXT("unit")) && !Action.Equals(TEXT("game")) && !Action.Equals(TEXT("gpu")) && !Action.Equals(TEXT("ticks")) && !Action.Equals(TEXT("memory")))
+    {
+        return MakeProfilingError(
+            TEXT("PROFILING_ACTION_UNSUPPORTED"),
+            FString::Printf(TEXT("profiling.action '%s' is not implemented yet."), *Action));
+    }
+
+    UWorld* World = ResolveProfilingWorld(Arguments);
+    if (World == nullptr)
+    {
+        return MakeProfilingError(TEXT("WORLD_NOT_FOUND"), TEXT("The requested profiling world could not be resolved."));
+    }
+
+    UGameViewportClient* GameViewport = World->GetGameViewport();
+
+    int32 GpuIndex = 0;
+    if (Arguments.IsValid())
+    {
+        GpuIndex = ReadOptionalPositiveIntField(Arguments, TEXT("gpuIndex"), 0);
+    }
+    GpuIndex = FMath::Clamp(GpuIndex, 0, MAX_NUM_GPUS - 1);
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+    Result->SetObjectField(TEXT("runtime"), BuildProfilingRuntimeContext(World, GameViewport));
+
+    TSharedPtr<FJsonObject> Source = MakeShared<FJsonObject>();
+    if (Action.Equals(TEXT("unit")))
+    {
+        if (GameViewport == nullptr)
+        {
+            return MakeProfilingError(TEXT("GAME_VIEWPORT_UNAVAILABLE"), TEXT("The requested world does not expose a game viewport."));
+        }
+
+        const FStatUnitData* StatUnitData = GameViewport->GetStatUnitData();
+        if (StatUnitData == nullptr)
+        {
+            return MakeProfilingError(TEXT("STAT_UNIT_DATA_UNAVAILABLE"), TEXT("Official stat unit data is not available for the requested world."));
+        }
+
+        const bool bIncludeRaw = !Arguments.IsValid() || !Arguments->HasField(TEXT("includeRaw"))
+            ? true
+            : Arguments->GetBoolField(TEXT("includeRaw"));
+        const bool bIncludeGpuUtilization = Arguments.IsValid() && Arguments->HasField(TEXT("includeGpuUtilization"))
+            ? Arguments->GetBoolField(TEXT("includeGpuUtilization"))
+            : true;
+        const bool bIncludeHistory = Arguments.IsValid() && Arguments->HasField(TEXT("includeHistory"))
+            ? Arguments->GetBoolField(TEXT("includeHistory"))
+            : false;
+
+        const bool bUnitStatsEnabledThisCall = EnsureProfilingUnitStatsEnabled(World, GameViewport);
+        if (ProfilingUnitDataNeedsWarmup(StatUnitData, GpuIndex))
+        {
+            const FString WarmupMessage = bUnitStatsEnabledThisCall
+                ? TEXT("Official stat unit metrics were just enabled and need a rendered frame before valid data is available.")
+                : TEXT("Official stat unit metrics are still warming up. Retry after one or more rendered frames.");
+            return MakeProfilingError(TEXT("STAT_UNIT_WARMUP_REQUIRED"), WarmupMessage);
+        }
+
+        Source->SetStringField(TEXT("officialCommand"), TEXT("stat unit"));
+        Source->SetStringField(TEXT("backend"), TEXT("FStatUnitData"));
+        Source->SetNumberField(TEXT("gpuIndex"), static_cast<double>(GpuIndex));
+        Result->SetObjectField(TEXT("source"), Source);
+
+        auto BuildUnitBlock = [&](const bool bRaw) -> TSharedPtr<FJsonObject>
+        {
+            TSharedPtr<FJsonObject> Block = MakeShared<FJsonObject>();
+            const float FrameTime = bRaw ? StatUnitData->RawFrameTime : StatUnitData->FrameTime;
+            const float GameThreadTime = bRaw ? StatUnitData->RawGameThreadTime : StatUnitData->GameThreadTime;
+            const float GameThreadCriticalPath = bRaw ? StatUnitData->RawGameThreadTimeCriticalPath : StatUnitData->GameThreadTimeCriticalPath;
+            const float RenderThreadTime = bRaw ? StatUnitData->RawRenderThreadTime : StatUnitData->RenderThreadTime;
+            const float RenderThreadCriticalPath = bRaw ? StatUnitData->RawRenderThreadTimeCriticalPath : StatUnitData->RenderThreadTimeCriticalPath;
+            const float GpuFrameTime = bRaw ? StatUnitData->RawGPUFrameTime[GpuIndex] : StatUnitData->GPUFrameTime[GpuIndex];
+            const float RhiThreadTime = bRaw ? StatUnitData->RawRHITTime : StatUnitData->RHITTime;
+            const float InputLatencyTime = bRaw ? StatUnitData->RawInputLatencyTime : StatUnitData->InputLatencyTime;
+
+            Block->SetNumberField(TEXT("frameTimeMs"), static_cast<double>(FrameTime));
+            Block->SetNumberField(TEXT("gameThreadTimeMs"), static_cast<double>(GameThreadTime));
+            Block->SetNumberField(TEXT("gameThreadCriticalPathMs"), static_cast<double>(GameThreadCriticalPath));
+            Block->SetNumberField(TEXT("renderThreadTimeMs"), static_cast<double>(RenderThreadTime));
+            Block->SetNumberField(TEXT("renderThreadCriticalPathMs"), static_cast<double>(RenderThreadCriticalPath));
+            Block->SetNumberField(TEXT("gpuFrameTimeMs"), static_cast<double>(GpuFrameTime));
+            Block->SetNumberField(TEXT("rhiThreadTimeMs"), static_cast<double>(RhiThreadTime));
+            Block->SetNumberField(TEXT("inputLatencyTimeMs"), static_cast<double>(InputLatencyTime));
+
+            if (bIncludeGpuUtilization)
+            {
+                const float GpuClockFraction = bRaw ? StatUnitData->RawGPUClockFraction[GpuIndex] : StatUnitData->GPUClockFraction[GpuIndex];
+                const float GpuUsageFraction = bRaw ? StatUnitData->RawGPUUsageFraction[GpuIndex] : StatUnitData->GPUUsageFraction[GpuIndex];
+                const uint64 GpuMemoryUsage = bRaw ? StatUnitData->RawGPUMemoryUsage[GpuIndex] : StatUnitData->GPUMemoryUsage[GpuIndex];
+                const float GpuExternalUsageFraction = bRaw ? StatUnitData->RawGPUExternalUsageFraction[GpuIndex] : StatUnitData->GPUExternalUsageFraction[GpuIndex];
+                const uint64 GpuExternalMemoryUsage = bRaw ? StatUnitData->RawGPUExternalMemoryUsage[GpuIndex] : StatUnitData->GPUExternalMemoryUsage[GpuIndex];
+
+                Block->SetNumberField(TEXT("gpuClockFraction"), static_cast<double>(GpuClockFraction));
+                Block->SetNumberField(TEXT("gpuUsageFraction"), static_cast<double>(GpuUsageFraction));
+                Block->SetNumberField(TEXT("gpuMemoryBytes"), static_cast<double>(GpuMemoryUsage));
+                Block->SetNumberField(TEXT("gpuExternalUsageFraction"), static_cast<double>(GpuExternalUsageFraction));
+                Block->SetNumberField(TEXT("gpuExternalMemoryBytes"), static_cast<double>(GpuExternalMemoryUsage));
+            }
+
+            return Block;
+        };
+
+        TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
+        Data->SetObjectField(TEXT("average"), BuildUnitBlock(false));
+        if (bIncludeRaw)
+        {
+            Data->SetObjectField(TEXT("raw"), BuildUnitBlock(true));
+        }
+
+#if !UE_BUILD_SHIPPING
+        if (bIncludeHistory)
+        {
+            TSharedPtr<FJsonObject> History = MakeShared<FJsonObject>();
+            History->SetNumberField(TEXT("numberOfSamples"), static_cast<double>(FStatUnitData::NumberOfSamples));
+            History->SetNumberField(TEXT("currentIndex"), static_cast<double>(StatUnitData->CurrentIndex));
+            AddJsonNumberArrayField(History, TEXT("frameTimeMs"), StatUnitData->FrameTimes);
+            AddJsonNumberArrayField(History, TEXT("gameThreadTimeMs"), StatUnitData->GameThreadTimes);
+            AddJsonNumberArrayField(History, TEXT("renderThreadTimeMs"), StatUnitData->RenderThreadTimes);
+            AddJsonNumberArrayField(History, TEXT("gpuFrameTimeMs"), StatUnitData->GPUFrameTimes[GpuIndex]);
+            AddJsonNumberArrayField(History, TEXT("rhiThreadTimeMs"), StatUnitData->RHITTimes);
+            AddJsonNumberArrayField(History, TEXT("inputLatencyTimeMs"), StatUnitData->InputLatencyTimes);
+            Data->SetObjectField(TEXT("history"), History);
+        }
+#endif
+
+        Result->SetObjectField(TEXT("data"), Data);
+        return Result;
+    }
+
+    if (Action.Equals(TEXT("ticks")))
+    {
+        FString Mode = Arguments.IsValid() && Arguments->HasField(TEXT("mode"))
+            ? Arguments->GetStringField(TEXT("mode"))
+            : TEXT("all");
+        Mode = Mode.TrimStartAndEnd().ToLower();
+        if (!Mode.Equals(TEXT("all")) && !Mode.Equals(TEXT("grouped")) && !Mode.Equals(TEXT("enabled")) && !Mode.Equals(TEXT("disabled")))
+        {
+            return MakeProfilingError(TEXT("INVALID_ARGUMENT"), TEXT("profiling.mode must be one of: all, grouped, enabled, disabled."));
+        }
+
+        Source->SetStringField(
+            TEXT("officialCommand"),
+            Mode.Equals(TEXT("all")) ? TEXT("dumpticks") : FString::Printf(TEXT("dumpticks %s"), *Mode));
+        Source->SetStringField(TEXT("backend"), TEXT("FTickTaskManagerInterface"));
+        Result->SetObjectField(TEXT("source"), Source);
+
+        TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
+        Data->SetStringField(TEXT("mode"), Mode);
+
+#if STATS
+        if (Mode.Equals(TEXT("grouped")))
+        {
+            TSortedMap<FName, int32, FDefaultAllocator, FNameFastLess> TickContextToCountMap;
+            int32 EnabledCount = 0;
+            FTickTaskManagerInterface::Get().GetEnabledTickFunctionCounts(World, TickContextToCountMap, EnabledCount, true);
+
+            struct FTickContextCountRow
+            {
+                FName Context;
+                int32 Count = 0;
+            };
+
+            TArray<FTickContextCountRow> SortedRows;
+            SortedRows.Reserve(TickContextToCountMap.Num());
+            for (auto It = TickContextToCountMap.CreateConstIterator(); It; ++It)
+            {
+                FTickContextCountRow& Row = SortedRows.AddDefaulted_GetRef();
+                Row.Context = It->Key;
+                Row.Count = It->Value;
+            }
+            SortedRows.Sort([](const FTickContextCountRow& A, const FTickContextCountRow& B)
+            {
+                return A.Count == B.Count ? A.Context.LexicalLess(B.Context) : A.Count > B.Count;
+            });
+
+            TSharedPtr<FJsonObject> Table = MakeShared<FJsonObject>();
+            TArray<TSharedPtr<FJsonValue>> Columns;
+            {
+                TSharedPtr<FJsonObject> ContextColumn = MakeShared<FJsonObject>();
+                ContextColumn->SetStringField(TEXT("key"), TEXT("context"));
+                ContextColumn->SetStringField(TEXT("label"), TEXT("Context"));
+                Columns.Add(MakeShared<FJsonValueObject>(ContextColumn));
+                TSharedPtr<FJsonObject> CountColumn = MakeShared<FJsonObject>();
+                CountColumn->SetStringField(TEXT("key"), TEXT("count"));
+                CountColumn->SetStringField(TEXT("label"), TEXT("Count"));
+                Columns.Add(MakeShared<FJsonValueObject>(CountColumn));
+            }
+            Table->SetArrayField(TEXT("columns"), Columns);
+
+            TArray<TSharedPtr<FJsonValue>> Rows;
+            Rows.Reserve(SortedRows.Num());
+            for (const FTickContextCountRow& Row : SortedRows)
+            {
+                TSharedPtr<FJsonObject> RowObject = MakeShared<FJsonObject>();
+                RowObject->SetStringField(TEXT("context"), Row.Context.ToString());
+                RowObject->SetNumberField(TEXT("count"), static_cast<double>(Row.Count));
+                Rows.Add(MakeShared<FJsonValueObject>(RowObject));
+            }
+            Table->SetArrayField(TEXT("rows"), Rows);
+            Data->SetObjectField(TEXT("grouped"), Table);
+            Data->SetNumberField(TEXT("enabledCount"), static_cast<double>(EnabledCount));
+            Result->SetObjectField(TEXT("data"), Data);
+            return Result;
+        }
+
+        FProfilingOutputDevice Collector;
+        const bool bEnabled = !Mode.Equals(TEXT("disabled"));
+        const bool bDisabled = !Mode.Equals(TEXT("enabled"));
+        FTickTaskManagerInterface::Get().DumpAllTickFunctions(Collector, World, bEnabled, bDisabled, false);
+
+        TSharedPtr<FJsonObject> Table = BuildProfilingTicksColumns();
+        TArray<TSharedPtr<FJsonValue>> Rows;
+        int32 EnabledCount = 0;
+        int32 DisabledCount = 0;
+        int32 TotalCount = 0;
+        TSharedPtr<FJsonObject> CurrentRow;
+
+        for (const FString& Line : Collector.Lines)
+        {
+            const FString Trimmed = Line.TrimStartAndEnd();
+            if (Trimmed.IsEmpty() || Trimmed.StartsWith(TEXT("============================")))
+            {
+                continue;
+            }
+
+            int32 SummaryTotal = 0;
+            int32 SummaryEnabled = 0;
+            int32 SummaryDisabled = 0;
+            if (Trimmed.StartsWith(TEXT("Total registered tick functions: "))
+                && FParse::Value(*Trimmed, TEXT("Total registered tick functions: "), SummaryTotal)
+                && FParse::Value(*Trimmed, TEXT("enabled: "), SummaryEnabled)
+                && FParse::Value(*Trimmed, TEXT("disabled: "), SummaryDisabled))
+            {
+                TotalCount = SummaryTotal;
+                EnabledCount = SummaryEnabled;
+                DisabledCount = SummaryDisabled;
+                continue;
+            }
+
+            if (Line.StartsWith(TEXT("    ")))
+            {
+                if (CurrentRow.IsValid())
+                {
+                    TArray<TSharedPtr<FJsonValue>> Prerequisites;
+                    const TArray<TSharedPtr<FJsonValue>>* Existing = nullptr;
+                    if (CurrentRow->TryGetArrayField(TEXT("prerequisites"), Existing) && Existing != nullptr)
+                    {
+                        Prerequisites = *Existing;
+                    }
+                    if (TSharedPtr<FJsonObject> ParsedPrerequisite = ParseProfilingTickPrerequisite(Line))
+                    {
+                        Prerequisites.Add(MakeShared<FJsonValueObject>(ParsedPrerequisite));
+                    }
+                    CurrentRow->SetArrayField(TEXT("prerequisites"), Prerequisites);
+                }
+                continue;
+            }
+
+            CurrentRow = ParseProfilingTickRow(Trimmed);
+            if (CurrentRow.IsValid())
+            {
+                Rows.Add(MakeShared<FJsonValueObject>(CurrentRow));
+            }
+        }
+
+        Table->SetArrayField(TEXT("rows"), Rows);
+        Data->SetObjectField(TEXT("table"), Table);
+        Data->SetNumberField(TEXT("enabledCount"), static_cast<double>(EnabledCount));
+        Data->SetNumberField(TEXT("disabledCount"), static_cast<double>(DisabledCount));
+        Data->SetNumberField(TEXT("totalCount"), static_cast<double>(TotalCount));
+        Result->SetObjectField(TEXT("data"), Data);
+        return Result;
+#else
+        return MakeProfilingError(TEXT("TICKS_DATA_UNAVAILABLE"), TEXT("Tick profiling data is not available in this build."));
+#endif
+    }
+
+    if (Action.Equals(TEXT("memory")))
+    {
+        FString Kind = Arguments.IsValid() && Arguments->HasField(TEXT("kind"))
+            ? Arguments->GetStringField(TEXT("kind"))
+            : TEXT("summary");
+        Kind = Kind.TrimStartAndEnd().ToLower();
+        if (Kind.IsEmpty())
+        {
+            Kind = TEXT("summary");
+        }
+        if (!Kind.Equals(TEXT("summary")))
+        {
+            return MakeProfilingError(TEXT("INVALID_ARGUMENT"), TEXT("profiling.kind for action=memory must currently be 'summary'."));
+        }
+
+        Source->SetStringField(TEXT("officialCommand"), TEXT("memreport"));
+        Source->SetStringField(TEXT("backend"), TEXT("FPlatformMemory::GetStats + FMalloc::GetAllocatorStats + RHIGetTextureMemoryStats"));
+        Result->SetObjectField(TEXT("source"), Source);
+
+        const FPlatformMemoryStats PlatformStats = FPlatformMemory::GetStats();
+
+        TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
+        Data->SetStringField(TEXT("kind"), TEXT("summary"));
+
+        TSharedPtr<FJsonObject> Platform = MakeShared<FJsonObject>();
+        Platform->SetStringField(TEXT("memoryPressureStatus"), LoomleMemoryPressureStatusToString(PlatformStats.GetMemoryPressureStatus()));
+        Platform->SetStringField(TEXT("memorySizeBucket"), LexToString(FPlatformMemory::GetMemorySizeBucket()));
+        Platform->SetStringField(TEXT("allocator"), LoomleMemoryAllocatorToString(FPlatformMemory::AllocatorToUse));
+        Platform->SetNumberField(TEXT("totalPhysicalBytes"), static_cast<double>(PlatformStats.TotalPhysical));
+        Platform->SetNumberField(TEXT("availablePhysicalBytes"), static_cast<double>(PlatformStats.AvailablePhysical));
+        Platform->SetNumberField(TEXT("usedPhysicalBytes"), static_cast<double>(PlatformStats.UsedPhysical));
+        Platform->SetNumberField(TEXT("peakUsedPhysicalBytes"), static_cast<double>(PlatformStats.PeakUsedPhysical));
+        Platform->SetNumberField(TEXT("totalVirtualBytes"), static_cast<double>(PlatformStats.TotalVirtual));
+        Platform->SetNumberField(TEXT("availableVirtualBytes"), static_cast<double>(PlatformStats.AvailableVirtual));
+        Platform->SetNumberField(TEXT("usedVirtualBytes"), static_cast<double>(PlatformStats.UsedVirtual));
+        Platform->SetNumberField(TEXT("peakUsedVirtualBytes"), static_cast<double>(PlatformStats.PeakUsedVirtual));
+        Platform->SetNumberField(TEXT("pageSizeBytes"), static_cast<double>(PlatformStats.PageSize));
+        Platform->SetNumberField(TEXT("osAllocationGranularityBytes"), static_cast<double>(PlatformStats.OsAllocationGranularity));
+        Platform->SetNumberField(TEXT("binnedPageSizeBytes"), static_cast<double>(PlatformStats.BinnedPageSize));
+        Platform->SetNumberField(TEXT("binnedAllocationGranularityBytes"), static_cast<double>(PlatformStats.BinnedAllocationGranularity));
+        Platform->SetArrayField(TEXT("platformSpecificStats"), BuildProfilingPlatformSpecificMemoryRows(PlatformStats.GetPlatformSpecificStats()));
+        Data->SetObjectField(TEXT("platform"), Platform);
+
+        TSharedPtr<FJsonObject> Allocator = MakeShared<FJsonObject>();
+        if (GMalloc != nullptr)
+        {
+            FGenericMemoryStats AllocatorStats;
+            GMalloc->GetAllocatorStats(AllocatorStats);
+            Allocator->SetArrayField(TEXT("rows"), BuildProfilingGenericMemoryStatRows(AllocatorStats));
+        }
+        else
+        {
+            Allocator->SetArrayField(TEXT("rows"), TArray<TSharedPtr<FJsonValue>>{});
+        }
+        Data->SetObjectField(TEXT("allocator"), Allocator);
+
+        TSharedPtr<FJsonObject> TextureMemory = MakeShared<FJsonObject>();
+        const bool bTextureMemoryAvailable = GDynamicRHI != nullptr;
+        TextureMemory->SetBoolField(TEXT("available"), bTextureMemoryAvailable);
+        if (bTextureMemoryAvailable)
+        {
+            FTextureMemoryStats TextureMemoryStats;
+            RHIGetTextureMemoryStats(TextureMemoryStats);
+            TextureMemory->SetBoolField(TEXT("hardwareStatsValid"), TextureMemoryStats.AreHardwareStatsValid());
+            TextureMemory->SetBoolField(TEXT("usingLimitedPoolSize"), TextureMemoryStats.IsUsingLimitedPoolSize());
+            TextureMemory->SetNumberField(TEXT("dedicatedVideoMemoryBytes"), static_cast<double>(TextureMemoryStats.DedicatedVideoMemory));
+            TextureMemory->SetNumberField(TEXT("dedicatedSystemMemoryBytes"), static_cast<double>(TextureMemoryStats.DedicatedSystemMemory));
+            TextureMemory->SetNumberField(TEXT("sharedSystemMemoryBytes"), static_cast<double>(TextureMemoryStats.SharedSystemMemory));
+            TextureMemory->SetNumberField(TEXT("totalGraphicsMemoryBytes"), static_cast<double>(TextureMemoryStats.TotalGraphicsMemory));
+            TextureMemory->SetNumberField(TEXT("totalDeviceWorkingMemoryBytes"), static_cast<double>(TextureMemoryStats.GetTotalDeviceWorkingMemory()));
+            TextureMemory->SetNumberField(TEXT("streamingMemorySizeBytes"), static_cast<double>(TextureMemoryStats.StreamingMemorySize));
+            TextureMemory->SetNumberField(TEXT("nonStreamingMemorySizeBytes"), static_cast<double>(TextureMemoryStats.NonStreamingMemorySize));
+            TextureMemory->SetNumberField(TEXT("largestContiguousAllocationBytes"), static_cast<double>(TextureMemoryStats.LargestContiguousAllocation));
+            TextureMemory->SetNumberField(TEXT("texturePoolSizeBytes"), static_cast<double>(TextureMemoryStats.TexturePoolSize));
+            TextureMemory->SetNumberField(TEXT("availableStreamingMemoryBytes"), static_cast<double>(TextureMemoryStats.ComputeAvailableMemorySize()));
+        }
+        Data->SetObjectField(TEXT("textureMemory"), TextureMemory);
+
+        Result->SetObjectField(TEXT("data"), Data);
+        return Result;
+    }
+
+#if STATS
+    if (GameViewport == nullptr)
+    {
+        return MakeProfilingError(TEXT("GAME_VIEWPORT_UNAVAILABLE"), TEXT("The requested world does not expose a game viewport."));
+    }
+
+    if (Action.Equals(TEXT("gpu")))
+    {
+#if !RHI_NEW_GPU_PROFILER
+        return MakeProfilingError(TEXT("GPU_PROFILER_UNAVAILABLE"), TEXT("Official stat gpu data is not available in this build."));
+#else
+        const bool bGpuStatsEnabledThisCall = EnsureProfilingGpuStatsEnabled(World, GameViewport);
+        FGameThreadStatsData* StatsData = FLatestGameThreadStatsData::Get().Latest;
+        if (StatsData == nullptr)
+        {
+            const FString WarmupMessage = bGpuStatsEnabledThisCall
+                ? TEXT("Official stat gpu metrics were just enabled and need one or more frames before aggregated data is available.")
+                : TEXT("Official stat gpu metrics are not available yet. Retry after one or more rendered frames.");
+            return MakeProfilingError(TEXT("STATS_GROUP_WARMUP_REQUIRED"), WarmupMessage);
+        }
+
+        TArray<TSharedPtr<FJsonValue>> GpuGroups;
+        for (int32 Index = 0; Index < StatsData->ActiveStatGroups.Num() && Index < StatsData->GroupNames.Num(); ++Index)
+        {
+            const FActiveStatGroupInfo& GroupInfo = StatsData->ActiveStatGroups[Index];
+            if (GroupInfo.GpuStatsAggregate.IsEmpty())
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> GroupObject = MakeShared<FJsonObject>();
+            GroupObject->SetStringField(TEXT("groupName"), StatsData->GroupNames[Index].ToString());
+            if (StatsData->GroupDescriptions.IsValidIndex(Index))
+            {
+                GroupObject->SetStringField(TEXT("groupDescription"), StatsData->GroupDescriptions[Index]);
+            }
+
+            TSharedPtr<FJsonObject> Table = BuildProfilingGpuColumns();
+            Table->SetArrayField(TEXT("rows"), BuildProfilingGpuRows(GroupInfo.GpuStatsAggregate));
+            GroupObject->SetObjectField(TEXT("table"), Table);
+            GpuGroups.Add(MakeShared<FJsonValueObject>(GroupObject));
+        }
+
+        if (GpuGroups.IsEmpty())
+        {
+            const FString WarmupMessage = bGpuStatsEnabledThisCall
+                ? TEXT("Official stat gpu metrics were just enabled and need one or more frames before aggregated data is available.")
+                : TEXT("Official stat gpu metrics are not available yet. Retry after one or more rendered frames.");
+            return MakeProfilingError(TEXT("STATS_GROUP_WARMUP_REQUIRED"), WarmupMessage);
+        }
+
+        Source->SetStringField(TEXT("officialCommand"), TEXT("stat gpu"));
+        Source->SetStringField(TEXT("backend"), TEXT("FLatestGameThreadStatsData.ActiveStatGroups[].GpuStatsAggregate"));
+        Source->SetStringField(TEXT("action"), Action);
+        Result->SetObjectField(TEXT("source"), Source);
+
+        TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
+        Data->SetStringField(TEXT("family"), Action);
+        Data->SetArrayField(TEXT("groups"), GpuGroups);
+        Result->SetObjectField(TEXT("data"), Data);
+        return Result;
+#endif
+    }
+
+    const FString RequestedGroup = Action.Equals(TEXT("gpu"))
+        ? TEXT("gpu")
+        : (Arguments.IsValid() && Arguments->HasField(TEXT("group"))
+            ? Arguments->GetStringField(TEXT("group"))
+            : TEXT("game"));
+    const bool bIncludeThreadBreakdown = Arguments.IsValid() && Arguments->HasField(TEXT("includeThreadBreakdown"))
+        ? Arguments->GetBoolField(TEXT("includeThreadBreakdown"))
+        : false;
+    FString DisplayMode = Arguments.IsValid() && Arguments->HasField(TEXT("displayMode"))
+        ? Arguments->GetStringField(TEXT("displayMode"))
+        : TEXT("both");
+    DisplayMode = DisplayMode.TrimStartAndEnd().ToLower();
+    if (!DisplayMode.Equals(TEXT("hierarchical")) && !DisplayMode.Equals(TEXT("flat")) && !DisplayMode.Equals(TEXT("both")))
+    {
+        DisplayMode = TEXT("both");
+    }
+    const int32 MaxDepth = Arguments.IsValid() && Arguments->HasField(TEXT("maxDepth"))
+        ? FMath::Max(-1, ReadOptionalPositiveIntField(Arguments, TEXT("maxDepth"), -1))
+        : -1;
+
+    const bool bGroupEnabledThisCall = EnsureProfilingStatsGroupEnabled(World, GameViewport, RequestedGroup);
+    FGameThreadStatsData* StatsData = FLatestGameThreadStatsData::Get().Latest;
+    FString ResolvedGroupName;
+    FString GroupDescription;
+    const FActiveStatGroupInfo* GroupInfo = FindProfilingActiveStatGroup(StatsData, RequestedGroup, ResolvedGroupName, GroupDescription);
+    if (StatsData == nullptr || GroupInfo == nullptr)
+    {
+        const FString WarmupMessage = bGroupEnabledThisCall
+            ? FString::Printf(TEXT("Official stat group '%s' was just enabled and needs one or more frames before aggregated data is available."), *NormalizeProfilingStatGroupName(RequestedGroup))
+            : FString::Printf(TEXT("Official stat group '%s' is not available yet. Retry after one or more rendered frames."), *NormalizeProfilingStatGroupName(RequestedGroup));
+        return MakeProfilingError(TEXT("STATS_GROUP_WARMUP_REQUIRED"), WarmupMessage);
+    }
+
+    Source->SetStringField(
+        TEXT("officialCommand"),
+        Action.Equals(TEXT("gpu"))
+            ? TEXT("stat gpu")
+            : FString::Printf(TEXT("stat %s"), *NormalizeProfilingStatGroupName(RequestedGroup)));
+    Source->SetStringField(TEXT("backend"), TEXT("FLatestGameThreadStatsData"));
+    Source->SetStringField(TEXT("groupName"), ResolvedGroupName);
+    Source->SetStringField(TEXT("action"), Action);
+    Result->SetObjectField(TEXT("source"), Source);
+
+    TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
+    Data->SetStringField(TEXT("groupName"), ResolvedGroupName);
+    Data->SetStringField(TEXT("requestedGroup"), NormalizeProfilingStatGroupName(RequestedGroup));
+    Data->SetStringField(TEXT("family"), Action);
+    Data->SetStringField(TEXT("groupDescription"), GroupDescription);
+    Data->SetStringField(TEXT("displayMode"), DisplayMode);
+
+    if (!GroupInfo->ThreadBudgetMap.IsEmpty())
+    {
+        TSharedPtr<FJsonObject> ThreadBudgets = MakeShared<FJsonObject>();
+        for (const TPair<FName, float>& Pair : GroupInfo->ThreadBudgetMap)
+        {
+            ThreadBudgets->SetNumberField(Pair.Key.ToString(), static_cast<double>(Pair.Value));
+        }
+        Data->SetObjectField(TEXT("threadBudgetsMs"), ThreadBudgets);
+    }
+
+    if (DisplayMode.Equals(TEXT("both")) || DisplayMode.Equals(TEXT("hierarchical")))
+    {
+        TSharedPtr<FJsonObject> Hierarchical = BuildProfilingCycleColumns();
+        Hierarchical->SetArrayField(TEXT("rows"), BuildProfilingComplexStatRows(GroupInfo->HierAggregate, &GroupInfo->Indentation, MaxDepth));
+        Data->SetObjectField(TEXT("hierarchical"), Hierarchical);
+    }
+
+    if (DisplayMode.Equals(TEXT("both")) || DisplayMode.Equals(TEXT("flat")))
+    {
+        TSharedPtr<FJsonObject> Flat = BuildProfilingCycleColumns();
+        Flat->SetArrayField(TEXT("rows"), BuildProfilingComplexStatRows(GroupInfo->FlatAggregate, nullptr, -1));
+        Data->SetObjectField(TEXT("flat"), Flat);
+
+        if (bIncludeThreadBreakdown)
+        {
+            TArray<TSharedPtr<FJsonValue>> ThreadGroups;
+            for (const TPair<FName, TArray<FComplexStatMessage>>& Pair : GroupInfo->FlatAggregateThreadBreakdown)
+            {
+                TSharedPtr<FJsonObject> ThreadGroup = BuildProfilingCycleColumns();
+                ThreadGroup->SetStringField(TEXT("threadName"), Pair.Key.ToString());
+                ThreadGroup->SetArrayField(TEXT("rows"), BuildProfilingComplexStatRows(Pair.Value, nullptr, -1));
+                ThreadGroups.Add(MakeShared<FJsonValueObject>(ThreadGroup));
+            }
+            Data->SetArrayField(TEXT("threadBreakdown"), ThreadGroups);
+        }
+    }
+
+    Result->SetObjectField(TEXT("data"), Data);
+    return Result;
+#else
+    return MakeProfilingError(TEXT("STATS_GROUP_UNAVAILABLE"), TEXT("Stats aggregation is not available in this build."));
+#endif
 }
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGetContextToolResult(const TSharedPtr<FJsonObject>& Arguments) const

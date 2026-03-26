@@ -39,6 +39,7 @@ Graph mutate note:
 - `context`
 - `execute`
 - `jobs`
+- `profiling`
 - `editor.open`
 - `editor.focus`
 - `editor.screenshot`
@@ -316,7 +317,77 @@ Execution rule:
 - `status`, `result`, and `logs` operate on one `jobId`; `list` returns currently known jobs.
 - `jobs` remains available during `PIE` so long-running task lifecycle is observable during gameplay sessions.
 
-## 4.5 `graph`
+## 4.5 `profiling`
+
+Use `profiling` to bridge official Unreal profiling data families into stable structured payloads.
+
+Input schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["action"],
+  "properties": {
+    "action": { "type": "string", "enum": ["unit", "game", "gpu", "ticks", "memory", "capture"] },
+    "world": { "type": "string", "enum": ["active", "editor", "pie"], "default": "active" },
+    "gpuIndex": { "type": "integer", "minimum": 0, "default": 0 },
+    "includeRaw": { "type": "boolean", "default": true },
+    "includeGpuUtilization": { "type": "boolean", "default": true },
+    "includeHistory": { "type": "boolean", "default": false },
+    "group": { "type": "string", "minLength": 1 },
+    "displayMode": { "type": "string", "enum": ["flat", "hierarchical", "both"] },
+    "includeThreadBreakdown": { "type": "boolean" },
+    "sortBy": { "type": "string", "enum": ["sum", "call_count", "name"] },
+    "maxDepth": { "type": "integer", "minimum": 1, "maximum": 32 },
+    "mode": { "type": "string", "enum": ["all", "grouped", "enabled", "disabled"] },
+    "kind": { "type": "string" },
+    "execution": {
+      "type": "object",
+      "properties": {
+        "mode": { "type": "string", "enum": ["sync", "job"], "default": "sync" },
+        "idempotencyKey": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "waitMs": { "type": "integer", "minimum": 1 },
+        "resultTtlMs": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+Output schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["runtime", "source"],
+  "properties": {
+    "runtime": { "type": "object", "additionalProperties": true },
+    "source": { "type": "object", "additionalProperties": true },
+    "data": { "type": "object", "additionalProperties": true }
+  },
+  "additionalProperties": true
+}
+```
+
+Execution rule:
+
+- Forward via `rpc.invoke` with `tool=profiling`.
+- `profiling` is a data bridge, not an analysis layer.
+- Current live actions are:
+  - `unit`
+  - `game`
+  - `gpu`
+  - `ticks`
+  - `memory` with `kind="summary"`
+- `profiling` remains callable during `PIE`.
+- `unit`, `game`, and `gpu` may return retryable warmup errors before official engine aggregates become valid.
+
+## 4.6 `graph`
 
 Input schema:
 
@@ -403,15 +474,15 @@ Execution rule:
 - `rpc.health` probe is mandatory on every `graph` call.
 - Returned payload must include probe data in `runtime.rpcHealth` so callers can see real runtime status.
 
-## 4.6 Runtime Tools
+## 4.7 Runtime Tools
 
-For `jobs`, `editor.open`, `editor.focus`, `editor.screenshot`, `graph.list`, `graph.resolve`, `graph.query`, `graph.verify`, `graph.mutate`, `diag.tail`:
+For `jobs`, `profiling`, `editor.open`, `editor.focus`, `editor.screenshot`, `graph.list`, `graph.resolve`, `graph.query`, `graph.verify`, `graph.mutate`, `diag.tail`:
 
 - Input/output schemas are exposed directly through MCP `tools/list` and should be treated as the live contract.
 - `RPC_INTERFACE.md` section 5 documents the same tool payloads at the Unreal RPC boundary.
 - Execution uses `rpc.invoke` with `tool` equal to MCP tool name.
 - Current server behavior performs a runtime preflight using `rpc.health` with a short cache TTL (`200ms`) shared across runtime-tool calls.
-- If preflight reports `PIE`, `execute` and `jobs` remain callable.
+- If preflight reports `PIE`, `execute`, `jobs`, and `profiling` remain callable.
 - If preflight reports `PIE`, editor-facing and graph-structured runtime tools continue to fail fast with `EDITOR_BUSY` (`retryable=true`) and skip `rpc.invoke`.
 - On Windows named-pipe transport, open failures with OS error `231` (`all pipe instances are busy`) are treated as transient and retried with bounded backoff before returning an error.
 
@@ -424,7 +495,7 @@ Practical client rule:
 - For graph layout-aware flows, prefer `graph.layoutCapabilities` and `graph.query.meta.layoutCapabilities` over hardcoded assumptions. Current runtime support focuses on position reads plus basic move operations.
 - `graph.query` accepts `layoutDetail=basic|measured`. Callers may request `measured`, but should inspect `meta.layoutDetailApplied` and diagnostics before assuming measured geometry was actually returned.
 
-## 4.7 `graph.verify`
+## 4.8 `graph.verify`
 
 Use this as the graph verification primitive after `graph.query` or `graph.mutate`.
 
@@ -435,7 +506,7 @@ Execution rule:
 - `graph.query` remains the lightweight source of current semantic diagnostics.
 - `graph.verify` is graph-scoped only. It does not inspect scene instances, selected actors/components, or generated runtime output.
 
-## 4.8 `diag.tail`
+## 4.9 `diag.tail`
 
 Input schema:
 

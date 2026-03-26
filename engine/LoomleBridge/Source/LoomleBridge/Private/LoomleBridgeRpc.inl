@@ -113,7 +113,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
 
     Result->SetArrayField(TEXT("methods"), MakeStringArray({TEXT("rpc.health"), TEXT("rpc.capabilities"), TEXT("rpc.invoke")}));
     Result->SetArrayField(TEXT("tools"), MakeStringArray({
-        TEXT("context"), TEXT("jobs"), TEXT("editor.open"), TEXT("editor.focus"), TEXT("editor.screenshot"), TEXT("graph.verify"), TEXT("execute"),
+        TEXT("context"), TEXT("jobs"), TEXT("profiling"), TEXT("editor.open"), TEXT("editor.focus"), TEXT("editor.screenshot"), TEXT("graph.verify"), TEXT("execute"),
         TEXT("graph.list"), TEXT("graph.resolve"), TEXT("graph.query"),
         TEXT("graph.mutate"),
         TEXT("diag.tail")
@@ -189,7 +189,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcInvokeResult(
         OutErrorCode = MapToolErrorCode(DomainCode);
         OutErrorMessage = Message;
         OutErrorData = MakeShared<FJsonObject>();
-        OutErrorData->SetBoolField(TEXT("retryable"), false);
+        const bool bRetryable = DomainCode.Equals(TEXT("STAT_UNIT_WARMUP_REQUIRED"))
+            || DomainCode.Equals(TEXT("STATS_GROUP_WARMUP_REQUIRED"));
+        OutErrorData->SetBoolField(TEXT("retryable"), bRetryable);
 
         FString Detail;
         if (!Payload->TryGetStringField(TEXT("detail"), Detail))
@@ -299,6 +301,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     {
         Payload = BuildJobsToolResult(Arguments);
     }
+    else if (Name.Equals(LoomleBridgeConstants::ProfilingToolName))
+    {
+        Payload = BuildProfilingToolResult(Arguments);
+    }
     else if (Name.Equals(LoomleBridgeConstants::DiagTailToolName))
     {
         Payload = BuildDiagTailToolResult(Arguments);
@@ -357,6 +363,38 @@ int32 FLoomleBridgeModule::MapToolErrorCode(const FString& DomainCode) const
     if (DomainCode.Equals(TEXT("PIN_NOT_FOUND")))
     {
         return 1007;
+    }
+    if (DomainCode.Equals(TEXT("WORLD_NOT_FOUND")))
+    {
+        return 1015;
+    }
+    if (DomainCode.Equals(TEXT("GAME_VIEWPORT_UNAVAILABLE")))
+    {
+        return 1016;
+    }
+    if (DomainCode.Equals(TEXT("STAT_UNIT_DATA_UNAVAILABLE")))
+    {
+        return 1017;
+    }
+    if (DomainCode.Equals(TEXT("PROFILING_ACTION_UNSUPPORTED")))
+    {
+        return 1018;
+    }
+    if (DomainCode.Equals(TEXT("STAT_UNIT_WARMUP_REQUIRED")))
+    {
+        return 1019;
+    }
+    if (DomainCode.Equals(TEXT("STATS_GROUP_UNAVAILABLE")))
+    {
+        return 1020;
+    }
+    if (DomainCode.Equals(TEXT("STATS_GROUP_WARMUP_REQUIRED")))
+    {
+        return 1021;
+    }
+    if (DomainCode.Equals(TEXT("TICKS_DATA_UNAVAILABLE")))
+    {
+        return 1022;
     }
     if (DomainCode.Equals(TEXT("REVISION_CONFLICT")))
     {

@@ -70,6 +70,17 @@ Project-level technical documentation for `LOOMLE` and `LoomleBridge` (plugin + 
   management, action-based lifecycle inspection, and tool-level
   `execution.mode = "job"` submission.
 
+21. `issues/PROFILING_RUNTIME_ANALYSIS_INTERFACE.md`
+- Local issue for introducing a top-level `profiling` interface as an official
+  Unreal profiling data bridge, including `unit`, `game`, `gpu`, `ticks`,
+  `memory`, and `capture`.
+- Current implementation status:
+  - `profiling.action = "unit"` is live
+  - `profiling.action = "game"` is live
+  - `profiling.action = "gpu"` is live
+  - `profiling.action = "ticks"` is live
+  - `profiling.action = "memory"` is live for `kind = "summary"`
+
 ## Recommended Read Order
 
 1. `../workspace/Loomle/README.md`
@@ -92,3 +103,4 @@ Project-level technical documentation for `LOOMLE` and `LoomleBridge` (plugin + 
 18. `issues/GRAPH_QUERY_SURFACE_MODEL.md`
 19. `issues/BLUEPRINT_GAP_PRODUCT_CAPABILITIES.md`
 20. `issues/JOBS_LONG_RUNNING_TASK_RUNTIME.md`
+21. `issues/PROFILING_RUNTIME_ANALYSIS_INTERFACE.md`

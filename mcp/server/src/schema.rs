@@ -73,6 +73,16 @@ pub fn tool_descriptors() -> Vec<Value> {
             }),
         ),
         runtime_tool_descriptor(
+            "profiling",
+            "Profiling",
+            "Bridge official Unreal profiling data families such as stat unit, stat groups, ticks, memory reports, and capture workflows.",
+            profiling_input_schema(),
+            json!({
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object"
+            }),
+        ),
+        runtime_tool_descriptor(
             "editor.open",
             "Open Asset Editor",
             "Open or focus the editor for a specific Unreal asset path.",
@@ -273,6 +283,81 @@ fn jobs_input_schema() -> Value {
                 "type": "string",
                 "minLength": 1
             }
+        },
+        "additionalProperties": false
+    })
+}
+
+fn profiling_input_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["action"],
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["unit", "game", "gpu", "ticks", "memory", "capture"]
+            },
+            "world": {
+                "type": "string",
+                "enum": ["active", "editor", "pie"],
+                "default": "active"
+            },
+            "gpuIndex": {
+                "type": "integer",
+                "minimum": 0,
+                "default": 0
+            },
+            "includeRaw": {
+                "type": "boolean",
+                "default": true
+            },
+            "includeGpuUtilization": {
+                "type": "boolean",
+                "default": true
+            },
+            "includeHistory": {
+                "type": "boolean",
+                "default": false,
+                "description": "Expose official non-shipping FStatUnitData history arrays when available."
+            },
+            "group": {
+                "type": "string",
+                "minLength": 1
+            },
+            "displayMode": {
+                "type": "string",
+                "enum": ["flat", "hierarchical", "both"]
+            },
+            "includeThreadBreakdown": {
+                "type": "boolean"
+            },
+            "sortBy": {
+                "type": "string",
+                "enum": ["sum", "call_count", "name"]
+            },
+            "maxDepth": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 32
+            },
+            "mode": {
+                "type": "string",
+                "enum": ["all", "grouped", "enabled", "disabled"]
+            },
+            "profile": {
+                "type": "string"
+            },
+            "log": {
+                "type": "boolean"
+            },
+            "csv": {
+                "type": "boolean"
+            },
+            "kind": {
+                "type": "string"
+            },
+            "execution": execution_schema()
         },
         "additionalProperties": false
     })
@@ -772,13 +857,16 @@ mod tests {
     #[test]
     fn tools_list_contains_graph_resolve_and_diag_tail() {
         let tools = tool_descriptors();
-        assert_eq!(tools.len(), 14);
+        assert_eq!(tools.len(), 15);
         assert!(tools
             .iter()
             .any(|v| v.get("name") == Some(&Value::String(String::from("graph.resolve")))));
         assert!(tools
             .iter()
             .any(|v| v.get("name") == Some(&Value::String(String::from("jobs")))));
+        assert!(tools
+            .iter()
+            .any(|v| v.get("name") == Some(&Value::String(String::from("profiling")))));
         assert!(tools
             .iter()
             .any(|v| v.get("name") == Some(&Value::String(String::from("diag.tail")))));
@@ -877,6 +965,23 @@ mod tests {
         assert!(
             graph_verify["inputSchema"]["properties"]["mode"].is_null(),
             "graph.verify should not expose mode property"
+        );
+
+        let profiling = tools
+            .iter()
+            .find(|v| v.get("name") == Some(&Value::String(String::from("profiling"))))
+            .expect("profiling descriptor");
+        let profiling_required = profiling["inputSchema"]["required"]
+            .as_array()
+            .expect("required array");
+        assert!(profiling_required.contains(&Value::String(String::from("action"))));
+        assert!(
+            profiling["inputSchema"]["properties"]["includeRaw"].is_object(),
+            "profiling should expose includeRaw property"
+        );
+        assert!(
+            profiling["inputSchema"]["properties"]["includeHistory"].is_object(),
+            "profiling should expose includeHistory property"
         );
     }
 

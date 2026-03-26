@@ -30,6 +30,7 @@ public class LoomleBridge : ModuleRules
                 "PCGEditor",
                 "PythonScriptPlugin",
                 "Projects",
+                "RHI",
                 "Slate",
                 "SlateCore",
                 "UMG",
