@@ -54,6 +54,7 @@ MCP tools:
 - `loomle`
 - `context`
 - `execute`
+- `jobs`
 - `editor.open`
 - `editor.focus`
 - `editor.screenshot`
@@ -71,6 +72,11 @@ Execution route:
 - `context`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=context`).
 - `execute`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=execute`).
 - `execute` is intentionally the Unreal-Python fallback surface for non-graph operations and for graph domains/capabilities not yet exposed through structured `graph.*` tools.
+- `execute` supports synchronous execution by default and shared long-running submission through `execution.mode = "job"`.
+- `execute` remains available during `PIE`; `PIE` is treated as runtime context rather than as a blanket execute block.
+- `jobs`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=jobs`).
+- `jobs` is the shared lifecycle surface for job-mode submissions. It owns status, logs, result lookup, and job listing.
+- `jobs` remains available during `PIE` so long-running task lifecycle can still be observed while gameplay is active.
 - `editor.open`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=editor.open`).
 - `editor.focus`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=editor.focus`).
 - `editor.screenshot`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=editor.screenshot`).

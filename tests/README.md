@@ -44,3 +44,10 @@ For day-to-day local development, prefer the unified script:
 - `python3 tools/dev_verify.py --project-root /path/to/Project`
 
 That flow refreshes the project-local install first, then validates through `<ProjectRoot>/Loomle/loomle(.exe)`.
+
+Current smoke and regression coverage also includes the shared long-running
+runtime:
+
+- top-level `jobs`
+- `execute` submission with `execution.mode = "job"`
+- lifecycle reads through `jobs.status`, `jobs.result`, `jobs.logs`, and `jobs.list`

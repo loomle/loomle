@@ -90,7 +90,8 @@ For graph work, the recommended entrypoint is the installed workspace under [wor
 
 - `loomle`: Check Bridge health, runtime status, and MCP-side availability.
 - `context`: Read the current Unreal editor context, including asset and selection information.
-- `execute`: Run UE-side code or commands through the Bridge.
+- `execute`: Run UE-side code or commands through the Bridge. Supports synchronous execution by default and long-running submission through `execution.mode = "job"`.
+- `jobs`: Inspect long-running job state, logs, results, and outstanding work for job-mode submissions.
 - `editor.open`: Open or focus the editor for a specific Unreal asset.
 - `editor.focus`: Focus a semantic panel inside an asset editor.
 - `editor.screenshot`: Capture the active editor window for visual confirmation.
@@ -114,5 +115,14 @@ Blueprint also promotes richer product-native surfaces where needed, including:
 - `embeddedTemplate`
 - `graphBoundarySummary`
 - `contextSensitiveConstruct`
+
+For long-running Unreal work, prefer `execute` submission with
+`execution.mode = "job"` and then use top-level `jobs` to inspect lifecycle,
+logs, and final results.
+
+When Unreal is in `PIE`, `execute` and `jobs` remain available. Treat `PIE` as
+runtime context, not as a blanket execute lockout. Structured `graph.*` and
+editor-facing tools may still stay blocked during `PIE` depending on their
+contract.
 
 For protocol details and deeper technical documentation, see [docs/README.md](/Users/xartest/dev/loomle/docs/README.md).

@@ -44,6 +44,7 @@ Work in three phases:
 7. Pick the working surface
    - if the task is graph editing, branch into `blueprint/`, `material/`, or `pcg/` and read that domain's `GUIDE.md` first
    - if the task is world editing or editor automation, stay in `execute`
+   - if Unreal is currently in `PIE`, `execute` remains available for runtime inspection and automation; do not assume `PIE` blocks Python access
 8. Make the edit through the primary surface
    - for graph work: use `graph.query` to read the current graph, then apply explicit primitive `graph.mutate` operations such as `addNode.byClass`, `connectPins`, and `setPinDefault`
    - for world work: use `execute` for targeted Unreal-side Python automation
@@ -56,12 +57,14 @@ Work in three phases:
 9. Escalate only when the primary surface is not enough
    - use `graph.*` first for supported graph capabilities
    - use `execute` when the task is non-graph editor automation, or when a graph-domain capability is not yet covered by `graph.*`
+   - when `execute` may run for a while, submit it with `execution.mode = "job"` and inspect lifecycle through top-level `jobs`
    - use `graph.mutate` with `op="runScript"` only for Blueprint graph-local gaps after you already have the exact target graph
    - use agent-local Python only for local file, repo, or payload preparation work; it does not replace Unreal-side `execute`
 10. Validate the result
    - use `graph.query` for current graph readback truth
    - use `graph.verify` for final graph compile/refresh-backed confirmation
    - use `diag.tail` for recent Unreal-side diagnostics
+   - use `jobs` to inspect long-running `execute` submissions, especially during `PIE`
    - use `editor.open`, `editor.focus`, and `editor.screenshot` when you need visual confirmation
 
 ## Reference Surfaces

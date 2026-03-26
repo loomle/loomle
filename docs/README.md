@@ -17,10 +17,10 @@ Project-level technical documentation for `LOOMLE` and `LoomleBridge` (plugin + 
 - Concrete homepage content and information architecture for `loomle.ai` / `loomle.ai/i`.
 
 5. `RPC_INTERFACE.md`
-- Unreal bridge RPC contract (`rpc.health`, `rpc.capabilities`, `rpc.invoke`), request/response schema, error shape, and current status notes for graph-semantic tools.
+- Unreal bridge RPC contract (`rpc.health`, `rpc.capabilities`, `rpc.invoke`), request/response schema, error shape, top-level `jobs`, and current status notes for graph-semantic tools.
 
 6. `MCP_PROTOCOL.md`
-- MCP tool surface, tool schemas, routing rules, and behavior contract.
+- MCP tool surface, tool schemas, routing rules, long-running `execute` job mode, and top-level `jobs` behavior contract.
 
 7. `PCG_LEARNING_RESOURCES_UE57.md`
 - Curated UE 5.7 PCG learning resources, including official docs, videos, and transcript-first video reading guidance.

@@ -38,6 +38,7 @@ Graph mutate note:
 - `loomle`
 - `context`
 - `execute`
+- `jobs`
 - `editor.open`
 - `editor.focus`
 - `editor.screenshot`
@@ -83,7 +84,16 @@ Output schema:
         "listenerReady": { "type": "boolean" },
         "isPIE": { "type": "boolean" },
         "editorBusyReason": { "type": "string" },
-        "acceptsRuntimeTools": { "type": "boolean" },
+        "capabilities": {
+          "type": "object",
+          "properties": {
+            "executeAvailable": { "type": "boolean" },
+            "jobsAvailable": { "type": "boolean" },
+            "graphToolsAvailable": { "type": "boolean" },
+            "editorToolsAvailable": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
         "rpcHealth": {
           "type": "object",
           "required": ["status", "rpcVersion", "timestamp"],
@@ -110,6 +120,7 @@ Execution rule:
 - MCP local response.
 - `rpc.health` probe is mandatory on every `loomle` call.
 - Returned payload must include probe data in `runtime.rpcHealth`.
+- `PIE` should be surfaced through `runtime.isPIE` and `runtime.capabilities`, not collapsed into a blanket runtime-tools deny bit.
 
 ## 4.2 `context`
 
@@ -177,7 +188,18 @@ Input schema:
   "properties": {
     "language": { "type": "string", "default": "python" },
     "mode": { "type": "string", "enum": ["exec", "eval"], "default": "exec" },
-    "code": { "type": "string", "minLength": 1 }
+    "code": { "type": "string", "minLength": 1 },
+    "execution": {
+      "type": "object",
+      "properties": {
+        "mode": { "type": "string", "enum": ["sync", "job"], "default": "sync" },
+        "idempotencyKey": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "waitMs": { "type": "integer", "minimum": 1 },
+        "resultTtlMs": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false
 }
@@ -194,9 +216,33 @@ Output schema:
     "ok": { "type": "boolean" },
     "stdout": { "type": "string" },
     "result": {},
-    "durationMs": { "type": "integer", "minimum": 0 }
+    "durationMs": { "type": "integer", "minimum": 0 },
+    "job": {
+      "type": "object",
+      "required": ["jobId", "status"],
+      "properties": {
+        "jobId": { "type": "string" },
+        "status": { "type": "string", "enum": ["queued", "running", "succeeded", "failed"] },
+        "idempotencyKey": { "type": "string" },
+        "acceptedAt": { "type": "string" },
+        "pollAfterMs": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": true
+    },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "isPIE": { "type": "boolean" },
+        "editorWorld": { "type": "string" },
+        "pieWorld": { "type": "string" },
+        "activeWorld": { "type": "string" },
+        "activeWorldType": { "type": "string" },
+        "sessionMode": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
   },
-  "additionalProperties": false
+  "additionalProperties": true
 }
 ```
 
@@ -204,8 +250,73 @@ Execution rule:
 
 - Forward via `rpc.invoke` with `tool=execute`.
 - Agent-local Python is separate and does not replace Unreal-side `execute`.
+- `execution.mode = "sync"` remains the default path.
+- `execution.mode = "job"` requests registration in the shared jobs runtime.
+- When job mode is accepted, lifecycle inspection moves to top-level `jobs`.
+- `execute` remains available during `PIE`.
+- `execute` responses should expose runtime context such as `isPIE`, active world, and world type so callers can distinguish editor-world reads from gameplay-world reads.
 
-## 4.4 `graph`
+## 4.4 `jobs`
+
+Use `jobs` to inspect or collect lifecycle state for long-running submissions created through `execution.mode = "job"`.
+
+Input schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["action"],
+  "properties": {
+    "action": { "type": "string", "enum": ["status", "result", "logs", "list"] },
+    "jobId": { "type": "string", "minLength": 1 },
+    "cursor": { "type": "string" },
+    "status": { "type": "string", "enum": ["queued", "running", "succeeded", "failed"] },
+    "tool": { "type": "string", "minLength": 1 },
+    "sessionId": { "type": "string", "minLength": 1 },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 1000 }
+  },
+  "additionalProperties": false
+}
+```
+
+Output schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "status": { "type": "string", "enum": ["queued", "running", "succeeded", "failed"] },
+    "jobId": { "type": "string" },
+    "tool": { "type": "string" },
+    "acceptedAt": { "type": "string" },
+    "startedAt": { "type": "string" },
+    "finishedAt": { "type": "string" },
+    "heartbeatAt": { "type": "string" },
+    "resultAvailable": { "type": "boolean" },
+    "message": { "type": "string" },
+    "logCursor": { "type": "string" },
+    "entries": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "nextCursor": { "type": "string" },
+    "hasMore": { "type": "boolean" },
+    "result": {},
+    "stdout": { "type": "string" },
+    "error": { "type": "object", "additionalProperties": true },
+    "jobs": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+  },
+  "additionalProperties": true
+}
+```
+
+Execution rule:
+
+- Forward via `rpc.invoke` with `tool=jobs`.
+- `jobs` is a top-level lifecycle surface. Do not model it as `execute.jobs` or `graph.jobs`.
+- `status`, `result`, and `logs` operate on one `jobId`; `list` returns currently known jobs.
+- `jobs` remains available during `PIE` so long-running task lifecycle is observable during gameplay sessions.
+
+## 4.5 `graph`
 
 Input schema:
 
@@ -292,15 +403,16 @@ Execution rule:
 - `rpc.health` probe is mandatory on every `graph` call.
 - Returned payload must include probe data in `runtime.rpcHealth` so callers can see real runtime status.
 
-## 4.5 Runtime Tools
+## 4.6 Runtime Tools
 
-For `editor.open`, `editor.focus`, `editor.screenshot`, `graph.list`, `graph.resolve`, `graph.query`, `graph.verify`, `graph.mutate`, `diag.tail`:
+For `jobs`, `editor.open`, `editor.focus`, `editor.screenshot`, `graph.list`, `graph.resolve`, `graph.query`, `graph.verify`, `graph.mutate`, `diag.tail`:
 
 - Input/output schemas are exposed directly through MCP `tools/list` and should be treated as the live contract.
 - `RPC_INTERFACE.md` section 5 documents the same tool payloads at the Unreal RPC boundary.
 - Execution uses `rpc.invoke` with `tool` equal to MCP tool name.
 - Current server behavior performs a runtime preflight using `rpc.health` with a short cache TTL (`200ms`) shared across runtime-tool calls.
-- If preflight reports PIE, runtime tools fail fast with `EDITOR_BUSY` (`retryable=true`) and skip `rpc.invoke`.
+- If preflight reports `PIE`, `execute` and `jobs` remain callable.
+- If preflight reports `PIE`, editor-facing and graph-structured runtime tools continue to fail fast with `EDITOR_BUSY` (`retryable=true`) and skip `rpc.invoke`.
 - On Windows named-pipe transport, open failures with OS error `231` (`all pipe instances are busy`) are treated as transient and retried with bounded backoff before returning an error.
 
 Practical client rule:
@@ -312,7 +424,7 @@ Practical client rule:
 - For graph layout-aware flows, prefer `graph.layoutCapabilities` and `graph.query.meta.layoutCapabilities` over hardcoded assumptions. Current runtime support focuses on position reads plus basic move operations.
 - `graph.query` accepts `layoutDetail=basic|measured`. Callers may request `measured`, but should inspect `meta.layoutDetailApplied` and diagnostics before assuming measured geometry was actually returned.
 
-## 4.6 `graph.verify`
+## 4.7 `graph.verify`
 
 Use this as the graph verification primitive after `graph.query` or `graph.mutate`.
 
@@ -323,7 +435,7 @@ Execution rule:
 - `graph.query` remains the lightweight source of current semantic diagnostics.
 - `graph.verify` is graph-scoped only. It does not inspect scene instances, selected actors/components, or generated runtime output.
 
-## 4.7 `diag.tail`
+## 4.8 `diag.tail`
 
 Input schema:
 

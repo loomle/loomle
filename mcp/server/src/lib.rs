@@ -130,22 +130,18 @@ impl<C: RpcConnector> McpService<C> {
     fn call_loomle(&self) -> McpToolResult {
         match self.connector.health() {
             Ok(h) => {
-                let status = if h.is_pie {
-                    "blocked"
-                } else {
-                    h.status.as_str()
-                };
+                let capabilities = runtime_capabilities(&h);
                 McpToolResult {
                     structured_content: json!({
-                        "status": status,
-                        "domainCode": if h.is_pie { "EDITOR_BUSY" } else { "" },
-                        "message": if h.is_pie { "Unreal Editor is currently in Play In Editor (PIE)." } else { "" },
+                        "status": h.status,
+                        "domainCode": "",
+                        "message": "",
                         "runtime": {
                             "rpcConnected": true,
                             "listenerReady": true,
                             "isPIE": h.is_pie,
                             "editorBusyReason": h.editor_busy_reason,
-                            "acceptsRuntimeTools": !h.is_pie,
+                            "capabilities": capabilities,
                             "rpcHealth": {
                                 "status": h.status,
                                 "rpcVersion": h.rpc_version,
@@ -186,14 +182,10 @@ impl<C: RpcConnector> McpService<C> {
 
         match self.connector.health() {
             Ok(h) => {
-                let status = if h.is_pie {
-                    "blocked"
-                } else {
-                    h.status.as_str()
-                };
+                let capabilities = runtime_capabilities(&h);
                 McpToolResult {
                     structured_content: json!({
-                        "status": status,
+                        "status": if h.is_pie { "blocked" } else { h.status.as_str() },
                         "graphType": graph_type,
                         "version": "1.0",
                         "domainCode": if h.is_pie { "EDITOR_BUSY" } else { "" },
@@ -208,7 +200,7 @@ impl<C: RpcConnector> McpService<C> {
                         "runtime": {
                             "isPIE": h.is_pie,
                             "editorBusyReason": h.editor_busy_reason,
-                            "acceptsRuntimeTools": !h.is_pie,
+                            "capabilities": capabilities,
                             "rpcHealth": {
                                 "status": h.status,
                                 "rpcVersion": h.rpc_version,
@@ -249,7 +241,7 @@ impl<C: RpcConnector> McpService<C> {
 
     fn call_runtime(&self, tool: &str, args: Value, meta: RpcMeta) -> McpToolResult {
         if let Ok(h) = self.runtime_health() {
-            if h.is_pie {
+            if h.is_pie && runtime_tool_blocked_during_pie(tool) {
                 return McpToolResult {
                     structured_content: editor_busy_payload(tool, &h),
                     is_error: true,
@@ -284,6 +276,19 @@ impl<C: RpcConnector> McpService<C> {
         });
         Ok(health)
     }
+}
+
+fn runtime_tool_blocked_during_pie(tool: &str) -> bool {
+    !matches!(tool, "execute" | "jobs")
+}
+
+fn runtime_capabilities(health: &RpcHealth) -> Value {
+    json!({
+        "executeAvailable": true,
+        "jobsAvailable": true,
+        "graphToolsAvailable": !health.is_pie,
+        "editorToolsAvailable": !health.is_pie,
+    })
 }
 
 fn graph_layout_capabilities(graph_type: &str) -> Value {
@@ -322,6 +327,7 @@ fn editor_busy_payload(tool: &str, health: &RpcHealth) -> Value {
         "runtime": {
             "isPIE": health.is_pie,
             "editorBusyReason": busy_reason,
+            "capabilities": runtime_capabilities(health),
             "rpcHealth": {
                 "status": health.status,
                 "rpcVersion": health.rpc_version,
@@ -545,10 +551,18 @@ mod tests {
         let result = service.call_tool("loomle", json!({}), meta("3"));
 
         assert!(!result.is_error);
-        assert_eq!(result.structured_content["status"], "blocked");
+        assert_eq!(result.structured_content["status"], "ok");
         assert_eq!(result.structured_content["runtime"]["isPIE"], true);
         assert_eq!(
-            result.structured_content["runtime"]["acceptsRuntimeTools"],
+            result.structured_content["runtime"]["capabilities"]["executeAvailable"],
+            true
+        );
+        assert_eq!(
+            result.structured_content["runtime"]["capabilities"]["jobsAvailable"],
+            true
+        );
+        assert_eq!(
+            result.structured_content["runtime"]["capabilities"]["graphToolsAvailable"],
             false
         );
     }
@@ -583,6 +597,44 @@ mod tests {
         assert!(result.is_error);
         assert_eq!(result.structured_content["domainCode"], "EDITOR_BUSY");
         assert!(connector.last_invoke().is_none());
+    }
+
+    #[test]
+    fn execute_is_allowed_during_pie() {
+        let connector = FakeConnector::new();
+        connector.set_health_result(RpcHealth {
+            status: "ok".to_string(),
+            rpc_version: "1.0".to_string(),
+            timestamp: "2026-03-10T12:00:00Z".to_string(),
+            is_pie: true,
+            editor_busy_reason: "PIE_ACTIVE".to_string(),
+        });
+
+        let service = McpService::new(connector.clone());
+        let result = service.call_tool("execute", json!({ "code": "print('hello')" }), meta("11"));
+
+        assert!(!result.is_error);
+        let (tool, _, _) = connector.last_invoke().expect("invoke call recorded");
+        assert_eq!(tool, "execute");
+    }
+
+    #[test]
+    fn jobs_is_allowed_during_pie() {
+        let connector = FakeConnector::new();
+        connector.set_health_result(RpcHealth {
+            status: "ok".to_string(),
+            rpc_version: "1.0".to_string(),
+            timestamp: "2026-03-10T12:00:00Z".to_string(),
+            is_pie: true,
+            editor_busy_reason: "PIE_ACTIVE".to_string(),
+        });
+
+        let service = McpService::new(connector.clone());
+        let result = service.call_tool("jobs", json!({ "action": "list" }), meta("12"));
+
+        assert!(!result.is_error);
+        let (tool, _, _) = connector.last_invoke().expect("invoke call recorded");
+        assert_eq!(tool, "jobs");
     }
 
     #[test]

@@ -1010,6 +1010,49 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildDiagTailToolResult(const TShar
 
 namespace
 {
+FString LoomleWorldTypeToString(const EWorldType::Type WorldType)
+{
+    switch (WorldType)
+    {
+    case EWorldType::None:
+        return TEXT("none");
+    case EWorldType::Game:
+        return TEXT("game");
+    case EWorldType::Editor:
+        return TEXT("editor");
+    case EWorldType::PIE:
+        return TEXT("pie");
+    case EWorldType::EditorPreview:
+        return TEXT("editor_preview");
+    case EWorldType::GamePreview:
+        return TEXT("game_preview");
+    case EWorldType::GameRPC:
+        return TEXT("game_rpc");
+    case EWorldType::Inactive:
+        return TEXT("inactive");
+    default:
+        return TEXT("unknown");
+    }
+}
+
+TSharedPtr<FJsonObject> BuildExecuteRuntimeContext()
+{
+    TSharedPtr<FJsonObject> Runtime = MakeShared<FJsonObject>();
+    const bool bIsPIE = GEditor != nullptr && GEditor->IsPlayingSessionInEditor();
+    Runtime->SetBoolField(TEXT("isPIE"), bIsPIE);
+
+    UWorld* EditorWorld = GEditor != nullptr ? GEditor->GetEditorWorldContext().World() : nullptr;
+    UWorld* PieWorld = GEditor != nullptr ? GEditor->PlayWorld : nullptr;
+    UWorld* ActiveWorld = bIsPIE && PieWorld != nullptr ? PieWorld : EditorWorld;
+
+    Runtime->SetStringField(TEXT("editorWorld"), EditorWorld ? EditorWorld->GetName() : TEXT(""));
+    Runtime->SetStringField(TEXT("pieWorld"), PieWorld ? PieWorld->GetName() : TEXT(""));
+    Runtime->SetStringField(TEXT("activeWorld"), ActiveWorld ? ActiveWorld->GetName() : TEXT(""));
+    Runtime->SetStringField(TEXT("activeWorldType"), ActiveWorld ? LoomleWorldTypeToString(ActiveWorld->WorldType) : TEXT("none"));
+    Runtime->SetStringField(TEXT("sessionMode"), bIsPIE ? TEXT("pie") : TEXT("editor"));
+    return Runtime;
+}
+
 FString LoomleJobIso8601OrEmpty(const FDateTime& Value)
 {
     return Value.GetTicks() > 0 ? Value.ToIso8601() : TEXT("");
@@ -2222,6 +2265,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildExecutePythonToolResult(const 
     Result->SetBoolField(TEXT("success"), bSuccess);
     Result->SetStringField(TEXT("mode"), Mode);
     Result->SetStringField(TEXT("result"), PythonCommand.CommandResult);
+    Result->SetObjectField(TEXT("runtime"), BuildExecuteRuntimeContext());
 
     TArray<TSharedPtr<FJsonValue>> Logs;
     for (const FPythonLogOutputEntry& Entry : PythonCommand.LogOutput)

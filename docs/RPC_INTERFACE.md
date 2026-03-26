@@ -119,7 +119,7 @@ Result:
 {
   "rpcVersion": "1.0",
   "methods": ["rpc.health", "rpc.capabilities", "rpc.invoke"],
-  "tools": ["context", "execute", "editor.open", "editor.focus", "editor.screenshot", "graph.list", "graph.resolve", "graph.query", "graph.verify", "graph.mutate", "diag.tail"],
+  "tools": ["context", "execute", "jobs", "editor.open", "editor.focus", "editor.screenshot", "graph.list", "graph.resolve", "graph.query", "graph.verify", "graph.mutate", "diag.tail"],
   "graphTypes": ["blueprint", "material", "pcg"],
   "features": {
     "revision": true,
@@ -138,7 +138,7 @@ Request params:
 
 ```json
 {
-  "tool": "context|execute|editor.open|editor.focus|editor.screenshot|graph.list|graph.resolve|graph.query|graph.verify|graph.mutate|diag.tail",
+  "tool": "context|execute|jobs|editor.open|editor.focus|editor.screenshot|graph.list|graph.resolve|graph.query|graph.verify|graph.mutate|diag.tail",
   "args": {},
   "meta": {
     "requestId": "external-id",
@@ -201,7 +201,13 @@ Naming note:
 {
   "language": "python",
   "mode": "exec|eval",
-  "code": "string"
+  "code": "string",
+  "execution": {
+    "mode": "sync|job",
+    "idempotencyKey": "string",
+    "label": "string",
+    "waitMs": 1000
+  }
 }
 ```
 
@@ -212,7 +218,12 @@ Naming note:
   "ok": true,
   "stdout": "string",
   "result": "string-or-json",
-  "durationMs": 12
+  "durationMs": 12,
+  "job": {
+    "jobId": "string",
+    "status": "queued|running|succeeded|failed",
+    "label": "string"
+  }
 }
 ```
 
@@ -221,8 +232,45 @@ Field notes:
 - `execute` runs Python inside the active Unreal Editor process.
 - Prefer `execute` for non-graph editor automation and for graph types or graph-domain capabilities that are not yet covered by `graph.*`.
 - Do not prefer `execute` when a structured `graph.query`, `graph.mutate`, or `graph.verify` path already covers the task.
+- `execution.mode = "sync"` remains the default behavior.
+- `execution.mode = "job"` requests registration in the shared jobs runtime and requires a stable `execution.idempotencyKey`.
+- When job mode is accepted, later lifecycle reads move to top-level `jobs`.
+- `execute` remains callable during `PIE`.
+- `execute` payloads may include runtime context such as `isPIE`, active world, and active world type.
 - Workspace-local guides and semantics are the preferred knowledge source for agents before composing structured `graph.resolve`, `graph.query`, `graph.mutate`, and `graph.verify` calls.
 - Agent-local Python is a separate local-machine tool. It does not replace Unreal-side `execute`.
+
+## 5.2.1 tool=`jobs`
+
+`args`:
+
+```json
+{
+  "action": "status|result|logs|list",
+  "jobId": "string",
+  "fromSeq": 0,
+  "limit": 200
+}
+```
+
+`payload`:
+
+```json
+{
+  "status": "queued|running|succeeded|failed",
+  "jobId": "string",
+  "result": "json-or-null",
+  "logs": [],
+  "jobs": []
+}
+```
+
+Field notes:
+
+- `jobs` is the shared runtime lifecycle surface for long-running submissions.
+- Use `jobs.status` to poll lifecycle state, `jobs.result` to collect the final execute payload, `jobs.logs` for incremental logs, and `jobs.list` to recover outstanding work.
+- `jobs` is top-level. Do not model it as `execute.jobs`.
+- `jobs` remains callable during `PIE`.
 
 ## 5.3 tool=`editor.open`
 
