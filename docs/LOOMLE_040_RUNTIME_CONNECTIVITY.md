@@ -145,6 +145,37 @@ That means:
 - `loomle` should not carry primary responsibility for spawning the runtime
   server each time
 
+## Editor Status Signal
+
+The Unreal plugin should expose a minimal editor-visible status signal for the
+runtime server.
+
+The first `0.4.0` version should stay intentionally small:
+
+- show a small status icon in the editor UI
+- provide hover text only
+- do not open a dedicated panel
+- do not provide restart controls in the first version
+
+The purpose is simple operational visibility.
+
+Users should be able to tell at a glance whether the runtime is:
+
+- `Disabled`
+- `Starting`
+- `Ready`
+- `Error`
+
+Hover text should stay concise and prefer:
+
+- current LOOMLE runtime state
+- transport or endpoint summary
+- project identity when useful
+- last high-level error summary when not ready
+
+This should provide a visible readiness signal without turning the first
+runtime integration into a larger UI surface.
+
 ## Single-Project Scope
 
 The first runtime scope should assume one active project per agent workflow.
