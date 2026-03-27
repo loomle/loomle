@@ -5,17 +5,19 @@
 `LOOMLE 0.4.0` should be treated as a structural upgrade, not a small feature
 release.
 
-This upgrade changes three things together:
+This upgrade changes four things together:
 
 - the project-facing directory model
 - the skill installation and packaging model
 - the way `LOOMLE Studio` project outputs are stored
+- the runtime entrypoint and connection model
 
 The main goal is to separate:
 
 - global LOOMLE capabilities installed on the user's machine
 - project-local human-readable outputs
 - project-local hidden system state
+- project-attached runtime authority
 
 The current repository shape still reflects an earlier model where the
 installed project workspace under `workspace/` carries too many roles at once.
@@ -55,6 +57,7 @@ project.
 
 Examples:
 
+- global `loomle` executable
 - installed role skills
 - workflow skills
 - shared references
@@ -221,6 +224,15 @@ The intended direction is:
 5. Install or update Unreal project integration assets such as
    `Plugins/LoomleBridge`.
 
+This also implies a runtime entrypoint shift:
+
+- the globally installed `loomle` CLI becomes the stable agent-facing
+  client/launcher
+- `loomle mcp` becomes the primary runtime protocol entrypoint
+- Unreal project integration remains the runtime authority
+- project runtime access should no longer depend on Codex-managed MCP
+  configuration as the primary path
+
 This means installation is no longer just "copy a project workspace and use it
 in place."
 
@@ -319,6 +331,16 @@ For `0.4.0`, the install model should assume:
 3. Unreal projects have a hidden LOOMLE internal layer at `.loomle-core/`.
 4. Unreal bridge integration still installs into `Plugins/LoomleBridge/`.
 
+### Runtime Role Split For 0.4.0
+
+`0.4.0` should also assume this runtime role split:
+
+- global `loomle` is a client/launcher
+- `loomle mcp` is the primary agent-facing runtime protocol surface
+- the runtime server belongs to project integration
+
+That means the global CLI is not the runtime server itself.
+
 ### Migration Mapping
 
 The current and target shapes should map like this.
@@ -327,6 +349,7 @@ The current and target shapes should map like this.
 
 These concerns should move toward the global LOOMLE install layer:
 
+- global `loomle` executable
 - role skills
 - workflow skills
 - shared templates
@@ -350,6 +373,7 @@ These concerns should live in `loomle/`:
 These concerns should live in `.loomle-core/`:
 
 - project config
+- project/runtime metadata
 - project-local indexes
 - project-local caches
 - internal state
@@ -361,7 +385,8 @@ These concerns should remain in `Plugins/LoomleBridge/`:
 
 - Unreal plugin binaries
 - Unreal plugin resources
-- MCP server payloads that version-lock with the plugin
+- runtime server payloads that version-lock with the plugin
+- Unreal-hosted runtime server implementation assets
 
 ## Directory Migration Rules
 
@@ -411,15 +436,32 @@ The old install model is effectively:
 The new install model for `0.4.0` should become:
 
 1. ensure global LOOMLE home exists on the machine
-2. ensure LOOMLE global skills/workflows are available
-3. attach LOOMLE to a specific Unreal project
-4. install or update `Plugins/LoomleBridge/`
-5. initialize or repair `loomle/`
-6. initialize or repair `.loomle-core/`
-7. maintain compatibility entrypoints only as needed during the migration window
+2. ensure the global `loomle` executable exists and is upgradeable
+3. ensure LOOMLE global skills/workflows are available
+4. attach LOOMLE to a specific Unreal project
+5. install or update `Plugins/LoomleBridge/`
+6. initialize or repair `loomle/`
+7. initialize or repair `.loomle-core/`
+8. maintain compatibility entrypoints only as needed during the migration window
 
 This is a substantial install-model change and should be described explicitly in
 install docs rather than smuggled in through implementation alone.
+
+## Runtime Connectivity Implication
+
+The structure refactor should assume this runtime flow:
+
+1. the agent executes global `loomle`
+2. `loomle mcp` discovers the current project
+3. `loomle mcp` resolves a project-derived local runtime endpoint
+4. `loomle mcp` handshakes with the project runtime server
+
+First `0.4.0` scope should assume:
+
+- no active-project registry
+- one active project per agent workflow
+- project-derived local pipe/socket endpoints
+- Unreal-hosted Python runtime server as the first in-process server direction
 
 ## Compatibility Window
 
@@ -504,15 +546,16 @@ change.
 This document implies the following follow-up work items:
 
 1. Redefine the install flow around global LOOMLE install plus project attach.
-2. Update packaging and bootstrap logic to create `loomle/` and
+2. Update packaging and bootstrap logic to install global `loomle`, create `loomle/`, and
    `.loomle-core/` in the target project.
-3. Re-home `Dora` and future role outputs to the project-visible layer.
-4. Reinterpret `workspace/` as install/package material rather than project
+3. Define the role split between global `loomle` and the project runtime server.
+4. Re-home `Dora` and future role outputs to the project-visible layer.
+5. Reinterpret `workspace/` as install/package material rather than project
    artifact storage.
-5. Define the compatibility window for `0.3.x` project upgrades.
-6. Update repository and install documentation to the new structure model.
-7. Add a migration path from the current `0.3.x` layout to the `0.4.0` layout.
-8. Bump project versioning to `0.4.0` when the refactor lands.
+6. Define the compatibility window for `0.3.x` project upgrades.
+7. Update repository and install documentation to the new structure model.
+8. Add a migration path from the current `0.3.x` layout to the `0.4.0` layout.
+9. Bump project versioning to `0.4.0` when the refactor lands.
 
 ## Decision
 
@@ -520,6 +563,7 @@ This document implies the following follow-up work items:
 
 ```text
 Global machine install:
+  loomle executable
   reusable LOOMLE capabilities
 
 Project root:
@@ -531,6 +575,7 @@ Project root:
 
   .loomle-core/
     config/
+    runtime/
     state/
     index/
     cache/

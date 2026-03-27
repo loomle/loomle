@@ -1,5 +1,18 @@
 # LOOMLE Lite Product Plan
 
+## Status
+
+This document describes the earlier lightweight-kernel direction.
+
+It is now superseded by the `0.4.0` direction documented in:
+
+- `LOOMLE_040_PRODUCT_DIRECTION.md`
+- `LOOMLE_040_STRUCTURE_REFACTOR.md`
+- `LOOMLE_040_INSTALL_UPGRADE_DESIGN.md`
+- `LOOMLE_040_RUNTIME_CONNECTIVITY.md`
+
+Keep this file only as historical product context.
+
 ## Summary
 
 `LOOMLE` should currently be refined as a lightweight Unreal project kernel.

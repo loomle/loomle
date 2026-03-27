@@ -2,83 +2,94 @@
 
 ## 1. Objective
 
-Define one clear structure for three different shapes of LOOMLE:
+Define one clear structure for three related but different shapes of LOOMLE:
 
-1. Source repository layout
-2. Release bundle layout
-3. Installed user-project layout
+1. source repository layout
+2. release bundle layout
+3. installed machine/project layout
 
-These three shapes are related, but they are not the same thing and must not be mixed.
+These shapes must not be mixed.
+
+`0.4.0` should organize them around product responsibilities, not around the
+current implementation language split.
 
 ## 2. Core Layering
 
-LOOMLE should be organized into four stable layers:
+`LOOMLE 0.4.0` should be organized into four stable layers:
 
-1. Engine runtime layer
-- Unreal plugin and Unreal-side graph/runtime logic
+1. `cli/`
+- global machine-level entrypoint and agent-facing protocol client/launcher
 
-2. Protocol/runtime layer
-- MCP server, Rust clients, schemas, protocol examples
+2. `global/`
+- reusable machine-level LOOMLE capabilities shared across projects
 
-3. Workspace layer
-- Agent-facing project-local content installed into the user's project under `Loomle/`
+3. `project/`
+- content that is installed into or initialized inside a specific Unreal
+  project
 
-4. Developer/release layer
-- Tooling, tests, packaging, documentation
+4. `engine/`
+- Unreal integration and project runtime authority
 
-## 3. Source Repository Layout
+This replaces the older mental model centered on:
+
+- `mcp/client`
+- `mcp/server`
+- `workspace/Loomle`
+
+That older structure reflected an earlier implementation stage, not the target
+`0.4.0` product boundary.
+
+## 3. Target Source Repository Layout
 
 Target top-level layout:
 
 ```text
 loomle/
+  cli/
+    loomle/
+    installer/
+    protocol/
+
+  global/
+    skills/
+    guides/
+    references/
+    templates/
+
+  project/
+    template/
+      loomle/
+      .loomle-core/
+
   engine/
     LoomleBridge/
       Source/
       Resources/
       LoomleBridge.uplugin
-
-  mcp/
-    server/
-      Cargo.toml
-      src/
-    client/
-      Cargo.toml
-      src/
-    protocol/
-      schemas/
-      examples/
-
-  workspace/
-    Loomle/
-      README.md
-      client/
-      workflows/
-      examples/
+    python/
+      server/
       runtime/
-
-  tools/
-    dev/
-    scripts/
-    smoke/
-    regression/
-
-  tests/
-    unit/
-    integration/
-    e2e/
-    fixtures/
+      tools/
 
   packaging/
     bootstrap/
     install/
-    bundle/
     manifests/
     release/
+
+  tests/
+    cli/
+    runtime/
+    e2e/
+    fixtures/
 
   docs/
     ARCHITECTURE.md
     REPO_STRUCTURE.md
+    LOOMLE_040_PRODUCT_DIRECTION.md
+    LOOMLE_040_STRUCTURE_REFACTOR.md
+    LOOMLE_040_INSTALL_UPGRADE_DESIGN.md
+    LOOMLE_040_RUNTIME_CONNECTIVITY.md
     RPC_INTERFACE.md
     MCP_PROTOCOL.md
     issues/
@@ -88,121 +99,188 @@ loomle/
 
 ## 4. Responsibility by Directory
 
-### `engine/`
+### `cli/`
 
-Contains Unreal plugin source only.
+Owns the global machine-level entrypoint.
 
-Owns:
-- `LoomleBridge` plugin code
-- Blueprint/Material/PCG graph logic
-- Unreal-side RPC listener and graph mutation/layout behavior
+Examples:
+
+- global `loomle` executable
+- `loomle mcp` protocol entrypoint
+- install/update/doctor command entrypoints
+- installer handoff/update helper logic
+- agent-facing stdin/stdout protocol implementation
 
 Does not own:
-- Rust binaries
-- user workspace templates
-- packaging scripts
-- developer validation scripts
 
-### `mcp/`
+- Unreal runtime authority
+- project runtime server logic
+- project-visible collaboration artifacts
 
-Contains Rust-side runtime and protocol-facing code.
+### `global/`
 
-`mcp/server/`
-- MCP lifecycle
-- tool schema validation
-- runtime tool routing
-
-`mcp/client/`
-- Rust client implementations for LOOMLE entrypoints
-- includes the project-local client installed under `Loomle/`
-- may also include or share code with the temporary bootstrap/install CLI
-
-`mcp/protocol/`
-- schemas
-- examples
-- transport-neutral payload references
-
-### `workspace/`
-
-Contains the source template for the user-project `Loomle/` directory.
-
-This is not development runtime code. It is installable workspace content.
-
-`workspace/Loomle/` should hold:
-- one Agent-facing README entrypoint
-- the project-local `loomle` client
-- local examples
-- graph-editing workflows
-- machine-written runtime/config state
-
-### `tools/`
-
-Contains developer-facing scripts only.
+Owns reusable machine-level LOOMLE capability content.
 
 Examples:
-- local dev sync scripts
-- smoke and regression entrypoints
-- release helper scripts
-- perf scripts
 
-Nothing under `tools/` should be required in a user's installed project unless packaging explicitly copies it elsewhere.
+- role skills
+- workflow skills
+- guides
+- references
+- shared templates
 
-### `tests/`
+This directory exists because some capabilities that were previously placed
+inside a project only lived there because LOOMLE did not yet have a true global
+installation layer.
 
-Contains formal tests and fixtures.
+`0.4.0` should move those reusable capabilities back to the machine-level
+layer.
+
+### `project/`
+
+Owns content that is initialized into a specific Unreal project.
 
 Examples:
-- protocol tests
-- integration tests
-- Unreal end-to-end fixtures
-- graph layout fixtures
+
+- visible `loomle/` template content
+- hidden `.loomle-core/` template content
+- project attach/init starter files
+
+This directory should contain only project-bound initialization content.
+
+It should not continue to carry generic cross-project capabilities that belong
+in `global/`.
+
+### `engine/`
+
+Owns Unreal integration and runtime authority.
+
+Examples:
+
+- `LoomleBridge` plugin code
+- editor/runtime integration
+- graph logic
+- project runtime server lifecycle
+- Unreal-hosted Python server/runtime/tool code
+
+This is where the project runtime server belongs.
+
+The runtime server does not belong in `cli/`.
 
 ### `packaging/`
 
-Owns release assembly and installation rules.
+Owns release assembly, install, attach/init, upgrade, and manifest rules.
 
 Examples:
-- how a first-run machine acquires the `loomle` command
-- what gets copied into `Plugins/LoomleBridge`
-- what gets copied into `Loomle/`
-- release manifests
-- bundle assembly scripts
+
+- machine install rules for global `loomle`
+- project attach/init rules
+- component manifests
+- release assembly
+- bootstrap assets
+
+### `tests/`
+
+Owns formal test assets.
+
+Examples:
+
+- CLI/protocol tests
+- runtime tests
+- Unreal end-to-end tests
+- fixtures
 
 ### `docs/`
 
-Contains repository documentation only.
+Owns maintainer-facing repository documentation.
 
 Important distinction:
+
 - `docs/` explains how LOOMLE is built and maintained
-- `workspace/Loomle/README.md` explains how LOOMLE is used inside a user's project
+- `project/template/` explains what is initialized into user projects
 
-## 5. Release Bundle Layout
+## 5. Runtime Placement Rules
 
-Release bundles should be assembled from the source repository into a clean product shape:
+### Global client placement
+
+The stable global entrypoint belongs in:
+
+```text
+cli/loomle/
+```
+
+Reason:
+
+- it is a machine-level executable
+- it acts as the client/launcher
+- it is the approval boundary for host execution
+
+### Runtime server placement
+
+The project runtime server belongs with Unreal integration:
+
+```text
+engine/
+  LoomleBridge/
+  python/server/
+```
+
+Reason:
+
+- Unreal owns runtime authority
+- the server is project-attached runtime infrastructure
+- the global CLI should connect to it, not replace it
+
+### Project content placement
+
+Project-visible and project-hidden initialization content belongs in:
+
+```text
+project/template/
+```
+
+Reason:
+
+- this content is materialized into a project
+- it is not machine-level capability source
+
+## 6. Release Bundle Layout
+
+Release bundles should be assembled into a product shape that matches the new
+layer model.
+
+Illustrative layout:
 
 ```text
 release/
-  plugin/
+  cli/
+    darwin/loomle
+    linux/loomle
+    windows/loomle.exe
+
+  global/
+    skills/
+    guides/
+    references/
+    templates/
+
+  project/
+    template/
+      loomle/
+      .loomle-core/
+
+  engine/
     LoomleBridge/
       ...
-  mcp/
-    server/
-      darwin/loomle_mcp_server
-      linux/loomle_mcp_server
-      windows/loomle_mcp_server.exe
-    client/
-      darwin/loomle
-      linux/loomle
-      windows/loomle.exe
-  workspace/
-    Loomle/
-      ...
+    python/
+      server/
+      runtime/
+      tools/
+
   manifest.json
 ```
 
-This release layout is an assembly product. It does not need to match the source repository layout one-to-one.
-
-Bootstrap assets may also be published separately:
+Bootstrap/update helper assets may also be published separately:
 
 ```text
 bootstrap/
@@ -210,112 +288,82 @@ bootstrap/
   windows/loomle-installer.exe
 ```
 
-## 6. Installed User-Project Layout
+## 7. Installed Shape
 
-After one-time installation, the user project should look like this:
+After install and project attach/init, the machine/project split should look
+like this.
+
+### Machine-level install
+
+```text
+<UserHome>/
+  ... global LOOMLE home ...
+    loomle(.exe)
+    skills/
+    guides/
+    references/
+    templates/
+```
+
+### Project-level install
 
 ```text
 MyProject/
   Plugins/
     LoomleBridge/
-      Binaries/
-      Resources/
-      Tools/
-        mcp/
-          darwin/loomle_mcp_server
-          linux/loomle_mcp_server
-          windows/loomle_mcp_server.exe
+      ...
 
-  Loomle/
-    README.md
-    client/
-      loomle(.exe)
-    workflows/
-    examples/
-    runtime/
+  loomle/
+    ...
+
+  .loomle-core/
+    ...
 ```
 
-## 7. Runtime Placement Rules
+The exact machine install path can vary by platform. The structural rule is
+more important than the literal path in this document.
 
-### MCP server placement
+## 8. Boundary Rules
 
-The MCP server belongs with the Unreal plugin:
+1. `cli/` owns the global executable and client protocol surface.
+2. `global/` owns reusable cross-project capability content.
+3. `project/` owns only project-initialized content.
+4. `engine/` owns Unreal integration and runtime authority.
+5. `packaging/` owns how these layers are assembled and installed.
+6. Source layout must not leak directly into installed layout.
 
-```text
-Plugins/LoomleBridge/Tools/mcp/<platform>/loomle_mcp_server(.exe)
-```
+## 9. Migration Mapping from Current Repository
 
-Reason:
-- it is bridge-coupled runtime infrastructure
-- it version-locks naturally with the plugin
-- it should ship with Unreal-side capabilities
-
-### Client placement
-
-The Rust client belongs in the project-local `Loomle/` directory:
-
-```text
-Loomle/loomle(.exe)
-```
-
-Reason:
-- it is the project-local user/agent entrypoint
-- it belongs to the workspace layer, not the plugin layer
-- it should evolve with project-local workflows and examples
-
-## 8. Single-Install Product Contract
-
-LOOMLE should install in one step and deliver all of the following:
-
-1. Unreal plugin under `Plugins/LoomleBridge/`
-2. MCP server under `Plugins/LoomleBridge/Tools/mcp/...`
-3. project-local `Loomle/` workspace directory
-4. Rust client at `Loomle/loomle(.exe)`
-
-Users should not have to install a separate skill repository before LOOMLE becomes usable.
-
-The installed workspace should be product-shaped, not repository-shaped:
-
-- one entry README
-- one client entrypoint
-- workflow docs
-- small examples
-- runtime state generated by installers and diagnostics
-
-## 9. Boundary Rules
-
-1. Source layout must not leak directly into installed layout.
-2. The plugin must not own workspace content.
-3. The workspace must not own Unreal runtime code.
-4. Packaging owns copy/install rules.
-5. Docs for maintainers live in `docs/`; docs for installed users live under `workspace/Loomle/`.
-
-## 10. Migration Mapping from Current Repository
-
-Current repository areas should map like this:
+Current repository areas should move conceptually like this:
 
 ```text
 Current                         -> Target
-Source/LoomleBridge             -> engine/LoomleBridge/Source
-LoomleBridge.uplugin            -> engine/LoomleBridge/LoomleBridge.uplugin
-Config/                         -> engine/LoomleBridge/Config
-mcp_server/                     -> mcp/server/
-tools/test_bridge_*.py          -> tools/regression/ or tests/e2e/
-tools/perf_*.py                 -> tools/scripts/ or tools/dev/
-docs/*                          -> docs/*
-external skill repo content     -> workspace/Loomle/*
+mcp/client/                     -> cli/loomle/
+mcp/server/                     -> engine/python/server/   (or legacy transitional runtime area)
+mcp/protocol/                   -> cli/protocol/ and/or docs-owned protocol assets
+workspace/Loomle/               -> project/template/       (for true project-bound content)
+shared project-local capabilities -> global/
+engine/LoomleBridge/            -> engine/LoomleBridge/
 ```
 
-## 11. First Implementation Principle
+Important clarification:
 
-Do not start by moving everything physically at once.
+- not everything currently under `workspace/Loomle/` still belongs in the
+  project layer
+- some of that content only lived inside the project because LOOMLE lacked a
+  global install layer
+- `0.4.0` should split those concerns cleanly
+
+## 10. Transitional Principle
+
+Do not start by physically moving every directory immediately.
 
 Start in this order:
 
-1. freeze this target structure and install contract
-2. create the new directories in the source repo
-3. teach packaging to emit the new installed layout
-4. move code gradually behind stable entrypoints
-5. remove legacy structure only after packaging and tests are green
+1. freeze this target structure in docs
+2. treat old `mcp/` and `workspace/` layout as transitional
+3. teach packaging/install logic to emit the new machine/project structure
+4. move code and assets gradually behind stable entrypoints
+5. remove legacy layout only after packaging, docs, and tests agree
 
 This keeps the migration incremental instead of disruptive.
