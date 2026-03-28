@@ -138,10 +138,12 @@ Minimal example:
 
 - first install uses bootstrap scripts outside the project
 - installed projects should expose maintenance through:
-  - `Loomle/update.sh`
-  - `Loomle/update.ps1`
-  - `Loomle/doctor.sh`
-  - `Loomle/doctor.ps1`
+  - macOS/Linux:
+    - `Loomle/update.sh`
+    - `Loomle/doctor.sh`
+  - Windows:
+    - `Loomle/update.ps1`
+    - `Loomle/doctor.ps1`
 - release pages should publish top-level bootstrap assets:
   - `install.sh`
   - `install.ps1`
@@ -158,10 +160,8 @@ Working rule:
 Loomle/
   README.md
   loomle(.exe)
-  update.sh
-  update.ps1
-  doctor.sh
-  doctor.ps1
+  update.(sh|ps1)
+  doctor.(sh|ps1)
   blueprint/
   material/
   pcg/
@@ -170,6 +170,6 @@ Loomle/
 
 - `README.md`: the main agent-facing entrypoint
 - `loomle(.exe)`: the installed project-local MCP proxy entrypoint
-- `update.*` / `doctor.*`: installed project maintenance scripts
+- `update.*` / `doctor.*`: installed platform-specific maintenance scripts
 - `blueprint/`, `material/`, `pcg/`: domain-specific guides, semantics, catalogs, and examples
 - `runtime/`: machine-written state, not human guidance

@@ -42,6 +42,15 @@ def ensure_executable(path: Path) -> None:
         fail(f"failed to mark executable {path}: {exc}")
 
 
+def maintenance_scripts_for_platform(platform: str) -> tuple[list[str], list[str]]:
+    normalized = platform.lower()
+    if normalized == "windows":
+        return (["update.ps1", "doctor.ps1"], [])
+    if normalized in {"darwin", "linux"}:
+        return (["update.sh", "doctor.sh"], ["update.sh", "doctor.sh"])
+    fail(f"unsupported platform: {platform}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Assemble a LOOMLE release bundle from the source repository.")
     parser.add_argument("--repo-root", required=True)
@@ -59,17 +68,16 @@ def main() -> int:
     install_helper = repo_root / "packaging" / "install" / "install_release.py"
     release_plugin = output_dir / "plugin" / "LoomleBridge"
     release_workspace = output_dir / "Loomle"
+    maintenance_scripts, executable_scripts = maintenance_scripts_for_platform(args.platform)
 
     reset_dir(output_dir)
     copy_tree(engine_plugin, release_plugin)
     copy_tree(workspace_root, release_workspace)
-    copy_file(client_root / "update.sh", release_workspace / "update.sh")
-    copy_file(client_root / "update.ps1", release_workspace / "update.ps1")
-    copy_file(client_root / "doctor.sh", release_workspace / "doctor.sh")
-    copy_file(client_root / "doctor.ps1", release_workspace / "doctor.ps1")
+    for script_name in maintenance_scripts:
+        copy_file(client_root / script_name, release_workspace / script_name)
     copy_file(install_helper, release_workspace / "runtime" / "install_release.py")
-    ensure_executable(release_workspace / "update.sh")
-    ensure_executable(release_workspace / "doctor.sh")
+    for script_name in executable_scripts:
+        ensure_executable(release_workspace / script_name)
 
     client_binary = Path(args.client_binary).resolve()
     copy_file(

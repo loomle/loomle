@@ -30,10 +30,8 @@ After install, the Unreal project should contain:
 
   Loomle/
     loomle(.exe)
-    update.sh
-    update.ps1
-    doctor.sh
-    doctor.ps1
+    update.(sh|ps1)
+    doctor.(sh|ps1)
     README.md
     runtime/
     workflows/
@@ -176,10 +174,12 @@ Install/update only need to materialize those two sides correctly.
 The installed project should also contain only the maintenance scripts that are
 useful after installation:
 
-- `Loomle/update.sh`
-- `Loomle/update.ps1`
-- `Loomle/doctor.sh`
-- `Loomle/doctor.ps1`
+- macOS/Linux:
+  - `Loomle/update.sh`
+  - `Loomle/doctor.sh`
+- Windows:
+  - `Loomle/update.ps1`
+  - `Loomle/doctor.ps1`
 
 An internal helper may also live under:
 

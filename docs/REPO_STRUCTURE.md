@@ -70,10 +70,8 @@ The intended installed project shape for this phase is:
 
   Loomle/
     loomle(.exe)
-    update.sh
-    update.ps1
-    doctor.sh
-    doctor.ps1
+    update.(sh|ps1)
+    doctor.(sh|ps1)
     README.md
     runtime/
     workflows/
