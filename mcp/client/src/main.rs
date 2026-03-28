@@ -5,7 +5,7 @@ use loomle::{
         InstallerDownloadRequest, UpdateRequest,
     },
     is_installer_binary_path, parse_json_object, render_json_pretty, resolve_project_root,
-    runtime_endpoint_path, runtime_server_binary_required,
+    runtime_endpoint_path,
     skill::{
         install_skill, list_skills, remove_skill, SkillInstallRequest, SkillListRequest,
         SkillRemoveRequest,
@@ -744,7 +744,10 @@ fn run_doctor(env_info: &Environment) -> ExitCode {
     println!("project_root={}", env_info.project_root.display());
     println!("plugin_root={}", env_info.plugin_root.display());
     println!("runtime_endpoint_path={}", runtime_endpoint_path(env_info).display());
-    println!("runtime_socket_path={}", env_info.runtime_socket_path.display());
+    println!(
+        "runtime_endpoint_path={}",
+        env_info.runtime_endpoint_path.display()
+    );
 
     if !env_info.plugin_root.is_dir() {
         ok = false;
@@ -753,14 +756,6 @@ fn run_doctor(env_info: &Environment) -> ExitCode {
             env_info.plugin_root.display()
         );
     }
-    if runtime_server_binary_required() && !env_info.server_path.is_file() {
-        ok = false;
-        eprintln!(
-            "[loomle][ERROR] server binary not found: {}",
-            env_info.server_path.display()
-        );
-    }
-
     if ok {
         println!("status=ok");
         ExitCode::SUCCESS
@@ -1462,11 +1457,9 @@ mod tests {
             "darwin" | "linux" | "windows"
         ));
         if cfg!(target_os = "windows") {
-            assert_eq!(loomle::server_binary_name(), "loomle_mcp_server.exe");
             assert_eq!(loomle::project_client_binary_name(), "loomle.exe");
             assert_eq!(loomle::installer_binary_name(), "loomle-installer.exe");
         } else {
-            assert_eq!(loomle::server_binary_name(), "loomle_mcp_server");
             assert_eq!(loomle::project_client_binary_name(), "loomle");
             assert_eq!(loomle::installer_binary_name(), "loomle-installer");
         }

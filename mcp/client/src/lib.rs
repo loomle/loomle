@@ -1,15 +1,18 @@
 use rmcp::{
     model::{CallToolResult, JsonObject},
-    transport::{ConfigureCommandExt, TokioChildProcess},
     ServiceExt,
 };
 use serde_json::Value;
 use std::env;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
-use tokio::process::Command as TokioCommand;
 #[cfg(unix)]
 use tokio::net::UnixStream;
+#[cfg(target_os = "windows")]
+use tokio::net::windows::named_pipe::ClientOptions;
+#[cfg(target_os = "windows")]
+use tokio::time::{sleep, Duration};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Foundation::ERROR_PIPE_BUSY;
 
 pub type LoomleClient = rmcp::service::RunningService<rmcp::service::RoleClient, ()>;
 
@@ -20,46 +23,35 @@ pub mod skill;
 pub struct Environment {
     pub project_root: PathBuf,
     pub plugin_root: PathBuf,
-    pub server_path: PathBuf,
-    pub runtime_socket_path: PathBuf,
+    pub runtime_endpoint_path: PathBuf,
 }
 
 impl Environment {
     pub fn for_project_root(project_root: PathBuf) -> Self {
         let plugin_root = project_root.join("Plugins").join("LoomleBridge");
-        let server_path = plugin_root
-            .join("Tools")
-            .join("mcp")
-            .join(platform_key())
-            .join(server_binary_name());
-        let runtime_socket_path = project_root.join("Intermediate").join("loomle.sock");
+        let runtime_endpoint_path = runtime_endpoint_path_for_project_root(&project_root);
 
         Self {
             project_root,
             plugin_root,
-            server_path,
-            runtime_socket_path,
+            runtime_endpoint_path,
         }
     }
 }
 
 pub fn runtime_endpoint_path<'a>(env_info: &'a Environment) -> &'a Path {
-    if runtime_server_binary_required() {
-        &env_info.server_path
-    } else {
-        &env_info.runtime_socket_path
-    }
+    &env_info.runtime_endpoint_path
 }
 
 pub async fn connect_client(env_info: &Environment) -> Result<LoomleClient, String> {
     #[cfg(unix)]
     {
-        let stream = UnixStream::connect(&env_info.runtime_socket_path)
+        let stream = UnixStream::connect(&env_info.runtime_endpoint_path)
             .await
             .map_err(|error| {
                 format!(
                     "failed to connect to LOOMLE runtime socket {}: {}",
-                    env_info.runtime_socket_path.display(),
+                    env_info.runtime_endpoint_path.display(),
                     error
                 )
             })?;
@@ -69,35 +61,36 @@ pub async fn connect_client(env_info: &Environment) -> Result<LoomleClient, Stri
             .map_err(|error| format!("failed to establish MCP session: {error}"));
     }
 
-    #[cfg(not(unix))]
+    #[cfg(target_os = "windows")]
     {
-    let transport = spawn_server_transport(env_info)?;
-    ().serve(transport)
-        .await
-        .map_err(|error| format!("failed to establish MCP session: {error}"))
+        let pipe_path = env_info.runtime_endpoint_path.as_os_str();
+        let client = loop {
+            match ClientOptions::new().open(pipe_path) {
+                Ok(client) => break client,
+                Err(error) if error.raw_os_error() == Some(ERROR_PIPE_BUSY as i32) => {
+                    sleep(Duration::from_millis(50)).await;
+                }
+                Err(error) => {
+                    return Err(format!(
+                        "failed to connect to LOOMLE runtime pipe {}: {}",
+                        env_info.runtime_endpoint_path.display(),
+                        error
+                    ));
+                }
+            }
+        };
+        return ()
+            .serve(client)
+            .await
+            .map_err(|error| format!("failed to establish MCP session: {error}"));
     }
-}
 
-pub fn spawn_server_transport(env_info: &Environment) -> Result<TokioChildProcess, String> {
-    if !env_info.server_path.is_file() {
-        return Err(format!(
-            "cannot launch server; binary not found: {}",
-            env_info.server_path.display()
-        ));
+    #[cfg(not(any(unix, target_os = "windows")))]
+    {
+        Err(String::from(
+            "unsupported platform: no MCP runtime transport configured",
+        ))
     }
-
-    TokioChildProcess::new(TokioCommand::new(&env_info.server_path).configure(|cmd| {
-        cmd.arg("--project-root")
-            .arg(&env_info.project_root)
-            .stderr(Stdio::inherit());
-    }))
-    .map_err(|error| {
-        format!(
-            "failed to spawn MCP server {}: {}",
-            env_info.server_path.display(),
-            error
-        )
-    })
 }
 
 pub fn resolve_project_root(explicit: Option<&Path>) -> Result<PathBuf, String> {
@@ -181,18 +174,6 @@ pub fn platform_key() -> &'static str {
     }
 }
 
-pub fn server_binary_name() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "loomle_mcp_server.exe"
-    } else {
-        "loomle_mcp_server"
-    }
-}
-
-pub fn runtime_server_binary_required() -> bool {
-    cfg!(target_os = "windows")
-}
-
 pub fn project_client_binary_name() -> &'static str {
     if cfg!(target_os = "windows") {
         "loomle.exe"
@@ -227,4 +208,48 @@ fn has_uproject(dir: &Path) -> bool {
         }),
         Err(_) => false,
     }
+}
+
+fn runtime_endpoint_path_for_project_root(project_root: &Path) -> PathBuf {
+    #[cfg(unix)]
+    {
+        return project_root.join("Intermediate").join("loomle.sock");
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return PathBuf::from(format!(
+            r"\\.\pipe\{}",
+            runtime_pipe_name_for_project_root(project_root)
+        ));
+    }
+
+    #[cfg(not(any(unix, target_os = "windows")))]
+    {
+        let _ = project_root;
+        return PathBuf::new();
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn runtime_pipe_name_for_project_root(project_root: &Path) -> String {
+    let mut normalized = project_root.to_string_lossy().replace('\\', "/");
+    while normalized.ends_with('/') {
+        normalized.pop();
+    }
+    if normalized.is_empty() {
+        normalized.push('/');
+    }
+    normalized.make_ascii_lowercase();
+    format!("loomle-{:016x}", stable_fnv1a64(normalized.as_bytes()))
+}
+
+#[cfg(target_os = "windows")]
+fn stable_fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3u64);
+    }
+    hash
 }

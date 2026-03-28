@@ -97,19 +97,15 @@ jobs:
             throw "Verify client inputs missing: $(Join-Path $inputsDir 'mcp\client\windows\loomle.exe')"
           }
 
-          $serverRelPath = "plugin/LoomleBridge/Tools/mcp/windows/loomle_mcp_server.exe"
           $clientRelPath = "workspace/Loomle/loomle.exe"
-          $serverDst = Join-Path $bundleDir ($serverRelPath -replace '/', '\')
           $clientDst = Join-Path $bundleDir ($clientRelPath -replace '/', '\')
 
           New-Item -ItemType Directory -Force -Path `
-            (Split-Path -Parent $serverDst), `
             (Split-Path -Parent $clientDst), `
             (Join-Path $bundleDir "mcp\client\windows") | Out-Null
 
           Copy-Item -Path (Join-Path $inputsDir "plugin\LoomleBridge\*") -Destination (Join-Path $bundleDir "plugin\LoomleBridge") -Recurse -Force
           Copy-Item -Path (Join-Path $inputsDir "workspace\Loomle\*") -Destination (Join-Path $bundleDir "workspace\Loomle") -Recurse -Force
-          Copy-Item -LiteralPath (Join-Path $inputsDir ($serverRelPath -replace '/', '\')) -Destination $serverDst -Force
           Copy-Item -LiteralPath (Join-Path $inputsDir ($clientRelPath -replace '/', '\')) -Destination $clientDst -Force
           Copy-Item -LiteralPath (Join-Path $inputsDir "mcp\client\windows\loomle.exe") -Destination (Join-Path $bundleDir "mcp\client\windows\loomle.exe") -Force
           Copy-Item -LiteralPath (Join-Path $inputsDir "mcp\client\windows\loomle.exe") -Destination $bootstrapCliPath -Force
@@ -119,7 +115,6 @@ jobs:
             --archive-path $archivePath
 
           $packageSha = Get-Sha256 $archivePath
-          $serverSha = Get-Sha256 $serverDst
           $clientSha = Get-Sha256 $clientDst
           $installerSha = Get-Sha256 $bootstrapCliPath
           $assetUrl = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/loomle-windows.zip"
@@ -131,8 +126,6 @@ jobs:
             --platform windows `
             --asset-url $assetUrl `
             --sha256 $packageSha `
-            --server-binary-relpath $serverRelPath `
-            --server-sha256 $serverSha `
             --client-binary-relpath $clientRelPath `
             --client-sha256 $clientSha `
             --installer-url $installerUrl `

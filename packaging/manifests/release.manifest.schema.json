@@ -58,14 +58,6 @@
             "zip"
           ]
         },
-        "server_binary_relpath": {
-          "type": "string",
-          "minLength": 1
-        },
-        "server_sha256": {
-          "type": "string",
-          "minLength": 1
-        },
         "client_binary_relpath": {
           "type": "string",
           "minLength": 1

@@ -112,10 +112,6 @@ def resolve_installed_path(
     return project_root / destination_root / relative_path
 
 
-def runtime_server_binary_required(platform: str) -> bool:
-    return platform == "windows"
-
-
 def write_runtime_install_state(
     *,
     project_root: Path,
@@ -123,7 +119,6 @@ def write_runtime_install_state(
     platform: str,
     plugin_destination_root: str,
     workspace_destination_root: str,
-    server_binary_relpath: str,
     client_binary_relpath: str,
 ) -> Path:
     runtime_dir = project_root / workspace_destination_root / "runtime"
@@ -151,15 +146,6 @@ def write_runtime_install_state(
             "throttleWhenNotForeground": False,
         },
     }
-    if server_binary_relpath:
-        install_state["serverPath"] = str(
-            resolve_installed_path(
-                project_root=project_root,
-                source_root=PLUGIN_SOURCE_ROOT,
-                destination_root=plugin_destination_root,
-                bundle_relative_path=server_binary_relpath,
-            )
-        )
     try:
         install_state_path.write_text(json.dumps(install_state, indent=2) + "\n", encoding="utf-8")
     except Exception as exc:
@@ -215,7 +201,6 @@ def main() -> int:
     plugin_destination = project_root / str(plugin_install.get("destination", ""))
     workspace_source = bundle_root / str(workspace_install.get("source", ""))
     workspace_destination = project_root / str(workspace_install.get("destination", ""))
-    server_binary_relpath = package.get("server_binary_relpath")
     client_binary_relpath = package.get("client_binary_relpath")
 
     if not str(plugin_install.get("destination", "")).startswith("Plugins/"):
@@ -225,23 +210,10 @@ def main() -> int:
     if not isinstance(client_binary_relpath, str) or not client_binary_relpath:
         fail("package missing client_binary_relpath")
 
-    if runtime_server_binary_required(args.platform):
-        if not isinstance(server_binary_relpath, str) or not server_binary_relpath:
-            fail("package missing server_binary_relpath")
-        require_existing_file(bundle_root / server_binary_relpath, "server binary")
     require_existing_file(bundle_root / client_binary_relpath, "client binary")
 
     copy_tree(plugin_source, plugin_destination)
     copy_tree(workspace_source, workspace_destination)
-    if server_binary_relpath:
-        ensure_executable_file(
-            resolve_installed_path(
-                project_root=project_root,
-                source_root=PLUGIN_SOURCE_ROOT,
-                destination_root=str(plugin_install.get("destination", "")),
-                bundle_relative_path=server_binary_relpath,
-            )
-        )
     ensure_executable_file(
         resolve_installed_path(
             project_root=project_root,
@@ -261,7 +233,6 @@ def main() -> int:
         platform=args.platform,
         plugin_destination_root=str(plugin_install.get("destination", "")),
         workspace_destination_root=str(workspace_install.get("destination", "")),
-        server_binary_relpath=server_binary_relpath,
         client_binary_relpath=client_binary_relpath,
     )
 

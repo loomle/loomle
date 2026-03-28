@@ -44,24 +44,20 @@ class BridgeConnection:
 
 
 class McpStdioConnection(BridgeConnection):
-    def __init__(self, project_root: str, server_binary_path: str, timeout_s: float) -> None:
+    def __init__(self, project_root: str, client_binary_path: str, timeout_s: float) -> None:
         project = Path(project_root).resolve()
-        server_binary = Path(server_binary_path).resolve()
+        client_binary = Path(client_binary_path).resolve()
         if not project.exists():
             fail(f"Project root not found: {project}")
         if not any(project.glob("*.uproject")):
             fail(f"No .uproject found under: {project}")
-        if not server_binary.exists():
-            fail(f"mcp_server binary not found: {server_binary}")
-        if not server_binary.is_file():
-            fail(f"mcp_server binary path is not a file: {server_binary}")
-
-        plugin_root = project / "Plugins" / "LoomleBridge"
-        if not plugin_root.is_dir():
-            fail(f"LoomleBridge plugin root not found: {plugin_root}")
+        if not client_binary.exists():
+            fail(f"loomle client binary not found: {client_binary}")
+        if not client_binary.is_file():
+            fail(f"loomle client binary path is not a file: {client_binary}")
         self.proc = subprocess.Popen(
-            [str(server_binary), "--project-root", str(project)],
-            cwd=str(plugin_root),
+            [str(client_binary), "--project-root", str(project), "session"],
+            cwd=str(project),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -88,7 +84,7 @@ class McpStdioConnection(BridgeConnection):
                 err = ""
                 if self.proc.stderr is not None:
                     err = self.proc.stderr.read().strip()
-                raise RuntimeError(f"mcp_server exited early: {err}")
+                raise RuntimeError(f"loomle session exited early: {err}")
             line = self.proc.stdout.readline()
             if not line:
                 time.sleep(0.01)
@@ -100,7 +96,7 @@ class McpStdioConnection(BridgeConnection):
                 return json.loads(line)
             except json.JSONDecodeError:
                 continue
-        raise RuntimeError("timeout waiting for mcp stdio frame")
+        raise RuntimeError("timeout waiting for loomle session frame")
 
     def close(self) -> None:
         if self.proc.poll() is None:
@@ -193,25 +189,20 @@ class JsonRpcClient:
 def choose_connection(args: argparse.Namespace) -> BridgeConnection:
     project_root = Path(args.project_root).resolve()
     if args.mcp_server_bin:
-        server_binary = Path(args.mcp_server_bin).resolve()
+        client_binary = Path(args.mcp_server_bin).resolve()
     else:
-        if sys.platform == "darwin":
-            platform_dir = "darwin"
-            binary_name = "loomle_mcp_server"
-        elif sys.platform.startswith("linux"):
-            platform_dir = "linux"
-            binary_name = "loomle_mcp_server"
-        elif sys.platform.startswith("win"):
-            platform_dir = "windows"
-            binary_name = "loomle_mcp_server.exe"
+        if sys.platform.startswith("win"):
+            binary_name = "loomle.exe"
+        elif sys.platform in {"darwin", "linux"} or sys.platform.startswith("linux"):
+            binary_name = "loomle"
         else:
-            fail(f"unsupported platform for mcp_server binary: {sys.platform}")
+            fail(f"unsupported platform for loomle client binary: {sys.platform}")
             raise RuntimeError("unreachable")
-        server_binary = project_root / "Plugins" / "LoomleBridge" / "Tools" / "mcp" / platform_dir / binary_name
+        client_binary = project_root / "Loomle" / binary_name
 
     return McpStdioConnection(
         project_root=str(project_root),
-        server_binary_path=str(server_binary),
+        client_binary_path=str(client_binary),
         timeout_s=args.timeout,
     )
 
@@ -316,7 +307,7 @@ def main() -> int:
     parser.add_argument(
         "--mcp-server-bin",
         default="",
-        help="Override path to mcp_server binary. Defaults to <project>/Plugins/LoomleBridge/Tools/mcp/<platform>/...",
+        help="Override path to the project-local loomle client. Defaults to <project>/Loomle/loomle(.exe).",
     )
     parser.add_argument("--timeout", type=float, default=8.0, help="Per-request timeout seconds")
     parser.add_argument("--output", default="", help="Optional CSV output file path")

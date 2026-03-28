@@ -18,8 +18,6 @@ def main() -> int:
     parser.add_argument("--platform", required=True)
     parser.add_argument("--asset-url", required=True)
     parser.add_argument("--sha256", required=True)
-    parser.add_argument("--server-binary-relpath", default="")
-    parser.add_argument("--server-sha256", default="")
     parser.add_argument("--client-binary-relpath", required=True)
     parser.add_argument("--client-sha256", required=True)
     parser.add_argument("--plugin-source", default="plugin/LoomleBridge")
@@ -62,10 +60,6 @@ def main() -> int:
             },
         },
     }
-    if args.server_binary_relpath:
-        package["server_binary_relpath"] = args.server_binary_relpath
-    if args.server_sha256:
-        package["server_sha256"] = args.server_sha256
     packages[args.platform] = package
 
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

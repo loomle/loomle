@@ -27,16 +27,12 @@ def sha256_file(path: Path) -> str:
     return hasher.hexdigest()
 
 
-def platform_defaults(platform: str) -> tuple[str, str]:
+def client_binary_name(platform: str) -> str:
     if platform == "windows":
-        return "loomle_mcp_server.exe", "loomle.exe"
+        return "loomle.exe"
     if platform in {"darwin", "linux"}:
-        return "loomle_mcp_server", "loomle"
+        return "loomle"
     fail(f"unsupported platform: {platform}")
-
-
-def runtime_server_binary_required(platform: str) -> bool:
-    return platform == "windows"
 
 
 def installer_asset_name(platform: str) -> str:
@@ -70,7 +66,6 @@ def main() -> int:
     bootstrap_dir = output_dir / "bootstrap"
     manifest_path = output_dir / "manifest.json"
 
-    server_dir = repo_root / "mcp" / "server"
     client_dir = repo_root / "mcp" / "client"
     assemble_script = repo_root / "packaging" / "bundle" / "assemble_release_bundle.py"
     manifest_script = repo_root / "packaging" / "bundle" / "build_release_manifest.py"
@@ -80,14 +75,9 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     run(["cargo", "build", "--release"], cwd=client_dir)
-    if runtime_server_binary_required(args.platform):
-        run(["cargo", "build", "--release"], cwd=server_dir)
 
-    server_name, client_name = platform_defaults(args.platform)
-    server_binary = server_dir / "target" / "release" / server_name
+    client_name = client_binary_name(args.platform)
     client_binary = client_dir / "target" / "release" / client_name
-    if runtime_server_binary_required(args.platform) and not server_binary.is_file():
-        fail(f"server binary not found: {server_binary}")
     if not client_binary.is_file():
         fail(f"client binary not found: {client_binary}")
 
@@ -107,8 +97,6 @@ def main() -> int:
         "--client-binary",
         str(client_binary),
     ]
-    if runtime_server_binary_required(args.platform):
-        assemble_cmd.extend(["--server-binary", str(server_binary)])
     run(assemble_cmd, cwd=repo_root)
 
     archive_stem = output_dir / f"loomle-{args.version}-{args.platform}"
@@ -151,16 +139,6 @@ def main() -> int:
         "--installer-sha256",
         installer_sha,
     ]
-    if runtime_server_binary_required(args.platform):
-        server_sha = sha256_file(server_binary)
-        manifest_cmd.extend(
-            [
-                "--server-binary-relpath",
-                f"plugin/LoomleBridge/Tools/mcp/{args.platform}/{server_name}",
-                "--server-sha256",
-                server_sha,
-            ]
-        )
     run(manifest_cmd, cwd=repo_root)
 
     result = {
@@ -174,8 +152,6 @@ def main() -> int:
         "version": args.version,
         "clientBinary": str(client_binary),
     }
-    if runtime_server_binary_required(args.platform):
-        result["serverBinary"] = str(server_binary)
     print(json.dumps(result, indent=2))
     return 0
 

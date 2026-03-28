@@ -190,30 +190,22 @@ jobs:
           New-Item -ItemType Directory -Force -Path $pluginDst | Out-Null
           Copy-Item -Path (Join-Path $packageDir "*") -Destination $pluginDst -Recurse -Force
 
-      - name: Build MCP Binaries And Sync To Test Project Plugin
+      - name: Build LOOMLE Client And Sync To Test Project
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
-          Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp\server")
-          cargo build --release
-          Pop-Location
-
           Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp\client")
           cargo build --release
           Pop-Location
 
-          $serverSrc = Join-Path $env:GITHUB_WORKSPACE "mcp\server\target\release\loomle_mcp_server.exe"
           $clientSrc = Join-Path $env:GITHUB_WORKSPACE "mcp\client\target\release\loomle.exe"
           $workspaceSrc = Join-Path $env:GITHUB_WORKSPACE "workspace\Loomle"
-          $pluginServer = Join-Path "${{ steps.test_project.outputs.test_root }}" "Plugins\LoomleBridge\Tools\mcp\windows\loomle_mcp_server.exe"
           $workspaceDst = Join-Path "${{ steps.test_project.outputs.test_root }}" "Loomle"
 
-          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $pluginServer) | Out-Null
           if (Test-Path -LiteralPath $workspaceDst) {
             Remove-Item -LiteralPath $workspaceDst -Recurse -Force
           }
           New-Item -ItemType Directory -Force -Path $workspaceDst | Out-Null
           Copy-Item -Path (Join-Path $workspaceSrc "*") -Destination $workspaceDst -Recurse -Force
-          Copy-Item -LiteralPath $serverSrc -Destination $pluginServer -Force
           Copy-Item -LiteralPath $clientSrc -Destination (Join-Path $workspaceDst "loomle.exe") -Force
 
       - name: Restart Unreal Editor For Benchmarking

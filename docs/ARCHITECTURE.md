@@ -110,21 +110,18 @@ Reason:
 
 ## 7. MCP Server Packaging Contract
 
-- Darwin runtime serves MCP directly from `LoomleBridge` over the project-scoped socket.
-- Windows remains on the transitional packaged runtime bridge binary path:
-  - `LoomleBridge/Tools/mcp/windows/loomle_mcp_server.exe`
+- Runtime serves MCP directly from `LoomleBridge` over the project-scoped endpoint.
 - Runtime path policy:
   - Darwin client connects to `<ProjectRoot>/Intermediate/loomle.sock`
-  - Windows client launches `<ProjectRoot>/Plugins/LoomleBridge/<server_binary_relpath>`
-  - `--project-root` remains required for launched runtime bridge startup
+  - Windows client connects to `\\.\pipe\loomle-<fnv64(project_root)>`
+  - `--project-root` remains required for endpoint discovery
 
 ## 8. Release Runtime Notes
 
 - Release runtime is source-independent:
   - do not require `cargo`, source tree, or local Rust toolchain.
-- Client/runtime launcher must provide:
+- Client/runtime launcher must provide direct MCP connectivity:
   - Darwin: connect to `<ProjectRoot>/Intermediate/loomle.sock`
-  - Windows: `command=<ProjectRoot>/Plugins/LoomleBridge/<server_binary_relpath>`
-  - Windows: `args=["--project-root","<ProjectRoot>"]`
+  - Windows: connect to `\\.\pipe\loomle-<fnv64(project_root)>`
 - Minimum liveness check sequence:
   - `initialize` -> `loomle` -> `context`

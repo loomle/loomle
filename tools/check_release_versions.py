@@ -45,7 +45,6 @@ def main() -> int:
     repo_root = args.repo_root.resolve()
     versions = {
         "mcp_client": read_cargo_version(repo_root / "mcp/client/Cargo.toml"),
-        "mcp_server": read_cargo_version(repo_root / "mcp/server/Cargo.toml"),
         "loomle_bridge_uplugin": read_uplugin_version_name(
             repo_root / "engine/LoomleBridge/LoomleBridge.uplugin"
         ),

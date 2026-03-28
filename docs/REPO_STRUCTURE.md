@@ -33,7 +33,6 @@ current implementation language split.
 This replaces the older mental model centered on:
 
 - `mcp/client`
-- `mcp/server`
 - `workspace/Loomle`
 
 That older structure reflected an earlier implementation stage, not the target
@@ -339,7 +338,6 @@ Current repository areas should move conceptually like this:
 ```text
 Current                         -> Target
 mcp/client/                     -> cli/loomle/
-mcp/server/                     -> transitional runtime area (Windows fallback only; remove after native MCP runtime cutover)
 mcp/protocol/                   -> cli/protocol/ and/or docs-owned protocol assets
 workspace/Loomle/               -> project/template/       (for true project-bound content)
 shared project-local capabilities -> global/

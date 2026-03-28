@@ -40,9 +40,7 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot) -or -not (Test-Path -LiteralPath 
 
 $smoke = Join-Path $repoRoot "tests\e2e\test_bridge_smoke.py"
 $regression = Join-Path $repoRoot "tests\e2e\test_bridge_regression.py"
-$serverOut = Join-Path $repoRoot "mcp\server\target\release\loomle_mcp_server.exe"
 $clientOut = Join-Path $repoRoot "mcp\client\target\release\loomle.exe"
-$pluginServer = Join-Path $ProjectRoot "Plugins\LoomleBridge\Tools\mcp\windows\loomle_mcp_server.exe"
 $workspaceSrc = Join-Path $repoRoot "workspace\Loomle"
 $workspaceDst = Join-Path $ProjectRoot "Loomle"
 
@@ -54,20 +52,13 @@ if (-not (Test-Path -LiteralPath $regression)) {
 }
 
 Step "Run Rust tests"
-Run-Cmd ('cd /d "{0}" && cargo test' -f (Join-Path $repoRoot "mcp\server"))
 Run-Cmd ('cd /d "{0}" && cargo test' -f (Join-Path $repoRoot "mcp\client"))
 
-Step "Build MCP binaries (release) and sync into project-local paths"
-Run-Cmd ('cd /d "{0}" && cargo build --release' -f (Join-Path $repoRoot "mcp\server"))
+Step "Build LOOMLE client (release) and sync into project-local workspace"
 Run-Cmd ('cd /d "{0}" && cargo build --release' -f (Join-Path $repoRoot "mcp\client"))
-if (-not (Test-Path -LiteralPath $serverOut)) {
-    throw "Missing built MCP server binary: $serverOut"
-}
 if (-not (Test-Path -LiteralPath $clientOut)) {
     throw "Missing built LOOMLE client binary: $clientOut"
 }
-New-Item -ItemType Directory -Force -Path (Split-Path -Parent $pluginServer) | Out-Null
-Copy-Item -LiteralPath $serverOut -Destination $pluginServer -Force
 if (Test-Path -LiteralPath $workspaceDst) {
     Remove-Item -LiteralPath $workspaceDst -Recurse -Force
 }

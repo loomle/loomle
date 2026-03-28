@@ -778,9 +778,10 @@ authority across:
 - C++ MCP runtime schema
 - documentation-only schema fragments
 
-Before the native `mcp core` cutover, the practical tool descriptor source lived in:
+Before the native `mcp core` cutover, the practical tool descriptor source
+lived in the Rust transitional runtime. After cutover, that source now lives in:
 
-- [schema.rs](/Users/xartest/dev/loomle/mcp/server/src/schema.rs)
+- [McpCoreTools.cpp](/Users/xartest/dev/loomle/engine/LoomleBridge/Source/LoomleBridge/Private/mcp_core/McpCoreTools.cpp)
 
 And current documentation already treats:
 

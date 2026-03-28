@@ -1,4 +1,4 @@
-use crate::{installer_binary_name, platform_key, runtime_server_binary_required, validate_project_root};
+use crate::{installer_binary_name, platform_key, validate_project_root};
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::json;
@@ -20,7 +20,6 @@ const INSTALLER_PATH_OVERRIDE_ENV: &str = "LOOMLE_INSTALLER_PATH";
 const EDITOR_PERF_SECTION: &str = "[/Script/UnrealEd.EditorPerformanceSettings]";
 const EDITOR_THROTTLE_SETTING: &str = "bThrottleCPUWhenNotForeground=False";
 const WORKSPACE_SOURCE_ROOT: &str = "workspace/Loomle";
-const PLUGIN_SOURCE_ROOT: &str = "plugin/LoomleBridge";
 const RESTART_REASON_INSTALL: &str =
     "If Unreal Editor is already running, restart it to load the installed LoomleBridge plugin version.";
 const RESTART_REASON_UPDATE: &str =
@@ -164,8 +163,6 @@ struct ReleasePackage {
     sha256: String,
     #[serde(default)]
     format: String,
-    #[serde(default)]
-    server_binary_relpath: Option<String>,
     client_binary_relpath: String,
     install: ReleaseInstall,
 }
@@ -822,18 +819,6 @@ fn validate_bundle_paths(bundle_root: &Path, package: &ReleasePackage) -> Result
             workspace_source.display()
         ));
     }
-    if runtime_server_binary_required() {
-        let server_binary_relpath = package.server_binary_relpath.as_deref().ok_or_else(|| {
-            String::from("server binary relpath missing for platform package")
-        })?;
-        let server_binary = bundle_root.join(server_binary_relpath);
-        if !server_binary.is_file() {
-            return Err(format!(
-                "server binary not found: {}",
-                server_binary.display()
-            ));
-        }
-    }
     if !client_binary.is_file() {
         return Err(format!(
             "client binary not found: {}",
@@ -898,23 +883,6 @@ fn validate_installed_paths(project_root: &Path, package: &ReleasePackage) -> Re
             "workspace destination missing after install: {}",
             workspace_destination.display()
         ));
-    }
-    if runtime_server_binary_required() {
-        let server_binary_relpath = package.server_binary_relpath.as_deref().ok_or_else(|| {
-            String::from("server binary relpath missing for installed package")
-        })?;
-        let server_path = installed_destination_path(
-            project_root,
-            PLUGIN_SOURCE_ROOT,
-            &package.install.plugin.destination,
-            server_binary_relpath,
-        )?;
-        if !server_path.is_file() {
-            return Err(format!(
-                "installed server binary missing: {}",
-                server_path.display()
-            ));
-        }
     }
     if !client_path.is_file() {
         return Err(format!(
@@ -1000,18 +968,6 @@ fn ensure_installed_binaries_executable(
         &package.client_binary_relpath,
     )?;
     ensure_executable_file(&client_path)?;
-    if runtime_server_binary_required() {
-        let server_binary_relpath = package.server_binary_relpath.as_deref().ok_or_else(|| {
-            String::from("server binary relpath missing for installed package")
-        })?;
-        let server_path = installed_destination_path(
-            project_root,
-            PLUGIN_SOURCE_ROOT,
-            &package.install.plugin.destination,
-            server_binary_relpath,
-        )?;
-        ensure_executable_file(&server_path)?;
-    }
     Ok(())
 }
 
@@ -1066,21 +1022,6 @@ fn write_runtime_install_state(
             "throttleWhenNotForeground": false,
         }
     });
-    let install_state = if let Some(server_binary_relpath) =
-        package.server_binary_relpath.as_deref()
-    {
-        let server_path = installed_destination_path(
-            project_root,
-            PLUGIN_SOURCE_ROOT,
-            &package.install.plugin.destination,
-            server_binary_relpath,
-        )?;
-        let mut install_state = install_state;
-        install_state["serverPath"] = json!(server_path.display().to_string());
-        install_state
-    } else {
-        install_state
-    };
 
     let rendered = serde_json::to_string_pretty(&install_state)
         .map_err(|error| format!("failed to encode install state JSON: {error}"))?;
@@ -1179,11 +1120,6 @@ mod tests {
         let temp = TempDir::new().expect("temp");
         let build_root = temp.path().join("build");
         let project_root = temp.path().join("Project");
-        let server_name = if platform_key() == "windows" {
-            "loomle_mcp_server.exe"
-        } else {
-            "loomle_mcp_server"
-        };
         let client_name = if platform_key() == "windows" {
             "loomle.exe"
         } else {
@@ -1194,25 +1130,13 @@ mod tests {
         fs::write(project_root.join("Demo.uproject"), "{}").expect("uproject");
 
         let bundle_root = build_root.join("bundle");
-        fs::create_dir_all(
-            bundle_root.join(format!("plugin/LoomleBridge/Tools/mcp/{}", platform_key())),
-        )
-        .expect("plugin");
+        fs::create_dir_all(bundle_root.join("plugin/LoomleBridge")).expect("plugin");
         fs::create_dir_all(bundle_root.join("workspace/Loomle")).expect("workspace");
         fs::write(
             bundle_root.join("plugin/LoomleBridge/LoomleBridge.uplugin"),
             "{}",
         )
         .expect("uplugin");
-        fs::write(
-            bundle_root.join(format!(
-                "plugin/LoomleBridge/Tools/mcp/{}/{}",
-                platform_key(),
-                server_name
-            )),
-            "server",
-        )
-        .expect("server");
         fs::write(
             bundle_root.join(format!("workspace/Loomle/{}", client_name)),
             "client",
@@ -1233,10 +1157,6 @@ mod tests {
                             "url": archive_path.to_string_lossy(),
                             "sha256": archive_sha,
                             "format": "zip",
-                            "server_binary_relpath": format!(
-                                "plugin/LoomleBridge/Tools/mcp/{}/{server_name}",
-                                platform_key()
-                            ),
                             "client_binary_relpath": format!(
                                 "workspace/Loomle/{client_name}"
                             ),
@@ -1289,18 +1209,6 @@ mod tests {
                 .permissions()
                 .mode();
             assert_ne!(client_mode & 0o111, 0, "client should be executable");
-            if runtime_server_binary_required() {
-                let server_mode = fs::metadata(
-                    project_root
-                        .join("Plugins/LoomleBridge/Tools/mcp")
-                        .join(platform_key())
-                        .join(server_name),
-                )
-                .expect("server metadata")
-                .permissions()
-                .mode();
-                assert_ne!(server_mode & 0o111, 0, "server should be executable");
-            }
         }
         let editor_settings = fs::read_to_string(
             project_root.join("Config/DefaultEditorSettings.ini"),
@@ -1436,11 +1344,6 @@ mod tests {
         let temp = TempDir::new().expect("temp");
         let build_root = temp.path().join("build");
         let project_root = temp.path().join("Project");
-        let server_name = if platform_key() == "windows" {
-            "loomle_mcp_server.exe"
-        } else {
-            "loomle_mcp_server"
-        };
         let client_name = if platform_key() == "windows" {
             "loomle.exe"
         } else {
@@ -1454,10 +1357,6 @@ mod tests {
 
         let bundle_root = build_root.join("bundle");
         fs::create_dir_all(
-            bundle_root.join(format!("plugin/LoomleBridge/Tools/mcp/{}", platform_key())),
-        )
-        .expect("plugin server dir");
-        fs::create_dir_all(
             bundle_root.join(format!("plugin/LoomleBridge/Binaries/{plugin_binary_platform_dir}")),
         )
         .expect("plugin binaries");
@@ -1469,15 +1368,6 @@ mod tests {
             "{}",
         )
         .expect("uplugin");
-        fs::write(
-            bundle_root.join(format!(
-                "plugin/LoomleBridge/Tools/mcp/{}/{}",
-                platform_key(),
-                server_name
-            )),
-            "server",
-        )
-        .expect("server");
         fs::write(
             bundle_root.join(format!(
                 "plugin/LoomleBridge/Binaries/{plugin_binary_platform_dir}/placeholder.bin"
@@ -1510,10 +1400,6 @@ mod tests {
                             "url": archive_path.to_string_lossy(),
                             "sha256": archive_sha,
                             "format": "zip",
-                            "server_binary_relpath": format!(
-                                "plugin/LoomleBridge/Tools/mcp/{}/{server_name}",
-                                platform_key()
-                            ),
                             "client_binary_relpath": format!(
                                 "workspace/Loomle/{client_name}"
                             ),
@@ -1560,11 +1446,6 @@ mod tests {
         let temp = TempDir::new().expect("temp");
         let build_root = temp.path().join("build");
         let project_root = temp.path().join("Project");
-        let server_name = if platform_key() == "windows" {
-            "loomle_mcp_server.exe"
-        } else {
-            "loomle_mcp_server"
-        };
         let client_name = if platform_key() == "windows" {
             "loomle.exe"
         } else {
@@ -1578,10 +1459,6 @@ mod tests {
 
         let bundle_root = build_root.join("bundle");
         fs::create_dir_all(
-            bundle_root.join(format!("plugin/LoomleBridge/Tools/mcp/{}", platform_key())),
-        )
-        .expect("plugin server dir");
-        fs::create_dir_all(
             bundle_root.join(format!("plugin/LoomleBridge/Binaries/{plugin_binary_platform_dir}")),
         )
         .expect("plugin binaries");
@@ -1593,15 +1470,6 @@ mod tests {
             "{}",
         )
         .expect("uplugin");
-        fs::write(
-            bundle_root.join(format!(
-                "plugin/LoomleBridge/Tools/mcp/{}/{}",
-                platform_key(),
-                server_name
-            )),
-            "server",
-        )
-        .expect("server");
         fs::write(
             bundle_root.join(format!(
                 "plugin/LoomleBridge/Binaries/{plugin_binary_platform_dir}/placeholder.bin"
@@ -1634,10 +1502,6 @@ mod tests {
                             "url": archive_path.to_string_lossy(),
                             "sha256": archive_sha,
                             "format": "zip",
-                            "server_binary_relpath": format!(
-                                "plugin/LoomleBridge/Tools/mcp/{}/{server_name}",
-                                platform_key()
-                            ),
                             "client_binary_relpath": format!(
                                 "workspace/Loomle/{client_name}"
                             ),
@@ -1835,11 +1699,6 @@ mod tests {
     }
 
     fn build_release_archive(build_root: &Path, version: &str) -> (PathBuf, String) {
-        let server_name = if platform_key() == "windows" {
-            "loomle_mcp_server.exe"
-        } else {
-            "loomle_mcp_server"
-        };
         let client_name = if platform_key() == "windows" {
             "loomle.exe"
         } else {
@@ -1849,10 +1708,6 @@ mod tests {
             plugin_binary_platform_dir().expect("supported plugin binary platform");
         let bundle_root = build_root.join(format!("bundle-{version}"));
 
-        fs::create_dir_all(
-            bundle_root.join(format!("plugin/LoomleBridge/Tools/mcp/{}", platform_key())),
-        )
-        .expect("plugin server dir");
         fs::create_dir_all(
             bundle_root.join(format!("plugin/LoomleBridge/Binaries/{plugin_binary_platform_dir}")),
         )
@@ -1865,15 +1720,6 @@ mod tests {
             "{}",
         )
         .expect("uplugin");
-        fs::write(
-            bundle_root.join(format!(
-                "plugin/LoomleBridge/Tools/mcp/{}/{}",
-                platform_key(),
-                server_name
-            )),
-            format!("server-{version}"),
-        )
-        .expect("server");
         fs::write(
             bundle_root.join(format!(
                 "plugin/LoomleBridge/Binaries/{plugin_binary_platform_dir}/placeholder.bin"
@@ -1904,11 +1750,6 @@ mod tests {
     }
 
     fn write_manifest(build_root: &Path, latest: &str, versions: &[(&str, &PathBuf, &String)]) -> PathBuf {
-        let server_name = if platform_key() == "windows" {
-            "loomle_mcp_server.exe"
-        } else {
-            "loomle_mcp_server"
-        };
         let client_name = if platform_key() == "windows" {
             "loomle.exe"
         } else {
@@ -1924,10 +1765,6 @@ mod tests {
                             "url": archive_path.to_string_lossy(),
                             "sha256": archive_sha,
                             "format": "zip",
-                            "server_binary_relpath": format!(
-                                "plugin/LoomleBridge/Tools/mcp/{}/{server_name}",
-                                platform_key()
-                            ),
                             "client_binary_relpath": format!(
                                 "workspace/Loomle/{client_name}"
                             ),
@@ -2013,11 +1850,6 @@ mod tests {
         let project_root = temp.path().join("Project");
         let archive_path = build_root.join("loomle.zip");
         let manifest_path = build_root.join("manifest.json");
-        let server_name = if platform_key() == "windows" {
-            "loomle_mcp_server.exe"
-        } else {
-            "loomle_mcp_server"
-        };
         let client_name = if platform_key() == "windows" {
             "loomle.exe"
         } else {
@@ -2037,8 +1869,6 @@ mod tests {
             .expect("tools dir");
         zip.add_directory("plugin/LoomleBridge/Tools/mcp/", options)
             .expect("mcp dir");
-        zip.add_directory(format!("plugin/LoomleBridge/Tools/mcp/{}/", platform_key()), options)
-            .expect("platform dir");
         zip.add_directory("workspace/Loomle/", options)
             .expect("workspace dir");
         zip.add_directory("mcp\\client\\", options)
@@ -2046,12 +1876,6 @@ mod tests {
         zip.start_file("plugin/LoomleBridge/LoomleBridge.uplugin", options)
             .expect("uplugin");
         zip.write_all(b"{}").expect("uplugin bytes");
-        zip.start_file(
-            format!("plugin/LoomleBridge/Tools/mcp/{}/{}", platform_key(), server_name),
-            options,
-        )
-        .expect("server");
-        zip.write_all(b"server").expect("server bytes");
         zip.start_file(format!("workspace/Loomle/{client_name}"), options)
             .expect("client");
         zip.write_all(b"client").expect("client bytes");
@@ -2067,10 +1891,6 @@ mod tests {
                             "url": archive_path.to_string_lossy(),
                             "sha256": archive_sha,
                             "format": "zip",
-                            "server_binary_relpath": format!(
-                                "plugin/LoomleBridge/Tools/mcp/{}/{server_name}",
-                                platform_key()
-                            ),
                             "client_binary_relpath": format!("workspace/Loomle/{client_name}"),
                             "install": {
                                 "plugin": {
@@ -2139,11 +1959,6 @@ mod tests {
         let truncated_len = bytes.len().saturating_sub(64).max(1);
         fs::write(&archive_path, &bytes[..truncated_len]).expect("truncate archive");
 
-        let server_name = if platform_key() == "windows" {
-            "loomle_mcp_server.exe"
-        } else {
-            "loomle_mcp_server"
-        };
         let client_name = if platform_key() == "windows" {
             "loomle.exe"
         } else {
@@ -2159,10 +1974,6 @@ mod tests {
                             "url": archive_path.to_string_lossy(),
                             "sha256": "",
                             "format": "zip",
-                            "server_binary_relpath": format!(
-                                "plugin/LoomleBridge/Tools/mcp/{}/{server_name}",
-                                platform_key()
-                            ),
                             "client_binary_relpath": format!("workspace/Loomle/{client_name}"),
                             "install": {
                                 "plugin": {

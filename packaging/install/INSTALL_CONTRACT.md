@@ -9,7 +9,6 @@ One installation must place:
 1. the Unreal plugin
 2. the project-local workspace directory
 3. the project-local Rust client
-4. the platform-required runtime bridge binaries
 
 ## 2. Installed Project Layout
 
@@ -21,10 +20,6 @@ After installation, the user project should contain:
     LoomleBridge/
       Binaries/
       Resources/
-      Tools/
-        mcp/
-          linux/loomle_mcp_server
-          windows/loomle_mcp_server.exe
 
   Loomle/
     README.md
@@ -53,7 +48,6 @@ Install destination:
 This target owns:
 - Unreal plugin files
 - bridge runtime assets
-- platform runtime bridge binaries under `Tools/mcp/` when required by that platform
 
 ### Workspace install target
 
@@ -77,19 +71,6 @@ This target owns:
 
 ## 4. Runtime Ownership
 
-### Platform runtime bridge binary
-
-Installed at when required:
-
-```text
-<ProjectRoot>/Plugins/LoomleBridge/Tools/mcp/<platform>/loomle_mcp_server(.exe)
-```
-
-Reason:
-- version-locked with the Unreal plugin
-- bridge-coupled runtime component
-- optional on platforms where `LoomleBridge` serves MCP directly
-
 ### Rust client
 
 Installed at:
@@ -108,7 +89,7 @@ An installer must:
 
 1. copy plugin content to `Plugins/LoomleBridge/`
 2. copy workspace content to `Loomle/`
-3. preserve platform-appropriate runtime bridge binaries and client binaries
+3. preserve the project-local client binary
 4. ship release bundles with plugin `Source/` alongside prebuilt binaries so Unreal can participate in local target rebuilds
 5. write `Loomle/runtime/install.json` with machine-readable install state
 6. ensure `Config/DefaultEditorSettings.ini` disables background CPU throttling for Unreal Editor
