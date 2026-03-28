@@ -40,7 +40,7 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot) -or -not (Test-Path -LiteralPath 
 
 $smoke = Join-Path $repoRoot "tests\e2e\test_bridge_smoke.py"
 $regression = Join-Path $repoRoot "tests\e2e\test_bridge_regression.py"
-$clientOut = Join-Path $repoRoot "mcp\client\target\release\loomle.exe"
+$clientOut = Join-Path $repoRoot "client\target\release\loomle.exe"
 $workspaceSrc = Join-Path $repoRoot "workspace\Loomle"
 $workspaceDst = Join-Path $ProjectRoot "Loomle"
 
@@ -52,10 +52,10 @@ if (-not (Test-Path -LiteralPath $regression)) {
 }
 
 Step "Run Rust tests"
-Run-Cmd ('cd /d "{0}" && cargo test' -f (Join-Path $repoRoot "mcp\client"))
+Run-Cmd ('cd /d "{0}" && cargo test' -f (Join-Path $repoRoot "client"))
 
 Step "Build LOOMLE client (release) and sync into project-local workspace"
-Run-Cmd ('cd /d "{0}" && cargo build --release' -f (Join-Path $repoRoot "mcp\client"))
+Run-Cmd ('cd /d "{0}" && cargo build --release' -f (Join-Path $repoRoot "client"))
 if (-not (Test-Path -LiteralPath $clientOut)) {
     throw "Missing built LOOMLE client binary: $clientOut"
 }

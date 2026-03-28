@@ -37,6 +37,7 @@ function Find-ProjectRoot([string]$Start) {
 $ProjectRoot = ""
 $ManifestUrl = ""
 $AssetUrl = ""
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 for ($i = 0; $i -lt $args.Count; $i++) {
   switch ($args[$i]) {
@@ -56,11 +57,14 @@ for ($i = 0; $i -lt $args.Count; $i++) {
       $i++; if ($i -ge $args.Count) { Fail "missing value for --asset-url" }
       $AssetUrl = $args[$i]
     }
-    "--help" { Write-Host "Usage: install.ps1 [--project-root <ProjectRoot>] [--version <Version>]"; exit 0 }
+    "--help" { Write-Host "Usage: update.ps1 [--project-root <ProjectRoot>] [--version <Version>]"; exit 0 }
     default { Fail "unknown argument: $($args[$i])" }
   }
 }
 
+if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
+  $ProjectRoot = Find-ProjectRoot (Join-Path $ScriptDir "..")
+}
 if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
   $ProjectRoot = Find-ProjectRoot (Get-Location).Path
 }
@@ -75,7 +79,7 @@ if ([string]::IsNullOrWhiteSpace($ManifestUrl)) {
 }
 
 $PythonCommand = Resolve-PythonCommand
-$TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ("loomle-install-" + [System.Guid]::NewGuid().ToString("N"))
+$TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ("loomle-update-" + [System.Guid]::NewGuid().ToString("N"))
 $null = New-Item -ItemType Directory -Path $TmpDir -Force
 $ManifestPath = Join-Path $TmpDir "manifest.json"
 $ArchivePath = Join-Path $TmpDir "loomle-windows.zip"

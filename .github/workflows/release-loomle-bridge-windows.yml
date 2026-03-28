@@ -74,7 +74,6 @@ jobs:
           $releaseDir = Join-Path $env:RUNNER_TEMP "loomle-release-assets-windows"
           $archivePath = Join-Path $releaseDir "loomle-windows.zip"
           $manifestPath = Join-Path $releaseDir "loomle-manifest-windows.json"
-          $bootstrapCliPath = Join-Path $releaseDir "loomle-installer.exe"
 
           $nestedInputsDir = Join-Path $inputsDir "release-verify-windows-inputs"
           if (Test-Path -LiteralPath $nestedInputsDir) {
@@ -93,8 +92,8 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $inputsDir "workspace\Loomle"))) {
             throw "Verify workspace inputs missing: $(Join-Path $inputsDir 'workspace\Loomle')"
           }
-          if (-not (Test-Path -LiteralPath (Join-Path $inputsDir "mcp\client\windows\loomle.exe"))) {
-            throw "Verify client inputs missing: $(Join-Path $inputsDir 'mcp\client\windows\loomle.exe')"
+          if (-not (Test-Path -LiteralPath (Join-Path $inputsDir "client\windows\loomle.exe"))) {
+            throw "Verify client inputs missing: $(Join-Path $inputsDir 'client\windows\loomle.exe')"
           }
 
           $clientRelPath = "workspace/Loomle/loomle.exe"
@@ -102,13 +101,12 @@ jobs:
 
           New-Item -ItemType Directory -Force -Path `
             (Split-Path -Parent $clientDst), `
-            (Join-Path $bundleDir "mcp\client\windows") | Out-Null
+            (Join-Path $bundleDir "client\windows") | Out-Null
 
           Copy-Item -Path (Join-Path $inputsDir "plugin\LoomleBridge\*") -Destination (Join-Path $bundleDir "plugin\LoomleBridge") -Recurse -Force
           Copy-Item -Path (Join-Path $inputsDir "workspace\Loomle\*") -Destination (Join-Path $bundleDir "workspace\Loomle") -Recurse -Force
           Copy-Item -LiteralPath (Join-Path $inputsDir ($clientRelPath -replace '/', '\')) -Destination $clientDst -Force
-          Copy-Item -LiteralPath (Join-Path $inputsDir "mcp\client\windows\loomle.exe") -Destination (Join-Path $bundleDir "mcp\client\windows\loomle.exe") -Force
-          Copy-Item -LiteralPath (Join-Path $inputsDir "mcp\client\windows\loomle.exe") -Destination $bootstrapCliPath -Force
+          Copy-Item -LiteralPath (Join-Path $inputsDir "client\windows\loomle.exe") -Destination (Join-Path $bundleDir "client\windows\loomle.exe") -Force
 
           python (Join-Path $env:GITHUB_WORKSPACE "packaging\release\write_bundle_zip.py") `
             --bundle-dir $bundleDir `
@@ -116,9 +114,7 @@ jobs:
 
           $packageSha = Get-Sha256 $archivePath
           $clientSha = Get-Sha256 $clientDst
-          $installerSha = Get-Sha256 $bootstrapCliPath
           $assetUrl = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/loomle-windows.zip"
-          $installerUrl = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/loomle-installer.exe"
 
           python (Join-Path $env:GITHUB_WORKSPACE "packaging\bundle\build_release_manifest.py") `
             --manifest-path $manifestPath `
@@ -127,13 +123,10 @@ jobs:
             --asset-url $assetUrl `
             --sha256 $packageSha `
             --client-binary-relpath $clientRelPath `
-            --client-sha256 $clientSha `
-            --installer-url $installerUrl `
-            --installer-sha256 $installerSha
+            --client-sha256 $clientSha
 
           "archive_path=$archivePath" >> $env:GITHUB_OUTPUT
           "manifest_path=$manifestPath" >> $env:GITHUB_OUTPUT
-          "bootstrap_cli_path=$bootstrapCliPath" >> $env:GITHUB_OUTPUT
 
       - name: Publish Tag Release Assets
         uses: softprops/action-gh-release@v2
@@ -141,7 +134,6 @@ jobs:
           files: |
             ${{ steps.package.outputs.archive_path }}
             ${{ steps.package.outputs.manifest_path }}
-            ${{ steps.package.outputs.bootstrap_cli_path }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           draft: false

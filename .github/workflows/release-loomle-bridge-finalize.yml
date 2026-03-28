@@ -36,6 +36,12 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
 
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+          fetch-depth: 1
+
       - name: Resolve Tag Commit
         id: tag_commit
         env:
@@ -78,8 +84,6 @@ jobs:
             "loomle-windows.zip"
             "loomle-manifest-darwin.json"
             "loomle-manifest-windows.json"
-            "loomle-installer"
-            "loomle-installer.exe"
           )
 
           resolve_workflow_state() {
@@ -197,8 +201,6 @@ jobs:
             --pattern "loomle-windows.zip" \
             --pattern "loomle-manifest-darwin.json" \
             --pattern "loomle-manifest-windows.json" \
-            --pattern "loomle-installer" \
-            --pattern "loomle-installer.exe" \
             --dir release-finalize
 
       - name: Merge Manifests
@@ -228,6 +230,16 @@ jobs:
           )
           PY
 
+      - name: Stage Bootstrap Scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp client/install.sh release-finalize/install.sh
+          cp client/install.ps1 release-finalize/install.ps1
+          cp client/update.sh release-finalize/update.sh
+          cp client/update.ps1 release-finalize/update.ps1
+          chmod +x release-finalize/install.sh release-finalize/update.sh
+
       - name: Upload Final Manifest To Tag Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -249,12 +261,14 @@ jobs:
             gh release create loomle-latest \
               --repo "$GITHUB_REPOSITORY" \
               --title "LOOMLE Latest" \
-              --notes "Stable alias release for the latest LOOMLE bootstrap binaries, release archives, and manifest." \
+              --notes "Stable alias release for the latest LOOMLE bootstrap scripts, release archives, and manifest." \
               release-finalize/loomle-darwin.zip \
               release-finalize/loomle-windows.zip \
               release-finalize/loomle-manifest.json \
-              release-finalize/loomle-installer \
-              release-finalize/loomle-installer.exe
+              release-finalize/install.sh \
+              release-finalize/install.ps1 \
+              release-finalize/update.sh \
+              release-finalize/update.ps1
           else
             gh release upload loomle-latest release-finalize/loomle-darwin.zip \
               --repo "$GITHUB_REPOSITORY" \
@@ -265,10 +279,31 @@ jobs:
             gh release upload loomle-latest release-finalize/loomle-manifest.json \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
-            gh release upload loomle-latest release-finalize/loomle-installer \
+            gh release upload loomle-latest release-finalize/install.sh \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
-            gh release upload loomle-latest release-finalize/loomle-installer.exe \
+            gh release upload loomle-latest release-finalize/install.ps1 \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            gh release upload loomle-latest release-finalize/update.sh \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            gh release upload loomle-latest release-finalize/update.ps1 \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
           fi
+
+      - name: Upload Bootstrap Scripts To Tag Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.tag.outputs.tag }}"
+          gh release upload "$tag" \
+            release-finalize/install.sh \
+            release-finalize/install.ps1 \
+            release-finalize/update.sh \
+            release-finalize/update.ps1 \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber

@@ -35,14 +35,6 @@ def client_binary_name(platform: str) -> str:
     fail(f"unsupported platform: {platform}")
 
 
-def installer_asset_name(platform: str) -> str:
-    if platform == "windows":
-        return "loomle-installer.exe"
-    if platform in {"darwin", "linux"}:
-        return "loomle-installer"
-    fail(f"unsupported platform: {platform}")
-
-
 def detect_platform() -> str:
     if sys.platform == "darwin":
         return "darwin"
@@ -73,6 +65,7 @@ def main() -> int:
 
     shutil.rmtree(output_dir, ignore_errors=True)
     output_dir.mkdir(parents=True, exist_ok=True)
+    bootstrap_dir.mkdir(parents=True, exist_ok=True)
 
     run(["cargo", "build", "--release"], cwd=client_dir)
 
@@ -80,10 +73,6 @@ def main() -> int:
     client_binary = client_dir / "target" / "release" / client_name
     if not client_binary.is_file():
         fail(f"client binary not found: {client_binary}")
-
-    bootstrap_target = bootstrap_dir / args.platform / installer_asset_name(args.platform)
-    bootstrap_target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(client_binary, bootstrap_target)
 
     assemble_cmd = [
         sys.executable,
@@ -98,6 +87,9 @@ def main() -> int:
         str(client_binary),
     ]
     run(assemble_cmd, cwd=repo_root)
+
+    for script_name in ("install.sh", "install.ps1", "update.sh", "update.ps1"):
+        shutil.copy2(client_dir / script_name, bootstrap_dir / script_name)
 
     archive_stem = output_dir / f"loomle-{args.version}-{args.platform}"
     archive_path = output_dir / f"{archive_stem.name}.zip"
@@ -114,9 +106,7 @@ def main() -> int:
     )
     package_sha = sha256_file(archive_path)
     client_sha = sha256_file(client_binary)
-    installer_sha = sha256_file(bootstrap_target)
     asset_url = args.asset_url or archive_path.as_uri()
-    installer_url = bootstrap_target.as_uri()
     manifest_cmd = [
         sys.executable,
         str(manifest_script),
@@ -134,10 +124,6 @@ def main() -> int:
         f"workspace/Loomle/{client_name}",
         "--client-sha256",
         client_sha,
-        "--installer-url",
-        installer_url,
-        "--installer-sha256",
-        installer_sha,
     ]
     run(manifest_cmd, cwd=repo_root)
 
@@ -145,7 +131,7 @@ def main() -> int:
         "repoRoot": str(repo_root),
         "outputDir": str(output_dir),
         "bundleDir": str(bundle_dir),
-        "bootstrapCli": str(bootstrap_target),
+        "bootstrapDir": str(bootstrap_dir),
         "archive": str(archive_path),
         "manifest": str(manifest_path),
         "platform": args.platform,

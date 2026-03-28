@@ -185,7 +185,7 @@ jobs:
       - name: Run Rust Unit Tests
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
-          Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp\client")
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE "client")
           cargo test
           Pop-Location
 
@@ -217,11 +217,11 @@ jobs:
       - name: Build LOOMLE Client Binary (Release) And Sync To Test Project
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
-          Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp\client")
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE "client")
           cargo build --release
           Pop-Location
 
-          $clientSrc = Join-Path $env:GITHUB_WORKSPACE "mcp\client\target\release\loomle.exe"
+          $clientSrc = Join-Path $env:GITHUB_WORKSPACE "client\target\release\loomle.exe"
           $workspaceSrc = Join-Path $env:GITHUB_WORKSPACE "workspace\Loomle"
           if (-not (Test-Path -LiteralPath $clientSrc)) {
             throw "LOOMLE client binary missing: $clientSrc"
@@ -244,7 +244,7 @@ jobs:
           $releaseInputs = Join-Path $env:RUNNER_TEMP "loomle-release-inputs-windows"
           $pluginSrc = Join-Path $env:RUNNER_TEMP "LoomleBridge_Gating_Windows"
           $workspaceSrc = Join-Path $env:GITHUB_WORKSPACE "workspace\Loomle"
-          $clientSrc = Join-Path $env:GITHUB_WORKSPACE "mcp\client\target\release\loomle.exe"
+          $clientSrc = Join-Path $env:GITHUB_WORKSPACE "client\target\release\loomle.exe"
 
           if (-not (Test-Path -LiteralPath $pluginSrc)) {
             throw "Packaged plugin missing: $pluginSrc"
@@ -259,12 +259,12 @@ jobs:
           Remove-Item -LiteralPath $releaseInputs -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path `
             (Join-Path $releaseInputs "workspace\Loomle"), `
-            (Join-Path $releaseInputs "mcp\client\windows") | Out-Null
+            (Join-Path $releaseInputs "client\windows") | Out-Null
 
           Copy-Item -Path (Join-Path $pluginSrc "*") -Destination (Join-Path $releaseInputs "plugin\LoomleBridge") -Recurse -Force
           Copy-Item -Path (Join-Path $workspaceSrc "*") -Destination (Join-Path $releaseInputs "workspace\Loomle") -Recurse -Force
           Copy-Item -LiteralPath $clientSrc -Destination (Join-Path $releaseInputs "workspace\Loomle\loomle.exe") -Force
-          Copy-Item -LiteralPath $clientSrc -Destination (Join-Path $releaseInputs "mcp\client\windows\loomle.exe") -Force
+          Copy-Item -LiteralPath $clientSrc -Destination (Join-Path $releaseInputs "client\windows\loomle.exe") -Force
 
       - name: Upload Release Inputs
         uses: actions/upload-artifact@v4

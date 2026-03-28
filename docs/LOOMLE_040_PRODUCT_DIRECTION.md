@@ -7,7 +7,7 @@
 The first `0.4` cut should do three things only:
 
 - replace the old custom RPC runtime path with Unreal-hosted native MCP
-- make `loomle mcp` the primary agent-facing entrypoint
+- make `loomle` itself the primary agent-facing MCP entrypoint
 - replace binary-installer flows with script-first install and update flows
 
 The first `0.4` cut should explicitly **not** do these things:
@@ -30,13 +30,20 @@ into the Unreal project:
 This avoids introducing a second large migration while runtime transport and
 protocol are still changing.
 
-### 2. `loomle mcp` is still the primary agent interface
+### 2. `loomle` itself is the primary agent interface
 
 The agent-facing runtime entrypoint should be:
 
-- `Loomle/loomle mcp`
+- `Loomle/loomle`
 
 This should be the stable MCP session surface for agents.
+
+In this first `0.4` cut, the `loomle` binary should no longer be treated as a
+general multi-command CLI. It should keep one core responsibility only:
+
+- act as the project-local MCP client / launcher
+
+Install, update, and doctor flows should move out to scripts.
 
 It should not depend on Codex-managed MCP config as the primary runtime path.
 
@@ -46,7 +53,7 @@ Runtime authority remains inside Unreal and `LoomleBridge`.
 
 For `0.4`, the runtime path should be:
 
-- agent -> `loomle mcp`
+- agent -> `loomle`
 - project-local `loomle`
 - project-scoped MCP endpoint
 - `LoomleBridge` native MCP runtime
@@ -63,10 +70,22 @@ The preferred direction is:
 - `install.ps1`
 - `update.sh`
 - `update.ps1`
+- `doctor.sh`
+- `doctor.ps1`
 
 These scripts should install or update LOOMLE into the target Unreal project.
 
 They should not install a machine-global CLI in the first `0.4` cut.
+
+Installed projects should keep only the maintenance scripts that remain useful
+after install:
+
+- `update.sh`
+- `update.ps1`
+- `doctor.sh`
+- `doctor.ps1`
+
+Bootstrap-only install scripts do not need to live in the installed project.
 
 ### 5. Studio refactor is deferred
 
@@ -107,6 +126,7 @@ The first shippable `0.4` product shape should be:
 - Unreal-hosted native MCP runtime
 - script install
 - script update
+- script doctor
 
 Notably absent:
 
@@ -133,5 +153,5 @@ MCP cut.
 
 - a project-local `loomle` client
 - a project-attached Unreal native MCP runtime
-- a script-first install/update model
+- a script-first install/update/doctor model
 - no global install and no Studio directory migration in this phase

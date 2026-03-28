@@ -193,11 +193,11 @@ jobs:
       - name: Build LOOMLE Client And Sync To Test Project
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
-          Push-Location (Join-Path $env:GITHUB_WORKSPACE "mcp\client")
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE "client")
           cargo build --release
           Pop-Location
 
-          $clientSrc = Join-Path $env:GITHUB_WORKSPACE "mcp\client\target\release\loomle.exe"
+          $clientSrc = Join-Path $env:GITHUB_WORKSPACE "client\target\release\loomle.exe"
           $workspaceSrc = Join-Path $env:GITHUB_WORKSPACE "workspace\Loomle"
           $workspaceDst = Join-Path "${{ steps.test_project.outputs.test_root }}" "Loomle"
 

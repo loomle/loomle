@@ -22,6 +22,13 @@ Stable public script entrypoints should remain:
 
 These scripts target a specific Unreal project root.
 
+Their source-of-truth in the repository should live under:
+
+- `client/install.sh`
+- `client/install.ps1`
+- `client/update.sh`
+- `client/update.ps1`
+
 ## Bootstrap Responsibilities
 
 Bootstrap scripts should:

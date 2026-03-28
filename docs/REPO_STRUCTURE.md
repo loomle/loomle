@@ -9,7 +9,7 @@ This phase is about:
 
 - native MCP runtime in `LoomleBridge`
 - project-local client retained in `Loomle/`
-- script-first install/update
+- script-first install/update/doctor
 
 This phase is not about:
 
@@ -27,13 +27,20 @@ Owns:
 - native MCP runtime
 - authority-side tool execution
 
-### `mcp/client/`
+### `client/`
 
 Owns:
 
 - project-local `loomle`
 - MCP client/session behavior
-- install/update command surface
+- source-owned script entrypoints:
+  - `install.sh`
+  - `install.ps1`
+  - `update.sh`
+  - `update.ps1`
+  - `doctor.sh`
+  - `doctor.ps1`
+- no binary install/update command surface
 
 ### `workspace/Loomle/`
 
@@ -63,6 +70,10 @@ The intended installed project shape for this phase is:
 
   Loomle/
     loomle(.exe)
+    update.sh
+    update.ps1
+    doctor.sh
+    doctor.ps1
     README.md
     runtime/
     workflows/
@@ -73,8 +84,13 @@ The intended installed project shape for this phase is:
 
 At runtime, the effective split is:
 
-- `Loomle/loomle(.exe)` = MCP client / launcher
+- `Loomle/loomle(.exe)` = MCP client / launcher only
 - `Plugins/LoomleBridge/` = native MCP runtime authority
+
+Install and maintenance entrypoints are scripts, not subcommands on `loomle`.
+
+The bundle may also include an internal helper under `Loomle/runtime/`, but the
+public entrypoints remain the top-level scripts.
 
 The old `mcp/server` bridge layer is no longer part of the target structure.
 
@@ -93,5 +109,7 @@ For the first `0.4` cut, the structural model should be documented as:
 
 - keep project-local install shape
 - remove Rust `mcp/server`
+- keep client source ownership under `client/`
 - keep `workspace/Loomle/` as project install material
+- install only `update.*` and `doctor.*` scripts into the project
 - defer broader global and Studio restructuring

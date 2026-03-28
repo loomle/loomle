@@ -57,7 +57,6 @@ jobs:
           release_dir="$RUNNER_TEMP/loomle-release-assets-darwin"
           archive_path="$release_dir/loomle-darwin.zip"
           manifest_path="$release_dir/loomle-manifest-darwin.json"
-          bootstrap_cli_path="$release_dir/loomle-installer"
 
           if [[ -d "$inputs_dir/release-verify-mac-inputs" ]]; then
             inputs_dir="$inputs_dir/release-verify-mac-inputs"
@@ -76,11 +75,9 @@ jobs:
           rsync -a "$inputs_dir/workspace/Loomle/" "$bundle_dir/workspace/Loomle/"
           mkdir -p "$bundle_dir/client/darwin"
           cp "$inputs_dir/client/darwin/loomle" "$bundle_dir/client/darwin/loomle"
-          cp "$inputs_dir/client/darwin/loomle" "$bootstrap_cli_path"
           chmod +x \
             "$bundle_dir/client/darwin/loomle" \
-            "$bundle_dir/$client_relpath" \
-            "$bootstrap_cli_path"
+            "$bundle_dir/$client_relpath"
 
           (
             cd "$bundle_dir"
@@ -89,9 +86,7 @@ jobs:
 
           package_sha="$(shasum -a 256 "$archive_path" | awk '{print tolower($1)}')"
           client_sha="$(shasum -a 256 "$client_dst" | awk '{print tolower($1)}')"
-          installer_sha="$(shasum -a 256 "$bootstrap_cli_path" | awk '{print tolower($1)}')"
           asset_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/loomle-darwin.zip"
-          installer_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/loomle-installer"
 
           python3 "$GITHUB_WORKSPACE/packaging/bundle/build_release_manifest.py" \
             --manifest-path "$manifest_path" \
@@ -100,14 +95,11 @@ jobs:
             --asset-url "$asset_url" \
             --sha256 "$package_sha" \
             --client-binary-relpath "$client_relpath" \
-            --client-sha256 "$client_sha" \
-            --installer-url "$installer_url" \
-            --installer-sha256 "$installer_sha"
+            --client-sha256 "$client_sha"
 
           {
             echo "archive_path=$archive_path"
             echo "manifest_path=$manifest_path"
-            echo "bootstrap_cli_path=$bootstrap_cli_path"
           } >> "$GITHUB_OUTPUT"
 
       - name: Publish Tag Release Assets
@@ -116,7 +108,6 @@ jobs:
           files: |
             ${{ steps.package.outputs.archive_path }}
             ${{ steps.package.outputs.manifest_path }}
-            ${{ steps.package.outputs.bootstrap_cli_path }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           draft: false

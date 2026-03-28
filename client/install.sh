@@ -13,6 +13,10 @@ usage() {
   cat <<'EOF'
 Usage:
   install.sh [--project-root <ProjectRoot>] [--version <Version>] [--manifest-url <URL>] [--asset-url <URL>]
+
+Installs LOOMLE into one Unreal project by downloading the release manifest and
+bundle, extracting the bundle, and materializing Plugins/LoomleBridge and
+Loomle/.
 EOF
 }
 

@@ -9,6 +9,7 @@ It should support:
 - project-local install only
 - script-first install
 - script-first update
+- script-first doctor
 - upgrade of the project-local client and Unreal integration together
 
 It should not support in this phase:
@@ -29,6 +30,10 @@ After install, the Unreal project should contain:
 
   Loomle/
     loomle(.exe)
+    update.sh
+    update.ps1
+    doctor.sh
+    doctor.ps1
     README.md
     runtime/
     workflows/
@@ -40,15 +45,26 @@ while the runtime protocol changes underneath it.
 
 ## Official Entry Points
 
-The official install/update entrypoints for this phase should be small platform
+The official install/update/doctor entrypoints for this phase should be small platform
 scripts:
 
 - `install.sh`
 - `install.ps1`
 - `update.sh`
 - `update.ps1`
+- `doctor.sh`
+- `doctor.ps1`
 
 These scripts should target a specific Unreal project root.
+
+Source ownership for this phase should live under:
+
+- `client/install.sh`
+- `client/install.ps1`
+- `client/update.sh`
+- `client/update.ps1`
+- `client/doctor.sh`
+- `client/doctor.ps1`
 
 Recommended command shape:
 
@@ -56,6 +72,8 @@ Recommended command shape:
 - `install.ps1 -ProjectRoot C:\Path\To\Project`
 - `update.sh --project-root /path/to/Project`
 - `update.ps1 -ProjectRoot C:\Path\To\Project`
+- `doctor.sh --project-root /path/to/Project`
+- `doctor.ps1 -ProjectRoot C:\Path\To\Project`
 
 The exact argument spelling can still evolve, but the model should stay:
 
@@ -65,9 +83,9 @@ The exact argument spelling can still evolve, but the model should stay:
 
 ## Script Responsibilities
 
-Install and update scripts should stay small.
+Install, update, and doctor scripts should stay small.
 
-They should:
+Install/update should:
 
 1. resolve the target project root
 2. download or locate the release bundle
@@ -76,6 +94,18 @@ They should:
 5. copy workspace content into `Loomle/`
 6. write/update machine-readable install state
 7. print a clear success/failure result
+
+Bundle extraction may call an internal helper script for the actual file copy,
+but that helper is implementation detail. The public contract remains the
+platform scripts above.
+
+Doctor should:
+
+1. resolve the target project root
+2. confirm `Plugins/LoomleBridge/` exists
+3. confirm `Loomle/loomle(.exe)` exists
+4. confirm `Loomle/runtime/install.json` is readable
+5. report runtime endpoint readiness separately from install completeness
 
 They should not become a second runtime or migration engine.
 
@@ -138,10 +168,24 @@ future structure purity.
 
 The install bundle should now be interpreted like this:
 
-- `Loomle/loomle(.exe)` is the project-local MCP client entrypoint
+- `Loomle/loomle(.exe)` is the project-local MCP client entrypoint and nothing else
 - `Plugins/LoomleBridge/` hosts the native MCP runtime authority
 
 Install/update only need to materialize those two sides correctly.
+
+The installed project should also contain only the maintenance scripts that are
+useful after installation:
+
+- `Loomle/update.sh`
+- `Loomle/update.ps1`
+- `Loomle/doctor.sh`
+- `Loomle/doctor.ps1`
+
+An internal helper may also live under:
+
+- `Loomle/runtime/install_release.py`
+
+Bootstrap-only `install.*` scripts do not need to be copied into the project.
 
 ## Transition From Current State
 
@@ -170,4 +214,5 @@ The first `LOOMLE 0.4.0` install and upgrade model should be:
 - project-local only
 - script-first
 - installer-binary-free
+- `loomle` binary limited to MCP client duty
 - focused on updating `Plugins/LoomleBridge/` and `Loomle/`

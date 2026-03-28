@@ -5,14 +5,16 @@ RELEASE_REPO="${LOOMLE_RELEASE_REPO:-loomle/loomle}"
 REQUESTED_VERSION="${LOOMLE_BOOTSTRAP_VERSION:-latest}"
 
 fail() {
-  echo "[loomle-install][ERROR] $*" >&2
+  echo "[loomle-update][ERROR] $*" >&2
   exit 1
 }
 
 usage() {
   cat <<'EOF'
 Usage:
-  install.sh [--project-root <ProjectRoot>] [--version <Version>] [--manifest-url <URL>] [--asset-url <URL>]
+  update.sh [--project-root <ProjectRoot>] [--version <Version>] [--manifest-url <URL>] [--asset-url <URL>]
+
+Updates the project-local LOOMLE install from the release manifest and bundle.
 EOF
 }
 
@@ -65,6 +67,9 @@ main() {
   local archive_path
   local bundle_dir
   local helper_path
+  local script_dir
+
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -98,6 +103,9 @@ main() {
     esac
   done
 
+  if [[ -z "$project_root" && -f "$script_dir/../"*.uproject ]]; then
+    project_root="$(cd "$script_dir/.." && pwd)"
+  fi
   if [[ -z "$project_root" ]]; then
     project_root="$(find_project_root "$PWD" || true)"
   fi
@@ -116,7 +124,7 @@ main() {
   archive_path="$tmp_dir/loomle-${platform}.zip"
   bundle_dir="$tmp_dir/bundle"
 
-  echo "[loomle-install] downloading manifest $manifest_url"
+  echo "[loomle-update] downloading manifest $manifest_url"
   curl -fsSL "$manifest_url" -o "$manifest_path"
 
   if [[ -z "$asset_url" ]]; then
@@ -136,7 +144,7 @@ PY
 )" || fail "failed to resolve asset URL from manifest"
   fi
 
-  echo "[loomle-install] downloading bundle $asset_url"
+  echo "[loomle-update] downloading bundle $asset_url"
   curl -fsSL "$asset_url" -o "$archive_path"
 
   mkdir -p "$bundle_dir"
