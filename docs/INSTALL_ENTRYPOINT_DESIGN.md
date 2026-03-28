@@ -13,13 +13,13 @@ The first `0.4` install flow should describe:
 
 - project-local install
 - site-served install
-- project-local update
-- project-local doctor
 
 It should not describe:
 
 - global machine install
 - temporary installer binary
+- project-local update commands
+- project-local doctor commands
 
 ## Visible Homepage Prompt
 
@@ -41,9 +41,8 @@ The page body should explicitly explain:
 
 1. what LOOMLE installs into the project
 2. how to run the install script
-3. how to update after install
-4. how to verify the install
-5. which assets are published on the release page versus installed into the project
+3. that installed projects keep their own maintenance scripts under `Loomle/`
+4. which assets are published on the release page versus installed into the project
 
 ## Recommended Instruction Shape
 
@@ -61,16 +60,13 @@ The page body should explicitly explain:
 These bootstrap scripts are homepage entrypoints served by `loomle.ai`. They
 are not copied into the installed project.
 
-### Update
+### Installed Project Maintenance
 
-- macOS/Linux: `Loomle/update.sh --project-root /path/to/MyProject`
-- Windows PowerShell:
-  `Loomle/update.ps1 -ProjectRoot C:\Path\To\MyProject`
+After install, the project keeps platform-specific maintenance scripts under
+`Loomle/`:
 
-### Verify
-
-- `Loomle/doctor.sh --project-root /path/to/MyProject`
-- `Loomle/doctor.ps1 -ProjectRoot C:\Path\To\MyProject`
+- macOS/Linux: `Loomle/update.sh`, `Loomle/doctor.sh`
+- Windows PowerShell: `Loomle/update.ps1`, `Loomle/doctor.ps1`
 
 ### Release Assets Versus Installed Files
 
@@ -96,6 +92,5 @@ The homepage/install-entrypoint design for the first `0.4` cut should teach:
 
 - project-local installation
 - site-served bootstrap
-- project-local update
-- project-local doctor
+- installed projects keep their own maintenance scripts
 - no installer-binary flow

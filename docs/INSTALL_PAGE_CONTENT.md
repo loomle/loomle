@@ -8,13 +8,13 @@ The page should explain:
 
 - project-local install
 - site-served install
-- project-local update
-- project-local doctor
 
 It should not describe:
 
 - global install
 - temporary installer binary
+- project-local update commands
+- project-local doctor commands
 
 ## Above-The-Fold
 
@@ -52,25 +52,11 @@ Windows PowerShell:
 & ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) -ProjectRoot C:\Path\To\MyProject
 ```
 
-### 3. Update
+### 3. After Install
 
 ```text
-Update an existing LOOMLE project install with the script already installed in the project.
-
-macOS/Linux:
-Loomle/update.sh --project-root /path/to/MyProject
-
-Windows PowerShell:
-Loomle/update.ps1 -ProjectRoot C:\Path\To\MyProject
-```
-
-### 4. Verify
-
-```text
-After installation or update, verify with:
-
-Loomle/doctor.sh --project-root /path/to/MyProject
-Loomle/doctor.ps1 -ProjectRoot C:\Path\To\MyProject
+After installation, the project keeps platform-specific maintenance scripts
+under Loomle/ for later update and doctor work.
 ```
 
 ## Agent Note
@@ -80,11 +66,11 @@ The page should explicitly state:
 ```text
 Agents should treat this page as the canonical LOOMLE install instruction source.
 The first 0.4 install model is project-local and script-first.
-The site publishes install scripts; installed projects keep update/doctor
-scripts under Loomle/.
+The site publishes install scripts only. Installed projects keep their own
+update/doctor scripts under Loomle/.
 ```
 
 ## Final Recommendation
 
-Keep the page visually simple, but make the install/update commands explicit in
-plain text so an agent can execute them directly without guessing.
+Keep the page visually simple, but make the install commands explicit in plain
+text so an agent can execute them directly without guessing.
