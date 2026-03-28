@@ -83,14 +83,14 @@ jobs:
           Remove-Item -LiteralPath $bundleDir, $releaseDir -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path `
             (Join-Path $bundleDir "plugin\LoomleBridge"), `
-            (Join-Path $bundleDir "workspace"), `
+            (Join-Path $bundleDir "Loomle"), `
             $releaseDir | Out-Null
 
           if (-not (Test-Path -LiteralPath (Join-Path $inputsDir "plugin\LoomleBridge"))) {
             throw "Verify plugin inputs missing: $(Join-Path $inputsDir 'plugin\LoomleBridge')"
           }
-          if (-not (Test-Path -LiteralPath (Join-Path $inputsDir "workspace\Loomle"))) {
-            throw "Verify workspace inputs missing: $(Join-Path $inputsDir 'workspace\Loomle')"
+          if (-not (Test-Path -LiteralPath (Join-Path $inputsDir "loomle\Loomle"))) {
+            throw "Verify Loomle inputs missing: $(Join-Path $inputsDir 'loomle\Loomle')"
           }
           if (-not (Test-Path -LiteralPath (Join-Path $inputsDir "client\windows\loomle.exe"))) {
             throw "Verify client inputs missing: $(Join-Path $inputsDir 'client\windows\loomle.exe')"
@@ -104,7 +104,7 @@ jobs:
             (Join-Path $bundleDir "client\windows") | Out-Null
 
           Copy-Item -Path (Join-Path $inputsDir "plugin\LoomleBridge\*") -Destination (Join-Path $bundleDir "plugin\LoomleBridge") -Recurse -Force
-          Copy-Item -Path (Join-Path $inputsDir "workspace\Loomle\*") -Destination (Join-Path $bundleDir "Loomle") -Recurse -Force
+          Copy-Item -Path (Join-Path $inputsDir "loomle\Loomle\*") -Destination (Join-Path $bundleDir "Loomle") -Recurse -Force
           Copy-Item -LiteralPath (Join-Path $inputsDir ($clientRelPath -replace '/', '\')) -Destination $clientDst -Force
           Copy-Item -LiteralPath (Join-Path $inputsDir "client\windows\loomle.exe") -Destination (Join-Path $bundleDir "client\windows\loomle.exe") -Force
 

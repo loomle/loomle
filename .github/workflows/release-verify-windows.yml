@@ -230,13 +230,13 @@ jobs:
             throw "LOOMLE workspace missing: $workspaceSrc"
           }
 
-          $workspaceDst = Join-Path "${{ steps.test_project.outputs.test_root }}" "Loomle"
-          if (Test-Path -LiteralPath $workspaceDst) {
-            Remove-Item -LiteralPath $workspaceDst -Recurse -Force
+          $loomleDst = Join-Path "${{ steps.test_project.outputs.test_root }}" "Loomle"
+          if (Test-Path -LiteralPath $loomleDst) {
+            Remove-Item -LiteralPath $loomleDst -Recurse -Force
           }
-          New-Item -ItemType Directory -Force -Path $workspaceDst | Out-Null
-          Copy-Item -Path (Join-Path $workspaceSrc "*") -Destination $workspaceDst -Recurse -Force
-          Copy-Item -LiteralPath $clientSrc -Destination (Join-Path $workspaceDst "loomle.exe") -Force
+          New-Item -ItemType Directory -Force -Path $loomleDst | Out-Null
+          Copy-Item -Path (Join-Path $workspaceSrc "*") -Destination $loomleDst -Recurse -Force
+          Copy-Item -LiteralPath $clientSrc -Destination (Join-Path $loomleDst "loomle.exe") -Force
 
       - name: Stage Release Inputs
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
@@ -258,12 +258,12 @@ jobs:
 
           Remove-Item -LiteralPath $releaseInputs -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path `
-            (Join-Path $releaseInputs "workspace\Loomle"), `
+            (Join-Path $releaseInputs "loomle\Loomle"), `
             (Join-Path $releaseInputs "client\windows") | Out-Null
 
           Copy-Item -Path (Join-Path $pluginSrc "*") -Destination (Join-Path $releaseInputs "plugin\LoomleBridge") -Recurse -Force
-          Copy-Item -Path (Join-Path $workspaceSrc "*") -Destination (Join-Path $releaseInputs "workspace\Loomle") -Recurse -Force
-          Copy-Item -LiteralPath $clientSrc -Destination (Join-Path $releaseInputs "workspace\Loomle\loomle.exe") -Force
+          Copy-Item -Path (Join-Path $workspaceSrc "*") -Destination (Join-Path $releaseInputs "loomle\Loomle") -Recurse -Force
+          Copy-Item -LiteralPath $clientSrc -Destination (Join-Path $releaseInputs "loomle\Loomle\loomle.exe") -Force
           Copy-Item -LiteralPath $clientSrc -Destination (Join-Path $releaseInputs "client\windows\loomle.exe") -Force
 
       - name: Upload Release Inputs

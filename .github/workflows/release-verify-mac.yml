@@ -136,11 +136,11 @@ jobs:
           [[ -x "$client_src" ]] || { echo "LOOMLE client binary missing or not executable: $client_src" >&2; exit 1; }
           [[ -d "$workspace_src" ]] || { echo "LOOMLE workspace missing: $workspace_src" >&2; exit 1; }
 
-          workspace_dst="${{ steps.test_project.outputs.test_root }}/Loomle"
-          rm -rf "$workspace_dst"
-          rsync -a "$workspace_src"/ "$workspace_dst"/
-          cp "$client_src" "$workspace_dst/loomle"
-          chmod +x "$workspace_dst/loomle"
+          loomle_dst="${{ steps.test_project.outputs.test_root }}/Loomle"
+          rm -rf "$loomle_dst"
+          rsync -a "$workspace_src"/ "$loomle_dst"/
+          cp "$client_src" "$loomle_dst/loomle"
+          chmod +x "$loomle_dst/loomle"
 
       - name: Stage Release Inputs
         shell: bash
@@ -157,15 +157,15 @@ jobs:
 
           rm -rf "$release_inputs"
           mkdir -p \
-            "$release_inputs/workspace/Loomle" \
+            "$release_inputs/loomle/Loomle" \
             "$release_inputs/client/darwin"
 
           rsync -a "$plugin_src"/ "$release_inputs/plugin/LoomleBridge"/
-          rsync -a "$workspace_src"/ "$release_inputs/workspace/Loomle"/
-          cp "$client_src" "$release_inputs/workspace/Loomle/loomle"
+          rsync -a "$workspace_src"/ "$release_inputs/loomle/Loomle"/
+          cp "$client_src" "$release_inputs/loomle/Loomle/loomle"
           cp "$client_src" "$release_inputs/client/darwin/loomle"
           chmod +x \
-            "$release_inputs/workspace/Loomle/loomle" \
+            "$release_inputs/loomle/Loomle/loomle" \
             "$release_inputs/client/darwin/loomle"
 
       - name: Upload Release Inputs
