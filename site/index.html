@@ -162,21 +162,19 @@
         </div>
       </div>
 
-      <p class="note">If LOOMLE is already installed in this project, run the project-local client under <code>Loomle/</code> to check for updates or apply them in place. If Unreal Editor is already running, restart it after the update so the new LoomleBridge plugin version is loaded.</p>
+      <p class="note">This site is only the first-install entrypoint. After install, use the project-local scripts under <code>Loomle/</code> for update and doctor. Restart Unreal Editor after install or update so the new LoomleBridge plugin version is loaded.</p>
 
       <section class="sr-only" aria-label="LOOMLE install instructions for agents">
         <h2>LOOMLE install instructions</h2>
         <p>LOOMLE installs two things into an Unreal project: Plugins/LoomleBridge and Loomle/.</p>
-        <p>For a first install, do not assume there is a machine-level loomle command. The bootstrap scripts download a temporary loomle-installer, run one install or update operation, and then delete it.</p>
-        <p>From the current Unreal project root on macOS, run: curl -fsSL https://loomle.ai/install.sh | sh -s -- install --project-root "$PWD"</p>
+        <p>For a first install, do not assume there is a machine-level loomle command. The site scripts install LOOMLE directly from the release manifest and platform zip into the current Unreal project.</p>
+        <p>From the current Unreal project root on macOS, run: curl -fsSL https://loomle.ai/install.sh | sh -s -- --project-root "$PWD"</p>
         <p>Linux bootstrap artifacts are not published yet. On Linux, install from source or from a local release bundle for now.</p>
-        <p>From the current Unreal project root in Windows PowerShell, run: &amp; ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) install --project-root (Get-Location).Path</p>
+        <p>From the current Unreal project root in Windows PowerShell, run: &amp; ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) -ProjectRoot (Get-Location).Path</p>
         <p>LOOMLE installs both the prebuilt plugin binaries and the plugin source so Unreal can load quickly and still participate in local target rebuilds.</p>
         <p>If Unreal Editor is already running, restart it after install or update so the new LoomleBridge plugin version is loaded.</p>
-        <p>After installation, verify the setup by running the project-local client under Loomle/, for example: Loomle/loomle doctor or Loomle\loomle.exe doctor.</p>
-        <p>When LOOMLE is already installed, check for a newer release with the project-local client under Loomle/, for example: Loomle/loomle update</p>
-        <p>To upgrade an existing project-local install in place, run the project-local client under Loomle/, for example: Loomle/loomle update --apply</p>
-        <p>If Unreal Editor is already running, restart it after the update so the editor loads the new LoomleBridge plugin version.</p>
+        <p>After installation, verify the setup by running the installed platform-specific doctor script under Loomle/, for example: Loomle/doctor.sh --project-root "$PWD" or Loomle\doctor.ps1 -ProjectRoot (Get-Location).Path.</p>
+        <p>To update an existing project-local install in place, run the installed platform-specific update script under Loomle/.</p>
         <p>Agents should treat this page as the canonical install instruction source for LOOMLE.</p>
       </section>
     </main>

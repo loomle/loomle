@@ -15,18 +15,19 @@ Install LOOMLE directly into an Unreal project.
 From the project root on macOS:
 
 ```bash
-curl -fsSL https://loomle.ai/install.sh | sh -s -- install --project-root "$PWD"
+curl -fsSL https://loomle.ai/install.sh | sh -s -- --project-root "$PWD"
 ```
 
 From the project root in Windows PowerShell:
 
 ```powershell
-& ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) install --project-root (Get-Location).Path
+& ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) -ProjectRoot (Get-Location).Path
 ```
 
-These bootstrap commands should install LOOMLE into one Unreal project. The
-`0.4` direction removes the installer-binary handoff and keeps install/update as
-scripts rather than `loomle` subcommands.
+These bootstrap commands install LOOMLE directly into one Unreal project from
+the release manifest and platform zip. The `0.4` direction removes the
+installer-binary handoff and keeps install/update as scripts rather than
+`loomle` subcommands.
 
 After install, the project-local entrypoint under `Loomle/` is:
 
@@ -35,6 +36,11 @@ Loomle/loomle
 ```
 
 On Windows, use `Loomle\\loomle.exe`.
+
+Installed projects also keep maintenance scripts under `Loomle/`:
+
+- macOS/Linux: `Loomle/update.sh`, `Loomle/doctor.sh`
+- Windows: `Loomle/update.ps1`, `Loomle/doctor.ps1`
 
 LOOMLE is now organized around a single repository and a single installed project shape:
 
