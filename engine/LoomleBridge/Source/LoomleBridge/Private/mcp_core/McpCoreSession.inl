@@ -228,6 +228,25 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMcpCallToolResult(
         Payload = DispatchTool(ToolName, Arguments, bToolError);
     }
 
+    if (bToolError && Payload.IsValid())
+    {
+        FString ExistingDomainCode;
+        if (!Payload->TryGetStringField(TEXT("domainCode"), ExistingDomainCode) || ExistingDomainCode.IsEmpty())
+        {
+            FString ExistingCode;
+            if (Payload->TryGetStringField(TEXT("code"), ExistingCode) && !ExistingCode.IsEmpty())
+            {
+                Payload->SetStringField(TEXT("domainCode"), ExistingCode);
+            }
+        }
+
+        FString ExistingDetail;
+        if (!Payload->TryGetStringField(TEXT("detail"), ExistingDetail) || ExistingDetail.IsEmpty())
+        {
+            Payload->SetStringField(TEXT("detail"), SerializeJsonObject(Payload));
+        }
+    }
+
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     TArray<TSharedPtr<FJsonValue>> Content;
     TSharedPtr<FJsonObject> TextContent = MakeShared<FJsonObject>();
