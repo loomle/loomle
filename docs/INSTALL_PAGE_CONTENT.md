@@ -2,205 +2,85 @@
 
 ## Purpose
 
-This document turns the install-entrypoint strategy into a concrete page content design for `loomle.ai` or `loomle.ai/i`.
+This document defines the page-body content for the first `0.4` install model.
 
-It is intended to be implementation-ready for a landing page or static site.
+The page should explain:
 
-## Page objective
+- project-local install
+- script-first bootstrap
+- script-first update
 
-The page must work for two readers at once:
+It should not describe:
 
-1. a human who wants an extremely simple action
-2. an agent that needs enough detail to install LOOMLE correctly
+- global install
+- temporary installer binary
 
-The page should therefore be:
+## Above-The-Fold
 
-- visually minimal above the fold
-- textually rich in the page body
-- stable enough that the visible prompt rarely changes
-
-## Above-the-fold design
-
-### Visible primary line
+Visible line:
 
 ```text
 Install LOOMLE from loomle.ai
 ```
 
-This is the sentence the human should copy into their coding agent.
-
-### Visible supporting hint
+Visible hint:
 
 ```text
 Paste this into your coding agent from the Unreal project root.
 ```
 
-### Visible controls
-
-- Copy button
-- Optional secondary button:
-  - `Manual install`
-
-The primary action should remain the copy button.
-
-## Page body requirements
-
-The body must contain enough plain text that an agent can read and follow the installation flow without needing an extra hidden API.
-
-Recommended sections:
+## Required Body Content
 
 ### 1. What LOOMLE installs
 
-Suggested copy:
-
 ```text
 LOOMLE installs two things into an Unreal project:
-- Plugins/LoomleBridge
-- Loomle/
-```
-
-This tells the agent what to expect after installation.
-
-### 2. Agent install instructions
-
-Suggested copy:
-
-```text
-If LOOMLE is not yet available on this machine, run the temporary installer bootstrap first.
-Then install LOOMLE into the current Unreal project by running:
-
-loomle-installer install --project-root <ProjectRoot>
-```
-
-This should be plain text, not only a styled code widget.
-
-### 3. Bootstrap instructions
-
-Suggested copy:
-
-```text
-If the machine does not yet have the installer:
-
-macOS:
-curl -fsSL https://loomle.ai/install.sh | sh -s -- install --project-root /path/to/MyProject
-
-Linux:
-Bootstrap install is not published yet.
-Build from source or use a local release bundle for now.
-
-Windows PowerShell:
-& ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) install --project-root C:\Path\To\MyProject
-```
-
-### 4. Verification
-
-Suggested copy:
-
-```text
-After installation, verify the setup:
-
-Loomle/loomle doctor
-
-Expected project layout:
 - Plugins/LoomleBridge/
 - Loomle/
 ```
 
-### 5. Agent operating note
-
-Suggested copy:
+### 2. Install
 
 ```text
-Agents should treat this page as the canonical install instruction source for LOOMLE.
-If LOOMLE is already installed, use `Loomle/loomle update --apply` for upgrades and `loomle-installer install --project-root <ProjectRoot>` for repair or reinstall.
+Install LOOMLE into the current Unreal project with the platform script.
+
+macOS/Linux:
+curl -fsSL https://loomle.ai/install.sh | sh -s -- --project-root /path/to/MyProject
+
+Windows PowerShell:
+& ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) -ProjectRoot C:\Path\To\MyProject
 ```
 
-## Recommended page order
-
-Use this order:
-
-1. Wordmark / title
-2. One-line copyable prompt
-3. Small supporting hint
-4. What LOOMLE installs
-5. Agent install instructions
-6. Bootstrap instructions
-7. Verification
-8. Upgrade
-
-This keeps the human experience simple without depriving the agent of detail.
-
-## Recommended HTML structure
-
-The exact styling is flexible, but the content should be represented in normal page text.
-
-Suggested structure:
-
-```html
-<main>
-  <section id="hero">
-    <h1>Install LOOMLE from loomle.ai</h1>
-    <p>Paste this into your coding agent from the Unreal project root.</p>
-    <button>Copy</button>
-  </section>
-
-  <section id="what-gets-installed">
-    <h2>What LOOMLE installs</h2>
-    <p>LOOMLE installs Plugins/LoomleBridge and Loomle/ into your Unreal project.</p>
-  </section>
-
-  <section id="agent-install">
-    <h2>Agent install instructions</h2>
-    <pre><code>loomle-installer install --project-root &lt;ProjectRoot&gt;</code></pre>
-  </section>
-
-  <section id="bootstrap">
-    <h2>Bootstrap</h2>
-    <pre><code>curl -fsSL https://loomle.ai/install.sh | sh -s -- install --project-root /path/to/MyProject</code></pre>
-    <pre><code>&amp; ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) install --project-root C:\Path\To\MyProject</code></pre>
-  </section>
-
-  <section id="verification">
-    <h2>Verify</h2>
-    <pre><code>Loomle/loomle doctor</code></pre>
-  </section>
-
-  <section id="upgrade">
-    <h2>Upgrade</h2>
-    <pre><code>Loomle/loomle update --apply</code></pre>
-  </section>
-</main>
-```
-
-## Machine-readable friendliness rules
-
-To keep the page agent-friendly:
-
-- keep key install commands in literal text, not only images
-- do not hide the important instructions behind JavaScript-only interactions
-- do not put the critical instructions only in screenshots
-- keep the install commands present in the initial HTML response if possible
-
-## Minimal copy set
-
-If the page must be extremely simple, the minimum body text should still include:
+### 3. Update
 
 ```text
-Install LOOMLE from loomle.ai
+Update an existing LOOMLE project install with the platform update script.
 
-Paste this into your coding agent from the Unreal project root.
+macOS/Linux:
+curl -fsSL https://loomle.ai/update.sh | sh -s -- --project-root /path/to/MyProject
 
-If LOOMLE is not installed in this Unreal project:
-- macOS: curl -fsSL https://loomle.ai/install.sh | sh -s -- install --project-root /path/to/MyProject
-- Windows PowerShell: & ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) install --project-root C:\Path\To\MyProject
-
-If LOOMLE is already installed and you want to upgrade:
-- Loomle/loomle update --apply
-
-Verify with:
-- Loomle/loomle doctor
+Windows PowerShell:
+& ([scriptblock]::Create((irm https://loomle.ai/update.ps1))) -ProjectRoot C:\Path\To\MyProject
 ```
 
-## Final recommendation
+### 4. Verify
 
-Keep the visible page almost trivial for humans, but make the HTML body explicit enough that an agent can complete the install flow from the same page without guessing.
+```text
+After installation or update, verify with:
+
+Loomle/loomle doctor
+```
+
+## Agent Note
+
+The page should explicitly state:
+
+```text
+Agents should treat this page as the canonical LOOMLE install instruction source.
+The first 0.4 install model is project-local and script-first.
+```
+
+## Final Recommendation
+
+Keep the page visually simple, but make the install/update commands explicit in
+plain text so an agent can execute them directly without guessing.

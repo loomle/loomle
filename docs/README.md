@@ -11,21 +11,21 @@ Project-level technical documentation for `LOOMLE` and `LoomleBridge` (plugin + 
 - Source repository, release bundle, and installed user-project structure.
 
 3. `LOOMLE_040_PRODUCT_DIRECTION.md`
-- Product-level source of truth for the `0.4.0` shift to a global `loomle`
-  client/launcher and `loomle mcp` as the primary agent-facing protocol
-  surface.
+- Product-level source of truth for the first `0.4.0` cut: project-local
+  `loomle`, native MCP runtime in `LoomleBridge`, and script-first
+  install/update.
 
 4. `LOOMLE_040_STRUCTURE_REFACTOR.md`
-- `0.4.0` structure decision for global install, project-visible `loomle/`, and
-  project-hidden `.loomle-core/`.
+- `0.4.0` structure decision for the narrowed first cut: keep project-local
+  shape, remove Rust `mcp/server`, defer global and Studio restructuring.
 
 5. `LOOMLE_040_INSTALL_UPGRADE_DESIGN.md`
-- `0.4.0` install, attach/init, upgrade, repair, and component-ownership
-  design.
+- `0.4.0` install/update design for the narrowed first cut: project-local only,
+  script-first, no installer binary, no global install.
 
 6. `LOOMLE_040_RUNTIME_CONNECTIVITY.md`
-- `0.4.0` runtime connection model: global `loomle`, `loomle mcp`, Unreal-hosted
-  runtime server, and first-phase pipe/socket direction.
+- `0.4.0` runtime connection model: project-local `loomle`, `loomle mcp`,
+  Unreal-hosted native MCP runtime, and project-scoped pipe/socket direction.
 
 7. `LOOMLE_040_CPP_MCP_SDK_MINIMAL_DESIGN.md`
 - `0.4.0` design for a self-owned minimal C++ MCP server layer inside
@@ -39,10 +39,15 @@ Project-level technical documentation for `LOOMLE` and `LoomleBridge` (plugin + 
 - Concrete homepage content and information architecture for `loomle.ai` / `loomle.ai/i`.
 
 10. `RPC_INTERFACE.md`
-- Unreal bridge RPC contract (`rpc.health`, `rpc.capabilities`, `rpc.invoke`), request/response schema, error shape, top-level `jobs`, and current status notes for graph-semantic tools.
+- Historical/current pre-cutover Unreal bridge RPC contract (`rpc.health`,
+  `rpc.capabilities`, `rpc.invoke`). Useful for understanding the old path, but
+  not the target `0.4` runtime protocol direction.
 
 11. `MCP_PROTOCOL.md`
-- MCP tool surface, tool schemas, routing rules, long-running `execute` job mode, and top-level `jobs` behavior contract.
+- Current MCP tool surface, tool schemas, routing rules, long-running
+  `execute` job mode, and top-level `jobs` behavior contract. This remains
+  useful during transition, but the `0.4` target protocol source of truth moves
+  toward native MCP in `LoomleBridge`.
 
 12. `PCG_LEARNING_RESOURCES_UE57.md`
 - Curated UE 5.7 PCG learning resources, including official docs, videos, and transcript-first video reading guidance.

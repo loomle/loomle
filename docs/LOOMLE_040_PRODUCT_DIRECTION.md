@@ -2,182 +2,136 @@
 
 ## Summary
 
-`LOOMLE 0.4.0` should formalize a new product boundary:
+`LOOMLE 0.4.0` should be treated as a scoped runtime and install refactor.
 
-- `loomle` becomes a globally installed client/launcher
-- `loomle mcp` becomes the primary agent-facing protocol entrypoint
-- Unreal runtime authority stays with the project integration layer
-- Codex-managed MCP configuration is no longer the primary runtime path
+The first `0.4` cut should do three things only:
 
-`0.4.0` is therefore not just an install refactor. It is also a runtime access
-refactor.
+- replace the old custom RPC runtime path with Unreal-hosted native MCP
+- make `loomle mcp` the primary agent-facing entrypoint
+- replace binary-installer flows with script-first install and update flows
 
-## Why 0.4 Needs A Product Reset
+The first `0.4` cut should explicitly **not** do these things:
 
-The current `0.3.x` and `LOOMLE Lite` direction emphasized:
+- no global machine-level LOOMLE install
+- no LOOMLE Studio directory-model migration
+- no global skills/workflows/home layer
 
-- project-local install surfaces
-- manual project-local runtime entrypoints
-- minimal machine-wide assumptions
-
-That model was useful while LOOMLE was still proving a compact local kernel.
-
-It becomes weaker once LOOMLE needs:
-
-- a stable agent-facing entrypoint
-- a clean approval story for host execution
-- reusable machine-level runtime tooling
-- a runtime path that does not depend on Codex MCP session/config lifecycle
-
-`0.4.0` should explicitly move to a global-entrypoint model.
+This keeps `0.4` focused on runtime correctness and install simplicity.
 
 ## Product Decision
 
-`LOOMLE 0.4.0` should adopt the following direction.
+### 1. `loomle` remains project-local in the first 0.4 cut
 
-### 1. Global `loomle` CLI
+For the first `0.4` implementation, `loomle` should continue to be installed
+into the Unreal project:
 
-`loomle` should be installed globally on the machine.
+- `<ProjectRoot>/Loomle/loomle(.exe)`
 
-Its role is:
+This avoids introducing a second large migration while runtime transport and
+protocol are still changing.
 
-- discover the current Unreal project
-- discover and connect to the project runtime/server
-- expose a stable protocol entrypoint for agents
-- provide install/update/doctor lifecycle commands
+### 2. `loomle mcp` is still the primary agent interface
 
-`loomle` is not the Unreal runtime server.
+The agent-facing runtime entrypoint should be:
 
-### 2. `loomle mcp` As The Primary Agent Interface
+- `Loomle/loomle mcp`
 
-The primary agent-facing runtime interface should be:
+This should be the stable MCP session surface for agents.
 
-- `loomle mcp`
+It should not depend on Codex-managed MCP config as the primary runtime path.
 
-This command should expose a long-lived stdin/stdout protocol surface that is
-session-oriented and MCP-aligned.
+### 3. Unreal owns runtime authority
 
-This is the main runtime contract for agents.
+Runtime authority remains inside Unreal and `LoomleBridge`.
 
-### 3. LOOMLE Owns Runtime Connection
+For `0.4`, the runtime path should be:
 
-LOOMLE should stop depending on Codex-native MCP configuration as the main
-runtime integration path.
+- agent -> `loomle mcp`
+- project-local `loomle`
+- project-scoped MCP endpoint
+- `LoomleBridge` native MCP runtime
+- Unreal authority
 
-Instead:
+### 4. Install and update should be script-first
 
-- the host/agent executes `loomle`
-- `loomle` owns project discovery
-- `loomle` owns runtime discovery
-- `loomle` owns backend connection details
+`0.4` should not keep the temporary downloaded installer-binary model as the
+official path.
 
-This keeps the approval story understandable:
+The preferred direction is:
 
-- the host approves running `loomle`
-- LOOMLE handles the rest
+- `install.sh`
+- `install.ps1`
+- `update.sh`
+- `update.ps1`
 
-### 4. Unreal Owns Runtime Authority
+These scripts should install or update LOOMLE into the target Unreal project.
 
-The runtime authority remains on the Unreal side.
+They should not install a machine-global CLI in the first `0.4` cut.
 
-Directionally for `0.4.0`:
+### 5. Studio refactor is deferred
 
-- Unreal plugin startup should ensure the runtime server is available
-- the runtime server should be hosted with the project integration
-- `loomle` should connect to that server as a client
+The `LOOMLE Studio` visible/hidden directory split remains a valid future
+direction, but it should not be bundled into the first `0.4` runtime cut.
 
-### 5. Early Install And Upgrade Should Stay Transparent
+For this phase:
 
-The first `0.4.0` install/upgrade direction should optimize for agent-friendly
-execution and fast product iteration.
+- keep project-visible install material under `Loomle/`
+- keep project integration under `Plugins/LoomleBridge/`
+- do not introduce `loomle/` vs `.loomle-core/` migration yet
 
-That means:
+## Why This Scope Is Better
 
-- prefer small official bootstrap/update scripts over a temporary downloaded
-  installer binary
-- keep install/update actions user-level by default
-- keep complex compatibility and project migration logic inside `loomle`, not
-  inside scripts
+Without this scope cut, `0.4` tries to do too many migrations at once:
 
-This preserves flexibility while the machine install and project attach model
-are still evolving.
+- runtime protocol migration
+- transport migration
+- install model migration
+- repository/installed-layout migration
+- Studio artifact migration
 
-## First 0.4 Runtime Direction
+That would make failures hard to attribute and upgrades hard to reason about.
 
-The first `0.4.0` runtime direction should be:
+With the narrowed scope:
 
-- Unreal-hosted Python MCP server
-- `loomle mcp` as the external client/launcher
-- local pipe/socket transport
+- runtime changes are testable in isolation
+- install/update changes are understandable
+- project layout stays familiar during the protocol cutover
 
-This direction is practical because:
+## First 0.4 Shipping Shape
 
-- Unreal Python is already a product dependency
-- `execute` already depends on Python execution
-- it removes the extra Rust/bridge RPC hop
-- it avoids requiring a full C++ MCP implementation immediately
+The first shippable `0.4` product shape should be:
 
-HTTP may still be added later, but it should not be required for the first
-`0.4.0` runtime migration.
+- project-local `loomle`
+- project-local `Loomle/`
+- project-local `Plugins/LoomleBridge/`
+- Unreal-hosted native MCP runtime
+- script install
+- script update
 
-## Single-Project Assumption
+Notably absent:
 
-The first `0.4.0` runtime model should assume one active project per agent
-workflow.
+- no global LOOMLE home
+- no global `loomle`
+- no separate installer binary
+- no Studio-layer migration
 
-That means:
+## Relationship To Later 0.4+ Work
 
-- do not require active-project registry in the first phase
-- prefer current-project discovery plus project-derived endpoint rules
-- prefer explicit, understandable runtime identity over automatic multi-project
-  routing
+Later phases may still introduce:
 
-This scope choice should not be expanded into alternate install modes for
-`0.4.0`.
+- global install
+- global capability layers
+- `loomle/` vs `.loomle-core/` split
+- Studio artifact ownership cleanup
 
-Directionally:
-
-- support global `loomle` install only
-- support project-level attach only
-- do not introduce a project-local trial install mode
-- do not introduce an engine-level plugin install mode
-
-## Approval Model
-
-`0.4.0` should treat host approval as a normal part of runtime use.
-
-The design goal is not to eliminate approval entirely.
-
-The design goal is to make approval:
-
-- concentrated on one stable executable
-- understandable to users
-- decoupled from Codex MCP config mutation or hot-attach behavior
-
-## Relationship To Earlier Lite Direction
-
-This document supersedes the earlier lightweight assumption that LOOMLE should
-avoid:
-
-- global commands
-- machine-wide installation
-- stronger runtime infrastructure
-
-That earlier direction was useful for the local-kernel phase.
-
-`0.4.0` should now move beyond it.
-
-## Related 0.4 Documents
-
-- `LOOMLE_040_STRUCTURE_REFACTOR.md`
-- `LOOMLE_040_INSTALL_UPGRADE_DESIGN.md`
-- `LOOMLE_040_RUNTIME_CONNECTIVITY.md`
+But those should be treated as later work, not as blockers for the first native
+MCP cut.
 
 ## Decision
 
-`LOOMLE 0.4.0` should be documented and implemented as:
+`LOOMLE 0.4.0` first implementation should be documented and implemented as:
 
-- a globally installed `loomle` client/launcher
-- a project-attached Unreal integration
-- a `loomle mcp` primary agent protocol entrypoint
-- a runtime model owned by LOOMLE rather than Codex MCP configuration
+- a project-local `loomle` client
+- a project-attached Unreal native MCP runtime
+- a script-first install/update model
+- no global install and no Studio directory migration in this phase

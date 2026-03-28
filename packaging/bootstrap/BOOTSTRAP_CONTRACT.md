@@ -2,73 +2,73 @@
 
 ## Goal
 
-Support a machine with no existing LOOMLE setup.
+Bootstrap should start from a machine with no existing LOOMLE install and
+materialize LOOMLE into a specific Unreal project.
 
-The user should be able to start from a single public entrypoint, download a temporary `loomle-installer`, execute one install or update operation, and then discard it.
+The first `0.4` bootstrap direction is:
 
-## Public entrypoint
+- script-first
+- project-local
+- no downloaded installer binary
 
-The canonical public installer entrypoint should be:
+## Public Entrypoints
 
-- `https://loomle.ai/i`
+Stable public script entrypoints should remain:
 
-Recommended behavior:
+- `https://loomle.ai/install.sh`
+- `https://loomle.ai/install.ps1`
+- `https://loomle.ai/update.sh`
+- `https://loomle.ai/update.ps1`
 
-- browser requests to `https://loomle.ai/i` should land on a small install page that offers both shell and PowerShell commands
-- command-line bootstrap scripts should live at stable URLs:
-  - `https://loomle.ai/install.sh`
-  - `https://loomle.ai/install.ps1`
+These scripts target a specific Unreal project root.
 
-## Bootstrap responsibilities
+## Bootstrap Responsibilities
 
 Bootstrap scripts should:
 
-1. detect the current platform
-2. download the temporary `loomle-installer` binary for that platform
-3. execute it with the requested install or update arguments
-4. delete the temporary binary after the installer exits
+1. detect platform
+2. resolve or require the target Unreal project root
+3. download or locate the release bundle
+4. verify the release bundle
+5. materialize `Plugins/LoomleBridge/`
+6. materialize `Loomle/`
+7. print a clear success/failure summary
 
-Bootstrap scripts should not install a global CLI and should not leave a machine-level `loomle` binary behind.
+They should not download and execute a temporary installer binary.
 
-## Artifact contract
+## Artifact Contract
 
-Bootstrap should download a standalone installer artifact, not the project-local `Loomle/loomle`.
+Bootstrap should consume release bundles and manifests directly.
 
-Current hosting model:
+It should not require a separate `loomle-installer` artifact.
 
-- stable public entrypoints remain `https://loomle.ai/install.sh` and `https://loomle.ai/install.ps1`
-- those scripts fetch versioned binaries from GitHub Releases
-- the stable alias release is `loomle-latest`
-- current published bootstrap binaries are macOS and Windows; Linux should fail fast until a Linux release job exists
+The relevant release assets are:
 
-Recommended release asset shape on the stable alias release:
+- `loomle-<platform>.zip`
+- `loomle-manifest-<platform>.json`
+- `loomle-manifest.json`
 
-```text
-loomle-latest/
-  loomle-installer
-  loomle-installer.exe
-  loomle-manifest.json
-  loomle-darwin.zip
-  loomle-windows.zip
-```
+## Installed Outcome
 
-The temporary installer may share code with `mcp/client`, but it is a distinct role:
+Successful bootstrap should leave the project with:
 
-- `loomle-installer`:
-  - bootstrap target
-  - executes install, update, and repair flows
-  - is downloaded temporarily and removed after use
-- project-local `loomle`:
-  - installed into `Loomle/loomle`
-  - provides project runtime entrypoint
-  - may hand off `install` or `update --apply` to a temporary installer
+- `Plugins/LoomleBridge/`
+- `Loomle/loomle(.exe)`
+- `Loomle/runtime/install.json`
 
-## Redirect target
+## Relationship To Update
 
-If `https://loomle.ai/i` must redirect to a concrete script endpoint, the preferred target is:
+Update follows the same model:
 
-- `https://loomle.ai/install.sh`
+- script entrypoint
+- explicit project root
+- bundle/manifest driven
+- no binary installer handoff
 
-and the install page at `https://loomle.ai/i` should also visibly show the Windows alternative:
+## Decision
 
-- `& ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) install --project-root C:\Path\To\MyProject`
+The first `0.4` bootstrap/update contract is:
+
+- scripts only
+- project-local install only
+- no temporary installer binary

@@ -2,143 +2,75 @@
 
 ## Goal
 
-Design a homepage-driven install flow that works well for both:
+Provide one homepage-driven install flow that is easy for both:
 
 - a human opening `loomle.ai`
-- an agent receiving a short prompt from that human
+- an agent asked to install LOOMLE into the current Unreal project
 
-The design should stay simple for the user while still giving the agent enough detail to complete installation.
+## Core Rule
 
-## Core idea
+The first `0.4` install flow should describe:
 
-The homepage should be visually minimal for humans, but textually rich enough that an agent can extract installation guidance from the same page.
+- project-local install
+- script-first bootstrap
+- script-first update
 
-We do **not** depend on reliably detecting whether the visitor is a human browser or an agent. The same page should work for both.
+It should not describe:
 
-## Human-facing homepage behavior
+- global machine install
+- temporary installer binary
 
-The primary visible content should be one short prompt plus a copy button.
+## Visible Homepage Prompt
 
-Recommended default prompt:
+Recommended visible prompt:
 
 ```text
 Install LOOMLE from loomle.ai
 ```
 
-Why this works:
-
-- it is short enough to copy and paste easily
-- it does not try to explain the whole product
-- it only needs to guide the agent to the homepage
-- the real instructions live on the same page below or in machine-readable page content
-
-Alternative acceptable prompt:
+Supporting hint:
 
 ```text
-Install LOOMLE into this Unreal project from loomle.ai
+Paste this into your coding agent from the Unreal project root.
 ```
 
-This is slightly more explicit, but the shorter version is preferred if the page itself contains the rest of the guidance.
+## Agent-Facing Content
 
-## Agent-facing content strategy
+The page body should explicitly explain:
 
-The page should contain additional install guidance in normal text/HTML, even if it is visually secondary.
+1. what LOOMLE installs into the project
+2. how to run the install script
+3. how to run the update script
+4. how to verify the install
 
-That content should explain:
+## Recommended Instruction Shape
 
-1. what LOOMLE is
-2. that the agent should treat `loomle.ai` as the install instruction source
-3. how to install into the current Unreal project
-4. how to verify the installation
-5. what to do on macOS/Linux vs Windows
-
-This lets a human see a simple page while an agent can still read the detailed guidance.
-
-## Recommended homepage structure
-
-### Visible primary section
-
-- Logo / wordmark
-- One-line prompt:
-  - `Install LOOMLE from loomle.ai`
-- Copy button
-- Very small hint:
-  - `Paste this into your coding agent from the Unreal project root.`
-
-### Secondary page content
-
-This can appear below the fold or in a compact details section, but it should still be present in the page body.
-
-Suggested sections:
-
-#### What LOOMLE installs
+### What LOOMLE installs
 
 - `Plugins/LoomleBridge/`
 - `Loomle/`
 
-#### Agent install instructions
+### Install
 
-- run the temporary `loomle-installer` bootstrap if it is not already available in the current command
-- run `loomle-installer install --project-root <ProjectRoot>`
-- run `Loomle/loomle doctor`
-- use `Loomle/loomle update --apply` when the project is already installed and needs an upgrade
+- macOS/Linux: `curl -fsSL https://loomle.ai/install.sh | sh -s -- --project-root /path/to/MyProject`
+- Windows PowerShell:
+  `& ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) -ProjectRoot C:\Path\To\MyProject`
 
-#### Platform notes
+### Update
 
-- macOS bootstrap path
-- Linux currently requires source or local-bundle install
-- Windows bootstrap path
+- macOS/Linux: `curl -fsSL https://loomle.ai/update.sh | sh -s -- --project-root /path/to/MyProject`
+- Windows PowerShell:
+  `& ([scriptblock]::Create((irm https://loomle.ai/update.ps1))) -ProjectRoot C:\Path\To\MyProject`
 
-#### Verification
+### Verify
 
-- confirm `Plugins/LoomleBridge` exists
-- confirm `Loomle/` exists
-- run `Loomle/loomle doctor`
+- `Loomle/loomle doctor`
 
-## Prompt design rule
+## Decision
 
-The homepage prompt should be intentionally minimal.
+The homepage/install-entrypoint design for the first `0.4` cut should teach:
 
-It should **not** attempt to encode:
-
-- platform-specific install commands
-- long product explanation
-- Unreal-specific verification details
-- troubleshooting details
-
-Those belong in the detailed instructions on the page.
-
-The prompt only needs to get the agent to the page.
-
-## Why this is better than a long prompt
-
-A longer prompt makes the human copy experience worse and tends to become stale.
-
-A short prompt plus a richer page is better because:
-
-- the human action is trivial
-- the instructions can evolve without changing the visible prompt
-- the page can carry structured install guidance
-- the same entrypoint can improve over time without retraining users
-
-## Bootstrap relationship
-
-This homepage strategy works together with the bootstrap contract.
-
-The page should ultimately guide agents toward:
-
-- `https://loomle.ai/install.sh`
-- `https://loomle.ai/install.ps1`
-- or the project-local `Loomle/loomle update --apply` path once LOOMLE is already installed
-
-But the homepage prompt itself should stay simple and stable.
-
-## Final recommendation
-
-Use this as the visible homepage prompt:
-
-```text
-Install LOOMLE from loomle.ai
-```
-
-and make the homepage body contain the richer install instructions that the agent can read and follow.
+- project-local installation
+- script bootstrap
+- script update
+- no installer-binary flow

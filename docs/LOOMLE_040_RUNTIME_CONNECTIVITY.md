@@ -2,81 +2,61 @@
 
 ## Summary
 
-This document defines the `0.4.0` runtime connectivity model.
+This document defines the first `0.4.0` runtime connectivity model.
 
 Target direction:
 
-- `loomle mcp` is the primary agent-facing runtime protocol entrypoint
-- `loomle` is a client/launcher, not the runtime server
+- `loomle mcp` is the primary agent-facing runtime entrypoint
+- `loomle` remains project-local in this phase
 - Unreal hosts the runtime authority
-- the first `0.4.0` transport direction is local pipe/socket
+- `LoomleBridge` serves native MCP directly
+- transport remains project-scoped socket/pipe
 
 ## Responsibility Split
 
-The runtime stack should be understood like this:
+The runtime stack in this phase is:
 
-- agent -> `loomle mcp`
-- `loomle mcp` -> project runtime server
-- project runtime server -> Unreal runtime/editor authority
+- agent -> `Loomle/loomle mcp`
+- project-local client -> project-derived endpoint
+- `LoomleBridge` native MCP runtime -> Unreal authority
 
 Key clarification:
 
-- `loomle` replaces the Codex-side connection/configuration layer
-- `loomle` does not replace the backend runtime server
+- `loomle` is an MCP client and launcher
+- `loomle` is not the runtime server
+- `LoomleBridge` is the runtime server and authority
 
 ## `loomle mcp` Role
 
-`loomle mcp` should be the formal long-lived protocol surface for agents.
+`loomle mcp` should be the standard MCP session surface for agents.
 
-It should provide a stable stdin/stdout request/response session.
-
-Minimum supported methods:
+It should provide:
 
 - `initialize`
+- `notifications/initialized`
 - `tools/list`
 - `tools/call`
 
-Protocol guarantees:
-
-- stdout emits protocol frames only
-- stderr emits logs and diagnostics only
-- errors use a stable structured model
-
-## Why Session Mode Is Primary
-
-The runtime path should be session-oriented rather than one-shot-oriented.
-
-Reasons:
-
-- this aligns with MCP's native interaction model
-- agent workflows are usually multi-call rather than single-call
-- project discovery and runtime readiness should be paid once per session
-- repeated connection setup should be avoided where possible
-
-One-shot wrappers may still exist temporarily during migration, but they should
-not define the long-term runtime contract.
+The external protocol should stay standard MCP.
 
 ## Project Discovery
 
-First `0.4.0` scope should not depend on an active-project registry.
+The first `0.4` scope should assume one project per workflow.
 
-Instead, `loomle` should discover the target project in this order:
+Discovery order:
 
 1. explicit `--project-root`
 2. current working directory upward search for `.uproject`
 
-If neither works, the session should fail with an explicit project-discovery
-error.
+No active-project registry is required in this phase.
 
 ## Runtime Endpoint Resolution
 
-After discovering the project, `loomle` should derive the runtime endpoint from
-project-local rules rather than broad machine scanning.
+After project discovery, the client should derive the endpoint from project
+rules:
 
-First-phase direction:
-
-- Unix: project-scoped socket path
-- Windows: project-scoped named pipe
+- Unix: `<ProjectRoot>/Intermediate/loomle.sock`
+- Windows: `\\.\pipe\loomle-<fnv64(project_root)>`
 
 This keeps runtime lookup:
 
@@ -84,138 +64,78 @@ This keeps runtime lookup:
 - project-bound
 - easy to validate
 
-## Handshake Requirements
+## Server Direction
 
-After resolving the candidate endpoint, `loomle` should perform a lightweight
-handshake before treating the runtime as ready.
+The first `0.4` server direction is no longer Python-hosted MCP.
 
-The handshake should confirm:
+It is:
 
-- a server is actually listening
-- the server is ready
-- the server belongs to the expected project
-- protocol/runtime versions are compatible
+- Unreal-hosted native MCP runtime
+- implemented inside `LoomleBridge`
+- backed by the new `mcp core`
 
-Directionally, the handshake should expose:
+This is now the primary runtime direction because:
 
-- project name
-- project root
-- `.uproject` path
-- editor/runtime pid or instance identity
-- protocol version
-- runtime readiness state
-
-## First 0.4 Server Direction
-
-The first `0.4.0` server direction should be:
-
-- Unreal-hosted Python MCP server
-- plugin-managed lifecycle
-- no extra Rust/bridge RPC hop between server and Unreal runtime
-
-This direction is appropriate because:
-
-- Unreal Python is already required
-- `execute` already depends on Python execution
-- it removes an unnecessary middle layer
+- it removes the old custom RPC layer from the main path
+- it removes the extra Rust runtime server hop
+- it keeps runtime authority exactly where Unreal already owns it
 
 ## Transport Direction
 
-The first `0.4.0` transport direction should be local pipe/socket.
+The first `0.4` transport direction remains local IPC:
+
+- Unix socket
+- Windows named pipe
+
+No HTTP transport is required for this phase.
+
+## Session Model
+
+The client/runtime interaction should be session-oriented.
 
 Reasons:
 
-- better local-IPC fit for the first in-process runtime model
-- lower product friction than introducing a local network-service assumption
-- reuse of existing project-scoped endpoint patterns
+- standard MCP is session-oriented
+- repeated project discovery and readiness should be paid once
+- the runtime should support multi-call workflows cleanly
 
-HTTP may be added later if broader client interoperability is needed.
+One-shot wrappers may still exist, but they are not the primary contract.
 
-HTTP is not required for the first `0.4.0` runtime migration.
+## Runtime Readiness
 
-## Server Lifecycle Direction
+The runtime should expose a clear readiness distinction:
 
-Directionally, Unreal/plugin startup should ensure the runtime server becomes
-available and remains ready for `loomle mcp` client sessions.
+- endpoint missing
+- endpoint exists but runtime not ready
+- ready
+- version/protocol mismatch
 
-That means:
+`doctor` should surface these states directly.
 
-- the runtime server should be started or initialized as part of plugin startup
-- readiness must be explicit
-- `loomle` should not carry primary responsibility for spawning the runtime
-  server each time
+## Relationship To Install
 
-## Editor Status Signal
+This connectivity model assumes only project-local installation:
 
-The Unreal plugin should expose a minimal editor-visible status signal for the
-runtime server.
+- `Loomle/loomle(.exe)` exists in the target project
+- `Plugins/LoomleBridge/` exists in the target project
+- no global LOOMLE install is required in this phase
 
-The first `0.4.0` version should stay intentionally small:
+## Deferred Work
 
-- show a small status icon in the editor UI
-- provide hover text only
-- do not open a dedicated panel
-- do not provide restart controls in the first version
+Not part of this phase:
 
-The purpose is simple operational visibility.
-
-Users should be able to tell at a glance whether the runtime is:
-
-- `Disabled`
-- `Starting`
-- `Ready`
-- `Error`
-
-Hover text should stay concise and prefer:
-
-- current LOOMLE runtime state
-- transport or endpoint summary
-- project identity when useful
-- last high-level error summary when not ready
-
-This should provide a visible readiness signal without turning the first
-runtime integration into a larger UI surface.
-
-## Single-Project Scope
-
-The first runtime scope should assume one active project per agent workflow.
-
-Implications:
-
-- no active-project registry required initially
-- no automatic multi-project routing required initially
-- runtime identity must still be explicit in handshake/status responses
-
-## Failure Model
-
-Runtime errors should distinguish at least:
-
-- project not found
-- project endpoint missing
-- server not listening
-- server not ready
-- project identity mismatch
-- protocol/version mismatch
-
-`doctor` should evolve to surface these runtime states directly.
-
-## Relationship To Install/Upgrade
-
-This runtime model implies:
-
-- `loomle` must exist as a global machine-level executable
-- project integration must install the runtime server side with the Unreal
-  project/plugin
-- compatibility between global `loomle` and project/runtime integration must be
-  checked explicitly
+- global client install
+- global attach/init model
+- multi-project routing
+- HTTP transport
+- Studio directory migration
 
 ## Decision
 
-The first `0.4.0` runtime connectivity model should be:
+The first `LOOMLE 0.4.0` runtime connectivity model should be:
 
-- global `loomle` client/launcher
-- `loomle mcp` as the primary agent protocol surface
-- Unreal-hosted Python runtime server
-- local pipe/socket transport
-- project-derived endpoint lookup
-- no active-project registry in first scope
+- project-local `loomle`
+- `loomle mcp` as the primary MCP client entrypoint
+- Unreal-hosted native MCP runtime in `LoomleBridge`
+- project-derived socket/pipe endpoint lookup
+- no global install requirement
