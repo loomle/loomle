@@ -4,28 +4,23 @@
 
 Build a clean split where:
 
-- MCP server is implemented in Rust.
-- Unreal plugin exposes internal RPC interfaces.
-- MCP server and Unreal runtime communicate through RPC Connector <-> RPC Listener.
+- `loomle mcp` is the standard MCP client.
+- `LoomleBridge` owns the runtime authority and native MCP server path.
+- project-scoped socket/pipe transport connects the client to the Unreal-hosted runtime.
 
 ## 2. Topology
 
 1. MCP Client
 - Sends MCP requests.
 
-2. LOOMLE MCP Server (Rust)
+2. `LoomleBridge` MCP Runtime (C++)
 - Implements MCP lifecycle and tool contracts.
-- Validates tool inputs/outputs.
-- Handles MCP-only descriptor/status tools locally.
-- Uses RPC Connector for runtime-dependent tools.
+- Owns tool registry, tool bridge, and per-connection session state.
+- Reuses Unreal authority-side dispatch for runtime-dependent tools.
 
-3. RPC Connector (Rust)
-- Owns connection lifecycle.
-- Sends RPC requests.
-- Routes responses by request id.
-
-4. RPC Listener (C++)
-- Owns listen/accept lifecycle.
+3. Local Transport Host
+- Owns project-scoped socket/pipe lifecycle.
+- Routes raw MCP messages between the client and runtime sessions.
 - Validates RPC envelopes.
 - Dispatches to runtime handlers.
 
@@ -115,23 +110,21 @@ Reason:
 
 ## 7. MCP Server Packaging Contract
 
-- Release packages embed MCP server binary under plugin path:
-  - `LoomleBridge/Tools/mcp/darwin/loomle_mcp_server`
-  - `LoomleBridge/Tools/mcp/linux/loomle_mcp_server`
+- Darwin runtime serves MCP directly from `LoomleBridge` over the project-scoped socket.
+- Windows remains on the transitional packaged runtime bridge binary path:
   - `LoomleBridge/Tools/mcp/windows/loomle_mcp_server.exe`
-- Runtime client config uses:
-  - `command=<ProjectRoot>/Plugins/LoomleBridge/<server_binary_relpath>`
-  - `args=["--project-root","<ProjectRoot>"]`
 - Runtime path policy:
-  - `--project-root` is required for server startup.
-  - Server does not auto-detect project root from current working directory.
+  - Darwin client connects to `<ProjectRoot>/Intermediate/loomle.sock`
+  - Windows client launches `<ProjectRoot>/Plugins/LoomleBridge/<server_binary_relpath>`
+  - `--project-root` remains required for launched runtime bridge startup
 
 ## 8. Release Runtime Notes
 
 - Release runtime is source-independent:
   - do not require `cargo`, source tree, or local Rust toolchain.
 - Client/runtime launcher must provide:
-  - `command=<ProjectRoot>/Plugins/LoomleBridge/<server_binary_relpath>`
-  - `args=["--project-root","<ProjectRoot>"]`
+  - Darwin: connect to `<ProjectRoot>/Intermediate/loomle.sock`
+  - Windows: `command=<ProjectRoot>/Plugins/LoomleBridge/<server_binary_relpath>`
+  - Windows: `args=["--project-root","<ProjectRoot>"]`
 - Minimum liveness check sequence:
   - `initialize` -> `loomle` -> `context`

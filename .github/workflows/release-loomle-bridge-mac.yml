@@ -69,9 +69,7 @@ jobs:
           [[ -d "$inputs_dir/workspace/Loomle" ]] || { echo "Verify workspace inputs missing: $inputs_dir/workspace/Loomle" >&2; exit 1; }
           [[ -f "$inputs_dir/mcp/client/darwin/loomle" ]] || { echo "Verify client inputs missing: $inputs_dir/mcp/client/darwin/loomle" >&2; exit 1; }
 
-          server_relpath="plugin/LoomleBridge/Tools/mcp/darwin/loomle_mcp_server"
           client_relpath="workspace/Loomle/loomle"
-          server_dst="$bundle_dir/$server_relpath"
           client_dst="$bundle_dir/$client_relpath"
 
           rsync -a "$inputs_dir/plugin/LoomleBridge/" "$bundle_dir/plugin/LoomleBridge/"
@@ -81,7 +79,6 @@ jobs:
           cp "$inputs_dir/mcp/client/darwin/loomle" "$bootstrap_cli_path"
           chmod +x \
             "$bundle_dir/mcp/client/darwin/loomle" \
-            "$bundle_dir/$server_relpath" \
             "$bundle_dir/$client_relpath" \
             "$bootstrap_cli_path"
 
@@ -91,7 +88,6 @@ jobs:
           )
 
           package_sha="$(shasum -a 256 "$archive_path" | awk '{print tolower($1)}')"
-          server_sha="$(shasum -a 256 "$server_dst" | awk '{print tolower($1)}')"
           client_sha="$(shasum -a 256 "$client_dst" | awk '{print tolower($1)}')"
           installer_sha="$(shasum -a 256 "$bootstrap_cli_path" | awk '{print tolower($1)}')"
           asset_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/loomle-darwin.zip"
@@ -103,8 +99,6 @@ jobs:
             --platform darwin \
             --asset-url "$asset_url" \
             --sha256 "$package_sha" \
-            --server-binary-relpath "$server_relpath" \
-            --server-sha256 "$server_sha" \
             --client-binary-relpath "$client_relpath" \
             --client-sha256 "$client_sha" \
             --installer-url "$installer_url" \

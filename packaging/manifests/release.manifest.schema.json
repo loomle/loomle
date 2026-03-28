@@ -39,8 +39,6 @@
         "url",
         "sha256",
         "format",
-        "server_binary_relpath",
-        "server_sha256",
         "client_binary_relpath",
         "client_sha256",
         "install"

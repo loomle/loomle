@@ -6,6 +6,7 @@
 #include "Modules/ModuleManager.h"
 
 class FLoomlePipeServer;
+class FMcpCoreTransportHost;
 class FJsonObject;
 class FJsonValue;
 class FOutputDevice;
@@ -17,9 +18,23 @@ public:
     virtual void ShutdownModule() override;
 
 private:
-    FString HandleRequest(const FString& RequestLine);
+    friend class FMcpCoreTransportHost;
+
+    FString HandleRequest(int32 ConnectionSerial, const FString& RequestLine);
+    void ForgetMcpSessionState(int32 ConnectionSerial);
     bool TickHealthSnapshot(float DeltaTime);
     void UpdateHealthSnapshot();
+
+    TSharedPtr<FJsonObject> BuildMcpInitializeResult(const TSharedPtr<FJsonObject>& Params) const;
+    TSharedPtr<FJsonObject> BuildMcpToolsListResult() const;
+    TSharedPtr<FJsonObject> BuildMcpCallToolResult(
+        const TSharedPtr<FJsonObject>& Params,
+        bool& bOutHasJsonRpcError,
+        int32& OutErrorCode,
+        FString& OutErrorMessage,
+        TSharedPtr<FJsonObject>& OutErrorData);
+    TSharedPtr<FJsonObject> BuildLoomleToolResult() const;
+    TSharedPtr<FJsonObject> BuildGraphDescriptorToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
 
     TSharedPtr<FJsonObject> BuildRpcHealthResult() const;
     TSharedPtr<FJsonObject> BuildRpcCapabilitiesResult() const;
@@ -58,6 +73,12 @@ private:
     FString MakeJsonError(const TSharedPtr<FJsonValue>& Id, int32 Code, const FString& Message) const;
 
 private:
+    struct FMcpSessionState
+    {
+        bool bInitializeCompleted = false;
+        bool bClientInitialized = false;
+    };
+
     struct FPendingGraphLayoutState
     {
         FString GraphType;
@@ -104,6 +125,9 @@ private:
 
 private:
     TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> PipeServer;
+    TUniquePtr<FMcpCoreTransportHost> McpTransportHost;
+    TMap<int32, FMcpSessionState> McpSessionStates;
+    FCriticalSection McpSessionStatesMutex;
     TMap<FString, FPendingGraphLayoutState> PendingGraphLayoutStates;
     FCriticalSection PendingGraphLayoutStatesMutex;
     TMap<FString, FMutateIdempotencyEntry> MutateIdempotencyRegistry;

@@ -339,7 +339,7 @@ Current repository areas should move conceptually like this:
 ```text
 Current                         -> Target
 mcp/client/                     -> cli/loomle/
-mcp/server/                     -> engine/python/server/   (or legacy transitional runtime area)
+mcp/server/                     -> transitional runtime area (Windows fallback only; remove after native MCP runtime cutover)
 mcp/protocol/                   -> cli/protocol/ and/or docs-owned protocol assets
 workspace/Loomle/               -> project/template/       (for true project-bound content)
 shared project-local capabilities -> global/

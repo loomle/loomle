@@ -1,4 +1,4 @@
-use crate::{installer_binary_name, platform_key, validate_project_root};
+use crate::{installer_binary_name, platform_key, runtime_server_binary_required, validate_project_root};
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::json;
@@ -164,7 +164,8 @@ struct ReleasePackage {
     sha256: String,
     #[serde(default)]
     format: String,
-    server_binary_relpath: String,
+    #[serde(default)]
+    server_binary_relpath: Option<String>,
     client_binary_relpath: String,
     install: ReleaseInstall,
 }
@@ -807,7 +808,6 @@ fn extract_zip(archive_path: &Path, bundle_root: &Path) -> Result<(), String> {
 fn validate_bundle_paths(bundle_root: &Path, package: &ReleasePackage) -> Result<(), String> {
     let plugin_source = bundle_root.join(&package.install.plugin.source);
     let workspace_source = bundle_root.join(&package.install.workspace.source);
-    let server_binary = bundle_root.join(&package.server_binary_relpath);
     let client_binary = bundle_root.join(&package.client_binary_relpath);
 
     if !plugin_source.is_dir() {
@@ -822,11 +822,17 @@ fn validate_bundle_paths(bundle_root: &Path, package: &ReleasePackage) -> Result
             workspace_source.display()
         ));
     }
-    if !server_binary.is_file() {
-        return Err(format!(
-            "server binary not found: {}",
-            server_binary.display()
-        ));
+    if runtime_server_binary_required() {
+        let server_binary_relpath = package.server_binary_relpath.as_deref().ok_or_else(|| {
+            String::from("server binary relpath missing for platform package")
+        })?;
+        let server_binary = bundle_root.join(server_binary_relpath);
+        if !server_binary.is_file() {
+            return Err(format!(
+                "server binary not found: {}",
+                server_binary.display()
+            ));
+        }
     }
     if !client_binary.is_file() {
         return Err(format!(
@@ -873,12 +879,6 @@ fn copy_release_tree(
 fn validate_installed_paths(project_root: &Path, package: &ReleasePackage) -> Result<(), String> {
     let plugin_destination = project_root.join(&package.install.plugin.destination);
     let workspace_destination = project_root.join(&package.install.workspace.destination);
-    let server_path = installed_destination_path(
-        project_root,
-        PLUGIN_SOURCE_ROOT,
-        &package.install.plugin.destination,
-        &package.server_binary_relpath,
-    )?;
     let client_path = installed_destination_path(
         project_root,
         WORKSPACE_SOURCE_ROOT,
@@ -899,11 +899,22 @@ fn validate_installed_paths(project_root: &Path, package: &ReleasePackage) -> Re
             workspace_destination.display()
         ));
     }
-    if !server_path.is_file() {
-        return Err(format!(
-            "installed server binary missing: {}",
-            server_path.display()
-        ));
+    if runtime_server_binary_required() {
+        let server_binary_relpath = package.server_binary_relpath.as_deref().ok_or_else(|| {
+            String::from("server binary relpath missing for installed package")
+        })?;
+        let server_path = installed_destination_path(
+            project_root,
+            PLUGIN_SOURCE_ROOT,
+            &package.install.plugin.destination,
+            server_binary_relpath,
+        )?;
+        if !server_path.is_file() {
+            return Err(format!(
+                "installed server binary missing: {}",
+                server_path.display()
+            ));
+        }
     }
     if !client_path.is_file() {
         return Err(format!(
@@ -988,14 +999,20 @@ fn ensure_installed_binaries_executable(
         &package.install.workspace.destination,
         &package.client_binary_relpath,
     )?;
-    let server_path = installed_destination_path(
-        project_root,
-        PLUGIN_SOURCE_ROOT,
-        &package.install.plugin.destination,
-        &package.server_binary_relpath,
-    )?;
     ensure_executable_file(&client_path)?;
-    ensure_executable_file(&server_path)
+    if runtime_server_binary_required() {
+        let server_binary_relpath = package.server_binary_relpath.as_deref().ok_or_else(|| {
+            String::from("server binary relpath missing for installed package")
+        })?;
+        let server_path = installed_destination_path(
+            project_root,
+            PLUGIN_SOURCE_ROOT,
+            &package.install.plugin.destination,
+            server_binary_relpath,
+        )?;
+        ensure_executable_file(&server_path)?;
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -1034,12 +1051,6 @@ fn write_runtime_install_state(
         &package.install.workspace.destination,
         &package.client_binary_relpath,
     )?;
-    let server_path = installed_destination_path(
-        project_root,
-        PLUGIN_SOURCE_ROOT,
-        &package.install.plugin.destination,
-        &package.server_binary_relpath,
-    )?;
     let settings_path = project_root.join("Config/DefaultEditorSettings.ini");
 
     let install_state = json!({
@@ -1050,12 +1061,26 @@ fn write_runtime_install_state(
         "workspaceRoot": workspace_root.display().to_string(),
         "pluginRoot": project_root.join(&package.install.plugin.destination).display().to_string(),
         "clientPath": client_path.display().to_string(),
-        "serverPath": server_path.display().to_string(),
         "editorPerformance": {
             "settingsFile": settings_path.display().to_string(),
             "throttleWhenNotForeground": false,
         }
     });
+    let install_state = if let Some(server_binary_relpath) =
+        package.server_binary_relpath.as_deref()
+    {
+        let server_path = installed_destination_path(
+            project_root,
+            PLUGIN_SOURCE_ROOT,
+            &package.install.plugin.destination,
+            server_binary_relpath,
+        )?;
+        let mut install_state = install_state;
+        install_state["serverPath"] = json!(server_path.display().to_string());
+        install_state
+    } else {
+        install_state
+    };
 
     let rendered = serde_json::to_string_pretty(&install_state)
         .map_err(|error| format!("failed to encode install state JSON: {error}"))?;
@@ -1263,17 +1288,19 @@ mod tests {
                 .expect("client metadata")
                 .permissions()
                 .mode();
-            let server_mode = fs::metadata(
-                project_root
-                    .join("Plugins/LoomleBridge/Tools/mcp")
-                    .join(platform_key())
-                    .join(server_name),
-            )
-            .expect("server metadata")
-            .permissions()
-            .mode();
             assert_ne!(client_mode & 0o111, 0, "client should be executable");
-            assert_ne!(server_mode & 0o111, 0, "server should be executable");
+            if runtime_server_binary_required() {
+                let server_mode = fs::metadata(
+                    project_root
+                        .join("Plugins/LoomleBridge/Tools/mcp")
+                        .join(platform_key())
+                        .join(server_name),
+                )
+                .expect("server metadata")
+                .permissions()
+                .mode();
+                assert_ne!(server_mode & 0o111, 0, "server should be executable");
+            }
         }
         let editor_settings = fs::read_to_string(
             project_root.join("Config/DefaultEditorSettings.ini"),

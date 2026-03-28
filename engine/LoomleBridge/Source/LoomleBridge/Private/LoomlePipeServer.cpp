@@ -65,9 +65,10 @@ FString MakeBusyErrorResponse(const FString& RequestLine)
 
 }
 
-FLoomlePipeServer::FLoomlePipeServer(const FString& InPipeName, FRequestHandler InHandler)
+FLoomlePipeServer::FLoomlePipeServer(const FString& InPipeName, FRequestHandler InHandler, FConnectionClosedHandler InConnectionClosedHandler)
     : PipeName(InPipeName)
     , RequestHandler(MoveTemp(InHandler))
+    , ConnectionClosedHandler(MoveTemp(InConnectionClosedHandler))
 {
 }
 
@@ -459,7 +460,7 @@ void FLoomlePipeServer::HandleWindowsClient(void* NativeHandle, int32 Connection
             }
 
             FRequestHandler HandlerSnapshot = RequestHandler;
-            const FString Response = HandlerSnapshot(RequestLine);
+            const FString Response = HandlerSnapshot(ConnectionSerial, RequestLine);
             EndInFlight();
             if (!Response.IsEmpty() && !WriteMessageForConnection(Response, ConnectionSerial))
             {
@@ -470,6 +471,10 @@ void FLoomlePipeServer::HandleWindowsClient(void* NativeHandle, int32 Connection
     }
 
     UnregisterConnection(ConnectionSerial);
+    if (ConnectionClosedHandler)
+    {
+        ConnectionClosedHandler(ConnectionSerial);
+    }
     FlushFileBuffers(LocalPipe);
     DisconnectNamedPipe(LocalPipe);
     CloseHandle(LocalPipe);
@@ -525,7 +530,7 @@ void FLoomlePipeServer::HandleUnixClient(int32 LocalClientFd, int32 ConnectionSe
             }
 
             FRequestHandler HandlerSnapshot = RequestHandler;
-            const FString Response = HandlerSnapshot(RequestLine);
+            const FString Response = HandlerSnapshot(ConnectionSerial, RequestLine);
             EndInFlight();
             if (!Response.IsEmpty() && !WriteMessageForConnection(Response, ConnectionSerial))
             {
@@ -536,6 +541,10 @@ void FLoomlePipeServer::HandleUnixClient(int32 LocalClientFd, int32 ConnectionSe
     }
 
     UnregisterConnection(ConnectionSerial);
+    if (ConnectionClosedHandler)
+    {
+        ConnectionClosedHandler(ConnectionSerial);
+    }
     close(LocalClientFd);
     UE_LOG(LogLoomlePipe, Display, TEXT("Loomle client disconnected"));
 #endif

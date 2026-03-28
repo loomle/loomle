@@ -38,7 +38,7 @@ def main() -> int:
     parser.add_argument("--repo-root", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--platform", required=True)
-    parser.add_argument("--server-binary", required=True)
+    parser.add_argument("--server-binary", default="")
     parser.add_argument("--client-binary", required=True)
     args = parser.parse_args()
 
@@ -54,11 +54,14 @@ def main() -> int:
     copy_tree(engine_plugin, release_plugin)
     copy_tree(workspace_root, release_workspace)
 
-    server_binary = Path(args.server_binary).resolve()
-    copy_file(
-        server_binary,
-        release_plugin / "Tools" / "mcp" / args.platform / server_binary.name,
-    )
+    server_binary_included = False
+    if args.server_binary:
+        server_binary = Path(args.server_binary).resolve()
+        copy_file(
+            server_binary,
+            release_plugin / "Tools" / "mcp" / args.platform / server_binary.name,
+        )
+        server_binary_included = True
 
     client_binary = Path(args.client_binary).resolve()
     copy_file(
@@ -74,7 +77,7 @@ def main() -> int:
         "bundleRoot": str(output_dir),
         "plugin": str(release_plugin),
         "workspace": str(release_workspace),
-        "serverBinaryIncluded": True,
+        "serverBinaryIncluded": server_binary_included,
         "clientBinaryIncluded": True,
     }
     print(json.dumps(manifest, indent=2))

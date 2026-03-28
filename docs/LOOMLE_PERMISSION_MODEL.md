@@ -37,7 +37,7 @@ This tier depends on local execution and live runtime connectivity.
 Examples:
 
 - running the local LOOMLE client
-- launching the local MCP server
+- connecting to the local runtime transport or launching a platform-required bridge
 - reaching Unreal bridge connectivity
 - using `context`
 - using `execute`
@@ -73,17 +73,17 @@ If this is blocked, the client may run but still fail to locate:
 
 - the project
 - the plugin
-- the MCP server binary
+- the runtime endpoint metadata or platform-required bridge binary
 
-### Layer 3: Local MCP server execution
+### Layer 3: Local runtime transport
 
-The client must be allowed to spawn the local MCP server.
+The client must be allowed to connect to or launch the project-local runtime.
 
 If this is blocked, the client may run but runtime connectivity still fails.
 
 ### Layer 4: Unreal bridge availability
 
-Even if the client and local MCP server run, Unreal runtime connectivity may
+Even if the client and local runtime transport are available, Unreal runtime connectivity may
 still be unavailable because:
 
 - the plugin is not loaded
@@ -125,9 +125,9 @@ Meaning:
 - runtime unavailable
 - likely fix is path or access authorization
 
-### State D: Server Launch Blocked
+### State D: Runtime Launch Blocked
 
-The client runs, but cannot spawn the local MCP server.
+The client runs, but cannot connect to or launch the local runtime path.
 
 Meaning:
 
@@ -146,7 +146,7 @@ Meaning:
 
 ### State F: Full Runtime
 
-The local client, local server, and Unreal bridge are all working.
+The local client, local runtime path, and Unreal bridge are all working.
 
 Meaning:
 
@@ -177,7 +177,7 @@ The user or agent should be told something close to:
 
 - LOOMLE static collaboration features are still available
 - LOOMLE runtime features require permission to execute the local client and
-  local MCP server
+  access the local runtime path
 
 This keeps the product understandable and avoids making LOOMLE look completely
 broken when only the runtime tier is unavailable.

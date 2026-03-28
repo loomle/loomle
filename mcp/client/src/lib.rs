@@ -8,6 +8,8 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::process::Command as TokioCommand;
+#[cfg(unix)]
+use tokio::net::UnixStream;
 
 pub type LoomleClient = rmcp::service::RunningService<rmcp::service::RoleClient, ()>;
 
@@ -19,6 +21,7 @@ pub struct Environment {
     pub project_root: PathBuf,
     pub plugin_root: PathBuf,
     pub server_path: PathBuf,
+    pub runtime_socket_path: PathBuf,
 }
 
 impl Environment {
@@ -29,20 +32,42 @@ impl Environment {
             .join("mcp")
             .join(platform_key())
             .join(server_binary_name());
+        let runtime_socket_path = project_root.join("Intermediate").join("loomle.sock");
 
         Self {
             project_root,
             plugin_root,
             server_path,
+            runtime_socket_path,
         }
     }
 }
 
 pub async fn connect_client(env_info: &Environment) -> Result<LoomleClient, String> {
+    #[cfg(unix)]
+    {
+        let stream = UnixStream::connect(&env_info.runtime_socket_path)
+            .await
+            .map_err(|error| {
+                format!(
+                    "failed to connect to LOOMLE runtime socket {}: {}",
+                    env_info.runtime_socket_path.display(),
+                    error
+                )
+            })?;
+        return ()
+            .serve(stream)
+            .await
+            .map_err(|error| format!("failed to establish MCP session: {error}"));
+    }
+
+    #[cfg(not(unix))]
+    {
     let transport = spawn_server_transport(env_info)?;
     ().serve(transport)
         .await
         .map_err(|error| format!("failed to establish MCP session: {error}"))
+    }
 }
 
 pub fn spawn_server_transport(env_info: &Environment) -> Result<TokioChildProcess, String> {
@@ -154,6 +179,10 @@ pub fn server_binary_name() -> &'static str {
     } else {
         "loomle_mcp_server"
     }
+}
+
+pub fn runtime_server_binary_required() -> bool {
+    cfg!(target_os = "windows")
 }
 
 pub fn project_client_binary_name() -> &'static str {

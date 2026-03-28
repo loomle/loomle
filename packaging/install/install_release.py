@@ -112,6 +112,10 @@ def resolve_installed_path(
     return project_root / destination_root / relative_path
 
 
+def runtime_server_binary_required(platform: str) -> bool:
+    return platform == "windows"
+
+
 def write_runtime_install_state(
     *,
     project_root: Path,
@@ -142,19 +146,20 @@ def write_runtime_install_state(
                 bundle_relative_path=client_binary_relpath,
             )
         ),
-        "serverPath": str(
+        "editorPerformance": {
+            "settingsFile": str(editor_settings_path),
+            "throttleWhenNotForeground": False,
+        },
+    }
+    if server_binary_relpath:
+        install_state["serverPath"] = str(
             resolve_installed_path(
                 project_root=project_root,
                 source_root=PLUGIN_SOURCE_ROOT,
                 destination_root=plugin_destination_root,
                 bundle_relative_path=server_binary_relpath,
             )
-        ),
-        "editorPerformance": {
-            "settingsFile": str(editor_settings_path),
-            "throttleWhenNotForeground": False,
-        },
-    }
+        )
     try:
         install_state_path.write_text(json.dumps(install_state, indent=2) + "\n", encoding="utf-8")
     except Exception as exc:
@@ -217,24 +222,26 @@ def main() -> int:
         fail(f"plugin destination must stay under Plugins/: {plugin_install}")
     if str(workspace_install.get("destination", "")) != "Loomle":
         fail(f"workspace destination must be Loomle: {workspace_install}")
-    if not isinstance(server_binary_relpath, str) or not server_binary_relpath:
-        fail("package missing server_binary_relpath")
     if not isinstance(client_binary_relpath, str) or not client_binary_relpath:
         fail("package missing client_binary_relpath")
 
-    require_existing_file(bundle_root / server_binary_relpath, "server binary")
+    if runtime_server_binary_required(args.platform):
+        if not isinstance(server_binary_relpath, str) or not server_binary_relpath:
+            fail("package missing server_binary_relpath")
+        require_existing_file(bundle_root / server_binary_relpath, "server binary")
     require_existing_file(bundle_root / client_binary_relpath, "client binary")
 
     copy_tree(plugin_source, plugin_destination)
     copy_tree(workspace_source, workspace_destination)
-    ensure_executable_file(
-        resolve_installed_path(
-            project_root=project_root,
-            source_root=PLUGIN_SOURCE_ROOT,
-            destination_root=str(plugin_install.get("destination", "")),
-            bundle_relative_path=server_binary_relpath,
+    if server_binary_relpath:
+        ensure_executable_file(
+            resolve_installed_path(
+                project_root=project_root,
+                source_root=PLUGIN_SOURCE_ROOT,
+                destination_root=str(plugin_install.get("destination", "")),
+                bundle_relative_path=server_binary_relpath,
+            )
         )
-    )
     ensure_executable_file(
         resolve_installed_path(
             project_root=project_root,

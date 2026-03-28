@@ -117,6 +117,23 @@ record.
   - `profiling.action = "memory"` is implemented for `kind = "summary"`
   - `capture` and memory modes beyond `summary` remain follow-up work
 
+7. `../LOOMLE_040_CPP_MCP_SDK_MINIMAL_DESIGN.md`
+- `0.4.0` design for a self-owned minimal C++ MCP server layer inside
+  `LoomleBridge`.
+- Covers:
+  - why the current custom RPC layer should not remain the long-term primary
+    runtime contract
+  - why a Python-hosted primary MCP server adds avoidable lifecycle and
+    transport complexity
+  - the minimum MCP lifecycle and tool surface LOOMLE actually needs
+  - the relationship between a minimal C++ MCP shell and the existing Unreal
+    authority-side tool dispatcher
+- Defines:
+  - required MCP message set
+  - minimal session/runtime modules
+  - rollout phases
+  - acceptance criteria
+
 ## Recommended Structure
 
 Each local issue should try to answer these questions clearly:

@@ -5,6 +5,7 @@ use loomle::{
         InstallerDownloadRequest, UpdateRequest,
     },
     is_installer_binary_path, parse_json_object, render_json_pretty, resolve_project_root,
+    runtime_server_binary_required,
     skill::{
         install_skill, list_skills, remove_skill, SkillInstallRequest, SkillListRequest,
         SkillRemoveRequest,
@@ -743,6 +744,7 @@ fn run_doctor(env_info: &Environment) -> ExitCode {
     println!("project_root={}", env_info.project_root.display());
     println!("plugin_root={}", env_info.plugin_root.display());
     println!("server_path={}", env_info.server_path.display());
+    println!("runtime_socket_path={}", env_info.runtime_socket_path.display());
 
     if !env_info.plugin_root.is_dir() {
         ok = false;
@@ -751,7 +753,7 @@ fn run_doctor(env_info: &Environment) -> ExitCode {
             env_info.plugin_root.display()
         );
     }
-    if !env_info.server_path.is_file() {
+    if runtime_server_binary_required() && !env_info.server_path.is_file() {
         ok = false;
         eprintln!(
             "[loomle][ERROR] server binary not found: {}",
@@ -778,11 +780,19 @@ async fn run_list_tools(env_info: &Environment) -> ExitCode {
     };
 
     let result = client.peer().list_all_tools().await.map_err(|error| {
-        format!(
-            "failed to list tools from {}: {}",
-            env_info.server_path.display(),
-            error
-        )
+        if runtime_server_binary_required() {
+            format!(
+                "failed to list tools from {}: {}",
+                env_info.server_path.display(),
+                error
+            )
+        } else {
+            format!(
+                "failed to list tools from runtime socket {}: {}",
+                env_info.runtime_socket_path.display(),
+                error
+            )
+        }
     });
     let close_result = client.close().await;
 

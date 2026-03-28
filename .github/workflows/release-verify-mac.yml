@@ -93,8 +93,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd "$GITHUB_WORKSPACE/mcp/server"
-          cargo test
           cd "$GITHUB_WORKSPACE/mcp/client"
           cargo test
 
@@ -126,29 +124,21 @@ jobs:
           mkdir -p "$plugin_dst"
           rsync -a --delete "$package_dir"/ "$plugin_dst"/
 
-      - name: Build MCP Server Binary (Release) And Sync To Test Project Plugin
+      - name: Build LOOMLE Client Binary (Release) And Sync To Test Project Workspace
         shell: bash
         run: |
           set -euo pipefail
-          cd "$GITHUB_WORKSPACE/mcp/server"
-          cargo build --release
           cd "$GITHUB_WORKSPACE/mcp/client"
           cargo build --release
 
-          server_src="$GITHUB_WORKSPACE/mcp/server/target/release/loomle_mcp_server"
           client_src="$GITHUB_WORKSPACE/mcp/client/target/release/loomle"
           workspace_src="$GITHUB_WORKSPACE/workspace/Loomle"
-          [[ -x "$server_src" ]] || { echo "MCP server binary missing or not executable: $server_src" >&2; exit 1; }
           [[ -x "$client_src" ]] || { echo "LOOMLE client binary missing or not executable: $client_src" >&2; exit 1; }
           [[ -d "$workspace_src" ]] || { echo "LOOMLE workspace missing: $workspace_src" >&2; exit 1; }
 
-          plugin_server="${{ steps.test_project.outputs.test_root }}/Plugins/LoomleBridge/Tools/mcp/darwin/loomle_mcp_server"
           workspace_dst="${{ steps.test_project.outputs.test_root }}/Loomle"
-          mkdir -p "$(dirname "$plugin_server")"
           rm -rf "$workspace_dst"
           rsync -a "$workspace_src"/ "$workspace_dst"/
-          cp "$server_src" "$plugin_server"
-          chmod +x "$plugin_server"
           cp "$client_src" "$workspace_dst/loomle"
           chmod +x "$workspace_dst/loomle"
 
@@ -159,24 +149,19 @@ jobs:
           release_inputs="$RUNNER_TEMP/loomle-release-inputs-darwin"
           plugin_src="$RUNNER_TEMP/LoomleBridge_Gating"
           workspace_src="$GITHUB_WORKSPACE/workspace/Loomle"
-          server_src="$GITHUB_WORKSPACE/mcp/server/target/release/loomle_mcp_server"
           client_src="$GITHUB_WORKSPACE/mcp/client/target/release/loomle"
 
           [[ -d "$plugin_src" ]] || { echo "Packaged plugin missing: $plugin_src" >&2; exit 1; }
           [[ -d "$workspace_src" ]] || { echo "Workspace missing: $workspace_src" >&2; exit 1; }
-          [[ -x "$server_src" ]] || { echo "MCP server binary missing: $server_src" >&2; exit 1; }
           [[ -x "$client_src" ]] || { echo "Client binary missing: $client_src" >&2; exit 1; }
 
           rm -rf "$release_inputs"
           mkdir -p \
-            "$release_inputs/plugin/LoomleBridge/Tools/mcp/darwin" \
             "$release_inputs/workspace/Loomle" \
             "$release_inputs/mcp/client/darwin"
 
           rsync -a "$plugin_src"/ "$release_inputs/plugin/LoomleBridge"/
           rsync -a "$workspace_src"/ "$release_inputs/workspace/Loomle"/
-          cp "$server_src" "$release_inputs/plugin/LoomleBridge/Tools/mcp/darwin/loomle_mcp_server"
-          chmod +x "$release_inputs/plugin/LoomleBridge/Tools/mcp/darwin/loomle_mcp_server"
           cp "$client_src" "$release_inputs/workspace/Loomle/loomle"
           cp "$client_src" "$release_inputs/mcp/client/darwin/loomle"
           chmod +x \

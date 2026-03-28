@@ -10,9 +10,10 @@ class FRunnableThread;
 class FLoomlePipeServer : public FRunnable, public TSharedFromThis<FLoomlePipeServer, ESPMode::ThreadSafe>
 {
 public:
-    using FRequestHandler = TFunction<FString(const FString&)>;
+    using FRequestHandler = TFunction<FString(int32, const FString&)>;
+    using FConnectionClosedHandler = TFunction<void(int32)>;
 
-    FLoomlePipeServer(const FString& InPipeName, FRequestHandler InHandler);
+    FLoomlePipeServer(const FString& InPipeName, FRequestHandler InHandler, FConnectionClosedHandler InConnectionClosedHandler = nullptr);
     virtual ~FLoomlePipeServer();
 
     bool Start();
@@ -37,6 +38,7 @@ private:
 private:
     FString PipeName;
     FRequestHandler RequestHandler;
+    FConnectionClosedHandler ConnectionClosedHandler;
 
     FRunnableThread* Thread = nullptr;
     FThreadSafeBool bStopRequested = false;

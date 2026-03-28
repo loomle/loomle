@@ -7,8 +7,6 @@
           "url": "https://example.invalid/loomle-0.3.32-darwin.zip",
           "sha256": "package-sha256",
           "format": "zip",
-          "server_binary_relpath": "plugin/LoomleBridge/Tools/mcp/darwin/loomle_mcp_server",
-          "server_sha256": "server-sha256",
           "client_binary_relpath": "workspace/Loomle/loomle",
           "client_sha256": "client-sha256",
           "install": {
