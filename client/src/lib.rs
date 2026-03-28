@@ -108,6 +108,8 @@ pub fn validate_project_root(path: &Path) -> Result<PathBuf, String> {
     let resolved = path
         .canonicalize()
         .map_err(|error| format!("invalid --project-root {}: {error}", path.display()))?;
+    #[cfg(target_os = "windows")]
+    let resolved = strip_windows_verbatim_prefix(&resolved);
     if !resolved.is_dir() {
         return Err(format!("path is not a directory: {}", resolved.display()));
     }
@@ -224,6 +226,18 @@ fn runtime_pipe_name_for_project_root(project_root: &Path) -> String {
 }
 
 #[cfg(target_os = "windows")]
+fn strip_windows_verbatim_prefix(path: &Path) -> PathBuf {
+    let raw = path.to_string_lossy();
+    if let Some(stripped) = raw.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{stripped}"));
+    }
+    if let Some(stripped) = raw.strip_prefix(r"\\?\") {
+        return PathBuf::from(stripped);
+    }
+    path.to_path_buf()
+}
+
+#[cfg(target_os = "windows")]
 fn stable_fnv1a64(bytes: &[u8]) -> u64 {
     let mut hash = 0xcbf29ce484222325u64;
     for byte in bytes {
@@ -231,4 +245,33 @@ fn stable_fnv1a64(bytes: &[u8]) -> u64 {
         hash = hash.wrapping_mul(0x100000001b3u64);
     }
     hash
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(target_os = "windows")]
+    use super::{runtime_pipe_name_for_project_root, strip_windows_verbatim_prefix};
+    #[cfg(target_os = "windows")]
+    use std::path::PathBuf;
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn strips_windows_verbatim_drive_prefix() {
+        let path = PathBuf::from(r"\\?\E:\gaosh\actions-runner-work\lrh\LoomleRunnerHostWin");
+        assert_eq!(
+            strip_windows_verbatim_prefix(&path),
+            PathBuf::from(r"E:\gaosh\actions-runner-work\lrh\LoomleRunnerHostWin")
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn pipe_name_matches_unreal_normalization_for_verbatim_paths() {
+        let normal = PathBuf::from(r"E:\gaosh\actions-runner-work\lrh\LoomleRunnerHostWin");
+        let verbatim = PathBuf::from(r"\\?\E:\gaosh\actions-runner-work\lrh\LoomleRunnerHostWin");
+        assert_eq!(
+            runtime_pipe_name_for_project_root(&normal),
+            runtime_pipe_name_for_project_root(&strip_windows_verbatim_prefix(&verbatim))
+        );
+    }
 }
