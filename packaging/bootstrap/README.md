@@ -18,6 +18,12 @@ Primary artifacts:
 - `BOOTSTRAP_CONTRACT.md`
   - defines where the bootstrap scripts should live and what `loomle.ai/i` should point to
 
+Release publication model:
+
+- tag releases publish `install.sh`, `install.ps1`, `update.sh`, and `update.ps1`
+- installed projects keep `Loomle/update.*` and `Loomle/doctor.*`
+- no `loomle-installer` binary should exist in the release model
+
 Bootstrap is distinct from project installation:
 
 1. bootstrap resolves the target Unreal project root

@@ -14,6 +14,7 @@ The first `0.4` install flow should describe:
 - project-local install
 - script-first bootstrap
 - script-first update
+- script-first doctor
 
 It should not describe:
 
@@ -42,6 +43,7 @@ The page body should explicitly explain:
 2. how to run the install script
 3. how to run the update script
 4. how to verify the install
+5. which assets are published on the release page versus installed into the project
 
 ## Recommended Instruction Shape
 
@@ -56,6 +58,9 @@ The page body should explicitly explain:
 - Windows PowerShell:
   `& ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) -ProjectRoot C:\Path\To\MyProject`
 
+These bootstrap scripts are release assets and homepage entrypoints. They are
+not copied into the installed project.
+
 ### Update
 
 - macOS/Linux: `curl -fsSL https://loomle.ai/update.sh | sh -s -- --project-root /path/to/MyProject`
@@ -67,6 +72,28 @@ The page body should explicitly explain:
 - `Loomle/doctor.sh --project-root /path/to/MyProject`
 - `Loomle/doctor.ps1 -ProjectRoot C:\Path\To\MyProject`
 
+### Release Assets Versus Installed Files
+
+Release page assets should include:
+
+- `loomle-darwin.zip`
+- `loomle-windows.zip`
+- `loomle-manifest.json`
+- `loomle-manifest-darwin.json`
+- `loomle-manifest-windows.json`
+- `install.sh`
+- `install.ps1`
+- `update.sh`
+- `update.ps1`
+
+Installed projects should keep:
+
+- `Loomle/loomle(.exe)`
+- `Loomle/update.sh`
+- `Loomle/update.ps1`
+- `Loomle/doctor.sh`
+- `Loomle/doctor.ps1`
+
 ## Decision
 
 The homepage/install-entrypoint design for the first `0.4` cut should teach:
@@ -74,4 +101,5 @@ The homepage/install-entrypoint design for the first `0.4` cut should teach:
 - project-local installation
 - script bootstrap
 - script update
+- script doctor
 - no installer-binary flow

@@ -9,6 +9,7 @@ The page should explain:
 - project-local install
 - script-first bootstrap
 - script-first update
+- script-first doctor
 
 It should not describe:
 
@@ -79,6 +80,8 @@ The page should explicitly state:
 ```text
 Agents should treat this page as the canonical LOOMLE install instruction source.
 The first 0.4 install model is project-local and script-first.
+The release page publishes install/update scripts; installed projects keep
+update/doctor scripts under Loomle/.
 ```
 
 ## Final Recommendation

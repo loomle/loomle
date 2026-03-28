@@ -142,6 +142,11 @@ Minimal example:
   - `Loomle/update.ps1`
   - `Loomle/doctor.sh`
   - `Loomle/doctor.ps1`
+- release pages should publish top-level bootstrap assets:
+  - `install.sh`
+  - `install.ps1`
+  - `update.sh`
+  - `update.ps1`
 
 Working rule:
 - `Loomle/loomle` is not the install or maintenance entrypoint
