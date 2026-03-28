@@ -56,7 +56,7 @@ class McpStdioConnection(BridgeConnection):
         if not client_binary.is_file():
             fail(f"loomle client binary path is not a file: {client_binary}")
         self.proc = subprocess.Popen(
-            [str(client_binary), "--project-root", str(project), "session"],
+            [str(client_binary), "--project-root", str(project)],
             cwd=str(project),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -84,7 +84,7 @@ class McpStdioConnection(BridgeConnection):
                 err = ""
                 if self.proc.stderr is not None:
                     err = self.proc.stderr.read().strip()
-                raise RuntimeError(f"loomle session exited early: {err}")
+                raise RuntimeError(f"loomle stdio proxy exited early: {err}")
             line = self.proc.stdout.readline()
             if not line:
                 time.sleep(0.01)
@@ -96,7 +96,7 @@ class McpStdioConnection(BridgeConnection):
                 return json.loads(line)
             except json.JSONDecodeError:
                 continue
-        raise RuntimeError("timeout waiting for loomle session frame")
+        raise RuntimeError("timeout waiting for loomle stdio frame")
 
     def close(self) -> None:
         if self.proc.poll() is None:
@@ -165,6 +165,9 @@ class JsonRpcClient:
         if "_reader_error" in response:
             raise RuntimeError(str(response["_reader_error"]))
         return response
+
+    def notify(self, method: str, params: dict[str, Any]) -> None:
+        self.conn.send({"jsonrpc": "2.0", "method": method, "params": params})
 
     def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         response = self.request("tools/call", {"name": name, "arguments": arguments})
@@ -343,9 +346,17 @@ def main() -> int:
     print(header)
 
     try:
-        init = client.request("initialize", {})
+        init = client.request(
+            "initialize",
+            {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "loomle-perf-graph-rw", "version": "0.1.0"},
+            },
+        )
         if "error" in init:
             fail(f"initialize failed: {init['error']}")
+        client.notify("notifications/initialized", {})
         _ = client.request("tools/list", {})
 
         create_code = (

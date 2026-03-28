@@ -1,0 +1,17 @@
+[package]
+name = "loomle"
+version = "0.3.46"
+edition = "2021"
+
+[[bin]]
+name = "loomle"
+path = "src/main.rs"
+
+[dependencies]
+rmcp = { version = "1.2.0", features = ["client", "server", "transport-async-rw", "transport-io"] }
+serde = "1"
+serde_json = "1"
+tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "sync"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation"] }

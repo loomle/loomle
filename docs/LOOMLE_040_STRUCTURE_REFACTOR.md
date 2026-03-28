@@ -43,8 +43,7 @@ The structural change in this phase is runtime-internal, not user-facing.
 Before:
 
 - project-local client
-- project-local Rust `mcp/server` bridge layer
-- Unreal custom RPC behind that bridge
+- Unreal custom RPC behind that client
 
 After:
 
@@ -56,8 +55,7 @@ So the practical structure move is:
 
 ```text
 Current                         -> First 0.4 target
-mcp/client/                     -> retained
-mcp/server/                     -> removed
+client/                         -> retained
 engine/LoomleBridge/            -> runtime authority + native MCP core
 workspace/Loomle/               -> retained as project-local install material
 ```
@@ -72,13 +70,13 @@ Owns:
 - native MCP runtime
 - authority-side tool dispatch
 
-### `mcp/client/`
+### `client/`
 
 Owns:
 
 - project-local `loomle`
-- MCP client/session behavior
-- install/update command surface
+- MCP stdio proxy behavior
+- bootstrap and maintenance scripts in source form
 
 ### `workspace/Loomle/`
 

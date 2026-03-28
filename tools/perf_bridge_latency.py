@@ -54,7 +54,7 @@ def default_loomle_binary(project_root: Path) -> Path:
     raise RuntimeError("unreachable")
 
 
-class LoomleSessionClient:
+class LoomleMcpClient:
     def __init__(self, project_root: Path, loomle_binary: Path, timeout_s: float) -> None:
         self.project_root = ensure_project_root(project_root)
         self.loomle_binary = loomle_binary.resolve()
@@ -68,7 +68,6 @@ class LoomleSessionClient:
                 str(self.loomle_binary),
                 "--project-root",
                 str(self.project_root),
-                "session",
             ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -92,6 +91,17 @@ class LoomleSessionClient:
         self._stderr_reader = threading.Thread(target=self._stderr_reader_loop, daemon=True)
         self._stdout_reader.start()
         self._stderr_reader.start()
+        init = self._request(
+            "initialize",
+            {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "loomle-perf-bridge-latency", "version": "0.1.0"},
+            },
+        )
+        if "error" in init:
+            raise RuntimeError(f"initialize failed: {init['error']}")
+        self._notify("notifications/initialized", {})
 
     def close(self) -> None:
         self._stop.set()
@@ -151,9 +161,9 @@ class LoomleSessionClient:
         except Exception:
             return
 
-    def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    def _request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if self.proc.stdin is None:
-            raise RuntimeError("loomle session stdin is not available")
+            raise RuntimeError("loomle stdio stdin is not available")
         if self._reader_error:
             raise RuntimeError(self._reader_error)
 
@@ -165,11 +175,7 @@ class LoomleSessionClient:
         with self._pending_lock:
             self._pending[request_id] = mailbox
 
-        payload = {
-            "id": request_id,
-            "tool": tool_name,
-            "arguments": arguments,
-        }
+        payload = {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
         wire = json.dumps(payload, separators=(",", ":")) + "\n"
 
         try:
@@ -181,20 +187,40 @@ class LoomleSessionClient:
             stderr_tail = self._stderr_snapshot()
             if stderr_tail:
                 raise RuntimeError(
-                    f"timeout waiting for session response id={request_id}; recent stderr:\n{stderr_tail}"
+                    f"timeout waiting for MCP response id={request_id}; recent stderr:\n{stderr_tail}"
                 ) from exc
-            raise RuntimeError(f"timeout waiting for session response id={request_id}") from exc
+            raise RuntimeError(f"timeout waiting for MCP response id={request_id}") from exc
         finally:
             with self._pending_lock:
                 self._pending.pop(request_id, None)
 
-        if not response.get("ok", False):
-            raise RuntimeError(str(response.get("error", "unknown session error")))
+        return response
 
+    def _notify(self, method: str, params: dict[str, Any]) -> None:
+        if self.proc.stdin is None:
+            raise RuntimeError("loomle stdio stdin is not available")
+        wire = json.dumps({"jsonrpc": "2.0", "method": method, "params": params}, separators=(",", ":")) + "\n"
+        with self._send_lock:
+            self.proc.stdin.write(wire)
+            self.proc.stdin.flush()
+
+    def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        response = self._request("tools/call", {"name": tool_name, "arguments": arguments})
+        if "error" in response:
+            raise RuntimeError(str(response.get("error", "unknown MCP error")))
         result = response.get("result")
         if not isinstance(result, dict):
-            raise RuntimeError(f"invalid session result payload: {response}")
-        return result
+            raise RuntimeError(f"invalid MCP result payload: {response}")
+        structured = result.get("structuredContent")
+        if isinstance(structured, dict):
+            return structured
+        content = result.get("content")
+        if not isinstance(content, list) or not content:
+            raise RuntimeError(f"invalid tools/call content payload: {response}")
+        first = content[0]
+        if not isinstance(first, dict) or not isinstance(first.get("text"), str):
+            raise RuntimeError(f"invalid tools/call text payload: {response}")
+        return json.loads(first["text"])
 
 
 @dataclass
@@ -212,7 +238,7 @@ class BenchCaseResult:
 
 
 def run_benchmark(
-    client: LoomleSessionClient,
+    client: LoomleMcpClient,
     tool_name: str,
     arguments: dict[str, Any],
     total: int,
@@ -281,7 +307,7 @@ def main() -> int:
     parser.add_argument(
         "--tool",
         default="loomle",
-        help="Tool name for session call (default: loomle)",
+        help="Tool name for MCP tools/call (default: loomle)",
     )
     parser.add_argument(
         "--arguments",
@@ -309,7 +335,7 @@ def main() -> int:
 
     project_root = Path(args.project_root)
     loomle_binary = Path(args.loomle_bin).resolve() if args.loomle_bin else default_loomle_binary(project_root)
-    client = LoomleSessionClient(
+    client = LoomleMcpClient(
         project_root=project_root,
         loomle_binary=loomle_binary,
         timeout_s=args.timeout,

@@ -2678,7 +2678,7 @@ class McpStdioClient:
             fail(f"no .uproject found under: {project_root}")
 
         self.proc = subprocess.Popen(
-            [str(server_binary), "--project-root", str(project_root), "session"],
+            [str(server_binary), "--project-root", str(project_root)],
             cwd=str(project_root),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -2699,6 +2699,8 @@ class McpStdioClient:
         self._stderr_thread = threading.Thread(target=self._stderr_reader, name="loomle-mcp-stderr-reader", daemon=True)
         self._stderr_thread.start()
         self._pending_responses: dict[int, dict[str, Any]] = {}
+        self.protocol_version = ""
+        self._initialize_session()
 
     def _stdout_reader(self) -> None:
         try:
@@ -2740,17 +2742,48 @@ class McpStdioClient:
         if self._stderr_thread.is_alive():
             self._stderr_thread.join(timeout=1)
 
+    def _initialize_session(self) -> None:
+        init_resp = self.request(
+            1,
+            "initialize",
+            {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {"name": "loomle-test-client", "version": "0"},
+            },
+        )
+        result = init_resp.get("result")
+        if not isinstance(result, dict):
+            fail(f"initialize missing result object: {_compact_json(init_resp)}")
+        protocol_version = result.get("protocolVersion")
+        if not isinstance(protocol_version, str) or not protocol_version:
+            fail(f"initialize did not return protocolVersion: {_compact_json(init_resp)}")
+        self.protocol_version = protocol_version
+        self.notify("notifications/initialized", {})
+
+    def notify(self, method: str, params: dict[str, Any]) -> None:
+        if self.proc.stdin is None:
+            fail("loomle session stdin is not available")
+        payload = {
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+        }
+        self.proc.stdin.write(json.dumps(payload, separators=(",", ":")) + "\n")
+        self.proc.stdin.flush()
+
     def request(self, req_id: int, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if self.proc.stdin is None:
             fail("loomle session stdin is not available")
 
         pending = self._pending_responses.pop(req_id, None)
         if pending is not None:
-            if not pending.get("ok", False):
-                fail(f"session error for {method}: {pending.get('error')}")
+            if isinstance(pending.get("error"), dict):
+                fail(f"session error for {method}: {_compact_json(pending['error'])}")
             return pending
 
         payload = {
+            "jsonrpc": "2.0",
             "id": req_id,
             "method": method,
             "params": params,
@@ -2783,6 +2816,8 @@ class McpStdioClient:
                 continue
 
             frame_id = frame.get("id")
+            if frame_id is None:
+                continue
             if frame_id != req_id:
                 if isinstance(frame_id, int):
                     self._pending_responses[frame_id] = frame
@@ -2790,8 +2825,8 @@ class McpStdioClient:
                         self._pending_responses.pop(next(iter(self._pending_responses)))
                 continue
 
-            if not frame.get("ok", False):
-                fail(f"session error for {method}: {frame.get('error')}")
+            if isinstance(frame.get("error"), dict):
+                fail(f"session error for {method}: {_compact_json(frame['error'])}")
             return frame
 
         stderr_tail = self._stderr_snapshot()
@@ -2868,7 +2903,7 @@ def resolve_project_local_loomle_binary(project_root: Path) -> Path:
 
 
 def resolve_repo_loomle_binary() -> Path:
-    return REPO_ROOT / "mcp" / "client" / "target" / "release" / loomle_binary_name()
+    return REPO_ROOT / "client" / "target" / "release" / loomle_binary_name()
 
 
 def resolve_default_loomle_binary(project_root: Path) -> Path:
@@ -3061,11 +3096,7 @@ def main() -> int:
     temp_asset = make_temp_asset_path(args.asset_prefix)
 
     try:
-        init_resp = client.request(1, "initialize", {})
-        protocol_version = init_resp.get("result", {}).get("protocolVersion")
-        if not protocol_version:
-            fail("initialize did not return protocolVersion")
-        print(f"[PASS] initialize protocol={protocol_version}")
+        print(f"[PASS] initialize protocol={client.protocol_version}")
 
         tools_resp = client.request(2, "tools/list", {})
         tools = tools_resp.get("result", {}).get("tools", [])

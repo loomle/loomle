@@ -68,7 +68,8 @@ Windows PowerShell:
 ```text
 After installation or update, verify with:
 
-Loomle/loomle doctor
+Loomle/doctor.sh --project-root /path/to/MyProject
+Loomle/doctor.ps1 -ProjectRoot C:\Path\To\MyProject
 ```
 
 ## Agent Note

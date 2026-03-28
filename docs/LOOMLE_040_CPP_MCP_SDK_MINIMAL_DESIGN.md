@@ -15,12 +15,11 @@ This layer exists to solve one concrete problem:
 
 The intended direction is therefore:
 
-- `loomle mcp` remains a standard MCP client implemented with the Rust SDK
+- `loomle` remains a standard MCP client implemented with the Rust SDK
 - `LoomleBridge` becomes a standard MCP server implemented through a minimal
   LOOMLE-owned C++ MCP runtime layer
 - existing Unreal authority-side tool execution remains in `LoomleBridge`
-- the current custom RPC layer becomes a migration/compatibility layer rather
-  than the long-term primary runtime protocol
+- the current custom RPC layer is removed from the primary runtime path
 
 This document defines the minimum scope of that C++ MCP runtime layer.
 
@@ -36,7 +35,7 @@ That model was effective as an intermediate bridge.
 
 It becomes weaker for `0.4.0` because the product direction now requires:
 
-- `loomle mcp` as the primary agent-facing runtime contract
+- `loomle` as the primary agent-facing runtime contract
 - strict MCP compatibility at the runtime boundary
 - Unreal-side runtime authority
 - a session model that does not depend on a custom RPC protocol being the
@@ -44,7 +43,7 @@ It becomes weaker for `0.4.0` because the product direction now requires:
 
 If LOOMLE keeps the current RPC layer as the main runtime contract, then:
 
-- `loomle mcp` is not truly talking to an MCP-native Unreal authority
+- `loomle` is not truly talking to an MCP-native Unreal authority
 - tool schema and lifecycle remain filtered through a compatibility layer
 - future agent behavior depends on LOOMLE-specific protocol glue rather than
   MCP-native expectations
@@ -263,7 +262,7 @@ dispatcher that already exists today:
 The desired relationship is:
 
 ```text
-loomle mcp (Rust MCP client)
+loomle (Rust MCP client)
   -> project-scoped local transport
   -> LoomleBridge minimal C++ MCP server
   -> Unreal authority-side tool execution
@@ -272,9 +271,8 @@ loomle mcp (Rust MCP client)
 This replaces the current long-term assumption that the primary runtime path is:
 
 ```text
-loomle mcp
-  -> Rust MCP server
-  -> custom RPC
+loomle
+  -> custom RPC adapter
   -> LoomleBridge
 ```
 
@@ -346,9 +344,9 @@ It requires changing what protocol runs over that transport:
 - from custom LOOMLE RPC
 - to standard MCP
 
-## Relationship To `loomle mcp`
+## Relationship To `loomle`
 
-`loomle mcp` should continue to be implemented with the Rust MCP client SDK.
+`loomle` should continue to be implemented with the Rust MCP client SDK.
 
 It should behave as a normal MCP client:
 
@@ -363,16 +361,14 @@ server path becomes primary.
 
 ## Relationship To The Existing Custom RPC Layer
 
-The custom RPC layer should be treated as a migration/compatibility layer.
-
-It should not remain the long-term primary runtime contract for `0.4.0`.
+The custom RPC layer should be treated as implementation history, not as part
+of the `0.4.0` target runtime contract.
 
 Migration direction:
 
 1. introduce the C++ MCP server layer
-2. keep custom RPC available while compatibility is needed
-3. migrate the primary `loomle mcp` runtime path to the C++ MCP server
-4. demote the custom RPC path to repair/compatibility/debug use only
+2. migrate the primary `loomle` runtime path to the C++ MCP server
+3. remove the old custom RPC path from the normal runtime flow
 
 ## Why This Is Better Than A Python-Hosted Primary Server
 
@@ -410,10 +406,8 @@ And route `tools/call` into the current Unreal authority execution surface.
 
 ### Phase 2: Make It The Primary Runtime Path
 
-Update `loomle mcp` to connect to the new MCP-native project endpoint as the
+Update `loomle` to connect to the new MCP-native project endpoint as the
 primary path.
-
-Keep the old RPC path as compatibility fallback only if required.
 
 ### Phase 3: Collapse Redundant RPC Translation
 
@@ -426,7 +420,7 @@ As MCP-native runtime handling stabilizes:
 
 The first minimal C++ MCP layer is complete when:
 
-1. `loomle mcp` can establish a standard MCP session directly with Unreal-side
+1. `loomle` can establish a standard MCP session directly with Unreal-side
    runtime authority.
 2. `initialize`, `notifications/initialized`, `tools/list`, and `tools/call`
    work without a Rust-side MCP-to-custom-RPC adaptation layer in the primary
@@ -832,7 +826,7 @@ runtime authority itself is moving into `LoomleBridge`.
 The first `mcp core` design should assume:
 
 - `McpCoreToolRegistry` is the authoritative runtime descriptor store
-- Rust `loomle mcp` should discover schemas through standard `tools/list`
+- Rust `loomle` should discover schemas through standard `tools/list`
 - documentation should describe `tools/list` as the runtime contract
 - no new long-term design should depend on Rust-side hardcoded tool schemas
 
@@ -1109,7 +1103,7 @@ The first implementation cut should be as small as possible:
 4. add `tools/call`
 5. bridge `tools/call` into current `DispatchTool`
 6. keep local pipe/socket transport
-7. make `loomle mcp` connect through standard MCP directly to this server
+7. make `loomle` connect through standard MCP directly to this server
 
 This first cut is enough to prove the new runtime boundary.
 

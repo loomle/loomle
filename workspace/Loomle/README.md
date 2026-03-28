@@ -19,12 +19,13 @@ Work in three phases:
 1. Hello LOOMLE
    Read this workspace first so you understand the overall LOOMLE workflow, the available graph domains, the fallback policy, and the validation loop.
 2. Link Check
-   Run `Loomle/loomle doctor` first to confirm the project can see the plugin and MCP server. Run `Loomle/loomle list-tools` only when you need to confirm the live tool contract before assuming tool names or arguments.
-3. Choose an execution mode
-   - `Loomle/loomle call <tool-name> --args '<json-object>'`
-     Use for one-shot tool execution.
-   - `Loomle/loomle session`
-     Use for repeated requests through one persistent stdin/stdout session. For high-concurrency or high-volume query workloads, prefer this mode because it avoids repeated client startup and is noticeably more efficient.
+   Treat `Loomle/loomle` as the MCP entrypoint only. Do not assume it exposes
+   helper subcommands such as `doctor`, `call`, `list-tools`, or `session`.
+3. Execution model
+   - the host starts `Loomle/loomle`
+   - `loomle` serves standard MCP over stdio
+   - `loomle` connects to the project-local Unreal runtime endpoint
+   - install/update/doctor belong to scripts, not to the `loomle` binary
 
 ### 2. Understand This Project
 
@@ -112,12 +113,12 @@ Working rule:
 - `editor.screenshot` writes a PNG of the active editor window to disk and returns the file path
 - if you do not pass a path, screenshots go under `Loomle/runtime/captures/`
 
-## Session Mode
+## MCP Mode
 
-`Loomle/loomle session` is the persistent mode.
+`Loomle/loomle` itself is the persistent stdio MCP process.
 
 Use it when:
-- you want to send multiple requests without restarting the client
+- a host or agent needs a standard MCP session for this specific project
 - you are building an integration
 - you are load testing or benchmarking
 - you expect high-concurrency or high-volume query traffic
@@ -135,29 +136,16 @@ Minimal example:
 
 ## Install And Upgrade
 
-- repair or reinstall: `loomle-installer install --project-root <ProjectRoot>`
-- check for updates: `Loomle/loomle update`
-- apply the latest update: `Loomle/loomle update --apply`
-- apply a specific version: `Loomle/loomle update --version <Version>`
+- first install uses bootstrap scripts outside the project
+- installed projects should expose maintenance through:
+  - `Loomle/update.sh`
+  - `Loomle/update.ps1`
+  - `Loomle/doctor.sh`
+  - `Loomle/doctor.ps1`
 
 Working rule:
-- project-local `loomle` delegates apply operations to a temporary installer
+- `Loomle/loomle` is not the install or maintenance entrypoint
 - after install or update writes new files, restart Unreal Editor if it is already running so the new LoomleBridge plugin version is loaded
-
-## Official Skills
-
-Use `loomle skill ...` when you need an official LOOMLE skill in your Codex skills directory.
-
-Common commands:
-- `Loomle/loomle skill list`
-- `Loomle/loomle skill list --installed`
-- `Loomle/loomle skill install material-weaver`
-- `Loomle/loomle skill remove material-weaver`
-
-Working rule:
-- these commands manage official skills from the published `loomle/skills` registry
-- they install into your local Codex skills directory, not into this Unreal project
-- you can run them from inside or outside a project; they do not require `--project-root`
 
 ## Directory Map
 
@@ -165,6 +153,10 @@ Working rule:
 Loomle/
   README.md
   loomle(.exe)
+  update.sh
+  update.ps1
+  doctor.sh
+  doctor.ps1
   blueprint/
   material/
   pcg/
@@ -172,6 +164,7 @@ Loomle/
 ```
 
 - `README.md`: the main agent-facing entrypoint
-- `loomle(.exe)`: the installed project-local client entrypoint
+- `loomle(.exe)`: the installed project-local MCP proxy entrypoint
+- `update.*` / `doctor.*`: installed project maintenance scripts
 - `blueprint/`, `material/`, `pcg/`: domain-specific guides, semantics, catalogs, and examples
 - `runtime/`: machine-written state, not human guidance

@@ -4,7 +4,7 @@
 
 Build a clean split where:
 
-- `loomle mcp` is the standard MCP client.
+- `loomle` is the standard MCP client.
 - `LoomleBridge` owns the runtime authority and native MCP server path.
 - project-scoped socket/pipe transport connects the client to the Unreal-hosted runtime.
 
@@ -21,7 +21,6 @@ Build a clean split where:
 3. Local Transport Host
 - Owns project-scoped socket/pipe lifecycle.
 - Routes raw MCP messages between the client and runtime sessions.
-- Validates RPC envelopes.
 - Dispatches to runtime handlers.
 
 5. Unreal Runtime Handlers (C++)
@@ -33,13 +32,13 @@ Build a clean split where:
 - Standard MCP only.
 - No Unreal transport concepts leak outward.
 
-2. RPC boundary
+2. Transport boundary
 - JSON-RPC 2.0 + NDJSON framing.
 - Windows transport: project-scoped Named Pipe derived from normalized `project_root`.
 - macOS/Linux transport: Unix Socket.
 
 3. C++ design scope
-- This design specifies RPC method contracts only.
+- This design specifies runtime protocol contracts only.
 - Internal classes/functions in C++ are out of scope.
 
 ## 4. Minimal Name Mapping
@@ -63,25 +62,25 @@ MCP tools:
 
 Execution route:
 
-- `loomle`: MCP local response + required `rpc.health` probe on every call.
-- `context`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=context`).
-- `execute`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=execute`).
+- `loomle`: native MCP tool served directly by `LoomleBridge`.
+- `context`: native MCP `tools/call`.
+- `execute`: native MCP `tools/call`.
 - `execute` is intentionally the Unreal-Python fallback surface for non-graph operations and for graph domains/capabilities not yet exposed through structured `graph.*` tools.
 - `execute` supports synchronous execution by default and shared long-running submission through `execution.mode = "job"`.
 - `execute` remains available during `PIE`; `PIE` is treated as runtime context rather than as a blanket execute block.
-- `jobs`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=jobs`).
+- `jobs`: native MCP `tools/call`.
 - `jobs` is the shared lifecycle surface for job-mode submissions. It owns status, logs, result lookup, and job listing.
 - `jobs` remains available during `PIE` so long-running task lifecycle can still be observed while gameplay is active.
-- `editor.open`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=editor.open`).
-- `editor.focus`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=editor.focus`).
-- `editor.screenshot`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=editor.screenshot`).
-- `graph`: MCP local descriptor response + required `rpc.health` probe on every call.
-- `graph.list`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.list`).
-- `graph.resolve`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.resolve`).
-- `graph.query`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.query`).
-- `graph.mutate`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.mutate`).
-- `graph.verify`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=graph.verify`).
-- `diag.tail`: runtime preflight (`rpc.health`, shared short TTL cache) + RPC `rpc.invoke` (`tool=diag.tail`).
+- `editor.open`: native MCP `tools/call`.
+- `editor.focus`: native MCP `tools/call`.
+- `editor.screenshot`: native MCP `tools/call`.
+- `graph`: native MCP `tools/call`.
+- `graph.list`: native MCP `tools/call`.
+- `graph.resolve`: native MCP `tools/call`.
+- `graph.query`: native MCP `tools/call`.
+- `graph.mutate`: native MCP `tools/call`.
+- `graph.verify`: native MCP `tools/call`.
+- `diag.tail`: native MCP `tools/call`.
 
 Windows transport contention handling:
 

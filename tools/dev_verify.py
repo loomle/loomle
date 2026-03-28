@@ -11,6 +11,12 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TOOLS_DIR = REPO_ROOT / "tools"
+TESTS_E2E_DIR = REPO_ROOT / "tests" / "e2e"
+if str(TESTS_E2E_DIR) not in sys.path:
+    sys.path.insert(0, str(TESTS_E2E_DIR))
+
+from test_bridge_smoke import McpStdioClient, call_tool
+
 INSTALL_FROM_CHECKOUT = REPO_ROOT / "packaging" / "install" / "install_from_checkout.py"
 SMOKE_SCRIPT = REPO_ROOT / "tests" / "e2e" / "test_bridge_smoke.py"
 REGRESSION_SCRIPT = REPO_ROOT / "tests" / "e2e" / "test_bridge_regression.py"
@@ -281,21 +287,10 @@ def is_tool_error_payload(payload: dict) -> bool:
 
 def ensure_project_local_install_ready(project_root: Path, platform: str) -> Path:
     loomle_binary = resolve_project_local_loomle_binary(project_root, platform)
-    result = run_capture(
-        [str(loomle_binary), "--project-root", str(project_root), "doctor"],
-        cwd=project_root,
-        allow_failure=True,
-    )
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
-        stdout = result.stdout.strip()
-        detail = stderr or stdout
-        if detail:
-            fail(f"project-local loomle doctor failed:\n{detail}")
-        fail("project-local loomle doctor failed")
-
-    if "status=ok" not in result.stdout:
-        fail(f"project-local loomle doctor did not report status=ok:\n{result.stdout.strip()}")
+    if not loomle_binary.exists():
+        fail(f"project-local loomle binary not found: {loomle_binary}")
+    if not loomle_binary.is_file():
+        fail(f"project-local loomle binary path is not a file: {loomle_binary}")
     return loomle_binary
 
 
@@ -304,67 +299,52 @@ def wait_for_bridge_runtime_ready(project_root: Path, loomle_binary: Path, timeo
     attempt = 0
     while time.time() < deadline:
         attempt += 1
+        client = None
+        try:
+            client = McpStdioClient(project_root=project_root, server_binary=loomle_binary, timeout_s=15.0)
+            loomle_payload = call_tool(client, 100 + attempt * 10, "loomle", {})
+            status = loomle_payload.get("status")
+            rpc_health = loomle_payload.get("runtime", {}).get("rpcHealth", {}) if isinstance(loomle_payload, dict) else {}
+            if status not in {"ok", "degraded"} or not isinstance(rpc_health, dict) or rpc_health.get("status") not in {
+                "ok",
+                "degraded",
+            }:
+                print(
+                    f"[WARN] bridge not ready yet (attempt {attempt}): status={status} rpc={rpc_health}",
+                    file=sys.stderr,
+                )
+                time.sleep(2.0)
+                continue
 
-        status_result = run_capture(
-            [str(loomle_binary), "--project-root", str(project_root), "call", "loomle"],
-            cwd=project_root,
-            allow_failure=True,
-        )
-        if status_result.returncode != 0:
-            detail = status_result.stderr.strip() or status_result.stdout.strip()
+            execute_payload = call_tool(
+                client,
+                101 + attempt * 10,
+                "execute",
+                {
+                    "mode": "exec",
+                    "code": "import unreal\nunreal.log('loomle dev_verify warmup')",
+                },
+            )
+            if is_tool_error_payload(execute_payload):
+                print(
+                    f"[WARN] execute warmup not ready yet (attempt {attempt}): {execute_payload}",
+                    file=sys.stderr,
+                )
+                time.sleep(2.0)
+                continue
+
+            print(f"[PASS] bridge runtime ready after {attempt} attempt(s)", file=sys.stderr)
+            return
+        except SystemExit as exc:
             print(
-                f"[WARN] bridge readiness probe failed (attempt {attempt}): {detail or 'unknown error'}",
+                f"[WARN] bridge readiness probe failed (attempt {attempt}): {exc}",
                 file=sys.stderr,
             )
             time.sleep(2.0)
             continue
-
-        loomle_payload = parse_tool_payload(status_result.stdout, "loomle call loomle")
-        status = loomle_payload.get("status")
-        rpc_health = loomle_payload.get("runtime", {}).get("rpcHealth", {}) if isinstance(loomle_payload, dict) else {}
-        if status not in {"ok", "degraded"} or not isinstance(rpc_health, dict) or rpc_health.get("status") not in {
-            "ok",
-            "degraded",
-        }:
-            print(
-                f"[WARN] bridge not ready yet (attempt {attempt}): status={status} rpc={rpc_health}",
-                file=sys.stderr,
-            )
-            time.sleep(2.0)
-            continue
-
-        execute_args = json.dumps(
-            {
-                "mode": "exec",
-                "code": "import unreal\nunreal.log('loomle dev_verify warmup')",
-            },
-            separators=(",", ":"),
-        )
-        execute_result = run_capture(
-            [str(loomle_binary), "--project-root", str(project_root), "call", "execute", "--args", execute_args],
-            cwd=project_root,
-            allow_failure=True,
-        )
-        if execute_result.returncode != 0:
-            detail = execute_result.stderr.strip() or execute_result.stdout.strip()
-            print(
-                f"[WARN] execute warmup failed (attempt {attempt}): {detail or 'unknown error'}",
-                file=sys.stderr,
-            )
-            time.sleep(2.0)
-            continue
-
-        execute_payload = parse_tool_payload(execute_result.stdout, "loomle call execute")
-        if is_tool_error_payload(execute_payload):
-            print(
-                f"[WARN] execute warmup not ready yet (attempt {attempt}): {execute_payload}",
-                file=sys.stderr,
-            )
-            time.sleep(2.0)
-            continue
-
-        print(f"[PASS] bridge runtime ready after {attempt} attempt(s)", file=sys.stderr)
-        return
+        finally:
+            if client is not None:
+                client.close()
 
     fail(f"bridge runtime did not become ready within {timeout_s:.0f}s")
 

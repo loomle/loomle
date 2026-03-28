@@ -424,11 +424,7 @@ def main() -> int:
     try:
         wait_for_bridge_ready(client)
 
-        init = client.request(1, "initialize", {})
-        protocol = init.get("result", {}).get("protocolVersion")
-        if not protocol:
-            fail("initialize did not return protocolVersion")
-        print(f"[PASS] initialize protocol={protocol}")
+        print(f"[PASS] initialize protocol={client.protocol_version}")
 
         tools_resp = client.request(2, "tools/list", {})
         tools = tools_resp.get("result", {}).get("tools", [])

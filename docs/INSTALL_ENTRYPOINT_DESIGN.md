@@ -64,7 +64,8 @@ The page body should explicitly explain:
 
 ### Verify
 
-- `Loomle/loomle doctor`
+- `Loomle/doctor.sh --project-root /path/to/MyProject`
+- `Loomle/doctor.ps1 -ProjectRoot C:\Path\To\MyProject`
 
 ## Decision
 

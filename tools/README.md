@@ -18,8 +18,8 @@ Developer utilities and performance tooling.
 
 ## Test Structure
 
-- UE-independent client/runtime contract tests live in `mcp/client`:
-  - `cd mcp/client && cargo test`
+- UE-independent client/runtime contract tests live in `client`:
+  - `cd client && cargo test`
 - UE-dependent validation scripts live in `tests/`:
   - `tests/e2e/test_bridge_smoke.py`
   - `tests/e2e/test_bridge_regression.py`

@@ -6,7 +6,7 @@ This document defines the first `0.4.0` runtime connectivity model.
 
 Target direction:
 
-- `loomle mcp` is the primary agent-facing runtime entrypoint
+- `loomle` is the primary agent-facing runtime entrypoint
 - `loomle` remains project-local in this phase
 - Unreal hosts the runtime authority
 - `LoomleBridge` serves native MCP directly
@@ -16,7 +16,7 @@ Target direction:
 
 The runtime stack in this phase is:
 
-- agent -> `Loomle/loomle mcp`
+- agent/host -> `Loomle/loomle`
 - project-local client -> project-derived endpoint
 - `LoomleBridge` native MCP runtime -> Unreal authority
 
@@ -26,9 +26,9 @@ Key clarification:
 - `loomle` is not the runtime server
 - `LoomleBridge` is the runtime server and authority
 
-## `loomle mcp` Role
+## `loomle` Role
 
-`loomle mcp` should be the standard MCP session surface for agents.
+`loomle` should be the standard MCP session surface for agents.
 
 It should provide:
 
@@ -110,7 +110,7 @@ The runtime should expose a clear readiness distinction:
 - ready
 - version/protocol mismatch
 
-`doctor` should surface these states directly.
+`doctor.sh` / `doctor.ps1` should surface these states directly.
 
 ## Relationship To Install
 
@@ -135,7 +135,7 @@ Not part of this phase:
 The first `LOOMLE 0.4.0` runtime connectivity model should be:
 
 - project-local `loomle`
-- `loomle mcp` as the primary MCP client entrypoint
+- `loomle` as the primary MCP client entrypoint
 - Unreal-hosted native MCP runtime in `LoomleBridge`
 - project-derived socket/pipe endpoint lookup
 - no global install requirement

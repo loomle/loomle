@@ -93,7 +93,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd "$GITHUB_WORKSPACE/mcp/client"
+          cd "$GITHUB_WORKSPACE/client"
           cargo test
 
       - name: Stop Stale AutomationTool Before Plugin Sync
@@ -128,10 +128,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd "$GITHUB_WORKSPACE/mcp/client"
+          cd "$GITHUB_WORKSPACE/client"
           cargo build --release
 
-          client_src="$GITHUB_WORKSPACE/mcp/client/target/release/loomle"
+          client_src="$GITHUB_WORKSPACE/client/target/release/loomle"
           workspace_src="$GITHUB_WORKSPACE/workspace/Loomle"
           [[ -x "$client_src" ]] || { echo "LOOMLE client binary missing or not executable: $client_src" >&2; exit 1; }
           [[ -d "$workspace_src" ]] || { echo "LOOMLE workspace missing: $workspace_src" >&2; exit 1; }
@@ -149,7 +149,7 @@ jobs:
           release_inputs="$RUNNER_TEMP/loomle-release-inputs-darwin"
           plugin_src="$RUNNER_TEMP/LoomleBridge_Gating"
           workspace_src="$GITHUB_WORKSPACE/workspace/Loomle"
-          client_src="$GITHUB_WORKSPACE/mcp/client/target/release/loomle"
+          client_src="$GITHUB_WORKSPACE/client/target/release/loomle"
 
           [[ -d "$plugin_src" ]] || { echo "Packaged plugin missing: $plugin_src" >&2; exit 1; }
           [[ -d "$workspace_src" ]] || { echo "Workspace missing: $workspace_src" >&2; exit 1; }
@@ -158,15 +158,15 @@ jobs:
           rm -rf "$release_inputs"
           mkdir -p \
             "$release_inputs/workspace/Loomle" \
-            "$release_inputs/mcp/client/darwin"
+            "$release_inputs/client/darwin"
 
           rsync -a "$plugin_src"/ "$release_inputs/plugin/LoomleBridge"/
           rsync -a "$workspace_src"/ "$release_inputs/workspace/Loomle"/
           cp "$client_src" "$release_inputs/workspace/Loomle/loomle"
-          cp "$client_src" "$release_inputs/mcp/client/darwin/loomle"
+          cp "$client_src" "$release_inputs/client/darwin/loomle"
           chmod +x \
             "$release_inputs/workspace/Loomle/loomle" \
-            "$release_inputs/mcp/client/darwin/loomle"
+            "$release_inputs/client/darwin/loomle"
 
       - name: Upload Release Inputs
         uses: actions/upload-artifact@v4

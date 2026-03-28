@@ -24,19 +24,21 @@ From the project root in Windows PowerShell:
 & ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) install --project-root (Get-Location).Path
 ```
 
-These bootstrap commands download a temporary `loomle-installer`, execute one install operation for the current project, and then delete the temporary binary. They do not leave a machine-level `loomle` command behind.
+These bootstrap commands should install LOOMLE into one Unreal project. The
+`0.4` direction removes the installer-binary handoff and keeps install/update as
+scripts rather than `loomle` subcommands.
 
-After install, use the project-local client under `Loomle/`:
+After install, the project-local entrypoint under `Loomle/` is:
 
 ```bash
-Loomle/loomle doctor
+Loomle/loomle
 ```
 
-On Windows, use `Loomle\\loomle.exe doctor`.
+On Windows, use `Loomle\\loomle.exe`.
 
 LOOMLE is now organized around a single repository and a single installed project shape:
 
-- MCP server shipped with `Plugins/LoomleBridge`
+- native MCP runtime shipped with `Plugins/LoomleBridge`
 - project-local client and agent workspace shipped under `Loomle/`
 
 For a source checkout, the current path is:

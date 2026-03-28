@@ -16,24 +16,18 @@ use windows_sys::Win32::Foundation::ERROR_PIPE_BUSY;
 
 pub type LoomleClient = rmcp::service::RunningService<rmcp::service::RoleClient, ()>;
 
-pub mod install;
-pub mod skill;
-
 #[derive(Debug, Clone)]
 pub struct Environment {
     pub project_root: PathBuf,
-    pub plugin_root: PathBuf,
     pub runtime_endpoint_path: PathBuf,
 }
 
 impl Environment {
     pub fn for_project_root(project_root: PathBuf) -> Self {
-        let plugin_root = project_root.join("Plugins").join("LoomleBridge");
         let runtime_endpoint_path = runtime_endpoint_path_for_project_root(&project_root);
 
         Self {
             project_root,
-            plugin_root,
             runtime_endpoint_path,
         }
     }
@@ -180,21 +174,6 @@ pub fn project_client_binary_name() -> &'static str {
     } else {
         "loomle"
     }
-}
-
-pub fn installer_binary_name() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "loomle-installer.exe"
-    } else {
-        "loomle-installer"
-    }
-}
-
-pub fn is_installer_binary_path(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .map(|name| name.eq_ignore_ascii_case(installer_binary_name()))
-        .unwrap_or(false)
 }
 
 fn has_uproject(dir: &Path) -> bool {

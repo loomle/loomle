@@ -66,7 +66,7 @@ def main() -> int:
     bootstrap_dir = output_dir / "bootstrap"
     manifest_path = output_dir / "manifest.json"
 
-    client_dir = repo_root / "mcp" / "client"
+    client_dir = repo_root / "client"
     assemble_script = repo_root / "packaging" / "bundle" / "assemble_release_bundle.py"
     manifest_script = repo_root / "packaging" / "bundle" / "build_release_manifest.py"
     zip_script = repo_root / "packaging" / "release" / "write_bundle_zip.py"
