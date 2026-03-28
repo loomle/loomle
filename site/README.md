@@ -23,5 +23,6 @@ This site is intentionally minimal:
 - `install.sh` and `install.ps1` are the only published site scripts
 - they install LOOMLE directly from the release manifest and platform zip
 - they do not download a temporary installer binary
+- they do not publish update or doctor entrypoints
 
 Keep the published bootstrap scripts aligned with `packaging/bootstrap/install.sh` and `packaging/bootstrap/install.ps1`.

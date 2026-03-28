@@ -7,9 +7,9 @@ The first `LOOMLE 0.4.0` install model should stay deliberately narrow.
 It should support:
 
 - project-local install only
-- script-first install
-- script-first update
-- script-first doctor
+- site-served script install
+- script-first project-local update
+- script-first project-local doctor
 - upgrade of the project-local client and Unreal integration together
 
 It should not support in this phase:
@@ -43,17 +43,18 @@ while the runtime protocol changes underneath it.
 
 ## Official Entry Points
 
-The official install/update/doctor entrypoints for this phase should be small platform
-scripts:
+The official entrypoints for this phase should be:
 
-- `install.sh`
-- `install.ps1`
-- `update.sh`
-- `update.ps1`
-- `doctor.sh`
-- `doctor.ps1`
+- site-served install scripts:
+  - `install.sh`
+  - `install.ps1`
+- installed project maintenance scripts:
+  - `update.sh`
+  - `update.ps1`
+  - `doctor.sh`
+  - `doctor.ps1`
 
-These scripts should target a specific Unreal project root.
+All of these scripts should target a specific Unreal project root.
 
 Source ownership for this phase should live under:
 
@@ -68,10 +69,10 @@ Recommended command shape:
 
 - `install.sh --project-root /path/to/Project`
 - `install.ps1 -ProjectRoot C:\Path\To\Project`
-- `update.sh --project-root /path/to/Project`
-- `update.ps1 -ProjectRoot C:\Path\To\Project`
-- `doctor.sh --project-root /path/to/Project`
-- `doctor.ps1 -ProjectRoot C:\Path\To\Project`
+- `Loomle/update.sh --project-root /path/to/Project`
+- `Loomle/update.ps1 -ProjectRoot C:\Path\To\Project`
+- `Loomle/doctor.sh --project-root /path/to/Project`
+- `Loomle/doctor.ps1 -ProjectRoot C:\Path\To\Project`
 
 The exact argument spelling can still evolve, but the model should stay:
 
@@ -93,9 +94,9 @@ Install/update should:
 6. write/update machine-readable install state
 7. print a clear success/failure result
 
-Bundle extraction may call an internal helper script for the actual file copy,
-but that helper is implementation detail. The public contract remains the
-platform scripts above.
+The public install and installed maintenance paths should perform this work
+directly in shell or PowerShell. They should not depend on Python or an
+internal bundle helper.
 
 Doctor should:
 
@@ -181,11 +182,8 @@ useful after installation:
   - `Loomle/update.ps1`
   - `Loomle/doctor.ps1`
 
-An internal helper may also live under:
-
-- `Loomle/runtime/install_release.py`
-
 Bootstrap-only `install.*` scripts do not need to be copied into the project.
+They should live on the site only, not inside release assets.
 
 ## Transition From Current State
 

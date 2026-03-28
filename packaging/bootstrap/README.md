@@ -12,15 +12,16 @@ Primary artifacts:
 - `install.ps1`
   - bootstrap entrypoint for Windows PowerShell
 - `update.sh`
-  - project-local update bootstrap entrypoint for macOS/Linux
+  - project-local installed update entrypoint for macOS/Linux
 - `update.ps1`
-  - project-local update bootstrap entrypoint for Windows PowerShell
+  - project-local installed update entrypoint for Windows PowerShell
 - `BOOTSTRAP_CONTRACT.md`
   - defines where the bootstrap scripts should live and what `loomle.ai/i` should point to
 
 Release publication model:
 
-- tag releases publish `install.sh`, `install.ps1`, `update.sh`, and `update.ps1`
+- tag releases publish only zips and manifests
+- `loomle.ai` publishes `install.sh` and `install.ps1`
 - installed projects keep `Loomle/update.*` and `Loomle/doctor.*`
 - no `loomle-installer` binary should exist in the release model
 

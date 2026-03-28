@@ -42,6 +42,11 @@ Owns:
   - `doctor.ps1`
 - no binary install/update command surface
 
+Publication rule:
+
+- `install.*` is site-served only
+- `update.*` and `doctor.*` are copied into installed projects
+
 ### `workspace/Loomle/`
 
 Owns project-local install material that gets copied into:
@@ -86,9 +91,8 @@ At runtime, the effective split is:
 - `Plugins/LoomleBridge/` = native MCP runtime authority
 
 Install and maintenance entrypoints are scripts, not subcommands on `loomle`.
-
-The bundle may also include an internal helper under `Loomle/runtime/`, but the
-public entrypoints remain the top-level scripts.
+The public install path is site-served; installed projects keep only
+`update.*` and `doctor.*`.
 
 The old `mcp/server` bridge layer is no longer part of the target structure.
 

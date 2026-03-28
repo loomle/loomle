@@ -12,9 +12,9 @@ Provide one homepage-driven install flow that is easy for both:
 The first `0.4` install flow should describe:
 
 - project-local install
-- script-first bootstrap
-- script-first update
-- script-first doctor
+- site-served install
+- project-local update
+- project-local doctor
 
 It should not describe:
 
@@ -41,7 +41,7 @@ The page body should explicitly explain:
 
 1. what LOOMLE installs into the project
 2. how to run the install script
-3. how to run the update script
+3. how to update after install
 4. how to verify the install
 5. which assets are published on the release page versus installed into the project
 
@@ -58,14 +58,14 @@ The page body should explicitly explain:
 - Windows PowerShell:
   `& ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) -ProjectRoot C:\Path\To\MyProject`
 
-These bootstrap scripts are release assets and homepage entrypoints. They are
-not copied into the installed project.
+These bootstrap scripts are homepage entrypoints served by `loomle.ai`. They
+are not copied into the installed project.
 
 ### Update
 
-- macOS/Linux: `curl -fsSL https://loomle.ai/update.sh | sh -s -- --project-root /path/to/MyProject`
+- macOS/Linux: `Loomle/update.sh --project-root /path/to/MyProject`
 - Windows PowerShell:
-  `& ([scriptblock]::Create((irm https://loomle.ai/update.ps1))) -ProjectRoot C:\Path\To\MyProject`
+  `Loomle/update.ps1 -ProjectRoot C:\Path\To\MyProject`
 
 ### Verify
 
@@ -81,10 +81,6 @@ Release page assets should include:
 - `loomle-manifest.json`
 - `loomle-manifest-darwin.json`
 - `loomle-manifest-windows.json`
-- `install.sh`
-- `install.ps1`
-- `update.sh`
-- `update.ps1`
 
 Installed projects should keep:
 
@@ -99,7 +95,7 @@ Installed projects should keep:
 The homepage/install-entrypoint design for the first `0.4` cut should teach:
 
 - project-local installation
-- script bootstrap
-- script update
-- script doctor
+- site-served bootstrap
+- project-local update
+- project-local doctor
 - no installer-binary flow

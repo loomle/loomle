@@ -17,8 +17,6 @@ Stable public script entrypoints should remain:
 
 - `https://loomle.ai/install.sh`
 - `https://loomle.ai/install.ps1`
-- `https://loomle.ai/update.sh`
-- `https://loomle.ai/update.ps1`
 
 These scripts target a specific Unreal project root.
 
@@ -48,6 +46,7 @@ They should not download and execute a temporary installer binary.
 Bootstrap should consume release bundles and manifests directly.
 
 It should not require a separate `loomle-installer` artifact.
+It should not require Python or an internal bundle helper.
 
 The relevant release assets are:
 
@@ -65,16 +64,18 @@ Successful bootstrap should leave the project with:
 
 ## Relationship To Update
 
-Update follows the same model:
+Update is not a public site entrypoint.
 
-- script entrypoint
-- explicit project root
-- bundle/manifest driven
-- no binary installer handoff
+Installed projects keep:
+
+- `Loomle/update.sh`
+- `Loomle/update.ps1`
+- `Loomle/doctor.sh`
+- `Loomle/doctor.ps1`
 
 ## Decision
 
-The first `0.4` bootstrap/update contract is:
+The first `0.4` bootstrap contract is:
 
 - scripts only
 - project-local install only

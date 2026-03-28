@@ -55,7 +55,6 @@ def main() -> int:
     repo_root = Path(args.repo_root).resolve()
     output_dir = Path(args.output_dir).resolve()
     bundle_dir = output_dir / "bundle"
-    bootstrap_dir = output_dir / "bootstrap"
     manifest_path = output_dir / "manifest.json"
 
     client_dir = repo_root / "client"
@@ -65,8 +64,6 @@ def main() -> int:
 
     shutil.rmtree(output_dir, ignore_errors=True)
     output_dir.mkdir(parents=True, exist_ok=True)
-    bootstrap_dir.mkdir(parents=True, exist_ok=True)
-
     run(["cargo", "build", "--release"], cwd=client_dir)
 
     client_name = client_binary_name(args.platform)
@@ -87,9 +84,6 @@ def main() -> int:
         str(client_binary),
     ]
     run(assemble_cmd, cwd=repo_root)
-
-    for script_name in ("install.sh", "install.ps1", "update.sh", "update.ps1"):
-        shutil.copy2(client_dir / script_name, bootstrap_dir / script_name)
 
     archive_stem = output_dir / f"loomle-{args.version}-{args.platform}"
     archive_path = output_dir / f"{archive_stem.name}.zip"
@@ -131,7 +125,6 @@ def main() -> int:
         "repoRoot": str(repo_root),
         "outputDir": str(output_dir),
         "bundleDir": str(bundle_dir),
-        "bootstrapDir": str(bootstrap_dir),
         "archive": str(archive_path),
         "manifest": str(manifest_path),
         "platform": args.platform,

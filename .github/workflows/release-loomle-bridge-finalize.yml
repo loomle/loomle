@@ -230,16 +230,6 @@ jobs:
           )
           PY
 
-      - name: Stage Bootstrap Scripts
-        shell: bash
-        run: |
-          set -euo pipefail
-          cp client/install.sh release-finalize/install.sh
-          cp client/install.ps1 release-finalize/install.ps1
-          cp client/update.sh release-finalize/update.sh
-          cp client/update.ps1 release-finalize/update.ps1
-          chmod +x release-finalize/install.sh release-finalize/update.sh
-
       - name: Upload Final Manifest To Tag Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -261,14 +251,10 @@ jobs:
             gh release create loomle-latest \
               --repo "$GITHUB_REPOSITORY" \
               --title "LOOMLE Latest" \
-              --notes "Stable alias release for the latest LOOMLE bootstrap scripts, release archives, and manifest." \
+              --notes "Stable alias release for the latest LOOMLE release archives and manifest." \
               release-finalize/loomle-darwin.zip \
               release-finalize/loomle-windows.zip \
-              release-finalize/loomle-manifest.json \
-              release-finalize/install.sh \
-              release-finalize/install.ps1 \
-              release-finalize/update.sh \
-              release-finalize/update.ps1
+              release-finalize/loomle-manifest.json
           else
             gh release upload loomle-latest release-finalize/loomle-darwin.zip \
               --repo "$GITHUB_REPOSITORY" \
@@ -279,31 +265,4 @@ jobs:
             gh release upload loomle-latest release-finalize/loomle-manifest.json \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
-            gh release upload loomle-latest release-finalize/install.sh \
-              --repo "$GITHUB_REPOSITORY" \
-              --clobber
-            gh release upload loomle-latest release-finalize/install.ps1 \
-              --repo "$GITHUB_REPOSITORY" \
-              --clobber
-            gh release upload loomle-latest release-finalize/update.sh \
-              --repo "$GITHUB_REPOSITORY" \
-              --clobber
-            gh release upload loomle-latest release-finalize/update.ps1 \
-              --repo "$GITHUB_REPOSITORY" \
-              --clobber
           fi
-
-      - name: Upload Bootstrap Scripts To Tag Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          tag="${{ steps.tag.outputs.tag }}"
-          gh release upload "$tag" \
-            release-finalize/install.sh \
-            release-finalize/install.ps1 \
-            release-finalize/update.sh \
-            release-finalize/update.ps1 \
-            --repo "$GITHUB_REPOSITORY" \
-            --clobber

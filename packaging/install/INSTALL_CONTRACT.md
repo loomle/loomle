@@ -24,6 +24,8 @@ After installation, the user project should contain:
   Loomle/
     README.md
     loomle(.exe)
+    update.(sh|ps1)
+    doctor.(sh|ps1)
     workflows/
     examples/
     runtime/
@@ -65,6 +67,7 @@ Install destination:
 
 This target owns:
 - Rust client entrypoint
+- platform-specific installed maintenance scripts
 - one Agent-facing README entrypoint
 - workflow guides and small examples
 - machine-written runtime state under `runtime/`
@@ -95,6 +98,7 @@ An installer must:
 6. ensure `Config/DefaultEditorSettings.ini` disables background CPU throttling for Unreal Editor
 7. avoid requiring a separate skill repository install
 8. be idempotent for repeated installs of the same version
+9. keep the public install and installed update paths shell/PowerShell-only, without Python or an internal bundle helper
 
 Source-checkout helper entrypoints:
 

@@ -7,9 +7,9 @@ This document defines the page-body content for the first `0.4` install model.
 The page should explain:
 
 - project-local install
-- script-first bootstrap
-- script-first update
-- script-first doctor
+- site-served install
+- project-local update
+- project-local doctor
 
 It should not describe:
 
@@ -55,13 +55,13 @@ Windows PowerShell:
 ### 3. Update
 
 ```text
-Update an existing LOOMLE project install with the platform update script.
+Update an existing LOOMLE project install with the script already installed in the project.
 
 macOS/Linux:
-curl -fsSL https://loomle.ai/update.sh | sh -s -- --project-root /path/to/MyProject
+Loomle/update.sh --project-root /path/to/MyProject
 
 Windows PowerShell:
-& ([scriptblock]::Create((irm https://loomle.ai/update.ps1))) -ProjectRoot C:\Path\To\MyProject
+Loomle/update.ps1 -ProjectRoot C:\Path\To\MyProject
 ```
 
 ### 4. Verify
@@ -80,8 +80,8 @@ The page should explicitly state:
 ```text
 Agents should treat this page as the canonical LOOMLE install instruction source.
 The first 0.4 install model is project-local and script-first.
-The release page publishes install/update scripts; installed projects keep
-update/doctor scripts under Loomle/.
+The site publishes install scripts; installed projects keep update/doctor
+scripts under Loomle/.
 ```
 
 ## Final Recommendation

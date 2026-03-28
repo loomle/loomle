@@ -4,7 +4,7 @@ This directory owns release assembly and installation rules.
 
 Planned responsibilities:
 - build release manifests
-- assemble plugin, client, helper scripts, and workspace content into a release bundle
+- assemble plugin, client, maintenance scripts, and workspace content into a release bundle
 - install LOOMLE into a user project in one step
 
 Canonical release helper paths:
@@ -17,7 +17,6 @@ Canonical release helper paths:
 - `packaging/bundle/assemble_release_bundle.py`
 - `packaging/manifests/`
 - `packaging/install/`
-- `packaging/install/install_release.py`
 - `packaging/release/build_local_release.py`
 - `packaging/install/install_from_checkout.py`
 
@@ -26,6 +25,7 @@ Current expectations:
 - release bundles contain only the installable project content:
   - `plugin/LoomleBridge/`
   - `Loomle/`
-- bootstrap scripts are published as separate release assets, not embedded in the zip bundle
-- scripts should validate the declared bundle inputs before copying plugin and workspace content
-- GitHub Releases is the current canonical host for published bundle and manifest assets; `loomle.ai` serves the bootstrap scripts and site content
+- install scripts are served by `loomle.ai`, not by GitHub release assets
+- update scripts are installed into `Loomle/` and not published as standalone release assets
+- scripts should validate the declared bundle inputs before copying plugin and workspace content, without invoking Python
+- GitHub Releases is the canonical host for published bundle and manifest assets; `loomle.ai` serves the install scripts and site content

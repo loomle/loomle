@@ -68,22 +68,22 @@ The preferred direction is:
 
 - `install.sh`
 - `install.ps1`
-- `update.sh`
-- `update.ps1`
-- `doctor.sh`
-- `doctor.ps1`
+- `Loomle/update.sh`
+- `Loomle/update.ps1`
+- `Loomle/doctor.sh`
+- `Loomle/doctor.ps1`
 
-These scripts should install or update LOOMLE into the target Unreal project.
+Site should own install. Installed projects should own update and doctor.
 
 They should not install a machine-global CLI in the first `0.4` cut.
 
 Installed projects should keep only the maintenance scripts that remain useful
 after install:
 
-- `update.sh`
-- `update.ps1`
-- `doctor.sh`
-- `doctor.ps1`
+- `Loomle/update.sh`
+- `Loomle/update.ps1`
+- `Loomle/doctor.sh`
+- `Loomle/doctor.ps1`
 
 Bootstrap-only install scripts do not need to live in the installed project.
 

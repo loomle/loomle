@@ -65,7 +65,6 @@ def main() -> int:
     engine_plugin = repo_root / "engine" / "LoomleBridge"
     workspace_root = repo_root / "workspace" / "Loomle"
     client_root = repo_root / "client"
-    install_helper = repo_root / "packaging" / "install" / "install_release.py"
     release_plugin = output_dir / "plugin" / "LoomleBridge"
     release_workspace = output_dir / "Loomle"
     maintenance_scripts, executable_scripts = maintenance_scripts_for_platform(args.platform)
@@ -75,7 +74,6 @@ def main() -> int:
     copy_tree(workspace_root, release_workspace)
     for script_name in maintenance_scripts:
         copy_file(client_root / script_name, release_workspace / script_name)
-    copy_file(install_helper, release_workspace / "runtime" / "install_release.py")
     for script_name in executable_scripts:
         ensure_executable(release_workspace / script_name)
 

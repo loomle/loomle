@@ -144,11 +144,10 @@ Minimal example:
   - Windows:
     - `Loomle/update.ps1`
     - `Loomle/doctor.ps1`
-- release pages should publish top-level bootstrap assets:
+- release pages publish only zips and manifests
+- site publishes the install scripts:
   - `install.sh`
   - `install.ps1`
-  - `update.sh`
-  - `update.ps1`
 
 Working rule:
 - `Loomle/loomle` is not the install or maintenance entrypoint
