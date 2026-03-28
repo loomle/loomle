@@ -258,6 +258,7 @@ jobs:
 
           Remove-Item -LiteralPath $releaseInputs -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path `
+            (Join-Path $releaseInputs "plugin\LoomleBridge"), `
             (Join-Path $releaseInputs "loomle\Loomle"), `
             (Join-Path $releaseInputs "client\windows") | Out-Null
 
