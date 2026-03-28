@@ -23,6 +23,9 @@ Canonical release helper paths:
 
 Current expectations:
 - bootstrap downloads manifest + bundle directly, not an installer binary
-- release bundles are complete when they include project-local `loomle`, install helper, maintenance scripts, plugin, and workspace content
+- release bundles contain only the installable project content:
+  - `plugin/LoomleBridge/`
+  - `Loomle/`
+- bootstrap scripts are published as separate release assets, not embedded in the zip bundle
 - scripts should validate the declared bundle inputs before copying plugin and workspace content
 - GitHub Releases is the current canonical host for published bundle and manifest assets; `loomle.ai` serves the bootstrap scripts and site content

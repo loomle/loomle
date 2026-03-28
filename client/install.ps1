@@ -104,7 +104,7 @@ print(package["url"])
   Invoke-WebRequest -Uri $AssetUrl -OutFile $ArchivePath
   Expand-Archive -LiteralPath $ArchivePath -DestinationPath $BundleDir -Force
 
-  $HelperPath = Join-Path $BundleDir "workspace\Loomle\runtime\install_release.py"
+  $HelperPath = Join-Path $BundleDir "Loomle\runtime\install_release.py"
   if (-not (Test-Path -LiteralPath $HelperPath)) {
     Fail "bundle missing install helper: $HelperPath"
   }

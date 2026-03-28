@@ -68,11 +68,11 @@ jobs:
           [[ -d "$inputs_dir/workspace/Loomle" ]] || { echo "Verify workspace inputs missing: $inputs_dir/workspace/Loomle" >&2; exit 1; }
           [[ -f "$inputs_dir/client/darwin/loomle" ]] || { echo "Verify client inputs missing: $inputs_dir/client/darwin/loomle" >&2; exit 1; }
 
-          client_relpath="workspace/Loomle/loomle"
+          client_relpath="Loomle/loomle"
           client_dst="$bundle_dir/$client_relpath"
 
           rsync -a "$inputs_dir/plugin/LoomleBridge/" "$bundle_dir/plugin/LoomleBridge/"
-          rsync -a "$inputs_dir/workspace/Loomle/" "$bundle_dir/workspace/Loomle/"
+          rsync -a "$inputs_dir/workspace/Loomle/" "$bundle_dir/Loomle/"
           mkdir -p "$bundle_dir/client/darwin"
           cp "$inputs_dir/client/darwin/loomle" "$bundle_dir/client/darwin/loomle"
           chmod +x \

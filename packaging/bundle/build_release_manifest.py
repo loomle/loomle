@@ -22,7 +22,7 @@ def main() -> int:
     parser.add_argument("--client-sha256", required=True)
     parser.add_argument("--plugin-source", default="plugin/LoomleBridge")
     parser.add_argument("--plugin-destination", default="Plugins/LoomleBridge")
-    parser.add_argument("--workspace-source", default="workspace/Loomle")
+    parser.add_argument("--workspace-source", default="Loomle")
     parser.add_argument("--workspace-destination", default="Loomle")
     parser.add_argument("--base-manifest")
     args = parser.parse_args()

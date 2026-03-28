@@ -7,8 +7,8 @@ LOOMLE installs into a user project in one step.
 One installation must place:
 
 1. the Unreal plugin
-2. the project-local workspace directory
-3. the project-local Rust client
+2. the project-local `Loomle/` directory
+3. the project-local client binary
 
 ## 2. Installed Project Layout
 
@@ -49,12 +49,12 @@ This target owns:
 - Unreal plugin files
 - bridge runtime assets
 
-### Workspace install target
+### LOOMLE install target
 
 Source bundle content:
 
 ```text
-workspace/Loomle/
+Loomle/
 ```
 
 Install destination:
@@ -81,7 +81,7 @@ Installed at:
 
 Reason:
 - project-local user and agent entrypoint
-- workspace-layer runtime component
+- project-local runtime component
 
 ## 5. Installer Responsibilities
 
@@ -106,6 +106,6 @@ Source-checkout helper entrypoints:
 The release manifest determines:
 - which bundle is downloaded
 - how plugin content is installed
-- how workspace content is installed
+- how `Loomle/` content is installed
 
 Packaging scripts must treat the manifest as the source of truth for install destinations.

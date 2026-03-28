@@ -58,7 +58,7 @@ def main() -> int:
     client_root = repo_root / "client"
     install_helper = repo_root / "packaging" / "install" / "install_release.py"
     release_plugin = output_dir / "plugin" / "LoomleBridge"
-    release_workspace = output_dir / "workspace" / "Loomle"
+    release_workspace = output_dir / "Loomle"
 
     reset_dir(output_dir)
     copy_tree(engine_plugin, release_plugin)
@@ -72,12 +72,6 @@ def main() -> int:
     ensure_executable(release_workspace / "doctor.sh")
 
     client_binary = Path(args.client_binary).resolve()
-    copy_file(client_root / "install.sh", output_dir / "bootstrap" / "install.sh")
-    copy_file(client_root / "install.ps1", output_dir / "bootstrap" / "install.ps1")
-    copy_file(client_root / "update.sh", output_dir / "bootstrap" / "update.sh")
-    copy_file(client_root / "update.ps1", output_dir / "bootstrap" / "update.ps1")
-    ensure_executable(output_dir / "bootstrap" / "install.sh")
-    ensure_executable(output_dir / "bootstrap" / "update.sh")
     copy_file(
         client_binary,
         release_workspace / client_binary.name,
@@ -86,7 +80,7 @@ def main() -> int:
     manifest = {
         "bundleRoot": str(output_dir),
         "plugin": str(release_plugin),
-        "workspace": str(release_workspace),
+        "loomle": str(release_workspace),
         "clientBinaryIncluded": True,
     }
     print(json.dumps(manifest, indent=2))

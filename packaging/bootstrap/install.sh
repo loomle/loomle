@@ -147,7 +147,7 @@ with zipfile.ZipFile(archive) as zf:
     zf.extractall(target)
 PY
 
-  helper_path="$bundle_dir/workspace/Loomle/runtime/install_release.py"
+  helper_path="$bundle_dir/Loomle/runtime/install_release.py"
   [[ -f "$helper_path" ]] || fail "bundle missing install helper: $helper_path"
 
   python3 "$helper_path" \

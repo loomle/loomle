@@ -9,7 +9,7 @@ import os
 
 EDITOR_PERF_SECTION = "[/Script/UnrealEd.EditorPerformanceSettings]"
 EDITOR_THROTTLE_SETTING = "bThrottleCPUWhenNotForeground=False"
-WORKSPACE_SOURCE_ROOT = Path("workspace/Loomle")
+WORKSPACE_SOURCE_ROOT = Path("Loomle")
 PLUGIN_SOURCE_ROOT = Path("plugin/LoomleBridge")
 
 

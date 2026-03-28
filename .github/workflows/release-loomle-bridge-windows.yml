@@ -96,7 +96,7 @@ jobs:
             throw "Verify client inputs missing: $(Join-Path $inputsDir 'client\windows\loomle.exe')"
           }
 
-          $clientRelPath = "workspace/Loomle/loomle.exe"
+          $clientRelPath = "Loomle/loomle.exe"
           $clientDst = Join-Path $bundleDir ($clientRelPath -replace '/', '\')
 
           New-Item -ItemType Directory -Force -Path `
@@ -104,7 +104,7 @@ jobs:
             (Join-Path $bundleDir "client\windows") | Out-Null
 
           Copy-Item -Path (Join-Path $inputsDir "plugin\LoomleBridge\*") -Destination (Join-Path $bundleDir "plugin\LoomleBridge") -Recurse -Force
-          Copy-Item -Path (Join-Path $inputsDir "workspace\Loomle\*") -Destination (Join-Path $bundleDir "workspace\Loomle") -Recurse -Force
+          Copy-Item -Path (Join-Path $inputsDir "workspace\Loomle\*") -Destination (Join-Path $bundleDir "Loomle") -Recurse -Force
           Copy-Item -LiteralPath (Join-Path $inputsDir ($clientRelPath -replace '/', '\')) -Destination $clientDst -Force
           Copy-Item -LiteralPath (Join-Path $inputsDir "client\windows\loomle.exe") -Destination (Join-Path $bundleDir "client\windows\loomle.exe") -Force
 

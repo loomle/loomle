@@ -7,7 +7,7 @@
           "url": "https://example.invalid/loomle-0.3.32-darwin.zip",
           "sha256": "package-sha256",
           "format": "zip",
-          "client_binary_relpath": "workspace/Loomle/loomle",
+          "client_binary_relpath": "Loomle/loomle",
           "client_sha256": "client-sha256",
           "install": {
             "plugin": {
@@ -15,7 +15,7 @@
               "destination": "Plugins/LoomleBridge"
             },
             "workspace": {
-              "source": "workspace/Loomle",
+              "source": "Loomle",
               "destination": "Loomle"
             }
           }
