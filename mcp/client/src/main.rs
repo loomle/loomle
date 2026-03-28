@@ -5,7 +5,7 @@ use loomle::{
         InstallerDownloadRequest, UpdateRequest,
     },
     is_installer_binary_path, parse_json_object, render_json_pretty, resolve_project_root,
-    runtime_server_binary_required,
+    runtime_endpoint_path, runtime_server_binary_required,
     skill::{
         install_skill, list_skills, remove_skill, SkillInstallRequest, SkillListRequest,
         SkillRemoveRequest,
@@ -172,7 +172,7 @@ async fn main() -> ExitCode {
             match command {
                 CommandKind::Doctor => run_doctor(&env_info),
                 CommandKind::ServerPath => {
-                    println!("{}", env_info.server_path.display());
+                    println!("{}", runtime_endpoint_path(&env_info).display());
                     ExitCode::SUCCESS
                 }
                 CommandKind::Session => run_session(&env_info).await,
@@ -743,7 +743,7 @@ fn run_doctor(env_info: &Environment) -> ExitCode {
     println!("LOOMLE client");
     println!("project_root={}", env_info.project_root.display());
     println!("plugin_root={}", env_info.plugin_root.display());
-    println!("server_path={}", env_info.server_path.display());
+    println!("runtime_endpoint_path={}", runtime_endpoint_path(env_info).display());
     println!("runtime_socket_path={}", env_info.runtime_socket_path.display());
 
     if !env_info.plugin_root.is_dir() {
@@ -780,19 +780,11 @@ async fn run_list_tools(env_info: &Environment) -> ExitCode {
     };
 
     let result = client.peer().list_all_tools().await.map_err(|error| {
-        if runtime_server_binary_required() {
-            format!(
-                "failed to list tools from {}: {}",
-                env_info.server_path.display(),
-                error
-            )
-        } else {
-            format!(
-                "failed to list tools from runtime socket {}: {}",
-                env_info.runtime_socket_path.display(),
-                error
-            )
-        }
+        format!(
+            "failed to list tools from {}: {}",
+            runtime_endpoint_path(env_info).display(),
+            error
+        )
     });
     let close_result = client.close().await;
 
@@ -1061,7 +1053,7 @@ async fn run_call(
         format!(
             "failed to call tool `{}` via {}: {}",
             tool_name,
-            env_info.server_path.display(),
+            runtime_endpoint_path(env_info).display(),
             error
         )
     });
@@ -1174,14 +1166,14 @@ fn print_usage() {
     eprintln!("  loomle [--project-root <ProjectRoot>] session");
     eprintln!();
     eprintln!("Commands:");
-    eprintln!("  doctor      check that the project-local plugin and MCP server are installed");
+    eprintln!("  doctor      check that the project-local plugin and runtime endpoint are installed");
     eprintln!("  skill       list, install, or remove official LOOMLE skills");
     eprintln!("  list-tools  print the live tool contract from the installed server");
     eprintln!("  call        make one tool request and print the JSON result");
     eprintln!("  session     start a persistent stdin/stdout JSON session for repeated, high-volume, or high-concurrency requests");
     eprintln!("  install     install LOOMLE into a project from a release manifest");
     eprintln!("  update      check for a newer LOOMLE release or apply it with --apply");
-    eprintln!("  server-path print the resolved project-local MCP server binary path");
+    eprintln!("  server-path print the resolved project-local runtime endpoint path");
     eprintln!();
     eprintln!("If --project-root is omitted, loomle searches upward from the current directory for a .uproject.");
 }

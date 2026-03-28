@@ -43,6 +43,14 @@ impl Environment {
     }
 }
 
+pub fn runtime_endpoint_path<'a>(env_info: &'a Environment) -> &'a Path {
+    if runtime_server_binary_required() {
+        &env_info.server_path
+    } else {
+        &env_info.runtime_socket_path
+    }
+}
+
 pub async fn connect_client(env_info: &Environment) -> Result<LoomleClient, String> {
     #[cfg(unix)]
     {

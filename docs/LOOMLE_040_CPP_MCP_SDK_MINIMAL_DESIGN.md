@@ -774,11 +774,11 @@ It should not depend on the old custom RPC capabilities response.
 `LOOMLE 0.4.0` should avoid ending up with long-term duplicated schema
 authority across:
 
-- Rust MCP server schema
+- legacy Rust transitional schema
 - C++ MCP runtime schema
 - documentation-only schema fragments
 
-Today, the practical tool descriptor source lives in:
+Before the native `mcp core` cutover, the practical tool descriptor source lived in:
 
 - [schema.rs](/Users/xartest/dev/loomle/mcp/server/src/schema.rs)
 
