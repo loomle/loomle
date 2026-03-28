@@ -105,7 +105,7 @@ jobs:
 
           Copy-Item -Path (Join-Path $inputsDir "plugin\LoomleBridge\*") -Destination (Join-Path $bundleDir "plugin\LoomleBridge") -Recurse -Force
           Copy-Item -Path (Join-Path $inputsDir "loomle\Loomle\*") -Destination (Join-Path $bundleDir "Loomle") -Recurse -Force
-          Copy-Item -LiteralPath (Join-Path $inputsDir ($clientRelPath -replace '/', '\')) -Destination $clientDst -Force
+          Copy-Item -LiteralPath (Join-Path $inputsDir "client\windows\loomle.exe") -Destination $clientDst -Force
           Copy-Item -LiteralPath (Join-Path $inputsDir "client\windows\loomle.exe") -Destination (Join-Path $bundleDir "client\windows\loomle.exe") -Force
 
           python (Join-Path $env:GITHUB_WORKSPACE "packaging\release\write_bundle_zip.py") `
