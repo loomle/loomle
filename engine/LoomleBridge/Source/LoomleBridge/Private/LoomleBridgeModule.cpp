@@ -89,7 +89,6 @@
 #include "MeshSelectors/PCGMeshSelectorWeighted.h"
 #include "MeshSelectors/PCGMeshSelectorWeightedByCategory.h"
 #include "MeshSelectors/PCGSkinnedMeshSelector.h"
-#include "Components/InstancedSkinnedMeshComponent.h"
 #include "LoomleBlueprintAdapter.h"
 #include "LoomlePipeServer.h"
 #include "mcp_core/McpCoreTransportHost.h"

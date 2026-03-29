@@ -2060,7 +2060,9 @@ FString GetPcgSoftObjectAssetPath(const TSoftObjectPtr<TObjectType>& Object)
 template <typename TObjectType>
 FString GetPcgClassPath(const TSubclassOf<TObjectType>& ObjectClass)
 {
-    return ObjectClass ? ObjectClass->GetPathName() : TEXT("");
+    const TObjectPtr<UClass>& RawClass =
+        const_cast<TSubclassOf<TObjectType>&>(ObjectClass).GetGCPtr();
+    return RawClass ? RawClass->GetPathName() : TEXT("");
 }
 
 TArray<TSharedPtr<FJsonValue>> MakePcgStringValueArray(const TArray<FString>& Values)
