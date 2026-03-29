@@ -28,6 +28,8 @@
 #include "GameFramework/Actor.h"
 #include "GameFramework/Character.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Framework/MultiBox/MultiBoxBuilder.h"
+#include "Framework/MultiBox/MultiBoxExtender.h"
 #include "GenericPlatform/GenericPlatformMemory.h"
 #include "HAL/PlatformTime.h"
 #include "HAL/MemoryBase.h"
@@ -53,6 +55,7 @@
 #include "IMaterialEditor.h"
 #include "MaterialEditorUtilities.h"
 #include "Interfaces/IMainFrameModule.h"
+#include "LevelEditor.h"
 #include "MaterialGraph/MaterialGraph.h"
 #include "MaterialGraph/MaterialGraphNode.h"
 #include "MaterialGraph/MaterialGraphNode_Root.h"
@@ -109,12 +112,16 @@
 #include "UObject/UObjectIterator.h"
 #include "UObject/UnrealType.h"
 #include "Misc/TransactionObjectEvent.h"
+#include "Styling/AppStyle.h"
 #include "Slate/WidgetRenderer.h"
 #include "DynamicRHI.h"
 #include "GPUProfiler.h"
 #include "RHIStats.h"
 #include "Widgets/SWidget.h"
 #include "Widgets/SWindow.h"
+#include "Widgets/Layout/SBorder.h"
+#include "Widgets/Layout/SBox.h"
+#include "Widgets/Text/STextBlock.h"
 #include "BlueprintEditor.h"
 #include "BlueprintEditorTabs.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -3699,6 +3706,168 @@ void FLoomleBridgeModule::UpdateHealthSnapshot()
     bIsPIESnapshot.Store(bIsPIE);
 }
 
+void FLoomleBridgeModule::RegisterToolbarStatusWidget()
+{
+    if (ToolbarExtender.IsValid())
+    {
+        return;
+    }
+
+    if (!FModuleManager::Get().IsModuleLoaded(TEXT("LevelEditor")))
+    {
+        return;
+    }
+
+    FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>(TEXT("LevelEditor"));
+    ToolbarExtender = MakeShared<FExtender>();
+    ToolbarExtender->AddToolBarExtension(
+        TEXT("Settings"),
+        EExtensionHook::After,
+        nullptr,
+        FToolBarExtensionDelegate::CreateRaw(this, &FLoomleBridgeModule::ExtendLevelEditorToolbar));
+    LevelEditorModule.GetToolBarExtensibilityManager()->AddExtender(ToolbarExtender);
+}
+
+void FLoomleBridgeModule::UnregisterToolbarStatusWidget()
+{
+    if (!ToolbarExtender.IsValid())
+    {
+        return;
+    }
+
+    if (FModuleManager::Get().IsModuleLoaded(TEXT("LevelEditor")))
+    {
+        FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>(TEXT("LevelEditor"));
+        LevelEditorModule.GetToolBarExtensibilityManager()->RemoveExtender(ToolbarExtender);
+    }
+    ToolbarExtender.Reset();
+}
+
+void FLoomleBridgeModule::HandleModulesChanged(FName ModuleName, EModuleChangeReason ChangeReason)
+{
+    if (ModuleName != TEXT("LevelEditor"))
+    {
+        return;
+    }
+
+    if (ChangeReason == EModuleChangeReason::ModuleLoaded)
+    {
+        RegisterToolbarStatusWidget();
+    }
+    else if (ChangeReason == EModuleChangeReason::ModuleUnloaded)
+    {
+        UnregisterToolbarStatusWidget();
+    }
+}
+
+void FLoomleBridgeModule::ExtendLevelEditorToolbar(FToolBarBuilder& ToolbarBuilder)
+{
+    ToolbarBuilder.AddSeparator();
+    ToolbarBuilder.AddWidget(
+        SNew(SBox)
+        .VAlign(VAlign_Center)
+        [
+            SNew(SBorder)
+            .Padding(FMargin(8.0f, 3.0f))
+            .BorderImage(FAppStyle::GetBrush(TEXT("WhiteBrush")))
+            .BorderBackgroundColor_Lambda([this]()
+            {
+                return GetToolbarStatusColor();
+            })
+            .ToolTipText_Lambda([this]()
+            {
+                return GetToolbarStatusTooltip();
+            })
+            [
+                SNew(STextBlock)
+                .Text_Lambda([this]()
+                {
+                    return GetToolbarStatusLabel();
+                })
+                .ColorAndOpacity(FLinearColor::White)
+                .Font(FAppStyle::GetFontStyle(TEXT("SmallFont")))
+            ]
+        ],
+        NAME_None,
+        true);
+}
+
+FText FLoomleBridgeModule::GetToolbarStatusLabel() const
+{
+    return FText::FromString(FString::Printf(TEXT("LOOMLE %s"), *GetToolbarStatusKey()));
+}
+
+FText FLoomleBridgeModule::GetToolbarStatusTooltip() const
+{
+    const bool bBridgeRunning = bBridgeRunningSnapshot.Load();
+    const bool bPythonReady = bPythonReadySnapshot.Load();
+    const bool bIsPIE = bIsPIESnapshot.Load();
+
+    return FText::FromString(FString::Printf(
+        TEXT("LOOMLE Bridge Status\nState: %s\nBridge: %s\nPython: %s\nPIE: %s\nEndpoint: %s"),
+        *GetToolbarStatusKey(),
+        bBridgeRunning ? TEXT("running") : TEXT("stopped"),
+        bPythonReady ? TEXT("ready") : TEXT("not ready"),
+        bIsPIE ? TEXT("active") : TEXT("inactive"),
+        *GetRuntimeEndpointDisplayString()));
+}
+
+FSlateColor FLoomleBridgeModule::GetToolbarStatusColor() const
+{
+    const FString Key = GetToolbarStatusKey();
+    if (Key.Equals(TEXT("Ready")))
+    {
+        return FSlateColor(FLinearColor(0.15f, 0.55f, 0.22f, 1.0f));
+    }
+    if (Key.Equals(TEXT("Starting")))
+    {
+        return FSlateColor(FLinearColor(0.75f, 0.55f, 0.15f, 1.0f));
+    }
+    if (Key.Equals(TEXT("PIE")))
+    {
+        return FSlateColor(FLinearColor(0.16f, 0.36f, 0.78f, 1.0f));
+    }
+    if (Key.Equals(TEXT("Degraded")))
+    {
+        return FSlateColor(FLinearColor(0.78f, 0.42f, 0.12f, 1.0f));
+    }
+    return FSlateColor(FLinearColor(0.45f, 0.18f, 0.18f, 1.0f));
+}
+
+FString FLoomleBridgeModule::GetToolbarStatusKey() const
+{
+    const bool bBridgeRunning = bBridgeRunningSnapshot.Load();
+    const bool bPythonReady = bPythonReadySnapshot.Load();
+    const bool bIsPIE = bIsPIESnapshot.Load();
+
+    if (!bBridgeRunning)
+    {
+        return TEXT("Offline");
+    }
+    if (bBridgeRunning && !bPythonReady)
+    {
+        return TEXT("Starting");
+    }
+    if (bBridgeRunning && bPythonReady && bIsPIE)
+    {
+        return TEXT("PIE");
+    }
+    if (bBridgeRunning && bPythonReady)
+    {
+        return TEXT("Ready");
+    }
+    return TEXT("Degraded");
+}
+
+FString FLoomleBridgeModule::GetRuntimeEndpointDisplayString() const
+{
+#if PLATFORM_WINDOWS
+    return FString::Printf(TEXT("\\\\.\\pipe\\%s"), *GetRpcPipeNameForCurrentProject());
+#else
+    return FPaths::Combine(FPaths::ProjectIntermediateDir(), TEXT("loomle.sock"));
+#endif
+}
+
 void FLoomleBridgeModule::StartupModule()
 {
 #if PLATFORM_WINDOWS
@@ -3753,6 +3922,11 @@ void FLoomleBridgeModule::StartupModule()
     HealthSnapshotTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
         FTickerDelegate::CreateRaw(this, &FLoomleBridgeModule::TickHealthSnapshot),
         0.1f);
+    if (!ModulesChangedHandle.IsValid())
+    {
+        ModulesChangedHandle = FModuleManager::Get().OnModulesChanged().AddRaw(this, &FLoomleBridgeModule::HandleModulesChanged);
+    }
+    RegisterToolbarStatusWidget();
 
 #if PLATFORM_WINDOWS
     UE_LOG(LogLoomleBridge, Display, TEXT("Loomle bridge started on named pipe \\\\.\\pipe\\%s"), *PipeName);
@@ -3765,6 +3939,13 @@ void FLoomleBridgeModule::StartupModule()
 
 void FLoomleBridgeModule::ShutdownModule()
 {
+    if (ModulesChangedHandle.IsValid())
+    {
+        FModuleManager::Get().OnModulesChanged().Remove(ModulesChangedHandle);
+        ModulesChangedHandle.Reset();
+    }
+    UnregisterToolbarStatusWidget();
+
     if (BlueprintCompiledHandle.IsValid())
     {
         if (GEditor != nullptr)

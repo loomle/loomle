@@ -7,9 +7,11 @@
 
 class FLoomlePipeServer;
 class FMcpCoreTransportHost;
+class FExtender;
 class FJsonObject;
 class FJsonValue;
 class FOutputDevice;
+class FToolBarBuilder;
 
 class FLoomleBridgeModule : public IModuleInterface
 {
@@ -24,6 +26,15 @@ private:
     void ForgetMcpSessionState(int32 ConnectionSerial);
     bool TickHealthSnapshot(float DeltaTime);
     void UpdateHealthSnapshot();
+    void RegisterToolbarStatusWidget();
+    void UnregisterToolbarStatusWidget();
+    void HandleModulesChanged(FName ModuleName, EModuleChangeReason ChangeReason);
+    void ExtendLevelEditorToolbar(FToolBarBuilder& ToolbarBuilder);
+    FText GetToolbarStatusLabel() const;
+    FText GetToolbarStatusTooltip() const;
+    FSlateColor GetToolbarStatusColor() const;
+    FString GetToolbarStatusKey() const;
+    FString GetRuntimeEndpointDisplayString() const;
 
     TSharedPtr<FJsonObject> BuildMcpInitializeResult(const TSharedPtr<FJsonObject>& Params) const;
     TSharedPtr<FJsonObject> BuildMcpToolsListResult() const;
@@ -126,6 +137,8 @@ private:
 private:
     TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> PipeServer;
     TUniquePtr<FMcpCoreTransportHost> McpTransportHost;
+    TSharedPtr<FExtender> ToolbarExtender;
+    FDelegateHandle ModulesChangedHandle;
     TMap<int32, FMcpSessionState> McpSessionStates;
     FCriticalSection McpSessionStatesMutex;
     TMap<FString, FPendingGraphLayoutState> PendingGraphLayoutStates;

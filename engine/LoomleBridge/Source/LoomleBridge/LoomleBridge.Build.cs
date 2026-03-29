@@ -24,6 +24,7 @@ public class LoomleBridge : ModuleRules
                 "Json",
                 "JsonUtilities",
                 "Kismet",
+                "LevelEditor",
                 "MainFrame",
                 "MaterialEditor",
                 "PCG",
@@ -33,6 +34,7 @@ public class LoomleBridge : ModuleRules
                 "RHI",
                 "Slate",
                 "SlateCore",
+                "ToolMenus",
                 "UMG",
                 "UnrealEd"
             });
