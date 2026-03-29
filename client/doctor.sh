@@ -69,7 +69,7 @@ main() {
   project_root="$(cd "$project_root" && pwd)"
 
   loomle_bin="$project_root/Loomle/loomle"
-  install_state="$project_root/Loomle/runtime/install.json"
+  install_state="$project_root/Loomle/install/active.json"
   plugin_root="$project_root/Plugins/LoomleBridge"
   endpoint="$project_root/Intermediate/loomle.sock"
 

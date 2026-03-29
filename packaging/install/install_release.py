@@ -13,6 +13,12 @@ WORKSPACE_SOURCE_ROOT = Path("Loomle")
 PLUGIN_SOURCE_ROOT = Path("plugin/LoomleBridge")
 
 
+def versioned_client_binary_name(version: str, launcher_name: str) -> str:
+    suffix = ".exe" if launcher_name.endswith(".exe") else ""
+    base = launcher_name[:-4] if suffix else launcher_name
+    return f"{base}-{version}{suffix}"
+
+
 def fail(message: str) -> None:
     print(f"[FAIL] {message}", file=sys.stderr)
     raise SystemExit(1)
@@ -121,26 +127,38 @@ def write_runtime_install_state(
     workspace_destination_root: str,
     client_binary_relpath: str,
 ) -> Path:
-    runtime_dir = project_root / workspace_destination_root / "runtime"
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-    install_state_path = runtime_dir / "install.json"
+    install_dir = project_root / workspace_destination_root / "install"
+    install_dir.mkdir(parents=True, exist_ok=True)
+    install_state_path = install_dir / "active.json"
     editor_settings_path = project_root / "Config" / "DefaultEditorSettings.ini"
+    client_path = resolve_installed_path(
+        project_root=project_root,
+        source_root=WORKSPACE_SOURCE_ROOT,
+        destination_root=workspace_destination_root,
+        bundle_relative_path=client_binary_relpath,
+    )
+    active_client_name = versioned_client_binary_name(version, client_path.name)
+    active_client_path = (
+        project_root
+        / workspace_destination_root
+        / "install"
+        / "versions"
+        / version
+        / active_client_name
+    )
 
     install_state = {
         "schemaVersion": 1,
         "installedVersion": version,
+        "activeVersion": version,
         "platform": platform,
         "projectRoot": str(project_root),
-        "workspaceRoot": str(project_root / workspace_destination_root),
+        "loomleRoot": str(project_root / workspace_destination_root),
         "pluginRoot": str(project_root / plugin_destination_root),
-        "clientPath": str(
-            resolve_installed_path(
-                project_root=project_root,
-                source_root=WORKSPACE_SOURCE_ROOT,
-                destination_root=workspace_destination_root,
-                bundle_relative_path=client_binary_relpath,
-            )
-        ),
+        "launcherPath": str(client_path),
+        "activeClientPath": str(active_client_path),
+        "manifestsRoot": str(install_dir / "manifests"),
+        "versionsRoot": str(install_dir / "versions"),
         "editorPerformance": {
             "settingsFile": str(editor_settings_path),
             "throttleWhenNotForeground": False,
@@ -214,14 +232,23 @@ def main() -> int:
 
     copy_tree(plugin_source, plugin_destination)
     copy_tree(workspace_source, workspace_destination)
-    ensure_executable_file(
-        resolve_installed_path(
-            project_root=project_root,
-            source_root=WORKSPACE_SOURCE_ROOT,
-            destination_root=str(workspace_install.get("destination", "")),
-            bundle_relative_path=client_binary_relpath,
-        )
+    (workspace_destination / "install" / "versions").mkdir(parents=True, exist_ok=True)
+    (workspace_destination / "install" / "manifests").mkdir(parents=True, exist_ok=True)
+    (workspace_destination / "install" / "pending").mkdir(parents=True, exist_ok=True)
+    (workspace_destination / "state" / "diag").mkdir(parents=True, exist_ok=True)
+    (workspace_destination / "state" / "captures").mkdir(parents=True, exist_ok=True)
+    installed_client_path = resolve_installed_path(
+        project_root=project_root,
+        source_root=WORKSPACE_SOURCE_ROOT,
+        destination_root=str(workspace_install.get("destination", "")),
+        bundle_relative_path=client_binary_relpath,
     )
+    versioned_client_dir = workspace_destination / "install" / "versions" / version
+    versioned_client_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(installed_client_path, versioned_client_dir / installed_client_path.name)
+    shutil.copy2(manifest_path, workspace_destination / "install" / "manifests" / f"{version}.json")
+    ensure_executable_file(installed_client_path)
+    ensure_executable_file(versioned_client_dir / installed_client_path.name)
     ensure_ini_section_setting(
         project_root / "Config" / "DefaultEditorSettings.ini",
         EDITOR_PERF_SECTION,
@@ -238,6 +265,7 @@ def main() -> int:
 
     result = {
         "installedVersion": version,
+        "activeVersion": version,
         "platform": args.platform,
         "bundleRoot": str(bundle_root),
         "projectRoot": str(project_root),
@@ -249,8 +277,8 @@ def main() -> int:
             "source": str(workspace_source),
             "destination": str(workspace_destination),
         },
-        "runtime": {
-            "installState": str(install_state_path),
+        "install": {
+            "activeState": str(install_state_path),
         },
     }
     print(json.dumps(result, indent=2))

@@ -7,7 +7,7 @@ ownership and lifecycle.
 
 For this phase, the project workdir should split into two top-level areas:
 
-- `Loomle/`: machine-managed local install, local state, and local user memory
+- `Loomle/`: machine-managed local install and local state
 - `worklog/`: team-shared, human-authored collaboration content
 
 This keeps install/update behavior predictable and keeps git policy simple.
@@ -20,7 +20,6 @@ content:
 - install and upgrade metadata
 - versioned client payloads
 - machine-written runtime outputs
-- user-local memory and session state
 - team-shared collaboration material
 
 Those do not have the same owner, update policy, or git policy.
@@ -38,12 +37,11 @@ The workdir model should be organized by owner:
 
 1. installer-managed local product material
 2. LOOMLE-managed local state
-3. user-managed local notes and memory
-4. team-managed shared project collaboration content
+3. team-managed shared project collaboration content
 
-The first three belong under `Loomle/`.
+The first two belong under `Loomle/`.
 
-The fourth should live outside `Loomle/` in a dedicated tracked directory.
+The third should live outside `Loomle/` in a dedicated tracked directory.
 
 ## Target Project Shape
 
@@ -71,11 +69,6 @@ The fourth should live outside `Loomle/` in a dedicated tracked directory.
       diag/
       captures/
 
-    local/
-      memory/
-      sessions/
-      notes/
-
   worklog/
     README.md
     decisions/
@@ -99,7 +92,6 @@ It owns:
 - versioned client payloads
 - product-supplied stateless agent kit
 - machine-written diagnostic and capture outputs
-- user-local, non-shared memory and notes
 
 It should not be treated as team-shared content.
 
@@ -138,20 +130,6 @@ It owns:
 - other runtime-generated output that should not be edited by hand
 
 This directory is intentionally separate from install metadata.
-
-### `Loomle/local/`
-
-This is visible but local-only user state.
-
-It owns:
-
-- user memory
-- session state
-- personal notes
-- other non-shared local working files
-
-This avoids hidden-directory opacity while still keeping local state outside
-team collaboration content.
 
 ### `worklog/`
 
@@ -198,7 +176,6 @@ The update system should own only installer-managed areas:
 
 It should not mutate:
 
-- `Loomle/local/`
 - `worklog/`
 
 `Loomle/state/` may be preserved or selectively cleaned by explicit policy, but
@@ -210,7 +187,6 @@ This model is a better fit for the first `0.4` cut because it gives:
 
 - a visible local directory for non-technical users
 - a clear distinction between install metadata and runtime output
-- a clear distinction between local-only state and team-shared collaboration
 - an update path that does not need to reason about tracked project content
 - a simple git policy with no hidden-directory requirement
 
@@ -227,9 +203,8 @@ The following remain out of scope for this phase:
 
 For the first `LOOMLE 0.4.0` workdir model:
 
-- use `Loomle/` for local install material, local state, and local user memory
+- use `Loomle/` for local install material and local state
 - use `Loomle/install/` for install metadata and versioned payloads
 - use `Loomle/state/` for machine-written runtime outputs
-- use `Loomle/local/` for visible local-only user memory and notes
 - use `worklog/` for team-shared tracked collaboration content
 - ignore `Loomle/` and `Plugins/LoomleBridge/` in git

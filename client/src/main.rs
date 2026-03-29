@@ -1,4 +1,7 @@
-use loomle::{connect_client, resolve_project_root, Environment, LoomleClient};
+use loomle::{
+    connect_client, read_active_install_state, resolve_project_root, should_handoff_to_active_client, Environment,
+    LoomleClient,
+};
 use rmcp::{
     model::{
         CallToolRequestParams, CallToolResult, Implementation, ListToolsResult, PaginatedRequestParams,
@@ -11,6 +14,7 @@ use rmcp::{
 use std::env;
 use std::ffi::OsString;
 use std::path::PathBuf;
+use std::process::{Command, ExitStatus, Stdio};
 use std::process::ExitCode;
 use std::sync::Arc;
 
@@ -32,6 +36,9 @@ async fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    if let Some(code) = maybe_handoff_to_active_client(&project_root) {
+        return code;
+    }
     let env_info = Environment::for_project_root(project_root);
     let runtime_client = match connect_client(&env_info).await {
         Ok(client) => Arc::new(client),
@@ -56,6 +63,69 @@ async fn main() -> ExitCode {
             eprintln!("[loomle][ERROR] stdio MCP service failed: {error}");
             ExitCode::from(1)
         }
+    }
+}
+
+fn maybe_handoff_to_active_client(project_root: &std::path::Path) -> Option<ExitCode> {
+    let state = match read_active_install_state(project_root) {
+        Ok(state) => state,
+        Err(_) => return None,
+    };
+    let current_exe = match env::current_exe() {
+        Ok(path) => path,
+        Err(error) => {
+            eprintln!("[loomle][ERROR] failed to resolve current executable: {error}");
+            return Some(ExitCode::from(1));
+        }
+    };
+    let handoff_decision = match should_handoff_to_active_client(&current_exe, &state) {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("[loomle][ERROR] {error}");
+            return Some(ExitCode::from(1));
+        }
+    };
+    match handoff_decision {
+        Some(true) => {}
+        Some(false) | None => return None,
+    }
+
+    let mut child = match Command::new(&state.active_client_path)
+        .args(env::args_os().skip(1))
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(error) => {
+            eprintln!(
+                "[loomle][ERROR] failed to start active client {} for version {}: {}",
+                state.active_client_path.display(),
+                state.active_version,
+                error
+            );
+            return Some(ExitCode::from(1));
+        }
+    };
+    let status = match child.wait() {
+        Ok(status) => status,
+        Err(error) => {
+            eprintln!(
+                "[loomle][ERROR] failed while waiting for active client {}: {}",
+                state.active_client_path.display(),
+                error
+            );
+            return Some(ExitCode::from(1));
+        }
+    };
+    Some(exit_code_from_status(status))
+}
+
+fn exit_code_from_status(status: ExitStatus) -> ExitCode {
+    match status.code() {
+        Some(code) => ExitCode::from(code as u8),
+        None => ExitCode::from(1),
     }
 }
 

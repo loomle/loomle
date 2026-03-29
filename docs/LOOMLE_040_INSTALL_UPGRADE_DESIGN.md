@@ -36,7 +36,6 @@ After install, the Unreal project should contain:
     README.md
     install/
     state/
-    local/
     workflows/
     examples/
 
@@ -167,7 +166,6 @@ Within `Loomle/`, install/update should treat these areas differently:
   - `Loomle/install/`
 - preserved local state:
   - `Loomle/state/`
-  - `Loomle/local/`
 - team-shared tracked content outside installer ownership:
   - `worklog/`
 

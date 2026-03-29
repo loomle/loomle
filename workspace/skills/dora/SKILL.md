@@ -126,8 +126,8 @@ the resulting design artifact.
 Handoff and collaboration notes should not be embedded as a special section in
 every design document.
 
-Instead, after completing a meaningful `Dora` task, record the result in
-`loomle/worklog/` when a project-local worklog entry is appropriate.
+Instead, after completing a meaningful `Dora` task, record the result in a
+project-local collaboration artifact when one exists.
 
 The `Worklog` entry should capture at least:
 

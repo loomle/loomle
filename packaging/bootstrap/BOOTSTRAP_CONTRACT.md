@@ -60,7 +60,7 @@ Successful bootstrap should leave the project with:
 
 - `Plugins/LoomleBridge/`
 - `Loomle/loomle(.exe)`
-- `Loomle/runtime/install.json`
+- `Loomle/install/active.json`
 
 ## Relationship To Update
 

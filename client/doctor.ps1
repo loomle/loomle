@@ -17,6 +17,25 @@ function Find-ProjectRoot([string]$Start) {
   }
 }
 
+function Get-StableFnv1a64([byte[]]$Bytes) {
+  [UInt64]$hash = 0xcbf29ce484222325
+  foreach ($byte in $Bytes) {
+    $hash = $hash -bxor [UInt64]$byte
+    $hash = [UInt64](($hash * 0x100000001b3) -band 0xFFFFFFFFFFFFFFFF)
+  }
+  return $hash
+}
+
+function Get-RuntimePipeName([string]$ProjectRoot) {
+  $normalized = $ProjectRoot.Replace('\', '/').ToLowerInvariant().TrimEnd('/')
+  if ([string]::IsNullOrWhiteSpace($normalized)) {
+    $normalized = "/"
+  }
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes($normalized)
+  $hash = Get-StableFnv1a64 $bytes
+  return ("\\.\pipe\loomle-{0:x16}" -f $hash)
+}
+
 $ProjectRoot = ""
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
@@ -44,8 +63,8 @@ $ProjectRoot = (Resolve-Path $ProjectRoot).Path
 
 $PluginRoot = Join-Path $ProjectRoot "Plugins\LoomleBridge"
 $ClientPath = Join-Path $ProjectRoot "Loomle\loomle.exe"
-$InstallState = Join-Path $ProjectRoot "Loomle\runtime\install.json"
-$PipeName = "\\.\pipe\loomle-" + ([Math]::Abs($ProjectRoot.ToLowerInvariant().GetHashCode()))
+$InstallState = Join-Path $ProjectRoot "Loomle\install\active.json"
+$PipeName = Get-RuntimePipeName $ProjectRoot
 
 $InstallOk = (Test-Path -LiteralPath $PluginRoot) -and (Test-Path -LiteralPath $ClientPath) -and (Test-Path -LiteralPath $InstallState)
 $RuntimeReady = $false

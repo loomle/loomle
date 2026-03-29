@@ -28,7 +28,8 @@ After installation, the user project should contain:
     doctor.(sh|ps1)
     workflows/
     examples/
-    runtime/
+    install/
+    state/
 ```
 
 ## 3. Placement Rules
@@ -70,7 +71,8 @@ This target owns:
 - platform-specific installed maintenance scripts
 - one Agent-facing README entrypoint
 - workflow guides and small examples
-- machine-written runtime state under `runtime/`
+- install metadata under `install/`
+- machine-written runtime state under `state/`
 
 ## 4. Runtime Ownership
 
@@ -94,7 +96,7 @@ An installer must:
 2. copy workspace content to `Loomle/`
 3. preserve the project-local client binary
 4. ship release bundles with plugin `Source/` alongside prebuilt binaries so Unreal can participate in local target rebuilds
-5. write `Loomle/runtime/install.json` with machine-readable install state
+5. write `Loomle/install/active.json` with machine-readable install state
 6. ensure `Config/DefaultEditorSettings.ini` disables background CPU throttling for Unreal Editor
 7. avoid requiring a separate skill repository install
 8. be idempotent for repeated installs of the same version

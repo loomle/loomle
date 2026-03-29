@@ -31,7 +31,6 @@ The installed project shape remains:
     loomle(.exe)
     install/
     state/
-    local/
     workflows/
     examples/
 

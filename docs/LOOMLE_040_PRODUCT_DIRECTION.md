@@ -138,8 +138,7 @@ Notably absent:
 
 Within the project-local layout:
 
-- `Loomle/` should hold local install material, local state, and local user
-  memory
+- `Loomle/` should hold local install material and local state
 - `worklog/` should hold team-shared tracked collaboration content
 
 ## Relationship To Later 0.4+ Work

@@ -130,8 +130,8 @@ the resulting architecture artifact.
 Handoff and collaboration notes should not be embedded as a special section in
 every architecture document.
 
-Instead, after completing a meaningful `Aeris` task, record the result in
-`loomle/worklog/` when a project-local worklog entry is appropriate.
+Instead, after completing a meaningful `Aeris` task, record the result in a
+project-local collaboration artifact when one exists.
 
 The `Worklog` entry should capture at least:
 

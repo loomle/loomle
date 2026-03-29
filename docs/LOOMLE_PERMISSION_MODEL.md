@@ -23,7 +23,6 @@ Examples:
 - guides
 - catalogs
 - examples
-- worklog
 - design and planning discussion
 - review and documentation work
 

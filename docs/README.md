@@ -43,8 +43,8 @@ Project-level technical documentation for `LOOMLE` and `LoomleBridge` (plugin + 
 
 10. `LOOMLE_040_PROJECT_WORKDIR_MODEL.md`
 - `0.4.0` ownership-based project workdir design: local install and local state
-  stay under `Loomle/`, while tracked team collaboration content lives under
-  `worklog/`.
+  stay under `Loomle/`, while tracked collaboration content remains a deferred
+  follow-up rather than part of the first implemented cut.
 
 11. `INSTALL_ENTRYPOINT_DESIGN.md`
 - Prompt-first install entrypoint strategy for humans and agents.
