@@ -92,21 +92,14 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $inputsDir "loomle\Loomle"))) {
             throw "Verify Loomle inputs missing: $(Join-Path $inputsDir 'loomle\Loomle')"
           }
-          if (-not (Test-Path -LiteralPath (Join-Path $inputsDir "client\windows\loomle.exe"))) {
-            throw "Verify client inputs missing: $(Join-Path $inputsDir 'client\windows\loomle.exe')"
-          }
-
           $clientRelPath = "Loomle/loomle.exe"
           $clientDst = Join-Path $bundleDir ($clientRelPath -replace '/', '\')
 
-          New-Item -ItemType Directory -Force -Path `
-            (Split-Path -Parent $clientDst), `
-            (Join-Path $bundleDir "client\windows") | Out-Null
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $clientDst) | Out-Null
 
           Copy-Item -Path (Join-Path $inputsDir "plugin\LoomleBridge\*") -Destination (Join-Path $bundleDir "plugin\LoomleBridge") -Recurse -Force
           Copy-Item -Path (Join-Path $inputsDir "loomle\Loomle\*") -Destination (Join-Path $bundleDir "Loomle") -Recurse -Force
-          Copy-Item -LiteralPath (Join-Path $inputsDir "client\windows\loomle.exe") -Destination $clientDst -Force
-          Copy-Item -LiteralPath (Join-Path $inputsDir "client\windows\loomle.exe") -Destination (Join-Path $bundleDir "client\windows\loomle.exe") -Force
+          Copy-Item -LiteralPath (Join-Path $inputsDir "loomle\Loomle\loomle.exe") -Destination $clientDst -Force
 
           python (Join-Path $env:GITHUB_WORKSPACE "packaging\release\write_bundle_zip.py") `
             --bundle-dir $bundleDir `
