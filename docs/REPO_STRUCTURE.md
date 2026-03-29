@@ -10,6 +10,7 @@ This phase is about:
 - native MCP runtime in `LoomleBridge`
 - project-local client retained in `Loomle/`
 - script-first install/update/doctor
+- a tracked collaboration root outside `Loomle/`
 
 This phase is not about:
 
@@ -78,9 +79,13 @@ The intended installed project shape for this phase is:
     update.(sh|ps1)
     doctor.(sh|ps1)
     README.md
-    runtime/
+    install/
+    state/
+    local/
     workflows/
     examples/
+
+  worklog/
 ```
 
 ## Runtime Shape
@@ -89,6 +94,10 @@ At runtime, the effective split is:
 
 - `Loomle/loomle(.exe)` = MCP client / launcher only
 - `Plugins/LoomleBridge/` = native MCP runtime authority
+- `Loomle/install/` = install metadata and versioned payloads
+- `Loomle/state/` = machine-written runtime outputs
+- `Loomle/local/` = visible local-only user state
+- `worklog/` = tracked team collaboration content
 
 Install and maintenance entrypoints are scripts, not subcommands on `loomle`.
 The public install path is site-served; installed projects keep only
@@ -102,7 +111,6 @@ These structure moves remain deferred beyond the first `0.4` cut:
 
 - global `cli/`
 - global capability layer
-- project-visible `loomle/` Studio artifact split
 - project-hidden `.loomle-core/`
 
 ## Decision
@@ -114,4 +122,5 @@ For the first `0.4` cut, the structural model should be documented as:
 - keep client source ownership under `client/`
 - keep `workspace/Loomle/` as project install material
 - install only `update.*` and `doctor.*` scripts into the project
+- reserve `worklog/` for tracked team-shared collaboration content
 - defer broader global and Studio restructuring

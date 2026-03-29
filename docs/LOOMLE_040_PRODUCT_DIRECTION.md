@@ -123,6 +123,7 @@ The first shippable `0.4` product shape should be:
 - project-local `loomle`
 - project-local `Loomle/`
 - project-local `Plugins/LoomleBridge/`
+- project-root `worklog/` for tracked collaboration content
 - Unreal-hosted native MCP runtime
 - script install
 - script update
@@ -134,6 +135,12 @@ Notably absent:
 - no global `loomle`
 - no separate installer binary
 - no Studio-layer migration
+
+Within the project-local layout:
+
+- `Loomle/` should hold local install material, local state, and local user
+  memory
+- `worklog/` should hold team-shared tracked collaboration content
 
 ## Relationship To Later 0.4+ Work
 

@@ -11,6 +11,7 @@ It should support:
 - script-first project-local update
 - script-first project-local doctor
 - upgrade of the project-local client and Unreal integration together
+- a versioned client payload under `Loomle/install/versions/`
 
 It should not support in this phase:
 
@@ -33,9 +34,13 @@ After install, the Unreal project should contain:
     update.(sh|ps1)
     doctor.(sh|ps1)
     README.md
-    runtime/
+    install/
+    state/
+    local/
     workflows/
     examples/
+
+  worklog/
 ```
 
 This keeps the installed shape aligned with the current project-local model
@@ -103,7 +108,7 @@ Doctor should:
 1. resolve the target project root
 2. confirm `Plugins/LoomleBridge/` exists
 3. confirm `Loomle/loomle(.exe)` exists
-4. confirm `Loomle/runtime/install.json` is readable
+4. confirm `Loomle/install/active.json` is readable
 5. report runtime endpoint readiness separately from install completeness
 
 They should not become a second runtime or migration engine.
@@ -132,6 +137,13 @@ corrupt.
 
 Replace the project-local client and plugin integration with a newer release.
 
+The preferred client shape is:
+
+- stable launcher at `Loomle/loomle(.exe)`
+- versioned payload at `Loomle/install/versions/<version>/loomle(.exe)`
+
+This avoids self-overwrite of the active client binary during update.
+
 ### 3. Force reinstall
 
 Replace all LOOMLE-owned project-local installed material.
@@ -145,8 +157,19 @@ In this phase, LOOMLE owns only these installed areas:
 
 - `Plugins/LoomleBridge/`
 - `Loomle/`
-- `Loomle/runtime/install.json`
+- `Loomle/install/`
 - required editor-performance setting written by install
+
+Within `Loomle/`, install/update should treat these areas differently:
+
+- installer-managed:
+  - stable entrypoints
+  - `Loomle/install/`
+- preserved local state:
+  - `Loomle/state/`
+  - `Loomle/local/`
+- team-shared tracked content outside installer ownership:
+  - `worklog/`
 
 Anything outside those owned areas is out of scope for installer mutation.
 
@@ -214,3 +237,4 @@ The first `LOOMLE 0.4.0` install and upgrade model should be:
 - installer-binary-free
 - `loomle` binary limited to MCP client duty
 - focused on updating `Plugins/LoomleBridge/` and `Loomle/`
+- versioned for the real client payload under `Loomle/install/versions/`

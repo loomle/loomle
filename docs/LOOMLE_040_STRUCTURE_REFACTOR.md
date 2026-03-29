@@ -16,7 +16,7 @@ It should explicitly **not** include:
 - global LOOMLE home
 - global capability split
 - Studio artifact migration
-- `loomle/` vs `.loomle-core/` project migration
+- hidden-directory migration
 
 ## Installed Project Shape For First 0.4 Cut
 
@@ -29,9 +29,13 @@ The installed project shape remains:
 
   Loomle/
     loomle(.exe)
-    runtime/
+    install/
+    state/
+    local/
     workflows/
     examples/
+
+  worklog/
 ```
 
 This shape is intentionally conservative.
@@ -58,6 +62,7 @@ Current                         -> First 0.4 target
 client/                         -> retained
 engine/LoomleBridge/            -> runtime authority + native MCP core
 workspace/Loomle/               -> retained as project-local install material
+worklog/                        -> reserved tracked collaboration root
 ```
 
 ## Repository Meaning In This Phase
@@ -90,7 +95,6 @@ The following remain valid future directions but are not part of this cut:
 
 - global `loomle`
 - global skills/workflows/templates
-- visible `loomle/` collaboration layer
 - hidden `.loomle-core/` internal layer
 - Studio-specific project artifact ownership
 
@@ -116,4 +120,5 @@ For the first `LOOMLE 0.4.0` cut:
 - keep project-local install shape
 - remove Rust `mcp/server`
 - move runtime protocol ownership fully into `LoomleBridge`
+- reserve `worklog/` as the tracked collaboration root
 - defer global and Studio structure migration
