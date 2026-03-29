@@ -116,6 +116,7 @@
 #include "DynamicRHI.h"
 #include "GPUProfiler.h"
 #include "RHIStats.h"
+#include "ToolMenus.h"
 #include "Widgets/SWidget.h"
 #include "Widgets/SWindow.h"
 #include "Widgets/Layout/SBorder.h"
@@ -3707,93 +3708,73 @@ void FLoomleBridgeModule::UpdateHealthSnapshot()
 
 void FLoomleBridgeModule::RegisterToolbarStatusWidget()
 {
-    if (ToolbarExtender.IsValid())
+    if (!UToolMenus::IsToolMenuUIEnabled())
     {
         return;
     }
 
-    if (!FModuleManager::Get().IsModuleLoaded(TEXT("LevelEditor")))
-    {
-        return;
-    }
-
-    FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>(TEXT("LevelEditor"));
-    ToolbarExtender = MakeShared<FExtender>();
-    ToolbarExtender->AddToolBarExtension(
-        TEXT("Settings"),
-        EExtensionHook::After,
-        nullptr,
-        FToolBarExtensionDelegate::CreateRaw(this, &FLoomleBridgeModule::ExtendLevelEditorToolbar));
-    LevelEditorModule.GetToolBarExtensibilityManager()->AddExtender(ToolbarExtender);
+    RegisterToolbarMenus();
 }
 
 void FLoomleBridgeModule::UnregisterToolbarStatusWidget()
 {
-    if (!ToolbarExtender.IsValid())
+    if (UToolMenus::IsToolMenuUIEnabled())
+    {
+        UToolMenus::UnregisterOwner(TEXT("LoomleBridge"));
+    }
+}
+
+void FLoomleBridgeModule::RegisterToolbarMenus()
+{
+    if (!UToolMenus::IsToolMenuUIEnabled())
     {
         return;
     }
 
-    if (FModuleManager::Get().IsModuleLoaded(TEXT("LevelEditor")))
-    {
-        FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>(TEXT("LevelEditor"));
-        LevelEditorModule.GetToolBarExtensibilityManager()->RemoveExtender(ToolbarExtender);
-    }
-    ToolbarExtender.Reset();
-}
-
-void FLoomleBridgeModule::HandleModulesChanged(FName ModuleName, EModuleChangeReason ChangeReason)
-{
-    if (ModuleName != TEXT("LevelEditor"))
+    FToolMenuOwnerScoped OwnerScoped(TEXT("LoomleBridge"));
+    UToolMenu* UserToolbar = UToolMenus::Get()->ExtendMenu(TEXT("LevelEditor.LevelEditorToolBar.User"));
+    if (UserToolbar == nullptr)
     {
         return;
     }
 
-    if (ChangeReason == EModuleChangeReason::ModuleLoaded)
+    FToolMenuSection& Section = UserToolbar->FindOrAddSection(TEXT("LoomleBridgeStatus"));
+    Section.AddDynamicEntry(TEXT("LoomleBridgeStatusEntry"), FNewToolMenuSectionDelegate::CreateLambda([this](FToolMenuSection& InSection)
     {
-        RegisterToolbarStatusWidget();
-    }
-    else if (ChangeReason == EModuleChangeReason::ModuleUnloaded)
-    {
-        UnregisterToolbarStatusWidget();
-    }
-}
-
-void FLoomleBridgeModule::ExtendLevelEditorToolbar(FToolBarBuilder& ToolbarBuilder)
-{
-    ToolbarBuilder.AddSeparator();
-    ToolbarBuilder.AddWidget(
-        SNew(SBox)
-        .VAlign(VAlign_Center)
-        [
-            SNew(SBorder)
-            .Padding(FMargin(8.0f, 3.0f))
-            .BorderImage(FAppStyle::GetBrush(TEXT("WhiteBrush")))
-            .BorderBackgroundColor_Lambda([this]()
-            {
-                return GetToolbarStatusColor();
-            })
-            .ToolTipText_Lambda([this]()
-            {
-                return GetToolbarStatusTooltip();
-            })
+        InSection.AddEntry(FToolMenuEntry::InitWidget(
+            TEXT("LoomleBridgeStatusWidget"),
+            SNew(SBox)
+            .VAlign(VAlign_Center)
             [
-                SNew(STextBlock)
-                .Text_Lambda([this]()
+                SNew(SBorder)
+                .Padding(FMargin(8.0f, 3.0f))
+                .BorderImage(FAppStyle::GetBrush(TEXT("WhiteBrush")))
+                .BorderBackgroundColor_Lambda([this]()
                 {
-                    return GetToolbarStatusLabel();
+                    return GetToolbarStatusColor();
                 })
-                .ColorAndOpacity(FLinearColor::White)
-                .Font(FAppStyle::GetFontStyle(TEXT("SmallFont")))
-            ]
-        ],
-        NAME_None,
-        true);
+                .ToolTipText_Lambda([this]()
+                {
+                    return GetToolbarStatusTooltip();
+                })
+                [
+                    SNew(STextBlock)
+                    .Text_Lambda([this]()
+                    {
+                        return GetToolbarStatusLabel();
+                    })
+                    .ColorAndOpacity(FLinearColor::White)
+                    .Font(FAppStyle::GetFontStyle(TEXT("SmallFont")))
+                ]
+            ],
+            FText::GetEmpty(),
+            true));
+    }));
 }
 
 FText FLoomleBridgeModule::GetToolbarStatusLabel() const
 {
-    return FText::FromString(FString::Printf(TEXT("LOOMLE %s"), *GetToolbarStatusKey()));
+    return FText::FromString(FString::Printf(TEXT("Loomle %s"), *GetToolbarStatusKey()));
 }
 
 FText FLoomleBridgeModule::GetToolbarStatusTooltip() const
@@ -3803,7 +3784,7 @@ FText FLoomleBridgeModule::GetToolbarStatusTooltip() const
     const bool bIsPIE = bIsPIESnapshot.Load();
 
     return FText::FromString(FString::Printf(
-        TEXT("LOOMLE Bridge Status\nState: %s\nBridge: %s\nPython: %s\nPIE: %s\nEndpoint: %s"),
+        TEXT("Loomle Bridge Status\nState: %s\nBridge: %s\nPython: %s\nPIE: %s\nEndpoint: %s"),
         *GetToolbarStatusKey(),
         bBridgeRunning ? TEXT("running") : TEXT("stopped"),
         bPythonReady ? TEXT("ready") : TEXT("not ready"),
@@ -3921,9 +3902,10 @@ void FLoomleBridgeModule::StartupModule()
     HealthSnapshotTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
         FTickerDelegate::CreateRaw(this, &FLoomleBridgeModule::TickHealthSnapshot),
         0.1f);
-    if (!ModulesChangedHandle.IsValid())
+    if (!ToolbarStartupHandle.IsValid())
     {
-        ModulesChangedHandle = FModuleManager::Get().OnModulesChanged().AddRaw(this, &FLoomleBridgeModule::HandleModulesChanged);
+        ToolbarStartupHandle = UToolMenus::RegisterStartupCallback(
+            FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FLoomleBridgeModule::RegisterToolbarMenus));
     }
     RegisterToolbarStatusWidget();
 
@@ -3938,10 +3920,10 @@ void FLoomleBridgeModule::StartupModule()
 
 void FLoomleBridgeModule::ShutdownModule()
 {
-    if (ModulesChangedHandle.IsValid())
+    if (ToolbarStartupHandle.IsValid())
     {
-        FModuleManager::Get().OnModulesChanged().Remove(ModulesChangedHandle);
-        ModulesChangedHandle.Reset();
+        UToolMenus::UnRegisterStartupCallback(ToolbarStartupHandle);
+        ToolbarStartupHandle.Reset();
     }
     UnregisterToolbarStatusWidget();
 
