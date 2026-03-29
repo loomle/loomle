@@ -46,7 +46,7 @@ LOOMLE installs two things into an Unreal project:
 Install LOOMLE into the current Unreal project with the platform script.
 
 macOS/Linux:
-curl -fsSL https://loomle.ai/install.sh | sh -s -- --project-root /path/to/MyProject
+curl -fsSL https://loomle.ai/install.sh | bash -s -- --project-root /path/to/MyProject
 
 Windows PowerShell:
 & ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) -ProjectRoot C:\Path\To\MyProject

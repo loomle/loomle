@@ -11,7 +11,6 @@ function Fail([string]$Message) {
 }
 
 function Resolve-ReleaseTag([string]$Version) {
-  if ($Version -eq "latest") { return "loomle-latest" }
   if ($Version.StartsWith("v")) { return $Version }
   return "v$Version"
 }
@@ -186,12 +185,21 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 }
 $ProjectRoot = (Resolve-Path $ProjectRoot).Path
 
-$ReleaseTag = Resolve-ReleaseTag $RequestedVersion
 if ([string]::IsNullOrWhiteSpace($ManifestUrl)) {
-  $ManifestUrl = "https://github.com/$ReleaseRepo/releases/download/$ReleaseTag/loomle-manifest-windows.json"
+  if ($RequestedVersion -eq "latest") {
+    $ManifestUrl = "https://github.com/$ReleaseRepo/releases/latest/download/loomle-manifest-windows.json"
+  } else {
+    $ReleaseTag = Resolve-ReleaseTag $RequestedVersion
+    $ManifestUrl = "https://github.com/$ReleaseRepo/releases/download/$ReleaseTag/loomle-manifest-windows.json"
+  }
 }
 if ([string]::IsNullOrWhiteSpace($AssetUrl)) {
-  $AssetUrl = "https://github.com/$ReleaseRepo/releases/download/$ReleaseTag/loomle-windows.zip"
+  if ($RequestedVersion -eq "latest") {
+    $AssetUrl = "https://github.com/$ReleaseRepo/releases/latest/download/loomle-windows.zip"
+  } else {
+    if (-not $ReleaseTag) { $ReleaseTag = Resolve-ReleaseTag $RequestedVersion }
+    $AssetUrl = "https://github.com/$ReleaseRepo/releases/download/$ReleaseTag/loomle-windows.zip"
+  }
 }
 
 $TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ("loomle-install-" + [System.Guid]::NewGuid().ToString("N"))

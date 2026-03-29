@@ -34,9 +34,7 @@ detect_platform() {
 }
 
 resolve_release_tag() {
-  if [[ "$REQUESTED_VERSION" == "latest" ]]; then
-    echo "loomle-latest"
-  elif [[ "$REQUESTED_VERSION" == v* ]]; then
+  if [[ "$REQUESTED_VERSION" == v* ]]; then
     echo "$REQUESTED_VERSION"
   else
     echo "v$REQUESTED_VERSION"
@@ -297,12 +295,21 @@ main() {
   project_root="$(cd "$project_root" && pwd)"
 
   platform="$(detect_platform)"
-  release_tag="$(resolve_release_tag)"
   if [[ -z "$manifest_url" ]]; then
-    manifest_url="https://github.com/${RELEASE_REPO}/releases/download/${release_tag}/loomle-manifest-${platform}.json"
+    if [[ "$REQUESTED_VERSION" == "latest" ]]; then
+      manifest_url="https://github.com/${RELEASE_REPO}/releases/latest/download/loomle-manifest-${platform}.json"
+    else
+      release_tag="$(resolve_release_tag)"
+      manifest_url="https://github.com/${RELEASE_REPO}/releases/download/${release_tag}/loomle-manifest-${platform}.json"
+    fi
   fi
   if [[ -z "$asset_url" ]]; then
-    asset_url="https://github.com/${RELEASE_REPO}/releases/download/${release_tag}/loomle-${platform}.zip"
+    if [[ "$REQUESTED_VERSION" == "latest" ]]; then
+      asset_url="https://github.com/${RELEASE_REPO}/releases/latest/download/loomle-${platform}.zip"
+    else
+      release_tag="${release_tag:-$(resolve_release_tag)}"
+      asset_url="https://github.com/${RELEASE_REPO}/releases/download/${release_tag}/loomle-${platform}.zip"
+    fi
   fi
 
   tmp_dir="$(mktemp -d)"

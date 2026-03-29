@@ -15,7 +15,7 @@ Install LOOMLE directly into an Unreal project.
 From the project root on macOS:
 
 ```bash
-curl -fsSL https://loomle.ai/install.sh | sh -s -- --project-root "$PWD"
+curl -fsSL https://loomle.ai/install.sh | bash -s -- --project-root "$PWD"
 ```
 
 From the project root in Windows PowerShell:

@@ -168,7 +168,7 @@
         <h2>LOOMLE install instructions</h2>
         <p>LOOMLE installs two things into an Unreal project: Plugins/LoomleBridge and Loomle/.</p>
         <p>For a first install, do not assume there is a machine-level loomle command. The site scripts install LOOMLE directly from the release manifest and platform zip into the current Unreal project.</p>
-        <p>From the current Unreal project root on macOS, run: curl -fsSL https://loomle.ai/install.sh | sh -s -- --project-root "$PWD"</p>
+        <p>From the current Unreal project root on macOS, run: curl -fsSL https://loomle.ai/install.sh | bash -s -- --project-root "$PWD"</p>
         <p>Linux bootstrap artifacts are not published yet. On Linux, install from source or from a local release bundle for now.</p>
         <p>From the current Unreal project root in Windows PowerShell, run: &amp; ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) -ProjectRoot (Get-Location).Path</p>
         <p>LOOMLE installs both the prebuilt plugin binaries and the plugin source so Unreal can load quickly and still participate in local target rebuilds.</p>
