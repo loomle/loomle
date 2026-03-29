@@ -97,7 +97,7 @@ Working rule:
 - `nextSeq` is the cursor to use on the next poll
 - `hasMore=true` means more matching events are available after the returned page
 - use `filters.severity`, `filters.category`, `filters.source`, or `filters.assetPathPrefix` to narrow noisy streams
-- persisted diagnostic events live under `Loomle/runtime/diag/diag.jsonl`
+- persisted diagnostic events live under `Loomle/state/diag/diag.jsonl`
 
 ## Visual Confirmation
 
@@ -111,7 +111,7 @@ Working rule:
 - `editor.open` opens or focuses the asset editor for a Blueprint, Material, Material Function, PCG graph, or other asset-backed editor
 - `editor.focus` focuses a semantic panel inside the active asset editor without exposing raw Unreal tab ids
 - `editor.screenshot` writes a PNG of the active editor window to disk and returns the file path
-- if you do not pass a path, screenshots go under `Loomle/runtime/captures/`
+- if you do not pass a path, screenshots go under `Loomle/state/captures/`
 
 ## MCP Mode
 
@@ -130,8 +130,10 @@ Request shape:
 Minimal example:
 
 ```json
-{"id":1,"method":"tools/list"}
-{"id":2,"method":"tools/call","params":{"name":"context","arguments":{}}}
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"loomle-workspace-example","version":"1"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"context","arguments":{}}}
 ```
 
 ## Install And Upgrade
@@ -161,14 +163,22 @@ Loomle/
   loomle(.exe)
   update.(sh|ps1)
   doctor.(sh|ps1)
+  install/
+    active.json
+    versions/
+    manifests/
+    pending/
+  state/
+    diag/
+    captures/
   blueprint/
   material/
   pcg/
-  runtime/
 ```
 
 - `README.md`: the main agent-facing entrypoint
 - `loomle(.exe)`: the installed project-local MCP proxy entrypoint
 - `update.*` / `doctor.*`: installed platform-specific maintenance scripts
+- `install/`: machine-managed install state, active version, and versioned client payloads
+- `state/`: machine-written diagnostics and capture output
 - `blueprint/`, `material/`, `pcg/`: domain-specific guides, semantics, catalogs, and examples
-- `runtime/`: machine-written state, not human guidance
