@@ -2,7 +2,7 @@ use rmcp::{
     model::{CallToolResult, JsonObject},
     ServiceExt,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -16,6 +16,73 @@ use tokio::time::{sleep, Duration};
 use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_PIPE_BUSY};
 
 pub type LoomleClient = rmcp::service::RunningService<rmcp::service::RoleClient, ()>;
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StartupErrorKind {
+    InvalidProjectRoot,
+    EndpointMissing,
+    AccessDenied,
+    ConnectFailed,
+    ActiveInstallStateInvalid,
+    HandoffFailed,
+    StdioServerStartFailed,
+    StdioServerRuntimeFailed,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StartupAction {
+    FixProjectRoot,
+    StartUnrealEditor,
+    RetryWithElevation,
+    VerifyRuntimeHealth,
+    ReinstallLoomle,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct StartupError {
+    pub kind: StartupErrorKind,
+    pub action: StartupAction,
+    #[serde(rename = "exitCode")]
+    pub exit_code: u8,
+    pub retryable: bool,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+impl StartupError {
+    pub fn new(
+        kind: StartupErrorKind,
+        action: StartupAction,
+        exit_code: u8,
+        retryable: bool,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            action,
+            exit_code,
+            retryable,
+            message: message.into(),
+            endpoint: None,
+            detail: None,
+        }
+    }
+
+    pub fn with_endpoint(mut self, endpoint: impl Into<String>) -> Self {
+        self.endpoint = Some(endpoint.into());
+        self
+    }
+
+    pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
+        self
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Environment {
@@ -48,7 +115,7 @@ pub fn runtime_endpoint_path<'a>(env_info: &'a Environment) -> &'a Path {
     &env_info.runtime_endpoint_path
 }
 
-pub async fn connect_client(env_info: &Environment) -> Result<LoomleClient, String> {
+pub async fn connect_client(env_info: &Environment) -> Result<LoomleClient, StartupError> {
     #[cfg(unix)]
     {
         let stream = UnixStream::connect(&env_info.runtime_endpoint_path)
@@ -57,7 +124,16 @@ pub async fn connect_client(env_info: &Environment) -> Result<LoomleClient, Stri
         return ()
             .serve(stream)
             .await
-            .map_err(|error| format!("failed to establish MCP session: {error}"));
+            .map_err(|error| {
+                StartupError::new(
+                    StartupErrorKind::ConnectFailed,
+                    StartupAction::VerifyRuntimeHealth,
+                    12,
+                    true,
+                    "failed to establish MCP session with the LOOMLE runtime.",
+                )
+                .with_detail(error.to_string())
+            });
     }
 
     #[cfg(target_os = "windows")]
@@ -77,7 +153,16 @@ pub async fn connect_client(env_info: &Environment) -> Result<LoomleClient, Stri
         return ()
             .serve(client)
             .await
-            .map_err(|error| format!("failed to establish MCP session: {error}"));
+            .map_err(|error| {
+                StartupError::new(
+                    StartupErrorKind::ConnectFailed,
+                    StartupAction::VerifyRuntimeHealth,
+                    12,
+                    true,
+                    "failed to establish MCP session with the LOOMLE runtime.",
+                )
+                .with_detail(error.to_string())
+            });
     }
 
     #[cfg(not(any(unix, target_os = "windows")))]
@@ -89,36 +174,70 @@ pub async fn connect_client(env_info: &Environment) -> Result<LoomleClient, Stri
 }
 
 #[cfg(unix)]
-fn classify_unix_connect_error(env_info: &Environment, error: &std::io::Error) -> String {
+fn classify_unix_connect_error(env_info: &Environment, error: &std::io::Error) -> StartupError {
     use std::io::ErrorKind;
 
-    let endpoint = env_info.runtime_endpoint_path.display();
+    let endpoint = env_info.runtime_endpoint_path.display().to_string();
     match error.kind() {
-        ErrorKind::NotFound => format!(
-            "[endpoint_missing] expected LOOMLE runtime endpoint {endpoint} was not found. Start Unreal Editor and wait for LoomleBridge to create the runtime socket."
-        ),
-        ErrorKind::PermissionDenied => format!(
-            "[access_denied] LOOMLE runtime endpoint {endpoint} exists but the current client cannot access it. Retry from a less restricted context or with elevated permissions. OS error: {error}"
-        ),
-        _ => format!(
-            "[connect_failed] failed to connect to LOOMLE runtime socket {endpoint}. Verify that Unreal Editor is running and LoomleBridge is healthy. OS error: {error}"
-        ),
+        ErrorKind::NotFound => StartupError::new(
+            StartupErrorKind::EndpointMissing,
+            StartupAction::StartUnrealEditor,
+            10,
+            true,
+            "expected LOOMLE runtime endpoint was not found. Start Unreal Editor and wait for LoomleBridge to create the runtime socket.",
+        )
+        .with_endpoint(endpoint),
+        ErrorKind::PermissionDenied => StartupError::new(
+            StartupErrorKind::AccessDenied,
+            StartupAction::RetryWithElevation,
+            11,
+            true,
+            "LOOMLE runtime endpoint exists but the current client cannot access it.",
+        )
+        .with_endpoint(endpoint)
+        .with_detail(error.to_string()),
+        _ => StartupError::new(
+            StartupErrorKind::ConnectFailed,
+            StartupAction::VerifyRuntimeHealth,
+            12,
+            true,
+            "failed to connect to the LOOMLE runtime socket. Verify that Unreal Editor is running and LoomleBridge is healthy.",
+        )
+        .with_endpoint(endpoint)
+        .with_detail(error.to_string()),
     }
 }
 
 #[cfg(target_os = "windows")]
-fn classify_windows_connect_error(env_info: &Environment, error: &std::io::Error) -> String {
-    let endpoint = env_info.runtime_endpoint_path.display();
+fn classify_windows_connect_error(env_info: &Environment, error: &std::io::Error) -> StartupError {
+    let endpoint = env_info.runtime_endpoint_path.display().to_string();
     match error.raw_os_error() {
-        Some(code) if code == ERROR_FILE_NOT_FOUND as i32 => format!(
-            "[endpoint_missing] expected LOOMLE runtime pipe {endpoint} was not found. Start Unreal Editor and wait for LoomleBridge to create the named pipe."
-        ),
-        Some(code) if code == ERROR_ACCESS_DENIED as i32 => format!(
-            "[access_denied] LOOMLE runtime pipe {endpoint} exists but the current client cannot access it. Retry from a less restricted context or with elevation. OS error: {error}"
-        ),
-        _ => format!(
-            "[connect_failed] failed to connect to LOOMLE runtime pipe {endpoint}. Verify that Unreal Editor is running and LoomleBridge is healthy. OS error: {error}"
-        ),
+        Some(code) if code == ERROR_FILE_NOT_FOUND as i32 => StartupError::new(
+            StartupErrorKind::EndpointMissing,
+            StartupAction::StartUnrealEditor,
+            10,
+            true,
+            "expected LOOMLE runtime pipe was not found. Start Unreal Editor and wait for LoomleBridge to create the named pipe.",
+        )
+        .with_endpoint(endpoint),
+        Some(code) if code == ERROR_ACCESS_DENIED as i32 => StartupError::new(
+            StartupErrorKind::AccessDenied,
+            StartupAction::RetryWithElevation,
+            11,
+            true,
+            "LOOMLE runtime pipe exists but the current client cannot access it.",
+        )
+        .with_endpoint(endpoint)
+        .with_detail(error.to_string()),
+        _ => StartupError::new(
+            StartupErrorKind::ConnectFailed,
+            StartupAction::VerifyRuntimeHealth,
+            12,
+            true,
+            "failed to connect to the LOOMLE runtime pipe. Verify that Unreal Editor is running and LoomleBridge is healthy.",
+        )
+        .with_endpoint(endpoint)
+        .with_detail(error.to_string()),
     }
 }
 

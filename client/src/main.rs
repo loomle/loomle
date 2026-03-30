@@ -1,6 +1,6 @@
 use loomle::{
     connect_client, read_active_install_state, resolve_project_root, should_handoff_to_active_client, Environment,
-    LoomleClient,
+    LoomleClient, StartupAction, StartupError, StartupErrorKind,
 };
 use rmcp::{
     model::{
@@ -32,7 +32,13 @@ async fn main() -> ExitCode {
     let project_root = match resolve_project_root(cli.project_root.as_deref()) {
         Ok(path) => path,
         Err(message) => {
-            eprintln!("[loomle][ERROR] {message}");
+            emit_startup_error(&StartupError::new(
+                StartupErrorKind::InvalidProjectRoot,
+                StartupAction::FixProjectRoot,
+                2,
+                false,
+                message,
+            ));
             return ExitCode::from(2);
         }
     };
@@ -43,8 +49,9 @@ async fn main() -> ExitCode {
     let runtime_client = match connect_client(&env_info).await {
         Ok(client) => Arc::new(client),
         Err(message) => {
-            eprintln!("[loomle][ERROR] {message}");
-            return ExitCode::from(1);
+            let exit_code = message.exit_code;
+            emit_startup_error(&message);
+            return ExitCode::from(exit_code);
         }
     };
 
@@ -52,16 +59,34 @@ async fn main() -> ExitCode {
     let running = match server.serve(stdio()).await {
         Ok(running) => running,
         Err(error) => {
-            eprintln!("[loomle][ERROR] failed to start stdio MCP service: {error}");
-            return ExitCode::from(1);
+            emit_startup_error(
+                &StartupError::new(
+                    StartupErrorKind::StdioServerStartFailed,
+                    StartupAction::VerifyRuntimeHealth,
+                    13,
+                    false,
+                    "failed to start the LOOMLE stdio MCP service.",
+                )
+                .with_detail(error.to_string()),
+            );
+            return ExitCode::from(13);
         }
     };
 
     match running.waiting().await {
         Ok(_) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("[loomle][ERROR] stdio MCP service failed: {error}");
-            ExitCode::from(1)
+            emit_startup_error(
+                &StartupError::new(
+                    StartupErrorKind::StdioServerRuntimeFailed,
+                    StartupAction::VerifyRuntimeHealth,
+                    14,
+                    false,
+                    "the LOOMLE stdio MCP service terminated unexpectedly.",
+                )
+                .with_detail(error.to_string()),
+            );
+            ExitCode::from(14)
         }
     }
 }
@@ -74,15 +99,32 @@ fn maybe_handoff_to_active_client(project_root: &std::path::Path) -> Option<Exit
     let current_exe = match env::current_exe() {
         Ok(path) => path,
         Err(error) => {
-            eprintln!("[loomle][ERROR] failed to resolve current executable: {error}");
-            return Some(ExitCode::from(1));
+            emit_startup_error(
+                &StartupError::new(
+                    StartupErrorKind::HandoffFailed,
+                    StartupAction::ReinstallLoomle,
+                    15,
+                    false,
+                    "failed to resolve the current LOOMLE launcher executable.",
+                )
+                .with_detail(error.to_string()),
+            );
+            return Some(ExitCode::from(15));
         }
     };
     let handoff_decision = match should_handoff_to_active_client(&current_exe, &state) {
         Ok(value) => value,
         Err(error) => {
-            eprintln!("[loomle][ERROR] {error}");
-            return Some(ExitCode::from(1));
+            emit_startup_error(
+                &StartupError::new(
+                    StartupErrorKind::ActiveInstallStateInvalid,
+                    StartupAction::ReinstallLoomle,
+                    15,
+                    false,
+                    error,
+                ),
+            );
+            return Some(ExitCode::from(15));
         }
     };
     match handoff_decision {
@@ -99,27 +141,57 @@ fn maybe_handoff_to_active_client(project_root: &std::path::Path) -> Option<Exit
     {
         Ok(child) => child,
         Err(error) => {
-            eprintln!(
-                "[loomle][ERROR] failed to start active client {} for version {}: {}",
-                state.active_client_path.display(),
-                state.active_version,
-                error
+            emit_startup_error(
+                &StartupError::new(
+                    StartupErrorKind::HandoffFailed,
+                    StartupAction::ReinstallLoomle,
+                    15,
+                    false,
+                    format!(
+                        "failed to start the active LOOMLE client for version {}.",
+                        state.active_version
+                    ),
+                )
+                .with_detail(format!(
+                    "{}: {}",
+                    state.active_client_path.display(),
+                    error
+                )),
             );
-            return Some(ExitCode::from(1));
+            return Some(ExitCode::from(15));
         }
     };
     let status = match child.wait() {
         Ok(status) => status,
         Err(error) => {
-            eprintln!(
-                "[loomle][ERROR] failed while waiting for active client {}: {}",
-                state.active_client_path.display(),
-                error
+            emit_startup_error(
+                &StartupError::new(
+                    StartupErrorKind::HandoffFailed,
+                    StartupAction::ReinstallLoomle,
+                    15,
+                    false,
+                    "failed while waiting for the active LOOMLE client to exit.",
+                )
+                .with_detail(format!(
+                    "{}: {}",
+                    state.active_client_path.display(),
+                    error
+                )),
             );
-            return Some(ExitCode::from(1));
+            return Some(ExitCode::from(15));
         }
     };
     Some(exit_code_from_status(status))
+}
+
+fn emit_startup_error(error: &StartupError) {
+    match serde_json::to_string(error) {
+        Ok(json) => eprintln!("[loomle][startup_error] {json}"),
+        Err(encode_error) => eprintln!(
+            "[loomle][startup_error] {{\"kind\":\"connect_failed\",\"action\":\"verify_runtime_health\",\"exitCode\":1,\"retryable\":false,\"message\":\"failed to encode startup error\",\"detail\":\"{}\"}}",
+            encode_error
+        ),
+    }
 }
 
 fn exit_code_from_status(status: ExitStatus) -> ExitCode {
