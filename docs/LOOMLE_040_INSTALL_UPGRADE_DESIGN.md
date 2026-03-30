@@ -9,7 +9,6 @@ It should support:
 - project-local install only
 - site-served script install
 - script-first project-local update
-- script-first project-local doctor
 - upgrade of the project-local client and Unreal integration together
 - a versioned client payload under `Loomle/install/versions/`
 
@@ -32,14 +31,11 @@ After install, the Unreal project should contain:
   Loomle/
     loomle(.exe)
     update.(sh|ps1)
-    doctor.(sh|ps1)
     README.md
     install/
     state/
     workflows/
     examples/
-
-  worklog/
 ```
 
 This keeps the installed shape aligned with the current project-local model
@@ -55,8 +51,6 @@ The official entrypoints for this phase should be:
 - installed project maintenance scripts:
   - `update.sh`
   - `update.ps1`
-  - `doctor.sh`
-  - `doctor.ps1`
 
 All of these scripts should target a specific Unreal project root.
 
@@ -66,17 +60,13 @@ Source ownership for this phase should live under:
 - `client/install.ps1`
 - `client/update.sh`
 - `client/update.ps1`
-- `client/doctor.sh`
-- `client/doctor.ps1`
 
 Recommended command shape:
 
 - `install.sh --project-root /path/to/Project`
-- `install.ps1 -ProjectRoot C:\Path\To\Project`
+- `install.ps1 --project-root C:\Path\To\Project`
 - `Loomle/update.sh --project-root /path/to/Project`
-- `Loomle/update.ps1 -ProjectRoot C:\Path\To\Project`
-- `Loomle/doctor.sh --project-root /path/to/Project`
-- `Loomle/doctor.ps1 -ProjectRoot C:\Path\To\Project`
+- `Loomle/update.ps1 --project-root C:\Path\To\Project`
 
 The exact argument spelling can still evolve, but the model should stay:
 
@@ -86,7 +76,7 @@ The exact argument spelling can still evolve, but the model should stay:
 
 ## Script Responsibilities
 
-Install, update, and doctor scripts should stay small.
+Install and update scripts should stay small.
 
 Install/update should:
 
@@ -101,16 +91,6 @@ Install/update should:
 The public install and installed maintenance paths should perform this work
 directly in shell or PowerShell. They should not depend on Python or an
 internal bundle helper.
-
-Doctor should:
-
-1. resolve the target project root
-2. confirm `Plugins/LoomleBridge/` exists
-3. confirm `Loomle/loomle(.exe)` exists
-4. confirm `Loomle/install/active.json` is readable
-5. report runtime endpoint readiness separately from install completeness
-
-They should not become a second runtime or migration engine.
 
 They should not own:
 
@@ -166,8 +146,6 @@ Within `Loomle/`, install/update should treat these areas differently:
   - `Loomle/install/`
 - preserved local state:
   - `Loomle/state/`
-- team-shared tracked content outside installer ownership:
-  - `worklog/`
 
 Anything outside those owned areas is out of scope for installer mutation.
 
@@ -198,10 +176,8 @@ useful after installation:
 
 - macOS/Linux:
   - `Loomle/update.sh`
-  - `Loomle/doctor.sh`
 - Windows:
   - `Loomle/update.ps1`
-  - `Loomle/doctor.ps1`
 
 Bootstrap-only `install.*` scripts do not need to be copied into the project.
 They should live on the site only, not inside release assets.

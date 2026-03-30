@@ -19,7 +19,7 @@ It should not describe:
 - global machine install
 - temporary installer binary
 - project-local update commands
-- project-local doctor commands
+- extra project-local maintenance commands beyond update
 
 ## Visible Homepage Prompt
 
@@ -65,8 +65,8 @@ are not copied into the installed project.
 After install, the project keeps platform-specific maintenance scripts under
 `Loomle/`:
 
-- macOS/Linux: `Loomle/update.sh`, `Loomle/doctor.sh`
-- Windows PowerShell: `Loomle/update.ps1`, `Loomle/doctor.ps1`
+- macOS/Linux: `Loomle/update.sh`
+- Windows PowerShell: `Loomle/update.ps1`
 
 ### Release Assets Versus Installed Files
 
@@ -83,8 +83,6 @@ Installed projects should keep:
 - `Loomle/loomle(.exe)`
 - `Loomle/update.sh`
 - `Loomle/update.ps1`
-- `Loomle/doctor.sh`
-- `Loomle/doctor.ps1`
 
 ## Decision
 

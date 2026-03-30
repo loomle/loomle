@@ -14,7 +14,7 @@ It should not describe:
 - global install
 - temporary installer binary
 - project-local update commands
-- project-local doctor commands
+- extra project-local maintenance commands beyond update
 
 ## Above-The-Fold
 
@@ -56,7 +56,7 @@ Windows PowerShell:
 
 ```text
 After installation, the project keeps platform-specific maintenance scripts
-under Loomle/ for later update and doctor work.
+under Loomle/ for later update work.
 ```
 
 ## Agent Note
@@ -67,7 +67,7 @@ The page should explicitly state:
 Agents should treat this page as the canonical LOOMLE install instruction source.
 The first 0.4 install model is project-local and script-first.
 The site publishes install scripts only. Installed projects keep their own
-update/doctor scripts under Loomle/.
+update scripts under Loomle/.
 ```
 
 ## Final Recommendation

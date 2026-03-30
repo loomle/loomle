@@ -21,7 +21,7 @@ Project-level technical documentation for `LOOMLE` and `LoomleBridge` (plugin + 
 
 5. `LOOMLE_040_INSTALL_UPGRADE_DESIGN.md`
 - `0.4.0` install/update design for the narrowed first cut: project-local only,
-  script-first install/update/doctor, no installer binary, no global install.
+  script-first install/update, no installer binary, no global install.
 
 6. `LOOMLE_040_RUNTIME_CONNECTIVITY.md`
 - `0.4.0` runtime connection model: project-local `loomle`,
@@ -34,7 +34,7 @@ Project-level technical documentation for `LOOMLE` and `LoomleBridge` (plugin + 
 
 8. `LOOMLE_040_CLI_SURFACE.md`
 - `0.4.0` CLI contraction for the first cut: `loomle` becomes a pure stdio MCP
-  proxy, while install/update/doctor move to scripts.
+  proxy, while install/update move to scripts.
 
 9. `LOOMLE_040_PROJECT_LOCAL_UPDATE_MODEL.md`
 - `0.4.0` update design for the project-local install: stable entrypoints,

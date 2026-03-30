@@ -70,10 +70,8 @@ The preferred direction is:
 - `install.ps1`
 - `Loomle/update.sh`
 - `Loomle/update.ps1`
-- `Loomle/doctor.sh`
-- `Loomle/doctor.ps1`
 
-Site should own install. Installed projects should own update and doctor.
+Site should own install. Installed projects should own update.
 
 They should not install a machine-global CLI in the first `0.4` cut.
 
@@ -82,8 +80,6 @@ after install:
 
 - `Loomle/update.sh`
 - `Loomle/update.ps1`
-- `Loomle/doctor.sh`
-- `Loomle/doctor.ps1`
 
 Bootstrap-only install scripts do not need to live in the installed project.
 
@@ -123,11 +119,9 @@ The first shippable `0.4` product shape should be:
 - project-local `loomle`
 - project-local `Loomle/`
 - project-local `Plugins/LoomleBridge/`
-- project-root `worklog/` for tracked collaboration content
 - Unreal-hosted native MCP runtime
 - script install
 - script update
-- script doctor
 
 Notably absent:
 
@@ -139,7 +133,6 @@ Notably absent:
 Within the project-local layout:
 
 - `Loomle/` should hold local install material and local state
-- `worklog/` should hold team-shared tracked collaboration content
 
 ## Relationship To Later 0.4+ Work
 
@@ -159,5 +152,5 @@ MCP cut.
 
 - a project-local `loomle` client
 - a project-attached Unreal native MCP runtime
-- a script-first install/update/doctor model
+- a script-first install/update model
 - no global install and no Studio directory migration in this phase

@@ -9,7 +9,7 @@ Planned contents:
 - one project-local client entrypoint at `Loomle/loomle(.exe)`
 - workflow-specific operating guides under `Loomle/workflows/`
 - small payload examples under `Loomle/examples/`
-- machine-written runtime state under `Loomle/runtime/`
+- machine-written runtime state under `Loomle/state/`
 
 Design rule:
 - keep the installed workspace smaller and simpler than the repository layout

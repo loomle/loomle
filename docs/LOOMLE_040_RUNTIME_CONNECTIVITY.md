@@ -110,8 +110,6 @@ The runtime should expose a clear readiness distinction:
 - ready
 - version/protocol mismatch
 
-`doctor.sh` / `doctor.ps1` should surface these states directly.
-
 ## Relationship To Install
 
 This connectivity model assumes only project-local installation:

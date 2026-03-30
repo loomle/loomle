@@ -50,8 +50,6 @@ Installed project maintenance scripts:
 
 - `Loomle/update.sh`
 - `Loomle/update.ps1`
-- `Loomle/doctor.sh`
-- `Loomle/doctor.ps1`
 
 ## Connectivity Model
 
