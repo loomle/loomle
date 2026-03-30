@@ -21,7 +21,7 @@ curl -fsSL https://loomle.ai/install.sh | bash -s -- --project-root "$PWD"
 From the project root in Windows PowerShell:
 
 ```powershell
-& ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) -ProjectRoot (Get-Location).Path
+& ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) --project-root (Get-Location).Path
 ```
 
 These bootstrap commands install LOOMLE directly into one Unreal project from

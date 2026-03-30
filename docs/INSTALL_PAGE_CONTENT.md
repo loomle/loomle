@@ -49,7 +49,7 @@ macOS/Linux:
 curl -fsSL https://loomle.ai/install.sh | bash -s -- --project-root /path/to/MyProject
 
 Windows PowerShell:
-& ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) -ProjectRoot C:\Path\To\MyProject
+& ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) --project-root C:\Path\To\MyProject
 ```
 
 ### 3. After Install

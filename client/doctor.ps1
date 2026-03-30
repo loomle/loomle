@@ -17,13 +17,40 @@ function Find-ProjectRoot([string]$Start) {
   }
 }
 
+if (-not ("LoomleDoctorHash" -as [type])) {
+  Add-Type -Language CSharp -TypeDefinition @"
+using System;
+
+public static class LoomleDoctorHash
+{
+    public static ulong StableFnv1a64(byte[] bytes)
+    {
+        const ulong OffsetBasis = 14695981039346656037UL;
+        const ulong Prime = 1099511628211UL;
+
+        ulong hash = OffsetBasis;
+        if (bytes == null)
+        {
+            return hash;
+        }
+
+        foreach (byte value in bytes)
+        {
+            hash ^= value;
+            unchecked
+            {
+                hash *= Prime;
+            }
+        }
+
+        return hash;
+    }
+}
+"@
+}
+
 function Get-StableFnv1a64([byte[]]$Bytes) {
-  [UInt64]$hash = 0xcbf29ce484222325
-  foreach ($byte in $Bytes) {
-    $hash = $hash -bxor [UInt64]$byte
-    $hash = [UInt64](($hash * 0x100000001b3) -band 0xFFFFFFFFFFFFFFFF)
-  }
-  return $hash
+  return [LoomleDoctorHash]::StableFnv1a64($Bytes)
 }
 
 function Get-RuntimePipeName([string]$ProjectRoot) {
