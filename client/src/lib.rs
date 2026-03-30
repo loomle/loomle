@@ -13,7 +13,7 @@ use tokio::net::windows::named_pipe::ClientOptions;
 #[cfg(target_os = "windows")]
 use tokio::time::{sleep, Duration};
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::Foundation::ERROR_PIPE_BUSY;
+use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_PIPE_BUSY};
 
 pub type LoomleClient = rmcp::service::RunningService<rmcp::service::RoleClient, ()>;
 
@@ -53,13 +53,7 @@ pub async fn connect_client(env_info: &Environment) -> Result<LoomleClient, Stri
     {
         let stream = UnixStream::connect(&env_info.runtime_endpoint_path)
             .await
-            .map_err(|error| {
-                format!(
-                    "failed to connect to LOOMLE runtime socket {}: {}",
-                    env_info.runtime_endpoint_path.display(),
-                    error
-                )
-            })?;
+            .map_err(|error| classify_unix_connect_error(env_info, &error))?;
         return ()
             .serve(stream)
             .await
@@ -76,11 +70,7 @@ pub async fn connect_client(env_info: &Environment) -> Result<LoomleClient, Stri
                     sleep(Duration::from_millis(50)).await;
                 }
                 Err(error) => {
-                    return Err(format!(
-                        "failed to connect to LOOMLE runtime pipe {}: {}",
-                        env_info.runtime_endpoint_path.display(),
-                        error
-                    ));
+                    return Err(classify_windows_connect_error(env_info, &error));
                 }
             }
         };
@@ -95,6 +85,40 @@ pub async fn connect_client(env_info: &Environment) -> Result<LoomleClient, Stri
         Err(String::from(
             "unsupported platform: no MCP runtime transport configured",
         ))
+    }
+}
+
+#[cfg(unix)]
+fn classify_unix_connect_error(env_info: &Environment, error: &std::io::Error) -> String {
+    use std::io::ErrorKind;
+
+    let endpoint = env_info.runtime_endpoint_path.display();
+    match error.kind() {
+        ErrorKind::NotFound => format!(
+            "[endpoint_missing] expected LOOMLE runtime endpoint {endpoint} was not found. Start Unreal Editor and wait for LoomleBridge to create the runtime socket."
+        ),
+        ErrorKind::PermissionDenied => format!(
+            "[access_denied] LOOMLE runtime endpoint {endpoint} exists but the current client cannot access it. Retry from a less restricted context or with elevated permissions. OS error: {error}"
+        ),
+        _ => format!(
+            "[connect_failed] failed to connect to LOOMLE runtime socket {endpoint}. Verify that Unreal Editor is running and LoomleBridge is healthy. OS error: {error}"
+        ),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn classify_windows_connect_error(env_info: &Environment, error: &std::io::Error) -> String {
+    let endpoint = env_info.runtime_endpoint_path.display();
+    match error.raw_os_error() {
+        Some(code) if code == ERROR_FILE_NOT_FOUND as i32 => format!(
+            "[endpoint_missing] expected LOOMLE runtime pipe {endpoint} was not found. Start Unreal Editor and wait for LoomleBridge to create the named pipe."
+        ),
+        Some(code) if code == ERROR_ACCESS_DENIED as i32 => format!(
+            "[access_denied] LOOMLE runtime pipe {endpoint} exists but the current client cannot access it. Retry from a less restricted context or with elevation. OS error: {error}"
+        ),
+        _ => format!(
+            "[connect_failed] failed to connect to LOOMLE runtime pipe {endpoint}. Verify that Unreal Editor is running and LoomleBridge is healthy. OS error: {error}"
+        ),
     }
 }
 

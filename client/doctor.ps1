@@ -94,16 +94,7 @@ $InstallState = Join-Path $ProjectRoot "Loomle\install\active.json"
 $PipeName = Get-RuntimePipeName $ProjectRoot
 
 $InstallOk = (Test-Path -LiteralPath $PluginRoot) -and (Test-Path -LiteralPath $ClientPath) -and (Test-Path -LiteralPath $InstallState)
-$RuntimeReady = $false
-
-try {
-  $pipe = New-Object System.IO.Pipes.NamedPipeClientStream(".", $PipeName.Substring(9), [System.IO.Pipes.PipeDirection]::InOut)
-  $pipe.Connect(250)
-  $pipe.Dispose()
-  $RuntimeReady = $true
-} catch {
-  $RuntimeReady = $false
-}
+$RuntimeStatus = "unknown"
 
 [pscustomobject]@{
   projectRoot = $ProjectRoot
@@ -112,5 +103,6 @@ try {
   installState = $InstallState
   runtimeEndpoint = $PipeName
   installOk = $InstallOk
-  runtimeReady = $RuntimeReady
+  runtimeStatus = $RuntimeStatus
+  runtimeProbePerformed = $false
 } | ConvertTo-Json -Depth 4

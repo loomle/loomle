@@ -11,8 +11,8 @@ usage() {
 Usage:
   doctor.sh [--project-root <ProjectRoot>]
 
-Checks install completeness and runtime endpoint readiness for one project-local
-LOOMLE install.
+Checks install completeness and expected runtime endpoint metadata for one
+project-local LOOMLE install.
 EOF
 }
 
@@ -38,7 +38,7 @@ main() {
   local plugin_root
   local endpoint
   local install_ok="false"
-  local runtime_ready="false"
+  local runtime_status="endpoint_missing"
 
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -78,22 +78,10 @@ main() {
   fi
 
   if [[ -S "$endpoint" ]]; then
-    if python3 - "$endpoint" <<'PY'
-import socket, sys
-sock_path = sys.argv[1]
-s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-s.settimeout(0.5)
-try:
-    s.connect(sock_path)
-finally:
-    s.close()
-PY
-    then
-      runtime_ready="true"
-    fi
+    runtime_status="endpoint_present"
   fi
 
-  python3 - "$project_root" "$plugin_root" "$loomle_bin" "$install_state" "$endpoint" "$install_ok" "$runtime_ready" <<'PY'
+  python3 - "$project_root" "$plugin_root" "$loomle_bin" "$install_state" "$endpoint" "$install_ok" "$runtime_status" <<'PY'
 import json, sys
 print(json.dumps({
     "projectRoot": sys.argv[1],
@@ -102,7 +90,8 @@ print(json.dumps({
     "installState": sys.argv[4],
     "runtimeEndpoint": sys.argv[5],
     "installOk": sys.argv[6] == "true",
-    "runtimeReady": sys.argv[7] == "true",
+    "runtimeStatus": sys.argv[7],
+    "runtimeProbePerformed": False,
 }, indent=2))
 PY
 }
