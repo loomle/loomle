@@ -80,7 +80,7 @@ python3 tools/dev_verify.py \
 That flow installs the current checkout into the target project, restarts Unreal Editor, and validates through the same project-local `Loomle/loomle` entrypoint that users run after installation.
 
 See [docs/REPO_STRUCTURE.md](/Users/xartest/dev/loomle/docs/REPO_STRUCTURE.md) for the target repository, release, and installed-project structure.
-See [BOOTSTRAP_CONTRACT.md](/Users/xartest/dev/loomle/packaging/bootstrap/BOOTSTRAP_CONTRACT.md) for the public bootstrap entrypoint contract.
+See [BOOTSTRAP_CONTRACT.md](/Users/sky/dev/loomle/packaging/BOOTSTRAP_CONTRACT.md) for the public bootstrap entrypoint contract.
 
 Once setup is complete, you do not need to call MCP tools yourself. You can simply talk to Codex in natural language and ask it to do UE5 work for you through LOOMLE.
 

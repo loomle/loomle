@@ -191,8 +191,8 @@ class JsonRpcClient:
 
 def choose_connection(args: argparse.Namespace) -> BridgeConnection:
     project_root = Path(args.project_root).resolve()
-    if args.mcp_server_bin:
-        client_binary = Path(args.mcp_server_bin).resolve()
+    if args.loomle_bin:
+        client_binary = Path(args.loomle_bin).resolve()
     else:
         if sys.platform.startswith("win"):
             binary_name = "loomle.exe"
@@ -308,7 +308,7 @@ def main() -> int:
         help="UE project root for stdio mode, e.g. /Users/xartest/dev/LoomleDevHost",
     )
     parser.add_argument(
-        "--mcp-server-bin",
+        "--loomle-bin",
         default="",
         help="Override path to the project-local loomle client. Defaults to <project>/Loomle/loomle(.exe).",
     )

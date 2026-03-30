@@ -25,4 +25,4 @@ This site is intentionally minimal:
 - they do not download a temporary installer binary
 - they do not publish update or doctor entrypoints
 
-Keep the published bootstrap scripts aligned with `packaging/bootstrap/install.sh` and `packaging/bootstrap/install.ps1`.
+Keep the published bootstrap scripts aligned with `client/install.sh` and `client/install.ps1`.

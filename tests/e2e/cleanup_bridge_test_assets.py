@@ -31,12 +31,6 @@ def main() -> int:
         help="Override path to the loomle client binary. Defaults to <ProjectRoot>/Loomle/loomle(.exe).",
     )
     parser.add_argument(
-        "--mcp-server-bin",
-        dest="loomle_bin_compat",
-        default="",
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument(
         "--scan-root",
         default="/Game/Codex",
         help="Unreal content root to scan recursively (default: /Game/Codex)",
@@ -60,8 +54,6 @@ def main() -> int:
     server_binary = (
         Path(args.loomle_bin).resolve()
         if args.loomle_bin
-        else Path(args.loomle_bin_compat).resolve()
-        if args.loomle_bin_compat
         else resolve_default_loomle_binary(project_root)
     )
 

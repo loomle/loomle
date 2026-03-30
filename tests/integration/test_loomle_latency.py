@@ -134,12 +134,6 @@ def main() -> int:
         default="",
         help="Override path to the loomle client binary. Defaults to <ProjectRoot>/Loomle/loomle(.exe).",
     )
-    parser.add_argument(
-        "--mcp-server-bin",
-        dest="loomle_bin_compat",
-        default="",
-        help=argparse.SUPPRESS,
-    )
     parser.add_argument("--timeout", type=float, default=2.0, help="Per-request timeout seconds for validation clients")
     parser.add_argument("--warmup", type=int, default=5, help="Warmup loomle calls before measuring")
     parser.add_argument("--samples", type=int, default=30, help="Measured loomle calls per phase")
@@ -156,8 +150,6 @@ def main() -> int:
     server_binary = (
         Path(args.loomle_bin).resolve()
         if args.loomle_bin
-        else Path(args.loomle_bin_compat).resolve()
-        if args.loomle_bin_compat
         else resolve_default_loomle_binary(project_root)
     )
 

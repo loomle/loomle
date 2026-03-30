@@ -8,11 +8,11 @@ Planned responsibilities:
 - install LOOMLE into a user project in one step
 
 Canonical release helper paths:
-- `packaging/bootstrap/install.sh`
-- `packaging/bootstrap/install.ps1`
-- `packaging/bootstrap/update.sh`
-- `packaging/bootstrap/update.ps1`
-- `packaging/bootstrap/BOOTSTRAP_CONTRACT.md`
+- `client/install.sh`
+- `client/install.ps1`
+- `client/update.sh`
+- `client/update.ps1`
+- `packaging/BOOTSTRAP_CONTRACT.md`
 - `packaging/bundle/build_release_manifest.py`
 - `packaging/bundle/assemble_release_bundle.py`
 - `packaging/manifests/`

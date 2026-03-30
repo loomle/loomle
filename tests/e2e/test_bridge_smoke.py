@@ -3069,20 +3069,12 @@ def main() -> int:
         default="",
         help="Override path to the loomle client binary. Defaults to <ProjectRoot>/Loomle/loomle(.exe).",
     )
-    parser.add_argument(
-        "--mcp-server-bin",
-        dest="loomle_bin_compat",
-        default="",
-        help=argparse.SUPPRESS,
-    )
     args = parser.parse_args()
 
     project_root = resolve_project_root(args.project_root, args.dev_config)
     server_binary = (
         Path(args.loomle_bin).resolve()
         if args.loomle_bin
-        else Path(args.loomle_bin_compat).resolve()
-        if args.loomle_bin_compat
         else resolve_default_loomle_binary(project_root)
     )
 
