@@ -8,7 +8,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "tests" / "e2e"))
 
 from test_bridge_smoke import (  # noqa: E402
@@ -18,7 +18,7 @@ from test_bridge_smoke import (  # noqa: E402
     resolve_project_root,
 )
 
-sys.path.insert(0, str(REPO_ROOT / "tools"))
+sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
 from run_pcg_graph_test_plan import (  # noqa: E402
     add_node,
     blank_surface_matrix,

@@ -77,14 +77,14 @@ python3 tests/e2e/test_bridge_smoke.py --project-root /path/to/MyProject
 If you want the real PCG product-facing signals, run these eight suites:
 
 ```bash
-python3 tools/run_pcg_graph_test_plan.py --project-root /path/to/MyProject
-python3 tools/run_pcg_workflow_truth_suite.py --project-root /path/to/MyProject
-python3 tools/run_pcg_negative_boundary_suite.py --project-root /path/to/MyProject
-python3 tools/run_pcg_stability_suite.py --project-root /path/to/MyProject
-python3 tools/run_pcg_selector_truth_suite.py --project-root /path/to/MyProject
-python3 tools/run_pcg_effective_settings_suite.py --project-root /path/to/MyProject
-python3 tools/run_pcg_child_graph_ref_suite.py --project-root /path/to/MyProject
-python3 tools/run_pcg_residual_gap_suite.py
+python3 tests/tools/run_pcg_graph_test_plan.py --project-root /path/to/MyProject
+python3 tests/tools/run_pcg_workflow_truth_suite.py --project-root /path/to/MyProject
+python3 tests/tools/run_pcg_negative_boundary_suite.py --project-root /path/to/MyProject
+python3 tests/tools/run_pcg_stability_suite.py --project-root /path/to/MyProject
+python3 tests/tools/run_pcg_selector_truth_suite.py --project-root /path/to/MyProject
+python3 tests/tools/run_pcg_effective_settings_suite.py --project-root /path/to/MyProject
+python3 tests/tools/run_pcg_child_graph_ref_suite.py --project-root /path/to/MyProject
+python3 tests/tools/run_pcg_residual_gap_suite.py
 ```
 
 If you want JSON artifacts for inspection or sharing, add `--output <path>.json`.
@@ -242,14 +242,14 @@ Interpret that as:
 
 Execution:
 
-- [run_pcg_graph_test_plan.py](../tools/run_pcg_graph_test_plan.py)
-- [run_pcg_workflow_truth_suite.py](../tools/run_pcg_workflow_truth_suite.py)
-- [run_pcg_negative_boundary_suite.py](../tools/run_pcg_negative_boundary_suite.py)
-- [run_pcg_stability_suite.py](../tools/run_pcg_stability_suite.py)
-- [run_pcg_selector_truth_suite.py](../tools/run_pcg_selector_truth_suite.py)
-- [run_pcg_effective_settings_suite.py](../tools/run_pcg_effective_settings_suite.py)
-- [run_pcg_child_graph_ref_suite.py](../tools/run_pcg_child_graph_ref_suite.py)
-- [run_pcg_residual_gap_suite.py](../tools/run_pcg_residual_gap_suite.py)
+- [run_pcg_graph_test_plan.py](tools/run_pcg_graph_test_plan.py)
+- [run_pcg_workflow_truth_suite.py](tools/run_pcg_workflow_truth_suite.py)
+- [run_pcg_negative_boundary_suite.py](tools/run_pcg_negative_boundary_suite.py)
+- [run_pcg_stability_suite.py](tools/run_pcg_stability_suite.py)
+- [run_pcg_selector_truth_suite.py](tools/run_pcg_selector_truth_suite.py)
+- [run_pcg_effective_settings_suite.py](tools/run_pcg_effective_settings_suite.py)
+- [run_pcg_child_graph_ref_suite.py](tools/run_pcg_child_graph_ref_suite.py)
+- [run_pcg_residual_gap_suite.py](tools/run_pcg_residual_gap_suite.py)
 
 Design context:
 

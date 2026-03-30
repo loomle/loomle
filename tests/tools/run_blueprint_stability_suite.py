@@ -8,7 +8,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "tests" / "e2e"))
 
 from test_bridge_smoke import (  # noqa: E402
@@ -18,29 +18,24 @@ from test_bridge_smoke import (  # noqa: E402
     resolve_project_root,
 )
 
-sys.path.insert(0, str(REPO_ROOT / "tools"))
-from run_pcg_graph_test_plan import (  # noqa: E402
-    blank_surface_matrix,
-    cleanup_pcg_fixture,
-    compact_json,
-    create_pcg_fixture,
-    property_candidates,
-    query_pcg_snapshot,
-    read_back_fields,
-    set_pin_default,
-    wait_for_bridge_ready,
-)
-from run_pcg_workflow_truth_suite import (  # noqa: E402
+sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
+from run_blueprint_workflow_truth_suite import (  # noqa: E402
     WORKFLOW_CASES,
     assert_workflow_structure,
+    audit_workflow_query_truth,
     build_client_ref_map,
-    execute_case_with_fresh_client as execute_workflow_case_with_fresh_client,
+    cleanup_blueprint_fixture,
+    create_blueprint_fixture,
     load_case_payload,
-    verify_graph,
+    query_blueprint_snapshot,
+    rewrite_live_node_ids,
+    run_workflow_case as run_blueprint_workflow_case,
+    verify_blueprint_graph,
 )
+from run_pcg_graph_test_plan import blank_surface_matrix, compact_json, wait_for_bridge_ready  # noqa: E402
 
 
-class StabilitySuiteError(RuntimeError):
+class BlueprintStabilitySuiteError(RuntimeError):
     def __init__(self, kind: str, message: str) -> None:
         super().__init__(message)
         self.kind = kind
@@ -49,23 +44,23 @@ class StabilitySuiteError(RuntimeError):
 STABILITY_CASES = [
     {
         "id": "query_snapshot_repeatability_roundtrip",
-        "fixture": "pcg_graph",
-        "families": ["create", "transform"],
-        "summary": "Repeated graph.query and engine readback should stay stable for a simple roundtrip node.",
+        "fixture": "blueprint_event_graph",
+        "families": ["branch", "function_call"],
+        "summary": "Repeated Blueprint graph.query snapshots should stay stable after a simple local branch edit.",
     },
     {
         "id": "verify_repeatability_workflow",
-        "fixture": "pcg_graph_with_world_actor",
-        "families": ["sample", "source", "spawn"],
-        "summary": "Repeated graph.verify calls should keep the same compiled surface on a workflow graph.",
-        "workflowCaseId": "surface_sample_to_static_mesh",
+        "fixture": "blueprint_event_graph",
+        "families": ["branch", "function_call", "utility"],
+        "summary": "Repeated Blueprint graph.verify calls should stay stable on a workflow graph.",
+        "workflowCaseId": "replace_branch_with_sequence",
     },
     {
         "id": "workflow_repeatability_fresh_session",
-        "fixture": "pcg_graph_with_world_actor",
-        "families": ["meta", "route", "source"],
-        "summary": "A workflow should produce the same status and surface matrix across fresh sessions.",
-        "workflowCaseId": "actor_data_tag_route",
+        "fixture": "blueprint_event_graph",
+        "families": ["function_call", "struct", "utility"],
+        "summary": "A Blueprint workflow should produce the same status and surface matrix across fresh sessions.",
+        "workflowCaseId": "replace_delay_with_do_once",
     },
 ]
 
@@ -83,7 +78,7 @@ def list_cases_payload() -> dict[str, Any]:
     )
     return {
         "version": "1",
-        "graphType": "pcg",
+        "graphType": "blueprint",
         "suite": "stability",
         "summary": {
             "totalCases": len(STABILITY_CASES),
@@ -131,28 +126,6 @@ def normalize_node_snapshot(node: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def add_node_by_class(client: McpStdioClient, request_id: int, *, asset_path: str, node_class_path: str) -> str:
-    payload = call_tool(
-        client,
-        request_id,
-        "graph.mutate",
-        {
-            "assetPath": asset_path,
-            "graphName": "PCGGraph",
-            "graphType": "pcg",
-            "ops": [{"op": "addNode.byClass", "args": {"nodeClassPath": node_class_path}}],
-        },
-    )
-    op_results = payload.get("opResults")
-    if not isinstance(op_results, list) or not op_results:
-        raise StabilitySuiteError("runner_error", f"missing addNode opResults: {compact_json(payload)}")
-    first = op_results[0] if isinstance(op_results[0], dict) else {}
-    node_id = first.get("nodeId")
-    if not first.get("ok") or not isinstance(node_id, str) or not node_id:
-        raise StabilitySuiteError("runner_error", f"addNode failed: {compact_json(payload)}")
-    return node_id
-
-
 def find_node(snapshot: dict[str, Any], node_id: str) -> dict[str, Any] | None:
     nodes = snapshot.get("nodes")
     if not isinstance(nodes, list):
@@ -167,50 +140,40 @@ def execute_query_snapshot_repeatability_roundtrip(
     client: McpStdioClient, request_id_base: int, asset_path: str
 ) -> dict[str, Any]:
     surface_matrix = blank_surface_matrix()
-    node_id = add_node_by_class(
-        client,
-        request_id_base + 1,
-        asset_path=asset_path,
-        node_class_path="/Script/PCG.PCGCreatePointsSphereSettings",
-    )
-    set_pin_default(client, request_id_base + 2, asset_path=asset_path, node_id=node_id, pin="Radius", value=250.5)
-    set_pin_default(client, request_id_base + 3, asset_path=asset_path, node_id=node_id, pin="LongitudinalSegments", value=8)
+    payload = load_case_payload(next(case for case in WORKFLOW_CASES if case["id"] == "branch_local_subgraph"))
+    payload["assetPath"] = asset_path
+    payload["graphName"] = "EventGraph"
+    mutate_result = call_tool(client, request_id_base + 1, "graph.mutate", payload)
+    op_results = mutate_result.get("opResults")
+    if not isinstance(op_results, list) or len(op_results) < 1:
+        raise BlueprintStabilitySuiteError("runner_error", f"missing blueprint setup opResults: {compact_json(mutate_result)}")
+    ref_map = build_client_ref_map(payload, mutate_result)
+    branch_id = ref_map.get("branch_main")
+    if not isinstance(branch_id, str) or not branch_id:
+        raise BlueprintStabilitySuiteError("runner_error", f"missing branch node id: {compact_json(mutate_result)}")
     surface_matrix["mutate"] = "pass"
 
-    first = query_pcg_snapshot(client, request_id_base + 10, asset_path)
-    second = query_pcg_snapshot(client, request_id_base + 11, asset_path)
-    first_node = find_node(first, node_id)
-    second_node = find_node(second, node_id)
+    first = query_blueprint_snapshot(client, request_id_base + 10, asset_path)
+    second = query_blueprint_snapshot(client, request_id_base + 11, asset_path)
+    first_node = find_node(first, branch_id)
+    second_node = find_node(second, branch_id)
     if not isinstance(first_node, dict) or not isinstance(second_node, dict):
-        raise StabilitySuiteError("query_repeatability_gap", "query snapshot missing target node on repeated reads")
+        raise BlueprintStabilitySuiteError("query_repeatability_gap", "query snapshot missing target Blueprint node on repeated reads")
 
     normalized_first = normalize_node_snapshot(first_node)
     normalized_second = normalize_node_snapshot(second_node)
     if normalized_first != normalized_second:
-        raise StabilitySuiteError(
+        raise BlueprintStabilitySuiteError(
             "query_repeatability_gap",
-            f"query snapshot changed between repeated reads: first={compact_json(normalized_first)} second={compact_json(normalized_second)}",
+            f"blueprint query snapshot changed between repeated reads: first={compact_json(normalized_first)} second={compact_json(normalized_second)}",
         )
     surface_matrix["queryStructure"] = "pass"
-
-    field_specs = [
-        {"field": "Radius", "candidates": property_candidates("Radius")},
-        {"field": "LongitudinalSegments", "candidates": property_candidates("LongitudinalSegments")},
-    ]
-    first_engine = read_back_fields(client, request_id_base + 20, node_id=node_id, field_specs=field_specs)
-    second_engine = read_back_fields(client, request_id_base + 21, node_id=node_id, field_specs=field_specs)
-    if first_engine != second_engine:
-        raise StabilitySuiteError(
-            "engine_truth_repeatability_gap",
-            f"engine readback changed between repeated reads: first={compact_json(first_engine)} second={compact_json(second_engine)}",
-        )
-    surface_matrix["engineTruth"] = "pass"
+    surface_matrix["queryTruth"] = "pass"
 
     return {
         "surfaceMatrix": surface_matrix,
-        "nodeId": node_id,
+        "nodeId": branch_id,
         "queryNode": normalized_first,
-        "engineFields": first_engine.get("fields"),
     }
 
 
@@ -220,29 +183,29 @@ def execute_verify_repeatability_workflow(
     surface_matrix = blank_surface_matrix()
     payload = load_case_payload(workflow_case)
     payload["assetPath"] = asset_path
-    payload["graphName"] = "PCGGraph"
+    payload["graphName"] = "EventGraph"
+    initial_snapshot = query_blueprint_snapshot(client, request_id_base, asset_path)
+    payload = rewrite_live_node_ids(payload, initial_snapshot)
     mutate_result = call_tool(client, request_id_base + 1, "graph.mutate", payload)
     surface_matrix["mutate"] = "pass"
 
     ref_map = build_client_ref_map(payload, mutate_result)
-    snapshot = query_pcg_snapshot(client, request_id_base + 2, asset_path)
+    snapshot = query_blueprint_snapshot(client, request_id_base + 2, asset_path)
     _ = assert_workflow_structure(workflow_case, snapshot, ref_map)
     surface_matrix["queryStructure"] = "pass"
+    _ = audit_workflow_query_truth(workflow_case, snapshot, ref_map)
+    surface_matrix["queryTruth"] = "pass"
 
-    first_verify = verify_graph(client, request_id_base + 3, asset_path)
-    second_verify = verify_graph(client, request_id_base + 4, asset_path)
+    first_verify = verify_blueprint_graph(client, request_id_base + 3, asset_path)
+    second_verify = verify_blueprint_graph(client, request_id_base + 4, asset_path)
     if first_verify != second_verify:
-        raise StabilitySuiteError(
+        raise BlueprintStabilitySuiteError(
             "verify_repeatability_gap",
-            f"verify result changed between repeated calls: first={compact_json(first_verify)} second={compact_json(second_verify)}",
+            f"blueprint verify changed between repeated calls: first={compact_json(first_verify)} second={compact_json(second_verify)}",
         )
     surface_matrix["verify"] = "pass"
     surface_matrix["diagnostics"] = "pass"
-
-    return {
-        "surfaceMatrix": surface_matrix,
-        "verify": first_verify,
-    }
+    return {"surfaceMatrix": surface_matrix, "verify": first_verify}
 
 
 def execute_workflow_repeatability_fresh_session(
@@ -252,7 +215,7 @@ def execute_workflow_repeatability_fresh_session(
         project_root=project_root,
         loomle_binary=loomle_binary,
         timeout_s=timeout_s,
-        request_id_base=170000,
+        request_id_base=370000,
         case_index=1,
         case=workflow_case,
     )
@@ -260,7 +223,7 @@ def execute_workflow_repeatability_fresh_session(
         project_root=project_root,
         loomle_binary=loomle_binary,
         timeout_s=timeout_s,
-        request_id_base=171000,
+        request_id_base=371000,
         case_index=2,
         case=workflow_case,
     )
@@ -268,41 +231,33 @@ def execute_workflow_repeatability_fresh_session(
     first_status = first.get("status")
     second_status = second.get("status")
     if first_status != second_status:
-        raise StabilitySuiteError(
+        raise BlueprintStabilitySuiteError(
             "fresh_session_repeatability_gap",
-            f"workflow status changed across fresh sessions: first={compact_json(first)} second={compact_json(second)}",
+            f"blueprint workflow status changed across fresh sessions: first={compact_json(first)} second={compact_json(second)}",
         )
 
     first_failure_kind = first.get("failureKind")
     second_failure_kind = second.get("failureKind")
     if first_failure_kind != second_failure_kind:
-        raise StabilitySuiteError(
+        raise BlueprintStabilitySuiteError(
             "fresh_session_repeatability_gap",
-            f"workflow failureKind changed across fresh sessions: first={compact_json(first)} second={compact_json(second)}",
+            f"blueprint workflow failureKind changed across fresh sessions: first={compact_json(first)} second={compact_json(second)}",
         )
 
-    first_surface = (
-        first.get("details", {}).get("surfaceMatrix")
-        if isinstance(first.get("details"), dict)
-        else None
-    )
-    second_surface = (
-        second.get("details", {}).get("surfaceMatrix")
-        if isinstance(second.get("details"), dict)
-        else None
-    )
+    first_surface = first.get("details", {}).get("surfaceMatrix") if isinstance(first.get("details"), dict) else None
+    second_surface = second.get("details", {}).get("surfaceMatrix") if isinstance(second.get("details"), dict) else None
     if first_surface != second_surface:
-        raise StabilitySuiteError(
+        raise BlueprintStabilitySuiteError(
             "fresh_session_repeatability_gap",
-            f"workflow surface matrix changed across fresh sessions: first={compact_json(first_surface)} second={compact_json(second_surface)}",
+            f"blueprint workflow surface matrix changed across fresh sessions: first={compact_json(first_surface)} second={compact_json(second_surface)}",
         )
 
     return {
         "surfaceMatrix": first_surface or blank_surface_matrix(),
         "observedStatus": first_status,
         "observedFailureKind": first_failure_kind,
-        "firstReason": first.get("reason"),
-        "secondReason": second.get("reason"),
+        "firstReason": first.get("message") or first.get("reason"),
+        "secondReason": second.get("message") or second.get("reason"),
     }
 
 
@@ -334,7 +289,7 @@ def run_case(
             )
             result["status"] = "pass"
             return result
-        except StabilitySuiteError as exc:
+        except BlueprintStabilitySuiteError as exc:
             result["failureKind"] = exc.kind
             result["reason"] = str(exc)
             return result
@@ -344,17 +299,9 @@ def run_case(
         result["reason"] = "stability case requires active client"
         return result
 
-    asset_path = f"/Game/Codex/PCGStability/{case['id']}_{case_index}"
-    actor_path: str | None = None
+    asset_path = f"/Game/Codex/BlueprintStability/{case['id']}_{case_index}"
     try:
-        fixture_info = create_pcg_fixture(
-            client,
-            request_id_base,
-            asset_path=asset_path,
-            fixture_id=case["fixture"],
-            actor_offset=float(case_index * 100),
-        )
-        actor_path = fixture_info.get("actorPath") if isinstance(fixture_info.get("actorPath"), str) else None
+        _ = create_blueprint_fixture(client, request_id_base, asset_path=asset_path)
 
         if case["id"] == "query_snapshot_repeatability_roundtrip":
             details = execute_query_snapshot_repeatability_roundtrip(client, request_id_base + 100, asset_path)
@@ -362,12 +309,12 @@ def run_case(
             workflow_case = next(workflow for workflow in WORKFLOW_CASES if workflow["id"] == case["workflowCaseId"])
             details = execute_verify_repeatability_workflow(client, request_id_base + 100, asset_path, workflow_case)
         else:
-            raise StabilitySuiteError("runner_error", f"unsupported stability case {case['id']}")
+            raise BlueprintStabilitySuiteError("runner_error", f"unsupported blueprint stability case {case['id']}")
 
         result["status"] = "pass"
         result["details"] = details
         return result
-    except StabilitySuiteError as exc:
+    except BlueprintStabilitySuiteError as exc:
         details = result.setdefault("details", {})
         if not isinstance(details, dict):
             details = {}
@@ -380,8 +327,7 @@ def run_case(
             details["surfaceMatrix"] = surface_matrix
         if exc.kind == "query_repeatability_gap":
             surface_matrix["queryStructure"] = "fail"
-        elif exc.kind == "engine_truth_repeatability_gap":
-            surface_matrix["engineTruth"] = "fail"
+            surface_matrix["queryTruth"] = "fail"
         elif exc.kind == "verify_repeatability_gap":
             surface_matrix["verify"] = "fail"
             surface_matrix["diagnostics"] = "fail"
@@ -395,12 +341,12 @@ def run_case(
         return result
     finally:
         try:
-            cleanup_pcg_fixture(client, request_id_base + 900, asset_path=asset_path, actor_path=actor_path)
+            cleanup_blueprint_fixture(client, request_id_base + 900, asset_path=asset_path)
         except BaseException:
             pass
 
 
-def execute_case_with_fresh_client(
+def execute_workflow_case_with_fresh_client(
     *,
     project_root: Path,
     loomle_binary: Path,
@@ -409,36 +355,24 @@ def execute_case_with_fresh_client(
     case_index: int,
     case: dict[str, Any],
 ) -> dict[str, Any]:
-    if case["id"] == "workflow_repeatability_fresh_session":
-        return run_case(
-            None,
-            project_root=project_root,
-            loomle_binary=loomle_binary,
-            timeout_s=timeout_s,
-            request_id_base=request_id_base,
-            case_index=case_index,
-            case=case,
-        )
-
     client = McpStdioClient(project_root=project_root, server_binary=loomle_binary, timeout_s=timeout_s)
     transcript = io.StringIO()
     try:
         with contextlib.redirect_stdout(transcript):
             _ = client.request(1, "initialize", {})
             wait_for_bridge_ready(client)
-            result = run_case(
-                client,
-                project_root=project_root,
-                loomle_binary=loomle_binary,
-                timeout_s=timeout_s,
-                request_id_base=request_id_base,
-                case_index=case_index,
-                case=case,
-            )
+            result = run_blueprint_workflow_case(client, request_id_base=request_id_base, case=case)
+    except SystemExit as exc:
+        result = {
+            "caseId": case["id"],
+            "families": case.get("families", []),
+            "status": "fail",
+            "failureKind": "runner_system_exit",
+            "reason": f"system_exit:{exc.code}",
+        }
     except Exception as exc:
         result = {
             "caseId": case["id"],
-            "fixture": case["fixture"],
             "families": case.get("families", []),
             "status": "fail",
             "failureKind": "runner_error",
@@ -535,7 +469,7 @@ def build_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run PCG stability and repeatability tests against the current LOOMLE bridge.")
+    parser = argparse.ArgumentParser(description="Run Blueprint stability and repeatability tests against the current LOOMLE bridge.")
     parser.add_argument("--project-root", default="", help="UE project root containing the host .uproject")
     parser.add_argument("--dev-config", default="", help="Optional dev config path for project_root lookup")
     parser.add_argument("--loomle-bin", default="", help="Optional override path to the project-local loomle client")
@@ -555,20 +489,63 @@ def main() -> int:
     cases = STABILITY_CASES[: args.max_cases] if args.max_cases > 0 else STABILITY_CASES
     results: list[dict[str, Any]] = []
     for index, case in enumerate(cases, start=1):
-        result = execute_case_with_fresh_client(
-            project_root=project_root,
-            loomle_binary=loomle_binary,
-            timeout_s=args.timeout,
-            request_id_base=180000 + index * 1000,
-            case_index=index,
-            case=case,
-        )
+        if case["id"] == "workflow_repeatability_fresh_session":
+            result = run_case(
+                None,
+                project_root=project_root,
+                loomle_binary=loomle_binary,
+                timeout_s=args.timeout,
+                request_id_base=380000 + index * 1000,
+                case_index=index,
+                case=case,
+            )
+        else:
+            client = McpStdioClient(project_root=project_root, server_binary=loomle_binary, timeout_s=args.timeout)
+            transcript = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(transcript):
+                    _ = client.request(1, "initialize", {})
+                    wait_for_bridge_ready(client)
+                    result = run_case(
+                        client,
+                        project_root=project_root,
+                        loomle_binary=loomle_binary,
+                        timeout_s=args.timeout,
+                        request_id_base=380000 + index * 1000,
+                        case_index=index,
+                        case=case,
+                    )
+            except SystemExit as exc:
+                result = {
+                    "caseId": case["id"],
+                    "fixture": case["fixture"],
+                    "families": case.get("families", []),
+                    "status": "fail",
+                    "failureKind": "runner_system_exit",
+                    "reason": f"system_exit:{exc.code}",
+                }
+            except Exception as exc:
+                result = {
+                    "caseId": case["id"],
+                    "fixture": case["fixture"],
+                    "families": case.get("families", []),
+                    "status": "fail",
+                    "failureKind": "runner_error",
+                    "reason": str(exc),
+                }
+            finally:
+                client.close()
+
+            log_text = transcript.getvalue().strip()
+            if log_text:
+                result["logs"] = log_text.splitlines()[-10:]
+
         results.append(result)
         print(f"[{result['status'].upper()}] {case['id']}")
 
     report = {
         "version": "1",
-        "graphType": "pcg",
+        "graphType": "blueprint",
         "suite": "stability",
         "summary": build_summary(results),
         "results": results,

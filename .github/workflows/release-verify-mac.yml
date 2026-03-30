@@ -19,7 +19,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cmd=(python3 "$GITHUB_WORKSPACE/tools/check_release_versions.py")
+          cmd=(python3 "$GITHUB_WORKSPACE/packaging/tools/check_release_versions.py")
           if [[ "${GITHUB_REF_NAME:-}" == v* ]]; then
             cmd+=(--expected-version "${GITHUB_REF_NAME#v}")
           fi
@@ -76,7 +76,7 @@ jobs:
             test_root="$runner_work_root/lrh/LoomleRunnerHost"
           fi
 
-          "$GITHUB_WORKSPACE/tools/runner_init_host_project.sh" "$test_root"
+          "$GITHUB_WORKSPACE/tests/tools/runner_init_host_project.sh" "$test_root"
 
           [[ -d "$test_root" ]] || { echo "Test project root not found: $test_root" >&2; exit 1; }
           uproject="$(find "$test_root" -maxdepth 1 -type f -name '*.uproject' | head -n 1)"

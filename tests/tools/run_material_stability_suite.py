@@ -8,7 +8,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "tests" / "e2e"))
 
 from test_bridge_smoke import (  # noqa: E402
@@ -18,24 +18,22 @@ from test_bridge_smoke import (  # noqa: E402
     resolve_project_root,
 )
 
-sys.path.insert(0, str(REPO_ROOT / "tools"))
-from run_blueprint_workflow_truth_suite import (  # noqa: E402
+sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
+from run_material_workflow_truth_suite import (  # noqa: E402
     WORKFLOW_CASES,
     assert_workflow_structure,
     audit_workflow_query_truth,
     build_client_ref_map,
-    cleanup_blueprint_fixture,
-    create_blueprint_fixture,
+    cleanup_material_fixture,
+    create_material_fixture,
     load_case_payload,
-    query_blueprint_snapshot,
-    rewrite_live_node_ids,
-    run_workflow_case as run_blueprint_workflow_case,
-    verify_blueprint_graph,
+    query_material_snapshot,
+    verify_material_graph,
 )
 from run_pcg_graph_test_plan import blank_surface_matrix, compact_json, wait_for_bridge_ready  # noqa: E402
 
 
-class BlueprintStabilitySuiteError(RuntimeError):
+class MaterialStabilitySuiteError(RuntimeError):
     def __init__(self, kind: str, message: str) -> None:
         super().__init__(message)
         self.kind = kind
@@ -44,23 +42,23 @@ class BlueprintStabilitySuiteError(RuntimeError):
 STABILITY_CASES = [
     {
         "id": "query_snapshot_repeatability_roundtrip",
-        "fixture": "blueprint_event_graph",
-        "families": ["branch", "function_call"],
-        "summary": "Repeated Blueprint graph.query snapshots should stay stable after a simple local branch edit.",
+        "fixture": "material_graph",
+        "families": ["expression", "parameter"],
+        "summary": "Repeated material graph.query snapshots should stay stable after a simple root-bound edit.",
     },
     {
         "id": "verify_repeatability_workflow",
-        "fixture": "blueprint_event_graph",
-        "families": ["branch", "function_call", "utility"],
-        "summary": "Repeated Blueprint graph.verify calls should stay stable on a workflow graph.",
-        "workflowCaseId": "replace_branch_with_sequence",
+        "fixture": "material_graph",
+        "families": ["expression", "parameter", "texture"],
+        "summary": "Repeated material graph.verify calls should stay stable on a workflow graph.",
+        "workflowCaseId": "insert_multiply_before_base_color_root",
     },
     {
         "id": "workflow_repeatability_fresh_session",
-        "fixture": "blueprint_event_graph",
-        "families": ["function_call", "struct", "utility"],
-        "summary": "A Blueprint workflow should produce the same status and surface matrix across fresh sessions.",
-        "workflowCaseId": "replace_delay_with_do_once",
+        "fixture": "material_graph",
+        "families": ["expression", "parameter"],
+        "summary": "A material workflow should produce the same status and surface matrix across fresh sessions.",
+        "workflowCaseId": "replace_saturate_with_one_minus",
     },
 ]
 
@@ -78,7 +76,7 @@ def list_cases_payload() -> dict[str, Any]:
     )
     return {
         "version": "1",
-        "graphType": "blueprint",
+        "graphType": "material",
         "suite": "stability",
         "summary": {
             "totalCases": len(STABILITY_CASES),
@@ -140,39 +138,41 @@ def execute_query_snapshot_repeatability_roundtrip(
     client: McpStdioClient, request_id_base: int, asset_path: str
 ) -> dict[str, Any]:
     surface_matrix = blank_surface_matrix()
-    payload = load_case_payload(next(case for case in WORKFLOW_CASES if case["id"] == "branch_local_subgraph"))
+    payload = json.loads((REPO_ROOT / "workspace" / "Loomle" / "material" / "examples" / "scalar-one-minus-to-roughness.json").read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise MaterialStabilitySuiteError("case_definition_gap", "material stability example payload is not an object")
     payload["assetPath"] = asset_path
-    payload["graphName"] = "EventGraph"
+    payload["graphName"] = "MaterialGraph"
     mutate_result = call_tool(client, request_id_base + 1, "graph.mutate", payload)
     op_results = mutate_result.get("opResults")
-    if not isinstance(op_results, list) or len(op_results) < 1:
-        raise BlueprintStabilitySuiteError("runner_error", f"missing blueprint setup opResults: {compact_json(mutate_result)}")
+    if not isinstance(op_results, list) or len(op_results) < 2:
+        raise MaterialStabilitySuiteError("runner_error", f"missing material setup opResults: {compact_json(mutate_result)}")
     ref_map = build_client_ref_map(payload, mutate_result)
-    branch_id = ref_map.get("branch_main")
-    if not isinstance(branch_id, str) or not branch_id:
-        raise BlueprintStabilitySuiteError("runner_error", f"missing branch node id: {compact_json(mutate_result)}")
+    invert_id = ref_map.get("one_minus_roughness")
+    if not isinstance(invert_id, str) or not invert_id:
+        raise MaterialStabilitySuiteError("runner_error", f"missing invert node id: {compact_json(mutate_result)}")
     surface_matrix["mutate"] = "pass"
 
-    first = query_blueprint_snapshot(client, request_id_base + 10, asset_path)
-    second = query_blueprint_snapshot(client, request_id_base + 11, asset_path)
-    first_node = find_node(first, branch_id)
-    second_node = find_node(second, branch_id)
+    first = query_material_snapshot(client, request_id_base + 10, asset_path)
+    second = query_material_snapshot(client, request_id_base + 11, asset_path)
+    first_node = find_node(first, invert_id)
+    second_node = find_node(second, invert_id)
     if not isinstance(first_node, dict) or not isinstance(second_node, dict):
-        raise BlueprintStabilitySuiteError("query_repeatability_gap", "query snapshot missing target Blueprint node on repeated reads")
+        raise MaterialStabilitySuiteError("query_repeatability_gap", "query snapshot missing target material node on repeated reads")
 
     normalized_first = normalize_node_snapshot(first_node)
     normalized_second = normalize_node_snapshot(second_node)
     if normalized_first != normalized_second:
-        raise BlueprintStabilitySuiteError(
+        raise MaterialStabilitySuiteError(
             "query_repeatability_gap",
-            f"blueprint query snapshot changed between repeated reads: first={compact_json(normalized_first)} second={compact_json(normalized_second)}",
+            f"material query snapshot changed between repeated reads: first={compact_json(normalized_first)} second={compact_json(normalized_second)}",
         )
     surface_matrix["queryStructure"] = "pass"
     surface_matrix["queryTruth"] = "pass"
 
     return {
         "surfaceMatrix": surface_matrix,
-        "nodeId": branch_id,
+        "nodeId": invert_id,
         "queryNode": normalized_first,
     }
 
@@ -183,29 +183,31 @@ def execute_verify_repeatability_workflow(
     surface_matrix = blank_surface_matrix()
     payload = load_case_payload(workflow_case)
     payload["assetPath"] = asset_path
-    payload["graphName"] = "EventGraph"
-    initial_snapshot = query_blueprint_snapshot(client, request_id_base, asset_path)
-    payload = rewrite_live_node_ids(payload, initial_snapshot)
+    payload["graphName"] = "MaterialGraph"
     mutate_result = call_tool(client, request_id_base + 1, "graph.mutate", payload)
     surface_matrix["mutate"] = "pass"
 
     ref_map = build_client_ref_map(payload, mutate_result)
-    snapshot = query_blueprint_snapshot(client, request_id_base + 2, asset_path)
+    snapshot = query_material_snapshot(client, request_id_base + 2, asset_path)
     _ = assert_workflow_structure(workflow_case, snapshot, ref_map)
     surface_matrix["queryStructure"] = "pass"
     _ = audit_workflow_query_truth(workflow_case, snapshot, ref_map)
     surface_matrix["queryTruth"] = "pass"
 
-    first_verify = verify_blueprint_graph(client, request_id_base + 3, asset_path)
-    second_verify = verify_blueprint_graph(client, request_id_base + 4, asset_path)
+    first_verify = verify_material_graph(client, request_id_base + 3, asset_path)
+    second_verify = verify_material_graph(client, request_id_base + 4, asset_path)
     if first_verify != second_verify:
-        raise BlueprintStabilitySuiteError(
+        raise MaterialStabilitySuiteError(
             "verify_repeatability_gap",
-            f"blueprint verify changed between repeated calls: first={compact_json(first_verify)} second={compact_json(second_verify)}",
+            f"material verify changed between repeated calls: first={compact_json(first_verify)} second={compact_json(second_verify)}",
         )
     surface_matrix["verify"] = "pass"
     surface_matrix["diagnostics"] = "pass"
-    return {"surfaceMatrix": surface_matrix, "verify": first_verify}
+
+    return {
+        "surfaceMatrix": surface_matrix,
+        "verify": first_verify,
+    }
 
 
 def execute_workflow_repeatability_fresh_session(
@@ -215,7 +217,7 @@ def execute_workflow_repeatability_fresh_session(
         project_root=project_root,
         loomle_binary=loomle_binary,
         timeout_s=timeout_s,
-        request_id_base=370000,
+        request_id_base=270000,
         case_index=1,
         case=workflow_case,
     )
@@ -223,7 +225,7 @@ def execute_workflow_repeatability_fresh_session(
         project_root=project_root,
         loomle_binary=loomle_binary,
         timeout_s=timeout_s,
-        request_id_base=371000,
+        request_id_base=271000,
         case_index=2,
         case=workflow_case,
     )
@@ -231,25 +233,25 @@ def execute_workflow_repeatability_fresh_session(
     first_status = first.get("status")
     second_status = second.get("status")
     if first_status != second_status:
-        raise BlueprintStabilitySuiteError(
+        raise MaterialStabilitySuiteError(
             "fresh_session_repeatability_gap",
-            f"blueprint workflow status changed across fresh sessions: first={compact_json(first)} second={compact_json(second)}",
+            f"material workflow status changed across fresh sessions: first={compact_json(first)} second={compact_json(second)}",
         )
 
     first_failure_kind = first.get("failureKind")
     second_failure_kind = second.get("failureKind")
     if first_failure_kind != second_failure_kind:
-        raise BlueprintStabilitySuiteError(
+        raise MaterialStabilitySuiteError(
             "fresh_session_repeatability_gap",
-            f"blueprint workflow failureKind changed across fresh sessions: first={compact_json(first)} second={compact_json(second)}",
+            f"material workflow failureKind changed across fresh sessions: first={compact_json(first)} second={compact_json(second)}",
         )
 
     first_surface = first.get("details", {}).get("surfaceMatrix") if isinstance(first.get("details"), dict) else None
     second_surface = second.get("details", {}).get("surfaceMatrix") if isinstance(second.get("details"), dict) else None
     if first_surface != second_surface:
-        raise BlueprintStabilitySuiteError(
+        raise MaterialStabilitySuiteError(
             "fresh_session_repeatability_gap",
-            f"blueprint workflow surface matrix changed across fresh sessions: first={compact_json(first_surface)} second={compact_json(second_surface)}",
+            f"material workflow surface matrix changed across fresh sessions: first={compact_json(first_surface)} second={compact_json(second_surface)}",
         )
 
     return {
@@ -289,7 +291,7 @@ def run_case(
             )
             result["status"] = "pass"
             return result
-        except BlueprintStabilitySuiteError as exc:
+        except MaterialStabilitySuiteError as exc:
             result["failureKind"] = exc.kind
             result["reason"] = str(exc)
             return result
@@ -299,9 +301,9 @@ def run_case(
         result["reason"] = "stability case requires active client"
         return result
 
-    asset_path = f"/Game/Codex/BlueprintStability/{case['id']}_{case_index}"
+    asset_path = f"/Game/Codex/MaterialStability/{case['id']}_{case_index}"
     try:
-        _ = create_blueprint_fixture(client, request_id_base, asset_path=asset_path)
+        _ = create_material_fixture(client, request_id_base, asset_path=asset_path)
 
         if case["id"] == "query_snapshot_repeatability_roundtrip":
             details = execute_query_snapshot_repeatability_roundtrip(client, request_id_base + 100, asset_path)
@@ -309,12 +311,12 @@ def run_case(
             workflow_case = next(workflow for workflow in WORKFLOW_CASES if workflow["id"] == case["workflowCaseId"])
             details = execute_verify_repeatability_workflow(client, request_id_base + 100, asset_path, workflow_case)
         else:
-            raise BlueprintStabilitySuiteError("runner_error", f"unsupported blueprint stability case {case['id']}")
+            raise MaterialStabilitySuiteError("runner_error", f"unsupported material stability case {case['id']}")
 
         result["status"] = "pass"
         result["details"] = details
         return result
-    except BlueprintStabilitySuiteError as exc:
+    except MaterialStabilitySuiteError as exc:
         details = result.setdefault("details", {})
         if not isinstance(details, dict):
             details = {}
@@ -341,7 +343,7 @@ def run_case(
         return result
     finally:
         try:
-            cleanup_blueprint_fixture(client, request_id_base + 900, asset_path=asset_path)
+            cleanup_material_fixture(client, request_id_base + 900, asset_path=asset_path)
         except BaseException:
             pass
 
@@ -361,7 +363,7 @@ def execute_workflow_case_with_fresh_client(
         with contextlib.redirect_stdout(transcript):
             _ = client.request(1, "initialize", {})
             wait_for_bridge_ready(client)
-            result = run_blueprint_workflow_case(client, request_id_base=request_id_base, case=case)
+            result = run_material_workflow_case(client, request_id_base=request_id_base, case_index=case_index, case=case)
     except SystemExit as exc:
         result = {
             "caseId": case["id"],
@@ -385,6 +387,14 @@ def execute_workflow_case_with_fresh_client(
     if log_text:
         result["logs"] = log_text.splitlines()[-10:]
     return result
+
+
+def run_material_workflow_case(
+    client: McpStdioClient, *, request_id_base: int, case_index: int, case: dict[str, Any]
+) -> dict[str, Any]:
+    from run_material_workflow_truth_suite import run_workflow_case as _run_workflow_case
+
+    return _run_workflow_case(client, request_id_base=request_id_base, case_index=case_index, case=case)
 
 
 def build_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
@@ -469,7 +479,7 @@ def build_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run Blueprint stability and repeatability tests against the current LOOMLE bridge.")
+    parser = argparse.ArgumentParser(description="Run Material stability and repeatability tests against the current LOOMLE bridge.")
     parser.add_argument("--project-root", default="", help="UE project root containing the host .uproject")
     parser.add_argument("--dev-config", default="", help="Optional dev config path for project_root lookup")
     parser.add_argument("--loomle-bin", default="", help="Optional override path to the project-local loomle client")
@@ -495,7 +505,7 @@ def main() -> int:
                 project_root=project_root,
                 loomle_binary=loomle_binary,
                 timeout_s=args.timeout,
-                request_id_base=380000 + index * 1000,
+                request_id_base=280000 + index * 1000,
                 case_index=index,
                 case=case,
             )
@@ -511,7 +521,7 @@ def main() -> int:
                         project_root=project_root,
                         loomle_binary=loomle_binary,
                         timeout_s=args.timeout,
-                        request_id_base=380000 + index * 1000,
+                        request_id_base=280000 + index * 1000,
                         case_index=index,
                         case=case,
                     )
@@ -535,17 +545,15 @@ def main() -> int:
                 }
             finally:
                 client.close()
-
             log_text = transcript.getvalue().strip()
             if log_text:
                 result["logs"] = log_text.splitlines()[-10:]
-
         results.append(result)
         print(f"[{result['status'].upper()}] {case['id']}")
 
     report = {
         "version": "1",
-        "graphType": "blueprint",
+        "graphType": "material",
         "suite": "stability",
         "summary": build_summary(results),
         "results": results,

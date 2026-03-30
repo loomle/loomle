@@ -59,7 +59,7 @@ jobs:
             $testRoot = Join-Path $workspaceRoot "lrh\LoomleRunnerHostWin"
           }
 
-          & (Join-Path $env:GITHUB_WORKSPACE "tools\runner_init_host_project.ps1") -ProjectRoot $testRoot -ProjectName "LoomleRunnerHostWin"
+          & (Join-Path $env:GITHUB_WORKSPACE "tests\tools\runner_init_host_project.ps1") -ProjectRoot $testRoot -ProjectName "LoomleRunnerHostWin"
 
           if (-not (Test-Path -LiteralPath $testRoot)) {
             throw "Test project root not found: $testRoot"
@@ -237,7 +237,7 @@ jobs:
         id: temp_asset
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
-          python tools/create_temp_blueprint_asset.py `
+          python tools/benchmarks/create_temp_blueprint_asset.py `
             --project-root "${{ steps.test_project.outputs.test_root }}" `
             --github-output "$env:GITHUB_OUTPUT"
           if ($LASTEXITCODE -ne 0) {
@@ -257,7 +257,7 @@ jobs:
       - name: Benchmark graph.query Concurrency
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
-          python tools/run_graph_query_benchmark.py `
+          python tools/benchmarks/run_graph_query_benchmark.py `
             --project-root "${{ steps.test_project.outputs.test_root }}" `
             --asset-path "${{ steps.temp_asset.outputs.asset_path }}" `
             --output-file "$env:RUNNER_TEMP\loomle-graph-query-bench.txt"

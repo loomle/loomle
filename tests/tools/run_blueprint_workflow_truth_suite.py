@@ -6,24 +6,25 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "tests" / "e2e"))
 
 from test_bridge_smoke import (  # noqa: E402
     McpStdioClient,
     call_execute_exec_with_retry,
     call_tool,
-    make_temp_asset_path,
+    is_tool_error_payload,
+    parse_tool_payload,
     parse_execute_json,
     resolve_default_loomle_binary,
     resolve_project_root,
 )
 
-sys.path.insert(0, str(REPO_ROOT / "tools"))
+sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
 from run_pcg_graph_test_plan import blank_surface_matrix, compact_json, wait_for_bridge_ready  # noqa: E402
 
 
-class MaterialWorkflowSuiteError(RuntimeError):
+class BlueprintWorkflowSuiteError(RuntimeError):
     def __init__(self, kind: str, message: str) -> None:
         super().__init__(message)
         self.kind = kind
@@ -31,98 +32,81 @@ class MaterialWorkflowSuiteError(RuntimeError):
 
 WORKFLOW_CASES = [
     {
-        "id": "root_sink_then_layout",
-        "example": "workspace/Loomle/material/examples/root-sink-then-layout.json",
-        "families": ["expression", "parameter"],
-        "expectedNodes": ["scalar_a", "scalar_b", "multiply_ab"],
+        "id": "branch_local_subgraph",
+        "example": "workspace/Loomle/blueprint/examples/executable/branch-local-subgraph.json",
+        "families": ["branch", "function_call"],
+        "expectedNodes": ["branch_main", "true_print", "false_print"],
         "expectedEdges": [
-            ("scalar_a", "", "multiply_ab", "A"),
-            ("scalar_b", "", "multiply_ab", "B"),
-            ("multiply_ab", "", "__material_root__", "Base Color"),
+            ("branch_main", "Then", "true_print", "execute"),
+            ("branch_main", "Else", "false_print", "execute"),
         ],
-        "queryPins": [
-            ("multiply_ab", ["A", "B"]),
-        ],
-        "rootPins": ["Base Color"],
+        "queryPins": {
+            "branch_main": ["Condition", "Then", "Else"],
+            "true_print": ["execute", "InString"],
+            "false_print": ["execute", "InString"],
+        },
     },
     {
-        "id": "insert_multiply_before_base_color_root",
-        "example": "workspace/Loomle/material/examples/insert-multiply-before-base-color-root.json",
-        "families": ["expression", "parameter", "texture"],
-        "expectedNodes": ["albedo_tex", "tint_scalar", "multiply_tint"],
+        "id": "delay_local_chain",
+        "example": "workspace/Loomle/blueprint/examples/executable/delay-local-chain.json",
+        "families": ["function_call", "utility"],
+        "expectedNodes": ["delay_main", "print_after_delay"],
         "expectedEdges": [
-            ("albedo_tex", "", "multiply_tint", "A"),
-            ("tint_scalar", "", "multiply_tint", "B"),
-            ("multiply_tint", "", "__material_root__", "Base Color"),
+            ("delay_main", "then", "print_after_delay", "execute"),
         ],
-        "absentEdges": [
-            ("albedo_tex", "", "__material_root__", "Base Color"),
-        ],
-        "queryPins": [
-            ("multiply_tint", ["A", "B"]),
-        ],
-        "rootPins": ["Base Color"],
+        "queryPins": {
+            "delay_main": ["execute", "then", "Duration"],
+            "print_after_delay": ["execute", "InString"],
+        },
     },
     {
-        "id": "insert_one_minus_before_multiply_b",
-        "example": "workspace/Loomle/material/examples/insert-one-minus-before-multiply-b.json",
-        "families": ["expression", "parameter", "texture"],
-        "expectedNodes": ["albedo_tex", "tint_scalar", "multiply_tint", "invert_tint"],
+        "id": "sequence_local_fanout",
+        "example": "workspace/Loomle/blueprint/examples/executable/sequence-local-fanout.json",
+        "families": ["function_call", "utility"],
+        "expectedNodes": ["sequence_main", "print_first", "print_second"],
         "expectedEdges": [
-            ("albedo_tex", "", "multiply_tint", "A"),
-            ("tint_scalar", "", "invert_tint", "Input"),
-            ("invert_tint", "", "multiply_tint", "B"),
-            ("multiply_tint", "", "__material_root__", "Base Color"),
+            ("sequence_main", "Then_0", "print_first", "execute"),
+            ("sequence_main", "Then_1", "print_second", "execute"),
         ],
-        "absentEdges": [
-            ("tint_scalar", "", "multiply_tint", "B"),
-        ],
-        "queryPins": [
-            ("invert_tint", ["Input"]),
-            ("multiply_tint", ["A", "B"]),
-        ],
-        "rootPins": ["Base Color"],
+        "queryPins": {
+            "sequence_main": ["Then_0", "Then_1"],
+            "print_first": ["execute", "InString"],
+            "print_second": ["execute", "InString"],
+        },
     },
     {
-        "id": "replace_saturate_with_one_minus",
-        "example": "workspace/Loomle/material/examples/replace-saturate-with-one-minus.json",
-        "families": ["expression", "parameter"],
-        "expectedNodes": ["roughness_scalar", "replacement_invert"],
-        "absentNodes": ["old_saturate"],
+        "id": "replace_branch_with_sequence",
+        "example": "workspace/Loomle/blueprint/examples/illustrative/replace-branch-with-sequence.json",
+        "families": ["branch", "function_call", "utility"],
+        "expectedNodes": ["replacement_sequence", "true_print", "false_print", "EventBeginPlay"],
+        "absentNodes": ["old_branch"],
         "expectedEdges": [
-            ("roughness_scalar", "", "replacement_invert", "Input"),
-            ("replacement_invert", "", "__material_root__", "Roughness"),
+            ("EventBeginPlay", "Then", "replacement_sequence", "execute"),
+            ("replacement_sequence", "Then_0", "true_print", "execute"),
+            ("replacement_sequence", "Then_1", "false_print", "execute"),
         ],
-        "absentEdges": [
-            ("roughness_scalar", "", "old_saturate", "Input"),
-            ("old_saturate", "", "__material_root__", "Roughness"),
-        ],
-        "queryPins": [
-            ("replacement_invert", ["Input"]),
-        ],
-        "rootPins": ["Roughness"],
+        "queryPins": {
+            "EventBeginPlay": ["Then"],
+            "replacement_sequence": ["execute", "Then_0", "Then_1"],
+            "true_print": ["execute"],
+            "false_print": ["execute"],
+        },
     },
     {
-        "id": "replace_multiply_with_lerp",
-        "example": "workspace/Loomle/material/examples/replace-multiply-with-lerp.json",
-        "families": ["expression", "parameter"],
-        "expectedNodes": ["color_a", "color_b", "alpha_control", "replacement_lerp"],
-        "absentNodes": ["old_multiply"],
+        "id": "replace_delay_with_do_once",
+        "example": "workspace/Loomle/blueprint/examples/illustrative/replace-delay-with-do-once.json",
+        "families": ["function_call", "struct", "utility"],
+        "expectedNodes": ["replacement_gate", "terminal_print", "EventBeginPlay"],
+        "absentNodes": ["old_delay"],
         "expectedEdges": [
-            ("color_a", "", "replacement_lerp", "A"),
-            ("color_b", "", "replacement_lerp", "B"),
-            ("alpha_control", "", "replacement_lerp", "Alpha"),
-            ("replacement_lerp", "", "__material_root__", "Base Color"),
+            ("EventBeginPlay", "Then", "replacement_gate", "Execute"),
+            ("replacement_gate", "Completed", "terminal_print", "execute"),
         ],
-        "absentEdges": [
-            ("color_a", "", "old_multiply", "A"),
-            ("color_b", "", "old_multiply", "B"),
-            ("old_multiply", "", "__material_root__", "Base Color"),
-        ],
-        "queryPins": [
-            ("replacement_lerp", ["A", "B", "Alpha"]),
-        ],
-        "rootPins": ["Base Color"],
+        "queryPins": {
+            "EventBeginPlay": ["Then"],
+            "replacement_gate": ["Execute", "Completed"],
+            "terminal_print": ["execute", "InString"],
+        },
     },
 ]
 
@@ -131,7 +115,7 @@ def load_case_payload(case: dict[str, Any]) -> dict[str, Any]:
     path = REPO_ROOT / str(case["example"])
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
-        raise MaterialWorkflowSuiteError("case_definition_gap", f"workflow payload is not an object: {path}")
+        raise BlueprintWorkflowSuiteError("case_definition_gap", f"workflow payload is not an object: {path}")
     return payload
 
 
@@ -141,8 +125,9 @@ def list_cases_payload() -> dict[str, Any]:
         for family in case.get("families", []):
             family_counter[family] += 1
     return {
+        "version": "1",
         "suite": "workflow_truth",
-        "graphType": "material",
+        "graphType": "blueprint",
         "summary": {
             "totalCases": len(WORKFLOW_CASES),
             "families": sorted(family_counter),
@@ -161,7 +146,7 @@ def list_cases_payload() -> dict[str, Any]:
     }
 
 
-def create_material_fixture(client: McpStdioClient, request_id_base: int, *, asset_path: str) -> dict[str, Any]:
+def create_blueprint_fixture(client: McpStdioClient, request_id_base: int, *, asset_path: str) -> dict[str, Any]:
     payload = call_execute_exec_with_retry(
         client=client,
         req_id_base=request_id_base,
@@ -170,24 +155,26 @@ def create_material_fixture(client: McpStdioClient, request_id_base: int, *, ass
             "import unreal\n"
             f"asset={json.dumps(asset_path, ensure_ascii=False)}\n"
             "pkg_path, asset_name = asset.rsplit('/', 1)\n"
+            "deleted_existing = False\n"
+            "if unreal.EditorAssetLibrary.does_asset_exist(asset):\n"
+            "  deleted_existing = unreal.EditorAssetLibrary.delete_asset(asset)\n"
+            "  if not deleted_existing:\n"
+            "    raise RuntimeError(f'failed to delete existing blueprint fixture: {asset}')\n"
             "asset_tools = unreal.AssetToolsHelpers.get_asset_tools()\n"
-            "factory = unreal.MaterialFactoryNew()\n"
-            "material = unreal.EditorAssetLibrary.load_asset(asset)\n"
-            "if material is None:\n"
-            "    material = asset_tools.create_asset(asset_name, pkg_path, unreal.Material, factory)\n"
-            "if material is None:\n"
-            "    raise RuntimeError('failed to create material asset')\n"
-            "unreal.EditorAssetLibrary.save_loaded_asset(material)\n"
-            "print(json.dumps({'assetPath': asset}, ensure_ascii=False))\n"
+            "factory = unreal.BlueprintFactory()\n"
+            "factory.set_editor_property('ParentClass', unreal.Actor)\n"
+            "bp = asset_tools.create_asset(asset_name, pkg_path, unreal.Blueprint, factory)\n"
+            "exists = unreal.EditorAssetLibrary.does_asset_exist(asset)\n"
+            "print(json.dumps({'assetPath': asset, 'created': bp is not None, 'exists': exists, 'deletedExisting': deleted_existing}, ensure_ascii=False))\n"
         ),
     )
     parsed = parse_execute_json(payload)
-    if not isinstance(parsed.get("assetPath"), str) or not parsed["assetPath"]:
-        raise MaterialWorkflowSuiteError("fixture_gap", f"material fixture missing assetPath: {compact_json(payload)}")
+    if not isinstance(parsed.get("assetPath"), str) or parsed.get("exists") is not True:
+        raise BlueprintWorkflowSuiteError("fixture_gap", f"blueprint fixture creation missing assetPath/exists: {compact_json(payload)}")
     return parsed
 
 
-def cleanup_material_fixture(client: McpStdioClient, request_id_base: int, *, asset_path: str) -> None:
+def cleanup_blueprint_fixture(client: McpStdioClient, request_id_base: int, *, asset_path: str) -> None:
     _ = call_tool(
         client,
         request_id_base,
@@ -204,38 +191,77 @@ def cleanup_material_fixture(client: McpStdioClient, request_id_base: int, *, as
     )
 
 
-def query_material_snapshot(client: McpStdioClient, request_id: int, asset_path: str) -> dict[str, Any]:
-    payload = call_tool(
+def safe_call_tool(client: McpStdioClient, req_id: int, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    response = client.request(req_id, "tools/call", {"name": name, "arguments": arguments})
+    payload = parse_tool_payload(response, f"tools/call.{name}")
+    if is_tool_error_payload(payload):
+        raise BlueprintWorkflowSuiteError("tool_error", f"{name} failed payload={compact_json(payload)}")
+    return payload
+
+
+def query_blueprint_snapshot(client: McpStdioClient, request_id: int, asset_path: str) -> dict[str, Any]:
+    payload = safe_call_tool(
         client,
         request_id,
         "graph.query",
-        {"assetPath": asset_path, "graphName": "MaterialGraph", "graphType": "material", "limit": 200},
+        {"assetPath": asset_path, "graphName": "EventGraph", "graphType": "blueprint", "limit": 200},
     )
     snapshot = payload.get("semanticSnapshot")
     if not isinstance(snapshot, dict):
-        raise MaterialWorkflowSuiteError("query_gap", f"material graph.query missing semanticSnapshot: {compact_json(payload)}")
+        raise BlueprintWorkflowSuiteError("query_gap", f"blueprint graph.query missing semanticSnapshot: {compact_json(payload)}")
     nodes = snapshot.get("nodes")
     edges = snapshot.get("edges")
     if not isinstance(nodes, list) or not isinstance(edges, list):
-        raise MaterialWorkflowSuiteError("query_gap", f"material graph.query missing nodes/edges: {compact_json(payload)}")
+        raise BlueprintWorkflowSuiteError("query_gap", f"blueprint graph.query missing nodes/edges: {compact_json(payload)}")
     return snapshot
 
 
-def verify_material_graph(client: McpStdioClient, request_id: int, asset_path: str) -> dict[str, Any]:
-    payload = call_tool(
+def find_event_begin_play_node_id(snapshot: dict[str, Any]) -> str:
+    nodes = snapshot.get("nodes")
+    if not isinstance(nodes, list):
+        raise BlueprintWorkflowSuiteError("query_gap", "blueprint graph.query missing nodes[] while resolving EventBeginPlay")
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        if node.get("title") == "Event BeginPlay" and isinstance(node.get("id"), str) and node["id"]:
+            return node["id"]
+    raise BlueprintWorkflowSuiteError("query_gap", "blueprint Event BeginPlay node not found in fixture graph")
+
+
+def rewrite_live_node_ids(payload: dict[str, Any], snapshot: dict[str, Any]) -> dict[str, Any]:
+    live_begin_play = find_event_begin_play_node_id(snapshot)
+
+    def rewrite_value(value: Any) -> Any:
+        if isinstance(value, dict):
+            rewritten: dict[str, Any] = {}
+            for key, child in value.items():
+                if key == "nodeId" and child == "EventBeginPlay":
+                    rewritten[key] = live_begin_play
+                else:
+                    rewritten[key] = rewrite_value(child)
+            return rewritten
+        if isinstance(value, list):
+            return [rewrite_value(item) for item in value]
+        return value
+
+    return rewrite_value(payload)
+
+
+def verify_blueprint_graph(client: McpStdioClient, request_id: int, asset_path: str) -> dict[str, Any]:
+    payload = safe_call_tool(
         client,
         request_id,
         "graph.verify",
-        {"assetPath": asset_path, "graphName": "MaterialGraph", "graphType": "material"},
+        {"assetPath": asset_path, "graphName": "EventGraph", "graphType": "blueprint", "limit": 200},
     )
-    if payload.get("status") == "error":
-        raise MaterialWorkflowSuiteError("verify_gap", f"material graph.verify returned error: {compact_json(payload)}")
+    if payload.get("status") not in {"ok", "warn"}:
+        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint graph.verify returned error: {compact_json(payload)}")
     compile_report = payload.get("compileReport")
     if not isinstance(compile_report, dict) or compile_report.get("compiled") is not True:
-        raise MaterialWorkflowSuiteError("verify_gap", f"material graph.verify missing compiled=true: {compact_json(payload)}")
+        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint graph.verify missing compiled=true: {compact_json(payload)}")
     diagnostics = payload.get("diagnostics")
     if not isinstance(diagnostics, list):
-        raise MaterialWorkflowSuiteError("verify_gap", f"material graph.verify missing diagnostics[]: {compact_json(payload)}")
+        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint graph.verify missing diagnostics[]: {compact_json(payload)}")
     return {
         "status": payload.get("status"),
         "compiled": True,
@@ -244,13 +270,13 @@ def verify_material_graph(client: McpStdioClient, request_id: int, asset_path: s
 
 
 def build_client_ref_map(payload: dict[str, Any], mutate_result: dict[str, Any]) -> dict[str, str]:
-    ref_map: dict[str, str] = {"__material_root__": "__material_root__"}
+    ref_map: dict[str, str] = {}
     ops = payload.get("ops")
     op_results = mutate_result.get("opResults")
     if not isinstance(ops, list) or not isinstance(op_results, list) or len(ops) != len(op_results):
-        raise MaterialWorkflowSuiteError(
+        raise BlueprintWorkflowSuiteError(
             "mutate_result_gap",
-            f"material workflow mutate result missing aligned ops/opResults: {compact_json(mutate_result)}",
+            f"blueprint workflow mutate result missing aligned ops/opResults: {compact_json(mutate_result)}",
         )
     for op, result in zip(ops, op_results):
         if not isinstance(op, dict) or not isinstance(result, dict):
@@ -274,6 +300,31 @@ def find_node(snapshot: dict[str, Any], node_id: str) -> dict[str, Any] | None:
     return None
 
 
+def resolve_node_id(snapshot: dict[str, Any], ref_map: dict[str, str], ref: str) -> str | None:
+    mapped = ref_map.get(ref)
+    if isinstance(mapped, str) and mapped:
+        return mapped
+    nodes = snapshot.get("nodes")
+    if not isinstance(nodes, list):
+        return None
+    ref_lower = ref.lower()
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        node_id = node.get("id")
+        title = node.get("title")
+        name = node.get("name")
+        if isinstance(node_id, str) and node_id == ref:
+            return node_id
+        if isinstance(title, str) and title.lower().replace(" ", "") == ref_lower.lower().replace(" ", ""):
+            return node_id if isinstance(node_id, str) else None
+        if ref == "EventBeginPlay" and isinstance(title, str) and title == "Event BeginPlay":
+            return node_id if isinstance(node_id, str) else None
+        if isinstance(name, str) and name == ref:
+            return node_id if isinstance(node_id, str) else None
+    return None
+
+
 def has_edge(snapshot: dict[str, Any], from_node_id: str, from_pin: str, to_node_id: str, to_pin: str) -> bool:
     edges = snapshot.get("edges")
     if not isinstance(edges, list):
@@ -281,9 +332,9 @@ def has_edge(snapshot: dict[str, Any], from_node_id: str, from_pin: str, to_node
     return any(
         isinstance(edge, dict)
         and edge.get("fromNodeId") == from_node_id
-        and (from_pin == "" or edge.get("fromPin") == from_pin)
+        and str(edge.get("fromPin", "")).lower() == from_pin.lower()
         and edge.get("toNodeId") == to_node_id
-        and edge.get("toPin") == to_pin
+        and str(edge.get("toPin", "")).lower() == to_pin.lower()
         for edge in edges
     )
 
@@ -303,89 +354,62 @@ def node_pin_names(node: dict[str, Any]) -> list[str]:
 
 
 def assert_workflow_structure(case: dict[str, Any], snapshot: dict[str, Any], ref_map: dict[str, str]) -> dict[str, Any]:
-    details: dict[str, Any] = {
-        "nodeChecks": {"present": [], "absent": []},
-        "edgeChecks": {"present": [], "absent": []},
-    }
+    details: dict[str, Any] = {"nodeChecks": {"present": [], "absent": []}, "edgeChecks": {"present": []}}
 
     for ref in case.get("expectedNodes", []):
-        node_id = ref_map.get(ref)
+        node_id = resolve_node_id(snapshot, ref_map, ref)
         if not isinstance(node_id, str) or find_node(snapshot, node_id) is None:
-            raise MaterialWorkflowSuiteError("structure_gap", f"workflow missing expected node {ref}")
+            raise BlueprintWorkflowSuiteError("structure_gap", f"workflow missing expected node {ref}")
         details["nodeChecks"]["present"].append(ref)
 
     for ref in case.get("absentNodes", []):
-        node_id = ref_map.get(ref)
+        node_id = resolve_node_id(snapshot, ref_map, ref)
         if not isinstance(node_id, str):
             continue
         if find_node(snapshot, node_id) is not None:
-            raise MaterialWorkflowSuiteError("structure_gap", f"workflow expected removed node {ref} to be absent")
+            raise BlueprintWorkflowSuiteError("structure_gap", f"workflow expected removed node {ref} to be absent")
         details["nodeChecks"]["absent"].append(ref)
 
     for from_ref, from_pin, to_ref, to_pin in case.get("expectedEdges", []):
-        from_node_id = ref_map.get(from_ref)
-        to_node_id = ref_map.get(to_ref)
+        from_node_id = resolve_node_id(snapshot, ref_map, from_ref)
+        to_node_id = resolve_node_id(snapshot, ref_map, to_ref)
         if not isinstance(from_node_id, str) or not isinstance(to_node_id, str):
-            raise MaterialWorkflowSuiteError(
+            raise BlueprintWorkflowSuiteError(
                 "mutate_result_gap",
                 f"workflow missing clientRef mapping for edge {from_ref}:{from_pin} -> {to_ref}:{to_pin}",
             )
         if not has_edge(snapshot, from_node_id, from_pin, to_node_id, to_pin):
-            raise MaterialWorkflowSuiteError("structure_gap", f"workflow missing edge {from_ref}:{from_pin} -> {to_ref}:{to_pin}")
+            raise BlueprintWorkflowSuiteError("structure_gap", f"workflow missing edge {from_ref}:{from_pin} -> {to_ref}:{to_pin}")
         details["edgeChecks"]["present"].append({"from": from_ref, "fromPin": from_pin, "to": to_ref, "toPin": to_pin})
-
-    for from_ref, from_pin, to_ref, to_pin in case.get("absentEdges", []):
-        from_node_id = ref_map.get(from_ref)
-        to_node_id = ref_map.get(to_ref)
-        if not isinstance(from_node_id, str) or not isinstance(to_node_id, str):
-            continue
-        if has_edge(snapshot, from_node_id, from_pin, to_node_id, to_pin):
-            raise MaterialWorkflowSuiteError(
-                "structure_gap",
-                f"workflow preserved forbidden edge {from_ref}:{from_pin} -> {to_ref}:{to_pin}",
-            )
-        details["edgeChecks"]["absent"].append({"from": from_ref, "fromPin": from_pin, "to": to_ref, "toPin": to_pin})
 
     return details
 
 
 def audit_workflow_query_truth(case: dict[str, Any], snapshot: dict[str, Any], ref_map: dict[str, str]) -> dict[str, Any]:
-    root_node = find_node(snapshot, "__material_root__")
-    if not isinstance(root_node, dict):
-        raise MaterialWorkflowSuiteError("query_truth_gap", "material workflow missing __material_root__")
-    if root_node.get("nodeRole") != "materialRoot":
-        raise MaterialWorkflowSuiteError("query_truth_gap", f"material root nodeRole mismatch: {root_node}")
-
-    root_pin_names = node_pin_names(root_node)
-    for root_pin in case.get("rootPins", []):
-        if root_pin not in root_pin_names:
-            raise MaterialWorkflowSuiteError("query_truth_gap", f"material root missing pin {root_pin}")
-
     node_pin_checks: list[dict[str, Any]] = []
-    for node_ref, expected_pins in case.get("queryPins", []):
-        node_id = ref_map.get(node_ref)
+    query_pins = case.get("queryPins", {})
+    if not isinstance(query_pins, dict):
+        raise BlueprintWorkflowSuiteError("case_definition_gap", f"workflow queryPins invalid: {case}")
+    for node_ref, expected_pins in query_pins.items():
+        node_id = resolve_node_id(snapshot, ref_map, node_ref)
         if not isinstance(node_id, str):
-            raise MaterialWorkflowSuiteError("mutate_result_gap", f"workflow missing clientRef mapping for query pins {node_ref}")
+            raise BlueprintWorkflowSuiteError("mutate_result_gap", f"workflow missing clientRef mapping for query pins {node_ref}")
         node = find_node(snapshot, node_id)
         if not isinstance(node, dict):
-            raise MaterialWorkflowSuiteError("structure_gap", f"workflow node missing for query pins {node_ref}")
+            raise BlueprintWorkflowSuiteError("structure_gap", f"workflow node missing for query pins {node_ref}")
         actual_pins = node_pin_names(node)
-        missing = [pin for pin in expected_pins if pin not in actual_pins]
+        actual_lower = {pin.lower() for pin in actual_pins}
+        missing = [pin for pin in expected_pins if pin.lower() not in actual_lower]
         if missing:
-            raise MaterialWorkflowSuiteError(
+            raise BlueprintWorkflowSuiteError(
                 "query_truth_gap",
                 f"workflow query pins missing for {node_ref}: expected={expected_pins!r} actual={actual_pins!r}",
             )
         node_pin_checks.append({"nodeRef": node_ref, "pins": expected_pins, "surfacedPins": actual_pins})
-
-    return {
-        "rootNodeRole": root_node.get("nodeRole"),
-        "rootPins": root_pin_names,
-        "nodePinChecks": node_pin_checks,
-    }
+    return {"nodePinChecks": node_pin_checks}
 
 
-def run_workflow_case(client: McpStdioClient, *, request_id_base: int, case_index: int, case: dict[str, Any]) -> dict[str, Any]:
+def run_workflow_case(client: McpStdioClient, *, request_id_base: int, case: dict[str, Any]) -> dict[str, Any]:
     result = {
         "caseId": case["id"],
         "example": case.get("example"),
@@ -393,21 +417,22 @@ def run_workflow_case(client: McpStdioClient, *, request_id_base: int, case_inde
         "status": "fail",
     }
     surface_matrix = blank_surface_matrix()
-    asset_path = make_temp_asset_path(f"/Game/Codex/M_WorkflowTruth_{case['id']}")
+    asset_path = f"/Game/Codex/BP_WorkflowTruth_{case['id']}_{request_id_base}"
     try:
-        create_material_fixture(client, request_id_base, asset_path=asset_path)
-        payload = load_case_payload(case)
+        create_blueprint_fixture(client, request_id_base, asset_path=asset_path)
+        initial_snapshot = query_blueprint_snapshot(client, request_id_base + 5, asset_path)
+        payload = rewrite_live_node_ids(load_case_payload(case), initial_snapshot)
         payload["assetPath"] = asset_path
-        payload["graphName"] = "MaterialGraph"
-        mutate_result = call_tool(client, request_id_base + 10, "graph.mutate", payload)
+        payload["graphName"] = "EventGraph"
+        mutate_result = safe_call_tool(client, request_id_base + 10, "graph.mutate", payload)
         surface_matrix["mutate"] = "pass"
         ref_map = build_client_ref_map(payload, mutate_result)
-        snapshot = query_material_snapshot(client, request_id_base + 20, asset_path)
+        snapshot = query_blueprint_snapshot(client, request_id_base + 20, asset_path)
         structure_details = assert_workflow_structure(case, snapshot, ref_map)
         surface_matrix["queryStructure"] = "pass"
         query_truth_details = audit_workflow_query_truth(case, snapshot, ref_map)
         surface_matrix["queryTruth"] = "pass"
-        verify_details = verify_material_graph(client, request_id_base + 30, asset_path)
+        verify_details = verify_blueprint_graph(client, request_id_base + 30, asset_path)
         surface_matrix["verify"] = "pass"
         surface_matrix["diagnostics"] = "pass"
         result["status"] = "pass"
@@ -420,7 +445,7 @@ def run_workflow_case(client: McpStdioClient, *, request_id_base: int, case_inde
             "surfaceMatrix": surface_matrix,
         }
         return result
-    except MaterialWorkflowSuiteError as exc:
+    except BlueprintWorkflowSuiteError as exc:
         if exc.kind == "structure_gap":
             surface_matrix["queryStructure"] = "fail"
         elif exc.kind == "query_truth_gap":
@@ -433,6 +458,8 @@ def run_workflow_case(client: McpStdioClient, *, request_id_base: int, case_inde
             surface_matrix["diagnostics"] = "fail"
         elif exc.kind == "mutate_result_gap":
             surface_matrix["mutate"] = "fail"
+        elif exc.kind == "tool_error":
+            surface_matrix["mutate"] = "fail"
         else:
             surface_matrix["mutate"] = "fail"
         result["failureKind"] = exc.kind
@@ -441,7 +468,7 @@ def run_workflow_case(client: McpStdioClient, *, request_id_base: int, case_inde
         return result
     finally:
         try:
-            cleanup_material_fixture(client, request_id_base + 90, asset_path=asset_path)
+            cleanup_blueprint_fixture(client, request_id_base + 90, asset_path=asset_path)
         except Exception:
             pass
 
@@ -456,21 +483,9 @@ def summarize_results(results: list[dict[str, Any]]) -> dict[str, Any]:
         "verify": Counter(),
         "diagnostics": Counter(),
     }
-    family_rows: dict[str, dict[str, Any]] = {}
     for result in results:
         for family in result.get("families", []):
             family_counter[family] += 1
-            row = family_rows.setdefault(
-                family,
-                {"family": family, "totalCases": 0, "passed": 0, "failed": 0, "failureKinds": Counter()},
-            )
-            row["totalCases"] += 1
-            if result.get("status") == "pass":
-                row["passed"] += 1
-            else:
-                row["failed"] += 1
-                if isinstance(result.get("failureKind"), str):
-                    row["failureKinds"][result["failureKind"]] += 1
         if result.get("status") == "fail" and isinstance(result.get("failureKind"), str):
             failure_kinds[result["failureKind"]] += 1
         matrix = (result.get("details") or {}).get("surfaceMatrix", {})
@@ -479,11 +494,6 @@ def summarize_results(results: list[dict[str, Any]]) -> dict[str, Any]:
                 value = matrix.get(key)
                 if isinstance(value, str):
                     surface_matrix[key][value] += 1
-    normalized_family_rows = []
-    for family in sorted(family_rows):
-        row = dict(family_rows[family])
-        row["failureKinds"] = dict(sorted(row["failureKinds"].items()))
-        normalized_family_rows.append(row)
     return {
         "totalCases": len(results),
         "passed": sum(1 for result in results if result.get("status") == "pass"),
@@ -491,7 +501,6 @@ def summarize_results(results: list[dict[str, Any]]) -> dict[str, Any]:
         "families": dict(sorted(family_counter.items())),
         "failureKinds": dict(sorted(failure_kinds.items())),
         "surfaceMatrix": {key: dict(sorted(counter.items())) for key, counter in surface_matrix.items()},
-        "familySummary": normalized_family_rows,
     }
 
 
@@ -504,7 +513,7 @@ def build_client(project_root: Path, timeout_s: float) -> McpStdioClient:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run first-pass Material workflow truth cases.")
+    parser = argparse.ArgumentParser(description="Run first-pass Blueprint workflow truth cases.")
     parser.add_argument("--project-root", default="", help="Path to Unreal project root (defaults via local config search).")
     parser.add_argument("--timeout", type=float, default=8.0, help="Per-request timeout seconds.")
     parser.add_argument("--output", type=Path)
@@ -521,10 +530,9 @@ def main() -> int:
     try:
         wait_for_bridge_ready(client)
         for case_index, case in enumerate(WORKFLOW_CASES, start=1):
-            result = run_workflow_case(client, request_id_base=5000 + case_index * 100, case_index=case_index, case=case)
+            result = run_workflow_case(client, request_id_base=5000 + case_index * 100, case=case)
             results.append(result)
-            status = result.get("status")
-            if status == "pass":
+            if result.get("status") == "pass":
                 print(f"[PASS] {case['id']}")
             else:
                 print(f"[FAIL] {case['id']}: {result.get('failureKind')} {result.get('message')}")
@@ -533,7 +541,7 @@ def main() -> int:
 
     report = {
         "version": "1",
-        "graphType": "material",
+        "graphType": "blueprint",
         "suite": "workflow_truth",
         "summary": summarize_results(results),
         "results": results,

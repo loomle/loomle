@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 BLUEPRINT_NODE_DATABASE = REPO_ROOT / "workspace" / "Loomle" / "blueprint" / "catalogs" / "node-database.json"
 
 

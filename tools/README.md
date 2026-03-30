@@ -1,20 +1,21 @@
 # Loomle Tools
 
-Developer utilities and performance tooling.
+Developer-facing entrypoints and benchmark scripts.
 
-## Naming
+## Scope
 
-- `perf_*`: performance benchmarks
-- `dev_*`: developer helpers
-- release helpers now live under `packaging/`
+- `tools/` keeps high-frequency developer entrypoints and benchmarks.
+- test-suite workers and graph-test generators now live under `tests/tools/`.
+- release/install verification helpers now live under `packaging/tools/`.
+- workspace data-generation helpers now live under `workspace/tools/`.
 
 ## Current Tools
 
 - `dev_verify.py`: canonical local development verification flow
 - `perf_bridge_latency.py`: latency benchmark for a selected tool call
 - `perf_graph_rw_temp_asset.py`: temporary-asset graph read/write benchmark
-- `runner_init_host_project.sh`: developer host-project bootstrap helper
-- `runner_init_host_project.ps1`: Windows host-project bootstrap helper
+- `benchmarks/create_temp_blueprint_asset.py`: benchmark-only helper for temporary Blueprint assets
+- `benchmarks/run_graph_query_benchmark.py`: wrapper for stable `graph.query` benchmark invocations
 
 ## Test Structure
 
@@ -25,6 +26,7 @@ Developer utilities and performance tooling.
   - `tests/e2e/test_bridge_regression.py`
   - `tests/e2e/test_bridge_windows.ps1`
   - `tests/integration/test_loomle_latency.py`
+- graph-test runners, generators, and host-project bootstrap helpers live in `tests/tools/`
 - The canonical validation entrypoint is now the installed project-local client:
   - `<ProjectRoot>/Loomle/loomle(.exe)`
 

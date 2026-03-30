@@ -7,6 +7,7 @@ Current split:
 - `integration/`
 - `e2e/`
 - `fixtures/`
+- `tools/`
 
 Current contents:
 - `e2e/test_bridge_smoke.py`
@@ -14,6 +15,15 @@ Current contents:
 - `e2e/test_bridge_windows.ps1`
 - `e2e/cleanup_bridge_test_assets.py`
 - `integration/test_loomle_latency.py`
+- `tools/runner_init_host_project.sh`
+- `tools/runner_init_host_project.ps1`
+- `tools/generate_graph_test_plan.py`
+- `tools/generate_graph_test_coverage_report.py`
+- `tools/generate_graph_test_surface_report.py`
+- `tools/generate_graph_test_truth_report.py`
+- `tools/run_blueprint_*.py`
+- `tools/run_material_*.py`
+- `tools/run_pcg_*.py`
 - `GRAPH_TEST_FRAMEWORK.md`
 - `GRAPH_TEST_PROFILES.md`
 - `GRAPH_TEST_RECIPES.md`
@@ -38,6 +48,10 @@ Design references:
 - `JOBS_RUNTIME_SYNC_HANDOFF.md` - test-sync handoff for the new top-level `jobs` runtime and `execute` job-mode submission
 - `MATERIAL_TEST_HANDOFF.md` - short handoff guide for product engineers using the current Material test system
 - `PCG_TEST_HANDOFF.md` - short handoff guide for product engineers using the current PCG test system
+
+Test infrastructure helpers:
+- `tests/tools/` - graph-test generators, suite runners, and host-project bootstrap scripts
+- `tests/e2e/test_bridge_smoke.py` - umbrella validation entrypoint that shells into many `tests/tools/*` workers
 
 For day-to-day local development, prefer the unified script:
 

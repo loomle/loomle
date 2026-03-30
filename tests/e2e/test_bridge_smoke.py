@@ -13,6 +13,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TOOLS_DIR = REPO_ROOT / "tools"
+TEST_TOOLS_DIR = REPO_ROOT / "tests" / "tools"
 
 REQUIRED_TOOLS = {
     "loomle",
@@ -1254,7 +1255,7 @@ def validate_generated_blueprint_test_plan() -> None:
         subprocess.run(
             [
                 sys.executable,
-                str(TOOLS_DIR / "generate_graph_test_plan.py"),
+                str(TEST_TOOLS_DIR / "generate_graph_test_plan.py"),
                 "--graph-type",
                 "blueprint",
                 "--output",
@@ -1428,7 +1429,7 @@ def validate_generated_pcg_test_plan() -> None:
         subprocess.run(
             [
                 sys.executable,
-                str(TOOLS_DIR / "generate_graph_test_plan.py"),
+                str(TEST_TOOLS_DIR / "generate_graph_test_plan.py"),
                 "--graph-type",
                 "pcg",
                 "--output",
@@ -1581,7 +1582,7 @@ def validate_generated_blueprint_coverage_report() -> None:
     payload = subprocess.check_output(
         [
             sys.executable,
-            str(TOOLS_DIR / "generate_graph_test_coverage_report.py"),
+            str(TEST_TOOLS_DIR / "generate_graph_test_coverage_report.py"),
             "--graph-type",
             "blueprint",
         ],
@@ -1633,7 +1634,7 @@ def validate_generated_blueprint_workflow_truth_suite() -> None:
     payload = subprocess.check_output(
         [
             sys.executable,
-            str(TOOLS_DIR / "run_blueprint_workflow_truth_suite.py"),
+            str(TEST_TOOLS_DIR / "run_blueprint_workflow_truth_suite.py"),
             "--list-cases",
         ],
         cwd=str(REPO_ROOT),
@@ -1678,7 +1679,7 @@ def validate_generated_blueprint_negative_boundary_suite() -> None:
     payload = subprocess.check_output(
         [
             sys.executable,
-            str(TOOLS_DIR / "run_blueprint_negative_boundary_suite.py"),
+            str(TEST_TOOLS_DIR / "run_blueprint_negative_boundary_suite.py"),
             "--list-cases",
         ],
         cwd=str(REPO_ROOT),
@@ -1724,7 +1725,7 @@ def validate_generated_blueprint_stability_suite() -> None:
     payload = subprocess.check_output(
         [
             sys.executable,
-            str(TOOLS_DIR / "run_blueprint_stability_suite.py"),
+            str(TEST_TOOLS_DIR / "run_blueprint_stability_suite.py"),
             "--list-cases",
         ],
         cwd=str(REPO_ROOT),
@@ -1763,7 +1764,7 @@ def validate_generated_blueprint_residual_gap_suite() -> None:
     payload = subprocess.check_output(
         [
             sys.executable,
-            str(TOOLS_DIR / "run_blueprint_residual_gap_suite.py"),
+            str(TEST_TOOLS_DIR / "run_blueprint_residual_gap_suite.py"),
             "--list-cases",
         ],
         cwd=str(REPO_ROOT),
@@ -1789,7 +1790,7 @@ def validate_generated_blueprint_embedded_template_suite() -> None:
     payload = subprocess.check_output(
         [
             sys.executable,
-            str(TOOLS_DIR / "run_blueprint_embedded_template_suite.py"),
+            str(TEST_TOOLS_DIR / "run_blueprint_embedded_template_suite.py"),
             "--list-cases",
         ],
         cwd=str(REPO_ROOT),
@@ -1841,7 +1842,7 @@ def validate_generated_material_test_plan() -> None:
         subprocess.run(
             [
                 sys.executable,
-                str(TOOLS_DIR / "generate_graph_test_plan.py"),
+                str(TEST_TOOLS_DIR / "generate_graph_test_plan.py"),
                 "--graph-type",
                 "material",
                 "--output",
@@ -1917,7 +1918,7 @@ def validate_generated_material_coverage_report() -> None:
     payload = subprocess.check_output(
         [
             sys.executable,
-            str(TOOLS_DIR / "generate_graph_test_coverage_report.py"),
+            str(TEST_TOOLS_DIR / "generate_graph_test_coverage_report.py"),
             "--graph-type",
             "material",
         ],
@@ -1969,7 +1970,7 @@ def validate_generated_material_workflow_truth_suite() -> None:
     payload = subprocess.check_output(
         [
             sys.executable,
-            str(TOOLS_DIR / "run_material_workflow_truth_suite.py"),
+            str(TEST_TOOLS_DIR / "run_material_workflow_truth_suite.py"),
             "--list-cases",
         ],
         cwd=str(REPO_ROOT),
@@ -2006,7 +2007,7 @@ def validate_generated_material_negative_boundary_suite() -> None:
     payload = subprocess.check_output(
         [
             sys.executable,
-            str(TOOLS_DIR / "run_material_negative_boundary_suite.py"),
+            str(TEST_TOOLS_DIR / "run_material_negative_boundary_suite.py"),
             "--list-cases",
         ],
         cwd=str(REPO_ROOT),
@@ -2061,7 +2062,7 @@ def validate_generated_material_stability_suite() -> None:
     payload = subprocess.check_output(
         [
             sys.executable,
-            str(TOOLS_DIR / "run_material_stability_suite.py"),
+            str(TEST_TOOLS_DIR / "run_material_stability_suite.py"),
             "--list-cases",
         ],
         cwd=str(REPO_ROOT),
@@ -2100,7 +2101,7 @@ def validate_generated_material_child_graph_ref_suite() -> None:
     payload = subprocess.check_output(
         [
             sys.executable,
-            str(TOOLS_DIR / "run_material_child_graph_ref_suite.py"),
+            str(TEST_TOOLS_DIR / "run_material_child_graph_ref_suite.py"),
             "--list-cases",
         ],
         cwd=str(REPO_ROOT),
@@ -2136,7 +2137,7 @@ def validate_generated_pcg_coverage_report() -> None:
     payload = subprocess.check_output(
         [
             sys.executable,
-            str(TOOLS_DIR / "generate_graph_test_coverage_report.py"),
+            str(TEST_TOOLS_DIR / "generate_graph_test_coverage_report.py"),
             "--graph-type",
             "pcg",
         ],
@@ -2190,7 +2191,7 @@ def validate_generated_pcg_workflow_truth_suite() -> None:
     payload = subprocess.check_output(
         [
             sys.executable,
-            str(TOOLS_DIR / "run_pcg_workflow_truth_suite.py"),
+            str(TEST_TOOLS_DIR / "run_pcg_workflow_truth_suite.py"),
             "--list-cases",
         ],
         cwd=str(REPO_ROOT),
@@ -2314,7 +2315,7 @@ def validate_generated_graph_test_surface_report() -> None:
         payload = subprocess.check_output(
             [
                 sys.executable,
-                str(TOOLS_DIR / "generate_graph_test_surface_report.py"),
+                str(TEST_TOOLS_DIR / "generate_graph_test_surface_report.py"),
                 "--run-report",
                 str(run_report_path),
             ],
@@ -2368,7 +2369,7 @@ def validate_generated_pcg_negative_boundary_suite() -> None:
     payload = subprocess.check_output(
         [
             sys.executable,
-            str(TOOLS_DIR / "run_pcg_negative_boundary_suite.py"),
+            str(TEST_TOOLS_DIR / "run_pcg_negative_boundary_suite.py"),
             "--list-cases",
         ],
         cwd=str(REPO_ROOT),
@@ -2429,7 +2430,7 @@ def validate_generated_pcg_stability_suite() -> None:
     payload = subprocess.check_output(
         [
             sys.executable,
-            str(TOOLS_DIR / "run_pcg_stability_suite.py"),
+            str(TEST_TOOLS_DIR / "run_pcg_stability_suite.py"),
             "--list-cases",
         ],
         cwd=str(REPO_ROOT),
@@ -2479,7 +2480,7 @@ def validate_generated_pcg_selector_truth_suite() -> None:
     payload = subprocess.check_output(
         [
             sys.executable,
-            str(TOOLS_DIR / "run_pcg_selector_truth_suite.py"),
+            str(TEST_TOOLS_DIR / "run_pcg_selector_truth_suite.py"),
             "--list-cases",
         ],
         cwd=str(REPO_ROOT),
@@ -2535,7 +2536,7 @@ def validate_generated_pcg_effective_settings_suite() -> None:
     payload = subprocess.check_output(
         [
             sys.executable,
-            str(TOOLS_DIR / "run_pcg_effective_settings_suite.py"),
+            str(TEST_TOOLS_DIR / "run_pcg_effective_settings_suite.py"),
             "--list-cases",
         ],
         cwd=str(REPO_ROOT),
@@ -2591,7 +2592,7 @@ def validate_generated_pcg_child_graph_ref_suite() -> None:
     payload = subprocess.check_output(
         [
             sys.executable,
-            str(TOOLS_DIR / "run_pcg_child_graph_ref_suite.py"),
+            str(TEST_TOOLS_DIR / "run_pcg_child_graph_ref_suite.py"),
             "--list-cases",
         ],
         cwd=str(REPO_ROOT),
@@ -2630,7 +2631,7 @@ def validate_generated_pcg_residual_gap_suite() -> None:
     payload = subprocess.check_output(
         [
             sys.executable,
-            str(TOOLS_DIR / "run_pcg_residual_gap_suite.py"),
+            str(TEST_TOOLS_DIR / "run_pcg_residual_gap_suite.py"),
             "--list-cases",
         ],
         cwd=str(REPO_ROOT),

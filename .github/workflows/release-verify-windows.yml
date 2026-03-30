@@ -18,7 +18,7 @@ jobs:
       - name: Check Release Version Strings
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
-          $script = Join-Path $env:GITHUB_WORKSPACE "tools\check_release_versions.py"
+          $script = Join-Path $env:GITHUB_WORKSPACE "packaging\tools\check_release_versions.py"
           $arguments = @($script)
           if ($env:GITHUB_REF_NAME -and $env:GITHUB_REF_NAME.StartsWith("v")) {
             $arguments += @("--expected-version", $env:GITHUB_REF_NAME.Substring(1))
@@ -72,7 +72,7 @@ jobs:
             $testRoot = Join-Path $workspaceRoot "lrh\LoomleRunnerHostWin"
           }
 
-          & (Join-Path $env:GITHUB_WORKSPACE "tools\runner_init_host_project.ps1") -ProjectRoot $testRoot -ProjectName "LoomleRunnerHostWin"
+          & (Join-Path $env:GITHUB_WORKSPACE "tests\tools\runner_init_host_project.ps1") -ProjectRoot $testRoot -ProjectName "LoomleRunnerHostWin"
 
           if (-not (Test-Path -LiteralPath $testRoot)) {
             throw "Test project root not found: $testRoot"

@@ -72,13 +72,13 @@ python3 tests/e2e/test_bridge_smoke.py --project-root /path/to/MyProject
 If you want the real Blueprint product-facing signals, run these suites:
 
 ```bash
-python3 tools/generate_graph_test_plan.py --graph-type blueprint
-python3 tools/generate_graph_test_coverage_report.py --graph-type blueprint
-python3 tools/run_blueprint_workflow_truth_suite.py --project-root /path/to/MyProject
-python3 tools/run_blueprint_negative_boundary_suite.py --project-root /path/to/MyProject
-python3 tools/run_blueprint_stability_suite.py --project-root /path/to/MyProject
-python3 tools/run_blueprint_residual_gap_suite.py
-python3 tools/run_blueprint_embedded_template_suite.py
+python3 tests/tools/generate_graph_test_plan.py --graph-type blueprint
+python3 tests/tools/generate_graph_test_coverage_report.py --graph-type blueprint
+python3 tests/tools/run_blueprint_workflow_truth_suite.py --project-root /path/to/MyProject
+python3 tests/tools/run_blueprint_negative_boundary_suite.py --project-root /path/to/MyProject
+python3 tests/tools/run_blueprint_stability_suite.py --project-root /path/to/MyProject
+python3 tests/tools/run_blueprint_residual_gap_suite.py
+python3 tests/tools/run_blueprint_embedded_template_suite.py
 ```
 
 If you want JSON artifacts for inspection or sharing, add `--output <path>.json`.
@@ -227,13 +227,13 @@ Interpret that as:
 
 Execution:
 
-- [generate_graph_test_plan.py](../tools/generate_graph_test_plan.py)
-- [generate_graph_test_coverage_report.py](../tools/generate_graph_test_coverage_report.py)
-- [run_blueprint_workflow_truth_suite.py](../tools/run_blueprint_workflow_truth_suite.py)
-- [run_blueprint_negative_boundary_suite.py](../tools/run_blueprint_negative_boundary_suite.py)
-- [run_blueprint_stability_suite.py](../tools/run_blueprint_stability_suite.py)
-- [run_blueprint_residual_gap_suite.py](../tools/run_blueprint_residual_gap_suite.py)
-- [run_blueprint_embedded_template_suite.py](../tools/run_blueprint_embedded_template_suite.py)
+- [generate_graph_test_plan.py](tools/generate_graph_test_plan.py)
+- [generate_graph_test_coverage_report.py](tools/generate_graph_test_coverage_report.py)
+- [run_blueprint_workflow_truth_suite.py](tools/run_blueprint_workflow_truth_suite.py)
+- [run_blueprint_negative_boundary_suite.py](tools/run_blueprint_negative_boundary_suite.py)
+- [run_blueprint_stability_suite.py](tools/run_blueprint_stability_suite.py)
+- [run_blueprint_residual_gap_suite.py](tools/run_blueprint_residual_gap_suite.py)
+- [run_blueprint_embedded_template_suite.py](tools/run_blueprint_embedded_template_suite.py)
 
 Design context:
 
