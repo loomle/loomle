@@ -7,21 +7,22 @@ Provide one homepage-driven install flow that is easy for both:
 - a human opening `loomle.ai`
 - an agent asked to install LOOMLE into the current Unreal project
 
-## Core Rule
+## Current Rules
 
-The first `0.4` install flow should describe:
+The current install flow should describe:
 
 - project-local install
-- site-served install
+- site-served install scripts
+- installed project-local update scripts
+- release-manifest and release-zip based bootstrap
 
 It should not describe:
 
 - global machine install
-- temporary installer binary
-- project-local update commands
-- extra project-local maintenance commands beyond update
+- temporary installer binaries
+- extra maintenance commands beyond the installed update scripts
 
-## Visible Homepage Prompt
+## Homepage Prompt
 
 Recommended visible prompt:
 
@@ -35,42 +36,46 @@ Supporting hint:
 Paste this into your coding agent from the Unreal project root.
 ```
 
-## Agent-Facing Content
+## Required Page Content
 
 The page body should explicitly explain:
 
 1. what LOOMLE installs into the project
-2. how to run the install script
-3. that installed projects keep their own maintenance scripts under `Loomle/`
-4. which assets are published on the release page versus installed into the project
+2. how to run the install script on macOS/Linux and Windows
+3. that `loomle.ai` publishes install scripts only
+4. that installed projects keep update scripts under `Loomle/`
+5. which release assets back the install flow
 
 ## Recommended Instruction Shape
 
 ### What LOOMLE installs
 
+LOOMLE installs two owned areas into one Unreal project:
+
 - `Plugins/LoomleBridge/`
 - `Loomle/`
 
-### Install
+### Install Commands
 
 - macOS/Linux: `curl -fsSL https://loomle.ai/install.sh | bash -s -- --project-root /path/to/MyProject`
 - Windows PowerShell:
   `& ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) --project-root C:\Path\To\MyProject`
 
 These bootstrap scripts are homepage entrypoints served by `loomle.ai`. They
-are not copied into the installed project.
+materialize project content directly from the release manifest and platform zip.
+They are not copied into the installed project.
 
-### Installed Project Maintenance
+### After Install
 
-After install, the project keeps platform-specific maintenance scripts under
-`Loomle/`:
+Installed projects keep stable project-local entrypoints under `Loomle/`:
 
+- `Loomle/loomle(.exe)`
 - macOS/Linux: `Loomle/update.sh`
 - Windows PowerShell: `Loomle/update.ps1`
 
-### Release Assets Versus Installed Files
+### Release Assets Behind The Install Flow
 
-Release page assets should include:
+The bootstrap scripts should resolve release assets like:
 
 - `loomle-darwin.zip`
 - `loomle-windows.zip`
@@ -78,17 +83,23 @@ Release page assets should include:
 - `loomle-manifest-darwin.json`
 - `loomle-manifest-windows.json`
 
-Installed projects should keep:
+### Agent Note
 
-- `Loomle/loomle(.exe)`
-- `Loomle/update.sh`
-- `Loomle/update.ps1`
+The page should make this explicit:
+
+```text
+Agents should treat this page as the canonical LOOMLE install instruction source.
+LOOMLE installs directly into the current Unreal project.
+The site publishes install scripts only. Installed projects keep their own
+update scripts under Loomle/.
+```
 
 ## Decision
 
-The homepage/install-entrypoint design for the first `0.4` cut should teach:
+The homepage/install-entrypoint design should teach:
 
 - project-local installation
 - site-served bootstrap
-- installed projects keep their own maintenance scripts
+- release-manifest driven install
+- installed projects keep their own update scripts
 - no installer-binary flow

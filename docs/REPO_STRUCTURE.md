@@ -2,22 +2,20 @@
 
 ## Summary
 
-For the first `LOOMLE 0.4.0` cut, repository and installed-shape discussion
-should stay narrow.
+The current `0.4` structure is intentionally narrow:
 
-This phase is about:
+- Unreal owns runtime authority through `Plugins/LoomleBridge/`
+- `loomle` remains a project-local client under `Loomle/`
+- install and update are script-first
 
-- native MCP runtime in `LoomleBridge`
-- project-local client retained in `Loomle/`
-- script-first install/update
+This phase does not introduce:
 
-This phase is not about:
+- global machine install
+- global skills/workflows layers
+- Studio directory migration
+- a separate Rust runtime server layer
 
-- global LOOMLE home
-- global skills/workflows layer
-- Studio artifact directory migration
-
-## Current Source Layout Meaning
+## Source Layout
 
 ### `engine/LoomleBridge/`
 
@@ -31,40 +29,42 @@ Owns:
 
 Owns:
 
-- project-local `loomle`
+- the `loomle` client
 - MCP client/session behavior
-- source-owned script entrypoints:
-  - `install.sh`
-  - `install.ps1`
-  - `update.sh`
-  - `update.ps1`
-- no binary install/update command surface
+- source-of-truth install and update scripts
 
-Publication rule:
+Rules:
 
 - `install.*` is site-served only
 - `update.*` is copied into installed projects
+- `loomle` itself is not a multi-command install CLI
 
 ### `workspace/Loomle/`
 
-Owns project-local install material that gets copied into:
+Owns project-local install material copied into:
 
 - `<ProjectRoot>/Loomle/`
 
-For this phase, it remains install material, not a Studio artifact model.
+It remains install material, not a Studio artifact layer.
+
+### `site/`
+
+Owns the published install site:
+
+- `https://loomle.ai/`
+- `https://loomle.ai/install.sh`
+- `https://loomle.ai/install.ps1`
 
 ### `packaging/`
 
 Owns:
 
 - release bundle assembly
-- install/update scripts
 - manifest shape
 - install contract
+- local install helpers
 
 ## Installed Project Shape
-
-The intended installed project shape for this phase is:
 
 ```text
 <ProjectRoot>/
@@ -83,34 +83,40 @@ The intended installed project shape for this phase is:
 
 ## Runtime Shape
 
-At runtime, the effective split is:
+At runtime, the split is:
 
 - `Loomle/loomle(.exe)` = MCP client / launcher only
 - `Plugins/LoomleBridge/` = native MCP runtime authority
 - `Loomle/install/` = install metadata and versioned payloads
 - `Loomle/state/` = machine-written runtime outputs
 
-Install and maintenance entrypoints are scripts, not subcommands on `loomle`.
-The public install path is site-served; installed projects keep only
-`update.*`.
+The old Rust `mcp/server` layer is gone. Runtime protocol ownership now lives in
+`LoomleBridge`.
 
-The old `mcp/server` bridge layer is no longer part of the target structure.
+## Product Direction In This Structure
 
-## What Is Deferred
+For the current `0.4` cut:
 
-These structure moves remain deferred beyond the first `0.4` cut:
+- `loomle` remains project-local
+- `loomle` is the primary agent-facing MCP entrypoint
+- install/update stay script-first
+- bootstrap is site-served
+- installed projects keep only project-local maintenance scripts
 
-- global `cli/`
-- global capability layer
-- project-hidden `.loomle-core/`
+## Deferred Work
+
+Still deferred beyond this cut:
+
+- global `loomle`
+- global capability layers
+- hidden `.loomle-core/`
+- Studio/project artifact restructuring
 
 ## Decision
 
-For the first `0.4` cut, the structural model should be documented as:
+Document the current structure as:
 
-- keep project-local install shape
-- remove Rust `mcp/server`
-- keep client source ownership under `client/`
-- keep `workspace/Loomle/` as project install material
-- install only `update.*` scripts into the project
-- defer broader global and Studio restructuring
+- project-local `loomle`
+- Unreal-hosted native MCP runtime
+- script-first install/update
+- no global install or Studio migration in this phase

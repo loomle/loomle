@@ -567,9 +567,6 @@ Node field notes:
 ## 5.8 Historical Note: `graph.ops` and `graph.ops.resolve`
 
 - `graph.ops` and `graph.ops.resolve` are no longer part of the active RPC surface.
-- Keep their older design material only as historical context under:
-  - `docs/GRAPH_OPS_DESIGN.md`
-  - `docs/GRAPH_OPS_PROTOCOL_DRAFT.md`
 - Preferred active planning and execution flow is:
   - workspace-local `GUIDE.md`, `SEMANTICS.md`, and catalogs
   - `graph.resolve` for typed graph address resolution

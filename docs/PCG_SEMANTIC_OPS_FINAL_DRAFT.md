@@ -492,7 +492,6 @@ This taxonomy does three things better than Unreal's raw node naming:
 
 This document should be read after:
 
-- [PCG_NODE_CATALOG_VS_OPS.md](/Users/xartest/dev/loomle/docs/PCG_NODE_CATALOG_VS_OPS.md)
 - [PCG_OFFICIAL_CATEGORIES_AND_SEMANTIC_TAXONOMY.md](/Users/xartest/dev/loomle/docs/PCG_OFFICIAL_CATEGORIES_AND_SEMANTIC_TAXONOMY.md)
 
 Those explain:

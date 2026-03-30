@@ -1,155 +1,102 @@
 # LOOMLE Docs
 
-Project-level technical documentation for `LOOMLE` and `LoomleBridge` (plugin + runtime authority).
+Project-level technical documentation for `LOOMLE` and `LoomleBridge`.
 
-## Documents
+## Current Core Docs
 
 1. `ARCHITECTURE.md`
 - Full-system boundary, responsibilities, and call flow.
 
 2. `REPO_STRUCTURE.md`
-- Source repository, release bundle, and installed user-project structure.
+- Current repository structure, installed project shape, and `0.4` product/structure direction.
 
-3. `LOOMLE_040_PRODUCT_DIRECTION.md`
-- Product-level source of truth for the first `0.4.0` cut: project-local
-  `loomle`, native MCP runtime in `LoomleBridge`, and script-first
-  install/update.
+3. `LOOMLE_040_RUNTIME_CONNECTIVITY.md`
+- Runtime connection model for the project-local `loomle` client and Unreal-hosted MCP runtime.
 
-4. `LOOMLE_040_STRUCTURE_REFACTOR.md`
-- `0.4.0` structure decision for the narrowed first cut: keep project-local
-  shape, remove Rust `mcp/server`, defer global and Studio restructuring.
+4. `LOOMLE_040_CLI_SURFACE.md`
+- Current `loomle` CLI contraction: stdio MCP proxy only, with install/update moved to scripts.
 
-5. `LOOMLE_040_INSTALL_UPGRADE_DESIGN.md`
-- `0.4.0` install/update design for the narrowed first cut: project-local only,
-  script-first install/update, no installer binary, no global install.
+5. `LOOMLE_040_PROJECT_LOCAL_UPDATE_MODEL.md`
+- Project-local update model using stable entrypoints, versioned client payloads, and `Loomle/install/active.json`.
 
-6. `LOOMLE_040_RUNTIME_CONNECTIVITY.md`
-- `0.4.0` runtime connection model: project-local `loomle`,
-  Unreal-hosted native MCP runtime, and project-scoped pipe/socket direction.
+6. `MCP_PROTOCOL.md`
+- Current MCP tool surface and behavior contract.
 
-7. `LOOMLE_040_CPP_MCP_SDK_MINIMAL_DESIGN.md`
-- `0.4.0` design for a self-owned minimal C++ MCP server layer inside
-  `LoomleBridge`, intended to replace the custom RPC layer as the primary
-  runtime protocol path without waiting for a mature external C++ MCP SDK.
+7. `RPC_INTERFACE.md`
+- Historical Unreal bridge RPC contract, kept as transition/reference material.
 
-8. `LOOMLE_040_CLI_SURFACE.md`
-- `0.4.0` CLI contraction for the first cut: `loomle` becomes a pure stdio MCP
-  proxy, while install/update move to scripts.
+8. `../workspace/Loomle/README.md`
+- Agent-facing workspace entrypoint for installed project content, graph guides, catalogs, and examples.
 
-9. `LOOMLE_040_PROJECT_LOCAL_UPDATE_MODEL.md`
-- `0.4.0` update design for the project-local install: stable entrypoints,
-  versioned client payload under `Loomle/install/versions/`, and
-  manifest-driven plugin replacement instead of whole-directory self-overwrite.
+## Supporting Design Docs
 
-10. `LOOMLE_040_PROJECT_WORKDIR_MODEL.md`
-- `0.4.0` ownership-based project workdir design: local install and local state
-  stay under `Loomle/`, while tracked collaboration content remains a deferred
-  follow-up rather than part of the first implemented cut.
+9. `INSTALL_ENTRYPOINT_DESIGN.md`
+- Install entrypoint strategy and homepage content guidance for humans and agents.
 
-11. `INSTALL_ENTRYPOINT_DESIGN.md`
-- Prompt-first install entrypoint strategy for humans and agents.
+10. `packaging/install/INSTALL_CONTRACT.md`
+- Implementation-level install contract for bundle layout, owned paths, and installer responsibilities.
 
-12. `INSTALL_PAGE_CONTENT.md`
-- Concrete homepage content and information architecture for `loomle.ai` / `loomle.ai/i`.
+11. `LOOMLE_040_CPP_MCP_SDK_MINIMAL_DESIGN.md`
+- Design note for the native C++ MCP runtime layer inside `LoomleBridge`.
 
-13. `RPC_INTERFACE.md`
-- Historical/current pre-cutover Unreal bridge RPC contract (`rpc.health`,
-  `rpc.capabilities`, `rpc.invoke`). Useful for understanding the old path, but
-  not the target `0.4` runtime protocol direction.
+12. `LOOMLE_PERMISSION_MODEL.md`
+- Permission and trust model for LOOMLE runtime access.
 
-14. `MCP_PROTOCOL.md`
-- Current MCP tool surface, tool schemas, routing rules, long-running
-  `execute` job mode, and top-level `jobs` behavior contract. This remains
-  useful during transition, but the `0.4` target protocol source of truth moves
-  toward native MCP in `LoomleBridge`.
+## PCG / Graph Reference Docs
 
-15. `PCG_LEARNING_RESOURCES_UE57.md`
-- Curated UE 5.7 PCG learning resources, including official docs, videos, and transcript-first video reading guidance.
+13. `PCG_LEARNING_RESOURCES_UE57.md`
+- Curated UE 5.7 PCG learning resources.
 
-16. `PCG_NODE_CATALOG_VS_OPS.md`
-- Clarifies the boundary between the `pcg-weaver` node catalog, LOOMLE semantic PCG ops, and generic graph construction.
+14. `PCG_OFFICIAL_CATEGORIES_AND_SEMANTIC_TAXONOMY.md`
+- Mapping from Epic PCG categories to LOOMLE semantic taxonomy.
 
-17. `PCG_OFFICIAL_CATEGORIES_AND_SEMANTIC_TAXONOMY.md`
-- Aligns Epic's official PCG node categories with a behavior-first semantic taxonomy for future LOOMLE PCG ops.
+15. `PCG_SEMANTIC_OPS_FINAL_DRAFT.md`
+- Proposed PCG semantic-op family tree and naming.
 
-18. `PCG_SEMANTIC_OPS_FINAL_DRAFT.md`
-- Final proposed LOOMLE PCG semantic-op family tree, canonical names, compatibility aliases, and first-wave op set.
+## Local Issues
 
-19. `../workspace/Loomle/README.md`
-- Agent-facing workspace entrypoint. Start here first for the current graph workflow, then follow each graph domain's `GUIDE.md`, `SEMANTICS.md`, catalogs, and examples.
+17. `issues/README.md`
+- Local issue tracker index for in-repo design issues.
 
-20. `GRAPH_OPS_DESIGN.md`
-- Historical `graph.ops` / `graph.ops.resolve` design. These tools are no longer part of the active product tool surface and remain only as design history.
+18. `issues/PCG_GRAPH_QUERY_FULL_COVERAGE_UPGRADE.md`
+- Parent issue for making PCG `graph.query` the primary full-coverage readback surface.
 
-21. `GRAPH_OPS_PROTOCOL_DRAFT.md`
-- Historical draft protocol for `graph.ops` and `graph.ops.resolve`. Keep only as archival context.
+19. `issues/BLUEPRINT_EMBEDDED_TEMPLATE_NODES.md`
+- Blueprint embedded-template node classification and testing direction.
 
-22. `UE_SCENE_EDITING_EXECUTE_AUDIT.md`
-- Audit of what Unreal scene editing is already proven through `execute`, what is only partially proven, and what gaps remain before it becomes a comfortable agent workflow.
+20. `issues/GRAPH_QUERY_SURFACE_MODEL.md`
+- Shared graph-query surface issue covering `effectiveSettings`, `childGraphRef`, and promoted read surfaces.
 
-23. `issues/README.md`
-- Local issue tracker index for detailed design issues that live in-repo.
+21. `issues/BLUEPRINT_GAP_PRODUCT_CAPABILITIES.md`
+- Blueprint query-gap issue for promoted product capabilities.
 
-24. `issues/PCG_GRAPH_QUERY_FULL_COVERAGE_UPGRADE.md`
-- Local parent issue for making PCG `graph.query` the primary full-coverage node readback surface.
+22. `issues/JOBS_LONG_RUNNING_TASK_RUNTIME.md`
+- Shared long-task runtime and top-level `jobs` issue.
 
-25. `issues/BLUEPRINT_EMBEDDED_TEMPLATE_NODES.md`
-- Local issue for classifying Blueprint embedded-template nodes such as `Timeline`
-  and `AddComponent`, and for defining their testing-system direction.
-
-26. `issues/GRAPH_QUERY_SURFACE_MODEL.md`
-- Shared local issue for the cross-graph `graph.query` surface model, including
-  `effectiveSettings`, `childGraphRef`, and explicit promoted surface categories.
-
-27. `issues/BLUEPRINT_GAP_PRODUCT_CAPABILITIES.md`
-- Local issue for promoting Blueprint query gaps into product capabilities such
-  as `embedded_template`, `graph_boundary_summary`, and
-  `context_sensitive_construct`.
-
-28. `issues/JOBS_LONG_RUNNING_TASK_RUNTIME.md`
-- Local issue for introducing a shared long-task runtime with top-level `jobs`
-  management, action-based lifecycle inspection, and tool-level
-  `execution.mode = "job"` submission.
-
-29. `issues/PROFILING_RUNTIME_ANALYSIS_INTERFACE.md`
-- Local issue for introducing a top-level `profiling` interface as an official
-  Unreal profiling data bridge, including `unit`, `game`, `gpu`, `ticks`,
-  `memory`, and `capture`.
-- Current implementation status:
-  - `profiling.action = "unit"` is live
-  - `profiling.action = "game"` is live
-  - `profiling.action = "gpu"` is live
-  - `profiling.action = "ticks"` is live
-  - `profiling.action = "memory"` is live for `kind = "summary"`
+23. `issues/PROFILING_RUNTIME_ANALYSIS_INTERFACE.md`
+- Top-level `profiling` interface issue and implementation notes.
 
 ## Recommended Read Order
 
 1. `../workspace/Loomle/README.md`
 2. `ARCHITECTURE.md`
-3. `LOOMLE_040_PRODUCT_DIRECTION.md`
-4. `LOOMLE_040_STRUCTURE_REFACTOR.md`
-5. `LOOMLE_040_INSTALL_UPGRADE_DESIGN.md`
-6. `LOOMLE_040_RUNTIME_CONNECTIVITY.md`
-7. `LOOMLE_040_CPP_MCP_SDK_MINIMAL_DESIGN.md`
-8. `LOOMLE_040_CLI_SURFACE.md`
-9. `LOOMLE_040_PROJECT_LOCAL_UPDATE_MODEL.md`
-10. `LOOMLE_040_PROJECT_WORKDIR_MODEL.md`
-11. `REPO_STRUCTURE.md`
-12. `INSTALL_ENTRYPOINT_DESIGN.md`
-13. `INSTALL_PAGE_CONTENT.md`
-14. `RPC_INTERFACE.md`
-15. `MCP_PROTOCOL.md`
-16. `PCG_LEARNING_RESOURCES_UE57.md`
-17. `PCG_NODE_CATALOG_VS_OPS.md`
-18. `PCG_OFFICIAL_CATEGORIES_AND_SEMANTIC_TAXONOMY.md`
-19. `PCG_SEMANTIC_OPS_FINAL_DRAFT.md`
-20. `GRAPH_OPS_DESIGN.md`
-21. `GRAPH_OPS_PROTOCOL_DRAFT.md`
-22. `UE_SCENE_EDITING_EXECUTE_AUDIT.md`
-23. `issues/README.md`
-24. `issues/PCG_GRAPH_QUERY_FULL_COVERAGE_UPGRADE.md`
-25. `issues/BLUEPRINT_EMBEDDED_TEMPLATE_NODES.md`
-26. `issues/GRAPH_QUERY_SURFACE_MODEL.md`
-27. `issues/BLUEPRINT_GAP_PRODUCT_CAPABILITIES.md`
-28. `issues/JOBS_LONG_RUNNING_TASK_RUNTIME.md`
-29. `issues/PROFILING_RUNTIME_ANALYSIS_INTERFACE.md`
+3. `REPO_STRUCTURE.md`
+4. `LOOMLE_040_RUNTIME_CONNECTIVITY.md`
+5. `LOOMLE_040_CLI_SURFACE.md`
+6. `LOOMLE_040_PROJECT_LOCAL_UPDATE_MODEL.md`
+7. `MCP_PROTOCOL.md`
+8. `RPC_INTERFACE.md`
+9. `INSTALL_ENTRYPOINT_DESIGN.md`
+10. `packaging/install/INSTALL_CONTRACT.md`
+11. `LOOMLE_040_CPP_MCP_SDK_MINIMAL_DESIGN.md`
+12. `LOOMLE_PERMISSION_MODEL.md`
+13. `PCG_LEARNING_RESOURCES_UE57.md`
+14. `PCG_OFFICIAL_CATEGORIES_AND_SEMANTIC_TAXONOMY.md`
+15. `PCG_SEMANTIC_OPS_FINAL_DRAFT.md`
+16. `issues/README.md`
+17. `issues/PCG_GRAPH_QUERY_FULL_COVERAGE_UPGRADE.md`
+18. `issues/BLUEPRINT_EMBEDDED_TEMPLATE_NODES.md`
+19. `issues/GRAPH_QUERY_SURFACE_MODEL.md`
+20. `issues/BLUEPRINT_GAP_PRODUCT_CAPABILITIES.md`
+21. `issues/JOBS_LONG_RUNNING_TASK_RUNTIME.md`
+22. `issues/PROFILING_RUNTIME_ANALYSIS_INTERFACE.md`

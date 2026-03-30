@@ -386,7 +386,6 @@ Why these first:
 
 This document complements:
 
-- [PCG_NODE_CATALOG_VS_OPS.md](/Users/xartest/dev/loomle/docs/PCG_NODE_CATALOG_VS_OPS.md)
 
 That document explains `catalog vs ops vs resolve`.
 This document explains `official categories vs real behavior vs semantic op families`.
