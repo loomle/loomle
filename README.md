@@ -37,10 +37,10 @@ Loomle/loomle
 
 On Windows, use `Loomle\\loomle.exe`.
 
-Installed projects also keep maintenance scripts under `Loomle/`:
+Installed projects keep update scripts under `Loomle/`:
 
-- macOS/Linux: `Loomle/update.sh`, `Loomle/doctor.sh`
-- Windows: `Loomle/update.ps1`, `Loomle/doctor.ps1`
+- macOS/Linux: `Loomle/update.sh`
+- Windows: `Loomle/update.ps1`
 
 LOOMLE is now organized around a single repository and a single installed project shape:
 

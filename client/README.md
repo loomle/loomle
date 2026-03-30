@@ -37,5 +37,5 @@ This binary is no longer a multi-command CLI. It should only:
 - connect to the project-local Unreal runtime endpoint
 - proxy standard MCP over stdio
 
-Install, update, and doctor are expected to move to scripts outside this
+Install and update are expected to move to scripts outside this
 binary.

@@ -45,9 +45,9 @@ def ensure_executable(path: Path) -> None:
 def maintenance_scripts_for_platform(platform: str) -> tuple[list[str], list[str]]:
     normalized = platform.lower()
     if normalized == "windows":
-        return (["update.ps1", "doctor.ps1"], [])
+        return (["update.ps1"], [])
     if normalized in {"darwin", "linux"}:
-        return (["update.sh", "doctor.sh"], ["update.sh", "doctor.sh"])
+        return (["update.sh"], ["update.sh"])
     fail(f"unsupported platform: {platform}")
 
 

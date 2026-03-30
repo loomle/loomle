@@ -22,7 +22,7 @@ Release publication model:
 
 - tag releases publish only zips and manifests
 - `loomle.ai` publishes `install.sh` and `install.ps1`
-- installed projects keep `Loomle/update.*` and `Loomle/doctor.*`
+- installed projects keep `Loomle/update.*`
 - no `loomle-installer` binary should exist in the release model
 
 Bootstrap is distinct from project installation:

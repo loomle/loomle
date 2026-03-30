@@ -143,9 +143,8 @@ jobs:
           rsync -a "$workspace_src"/ "$loomle_dst"/
           cp "$client_src" "$loomle_dst/loomle"
           cp "$client_root/update.sh" "$loomle_dst/update.sh"
-          cp "$client_root/doctor.sh" "$loomle_dst/doctor.sh"
           chmod +x "$loomle_dst/loomle"
-          chmod +x "$loomle_dst/update.sh" "$loomle_dst/doctor.sh"
+          chmod +x "$loomle_dst/update.sh"
 
       - name: Stage Release Inputs
         shell: bash
@@ -169,11 +168,9 @@ jobs:
           rsync -a "$workspace_src"/ "$release_inputs/loomle/Loomle"/
           cp "$client_src" "$release_inputs/loomle/Loomle/loomle"
           cp "$client_root/update.sh" "$release_inputs/loomle/Loomle/update.sh"
-          cp "$client_root/doctor.sh" "$release_inputs/loomle/Loomle/doctor.sh"
           chmod +x \
             "$release_inputs/loomle/Loomle/loomle" \
-            "$release_inputs/loomle/Loomle/update.sh" \
-            "$release_inputs/loomle/Loomle/doctor.sh"
+            "$release_inputs/loomle/Loomle/update.sh"
 
       - name: Upload Release Inputs
         uses: actions/upload-artifact@v4

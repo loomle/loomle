@@ -242,7 +242,6 @@ jobs:
           Copy-Item -Path (Join-Path $workspaceSrc "*") -Destination $loomleDst -Recurse -Force
           Copy-Item -LiteralPath $clientSrc -Destination (Join-Path $loomleDst "loomle.exe") -Force
           Copy-Item -LiteralPath (Join-Path $clientRoot "update.ps1") -Destination (Join-Path $loomleDst "update.ps1") -Force
-          Copy-Item -LiteralPath (Join-Path $clientRoot "doctor.ps1") -Destination (Join-Path $loomleDst "doctor.ps1") -Force
 
       - name: Stage Release Inputs
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
@@ -275,7 +274,6 @@ jobs:
           Copy-Item -Path (Join-Path $workspaceSrc "*") -Destination (Join-Path $releaseInputs "loomle\Loomle") -Recurse -Force
           Copy-Item -LiteralPath $clientSrc -Destination (Join-Path $releaseInputs "loomle\Loomle\loomle.exe") -Force
           Copy-Item -LiteralPath (Join-Path $clientRoot "update.ps1") -Destination (Join-Path $releaseInputs "loomle\Loomle\update.ps1") -Force
-          Copy-Item -LiteralPath (Join-Path $clientRoot "doctor.ps1") -Destination (Join-Path $releaseInputs "loomle\Loomle\doctor.ps1") -Force
 
       - name: Upload Release Inputs
         uses: actions/upload-artifact@v4

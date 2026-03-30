@@ -25,7 +25,6 @@ After installation, the user project should contain:
     README.md
     loomle(.exe)
     update.(sh|ps1)
-    doctor.(sh|ps1)
     workflows/
     examples/
     install/

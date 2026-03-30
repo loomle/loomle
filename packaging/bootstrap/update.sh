@@ -349,7 +349,6 @@ main() {
 
   [[ -f "$launcher_path" ]] || fail "installed client missing: $launcher_path"
   ensure_executable_if_present "$launcher_path"
-  ensure_executable_if_present "$workspace_destination/doctor.sh"
 
   ensure_ini_setting "$settings_path"
   write_active_state \

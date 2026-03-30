@@ -20,12 +20,12 @@ Work in three phases:
    Read this workspace first so you understand the overall LOOMLE workflow, the available graph domains, the fallback policy, and the validation loop.
 2. Link Check
    Treat `Loomle/loomle` as the MCP entrypoint only. Do not assume it exposes
-   helper subcommands such as `doctor`, `call`, `list-tools`, or `session`.
+   helper subcommands such as `call`, `list-tools`, or `session`.
 3. Execution model
    - the host starts `Loomle/loomle`
    - `loomle` serves standard MCP over stdio
    - `loomle` connects to the project-local Unreal runtime endpoint
-   - install/update/doctor belong to scripts, not to the `loomle` binary
+   - install/update belong to scripts, not to the `loomle` binary
 
 ### 2. Understand This Project
 
@@ -142,10 +142,8 @@ Minimal example:
 - installed projects should expose maintenance through:
   - macOS/Linux:
     - `Loomle/update.sh`
-    - `Loomle/doctor.sh`
   - Windows:
     - `Loomle/update.ps1`
-    - `Loomle/doctor.ps1`
 - release pages publish only zips and manifests
 - site publishes the install scripts:
   - `install.sh`
@@ -162,7 +160,6 @@ Loomle/
   README.md
   loomle(.exe)
   update.(sh|ps1)
-  doctor.(sh|ps1)
   install/
     active.json
     versions/
@@ -178,7 +175,7 @@ Loomle/
 
 - `README.md`: the main agent-facing entrypoint
 - `loomle(.exe)`: the installed project-local MCP proxy entrypoint
-- `update.*` / `doctor.*`: installed platform-specific maintenance scripts
+- `update.*`: installed platform-specific maintenance scripts
 - `install/`: machine-managed install state, active version, and versioned client payloads
 - `state/`: machine-written diagnostics and capture output
 - `blueprint/`, `material/`, `pcg/`: domain-specific guides, semantics, catalogs, and examples
