@@ -229,8 +229,8 @@ The test side should not yet assume:
 ## Suggested Manual Probe
 
 ```bash
-/Users/xartest/dev/LoomleDevHost/Loomle/loomle \
-  --project-root /Users/xartest/dev/LoomleDevHost \
+/path/to/MyProject/Loomle/loomle \
+  --project-root /path/to/MyProject \
   call execute \
   --args '{"mode":"exec","code":"import time, unreal\nunreal.log(\"jobs smoke start\")\ntime.sleep(2)\nunreal.log(\"jobs smoke end\")","execution":{"mode":"job","idempotencyKey":"manual-jobs-smoke","label":"manual_jobs_smoke","waitMs":1000}}'
 ```
@@ -238,22 +238,22 @@ The test side should not yet assume:
 Then query:
 
 ```bash
-/Users/xartest/dev/LoomleDevHost/Loomle/loomle \
-  --project-root /Users/xartest/dev/LoomleDevHost \
+/path/to/MyProject/Loomle/loomle \
+  --project-root /path/to/MyProject \
   call jobs \
   --args '{"action":"status","jobId":"<jobId>"}'
 ```
 
 ```bash
-/Users/xartest/dev/LoomleDevHost/Loomle/loomle \
-  --project-root /Users/xartest/dev/LoomleDevHost \
+/path/to/MyProject/Loomle/loomle \
+  --project-root /path/to/MyProject \
   call jobs \
   --args '{"action":"logs","jobId":"<jobId>","limit":200}'
 ```
 
 ```bash
-/Users/xartest/dev/LoomleDevHost/Loomle/loomle \
-  --project-root /Users/xartest/dev/LoomleDevHost \
+/path/to/MyProject/Loomle/loomle \
+  --project-root /path/to/MyProject \
   call jobs \
   --args '{"action":"result","jobId":"<jobId>"}'
 ```

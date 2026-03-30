@@ -184,4 +184,4 @@ Profiles should live in the node database under a dedicated `testing` object.
 
 See:
 
-- [GRAPH_TEST_CATALOG_SCHEMA.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_CATALOG_SCHEMA.md)
+- [GRAPH_TEST_CATALOG_SCHEMA.md](GRAPH_TEST_CATALOG_SCHEMA.md)

@@ -305,7 +305,7 @@ def main() -> int:
     parser.add_argument(
         "--project-root",
         required=True,
-        help="UE project root for stdio mode, e.g. /Users/xartest/dev/LoomleDevHost",
+        help="UE project root for stdio mode, e.g. /path/to/MyProject",
     )
     parser.add_argument(
         "--loomle-bin",

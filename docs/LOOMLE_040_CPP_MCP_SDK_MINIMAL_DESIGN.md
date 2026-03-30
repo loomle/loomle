@@ -775,7 +775,7 @@ authority across:
 Before the native `mcp core` cutover, the practical tool descriptor source
 lived in the Rust transitional runtime. After cutover, that source now lives in:
 
-- [McpCoreTools.cpp](/Users/xartest/dev/loomle/engine/LoomleBridge/Source/LoomleBridge/Private/mcp_core/McpCoreTools.cpp)
+- [`../engine/LoomleBridge/Source/LoomleBridge/Private/mcp_core/McpCoreTools.cpp`](../engine/LoomleBridge/Source/LoomleBridge/Private/mcp_core/McpCoreTools.cpp)
 
 And current documentation already treats:
 

@@ -293,9 +293,9 @@ Stability suites add a separate dimension:
 
 See:
 
-- [GRAPH_TEST_PROFILES.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_PROFILES.md)
-- [GRAPH_TEST_RECIPES.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_RECIPES.md)
-- [GRAPH_TEST_FIXTURES.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_FIXTURES.md)
+- [GRAPH_TEST_PROFILES.md](GRAPH_TEST_PROFILES.md)
+- [GRAPH_TEST_RECIPES.md](GRAPH_TEST_RECIPES.md)
+- [GRAPH_TEST_FIXTURES.md](GRAPH_TEST_FIXTURES.md)
 
 ## Framework Layers
 
@@ -431,9 +431,9 @@ The framework should instead ensure:
 
 ## Related Design Docs
 
-- [GRAPH_TEST_PROFILES.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_PROFILES.md)
-- [GRAPH_TEST_RECIPES.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_RECIPES.md)
-- [GRAPH_TEST_FIXTURES.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_FIXTURES.md)
-- [GRAPH_TEST_CATALOG_SCHEMA.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_CATALOG_SCHEMA.md)
-- [GRAPH_TEST_PLAN_SCHEMA.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_PLAN_SCHEMA.md)
-- [GRAPH_TEST_ROADMAP.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_ROADMAP.md)
+- [GRAPH_TEST_PROFILES.md](GRAPH_TEST_PROFILES.md)
+- [GRAPH_TEST_RECIPES.md](GRAPH_TEST_RECIPES.md)
+- [GRAPH_TEST_FIXTURES.md](GRAPH_TEST_FIXTURES.md)
+- [GRAPH_TEST_CATALOG_SCHEMA.md](GRAPH_TEST_CATALOG_SCHEMA.md)
+- [GRAPH_TEST_PLAN_SCHEMA.md](GRAPH_TEST_PLAN_SCHEMA.md)
+- [GRAPH_TEST_ROADMAP.md](GRAPH_TEST_ROADMAP.md)

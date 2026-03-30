@@ -66,19 +66,19 @@ These cases prove whether the same signal stays stable across:
 If you only want one quick readiness check, run:
 
 ```bash
-python3 /Users/xartest/dev/loomle/tests/e2e/test_bridge_smoke.py --project-root /Users/xartest/dev/LoomleDevHost
+python3 tests/e2e/test_bridge_smoke.py --project-root /path/to/MyProject
 ```
 
 If you want the real Blueprint product-facing signals, run these suites:
 
 ```bash
-python3 /Users/xartest/dev/loomle/tools/generate_graph_test_plan.py --graph-type blueprint
-python3 /Users/xartest/dev/loomle/tools/generate_graph_test_coverage_report.py --graph-type blueprint
-python3 /Users/xartest/dev/loomle/tools/run_blueprint_workflow_truth_suite.py --project-root /Users/xartest/dev/LoomleDevHost
-python3 /Users/xartest/dev/loomle/tools/run_blueprint_negative_boundary_suite.py --project-root /Users/xartest/dev/LoomleDevHost
-python3 /Users/xartest/dev/loomle/tools/run_blueprint_stability_suite.py --project-root /Users/xartest/dev/LoomleDevHost
-python3 /Users/xartest/dev/loomle/tools/run_blueprint_residual_gap_suite.py
-python3 /Users/xartest/dev/loomle/tools/run_blueprint_embedded_template_suite.py
+python3 tools/generate_graph_test_plan.py --graph-type blueprint
+python3 tools/generate_graph_test_coverage_report.py --graph-type blueprint
+python3 tools/run_blueprint_workflow_truth_suite.py --project-root /path/to/MyProject
+python3 tools/run_blueprint_negative_boundary_suite.py --project-root /path/to/MyProject
+python3 tools/run_blueprint_stability_suite.py --project-root /path/to/MyProject
+python3 tools/run_blueprint_residual_gap_suite.py
+python3 tools/run_blueprint_embedded_template_suite.py
 ```
 
 If you want JSON artifacts for inspection or sharing, add `--output <path>.json`.
@@ -227,18 +227,18 @@ Interpret that as:
 
 Execution:
 
-- [generate_graph_test_plan.py](/Users/xartest/dev/loomle/tools/generate_graph_test_plan.py)
-- [generate_graph_test_coverage_report.py](/Users/xartest/dev/loomle/tools/generate_graph_test_coverage_report.py)
-- [run_blueprint_workflow_truth_suite.py](/Users/xartest/dev/loomle/tools/run_blueprint_workflow_truth_suite.py)
-- [run_blueprint_negative_boundary_suite.py](/Users/xartest/dev/loomle/tools/run_blueprint_negative_boundary_suite.py)
-- [run_blueprint_stability_suite.py](/Users/xartest/dev/loomle/tools/run_blueprint_stability_suite.py)
-- [run_blueprint_residual_gap_suite.py](/Users/xartest/dev/loomle/tools/run_blueprint_residual_gap_suite.py)
-- [run_blueprint_embedded_template_suite.py](/Users/xartest/dev/loomle/tools/run_blueprint_embedded_template_suite.py)
+- [generate_graph_test_plan.py](../tools/generate_graph_test_plan.py)
+- [generate_graph_test_coverage_report.py](../tools/generate_graph_test_coverage_report.py)
+- [run_blueprint_workflow_truth_suite.py](../tools/run_blueprint_workflow_truth_suite.py)
+- [run_blueprint_negative_boundary_suite.py](../tools/run_blueprint_negative_boundary_suite.py)
+- [run_blueprint_stability_suite.py](../tools/run_blueprint_stability_suite.py)
+- [run_blueprint_residual_gap_suite.py](../tools/run_blueprint_residual_gap_suite.py)
+- [run_blueprint_embedded_template_suite.py](../tools/run_blueprint_embedded_template_suite.py)
 
 Design context:
 
-- [GRAPH_TEST_FRAMEWORK.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_FRAMEWORK.md)
-- [GRAPH_TEST_ROADMAP.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_ROADMAP.md)
+- [GRAPH_TEST_FRAMEWORK.md](GRAPH_TEST_FRAMEWORK.md)
+- [GRAPH_TEST_ROADMAP.md](GRAPH_TEST_ROADMAP.md)
 
 ## Bottom Line
 

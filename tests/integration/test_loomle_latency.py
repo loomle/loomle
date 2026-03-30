@@ -122,7 +122,7 @@ def main() -> int:
     parser.add_argument(
         "--project-root",
         default="",
-        help="UE project root, e.g. /Users/xartest/dev/LoomleDevHost. If omitted, read tools/dev.project-root.local.json",
+        help="UE project root, e.g. /path/to/MyProject. If omitted, read tools/dev.project-root.local.json",
     )
     parser.add_argument(
         "--dev-config",

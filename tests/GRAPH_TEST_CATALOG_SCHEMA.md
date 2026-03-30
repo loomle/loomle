@@ -261,6 +261,6 @@ The `testing` object is for design metadata, not execution status.
 
 ## Related Docs
 
-- [GRAPH_TEST_FRAMEWORK.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_FRAMEWORK.md)
-- [GRAPH_TEST_PROFILES.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_PROFILES.md)
-- [GRAPH_TEST_RECIPES.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_RECIPES.md)
+- [GRAPH_TEST_FRAMEWORK.md](GRAPH_TEST_FRAMEWORK.md)
+- [GRAPH_TEST_PROFILES.md](GRAPH_TEST_PROFILES.md)
+- [GRAPH_TEST_RECIPES.md](GRAPH_TEST_RECIPES.md)

@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from pathlib import Path
 
 
-ENGINE_SOURCE_ROOT = Path("/Users/Shared/Epic Games/UE_5.7/Engine/Source")
-PCG_PUBLIC_ROOT = Path("/Users/Shared/Epic Games/UE_5.7/Engine/Plugins/PCG/Source/PCG/Public")
+DEFAULT_UE_ROOT = Path("/Users/Shared/Epic Games/UE_5.7")
 
 UCLASS_RE = re.compile(
     r"UCLASS(?:\s*\((?P<meta>.*?)\))?\s*"
@@ -645,17 +645,17 @@ def parse_uclass_meta_flags(raw_meta: str | None) -> list[str]:
     return flags
 
 
-def parse_uclass_headers(pattern: str) -> list[dict]:
+def parse_uclass_headers(pattern: str, engine_source_root: Path) -> list[dict]:
     entries: list[dict] = []
-    for path in sorted(ENGINE_SOURCE_ROOT.glob(pattern)):
+    for path in sorted(engine_source_root.glob(pattern)):
         text = path.read_text(encoding="utf-8", errors="ignore")
         for match in UCLASS_RE.finditer(text):
             name = match.group("name")
             base = match.group("base")
             body = match.group("body")
             raw_meta = match.group("meta")
-            module_name = get_module_name(path, ENGINE_SOURCE_ROOT)
-            relative_header = path.relative_to(ENGINE_SOURCE_ROOT).as_posix()
+            module_name = get_module_name(path, engine_source_root)
+            relative_header = path.relative_to(engine_source_root).as_posix()
             properties = []
             for raw_prop_meta, raw_decl in extract_uproperty_entries(body):
                 meta = clean_ws(raw_prop_meta)
@@ -679,7 +679,7 @@ def parse_uclass_headers(pattern: str) -> list[dict]:
                     "baseClassName": base,
                     "nodeClassPath": derive_node_class_path(module_name, name),
                     "moduleName": module_name,
-                    "sourceGroup": get_source_group(path, ENGINE_SOURCE_ROOT),
+                    "sourceGroup": get_source_group(path, engine_source_root),
                     "headerPath": str(path),
                     "relativeHeaderPath": relative_header,
                     "uclassFlags": parse_uclass_meta_flags(raw_meta),
@@ -787,8 +787,8 @@ def derive_material_testing(entry: dict) -> dict:
     return testing
 
 
-def build_material_database() -> dict:
-    classes = {entry["className"]: entry for entry in parse_uclass_headers("**/MaterialExpression*.h")}
+def build_material_database(engine_source_root: Path) -> dict:
+    classes = {entry["className"]: entry for entry in parse_uclass_headers("**/MaterialExpression*.h", engine_source_root)}
     derived: dict[str, dict] = {}
     changed = True
     while changed:
@@ -1093,8 +1093,8 @@ def derive_blueprint_testing(
     }
 
 
-def build_blueprint_database() -> dict:
-    classes = {entry["className"]: entry for entry in parse_uclass_headers("**/K2Node*.h")}
+def build_blueprint_database(engine_source_root: Path) -> dict:
+    classes = {entry["className"]: entry for entry in parse_uclass_headers("**/K2Node*.h", engine_source_root)}
     derived: dict[str, dict] = {}
     changed = True
     while changed:
@@ -1177,8 +1177,8 @@ def build_blueprint_database() -> dict:
     }
 
 
-def build_pcg_database() -> dict:
-    classes = {entry["className"]: entry for entry in parse_pcg_headers(PCG_PUBLIC_ROOT)}
+def build_pcg_database(pcg_public_root: Path) -> dict:
+    classes = {entry["className"]: entry for entry in parse_pcg_headers(pcg_public_root)}
     settings_classes = derive_pcg_settings_classes(classes)
     nodes = []
     family_counts: dict[str, int] = {}
@@ -1262,15 +1262,42 @@ def main() -> None:
         default=Path(__file__).resolve().parents[1] / "workspace" / "Loomle",
         help="Workspace/Loomle root directory.",
     )
+    parser.add_argument(
+        "--ue-root",
+        type=Path,
+        default=Path(os.environ.get("UE_5_7_ROOT_MAC", DEFAULT_UE_ROOT)),
+        help="Unreal Engine 5.7 root directory. Defaults to UE_5_7_ROOT_MAC or the standard macOS install path.",
+    )
+    parser.add_argument(
+        "--engine-source-root",
+        type=Path,
+        default=None,
+        help="Override Engine/Source root directly.",
+    )
+    parser.add_argument(
+        "--pcg-public-root",
+        type=Path,
+        default=None,
+        help="Override PCG public header root directly.",
+    )
     args = parser.parse_args()
+
+    engine_source_root = (args.engine_source_root or (args.ue_root / "Engine" / "Source")).resolve()
+    pcg_public_root = (
+        args.pcg_public_root or (args.ue_root / "Engine" / "Plugins" / "PCG" / "Source" / "PCG" / "Public")
+    ).resolve()
 
     outputs: list[tuple[Path, dict]] = []
     if args.graph_type in ("material", "all"):
-        outputs.append((args.workspace_root / "material" / "catalogs" / "node-database.json", build_material_database()))
+        outputs.append(
+            (args.workspace_root / "material" / "catalogs" / "node-database.json", build_material_database(engine_source_root))
+        )
     if args.graph_type in ("blueprint", "all"):
-        outputs.append((args.workspace_root / "blueprint" / "catalogs" / "node-database.json", build_blueprint_database()))
+        outputs.append(
+            (args.workspace_root / "blueprint" / "catalogs" / "node-database.json", build_blueprint_database(engine_source_root))
+        )
     if args.graph_type in ("pcg", "all"):
-        outputs.append((args.workspace_root / "pcg" / "catalogs" / "node-database.json", build_pcg_database()))
+        outputs.append((args.workspace_root / "pcg" / "catalogs" / "node-database.json", build_pcg_database(pcg_public_root)))
 
     for path, payload in outputs:
         path.parent.mkdir(parents=True, exist_ok=True)

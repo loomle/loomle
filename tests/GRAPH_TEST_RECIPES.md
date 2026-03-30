@@ -59,7 +59,7 @@ Examples:
 
 See:
 
-- [GRAPH_TEST_FIXTURES.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_FIXTURES.md)
+- [GRAPH_TEST_FIXTURES.md](GRAPH_TEST_FIXTURES.md)
 
 ### `preconditions`
 
@@ -236,6 +236,6 @@ Recipes should also be the primary way fixture selection is resolved for context
 
 See:
 
-- [GRAPH_TEST_PROFILES.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_PROFILES.md)
-- [GRAPH_TEST_FIXTURES.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_FIXTURES.md)
-- [GRAPH_TEST_CATALOG_SCHEMA.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_CATALOG_SCHEMA.md)
+- [GRAPH_TEST_PROFILES.md](GRAPH_TEST_PROFILES.md)
+- [GRAPH_TEST_FIXTURES.md](GRAPH_TEST_FIXTURES.md)
+- [GRAPH_TEST_CATALOG_SCHEMA.md](GRAPH_TEST_CATALOG_SCHEMA.md)

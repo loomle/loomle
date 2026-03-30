@@ -281,6 +281,6 @@ If real exceptions appear later, a small override field can be introduced. It sh
 
 See:
 
-- [GRAPH_TEST_FRAMEWORK.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_FRAMEWORK.md)
-- [GRAPH_TEST_RECIPES.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_RECIPES.md)
-- [GRAPH_TEST_CATALOG_SCHEMA.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_CATALOG_SCHEMA.md)
+- [GRAPH_TEST_FRAMEWORK.md](GRAPH_TEST_FRAMEWORK.md)
+- [GRAPH_TEST_RECIPES.md](GRAPH_TEST_RECIPES.md)
+- [GRAPH_TEST_CATALOG_SCHEMA.md](GRAPH_TEST_CATALOG_SCHEMA.md)

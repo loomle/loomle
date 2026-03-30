@@ -43,7 +43,7 @@ Use this category when:
 2. `UK2Node_AddComponent`
 
 These are already documented in
-[BLUEPRINT_EMBEDDED_TEMPLATE_NODES.md](/Users/xartest/dev/loomle/docs/issues/BLUEPRINT_EMBEDDED_TEMPLATE_NODES.md).
+[`BLUEPRINT_EMBEDDED_TEMPLATE_NODES.md`](BLUEPRINT_EMBEDDED_TEMPLATE_NODES.md).
 
 ### Product Goal
 
@@ -201,7 +201,7 @@ Its long-term home should be:
 ## Relationship To Existing Surface Model
 
 These Blueprint capabilities sit on top of the shared graph-query model in
-[GRAPH_QUERY_SURFACE_MODEL.md](/Users/xartest/dev/loomle/docs/issues/GRAPH_QUERY_SURFACE_MODEL.md).
+[`GRAPH_QUERY_SURFACE_MODEL.md`](GRAPH_QUERY_SURFACE_MODEL.md).
 
 They should be treated as Blueprint-specific promotions out of `residual_gap`,
 not as exceptions to the shared model.

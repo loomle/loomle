@@ -380,9 +380,9 @@ Those can be added later as separate derived views if needed.
 
 ## Relationship to Other Design Docs
 
-- [GRAPH_TEST_FRAMEWORK.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_FRAMEWORK.md)
-- [GRAPH_TEST_PROFILES.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_PROFILES.md)
-- [GRAPH_TEST_RECIPES.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_RECIPES.md)
-- [GRAPH_TEST_FIXTURES.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_FIXTURES.md)
-- [GRAPH_TEST_CATALOG_SCHEMA.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_CATALOG_SCHEMA.md)
-- [GRAPH_TEST_ROADMAP.md](/Users/xartest/dev/loomle/tests/GRAPH_TEST_ROADMAP.md)
+- [GRAPH_TEST_FRAMEWORK.md](GRAPH_TEST_FRAMEWORK.md)
+- [GRAPH_TEST_PROFILES.md](GRAPH_TEST_PROFILES.md)
+- [GRAPH_TEST_RECIPES.md](GRAPH_TEST_RECIPES.md)
+- [GRAPH_TEST_FIXTURES.md](GRAPH_TEST_FIXTURES.md)
+- [GRAPH_TEST_CATALOG_SCHEMA.md](GRAPH_TEST_CATALOG_SCHEMA.md)
+- [GRAPH_TEST_ROADMAP.md](GRAPH_TEST_ROADMAP.md)

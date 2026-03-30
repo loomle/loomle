@@ -79,8 +79,8 @@ python3 tools/dev_verify.py \
 
 That flow installs the current checkout into the target project, restarts Unreal Editor, and validates through the same project-local `Loomle/loomle` entrypoint that users run after installation.
 
-See [docs/REPO_STRUCTURE.md](/Users/xartest/dev/loomle/docs/REPO_STRUCTURE.md) for the target repository, release, and installed-project structure.
-See [BOOTSTRAP_CONTRACT.md](/Users/sky/dev/loomle/packaging/BOOTSTRAP_CONTRACT.md) for the public bootstrap entrypoint contract.
+See [`docs/REPO_STRUCTURE.md`](docs/REPO_STRUCTURE.md) for the target repository, release, and installed-project structure.
+See [`packaging/BOOTSTRAP_CONTRACT.md`](packaging/BOOTSTRAP_CONTRACT.md) for the public bootstrap entrypoint contract.
 
 Once setup is complete, you do not need to call MCP tools yourself. You can simply talk to Codex in natural language and ask it to do UE5 work for you through LOOMLE.
 
@@ -94,7 +94,7 @@ Example requests:
 
 LOOMLE currently exposes these MCP tools for the agent. These are the tools Codex uses behind the scenes; end users normally just work through natural-language requests.
 
-For graph work, the recommended entrypoint is the installed workspace under [workspace/Loomle/README.md](/Users/xartest/dev/loomle/workspace/Loomle/README.md). Agents should start there, then use graph-specific `GUIDE.md`, `SEMANTICS.md`, catalogs, and examples before planning edits.
+For graph work, the recommended entrypoint is the installed workspace under [`workspace/Loomle/README.md`](workspace/Loomle/README.md). Agents should start there, then use graph-specific `GUIDE.md`, `SEMANTICS.md`, catalogs, and examples before planning edits.
 
 - `loomle`: Check Bridge health, runtime status, and MCP-side availability.
 - `context`: Read the current Unreal editor context, including asset and selection information.
@@ -134,4 +134,4 @@ runtime context, not as a blanket execute lockout. Structured `graph.*` and
 editor-facing tools may still stay blocked during `PIE` depending on their
 contract.
 
-For protocol details and deeper technical documentation, see [docs/README.md](/Users/xartest/dev/loomle/docs/README.md).
+For protocol details and deeper technical documentation, see [`docs/README.md`](docs/README.md).

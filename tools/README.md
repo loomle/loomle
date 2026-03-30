@@ -35,14 +35,14 @@ Use `tools/dev_verify.py` instead of manually rebuilding and copying binaries. I
 Recommended command:
 
 ```bash
-python3 tools/dev_verify.py --project-root "/Users/xartest/dev/LoomleDevHost"
+python3 tools/dev_verify.py --project-root "/path/to/MyProject"
 ```
 
 Useful variants:
 
 ```bash
-python3 tools/dev_verify.py --project-root "/Users/xartest/dev/LoomleDevHost" --run-latency
-python3 tools/dev_verify.py --project-root "/Users/xartest/dev/LoomleDevHost" --install-only
+python3 tools/dev_verify.py --project-root "/path/to/MyProject" --run-latency
+python3 tools/dev_verify.py --project-root "/path/to/MyProject" --install-only
 ```
 
 Only fall back to the lower-level scripts when you are intentionally debugging one phase in isolation.
@@ -51,7 +51,7 @@ Only fall back to the lower-level scripts when you are intentionally debugging o
 
 - Template: `tools/dev.project-root.example.json`
 - Local file: `tools/dev.project-root.local.json` (gitignored)
-- Recommended dev host: `/Users/xartest/dev/LoomleDevHost`
+- Recommended dev host: `/path/to/MyProject`
 - If `--project-root` is omitted, the E2E test scripts read `project_root` from this local file.
 
 ### Windows quick run
@@ -74,7 +74,7 @@ Example latency benchmark:
 
 ```bash
 python3 tools/perf_bridge_latency.py \
-  --project-root "/Users/xartest/dev/LoomleDevHost" \
+  --project-root "/path/to/MyProject" \
   --tool loomle --total 200 --concurrency 1 --warmup 20 \
   --output runtime/benchmarks/bridge-latency.csv
 ```
@@ -83,7 +83,7 @@ Example `loomle` fast-return validation:
 
 ```bash
 python3 tests/integration/test_loomle_latency.py \
-  --project-root "/Users/xartest/dev/LoomleDevHost" \
+  --project-root "/path/to/MyProject" \
   --samples 30
 ```
 
@@ -91,6 +91,6 @@ Example graph RW benchmark:
 
 ```bash
 python3 tools/perf_graph_rw_temp_asset.py \
-  --project-root "/Users/xartest/dev/LoomleDevHost" \
+  --project-root "/path/to/MyProject" \
   --output runtime/benchmarks/graph-rw.csv
 ```
