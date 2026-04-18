@@ -110,6 +110,9 @@ For graph work, the recommended entrypoint is the installed workspace under [`wo
 - `graph.query`: Inspect graph structure such as nodes, pins, and connections.
 - `graph.mutate`: Apply graph changes through ordered mutation operations.
 - `graph.verify`: Run compile-backed graph verification after a read or mutate loop.
+- `widget.query`: Inspect the widget tree of a UMG WidgetBlueprint asset.
+- `widget.mutate`: Apply widget tree changes through ordered mutation operations.
+- `widget.verify`: Compile a WidgetBlueprint and return diagnostics.
 - `diag.tail`: Read persisted LoomleBridge diagnostics incrementally.
 
 `graph.query` is now the primary graph read contract. Shared graph-native readback

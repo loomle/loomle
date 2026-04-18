@@ -44,6 +44,7 @@ Work in three phases:
 
 7. Pick the working surface
    - if the task is graph editing, branch into `blueprint/`, `material/`, or `pcg/` and read that domain's `GUIDE.md` first
+   - if the task is UMG widget tree editing, branch into `widget/` and read `widget/GUIDE.md` first
    - if the task is world editing or editor automation, stay in `execute`
    - if Unreal is currently in `PIE`, `execute` remains available for runtime inspection and automation; do not assume `PIE` blocks Python access
 8. Make the edit through the primary surface
@@ -74,8 +75,8 @@ Work in three phases:
 
 Use the per-domain directories as the semantic reference surface.
 
-- `blueprint/GUIDE.md`, `material/GUIDE.md`, `pcg/GUIDE.md`
-  Start here when you branch into graph work.
+- `blueprint/GUIDE.md`, `material/GUIDE.md`, `pcg/GUIDE.md`, `widget/GUIDE.md`
+  Start here when you branch into graph or widget tree work.
 - `SEMANTICS.md`
   Use when you need usage-level distinctions, not just task steps.
 - `catalogs/`
@@ -171,6 +172,7 @@ Loomle/
   blueprint/
   material/
   pcg/
+  widget/
 ```
 
 - `README.md`: the main agent-facing entrypoint
@@ -179,3 +181,4 @@ Loomle/
 - `install/`: machine-managed install state, active version, and versioned client payloads
 - `state/`: machine-written diagnostics and capture output
 - `blueprint/`, `material/`, `pcg/`: domain-specific guides, semantics, catalogs, and examples
+- `widget/`: UMG widget tree guides, semantics, and examples

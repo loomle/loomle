@@ -49,6 +49,9 @@ Graph mutate note:
 - `graph.query`
 - `graph.mutate`
 - `graph.verify`
+- `widget.query`
+- `widget.mutate`
+- `widget.verify`
 - `diag.tail`
 
 ## 4. MCP Tool Contracts
@@ -588,3 +591,5 @@ Mapping:
 - RPC `1012` -> `GRAPH_REF_INVALID`
 - RPC `1013` -> `GRAPH_REF_ASSET_NOT_LOADED`
 - RPC `1014` -> `GRAPH_REF_NOT_COMPOSITE`
+- RPC `1023` -> `WIDGET_TREE_UNAVAILABLE`
+- RPC `1024` -> `WIDGET_PARENT_NOT_PANEL`
