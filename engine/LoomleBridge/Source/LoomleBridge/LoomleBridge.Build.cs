@@ -36,6 +36,7 @@ public class LoomleBridge : ModuleRules
                 "SlateCore",
                 "ToolMenus",
                 "UMG",
+                "UMGEditor",
                 "UnrealEd"
             });
     }

@@ -64,6 +64,9 @@ private:
     TSharedPtr<FJsonObject> BuildJobsToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildProfilingToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildDiagTailToolResult(const TSharedPtr<FJsonObject>& Arguments);
+    TSharedPtr<FJsonObject> BuildWidgetQueryToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+    TSharedPtr<FJsonObject> BuildWidgetMutateToolResult(const TSharedPtr<FJsonObject>& Arguments);
+    TSharedPtr<FJsonObject> BuildWidgetVerifyToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> DispatchTool(const FString& Name, const TSharedPtr<FJsonObject>& Arguments, bool& bOutIsError);
     int32 MapToolErrorCode(const FString& DomainCode) const;
     void InitializeDiagStore();

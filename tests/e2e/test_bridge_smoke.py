@@ -30,6 +30,9 @@ REQUIRED_TOOLS = {
     "editor.focus",
     "editor.screenshot",
     "execute",
+    "widget.query",
+    "widget.mutate",
+    "widget.verify",
 }
 
 EXPECTED_GRAPH_MUTATE_OPS = {
@@ -3252,6 +3255,59 @@ def main() -> int:
         validate_generated_pcg_residual_gap_suite()
         validate_generated_graph_test_surface_report()
 
+        # --- widget.* smoke ---
+        temp_wbp_asset = make_temp_asset_path("/Game/Codex/WBP_BridgeSmoke")
+        _ = call_execute_exec_with_retry(
+            client=client,
+            req_id_base=200,
+            code=(
+                "import unreal, json\n"
+                f"asset='{temp_wbp_asset}'\n"
+                "pkg_path, asset_name = asset.rsplit('/', 1)\n"
+                "asset_tools = unreal.AssetToolsHelpers.get_asset_tools()\n"
+                "factory = unreal.WidgetBlueprintFactory()\n"
+                "wbp = asset_tools.create_asset(asset_name, pkg_path, unreal.WidgetBlueprint, factory)\n"
+                "exists = unreal.EditorAssetLibrary.does_asset_exist(asset)\n"
+                "print(json.dumps({'created': wbp is not None, 'exists': exists}, ensure_ascii=False))\n"
+            ),
+        )
+        print(f"[PASS] temporary WidgetBlueprint created: {temp_wbp_asset}")
+
+        wq = call_tool(client, 201, "widget.query", {"assetPath": temp_wbp_asset})
+        if not isinstance(wq.get("assetPath"), str) or wq.get("assetPath") != temp_wbp_asset:
+            fail(f"widget.query missing or wrong assetPath: {wq}")
+        if not isinstance(wq.get("revision"), str) or not wq.get("revision"):
+            fail(f"widget.query missing revision: {wq}")
+        if not isinstance(wq.get("diagnostics"), list):
+            fail(f"widget.query missing diagnostics[]: {wq}")
+        print("[PASS] widget.query structure validated")
+
+        wm = call_tool(client, 202, "widget.mutate", {
+            "assetPath": temp_wbp_asset,
+            "ops": [{"op": "addWidget", "args": {
+                "widgetClass": "/Script/UMG.CanvasPanel",
+                "name": "SmokeCanvas",
+                "parent": "root",
+            }}],
+        })
+        if not isinstance(wm.get("opResults"), list) or not wm.get("opResults"):
+            fail(f"widget.mutate missing opResults: {wm}")
+        first_op = wm["opResults"][0] if isinstance(wm["opResults"][0], dict) else {}
+        if not first_op.get("ok"):
+            fail(f"widget.mutate addWidget failed: {first_op}")
+        if wm.get("newRevision") == wm.get("previousRevision"):
+            fail(f"widget.mutate did not update revision: {wm}")
+        print("[PASS] widget.mutate addWidget validated")
+
+        wv = call_tool(client, 203, "widget.verify", {"assetPath": temp_wbp_asset})
+        if wv.get("status") not in {"ok", "error"}:
+            fail(f"widget.verify unexpected status: {wv}")
+        if wv.get("assetPath") != temp_wbp_asset:
+            fail(f"widget.verify wrong assetPath: {wv}")
+        if not isinstance(wv.get("diagnostics"), list):
+            fail(f"widget.verify missing diagnostics[]: {wv}")
+        print("[PASS] widget.verify validated")
+
         print("[PASS] Bridge verification complete")
         return 0
     finally:
@@ -3265,9 +3321,9 @@ def main() -> int:
                         "mode": "exec",
                         "code": (
                             "import unreal\n"
-                            f"asset='{temp_asset}'\n"
-                            "if unreal.EditorAssetLibrary.does_asset_exist(asset):\n"
-                            "  unreal.EditorAssetLibrary.delete_asset(asset)\n"
+                            f"for a in ['{temp_asset}', '{temp_wbp_asset}']:\n"
+                            "  if unreal.EditorAssetLibrary.does_asset_exist(a):\n"
+                            "    unreal.EditorAssetLibrary.delete_asset(a)\n"
                         ),
                     },
                 },

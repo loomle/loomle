@@ -4038,7 +4038,35 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphQueryBaseResult(const TSh
                 }
 
                 TSharedPtr<FJsonObject> PinObj = MakeShared<FJsonObject>();
-                const FString PinName = Pin->PinName.ToString();
+                // Use the canonical (locale-independent) attribute name as the pin identifier
+                // so that callers can always reference root pins by English names regardless of
+                // the editor locale (e.g. "Base Color" even on a Chinese-locale editor).
+                FString PinName = Pin->PinName.ToString();
+                {
+                    const int32 SrcIdx = Pin->SourceIndex;
+                    if (Material->MaterialGraph->MaterialInputs.IsValidIndex(SrcIdx))
+                    {
+                        const EMaterialProperty Prop = Material->MaterialGraph->MaterialInputs[SrcIdx].GetProperty();
+                        const FString& CanonicalRaw = FMaterialAttributeDefinitionMap::GetAttributeName(Prop);
+                        if (!CanonicalRaw.IsEmpty())
+                        {
+                            // Convert camelCase "BaseColor" → "Base Color" to match UE display convention.
+                            FString CanonicalDisplay;
+                            CanonicalDisplay.Reserve(CanonicalRaw.Len() + 4);
+                            bool bPrevLower = false;
+                            for (TCHAR Ch : CanonicalRaw)
+                            {
+                                if (FChar::IsUpper(Ch) && bPrevLower)
+                                {
+                                    CanonicalDisplay.AppendChar(TEXT(' '));
+                                }
+                                CanonicalDisplay.AppendChar(Ch);
+                                bPrevLower = FChar::IsLower(Ch);
+                            }
+                            PinName = CanonicalDisplay;
+                        }
+                    }
+                }
                 PinObj->SetStringField(TEXT("name"), PinName);
                 PinObj->SetStringField(TEXT("direction"), TEXT("input"));
                 PinObj->SetStringField(TEXT("category"), TEXT("material"));
@@ -6859,13 +6887,27 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 return false;
             }
 
+            // Normalise the caller-supplied name: strip spaces/underscores and lowercase.
+            // This lets "Base Color", "BaseColor", "base_color", etc. all resolve correctly
+            // regardless of the editor locale (localized pin labels differ per language).
+            auto NormaliseName = [](const FString& In) -> FString
+            {
+                FString Out;
+                Out.Reserve(In.Len());
+                for (TCHAR Ch : In)
+                {
+                    if (Ch != TEXT(' ') && Ch != TEXT('_') && Ch != TEXT('-'))
+                    {
+                        Out.AppendChar(FChar::ToLower(Ch));
+                    }
+                }
+                return Out;
+            };
+            const FString NormalisedRequest = NormaliseName(PinName);
+
             for (UEdGraphPin* Pin : MaterialAsset->MaterialGraph->RootNode->Pins)
             {
                 if (Pin == nullptr || Pin->Direction != EGPD_Input)
-                {
-                    continue;
-                }
-                if (!Pin->PinName.ToString().Equals(PinName, ESearchCase::IgnoreCase))
                 {
                     continue;
                 }
@@ -6873,11 +6915,25 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGraphMutateToolResult(const TS
                 const int32 SourceIndex = Pin->SourceIndex;
                 if (!MaterialAsset->MaterialGraph->MaterialInputs.IsValidIndex(SourceIndex))
                 {
-                    return false;
+                    continue;
                 }
 
-                OutProperty = MaterialAsset->MaterialGraph->MaterialInputs[SourceIndex].GetProperty();
-                return true;
+                const EMaterialProperty Prop = MaterialAsset->MaterialGraph->MaterialInputs[SourceIndex].GetProperty();
+
+                // Primary match: canonical (locale-independent) attribute name, e.g. "BaseColor".
+                const FString& CanonicalName = FMaterialAttributeDefinitionMap::GetAttributeName(Prop);
+                if (NormaliseName(CanonicalName) == NormalisedRequest)
+                {
+                    OutProperty = Prop;
+                    return true;
+                }
+
+                // Fallback: localised display name (works for English locale or exact locale match).
+                if (NormaliseName(Pin->PinName.ToString()) == NormalisedRequest)
+                {
+                    OutProperty = Prop;
+                    return true;
+                }
             }
 
             return false;

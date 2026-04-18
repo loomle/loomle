@@ -45,7 +45,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
         TEXT("context"), TEXT("jobs"), TEXT("profiling"), TEXT("editor.open"), TEXT("editor.focus"), TEXT("editor.screenshot"), TEXT("graph.verify"), TEXT("execute"),
         TEXT("graph.list"), TEXT("graph.resolve"), TEXT("graph.query"),
         TEXT("graph.mutate"),
-        TEXT("diag.tail")
+        TEXT("diag.tail"),
+        TEXT("widget.query"), TEXT("widget.mutate"), TEXT("widget.verify")
     }));
     Result->SetArrayField(TEXT("graphTypes"), MakeStringArray({TEXT("blueprint"), TEXT("material"), TEXT("pcg")}));
 
@@ -238,6 +239,18 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     {
         Payload = BuildDiagTailToolResult(Arguments);
     }
+    else if (Name.Equals(TEXT("widget.query")))
+    {
+        Payload = BuildWidgetQueryToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("widget.mutate")))
+    {
+        Payload = BuildWidgetMutateToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("widget.verify")))
+    {
+        Payload = BuildWidgetVerifyToolResult(Arguments);
+    }
     else
     {
         bOutIsError = true;
@@ -364,6 +377,14 @@ int32 FLoomleBridgeModule::MapToolErrorCode(const FString& DomainCode) const
     if (DomainCode.Equals(TEXT("JOB_RUNTIME_UNAVAILABLE")))
     {
         return 1011;
+    }
+    if (DomainCode.Equals(TEXT("WIDGET_TREE_UNAVAILABLE")))
+    {
+        return 1023;
+    }
+    if (DomainCode.Equals(TEXT("WIDGET_PARENT_NOT_PANEL")))
+    {
+        return 1024;
     }
     return 1011;
 }

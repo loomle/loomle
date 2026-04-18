@@ -496,6 +496,116 @@ TSharedPtr<FJsonObject> MakeDiagTailOutputSchema()
     return Schema;
 }
 
+TSharedPtr<FJsonObject> MakeWidgetAssetInputBase()
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(false);
+    AddRequiredFields(Schema, {TEXT("assetPath")});
+    Schema->GetObjectField(TEXT("properties"))->SetObjectField(
+        TEXT("assetPath"),
+        MakeStringSchema(TEXT("Unreal asset path of the WidgetBlueprint, for example /Game/UI/WBP_MyPanel."), 1));
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakeWidgetQueryInputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeWidgetAssetInputBase();
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(
+        TEXT("includeSlotProperties"),
+        MakeBooleanSchema(false, true, TEXT("When true, each widget node includes the full slot property map from its parent panel.")));
+
+    TSharedPtr<FJsonObject> FilterSchema = MakeObjectSchema(false);
+    FilterSchema->SetStringField(TEXT("description"), TEXT("Optional filters to narrow which widgets are returned."));
+    TSharedPtr<FJsonObject> FilterProperties = FilterSchema->GetObjectField(TEXT("properties"));
+    FilterProperties->SetObjectField(TEXT("widgetNames"), MakeArraySchema(MakeStringSchema()));
+    FilterProperties->SetObjectField(TEXT("widgetClasses"), MakeArraySchema(MakeStringSchema()));
+    Properties->SetObjectField(TEXT("filter"), FilterSchema);
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakeWidgetMutateInputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeWidgetAssetInputBase();
+    AddRequiredFields(Schema, {TEXT("assetPath"), TEXT("ops")});
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(TEXT("expectedRevision"), MakeStringSchema(TEXT("Optional optimistic concurrency token from a prior widget.query response.")));
+    Properties->SetObjectField(TEXT("idempotencyKey"), MakeStringSchema(TEXT("Optional client-supplied idempotency token.")));
+    Properties->SetObjectField(TEXT("dryRun"), MakeBooleanSchema(false));
+    Properties->SetObjectField(TEXT("continueOnError"), MakeBooleanSchema(false));
+
+    TSharedPtr<FJsonObject> OpSchema = MakeObjectSchema(false);
+    AddRequiredFields(OpSchema, {TEXT("op"), TEXT("args")});
+    TSharedPtr<FJsonObject> OpProperties = OpSchema->GetObjectField(TEXT("properties"));
+    OpProperties->SetObjectField(
+        TEXT("op"),
+        MakeEnumStringSchema(
+            {TEXT("addWidget"), TEXT("removeWidget"), TEXT("setProperty"), TEXT("reparentWidget")},
+            FString(),
+            TEXT("Widget mutate op id.")));
+    TSharedPtr<FJsonObject> ArgsSchema = MakeObjectSchema(true);
+    ArgsSchema->SetStringField(TEXT("description"), TEXT("Operation-specific arguments. Required keys depend on op."));
+    OpProperties->SetObjectField(TEXT("args"), ArgsSchema);
+
+    TSharedPtr<FJsonObject> OpsSchema = MakeArraySchema(OpSchema);
+    OpsSchema->SetNumberField(TEXT("minItems"), 1);
+    OpsSchema->SetNumberField(TEXT("maxItems"), 200);
+    Properties->SetObjectField(TEXT("ops"), OpsSchema);
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakeWidgetVerifyInputSchema()
+{
+    return MakeWidgetAssetInputBase();
+}
+
+TSharedPtr<FJsonObject> MakeWidgetQueryOutputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(true);
+    AddRequiredFields(Schema, {TEXT("assetPath"), TEXT("revision"), TEXT("rootWidget"), TEXT("diagnostics")});
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema());
+    Properties->SetObjectField(TEXT("revision"), MakeStringSchema());
+    Properties->SetObjectField(TEXT("rootWidget"), MakeObjectSchema(true));
+    Properties->SetObjectField(TEXT("diagnostics"), MakeArraySchema(MakeObjectSchema(true)));
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakeWidgetMutateOutputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(true);
+    AddRequiredFields(Schema, {TEXT("applied"), TEXT("partialApplied"), TEXT("assetPath"), TEXT("opResults"), TEXT("diagnostics")});
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(TEXT("applied"), MakeBooleanSchema(false, false));
+    Properties->SetObjectField(TEXT("partialApplied"), MakeBooleanSchema(false, false));
+    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema());
+    Properties->SetObjectField(TEXT("previousRevision"), MakeStringSchema());
+    Properties->SetObjectField(TEXT("newRevision"), MakeStringSchema());
+
+    TSharedPtr<FJsonObject> OpResultSchema = MakeObjectSchema(true);
+    AddRequiredFields(OpResultSchema, {TEXT("index"), TEXT("op"), TEXT("ok"), TEXT("changed"), TEXT("errorCode"), TEXT("errorMessage")});
+    TSharedPtr<FJsonObject> OpResultProperties = OpResultSchema->GetObjectField(TEXT("properties"));
+    OpResultProperties->SetObjectField(TEXT("index"), MakeIntegerSchema());
+    OpResultProperties->SetObjectField(TEXT("op"), MakeStringSchema());
+    OpResultProperties->SetObjectField(TEXT("ok"), MakeBooleanSchema(false, false));
+    OpResultProperties->SetObjectField(TEXT("changed"), MakeBooleanSchema(false, false));
+    OpResultProperties->SetObjectField(TEXT("errorCode"), MakeStringSchema());
+    OpResultProperties->SetObjectField(TEXT("errorMessage"), MakeStringSchema());
+    Properties->SetObjectField(TEXT("opResults"), MakeArraySchema(OpResultSchema));
+    Properties->SetObjectField(TEXT("diagnostics"), MakeArraySchema(MakeObjectSchema(true)));
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakeWidgetVerifyOutputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(true);
+    AddRequiredFields(Schema, {TEXT("status"), TEXT("assetPath"), TEXT("diagnostics")});
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(TEXT("status"), MakeEnumStringSchema({TEXT("ok"), TEXT("error")}));
+    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema());
+    Properties->SetObjectField(TEXT("diagnostics"), MakeArraySchema(MakeObjectSchema(true)));
+    return Schema;
+}
+
 TSharedPtr<FJsonObject> MakeGraphVerifyOutputSchema()
 {
     TSharedPtr<FJsonObject> Schema = MakeObjectSchema(true);
@@ -542,6 +652,9 @@ const TArray<FToolDescriptorDefinition>& GetToolDefinitions()
         {TEXT("graph.query"), TEXT("Graph Query"), TEXT("Query semantic graph snapshot."), &MakeGraphQueryInputSchema, &MakeGraphQueryOutputSchema},
         {TEXT("graph.mutate"), TEXT("Graph Mutate"), TEXT("Apply graph write operations in order."), &MakeGraphMutateInputSchema, &MakeGraphMutateOutputSchema},
         {TEXT("diag.tail"), TEXT("Diagnostics Tail"), TEXT("Read persisted diagnostics incrementally by sequence cursor."), &MakeDiagTailInputSchema, &MakeDiagTailOutputSchema},
+        {TEXT("widget.query"), TEXT("Widget Tree Query"), TEXT("Read the UMG WidgetTree of a WidgetBlueprint asset."), &MakeWidgetQueryInputSchema, &MakeWidgetQueryOutputSchema},
+        {TEXT("widget.mutate"), TEXT("Widget Tree Mutate"), TEXT("Apply structural write operations to the UMG WidgetTree of a WidgetBlueprint asset."), &MakeWidgetMutateInputSchema, &MakeWidgetMutateOutputSchema},
+        {TEXT("widget.verify"), TEXT("Widget Blueprint Verify"), TEXT("Compile a WidgetBlueprint and return diagnostics."), &MakeWidgetVerifyInputSchema, &MakeWidgetVerifyOutputSchema},
     };
     return Definitions;
 }

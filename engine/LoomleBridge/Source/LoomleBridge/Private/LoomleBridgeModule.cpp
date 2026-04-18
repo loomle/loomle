@@ -60,6 +60,7 @@
 #include "MaterialGraph/MaterialGraphNode.h"
 #include "MaterialGraph/MaterialGraphNode_Root.h"
 #include "MaterialGraph/MaterialGraphSchema.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
 #include "PCGComponent.h"
 #include "PCGGraph.h"
 #include "PCGGraphExecutionStateInterface.h"
@@ -3970,6 +3971,10 @@ void FLoomleBridgeModule::ShutdownModule()
 #include "LoomleBridgeRpc.inl"
 
 #include "LoomleBridgeGraph.inl"
+
+#include "LoomleWidgetAdapter.h"
+#include "WidgetBlueprint.h"
+#include "LoomleBridgeWidget.inl"
 
 #include "LoomleBridgeRuntime.inl"
 
