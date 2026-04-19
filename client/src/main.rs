@@ -17,6 +17,7 @@ use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
 use std::process::ExitCode;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> ExitCode {
@@ -29,33 +30,15 @@ async fn main() -> ExitCode {
         }
     };
 
-    let project_root = match resolve_project_root(cli.project_root.as_deref()) {
-        Ok(path) => path,
-        Err(message) => {
-            emit_startup_error(&StartupError::new(
-                StartupErrorKind::InvalidProjectRoot,
-                StartupAction::FixProjectRoot,
-                2,
-                false,
-                message,
-            ));
-            return ExitCode::from(2);
-        }
-    };
-    if let Some(code) = maybe_handoff_to_active_client(&project_root) {
+    let project_root = resolve_project_root(cli.project_root.as_deref()).ok();
+    let needs_handoff = project_root
+        .as_deref()
+        .and_then(|p| maybe_handoff_to_active_client(p));
+    if let Some(code) = needs_handoff {
         return code;
     }
-    let env_info = Environment::for_project_root(project_root);
-    let runtime_client = match connect_client(&env_info).await {
-        Ok(client) => Arc::new(client),
-        Err(message) => {
-            let exit_code = message.exit_code;
-            emit_startup_error(&message);
-            return ExitCode::from(exit_code);
-        }
-    };
-
-    let server = LoomleProxyServer::new(runtime_client);
+    let env_info = project_root.map(Environment::for_project_root);
+    let server = LoomleProxyServer::new(env_info);
     let running = match server.serve(stdio()).await {
         Ok(running) => running,
         Err(error) => {
@@ -202,12 +185,54 @@ fn exit_code_from_status(status: ExitStatus) -> ExitCode {
 }
 
 struct LoomleProxyServer {
-    runtime_client: Arc<LoomleClient>,
+    env_info: Option<Arc<Environment>>,
+    client: Mutex<Option<LoomleClient>>,
 }
 
 impl LoomleProxyServer {
-    fn new(runtime_client: Arc<LoomleClient>) -> Self {
-        Self { runtime_client }
+    fn new(env_info: Option<Environment>) -> Self {
+        Self {
+            env_info: env_info.map(Arc::new),
+            client: Mutex::new(None),
+        }
+    }
+
+    /// Returns a connected client, attempting to connect if not already connected.
+    /// Returns None (with a human-readable reason) when the Bridge is unavailable.
+    async fn get_or_connect(&self) -> Result<(), String> {
+        let Some(env_info) = &self.env_info else {
+            return Err(
+                "No Unreal project found. Open a terminal inside a UE project directory \
+                 or pass --project-root."
+                    .into(),
+            );
+        };
+
+        let mut guard = self.client.lock().await;
+
+        // Already connected.
+        if guard.is_some() {
+            return Ok(());
+        }
+
+        // Try to connect.
+        match connect_client(env_info).await {
+            Ok(client) => {
+                *guard = Some(client);
+                Ok(())
+            }
+            Err(err) => Err(format!(
+                "Unreal Engine is not running or LoomleBridge is not loaded. \
+                 Start Unreal Editor and wait for the Bridge to initialise. \
+                 ({})",
+                err.message
+            )),
+        }
+    }
+
+    /// Drop a stale client so the next call retries the connection.
+    async fn invalidate(&self) {
+        *self.client.lock().await = None;
     }
 }
 
@@ -227,13 +252,21 @@ impl ServerHandler for LoomleProxyServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
-        let tools = self
-            .runtime_client
-            .peer()
-            .list_all_tools()
-            .await
-            .map_err(map_service_error)?;
-        Ok(ListToolsResult::with_all_items(tools))
+        match self.get_or_connect().await {
+            Ok(()) => {
+                let guard = self.client.lock().await;
+                let client = guard.as_ref().expect("connected above");
+                match client.peer().list_all_tools().await {
+                    Ok(tools) => Ok(ListToolsResult::with_all_items(tools)),
+                    Err(_) => {
+                        drop(guard);
+                        self.invalidate().await;
+                        Ok(ListToolsResult::with_all_items(bridge_unavailable_tools()))
+                    }
+                }
+            }
+            Err(_) => Ok(ListToolsResult::with_all_items(bridge_unavailable_tools())),
+        }
     }
 
     fn get_tool(&self, _name: &str) -> Option<Tool> {
@@ -245,16 +278,45 @@ impl ServerHandler for LoomleProxyServer {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        self.runtime_client
-            .peer()
-            .call_tool(request)
-            .await
-            .map_err(map_service_error)
+        match self.get_or_connect().await {
+            Ok(()) => {
+                let guard = self.client.lock().await;
+                let client = guard.as_ref().expect("connected above");
+                match client.peer().call_tool(request).await {
+                    Ok(result) => Ok(result),
+                    Err(err) => {
+                        drop(guard);
+                        self.invalidate().await;
+                        Err(map_service_error(err))
+                    }
+                }
+            }
+            Err(reason) => Ok(bridge_unavailable_result(&reason)),
+        }
     }
 }
 
 fn map_service_error(error: ServiceError) -> McpError {
     McpError::internal_error(format!("runtime proxy failed: {error}"), None)
+}
+
+fn bridge_unavailable_tools() -> Vec<Tool> {
+    use std::sync::Arc;
+    let schema: rmcp::model::JsonObject = serde_json::from_str(
+        r#"{"type":"object","properties":{},"required":[]}"#,
+    )
+    .expect("valid schema");
+    vec![Tool::new(
+        "loomle",
+        "Check LOOMLE Bridge status. Returns the current availability of the Unreal Engine runtime connection.",
+        Arc::new(schema),
+    )]
+}
+
+fn bridge_unavailable_result(reason: &str) -> CallToolResult {
+    CallToolResult::error(vec![rmcp::model::Content::text(format!(
+        "LOOMLE Bridge unavailable: {reason}"
+    ))])
 }
 
 #[derive(Debug, Clone)]
