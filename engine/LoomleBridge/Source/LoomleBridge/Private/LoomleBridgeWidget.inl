@@ -253,7 +253,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetMutateToolResult(
             FString WidgetClass, Name, Parent;
             Args->TryGetStringField(TEXT("widgetClass"), WidgetClass);
             Args->TryGetStringField(TEXT("name"), Name);
-            Args->TryGetStringField(TEXT("parent"), Parent);
+            Args->TryGetStringField(TEXT("parentName"), Parent);
+            if (Parent.IsEmpty())
+            {
+                Args->TryGetStringField(TEXT("parent"), Parent); // legacy alias
+            }
             const TSharedPtr<FJsonObject>* SlotObj = nullptr;
             TSharedPtr<FJsonObject> SlotArgs;
             if (Args->TryGetObjectField(TEXT("slot"), SlotObj) && SlotObj)
