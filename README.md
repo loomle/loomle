@@ -113,6 +113,7 @@ For graph work, the recommended entrypoint is the installed workspace under [`wo
 - `widget.query`: Inspect the widget tree of a UMG WidgetBlueprint asset.
 - `widget.mutate`: Apply widget tree changes through ordered mutation operations.
 - `widget.verify`: Compile a WidgetBlueprint and return diagnostics.
+- `widget.describe`: Enumerate the editable properties of a UMG widget class, with optional current values from a live instance.
 - `diag.tail`: Read persisted LoomleBridge diagnostics incrementally.
 
 `graph.query` is now the primary graph read contract. Shared graph-native readback

@@ -558,6 +558,47 @@ TSharedPtr<FJsonObject> MakeWidgetVerifyInputSchema()
     return MakeWidgetAssetInputBase();
 }
 
+TSharedPtr<FJsonObject> MakeWidgetDescribeInputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(false);
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(
+        TEXT("widgetClass"),
+        MakeStringSchema(TEXT("Short class name (e.g. \"TextBlock\") or full path (e.g. \"/Script/UMG.TextBlock\"). Required if assetPath/widgetName not provided.")));
+    Properties->SetObjectField(
+        TEXT("assetPath"),
+        MakeStringSchema(TEXT("Asset path to a WidgetBlueprint. Used together with widgetName to resolve class and read currentValues.")));
+    Properties->SetObjectField(
+        TEXT("widgetName"),
+        MakeStringSchema(TEXT("Designer name of the widget instance inside the WidgetTree. Required when assetPath is provided.")));
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakeWidgetDescribeOutputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(true);
+    AddRequiredFields(Schema, {TEXT("widgetClass"), TEXT("properties"), TEXT("slotProperties")});
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(TEXT("widgetClass"), MakeStringSchema(TEXT("Full UClass path of the described widget type.")));
+
+    TSharedPtr<FJsonObject> PropDescSchema = MakeObjectSchema(true);
+    TSharedPtr<FJsonObject> PropDescProps = PropDescSchema->GetObjectField(TEXT("properties"));
+    PropDescProps->SetObjectField(TEXT("name"), MakeStringSchema());
+    PropDescProps->SetObjectField(TEXT("type"), MakeStringSchema());
+    PropDescProps->SetObjectField(TEXT("category"), MakeStringSchema());
+    PropDescProps->SetObjectField(TEXT("writable"), MakeBooleanSchema(false, false));
+    Properties->SetObjectField(TEXT("properties"), MakeArraySchema(PropDescSchema));
+
+    TSharedPtr<FJsonObject> SlotPropSchema = MakeObjectSchema(true);
+    TSharedPtr<FJsonObject> SlotPropProps = SlotPropSchema->GetObjectField(TEXT("properties"));
+    SlotPropProps->SetObjectField(TEXT("name"), MakeStringSchema());
+    SlotPropProps->SetObjectField(TEXT("type"), MakeStringSchema());
+    SlotPropProps->SetObjectField(TEXT("writable"), MakeBooleanSchema(false, false));
+    Properties->SetObjectField(TEXT("slotProperties"), MakeArraySchema(SlotPropSchema));
+    Properties->SetObjectField(TEXT("currentValues"), MakeObjectSchema(true));
+    return Schema;
+}
+
 TSharedPtr<FJsonObject> MakeWidgetQueryOutputSchema()
 {
     TSharedPtr<FJsonObject> Schema = MakeObjectSchema(true);
@@ -655,6 +696,7 @@ const TArray<FToolDescriptorDefinition>& GetToolDefinitions()
         {TEXT("widget.query"), TEXT("Widget Tree Query"), TEXT("Read the UMG WidgetTree of a WidgetBlueprint asset."), &MakeWidgetQueryInputSchema, &MakeWidgetQueryOutputSchema},
         {TEXT("widget.mutate"), TEXT("Widget Tree Mutate"), TEXT("Apply structural write operations to the UMG WidgetTree of a WidgetBlueprint asset."), &MakeWidgetMutateInputSchema, &MakeWidgetMutateOutputSchema},
         {TEXT("widget.verify"), TEXT("Widget Blueprint Verify"), TEXT("Compile a WidgetBlueprint and return diagnostics."), &MakeWidgetVerifyInputSchema, &MakeWidgetVerifyOutputSchema},
+        {TEXT("widget.describe"), TEXT("Widget Class Describe"), TEXT("Enumerate the editable properties of a UMG widget class, with optional current values from a live instance."), &MakeWidgetDescribeInputSchema, &MakeWidgetDescribeOutputSchema},
     };
     return Definitions;
 }

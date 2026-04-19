@@ -390,6 +390,87 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetMutateToolResult(
 }
 
 // ---------------------------------------------------------------------------
+// widget.describe
+// ---------------------------------------------------------------------------
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetDescribeToolResult(
+    const TSharedPtr<FJsonObject>& Arguments) const
+{
+    TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+
+    if (!Arguments.IsValid())
+    {
+        Payload->SetBoolField(TEXT("isError"), true);
+        Payload->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Payload->SetStringField(TEXT("message"), TEXT("INVALID_ARGUMENT"));
+        Payload->SetStringField(TEXT("detail"), TEXT("No arguments provided."));
+        return Payload;
+    }
+
+    FString WidgetClass;
+    FString AssetPath;
+    FString WidgetName;
+    Arguments->TryGetStringField(TEXT("widgetClass"), WidgetClass);
+    Arguments->TryGetStringField(TEXT("assetPath"), AssetPath);
+    Arguments->TryGetStringField(TEXT("widgetName"), WidgetName);
+
+    // Need at least widgetClass OR (assetPath + widgetName)
+    const bool bHasClass = !WidgetClass.IsEmpty();
+    const bool bHasInstance = !AssetPath.IsEmpty() && !WidgetName.IsEmpty();
+    if (!bHasClass && !bHasInstance)
+    {
+        Payload->SetBoolField(TEXT("isError"), true);
+        Payload->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Payload->SetStringField(TEXT("message"), TEXT("INVALID_ARGUMENT"));
+        Payload->SetStringField(TEXT("detail"),
+            TEXT("Provide widgetClass, or both assetPath and widgetName."));
+        return Payload;
+    }
+
+    FString DescribeJson;
+    FString Error;
+    if (!FLoomleWidgetAdapter::DescribeWidgetClass(WidgetClass, AssetPath, WidgetName, DescribeJson, Error))
+    {
+        FString DomainCode = TEXT("INTERNAL_ERROR");
+        if (Error.StartsWith(TEXT("WIDGET_CLASS_NOT_FOUND")))
+        {
+            DomainCode = TEXT("WIDGET_CLASS_NOT_FOUND");
+        }
+        else if (Error.StartsWith(TEXT("WIDGET_NOT_FOUND")))
+        {
+            DomainCode = TEXT("WIDGET_NOT_FOUND");
+        }
+        else if (Error.StartsWith(TEXT("WIDGET_TREE_UNAVAILABLE")))
+        {
+            DomainCode = TEXT("WIDGET_TREE_UNAVAILABLE");
+        }
+        Payload->SetBoolField(TEXT("isError"), true);
+        Payload->SetStringField(TEXT("code"), DomainCode);
+        Payload->SetStringField(TEXT("message"), DomainCode);
+        Payload->SetStringField(TEXT("detail"), Error);
+        return Payload;
+    }
+
+    TSharedPtr<FJsonObject> DescribeObj;
+    TSharedRef<TJsonReader<TCHAR>> Reader = TJsonReaderFactory<TCHAR>::Create(DescribeJson);
+    if (!FJsonSerializer::Deserialize(Reader, DescribeObj) || !DescribeObj.IsValid())
+    {
+        Payload->SetBoolField(TEXT("isError"), true);
+        Payload->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+        Payload->SetStringField(TEXT("message"), TEXT("INTERNAL_ERROR"));
+        Payload->SetStringField(TEXT("detail"), TEXT("Failed to deserialize describe result JSON."));
+        return Payload;
+    }
+
+    // Merge describe object fields into payload
+    for (const auto& Pair : DescribeObj->Values)
+    {
+        Payload->SetField(Pair.Key, Pair.Value);
+    }
+    return Payload;
+}
+
+// ---------------------------------------------------------------------------
 // widget.verify
 // ---------------------------------------------------------------------------
 

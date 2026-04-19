@@ -46,7 +46,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
         TEXT("graph.list"), TEXT("graph.resolve"), TEXT("graph.query"),
         TEXT("graph.mutate"),
         TEXT("diag.tail"),
-        TEXT("widget.query"), TEXT("widget.mutate"), TEXT("widget.verify")
+        TEXT("widget.query"), TEXT("widget.mutate"), TEXT("widget.verify"), TEXT("widget.describe")
     }));
     Result->SetArrayField(TEXT("graphTypes"), MakeStringArray({TEXT("blueprint"), TEXT("material"), TEXT("pcg")}));
 
@@ -251,6 +251,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     {
         Payload = BuildWidgetVerifyToolResult(Arguments);
     }
+    else if (Name.Equals(TEXT("widget.describe")))
+    {
+        Payload = BuildWidgetDescribeToolResult(Arguments);
+    }
     else
     {
         bOutIsError = true;
@@ -385,6 +389,10 @@ int32 FLoomleBridgeModule::MapToolErrorCode(const FString& DomainCode) const
     if (DomainCode.Equals(TEXT("WIDGET_PARENT_NOT_PANEL")))
     {
         return 1024;
+    }
+    if (DomainCode.Equals(TEXT("WIDGET_CLASS_NOT_FOUND")))
+    {
+        return 1025;
     }
     return 1011;
 }

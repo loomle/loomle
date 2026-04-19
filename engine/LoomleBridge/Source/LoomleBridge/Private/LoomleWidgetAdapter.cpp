@@ -15,6 +15,7 @@
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "UObject/Class.h"
+#include "UObject/ObjectIterator.h"
 #include "UObject/UObjectGlobals.h"
 #include "WidgetBlueprint.h"
 
@@ -172,8 +173,220 @@ void FLoomleWidgetAdapter::MarkModified(UWidgetBlueprint* WBP)
 }
 
 // ---------------------------------------------------------------------------
+// Internal helpers — property description
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+// Return true if this property should be included in widget.describe output.
+bool IsDescribableProperty(FProperty* Prop)
+{
+    if (!Prop)
+    {
+        return false;
+    }
+    // Must be editor-visible or Blueprint-accessible
+    if (!Prop->HasAnyPropertyFlags(CPF_Edit | CPF_BlueprintVisible))
+    {
+        return false;
+    }
+    // Exclude transient and private-access properties
+    if (Prop->HasAnyPropertyFlags(CPF_Transient | CPF_NativeAccessSpecifierPrivate))
+    {
+        return false;
+    }
+    // Must have a non-empty Category metadata — filters out internal C++ properties
+    const FString Category = Prop->GetMetaData(TEXT("Category"));
+    return !Category.IsEmpty();
+}
+
+// Resolve a UClass* from either a short name ("TextBlock") or a full path.
+// Returns nullptr and sets OutError on failure.
+UClass* ResolveWidgetClassByName(const FString& ClassInput, FString& OutError)
+{
+    if (ClassInput.IsEmpty())
+    {
+        OutError = TEXT("WIDGET_CLASS_NOT_FOUND: widgetClass is empty.");
+        return nullptr;
+    }
+
+    // If it looks like an asset path (contains '/') try LoadClass directly first.
+    if (ClassInput.Contains(TEXT("/")))
+    {
+        UClass* Cls = LoadClass<UWidget>(nullptr, *ClassInput);
+        if (Cls)
+        {
+            return Cls;
+        }
+        OutError = FString::Printf(
+            TEXT("WIDGET_CLASS_NOT_FOUND: Could not load widget class '%s'."), *ClassInput);
+        return nullptr;
+    }
+
+    // Short name — search registered UClass objects.
+    // We iterate UClass objects looking for a short name match.
+    UClass* Found = nullptr;
+    for (TObjectIterator<UClass> It; It; ++It)
+    {
+        UClass* Cls = *It;
+        if (!Cls->IsChildOf(UWidget::StaticClass()))
+        {
+            continue;
+        }
+        if (Cls->GetName().Equals(ClassInput, ESearchCase::IgnoreCase))
+        {
+            Found = Cls;
+            break;
+        }
+    }
+    if (Found)
+    {
+        return Found;
+    }
+
+    // Fallback: try common UMG script path
+    const FString FullPath = FString::Printf(TEXT("/Script/UMG.%s"), *ClassInput);
+    UClass* Cls = LoadClass<UWidget>(nullptr, *FullPath);
+    if (Cls)
+    {
+        return Cls;
+    }
+
+    OutError = FString::Printf(
+        TEXT("WIDGET_CLASS_NOT_FOUND: Widget class '%s' not found. Provide a full asset path or a registered short name."),
+        *ClassInput);
+    return nullptr;
+}
+
+// Serialize one FProperty into a JSON descriptor object.
+TSharedPtr<FJsonObject> SerializePropertyDescriptor(FProperty* Prop)
+{
+    TSharedPtr<FJsonObject> PObj = MakeShared<FJsonObject>();
+    PObj->SetStringField(TEXT("name"), Prop->GetName());
+    PObj->SetStringField(TEXT("type"), Prop->GetCPPType());
+    PObj->SetStringField(TEXT("category"), Prop->GetMetaData(TEXT("Category")));
+    const bool bWritable = !Prop->HasAnyPropertyFlags(CPF_BlueprintReadOnly);
+    PObj->SetBoolField(TEXT("writable"), bWritable);
+    return PObj;
+}
+
+} // anonymous namespace
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+bool FLoomleWidgetAdapter::DescribeWidgetClass(
+    const FString& ClassInput,
+    const FString& AssetPath,
+    const FString& WidgetName,
+    FString& OutJson,
+    FString& OutError)
+{
+    // --- Resolve the UClass ---
+    FString ResolvedClassInput = ClassInput;
+
+    // If caller provided asset+widget but no explicit class, derive the class from the live instance.
+    UWidget* LiveInstance = nullptr;
+    if (ResolvedClassInput.IsEmpty() && !AssetPath.IsEmpty() && !WidgetName.IsEmpty())
+    {
+        UWidgetBlueprint* WBP = LoadWidgetBlueprintAsset(AssetPath, OutError);
+        if (!WBP)
+        {
+            return false;
+        }
+        LiveInstance = FindWidgetByName(WBP, WidgetName);
+        if (!LiveInstance)
+        {
+            OutError = FString::Printf(
+                TEXT("WIDGET_NOT_FOUND: Widget '%s' not found in '%s'."), *WidgetName, *AssetPath);
+            return false;
+        }
+        ResolvedClassInput = LiveInstance->GetClass()->GetPathName();
+    }
+
+    UClass* WidgetClass = ResolveWidgetClassByName(ResolvedClassInput, OutError);
+    if (!WidgetClass)
+    {
+        return false;
+    }
+
+    // If we have an asset+widget but didn't load the instance yet (class was given explicitly),
+    // try to find the live instance now so we can attach currentValues.
+    if (!LiveInstance && !AssetPath.IsEmpty() && !WidgetName.IsEmpty())
+    {
+        UWidgetBlueprint* WBP = LoadWidgetBlueprintAsset(AssetPath, OutError);
+        if (!WBP)
+        {
+            return false;
+        }
+        LiveInstance = FindWidgetByName(WBP, WidgetName);
+        if (!LiveInstance)
+        {
+            OutError = FString::Printf(
+                TEXT("WIDGET_NOT_FOUND: Widget '%s' not found in '%s'."), *WidgetName, *AssetPath);
+            return false;
+        }
+    }
+
+    // --- Enumerate widget properties ---
+    TArray<TSharedPtr<FJsonValue>> Properties;
+    TSharedPtr<FJsonObject> CurrentValues = MakeShared<FJsonObject>();
+    bool bHasCurrentValues = (LiveInstance != nullptr);
+
+    for (TFieldIterator<FProperty> PropIt(WidgetClass); PropIt; ++PropIt)
+    {
+        FProperty* Prop = *PropIt;
+        if (!IsDescribableProperty(Prop))
+        {
+            continue;
+        }
+        Properties.Add(MakeShared<FJsonValueObject>(SerializePropertyDescriptor(Prop)));
+
+        if (bHasCurrentValues)
+        {
+            FString ValueStr;
+            const void* PropPtr = Prop->ContainerPtrToValuePtr<void>(LiveInstance);
+            Prop->ExportTextItem_Direct(ValueStr, PropPtr, nullptr, nullptr, PPF_None);
+            CurrentValues->SetStringField(Prop->GetName(), ValueStr);
+        }
+    }
+
+    // --- Enumerate slot properties (from the instance's current slot class, if available) ---
+    TArray<TSharedPtr<FJsonValue>> SlotProperties;
+    if (LiveInstance && LiveInstance->Slot)
+    {
+        UPanelSlot* Slot = LiveInstance->Slot;
+        for (TFieldIterator<FProperty> PropIt(Slot->GetClass()); PropIt; ++PropIt)
+        {
+            FProperty* Prop = *PropIt;
+            if (Prop->HasAnyPropertyFlags(CPF_Transient | CPF_NativeAccessSpecifierPrivate))
+            {
+                continue;
+            }
+            TSharedPtr<FJsonObject> SPObj = MakeShared<FJsonObject>();
+            SPObj->SetStringField(TEXT("name"), Prop->GetName());
+            SPObj->SetStringField(TEXT("type"), Prop->GetCPPType());
+            const bool bWritable = !Prop->HasAnyPropertyFlags(CPF_BlueprintReadOnly);
+            SPObj->SetBoolField(TEXT("writable"), bWritable);
+            SlotProperties.Add(MakeShared<FJsonValueObject>(SPObj));
+        }
+    }
+
+    // --- Assemble output ---
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("widgetClass"), WidgetClass->GetPathName());
+    Result->SetArrayField(TEXT("properties"), Properties);
+    Result->SetArrayField(TEXT("slotProperties"), SlotProperties);
+    if (bHasCurrentValues)
+    {
+        Result->SetObjectField(TEXT("currentValues"), CurrentValues);
+    }
+
+    OutJson = JsonObjectToString(Result);
+    return true;
+}
 
 bool FLoomleWidgetAdapter::QueryWidgetTree(
     const FString& AssetPath,

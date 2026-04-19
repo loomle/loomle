@@ -52,6 +52,7 @@ Graph mutate note:
 - `widget.query`
 - `widget.mutate`
 - `widget.verify`
+- `widget.describe`
 - `diag.tail`
 
 ## 4. MCP Tool Contracts
@@ -479,7 +480,7 @@ Execution rule:
 
 ## 4.7 Runtime Tools
 
-For `jobs`, `profiling`, `editor.open`, `editor.focus`, `editor.screenshot`, `graph.list`, `graph.resolve`, `graph.query`, `graph.verify`, `graph.mutate`, `diag.tail`:
+For `jobs`, `profiling`, `editor.open`, `editor.focus`, `editor.screenshot`, `graph.list`, `graph.resolve`, `graph.query`, `graph.verify`, `graph.mutate`, `widget.query`, `widget.mutate`, `widget.verify`, `widget.describe`, `diag.tail`:
 
 - Input/output schemas are exposed directly through MCP `tools/list` and should be treated as the live contract.
 - `RPC_INTERFACE.md` section 5 documents the same tool payloads at the Unreal RPC boundary.
@@ -508,6 +509,86 @@ Execution rule:
 - `graph.verify` always performs final compile/refresh-backed verification for Blueprint, Material, or PCG graphs.
 - `graph.query` remains the lightweight source of current semantic diagnostics.
 - `graph.verify` is graph-scoped only. It does not inspect scene instances, selected actors/components, or generated runtime output.
+
+## 4.10 `widget.describe`
+
+Use `widget.describe` to enumerate the editable properties of a UMG widget class before calling `widget.mutate setProperty`. This tool closes the loop between property discovery and mutation: any property returned here can be set directly with the same name via `setProperty`.
+
+Input schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "widgetClass": {
+      "type": "string",
+      "description": "Short class name (e.g. \"TextBlock\") or full path (e.g. \"/Script/UMG.TextBlock\"). Required if assetPath/widgetName not provided."
+    },
+    "assetPath": {
+      "type": "string",
+      "description": "Asset path to a WidgetBlueprint. Used together with widgetName to resolve class and read currentValues."
+    },
+    "widgetName": {
+      "type": "string",
+      "description": "Designer name of the widget instance inside the WidgetTree. Required when assetPath is provided."
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+Output schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["widgetClass", "properties", "slotProperties"],
+  "properties": {
+    "widgetClass": { "type": "string", "description": "Full UClass path of the described widget type." },
+    "properties": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name":     { "type": "string" },
+          "type":     { "type": "string" },
+          "category": { "type": "string" },
+          "writable": { "type": "boolean" }
+        }
+      }
+    },
+    "slotProperties": {
+      "type": "array",
+      "description": "Properties on the widget's current slot (layout/alignment/padding). Only present when a live instance is resolved via assetPath+widgetName.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name":     { "type": "string" },
+          "type":     { "type": "string" },
+          "writable": { "type": "boolean" }
+        }
+      }
+    },
+    "currentValues": {
+      "type": "object",
+      "description": "Current property values of the live widget instance, keyed by property name. Only present when assetPath+widgetName are provided.",
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+Execution rule:
+
+- Forward via `rpc.invoke` with `tool=widget.describe`.
+- Provide `widgetClass` for class-only introspection (no asset needed).
+- Provide `assetPath` + `widgetName` to resolve the class from a live instance and attach `currentValues`.
+- Both `widgetClass` and `assetPath+widgetName` may be provided simultaneously; the explicit `widgetClass` takes precedence for property enumeration, and the instance is still resolved for `currentValues`.
+- Only editor-visible (`CPF_Edit`) or Blueprint-accessible (`CPF_BlueprintVisible`) properties with a non-empty `Category` metadata are included. Internal C++ properties are excluded.
+- Property names returned here map directly to the `property` field in `widget.mutate setProperty` ops.
 
 ## 4.9 `diag.tail`
 
@@ -593,3 +674,4 @@ Mapping:
 - RPC `1014` -> `GRAPH_REF_NOT_COMPOSITE`
 - RPC `1023` -> `WIDGET_TREE_UNAVAILABLE`
 - RPC `1024` -> `WIDGET_PARENT_NOT_PANEL`
+- RPC `1025` -> `WIDGET_CLASS_NOT_FOUND`

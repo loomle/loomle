@@ -48,6 +48,17 @@ public:
         const TSharedPtr<FJsonObject>& SlotArgs,
         FString& OutError);
 
+    // Describe the properties of a widget class (or a live widget instance).
+    // ClassInput may be a short name ("TextBlock") or a full class path.
+    // If AssetPath and WidgetName are non-empty the result also includes currentValues
+    // (current property values read from the live instance in the WidgetTree).
+    static bool DescribeWidgetClass(
+        const FString& ClassInput,
+        const FString& AssetPath,
+        const FString& WidgetName,
+        FString& OutJson,
+        FString& OutError);
+
     // Trigger a Blueprint compile and return diagnostics JSON.
     static bool CompileWidgetBlueprint(
         const FString& AssetPath,

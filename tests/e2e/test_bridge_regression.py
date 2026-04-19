@@ -3971,6 +3971,51 @@ af.create_asset("WBP_Batch140", "{temp_wbp_batch.rsplit("/", 1)[0]}", unreal.Wid
             fail(f"W18 LegacyChild not found in BatchRoot.children: {legacy_children}")
         print("[PASS] W18 legacy parent field alias routes child correctly")
 
+        # W19 — widget.describe by short class name
+        wd_short = call_tool(client, 5166, "widget.describe", {"widgetClass": "TextBlock"})
+        if "properties" not in wd_short or not isinstance(wd_short["properties"], list):
+            fail(f"W19 widget.describe TextBlock missing properties[]: {wd_short}")
+        if not wd_short.get("widgetClass", "").endswith("TextBlock"):
+            fail(f"W19 widget.describe widgetClass mismatch: {wd_short.get('widgetClass')!r}")
+        if not any(p.get("name") == "Text" for p in wd_short["properties"]):
+            fail(f"W19 widget.describe TextBlock should have Text property: {[p['name'] for p in wd_short['properties']]}")
+        if not isinstance(wd_short.get("slotProperties"), list):
+            fail(f"W19 widget.describe missing slotProperties[]: {wd_short}")
+        if "currentValues" in wd_short:
+            fail(f"W19 widget.describe without instance should NOT have currentValues: {wd_short}")
+        print("[PASS] W19 widget.describe by short class name (TextBlock)")
+
+        # W20 — widget.describe by full class path
+        wd_full = call_tool(client, 5167, "widget.describe", {"widgetClass": "/Script/UMG.TextBlock"})
+        if not wd_full.get("widgetClass", "").endswith("TextBlock"):
+            fail(f"W20 widget.describe full path widgetClass mismatch: {wd_full.get('widgetClass')!r}")
+        if "properties" not in wd_full or not isinstance(wd_full["properties"], list):
+            fail(f"W20 widget.describe full path missing properties[]: {wd_full}")
+        print("[PASS] W20 widget.describe by full class path (/Script/UMG.TextBlock)")
+
+        # W21 — widget.describe by assetPath+widgetName returns currentValues
+        # We rely on temp_wbp_asset which has a TextBlock created in W08
+        wd_inst = call_tool(client, 5168, "widget.describe", {
+            "assetPath": temp_wbp_asset,
+            "widgetName": "MyText"
+        })
+        if not wd_inst.get("widgetClass", "").endswith("TextBlock"):
+            fail(f"W21 widget.describe instance widgetClass mismatch: {wd_inst.get('widgetClass')!r}")
+        if "properties" not in wd_inst or not isinstance(wd_inst["properties"], list):
+            fail(f"W21 widget.describe instance missing properties[]: {wd_inst}")
+        if "currentValues" not in wd_inst or not isinstance(wd_inst["currentValues"], dict):
+            fail(f"W21 widget.describe instance should have currentValues dict: {wd_inst}")
+        print("[PASS] W21 widget.describe by assetPath+widgetName includes currentValues")
+
+        # W22 — widget.describe unknown class returns WIDGET_CLASS_NOT_FOUND
+        wd_bad = call_tool(client, 5169, "widget.describe", {"widgetClass": "NonExistentWidget_XYZ"})
+        if not wd_bad.get("isError"):
+            fail(f"W22 expected error for unknown class, got: {wd_bad}")
+        err_code = wd_bad.get("code", "")
+        if err_code != "WIDGET_CLASS_NOT_FOUND":
+            fail(f"W22 expected WIDGET_CLASS_NOT_FOUND, got: {err_code}")
+        print("[PASS] W22 widget.describe unknown class returns WIDGET_CLASS_NOT_FOUND")
+
         print("[PASS] widget.* regression complete")
 
         print("[PASS] Bridge regression complete")
