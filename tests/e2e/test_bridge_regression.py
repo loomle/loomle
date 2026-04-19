@@ -3764,13 +3764,13 @@ def main() -> int:
             fail(f"W05 rootWidget name mismatch: {root_widget}")
         print("[PASS] W05 widget.query reflects added CanvasPanel root")
 
-        # W06 — addWidget TextBlock as child of RootCanvas
+        # W06 — addWidget TextBlock as child of RootCanvas (uses parentName field)
         wm_add_text = call_tool(client, 5050, "widget.mutate", {
             "assetPath": temp_wbp_asset,
             "ops": [{"op": "addWidget", "args": {
                 "widgetClass": "/Script/UMG.TextBlock",
                 "name": "TitleText",
-                "parent": "RootCanvas",
+                "parentName": "RootCanvas",
             }}],
         })
         widget_op_ok(wm_add_text, 0)
@@ -3803,13 +3803,13 @@ def main() -> int:
         widget_op_ok(wm_set_prop, 0)
         print("[PASS] W08 widget.mutate setProperty validated")
 
-        # W09 — addWidget second panel for reparent source
+        # W09 — addWidget second panel for reparent source (uses parentName field)
         wm_add_panel2 = call_tool(client, 5080, "widget.mutate", {
             "assetPath": temp_wbp_asset,
             "ops": [{"op": "addWidget", "args": {
                 "widgetClass": "/Script/UMG.VerticalBox",
                 "name": "SecondPanel",
-                "parent": "RootCanvas",
+                "parentName": "RootCanvas",
             }}],
         })
         widget_op_ok(wm_add_panel2, 0)
@@ -3912,6 +3912,65 @@ def main() -> int:
             fail(f"W16 widget.verify missing diagnostics[]: {wv}")
         print("[PASS] W16 widget.verify validated")
 
+        # W17 — issue #140: batch addWidget with parentName keeps root intact
+        # Both ops in a single mutate call: first adds a VerticalBox as root,
+        # second adds a TextBlock as child via parentName. The root must remain
+        # the VerticalBox after the batch completes.
+        temp_wbp_batch = make_temp_asset_path(project_root, "WBP_Batch140")
+        call_execute_exec_with_retry(client, 5161, f"""
+import unreal
+af = unreal.AssetToolsHelpers.get_asset_tools()
+af.create_asset("WBP_Batch140", "{temp_wbp_batch.rsplit("/", 1)[0]}", unreal.WidgetBlueprint, unreal.WidgetBlueprintFactory())
+""")
+        wm_batch = call_tool(client, 5162, "widget.mutate", {
+            "assetPath": temp_wbp_batch,
+            "ops": [
+                {"op": "addWidget", "args": {
+                    "widgetClass": "/Script/UMG.VerticalBox",
+                    "name": "BatchRoot",
+                    "parent": "root",
+                }},
+                {"op": "addWidget", "args": {
+                    "widgetClass": "/Script/UMG.TextBlock",
+                    "name": "BatchChild",
+                    "parentName": "BatchRoot",
+                }},
+            ],
+        })
+        widget_op_ok(wm_batch, 0)
+        widget_op_ok(wm_batch, 1)
+        if wm_batch.get("applied") is not True:
+            fail(f"W17 batch addWidget applied should be True: {wm_batch}")
+        wq_batch = call_tool(client, 5163, "widget.query", {"assetPath": temp_wbp_batch})
+        batch_root = wq_batch.get("rootWidget", {})
+        if batch_root.get("name") != "BatchRoot":
+            fail(f"W17 rootWidget should be BatchRoot, got: {batch_root.get('name')!r}")
+        batch_children = batch_root.get("children", [])
+        if not any(isinstance(c, dict) and c.get("name") == "BatchChild" for c in batch_children):
+            fail(f"W17 BatchChild not found in BatchRoot.children: {batch_children}")
+        print("[PASS] W17 batch addWidget with parentName keeps root intact (issue #140)")
+
+        # W18 — legacy "parent" alias still routes children correctly
+        # Verifies backward-compat: "parent" field (not "parentName") must still work
+        # for child widgets added in a separate mutate call.
+        wm_legacy = call_tool(client, 5164, "widget.mutate", {
+            "assetPath": temp_wbp_batch,
+            "ops": [{"op": "addWidget", "args": {
+                "widgetClass": "/Script/UMG.TextBlock",
+                "name": "LegacyChild",
+                "parent": "BatchRoot",
+            }}],
+        })
+        widget_op_ok(wm_legacy, 0)
+        wq_legacy = call_tool(client, 5165, "widget.query", {"assetPath": temp_wbp_batch})
+        legacy_root = wq_legacy.get("rootWidget", {})
+        if legacy_root.get("name") != "BatchRoot":
+            fail(f"W18 rootWidget should still be BatchRoot after legacy parent add: {legacy_root.get('name')!r}")
+        legacy_children = legacy_root.get("children", [])
+        if not any(isinstance(c, dict) and c.get("name") == "LegacyChild" for c in legacy_children):
+            fail(f"W18 LegacyChild not found in BatchRoot.children: {legacy_children}")
+        print("[PASS] W18 legacy parent field alias routes child correctly")
+
         print("[PASS] widget.* regression complete")
 
         print("[PASS] Bridge regression complete")
@@ -3927,6 +3986,9 @@ def main() -> int:
         temp_wbp_asset = locals().get("temp_wbp_asset", None)
         if temp_wbp_asset:
             print(f"[WARN] cleanup skipped for temporary widget asset: {temp_wbp_asset}")
+        temp_wbp_batch = locals().get("temp_wbp_batch", None)
+        if temp_wbp_batch:
+            print(f"[WARN] cleanup skipped for temporary widget batch asset: {temp_wbp_batch}")
         client.close()
 
 
