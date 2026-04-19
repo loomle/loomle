@@ -3916,12 +3916,20 @@ def main() -> int:
         # Both ops in a single mutate call: first adds a VerticalBox as root,
         # second adds a TextBlock as child via parentName. The root must remain
         # the VerticalBox after the batch completes.
-        temp_wbp_batch = make_temp_asset_path(project_root, "WBP_Batch140")
-        call_execute_exec_with_retry(client, 5161, f"""
-import unreal
-af = unreal.AssetToolsHelpers.get_asset_tools()
-af.create_asset("WBP_Batch140", "{temp_wbp_batch.rsplit("/", 1)[0]}", unreal.WidgetBlueprint, unreal.WidgetBlueprintFactory())
-""")
+        temp_wbp_batch = make_temp_asset_path("/Game/Codex/WBP_Batch140")
+        call_execute_exec_with_retry(
+            client=client,
+            req_id_base=5161,
+            code=(
+                "import unreal, json\n"
+                f"asset='{temp_wbp_batch}'\n"
+                "pkg_path, asset_name = asset.rsplit('/', 1)\n"
+                "asset_tools = unreal.AssetToolsHelpers.get_asset_tools()\n"
+                "factory = unreal.WidgetBlueprintFactory()\n"
+                "wbp = asset_tools.create_asset(asset_name, pkg_path, unreal.WidgetBlueprint, factory)\n"
+                "print(json.dumps({'created': wbp is not None}, ensure_ascii=False))\n"
+            ),
+        )
         wm_batch = call_tool(client, 5162, "widget.mutate", {
             "assetPath": temp_wbp_batch,
             "ops": [
@@ -3994,12 +4002,12 @@ af.create_asset("WBP_Batch140", "{temp_wbp_batch.rsplit("/", 1)[0]}", unreal.Wid
         print("[PASS] W20 widget.describe by full class path (/Script/UMG.TextBlock)")
 
         # W21 — widget.describe by assetPath+widgetName returns currentValues
-        # We rely on temp_wbp_asset which has a TextBlock created in W08
+        # Use "RootCanvas" (CanvasPanel) which persists throughout the test sequence
         wd_inst = call_tool(client, 5168, "widget.describe", {
             "assetPath": temp_wbp_asset,
-            "widgetName": "MyText"
+            "widgetName": "RootCanvas"
         })
-        if not wd_inst.get("widgetClass", "").endswith("TextBlock"):
+        if not wd_inst.get("widgetClass", "").endswith("CanvasPanel"):
             fail(f"W21 widget.describe instance widgetClass mismatch: {wd_inst.get('widgetClass')!r}")
         if "properties" not in wd_inst or not isinstance(wd_inst["properties"], list):
             fail(f"W21 widget.describe instance missing properties[]: {wd_inst}")
@@ -4008,7 +4016,7 @@ af.create_asset("WBP_Batch140", "{temp_wbp_batch.rsplit("/", 1)[0]}", unreal.Wid
         print("[PASS] W21 widget.describe by assetPath+widgetName includes currentValues")
 
         # W22 — widget.describe unknown class returns WIDGET_CLASS_NOT_FOUND
-        wd_bad = call_tool(client, 5169, "widget.describe", {"widgetClass": "NonExistentWidget_XYZ"})
+        wd_bad = call_tool(client, 5169, "widget.describe", {"widgetClass": "NonExistentWidget_XYZ"}, expect_error=True)
         if not wd_bad.get("isError"):
             fail(f"W22 expected error for unknown class, got: {wd_bad}")
         err_code = wd_bad.get("code", "")

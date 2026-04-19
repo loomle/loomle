@@ -15,7 +15,7 @@
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "UObject/Class.h"
-#include "UObject/ObjectIterator.h"
+#include "UObject/UObjectIterator.h"
 #include "UObject/UObjectGlobals.h"
 #include "WidgetBlueprint.h"
 
