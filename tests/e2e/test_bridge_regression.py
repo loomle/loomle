@@ -4024,6 +4024,46 @@ def main() -> int:
             fail(f"W22 expected WIDGET_CLASS_NOT_FOUND, got: {err_code}")
         print("[PASS] W22 widget.describe unknown class returns WIDGET_CLASS_NOT_FOUND")
 
+        # W23 — setProperty can write a CanvasPanelSlot ZOrder (slot property fallback)
+        # SecondPanel is a VerticalBox child of RootCanvas — its slot is FCanvasPanelSlot.
+        wm_slot_zorder = call_tool(client, 5200, "widget.mutate", {
+            "assetPath": temp_wbp_asset,
+            "ops": [{"op": "setProperty", "args": {
+                "name": "SecondPanel",
+                "property": "ZOrder",
+                "value": "5",
+            }}],
+        })
+        widget_op_ok(wm_slot_zorder, 0)
+        print("[PASS] W23 widget.mutate setProperty writes CanvasPanelSlot ZOrder via slot fallback")
+
+        # W24 — setProperty can write CanvasPanelSlot LayoutData (struct slot property)
+        wm_slot_layout = call_tool(client, 5210, "widget.mutate", {
+            "assetPath": temp_wbp_asset,
+            "ops": [{"op": "setProperty", "args": {
+                "name": "SecondPanel",
+                "property": "LayoutData",
+                "value": "(Offsets=(Left=10,Top=20,Right=0,Bottom=0),Anchors=(Minimum=(X=0.0,Y=0.0),Maximum=(X=0.5,Y=0.5)),Alignment=(X=0,Y=0))",
+            }}],
+        })
+        widget_op_ok(wm_slot_layout, 0)
+        print("[PASS] W24 widget.mutate setProperty writes CanvasPanelSlot LayoutData via slot fallback")
+
+        # W25 — setProperty with a property that exists on neither widget nor slot returns INVALID_ARGUMENT
+        wm_bad_prop = call_tool(client, 5220, "widget.mutate", {
+            "assetPath": temp_wbp_asset,
+            "ops": [{"op": "setProperty", "args": {
+                "name": "SecondPanel",
+                "property": "NonExistentProperty_XYZ",
+                "value": "anything",
+            }}],
+        }, expect_error=False)
+        # The op itself should fail (ok=False) even if the tool call succeeds
+        op25 = (wm_bad_prop.get("opResults") or [{}])[0]
+        if op25.get("ok"):
+            fail(f"W25 expected setProperty to fail for unknown property, but got ok: {op25}")
+        print("[PASS] W25 widget.mutate setProperty unknown property returns op-level error")
+
         print("[PASS] widget.* regression complete")
 
         print("[PASS] Bridge regression complete")

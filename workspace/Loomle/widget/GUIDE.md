@@ -45,8 +45,9 @@ widget tree structure, panel vs leaf widgets, or slot properties.
 - Returns `widgetClass` (full path), `properties[]` (name/type/category/writable),
   `slotProperties[]`, and optionally `currentValues`
 
-Property names in `properties[]` map directly to the `property` field in
-`widget.mutate setProperty` — what you can describe, you can set.
+Property names in `properties[]` and `slotProperties[]` both map directly to
+the `property` field in `widget.mutate setProperty` — what you can describe,
+you can set.
 
 ### `widget.mutate`
 
@@ -62,7 +63,7 @@ Supported ops:
 |---|---|---|
 | `addWidget` | `widgetClass`, `name`, `parentName` | `slot` object optional; `parent` accepted as legacy alias |
 | `removeWidget` | `name` | removes widget and its children |
-| `setProperty` | `name`, `property`, `value` | `value` is always a string; use `widget.describe` to discover valid property names |
+| `setProperty` | `name`, `property`, `value` | `value` is always a string; searches widget-own properties first, then slot properties automatically; use `widget.describe` to discover valid property names |
 | `reparentWidget` | `name`, `newParent` | `slot` object optional |
 
 ### `widget.verify`

@@ -523,16 +523,25 @@ bool FLoomleWidgetAdapter::SetWidgetProperty(
         return false;
     }
 
+    // Try widget-own property first, then fall back to slot property.
     FProperty* Prop = FindFProperty<FProperty>(Target->GetClass(), *PropertyName);
+    UObject* PropOwner = Target;
+
+    if (!Prop && Target->Slot)
+    {
+        Prop = FindFProperty<FProperty>(Target->Slot->GetClass(), *PropertyName);
+        PropOwner = Target->Slot;
+    }
+
     if (!Prop)
     {
         OutError = FString::Printf(
-            TEXT("INVALID_ARGUMENT: Property '%s' not found on widget class '%s'."),
+            TEXT("INVALID_ARGUMENT: Property '%s' not found on widget class '%s' or its slot."),
             *PropertyName, *Target->GetClass()->GetName());
         return false;
     }
 
-    void* PropPtr = Prop->ContainerPtrToValuePtr<void>(Target);
+    void* PropPtr = Prop->ContainerPtrToValuePtr<void>(PropOwner);
     const TCHAR* ImportResult = Prop->ImportText_Direct(*ValueJson, PropPtr, nullptr, PPF_None);
     if (!ImportResult)
     {
