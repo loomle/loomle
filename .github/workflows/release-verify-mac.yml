@@ -19,7 +19,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cmd=(python3 "$GITHUB_WORKSPACE/packaging/tools/check_release_versions.py")
+          cmd=(python3 "$GITHUB_WORKSPACE/packaging/tools/check_release_versions.py" --repo-root "$GITHUB_WORKSPACE")
           if [[ "${GITHUB_REF_NAME:-}" == v* ]]; then
             cmd+=(--expected-version "${GITHUB_REF_NAME#v}")
           fi

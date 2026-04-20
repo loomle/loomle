@@ -19,7 +19,7 @@ jobs:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           $script = Join-Path $env:GITHUB_WORKSPACE "packaging\tools\check_release_versions.py"
-          $arguments = @($script)
+          $arguments = @($script, "--repo-root", $env:GITHUB_WORKSPACE)
           if ($env:GITHUB_REF_NAME -and $env:GITHUB_REF_NAME.StartsWith("v")) {
             $arguments += @("--expected-version", $env:GITHUB_REF_NAME.Substring(1))
           }
