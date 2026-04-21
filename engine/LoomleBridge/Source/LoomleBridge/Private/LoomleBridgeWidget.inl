@@ -1,5 +1,5 @@
 // Widget tool handlers for Loomle Bridge.
-// Included by LoomleBridgeModule.cpp after LoomleBridgeGraph.inl.
+// Included by LoomleBridgeModule.cpp after shared graph-domain helpers.
 
 namespace
 {

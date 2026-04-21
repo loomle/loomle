@@ -34,6 +34,7 @@
 #include "K2Node_VariableGet.h"
 #include "K2Node_VariableSet.h"
 #include "EdGraphNode_Comment.h"
+#include "EdGraphUtilities.h"
 #include "Misc/Guid.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
@@ -2789,6 +2790,86 @@ bool FLoomleBlueprintAdapter::ConnectPins(const FString& BlueprintAssetPath, con
     return true;
 }
 
+bool FLoomleBlueprintAdapter::DuplicateNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, int32 DeltaX, int32 DeltaY, FString& OutNewNodeGuid, FString& OutError)
+{
+    OutNewNodeGuid.Empty();
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* TargetGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
+    if (!Blueprint || !TargetGraph)
+    {
+        OutError = TEXT("Failed to resolve blueprint/target graph.");
+        return false;
+    }
+
+    UEdGraphNode* SourceNode = LoomleBlueprintAdapterInternal::ResolveNodeByToken(TargetGraph, NodeGuid);
+    if (SourceNode == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Node not found in graph by id/path/name: %s"), *NodeGuid);
+        return false;
+    }
+    if (!SourceNode->CanDuplicateNode())
+    {
+        OutError = TEXT("Node does not support duplication.");
+        return false;
+    }
+
+    TSet<UObject*> NodesToExport;
+    NodesToExport.Add(SourceNode);
+
+    FString ExportedText;
+    FEdGraphUtilities::ExportNodesToText(NodesToExport, ExportedText);
+    if (ExportedText.IsEmpty() || !FEdGraphUtilities::CanImportNodesFromText(TargetGraph, ExportedText))
+    {
+        OutError = TEXT("Node duplication export/import pipeline rejected the node.");
+        return false;
+    }
+
+    Blueprint->Modify();
+    TargetGraph->Modify();
+
+    TSet<UEdGraphNode*> ImportedNodes;
+    FEdGraphUtilities::ImportNodesFromText(TargetGraph, ExportedText, ImportedNodes);
+    if (ImportedNodes.Num() == 0)
+    {
+        OutError = TEXT("Node duplication import produced no nodes.");
+        return false;
+    }
+
+    UEdGraphNode* DuplicatedNode = nullptr;
+    for (UEdGraphNode* ImportedNode : ImportedNodes)
+    {
+        if (ImportedNode != nullptr && ImportedNode->GetClass() == SourceNode->GetClass())
+        {
+            DuplicatedNode = ImportedNode;
+            break;
+        }
+    }
+    if (DuplicatedNode == nullptr)
+    {
+        DuplicatedNode = ImportedNodes.Array()[0];
+    }
+    if (DuplicatedNode == nullptr)
+    {
+        OutError = TEXT("Node duplication import returned only null nodes.");
+        return false;
+    }
+
+    DuplicatedNode->Modify();
+    DuplicatedNode->CreateNewGuid();
+    DuplicatedNode->NodePosX = SourceNode->NodePosX + DeltaX;
+    DuplicatedNode->NodePosY = SourceNode->NodePosY + DeltaY;
+    DuplicatedNode->SnapToGrid(16);
+
+    TargetGraph->NotifyGraphChanged();
+    FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+    Blueprint->MarkPackageDirty();
+
+    OutNewNodeGuid = DuplicatedNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+    return true;
+}
+
 bool FLoomleBlueprintAdapter::DisconnectPins(const FString& BlueprintAssetPath, const FString& GraphName, const FString& FromNodeGuid, const FString& FromPinName, const FString& ToNodeGuid, const FString& ToPinName, FString& OutError)
 {
     OutError.Empty();
@@ -2962,6 +3043,216 @@ bool FLoomleBlueprintAdapter::SetPinDefaultValue(const FString& BlueprintAssetPa
     }
 
     Pin->DefaultValue = Value;
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::SetNodeComment(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, const FString& Comment, FString& OutError)
+{
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* TargetGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
+    if (!Blueprint || !TargetGraph)
+    {
+        OutError = TEXT("Failed to resolve blueprint/target graph.");
+        return false;
+    }
+
+    UEdGraphNode* Node = LoomleBlueprintAdapterInternal::ResolveNodeByToken(TargetGraph, NodeGuid);
+    if (Node == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Node not found in graph by id/path/name: %s"), *NodeGuid);
+        return false;
+    }
+
+    TargetGraph->Modify();
+    Node->Modify();
+    Node->NodeComment = Comment;
+
+    TargetGraph->NotifyGraphChanged();
+    FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+    Blueprint->MarkPackageDirty();
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::SetNodeEnabled(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, bool bEnabled, FString& OutError)
+{
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* TargetGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
+    if (!Blueprint || !TargetGraph)
+    {
+        OutError = TEXT("Failed to resolve blueprint/target graph.");
+        return false;
+    }
+
+    UEdGraphNode* Node = LoomleBlueprintAdapterInternal::ResolveNodeByToken(TargetGraph, NodeGuid);
+    if (Node == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Node not found in graph by id/path/name: %s"), *NodeGuid);
+        return false;
+    }
+
+    TargetGraph->Modify();
+    Node->Modify();
+    Node->SetEnabledState(bEnabled ? ENodeEnabledState::Enabled : ENodeEnabledState::Disabled);
+
+    TargetGraph->NotifyGraphChanged();
+    FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+    Blueprint->MarkPackageDirty();
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::AddFunctionGraph(const FString& AssetPath, const FString& GraphName, FString& OutError)
+{
+    OutError.Empty();
+
+    if (GraphName.IsEmpty())
+    {
+        OutError = TEXT("Graph name is required.");
+        return false;
+    }
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(AssetPath);
+    if (Blueprint == nullptr)
+    {
+        OutError = TEXT("Failed to resolve blueprint.");
+        return false;
+    }
+    if (LoomleBlueprintAdapterInternal::FindGraphByName(Blueprint, GraphName) != nullptr)
+    {
+        OutError = FString::Printf(TEXT("Graph already exists: %s"), *GraphName);
+        return false;
+    }
+
+    Blueprint->Modify();
+    UEdGraph* NewGraph = FBlueprintEditorUtils::CreateNewGraph(
+        Blueprint,
+        *GraphName,
+        UEdGraph::StaticClass(),
+        UEdGraphSchema_K2::StaticClass());
+    if (NewGraph == nullptr)
+    {
+        OutError = TEXT("Failed to create function graph.");
+        return false;
+    }
+
+    FBlueprintEditorUtils::AddFunctionGraph(Blueprint, NewGraph, true, static_cast<UClass*>(nullptr));
+    Blueprint->MarkPackageDirty();
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::AddMacroGraph(const FString& AssetPath, const FString& GraphName, FString& OutError)
+{
+    OutError.Empty();
+
+    if (GraphName.IsEmpty())
+    {
+        OutError = TEXT("Graph name is required.");
+        return false;
+    }
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(AssetPath);
+    if (Blueprint == nullptr)
+    {
+        OutError = TEXT("Failed to resolve blueprint.");
+        return false;
+    }
+    if (LoomleBlueprintAdapterInternal::FindGraphByName(Blueprint, GraphName) != nullptr)
+    {
+        OutError = FString::Printf(TEXT("Graph already exists: %s"), *GraphName);
+        return false;
+    }
+
+    Blueprint->Modify();
+    UEdGraph* NewGraph = FBlueprintEditorUtils::CreateNewGraph(
+        Blueprint,
+        *GraphName,
+        UEdGraph::StaticClass(),
+        UEdGraphSchema_K2::StaticClass());
+    if (NewGraph == nullptr)
+    {
+        OutError = TEXT("Failed to create macro graph.");
+        return false;
+    }
+
+    FBlueprintEditorUtils::AddMacroGraph(Blueprint, NewGraph, true, nullptr);
+    Blueprint->MarkPackageDirty();
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::RenameGraph(const FString& AssetPath, const FString& OldGraphName, const FString& NewGraphName, FString& OutError)
+{
+    OutError.Empty();
+
+    if (OldGraphName.IsEmpty() || NewGraphName.IsEmpty())
+    {
+        OutError = TEXT("Both old and new graph names are required.");
+        return false;
+    }
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(AssetPath);
+    if (Blueprint == nullptr)
+    {
+        OutError = TEXT("Failed to resolve blueprint.");
+        return false;
+    }
+
+    UEdGraph* Graph = LoomleBlueprintAdapterInternal::FindGraphByName(Blueprint, OldGraphName);
+    if (Graph == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Graph not found: %s"), *OldGraphName);
+        return false;
+    }
+    if (!OldGraphName.Equals(NewGraphName) && LoomleBlueprintAdapterInternal::FindGraphByName(Blueprint, NewGraphName) != nullptr)
+    {
+        OutError = FString::Printf(TEXT("Graph already exists: %s"), *NewGraphName);
+        return false;
+    }
+
+    Blueprint->Modify();
+    Graph->Modify();
+    FBlueprintEditorUtils::RenameGraph(Graph, NewGraphName);
+    FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+    Blueprint->MarkPackageDirty();
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::DeleteGraph(const FString& AssetPath, const FString& GraphName, FString& OutError)
+{
+    OutError.Empty();
+
+    if (GraphName.IsEmpty())
+    {
+        OutError = TEXT("Graph name is required.");
+        return false;
+    }
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(AssetPath);
+    if (Blueprint == nullptr)
+    {
+        OutError = TEXT("Failed to resolve blueprint.");
+        return false;
+    }
+
+    UEdGraph* Graph = LoomleBlueprintAdapterInternal::FindGraphByName(Blueprint, GraphName);
+    if (Graph == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Graph not found: %s"), *GraphName);
+        return false;
+    }
+    if (Blueprint->UbergraphPages.Contains(Graph) || GraphName.Equals(TEXT("EventGraph"), ESearchCase::IgnoreCase))
+    {
+        OutError = TEXT("Deleting the EventGraph is not allowed.");
+        return false;
+    }
+
+    Blueprint->Modify();
+    Graph->Modify();
+    FBlueprintEditorUtils::RemoveGraph(Blueprint, Graph);
+    FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+    Blueprint->MarkPackageDirty();
     return true;
 }
 

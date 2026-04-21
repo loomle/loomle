@@ -17,12 +17,21 @@ TEST_TOOLS_DIR = REPO_ROOT / "tests" / "tools"
 
 REQUIRED_TOOLS = {
     "loomle",
-    "graph",
-    "graph.list",
-    "graph.resolve",
-    "graph.query",
-    "graph.mutate",
-    "graph.verify",
+    "blueprint.list",
+    "blueprint.query",
+    "blueprint.mutate",
+    "blueprint.verify",
+    "blueprint.describe",
+    "material.list",
+    "material.query",
+    "material.mutate",
+    "material.verify",
+    "material.describe",
+    "pcg.list",
+    "pcg.query",
+    "pcg.mutate",
+    "pcg.verify",
+    "pcg.describe",
     "diag.tail",
     "context",
     "jobs",
@@ -35,6 +44,8 @@ REQUIRED_TOOLS = {
     "widget.verify",
 }
 
+# Kept temporarily so regression imports keep loading while that suite is migrated
+# away from the removed graph.* tool family.
 EXPECTED_GRAPH_MUTATE_OPS = {
     "addNode.byClass",
     "connectPins",
@@ -47,7 +58,6 @@ EXPECTED_GRAPH_MUTATE_OPS = {
     "moveNodes",
     "layoutGraph",
     "compile",
-    "runScript",
 }
 
 EXPECTED_WORKSPACE_EXAMPLES = {
@@ -389,7 +399,7 @@ def validate_workspace_examples() -> None:
         ops = payload.get("ops")
         _require(isinstance(ops, list) and ops, f"example must contain ops[]: {relpath}")
         _require(
-            all(isinstance(op, dict) and op.get("op") in EXPECTED_GRAPH_MUTATE_OPS for op in ops),
+            all(isinstance(op, dict) and isinstance(op.get("op"), str) and op.get("op") != "runScript" for op in ops),
             f"example contains unsupported mutate op: {relpath}",
         )
         _require(
@@ -3185,49 +3195,46 @@ def main() -> int:
         )
         print(f"[PASS] temporary blueprint created: {temp_asset}")
 
-        graph_desc_payload = call_tool(client, 6, "graph", {"graphType": "blueprint"})
-        ops = graph_desc_payload.get("ops")
-        if not isinstance(ops, list):
-            fail("graph payload missing ops[]")
-        ops_set = {op for op in ops if isinstance(op, str)}
-        if ops_set != EXPECTED_GRAPH_MUTATE_OPS:
-            fail(f"graph ops mismatch. expected={sorted(EXPECTED_GRAPH_MUTATE_OPS)} actual={sorted(ops_set)}")
-        print("[PASS] graph reports expected mutate ops")
+        blueprint_describe = call_tool(client, 6, "blueprint.describe", {"assetPath": temp_asset})
+        if blueprint_describe.get("mode") != "class":
+            fail(f"blueprint.describe class mode mismatch: {blueprint_describe}")
+        if not isinstance(blueprint_describe.get("variables"), list):
+            fail(f"blueprint.describe missing variables[]: {blueprint_describe}")
+        if not isinstance(blueprint_describe.get("functions"), list):
+            fail(f"blueprint.describe missing functions[]: {blueprint_describe}")
+        if not isinstance(blueprint_describe.get("components"), list):
+            fail(f"blueprint.describe missing components[]: {blueprint_describe}")
 
-        run_script_args = {
-            "graphType": "blueprint",
-            "assetPath": temp_asset,
-            "graphName": "EventGraph",
-            "ops": [
-                {
-                    "op": "runScript",
-                    "args": {
-                        "mode": "inlineCode",
-                        "entry": "run",
-                        "code": "def run(ctx):\n  return {'ok': True, 'assetPath': ctx.get('assetPath', '')}",
-                        "input": {"source": "verify_bridge"},
-                    },
-                }
-            ],
-        }
-        run_script_payload: dict[str, Any] | None = None
-        for attempt in range(1, 4):
-            payload = call_tool(client, 7, "graph.mutate", run_script_args)
-            op_results = payload.get("opResults")
-            if isinstance(op_results, list) and op_results:
-                first_op = op_results[0] if isinstance(op_results[0], dict) else {}
-                script_result = first_op.get("scriptResult")
-                if first_op.get("ok") and isinstance(script_result, dict) and script_result.get("ok") is True:
-                    run_script_payload = payload
-                    break
-            if attempt < 3:
-                print(f"[WARN] graph.mutate runScript response incomplete (attempt {attempt}/3), retrying...")
-                time.sleep(0.3)
-                continue
-            fail(f"graph.mutate runScript invalid payload={_compact_json(payload)}")
-        if run_script_payload is None:
-            fail("graph.mutate runScript retry loop ended without payload")
-        print("[PASS] graph.mutate runScript inline execution verified")
+        material_describe = call_tool(
+            client,
+            7,
+            "material.describe",
+            {"nodeClass": "/Script/Engine.MaterialExpressionConstant"},
+        )
+        if material_describe.get("mode") != "class":
+            fail(f"material.describe class mode mismatch: {material_describe}")
+        if not isinstance(material_describe.get("inputPins"), list):
+            fail(f"material.describe missing inputPins[]: {material_describe}")
+        if not isinstance(material_describe.get("outputPins"), list):
+            fail(f"material.describe missing outputPins[]: {material_describe}")
+        if not isinstance(material_describe.get("properties"), list):
+            fail(f"material.describe missing properties[]: {material_describe}")
+
+        pcg_describe = call_tool(
+            client,
+            8,
+            "pcg.describe",
+            {"nodeClass": "/Script/PCG.PCGTransformPointsSettings"},
+        )
+        if pcg_describe.get("mode") != "class":
+            fail(f"pcg.describe class mode mismatch: {pcg_describe}")
+        if not isinstance(pcg_describe.get("inputPins"), list):
+            fail(f"pcg.describe missing inputPins[]: {pcg_describe}")
+        if not isinstance(pcg_describe.get("outputPins"), list):
+            fail(f"pcg.describe missing outputPins[]: {pcg_describe}")
+        if not isinstance(pcg_describe.get("properties"), list):
+            fail(f"pcg.describe missing properties[]: {pcg_describe}")
+        print("[PASS] domain describe class-mode smoke validated")
 
         validate_workspace_catalogs()
         validate_workspace_examples()

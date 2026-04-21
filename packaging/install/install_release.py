@@ -56,7 +56,12 @@ def copy_tree(source: Path, destination: Path) -> None:
     if not source.exists():
         fail(f"install source not found: {source}")
     if destination.exists():
-        shutil.rmtree(destination)
+        if destination.is_symlink():
+            destination.unlink()
+        elif destination.is_dir():
+            shutil.rmtree(destination)
+        else:
+            destination.unlink()
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, destination)
 

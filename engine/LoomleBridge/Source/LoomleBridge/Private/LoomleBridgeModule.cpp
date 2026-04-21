@@ -145,11 +145,9 @@ namespace LoomleBridgeConstants
     static const TCHAR* EditorOpenToolName = TEXT("editor.open");
     static const TCHAR* EditorFocusToolName = TEXT("editor.focus");
     static const TCHAR* EditorScreenshotToolName = TEXT("editor.screenshot");
-    static const TCHAR* GraphVerifyToolName = TEXT("graph.verify");
-    static const TCHAR* GraphListToolName = TEXT("graph.list");
-    static const TCHAR* GraphResolveToolName = TEXT("graph.resolve");
-    static const TCHAR* GraphQueryToolName = TEXT("graph.query");
-    static const TCHAR* GraphMutateToolName = TEXT("graph.mutate");
+    static const TCHAR* BlueprintQueryToolName = TEXT("blueprint.query");
+    static const TCHAR* MaterialQueryToolName = TEXT("material.query");
+    static const TCHAR* PcgQueryToolName = TEXT("pcg.query");
     static const TCHAR* DiagTailToolName = TEXT("diag.tail");
     constexpr double MutateIdempotencyTtlSeconds = 1800.0;
     constexpr int32 MaxMutateIdempotencyEntries = 2048;
@@ -2458,6 +2456,73 @@ bool TryResolveMaterialOutputPinName(
     return false;
 }
 
+bool TryResolveMaterialOutputPin(
+    UMaterial* Material,
+    UMaterialExpression* Expression,
+    const FString& RequestedPinName,
+    int32& OutOutputIndex,
+    FString& OutResolvedPinName,
+    TArray<FString>* OutAvailablePinNames)
+{
+    OutOutputIndex = INDEX_NONE;
+    if (!TryResolveMaterialOutputPinName(Material, Expression, RequestedPinName, OutResolvedPinName, OutAvailablePinNames))
+    {
+        return false;
+    }
+
+    if (Expression == nullptr)
+    {
+        return false;
+    }
+
+    TArray<FExpressionOutput>& Outputs = Expression->GetOutputs();
+    if (Outputs.Num() == 0)
+    {
+        return false;
+    }
+
+    if (OutResolvedPinName.IsEmpty())
+    {
+        OutOutputIndex = 0;
+        return true;
+    }
+
+    const FName RequestedOutputName(*OutResolvedPinName);
+    for (int32 OutputIndex = 0; OutputIndex < Outputs.Num(); ++OutputIndex)
+    {
+        bool bFoundMatch = false;
+        FExpressionOutput& Output = Outputs[OutputIndex];
+        if (!Output.OutputName.IsNone())
+        {
+            bFoundMatch = RequestedOutputName == Output.OutputName;
+        }
+        else if (RequestedOutputName == TEXT("R"))
+        {
+            bFoundMatch = Output.MaskR && !Output.MaskG && !Output.MaskB && !Output.MaskA;
+        }
+        else if (RequestedOutputName == TEXT("G"))
+        {
+            bFoundMatch = !Output.MaskR && Output.MaskG && !Output.MaskB && !Output.MaskA;
+        }
+        else if (RequestedOutputName == TEXT("B"))
+        {
+            bFoundMatch = !Output.MaskR && !Output.MaskG && Output.MaskB && !Output.MaskA;
+        }
+        else if (RequestedOutputName == TEXT("A"))
+        {
+            bFoundMatch = !Output.MaskR && !Output.MaskG && !Output.MaskB && Output.MaskA;
+        }
+
+        if (bFoundMatch)
+        {
+            OutOutputIndex = OutputIndex;
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool TryResolveMaterialInputPinName(
     UMaterialExpression* Expression,
     const FString& RequestedPinName,
@@ -3969,8 +4034,10 @@ void FLoomleBridgeModule::ShutdownModule()
 #include "mcp_core/McpCoreToolBridge.inl"
 
 #include "LoomleBridgeRpc.inl"
-
-#include "LoomleBridgeGraph.inl"
+#include "LoomleBridgeBlueprint.inl"
+#include "LoomleBridgeMaterial.inl"
+#include "LoomleBridgePcg.inl"
+#include "LoomleBridgeGraphShared.inl"
 
 #include "LoomleWidgetAdapter.h"
 #include "WidgetBlueprint.h"

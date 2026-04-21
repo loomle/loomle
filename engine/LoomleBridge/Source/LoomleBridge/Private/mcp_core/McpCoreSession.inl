@@ -15,10 +15,6 @@ TArray<FString> GraphMutateOpsForType(const FString& GraphType)
         TEXT("layoutGraph"),
         TEXT("compile"),
     };
-    if (GraphType.Equals(TEXT("blueprint"), ESearchCase::IgnoreCase))
-    {
-        Ops.Add(TEXT("runScript"));
-    }
     return Ops;
 }
 

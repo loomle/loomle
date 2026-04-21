@@ -42,13 +42,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
 
     Result->SetArrayField(TEXT("methods"), MakeStringArray({TEXT("rpc.health"), TEXT("rpc.capabilities"), TEXT("rpc.invoke")}));
     Result->SetArrayField(TEXT("tools"), MakeStringArray({
-        TEXT("context"), TEXT("jobs"), TEXT("profiling"), TEXT("editor.open"), TEXT("editor.focus"), TEXT("editor.screenshot"), TEXT("graph.verify"), TEXT("execute"),
-        TEXT("graph.list"), TEXT("graph.resolve"), TEXT("graph.query"),
-        TEXT("graph.mutate"),
+        TEXT("context"), TEXT("jobs"), TEXT("profiling"), TEXT("editor.open"), TEXT("editor.focus"), TEXT("editor.screenshot"), TEXT("execute"),
+        TEXT("blueprint.list"), TEXT("blueprint.query"), TEXT("blueprint.mutate"), TEXT("blueprint.verify"), TEXT("blueprint.describe"),
+        TEXT("material.list"), TEXT("material.query"), TEXT("material.mutate"), TEXT("material.verify"), TEXT("material.describe"),
+        TEXT("pcg.list"), TEXT("pcg.query"), TEXT("pcg.mutate"), TEXT("pcg.verify"), TEXT("pcg.describe"),
         TEXT("diag.tail"),
         TEXT("widget.query"), TEXT("widget.mutate"), TEXT("widget.verify"), TEXT("widget.describe")
     }));
-    Result->SetArrayField(TEXT("graphTypes"), MakeStringArray({TEXT("blueprint"), TEXT("material"), TEXT("pcg")}));
 
     TSharedPtr<FJsonObject> Features = MakeShared<FJsonObject>();
     Features->SetBoolField(TEXT("revision"), true);
@@ -152,7 +152,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     bOutIsError = false;
     TSharedPtr<FJsonObject> Payload;
 
-    if (!IsInGameThread() && !Name.Equals(LoomleBridgeConstants::GraphQueryToolName) && !Name.Equals(LoomleBridgeConstants::JobsToolName))
+    if (!IsInGameThread()
+        && !Name.Equals(LoomleBridgeConstants::BlueprintQueryToolName)
+        && !Name.Equals(LoomleBridgeConstants::MaterialQueryToolName)
+        && !Name.Equals(LoomleBridgeConstants::PcgQueryToolName)
+        && !Name.Equals(LoomleBridgeConstants::JobsToolName))
     {
         struct FDispatchToolResult
         {
@@ -203,25 +207,65 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     {
         Payload = BuildEditorScreenshotToolResult(Arguments);
     }
-    else if (Name.Equals(LoomleBridgeConstants::GraphVerifyToolName))
+    else if (Name.Equals(TEXT("blueprint.list")))
     {
-        Payload = BuildGraphVerifyToolResult(Arguments);
+        Payload = BuildBlueprintListToolResult(Arguments);
     }
-    else if (Name.Equals(LoomleBridgeConstants::GraphListToolName))
+    else if (Name.Equals(TEXT("blueprint.query")))
     {
-        Payload = BuildGraphListToolResult(Arguments);
+        Payload = BuildBlueprintQueryToolResult(Arguments);
     }
-    else if (Name.Equals(LoomleBridgeConstants::GraphResolveToolName))
+    else if (Name.Equals(TEXT("blueprint.mutate")))
     {
-        Payload = BuildGraphResolveToolResult(Arguments);
+        Payload = BuildBlueprintMutateToolResult(Arguments);
     }
-    else if (Name.Equals(LoomleBridgeConstants::GraphQueryToolName))
+    else if (Name.Equals(TEXT("blueprint.verify")))
     {
-        Payload = BuildGraphQueryToolResult(Arguments);
+        Payload = BuildBlueprintVerifyToolResult(Arguments);
     }
-    else if (Name.Equals(LoomleBridgeConstants::GraphMutateToolName))
+    else if (Name.Equals(TEXT("blueprint.describe")))
     {
-        Payload = BuildGraphMutateToolResult(Arguments);
+        Payload = BuildBlueprintDescribeToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("material.list")))
+    {
+        Payload = BuildMaterialListToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("material.query")))
+    {
+        Payload = BuildMaterialQueryToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("material.mutate")))
+    {
+        Payload = BuildMaterialMutateToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("material.verify")))
+    {
+        Payload = BuildMaterialVerifyToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("material.describe")))
+    {
+        Payload = BuildMaterialDescribeToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("pcg.list")))
+    {
+        Payload = BuildPcgListToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("pcg.query")))
+    {
+        Payload = BuildPcgQueryToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("pcg.mutate")))
+    {
+        Payload = BuildPcgMutateToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("pcg.verify")))
+    {
+        Payload = BuildPcgVerifyToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("pcg.describe")))
+    {
+        Payload = BuildPcgDescribeToolResult(Arguments);
     }
     else if (Name.Equals(LoomleBridgeConstants::ExecuteToolName))
     {
@@ -281,10 +325,6 @@ int32 FLoomleBridgeModule::MapToolErrorCode(const FString& DomainCode) const
     if (DomainCode.Equals(TEXT("TOOL_NOT_FOUND")))
     {
         return 1002;
-    }
-    if (DomainCode.Equals(TEXT("UNSUPPORTED_GRAPH_TYPE")))
-    {
-        return 1003;
     }
     if (DomainCode.Equals(TEXT("ASSET_NOT_FOUND")))
     {

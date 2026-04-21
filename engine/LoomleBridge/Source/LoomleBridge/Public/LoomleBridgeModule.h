@@ -48,18 +48,32 @@ private:
     TSharedPtr<FJsonObject> BuildRpcCapabilitiesResult() const;
     TSharedPtr<FJsonObject> BuildRpcInvokeResult(const TSharedPtr<FJsonObject>& Params, bool& bOutHasError, int32& OutErrorCode, FString& OutErrorMessage, TSharedPtr<FJsonObject>& OutErrorData);
 
-    TSharedPtr<FJsonObject> BuildGraphListToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
-    TSharedPtr<FJsonObject> BuildGraphResolveToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
-    TSharedPtr<FJsonObject> BuildGraphQueryToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
-    TSharedPtr<FJsonObject> BuildGraphQueryBaseResult(const TSharedPtr<FJsonObject>& Arguments) const;
-    TSharedPtr<FJsonObject> BuildShapedGraphQueryResult(const TSharedPtr<FJsonObject>& BaseResult, const TSharedPtr<FJsonObject>& Arguments) const;
-    TSharedPtr<FJsonObject> BuildGraphMutateToolResult(const TSharedPtr<FJsonObject>& Arguments);
+    // Blueprint
+    TSharedPtr<FJsonObject> BuildBlueprintListToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+    TSharedPtr<FJsonObject> BuildBlueprintQueryToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+    TSharedPtr<FJsonObject> BuildBlueprintMutateToolResult(const TSharedPtr<FJsonObject>& Arguments);
+    TSharedPtr<FJsonObject> BuildBlueprintVerifyToolResult(const TSharedPtr<FJsonObject>& Arguments);
+    TSharedPtr<FJsonObject> BuildBlueprintDescribeToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+
+    // Material
+    TSharedPtr<FJsonObject> BuildMaterialListToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+    TSharedPtr<FJsonObject> BuildMaterialQueryToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+    TSharedPtr<FJsonObject> BuildMaterialMutateToolResult(const TSharedPtr<FJsonObject>& Arguments);
+    TSharedPtr<FJsonObject> BuildMaterialVerifyToolResult(const TSharedPtr<FJsonObject>& Arguments);
+    TSharedPtr<FJsonObject> BuildMaterialDescribeToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+
+    // PCG
+    TSharedPtr<FJsonObject> BuildPcgListToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+    TSharedPtr<FJsonObject> BuildPcgQueryToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+    TSharedPtr<FJsonObject> BuildPcgMutateToolResult(const TSharedPtr<FJsonObject>& Arguments);
+    TSharedPtr<FJsonObject> BuildPcgVerifyToolResult(const TSharedPtr<FJsonObject>& Arguments);
+    TSharedPtr<FJsonObject> BuildPcgDescribeToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+
     TSharedPtr<FJsonObject> BuildGetContextToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildSelectionTransformToolResult() const;
     TSharedPtr<FJsonObject> BuildEditorOpenToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildEditorFocusToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildEditorScreenshotToolResult(const TSharedPtr<FJsonObject>& Arguments);
-    TSharedPtr<FJsonObject> BuildGraphVerifyToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildExecutePythonToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildJobsToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildProfilingToolResult(const TSharedPtr<FJsonObject>& Arguments);

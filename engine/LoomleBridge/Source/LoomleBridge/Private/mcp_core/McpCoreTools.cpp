@@ -139,33 +139,6 @@ TSharedPtr<FJsonObject> MakeGraphTypeSchema()
     return MakeEnumStringSchema({TEXT("blueprint"), TEXT("material"), TEXT("pcg")}, TEXT("blueprint"), TEXT("Graph domain."));
 }
 
-TSharedPtr<FJsonObject> MakeGraphRefSchema()
-{
-    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(false);
-    Schema->SetStringField(TEXT("description"), TEXT("Self-contained subgraph locator emitted by graph.list and graph.query. Pass back verbatim — do not construct manually."));
-    AddRequiredFields(Schema, {TEXT("kind")});
-
-    TSharedPtr<FJsonObject> InlineVariant = MakeObjectSchema(false);
-    TSharedPtr<FJsonObject> InlineProperties = InlineVariant->GetObjectField(TEXT("properties"));
-    InlineProperties->SetObjectField(TEXT("kind"), MakeEnumStringSchema({TEXT("inline")}));
-    InlineProperties->SetObjectField(TEXT("nodeGuid"), MakeStringSchema(TEXT("FGuid of the composite/subgraph node that owns this subgraph."), 1));
-    InlineProperties->SetObjectField(TEXT("assetPath"), MakeStringSchema(TEXT("Asset that contains the node (embedded for self-containment)."), 1));
-    AddRequiredFields(InlineVariant, {TEXT("kind"), TEXT("nodeGuid"), TEXT("assetPath")});
-
-    TSharedPtr<FJsonObject> AssetVariant = MakeObjectSchema(false);
-    TSharedPtr<FJsonObject> AssetProperties = AssetVariant->GetObjectField(TEXT("properties"));
-    AssetProperties->SetObjectField(TEXT("kind"), MakeEnumStringSchema({TEXT("asset")}));
-    AssetProperties->SetObjectField(TEXT("assetPath"), MakeStringSchema(TEXT("Unreal asset path of the graph asset."), 1));
-    AssetProperties->SetObjectField(TEXT("graphName"), MakeStringSchema(TEXT("Graph name within the asset. Required for multi-graph assets such as Blueprint; omit for single-graph assets (Material, PCG)."), 1));
-    AddRequiredFields(AssetVariant, {TEXT("kind"), TEXT("assetPath")});
-
-    TArray<TSharedPtr<FJsonValue>> Variants;
-    Variants.Add(MakeShared<FJsonValueObject>(InlineVariant));
-    Variants.Add(MakeShared<FJsonValueObject>(AssetVariant));
-    Schema->SetArrayField(TEXT("oneOf"), Variants);
-    return Schema;
-}
-
 TSharedPtr<FJsonObject> MakeLoomleInputSchema()
 {
     return MakeObjectSchema(false);
@@ -288,104 +261,395 @@ TSharedPtr<FJsonObject> MakeGraphDescriptorInputSchema()
     return Schema;
 }
 
-TSharedPtr<FJsonObject> MakeGraphListInputSchema()
+TSharedPtr<FJsonObject> MakeAssetPathOnlySchema(const FString& Description)
 {
     TSharedPtr<FJsonObject> Schema = MakeObjectSchema(false);
     AddRequiredFields(Schema, {TEXT("assetPath")});
     TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
-    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema(TEXT("Unreal asset path, for example /Game/MyFolder/MyAsset."), 1));
-    Properties->SetObjectField(TEXT("graphType"), MakeGraphTypeSchema());
-    Properties->SetObjectField(TEXT("includeSubgraphs"), MakeBooleanSchema(false, true, TEXT("When true, recursively enumerate subgraphs owned by composite/subgraph nodes.")));
-    Properties->SetObjectField(TEXT("maxDepth"), MakeIntegerSchema(0, 8, 1, TEXT("Maximum recursion depth when includeSubgraphs is true. 0 disables recursion; 1 returns direct children only.")));
+    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema(Description, 1));
     return Schema;
 }
 
-TSharedPtr<FJsonObject> MakeGraphQueryInputSchema()
+TSharedPtr<FJsonObject> MakeNodeIdArraySchema()
+{
+    return MakeArraySchema(MakeStringSchema(FString(), 1));
+}
+
+TSharedPtr<FJsonObject> MakeNodeClassArraySchema()
+{
+    return MakeArraySchema(MakeStringSchema());
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintListInputSchema()
 {
     TSharedPtr<FJsonObject> Schema = MakeObjectSchema(false);
+    AddRequiredFields(Schema, {TEXT("assetPath")});
     TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
-    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema(TEXT("Unreal asset path (Mode A). Required when graphName is used; omit when graphRef is provided."), 1));
-    Properties->SetObjectField(TEXT("graphName"), MakeStringSchema(TEXT("Graph name within the asset (Mode A), for example EventGraph. Mutually exclusive with graphRef."), 1));
-    Properties->SetObjectField(TEXT("graphRef"), MakeGraphRefSchema());
-    Properties->SetObjectField(TEXT("graphType"), MakeGraphTypeSchema());
-    Properties->SetObjectField(TEXT("layoutDetail"), MakeEnumStringSchema({TEXT("basic"), TEXT("measured")}, TEXT("basic"), TEXT("Requested layout detail level. `basic` returns lightweight geometry; `measured` asks the runtime to provide richer layout data when supported.")));
-
-    TSharedPtr<FJsonObject> FilterSchema = MakeObjectSchema(false);
-    FilterSchema->SetStringField(TEXT("description"), TEXT("Optional filters to narrow returned nodes."));
-    TSharedPtr<FJsonObject> FilterProperties = FilterSchema->GetObjectField(TEXT("properties"));
-    FilterProperties->SetObjectField(TEXT("nodeClasses"), MakeArraySchema(MakeStringSchema()));
-    FilterProperties->SetObjectField(TEXT("nodeIds"), MakeArraySchema(MakeStringSchema()));
-    FilterProperties->SetObjectField(TEXT("text"), MakeStringSchema(TEXT("Fuzzy text search across node titles and comments.")));
-    Properties->SetObjectField(TEXT("filter"), FilterSchema);
-    Properties->SetObjectField(TEXT("limit"), MakeIntegerSchema(1, 1000, TOptional<int32>(), TEXT("Maximum number of nodes/edges to return when truncation is supported.")));
-    Properties->SetObjectField(TEXT("cursor"), MakeStringSchema(TEXT("Opaque pagination cursor returned by a prior graph.query response. Supply it together with the same graph address and filters to continue a truncated read.")));
-    TSharedPtr<FJsonObject> PathSchema = MakeArraySchema(MakeStringSchema(FString(), 1));
-    PathSchema->SetNumberField(TEXT("minItems"), 1);
-    PathSchema->SetNumberField(TEXT("maxItems"), 8);
-    PathSchema->SetStringField(TEXT("description"), TEXT("Blueprint only. Ordered list of composite node GUIDs to traverse into before querying. Each entry must be a K2Node_Composite nodeId. The server resolves the subgraph of the final GUID in a single round-trip, avoiding multiple graph.query calls for deeply nested composites. Mutually exclusive with graphRef.kind=inline at the same level — supply path instead."));
-    Properties->SetObjectField(TEXT("path"), PathSchema);
+    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema(TEXT("Blueprint asset path, for example /Game/BP/MyBlueprint."), 1));
+    Properties->SetObjectField(TEXT("includeCompositeSubgraphs"), MakeBooleanSchema(false));
     return Schema;
 }
 
-TSharedPtr<FJsonObject> MakeGraphResolveInputSchema()
+TSharedPtr<FJsonObject> MakeBlueprintQueryInputSchema()
 {
     TSharedPtr<FJsonObject> Schema = MakeObjectSchema(false);
+    AddRequiredFields(Schema, {TEXT("assetPath")});
     TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
-    Properties->SetObjectField(TEXT("path"), MakeStringSchema(TEXT("Generic Unreal object path, including values emitted by context.selection.items[*].path."), 1));
-    Properties->SetObjectField(TEXT("objectPath"), MakeStringSchema(TEXT("Explicit Unreal object path."), 1));
-    Properties->SetObjectField(TEXT("actorPath"), MakeStringSchema(TEXT("Actor object path."), 1));
-    Properties->SetObjectField(TEXT("componentPath"), MakeStringSchema(TEXT("Actor component object path."), 1));
-    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema(TEXT("Unreal asset path."), 1));
-    Properties->SetObjectField(TEXT("graphType"), MakeGraphTypeSchema());
-
-    TArray<TSharedPtr<FJsonValue>> AnyOfValues;
-    for (const FString& Field : {TEXT("path"), TEXT("objectPath"), TEXT("actorPath"), TEXT("componentPath"), TEXT("assetPath")})
-    {
-        TSharedPtr<FJsonObject> Requirement = MakeShared<FJsonObject>();
-        Requirement->SetArrayField(TEXT("required"), {MakeShared<FJsonValueString>(Field)});
-        AnyOfValues.Add(MakeShared<FJsonValueObject>(Requirement));
-    }
-    Schema->SetArrayField(TEXT("anyOf"), AnyOfValues);
-    return Schema;
-}
-
-TSharedPtr<FJsonObject> MakeGraphMutateInputSchema()
-{
-    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(false);
-    AddRequiredFields(Schema, {TEXT("ops")});
-    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
-    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema(TEXT("Unreal asset path (Mode A). Required when graphName is used; omit when graphRef is provided."), 1));
-    TSharedPtr<FJsonObject> GraphName = MakeStringSchema(TEXT("Target graph name (Mode A). Defaults to EventGraph when omitted. Mutually exclusive with graphRef."), 1);
+    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema(TEXT("Blueprint asset path, for example /Game/BP/MyBlueprint."), 1));
+    TSharedPtr<FJsonObject> GraphName = MakeStringSchema(TEXT("Blueprint graph name. Defaults to EventGraph."), 1);
     GraphName->SetStringField(TEXT("default"), TEXT("EventGraph"));
     Properties->SetObjectField(TEXT("graphName"), GraphName);
-    Properties->SetObjectField(TEXT("graphRef"), MakeGraphRefSchema());
-    Properties->SetObjectField(TEXT("graphType"), MakeGraphTypeSchema());
-    Properties->SetObjectField(TEXT("expectedRevision"), MakeStringSchema(TEXT("Optional optimistic concurrency token from a prior graph read.")));
-    Properties->SetObjectField(TEXT("idempotencyKey"), MakeStringSchema(TEXT("Optional client-supplied idempotency token.")));
-    Properties->SetObjectField(TEXT("dryRun"), MakeBooleanSchema(false));
-    Properties->SetObjectField(TEXT("continueOnError"), MakeBooleanSchema(false));
+    Properties->SetObjectField(TEXT("nodeIds"), MakeNodeIdArraySchema());
+    Properties->SetObjectField(TEXT("nodeClasses"), MakeNodeClassArraySchema());
+    Properties->SetObjectField(TEXT("includeComments"), MakeBooleanSchema(false));
+    Properties->SetObjectField(TEXT("includePinDefaults"), MakeBooleanSchema(false));
+    Properties->SetObjectField(TEXT("includeConnections"), MakeBooleanSchema(false));
+    return Schema;
+}
 
-    TSharedPtr<FJsonObject> ExecutionPolicy = MakeObjectSchema(false);
-    TSharedPtr<FJsonObject> ExecutionPolicyProperties = ExecutionPolicy->GetObjectField(TEXT("properties"));
-    ExecutionPolicyProperties->SetObjectField(TEXT("stopOnError"), MakeBooleanSchema(true));
-    ExecutionPolicyProperties->SetObjectField(TEXT("maxOps"), MakeIntegerSchema(1, 200));
-    Properties->SetObjectField(TEXT("executionPolicy"), ExecutionPolicy);
-
+TSharedPtr<FJsonObject> MakeMutateOpSchema(const TArray<FString>& OpNames, bool bIncludeGraphTargets)
+{
     TSharedPtr<FJsonObject> OpSchema = MakeObjectSchema(false);
-    AddRequiredFields(OpSchema, {TEXT("op"), TEXT("args")});
+    AddRequiredFields(OpSchema, {TEXT("op")});
     TSharedPtr<FJsonObject> OpProperties = OpSchema->GetObjectField(TEXT("properties"));
-    OpProperties->SetObjectField(TEXT("op"), MakeStringSchema(TEXT("Graph mutate op id. Discover the graphType-specific supported ops from the graph tool response; runScript is currently blueprint-only.")));
-    OpProperties->SetObjectField(TEXT("clientRef"), MakeStringSchema(TEXT("Optional client-side reference name for later ops in the same request.")));
-    OpProperties->SetObjectField(TEXT("targetGraphName"), MakeStringSchema(TEXT("Optional per-op graph override by graph name. Mutually exclusive with targetGraphRef (or args.graphRef)."), 1));
-    OpProperties->SetObjectField(TEXT("targetGraphRef"), MakeGraphRefSchema());
-    TSharedPtr<FJsonObject> ArgsSchema = MakeObjectSchema(true);
-    ArgsSchema->SetStringField(TEXT("description"), TEXT("Operation-specific arguments. Required keys depend on op. For mutate graph-addressing, args.graphRef is also accepted as an alias of targetGraphRef."));
-    OpProperties->SetObjectField(TEXT("args"), ArgsSchema);
+    OpProperties->SetObjectField(TEXT("op"), MakeEnumStringSchema(OpNames));
+    OpProperties->SetObjectField(TEXT("clientRef"), MakeStringSchema(TEXT("Optional intra-request alias for a created node."), 1));
+    if (bIncludeGraphTargets)
+    {
+        OpProperties->SetObjectField(TEXT("graphName"), MakeStringSchema(TEXT("Optional graph target for graph management operations."), 1));
+        OpProperties->SetObjectField(TEXT("newName"), MakeStringSchema(TEXT("Optional new graph name for rename operations."), 1));
+    }
+    OpProperties->SetObjectField(TEXT("nodeId"), MakeStringSchema(TEXT("Node GUID."), 1));
+    OpProperties->SetObjectField(TEXT("nodeRef"), MakeStringSchema(TEXT("clientRef alias from an earlier op in the same request."), 1));
+    OpProperties->SetObjectField(TEXT("nodePath"), MakeStringSchema(TEXT("Domain-specific graph-qualified node path."), 1));
+    OpProperties->SetObjectField(TEXT("nodeName"), MakeStringSchema(TEXT("Display name fallback for node resolution."), 1));
+    OpProperties->SetObjectField(TEXT("nodeClass"), MakeStringSchema(TEXT("Node class path."), 1));
+    OpProperties->SetObjectField(TEXT("functionClass"), MakeStringSchema(TEXT("Owning class path for function call creation."), 1));
+    OpProperties->SetObjectField(TEXT("functionName"), MakeStringSchema(TEXT("Function name for call-function node creation."), 1));
+    OpProperties->SetObjectField(TEXT("eventName"), MakeStringSchema(TEXT("Event name for event-node creation."), 1));
+    OpProperties->SetObjectField(TEXT("eventClass"), MakeStringSchema(TEXT("Optional event class path."), 1));
+    OpProperties->SetObjectField(TEXT("variableName"), MakeStringSchema(TEXT("Variable name for variable node creation."), 1));
+    OpProperties->SetObjectField(TEXT("variableClass"), MakeStringSchema(TEXT("Optional variable owner class path."), 1));
+    OpProperties->SetObjectField(TEXT("mode"), MakeEnumStringSchema({TEXT("get"), TEXT("set"), TEXT("exec"), TEXT("eval"), TEXT("sync"), TEXT("job")}));
+    OpProperties->SetObjectField(TEXT("macroLibrary"), MakeStringSchema(TEXT("Macro library asset path."), 1));
+    OpProperties->SetObjectField(TEXT("macroName"), MakeStringSchema(TEXT("Macro graph name."), 1));
+    OpProperties->SetObjectField(TEXT("targetClass"), MakeStringSchema(TEXT("Target class path."), 1));
+    OpProperties->SetObjectField(TEXT("text"), MakeStringSchema(TEXT("Comment text."), 1));
+    OpProperties->SetObjectField(TEXT("comment"), MakeStringSchema(TEXT("Node comment text."), 1));
+    OpProperties->SetObjectField(TEXT("enabled"), MakeBooleanSchema(true, false));
+    OpProperties->SetObjectField(TEXT("width"), MakeIntegerSchema());
+    OpProperties->SetObjectField(TEXT("height"), MakeIntegerSchema());
+    OpProperties->SetObjectField(TEXT("x"), MakeIntegerSchema());
+    OpProperties->SetObjectField(TEXT("y"), MakeIntegerSchema());
+    OpProperties->SetObjectField(TEXT("dx"), MakeIntegerSchema());
+    OpProperties->SetObjectField(TEXT("dy"), MakeIntegerSchema());
+    OpProperties->SetObjectField(TEXT("pinName"), MakeStringSchema(TEXT("Pin name."), 1));
+    OpProperties->SetObjectField(TEXT("fromPin"), MakeStringSchema(TEXT("Source pin name."), 1));
+    OpProperties->SetObjectField(TEXT("toPin"), MakeStringSchema(TEXT("Target pin name."), 1));
+    OpProperties->SetObjectField(TEXT("fromNodeId"), MakeStringSchema(FString(), 1));
+    OpProperties->SetObjectField(TEXT("fromNodeRef"), MakeStringSchema(FString(), 1));
+    OpProperties->SetObjectField(TEXT("toNodeId"), MakeStringSchema(FString(), 1));
+    OpProperties->SetObjectField(TEXT("toNodeRef"), MakeStringSchema(FString(), 1));
+    OpProperties->SetObjectField(TEXT("value"), MakeStringSchema(TEXT("Serialized value payload."), 1));
+    OpProperties->SetObjectField(TEXT("property"), MakeStringSchema(TEXT("Editable property name."), 1));
+    OpProperties->SetObjectField(TEXT("algorithm"), MakeStringSchema(TEXT("Layout algorithm."), 1));
+
+    TSharedPtr<FJsonObject> MoveNodesItemSchema = MakeObjectSchema(false);
+    TSharedPtr<FJsonObject> MoveNodesItemProps = MoveNodesItemSchema->GetObjectField(TEXT("properties"));
+    MoveNodesItemProps->SetObjectField(TEXT("nodeId"), MakeStringSchema(FString(), 1));
+    MoveNodesItemProps->SetObjectField(TEXT("dx"), MakeIntegerSchema());
+    MoveNodesItemProps->SetObjectField(TEXT("dy"), MakeIntegerSchema());
+    OpProperties->SetObjectField(TEXT("nodes"), MakeArraySchema(MoveNodesItemSchema));
 
     TSharedPtr<FJsonObject> OpsSchema = MakeArraySchema(OpSchema);
     OpsSchema->SetNumberField(TEXT("minItems"), 1);
     OpsSchema->SetNumberField(TEXT("maxItems"), 200);
-    Properties->SetObjectField(TEXT("ops"), OpsSchema);
+    return OpsSchema;
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintMutateInputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(false);
+    AddRequiredFields(Schema, {TEXT("assetPath"), TEXT("ops")});
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema(TEXT("Blueprint asset path, for example /Game/BP/MyBlueprint."), 1));
+    TSharedPtr<FJsonObject> GraphName = MakeStringSchema(TEXT("Blueprint graph name. Defaults to EventGraph."), 1);
+    GraphName->SetStringField(TEXT("default"), TEXT("EventGraph"));
+    Properties->SetObjectField(TEXT("graphName"), GraphName);
+    Properties->SetObjectField(TEXT("expectedRevision"), MakeStringSchema(TEXT("Optional optimistic concurrency token."), 1));
+    Properties->SetObjectField(TEXT("idempotencyKey"), MakeStringSchema(TEXT("Optional idempotency token."), 1));
+    Properties->SetObjectField(TEXT("dryRun"), MakeBooleanSchema(false));
+    Properties->SetObjectField(TEXT("continueOnError"), MakeBooleanSchema(false));
+    Properties->SetObjectField(
+        TEXT("ops"),
+        MakeMutateOpSchema(
+            {
+                TEXT("addNode.byClass"),
+                TEXT("addNode.byFunction"),
+                TEXT("addNode.byEvent"),
+                TEXT("addNode.byVariable"),
+                TEXT("addNode.byMacro"),
+                TEXT("addNode.branch"),
+                TEXT("addNode.sequence"),
+                TEXT("addNode.cast"),
+                TEXT("addNode.comment"),
+                TEXT("addNode.knot"),
+                TEXT("duplicateNode"),
+                TEXT("removeNode"),
+                TEXT("moveNode"),
+                TEXT("moveNodeBy"),
+                TEXT("moveNodes"),
+                TEXT("connectPins"),
+                TEXT("disconnectPins"),
+                TEXT("breakPinLinks"),
+                TEXT("setPinDefault"),
+                TEXT("setNodeComment"),
+                TEXT("setNodeEnabled"),
+                TEXT("addGraph"),
+                TEXT("renameGraph"),
+                TEXT("deleteGraph"),
+                TEXT("layoutGraph"),
+                TEXT("compile")
+            },
+            true));
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintVerifyInputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(false);
+    AddRequiredFields(Schema, {TEXT("assetPath")});
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema(TEXT("Blueprint asset path."), 1));
+    Properties->SetObjectField(TEXT("graphName"), MakeStringSchema(TEXT("Optional Blueprint graph name."), 1));
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintDescribeInputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(false);
+    AddRequiredFields(Schema, {TEXT("assetPath")});
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema(TEXT("Blueprint asset path."), 1));
+    Properties->SetObjectField(TEXT("graphName"), MakeStringSchema(TEXT("Provide with nodeId to enter instance mode."), 1));
+    Properties->SetObjectField(TEXT("nodeId"), MakeStringSchema(TEXT("Node GUID for instance mode."), 1));
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakeMaterialListInputSchema()
+{
+    return MakeAssetPathOnlySchema(TEXT("Material asset path, for example /Game/M_Material."));
+}
+
+TSharedPtr<FJsonObject> MakeMaterialQueryInputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(false);
+    AddRequiredFields(Schema, {TEXT("assetPath")});
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema(TEXT("Material asset path."), 1));
+    Properties->SetObjectField(TEXT("nodeIds"), MakeNodeIdArraySchema());
+    Properties->SetObjectField(TEXT("nodeClasses"), MakeNodeClassArraySchema());
+    Properties->SetObjectField(TEXT("includeConnections"), MakeBooleanSchema(false));
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakeMaterialMutateInputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(false);
+    AddRequiredFields(Schema, {TEXT("assetPath"), TEXT("ops")});
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema(TEXT("Material asset path."), 1));
+    Properties->SetObjectField(TEXT("expectedRevision"), MakeStringSchema(TEXT("Optional optimistic concurrency token."), 1));
+    Properties->SetObjectField(TEXT("idempotencyKey"), MakeStringSchema(TEXT("Optional idempotency token."), 1));
+    Properties->SetObjectField(TEXT("dryRun"), MakeBooleanSchema(false));
+    Properties->SetObjectField(TEXT("continueOnError"), MakeBooleanSchema(false));
+    Properties->SetObjectField(
+        TEXT("ops"),
+        MakeMutateOpSchema(
+            {
+                TEXT("addNode.byClass"),
+                TEXT("removeNode"),
+                TEXT("moveNode"),
+                TEXT("moveNodeBy"),
+                TEXT("moveNodes"),
+                TEXT("connectPins"),
+                TEXT("disconnectPins"),
+                TEXT("setProperty")
+            },
+            false));
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakeMaterialVerifyInputSchema()
+{
+    return MakeAssetPathOnlySchema(TEXT("Material asset path."));
+}
+
+TSharedPtr<FJsonObject> MakeMaterialDescribeInputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(false);
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema(TEXT("Material asset path for instance mode."), 1));
+    Properties->SetObjectField(TEXT("nodeId"), MakeStringSchema(TEXT("Node GUID for instance mode."), 1));
+    Properties->SetObjectField(TEXT("nodeClass"), MakeStringSchema(TEXT("Material expression class for class mode."), 1));
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakePcgListInputSchema()
+{
+    return MakeAssetPathOnlySchema(TEXT("PCG graph asset path, for example /Game/PCG/MyGraph."));
+}
+
+TSharedPtr<FJsonObject> MakePcgQueryInputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(false);
+    AddRequiredFields(Schema, {TEXT("assetPath")});
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema(TEXT("PCG graph asset path."), 1));
+    Properties->SetObjectField(TEXT("nodeIds"), MakeNodeIdArraySchema());
+    Properties->SetObjectField(TEXT("nodeClasses"), MakeNodeClassArraySchema());
+    Properties->SetObjectField(TEXT("includeConnections"), MakeBooleanSchema(false));
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakePcgMutateInputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(false);
+    AddRequiredFields(Schema, {TEXT("assetPath"), TEXT("ops")});
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema(TEXT("PCG graph asset path."), 1));
+    Properties->SetObjectField(TEXT("expectedRevision"), MakeStringSchema(TEXT("Optional optimistic concurrency token."), 1));
+    Properties->SetObjectField(TEXT("idempotencyKey"), MakeStringSchema(TEXT("Optional idempotency token."), 1));
+    Properties->SetObjectField(TEXT("dryRun"), MakeBooleanSchema(false));
+    Properties->SetObjectField(TEXT("continueOnError"), MakeBooleanSchema(false));
+    Properties->SetObjectField(
+        TEXT("ops"),
+        MakeMutateOpSchema(
+            {
+                TEXT("addNode.byClass"),
+                TEXT("removeNode"),
+                TEXT("moveNode"),
+                TEXT("moveNodeBy"),
+                TEXT("moveNodes"),
+                TEXT("connectPins"),
+                TEXT("disconnectPins"),
+                TEXT("setProperty")
+            },
+            false));
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakePcgVerifyInputSchema()
+{
+    return MakeAssetPathOnlySchema(TEXT("PCG graph asset path."));
+}
+
+TSharedPtr<FJsonObject> MakePcgDescribeInputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(false);
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema(TEXT("PCG graph asset path for instance mode."), 1));
+    Properties->SetObjectField(TEXT("nodeId"), MakeStringSchema(TEXT("Node GUID for instance mode."), 1));
+    Properties->SetObjectField(TEXT("nodeClass"), MakeStringSchema(TEXT("PCG settings class for class mode."), 1));
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintListOutputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(true);
+    AddRequiredFields(Schema, {TEXT("graphs")});
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(TEXT("graphs"), MakeArraySchema(MakeObjectSchema(true)));
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakeMaterialListOutputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(true);
+    AddRequiredFields(Schema, {TEXT("expressions"), TEXT("outputCount")});
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(TEXT("expressions"), MakeArraySchema(MakeObjectSchema(true)));
+    Properties->SetObjectField(TEXT("outputCount"), MakeIntegerSchema());
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakePcgListOutputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(true);
+    AddRequiredFields(Schema, {TEXT("nodes")});
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(TEXT("nodes"), MakeArraySchema(MakeObjectSchema(true)));
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakeDomainQueryOutputSchema(bool bIncludeGraphName)
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(true);
+    AddRequiredFields(Schema, {TEXT("assetPath"), TEXT("semanticSnapshot"), TEXT("meta"), TEXT("diagnostics")});
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema());
+    if (bIncludeGraphName)
+    {
+        Properties->SetObjectField(TEXT("graphName"), MakeStringSchema());
+    }
+    Properties->SetObjectField(TEXT("revision"), MakeStringSchema());
+    Properties->SetObjectField(TEXT("semanticSnapshot"), MakeObjectSchema(true));
+    Properties->SetObjectField(TEXT("meta"), MakeObjectSchema(true));
+    Properties->SetObjectField(TEXT("diagnostics"), MakeArraySchema(MakeObjectSchema(true)));
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakeDomainMutateOutputSchema(bool bIncludeGraphName)
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(true);
+    AddRequiredFields(Schema, {TEXT("applied"), TEXT("partialApplied"), TEXT("assetPath"), TEXT("opResults"), TEXT("diagnostics")});
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(TEXT("applied"), MakeBooleanSchema(false, false));
+    Properties->SetObjectField(TEXT("partialApplied"), MakeBooleanSchema(false, false));
+    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema());
+    if (bIncludeGraphName)
+    {
+        Properties->SetObjectField(TEXT("graphName"), MakeStringSchema());
+    }
+    Properties->SetObjectField(TEXT("previousRevision"), MakeStringSchema());
+    Properties->SetObjectField(TEXT("newRevision"), MakeStringSchema());
+    Properties->SetObjectField(TEXT("code"), MakeStringSchema());
+    Properties->SetObjectField(TEXT("message"), MakeStringSchema());
+
+    TSharedPtr<FJsonObject> OpResultSchema = MakeObjectSchema(true);
+    AddRequiredFields(OpResultSchema, {TEXT("index"), TEXT("op"), TEXT("ok"), TEXT("changed"), TEXT("errorCode"), TEXT("errorMessage")});
+    TSharedPtr<FJsonObject> OpResultProperties = OpResultSchema->GetObjectField(TEXT("properties"));
+    OpResultProperties->SetObjectField(TEXT("index"), MakeIntegerSchema());
+    OpResultProperties->SetObjectField(TEXT("op"), MakeStringSchema());
+    OpResultProperties->SetObjectField(TEXT("ok"), MakeBooleanSchema(false, false));
+    OpResultProperties->SetObjectField(TEXT("changed"), MakeBooleanSchema(false, false));
+    OpResultProperties->SetObjectField(TEXT("nodeId"), MakeStringSchema());
+    OpResultProperties->SetObjectField(TEXT("errorCode"), MakeStringSchema());
+    OpResultProperties->SetObjectField(TEXT("errorMessage"), MakeStringSchema());
+    OpResultProperties->SetObjectField(TEXT("details"), MakeObjectSchema(true));
+    OpResultProperties->SetObjectField(TEXT("movedNodeIds"), MakeArraySchema(MakeStringSchema()));
+    Properties->SetObjectField(TEXT("opResults"), MakeArraySchema(OpResultSchema));
+    Properties->SetObjectField(TEXT("diagnostics"), MakeArraySchema(MakeObjectSchema(true)));
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakeDomainVerifyOutputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(true);
+    AddRequiredFields(Schema, {TEXT("status"), TEXT("diagnostics")});
+    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
+    Properties->SetObjectField(TEXT("status"), MakeEnumStringSchema({TEXT("ok"), TEXT("warn"), TEXT("error")}));
+    Properties->SetObjectField(TEXT("summary"), MakeStringSchema());
+    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema());
+    Properties->SetObjectField(TEXT("graphName"), MakeStringSchema());
+    Properties->SetObjectField(TEXT("diagnostics"), MakeArraySchema(MakeObjectSchema(true)));
+    return Schema;
+}
+
+TSharedPtr<FJsonObject> MakeDomainDescribeOutputSchema()
+{
+    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(true);
+    Schema->SetObjectField(TEXT("properties"), MakeShared<FJsonObject>());
     return Schema;
 }
 
@@ -403,84 +667,6 @@ TSharedPtr<FJsonObject> MakeDiagTailInputSchema()
     FiltersProperties->SetObjectField(TEXT("source"), MakeStringSchema(FString(), 1));
     FiltersProperties->SetObjectField(TEXT("assetPathPrefix"), MakeStringSchema(FString(), 1));
     Properties->SetObjectField(TEXT("filters"), FiltersSchema);
-    return Schema;
-}
-
-TSharedPtr<FJsonObject> MakeGraphVerifyInputSchema()
-{
-    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(false);
-    AddRequiredFields(Schema, {TEXT("graphType")});
-    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
-    Properties->SetObjectField(TEXT("graphType"), MakeEnumStringSchema({TEXT("blueprint"), TEXT("material"), TEXT("pcg")}, FString(), TEXT("Graph domain for final graph-level verification.")));
-    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema(TEXT("Unreal asset path for graph-level verification."), 1));
-    Properties->SetObjectField(TEXT("graphName"), MakeStringSchema(TEXT("Graph name within the asset when verifying a specific Blueprint graph."), 1));
-    Properties->SetObjectField(TEXT("graphRef"), MakeGraphRefSchema());
-    return Schema;
-}
-
-TSharedPtr<FJsonObject> MakeGraphListOutputSchema()
-{
-    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(true);
-    AddRequiredFields(Schema, {TEXT("graphType"), TEXT("assetPath"), TEXT("graphs"), TEXT("diagnostics")});
-    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
-    Properties->SetObjectField(TEXT("graphType"), MakeGraphTypeSchema());
-    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema());
-    Properties->SetObjectField(TEXT("graphs"), MakeArraySchema(MakeObjectSchema(true)));
-    Properties->SetObjectField(TEXT("diagnostics"), MakeArraySchema(MakeObjectSchema(true)));
-    return Schema;
-}
-
-TSharedPtr<FJsonObject> MakeGraphQueryOutputSchema()
-{
-    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(true);
-    AddRequiredFields(Schema, {TEXT("graphType"), TEXT("assetPath"), TEXT("graphName"), TEXT("graphRef"), TEXT("semanticSnapshot"), TEXT("meta"), TEXT("diagnostics")});
-    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
-    Properties->SetObjectField(TEXT("graphType"), MakeGraphTypeSchema());
-    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema());
-    Properties->SetObjectField(TEXT("graphName"), MakeStringSchema());
-    Properties->SetObjectField(TEXT("graphRef"), MakeGraphRefSchema());
-    Properties->SetObjectField(TEXT("revision"), MakeStringSchema());
-    Properties->SetObjectField(TEXT("semanticSnapshot"), MakeObjectSchema(true));
-    Properties->SetObjectField(TEXT("nextCursor"), MakeStringSchema());
-    Properties->SetObjectField(TEXT("meta"), MakeObjectSchema(true));
-    Properties->SetObjectField(TEXT("diagnostics"), MakeArraySchema(MakeObjectSchema(true)));
-    return Schema;
-}
-
-TSharedPtr<FJsonObject> MakeGraphMutateOutputSchema()
-{
-    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(true);
-    AddRequiredFields(Schema, {TEXT("applied"), TEXT("partialApplied"), TEXT("graphType"), TEXT("assetPath"), TEXT("graphName"), TEXT("graphRef"), TEXT("opResults"), TEXT("diagnostics")});
-    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
-    Properties->SetObjectField(TEXT("applied"), MakeBooleanSchema(false, false));
-    Properties->SetObjectField(TEXT("partialApplied"), MakeBooleanSchema(false, false));
-    Properties->SetObjectField(TEXT("graphType"), MakeGraphTypeSchema());
-    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema());
-    Properties->SetObjectField(TEXT("graphName"), MakeStringSchema());
-    Properties->SetObjectField(TEXT("graphRef"), MakeGraphRefSchema());
-    Properties->SetObjectField(TEXT("previousRevision"), MakeStringSchema());
-    Properties->SetObjectField(TEXT("newRevision"), MakeStringSchema());
-    Properties->SetObjectField(TEXT("code"), MakeStringSchema());
-    Properties->SetObjectField(TEXT("message"), MakeStringSchema());
-
-    TSharedPtr<FJsonObject> OpResultSchema = MakeObjectSchema(true);
-    AddRequiredFields(OpResultSchema, {TEXT("index"), TEXT("op"), TEXT("ok"), TEXT("changed"), TEXT("errorCode"), TEXT("errorMessage")});
-    TSharedPtr<FJsonObject> OpResultProperties = OpResultSchema->GetObjectField(TEXT("properties"));
-    OpResultProperties->SetObjectField(TEXT("index"), MakeIntegerSchema());
-    OpResultProperties->SetObjectField(TEXT("op"), MakeStringSchema());
-    OpResultProperties->SetObjectField(TEXT("ok"), MakeBooleanSchema(false, false));
-    OpResultProperties->SetObjectField(TEXT("skipped"), MakeBooleanSchema(false, false));
-    OpResultProperties->SetObjectField(TEXT("changed"), MakeBooleanSchema(false, false));
-    OpResultProperties->SetObjectField(TEXT("nodeId"), MakeStringSchema());
-    OpResultProperties->SetObjectField(TEXT("error"), MakeStringSchema());
-    OpResultProperties->SetObjectField(TEXT("errorCode"), MakeStringSchema());
-    OpResultProperties->SetObjectField(TEXT("errorMessage"), MakeStringSchema());
-    OpResultProperties->SetObjectField(TEXT("skipReason"), MakeStringSchema());
-    OpResultProperties->SetObjectField(TEXT("details"), MakeObjectSchema(true));
-    OpResultProperties->SetObjectField(TEXT("movedNodeIds"), MakeArraySchema(MakeStringSchema()));
-    OpResultProperties->SetObjectField(TEXT("scriptResult"), MakeObjectSchema(true));
-    Properties->SetObjectField(TEXT("opResults"), MakeArraySchema(OpResultSchema));
-    Properties->SetObjectField(TEXT("diagnostics"), MakeArraySchema(MakeObjectSchema(true)));
     return Schema;
 }
 
@@ -647,25 +833,6 @@ TSharedPtr<FJsonObject> MakeWidgetVerifyOutputSchema()
     return Schema;
 }
 
-TSharedPtr<FJsonObject> MakeGraphVerifyOutputSchema()
-{
-    TSharedPtr<FJsonObject> Schema = MakeObjectSchema(true);
-    AddRequiredFields(Schema, {TEXT("status"), TEXT("diagnostics")});
-    TSharedPtr<FJsonObject> Properties = Schema->GetObjectField(TEXT("properties"));
-    Properties->SetObjectField(TEXT("status"), MakeEnumStringSchema({TEXT("ok"), TEXT("warn"), TEXT("error")}));
-    Properties->SetObjectField(TEXT("summary"), MakeStringSchema());
-    Properties->SetObjectField(TEXT("graphType"), MakeGraphTypeSchema());
-    Properties->SetObjectField(TEXT("assetPath"), MakeStringSchema());
-    Properties->SetObjectField(TEXT("graphName"), MakeStringSchema());
-    Properties->SetObjectField(TEXT("graphRef"), MakeGraphRefSchema());
-    Properties->SetObjectField(TEXT("previousRevision"), MakeStringSchema());
-    Properties->SetObjectField(TEXT("newRevision"), MakeStringSchema());
-    Properties->SetObjectField(TEXT("queryReport"), MakeObjectSchema(true));
-    Properties->SetObjectField(TEXT("compileReport"), MakeObjectSchema(true));
-    Properties->SetObjectField(TEXT("diagnostics"), MakeArraySchema(MakeObjectSchema(true)));
-    return Schema;
-}
-
 struct FToolDescriptorDefinition
 {
     const TCHAR* Name;
@@ -686,12 +853,22 @@ const TArray<FToolDescriptorDefinition>& GetToolDefinitions()
         {TEXT("editor.open"), TEXT("Open Asset Editor"), TEXT("Open or focus the editor for a specific Unreal asset path."), &MakeEditorOpenInputSchema, &MakeOpenOutputSchema},
         {TEXT("editor.focus"), TEXT("Focus Editor Panel"), TEXT("Focus a semantic panel inside an asset editor, such as graph, viewport, details, palette, or find."), &MakeEditorFocusInputSchema, &MakeOpenOutputSchema},
         {TEXT("editor.screenshot"), TEXT("Editor Screenshot"), TEXT("Capture a PNG of the active editor window and return the written file path."), &MakeEditorScreenshotInputSchema, &MakeOpenOutputSchema},
-        {TEXT("graph.verify"), TEXT("Graph Verify"), TEXT("Run final graph verification for Blueprint, Material, or PCG graphs."), &MakeGraphVerifyInputSchema, &MakeGraphVerifyOutputSchema},
         {TEXT("graph"), TEXT("Graph Descriptor"), TEXT("Read graph capability descriptor and runtime status."), &MakeGraphDescriptorInputSchema, &MakeOpenOutputSchema},
-        {TEXT("graph.list"), TEXT("Graph List"), TEXT("List readable graphs in an asset."), &MakeGraphListInputSchema, &MakeGraphListOutputSchema},
-        {TEXT("graph.resolve"), TEXT("Graph Resolve"), TEXT("Resolve an Unreal object or asset reference into queryable graph refs."), &MakeGraphResolveInputSchema, &MakeOpenOutputSchema},
-        {TEXT("graph.query"), TEXT("Graph Query"), TEXT("Query semantic graph snapshot."), &MakeGraphQueryInputSchema, &MakeGraphQueryOutputSchema},
-        {TEXT("graph.mutate"), TEXT("Graph Mutate"), TEXT("Apply graph write operations in order."), &MakeGraphMutateInputSchema, &MakeGraphMutateOutputSchema},
+        {TEXT("blueprint.list"), TEXT("Blueprint List"), TEXT("List Blueprint graphs in an asset."), &MakeBlueprintListInputSchema, &MakeBlueprintListOutputSchema},
+        {TEXT("blueprint.query"), TEXT("Blueprint Query"), TEXT("Read node and pin data from a Blueprint graph."), &MakeBlueprintQueryInputSchema, [](){ return MakeDomainQueryOutputSchema(true); }},
+        {TEXT("blueprint.mutate"), TEXT("Blueprint Mutate"), TEXT("Apply a batch of write operations to a Blueprint graph."), &MakeBlueprintMutateInputSchema, [](){ return MakeDomainMutateOutputSchema(true); }},
+        {TEXT("blueprint.verify"), TEXT("Blueprint Verify"), TEXT("Run read-only structural validation for a Blueprint graph."), &MakeBlueprintVerifyInputSchema, &MakeDomainVerifyOutputSchema},
+        {TEXT("blueprint.describe"), TEXT("Blueprint Describe"), TEXT("Describe a Blueprint class or a specific Blueprint graph node."), &MakeBlueprintDescribeInputSchema, &MakeDomainDescribeOutputSchema},
+        {TEXT("material.list"), TEXT("Material List"), TEXT("List material expressions in a material asset."), &MakeMaterialListInputSchema, &MakeMaterialListOutputSchema},
+        {TEXT("material.query"), TEXT("Material Query"), TEXT("Read expression nodes and pin data from a material."), &MakeMaterialQueryInputSchema, [](){ return MakeDomainQueryOutputSchema(false); }},
+        {TEXT("material.mutate"), TEXT("Material Mutate"), TEXT("Apply a batch of write operations to a material asset."), &MakeMaterialMutateInputSchema, [](){ return MakeDomainMutateOutputSchema(false); }},
+        {TEXT("material.verify"), TEXT("Material Verify"), TEXT("Compile a material and return diagnostics."), &MakeMaterialVerifyInputSchema, &MakeDomainVerifyOutputSchema},
+        {TEXT("material.describe"), TEXT("Material Describe"), TEXT("Describe a material expression class or instance."), &MakeMaterialDescribeInputSchema, &MakeDomainDescribeOutputSchema},
+        {TEXT("pcg.list"), TEXT("PCG List"), TEXT("List nodes in a PCG graph asset."), &MakePcgListInputSchema, &MakePcgListOutputSchema},
+        {TEXT("pcg.query"), TEXT("PCG Query"), TEXT("Read node and pin data from a PCG graph."), &MakePcgQueryInputSchema, [](){ return MakeDomainQueryOutputSchema(false); }},
+        {TEXT("pcg.mutate"), TEXT("PCG Mutate"), TEXT("Apply a batch of write operations to a PCG graph."), &MakePcgMutateInputSchema, [](){ return MakeDomainMutateOutputSchema(false); }},
+        {TEXT("pcg.verify"), TEXT("PCG Verify"), TEXT("Run read-only validation for a PCG graph."), &MakePcgVerifyInputSchema, &MakeDomainVerifyOutputSchema},
+        {TEXT("pcg.describe"), TEXT("PCG Describe"), TEXT("Describe a PCG settings class or instance."), &MakePcgDescribeInputSchema, &MakeDomainDescribeOutputSchema},
         {TEXT("diag.tail"), TEXT("Diagnostics Tail"), TEXT("Read persisted diagnostics incrementally by sequence cursor."), &MakeDiagTailInputSchema, &MakeDiagTailOutputSchema},
         {TEXT("widget.query"), TEXT("Widget Tree Query"), TEXT("Read the UMG WidgetTree of a WidgetBlueprint asset."), &MakeWidgetQueryInputSchema, &MakeWidgetQueryOutputSchema},
         {TEXT("widget.mutate"), TEXT("Widget Tree Mutate"), TEXT("Apply structural write operations to the UMG WidgetTree of a WidgetBlueprint asset."), &MakeWidgetMutateInputSchema, &MakeWidgetMutateOutputSchema},
