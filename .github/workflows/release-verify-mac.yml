@@ -124,7 +124,7 @@ jobs:
           mkdir -p "$plugin_dst"
           rsync -a --delete "$package_dir"/ "$plugin_dst"/
 
-      - name: Build LOOMLE Client Binary (Release) And Sync To Test Project Workspace
+      - name: Build LOOMLE Client Binary (Release)
         shell: bash
         run: |
           set -euo pipefail
@@ -132,19 +132,7 @@ jobs:
           cargo build --release
 
           client_src="$GITHUB_WORKSPACE/client/target/release/loomle"
-          client_root="$GITHUB_WORKSPACE/client"
-          workspace_src="$GITHUB_WORKSPACE/workspace/Loomle"
           [[ -x "$client_src" ]] || { echo "LOOMLE client binary missing or not executable: $client_src" >&2; exit 1; }
-          [[ -d "$client_root" ]] || { echo "LOOMLE client root missing: $client_root" >&2; exit 1; }
-          [[ -d "$workspace_src" ]] || { echo "LOOMLE workspace missing: $workspace_src" >&2; exit 1; }
-
-          loomle_dst="${{ steps.test_project.outputs.test_root }}/Loomle"
-          rm -rf "$loomle_dst"
-          rsync -a "$workspace_src"/ "$loomle_dst"/
-          cp "$client_src" "$loomle_dst/loomle"
-          cp "$client_root/update.sh" "$loomle_dst/update.sh"
-          chmod +x "$loomle_dst/loomle"
-          chmod +x "$loomle_dst/update.sh"
 
       - name: Stage Release Inputs
         shell: bash
@@ -152,25 +140,17 @@ jobs:
           set -euo pipefail
           release_inputs="$RUNNER_TEMP/loomle-release-inputs-darwin"
           plugin_src="$RUNNER_TEMP/LoomleBridge_Gating"
-          client_root="$GITHUB_WORKSPACE/client"
-          workspace_src="$GITHUB_WORKSPACE/workspace/Loomle"
           client_src="$GITHUB_WORKSPACE/client/target/release/loomle"
 
           [[ -d "$plugin_src" ]] || { echo "Packaged plugin missing: $plugin_src" >&2; exit 1; }
-          [[ -d "$client_root" ]] || { echo "Client root missing: $client_root" >&2; exit 1; }
-          [[ -d "$workspace_src" ]] || { echo "Workspace missing: $workspace_src" >&2; exit 1; }
           [[ -x "$client_src" ]] || { echo "Client binary missing: $client_src" >&2; exit 1; }
 
           rm -rf "$release_inputs"
-          mkdir -p "$release_inputs/loomle/Loomle"
+          mkdir -p "$release_inputs/plugin-cache/LoomleBridge"
 
-          rsync -a "$plugin_src"/ "$release_inputs/plugin/LoomleBridge"/
-          rsync -a "$workspace_src"/ "$release_inputs/loomle/Loomle"/
-          cp "$client_src" "$release_inputs/loomle/Loomle/loomle"
-          cp "$client_root/update.sh" "$release_inputs/loomle/Loomle/update.sh"
-          chmod +x \
-            "$release_inputs/loomle/Loomle/loomle" \
-            "$release_inputs/loomle/Loomle/update.sh"
+          rsync -a "$plugin_src"/ "$release_inputs/plugin-cache/LoomleBridge"/
+          cp "$client_src" "$release_inputs/loomle"
+          chmod +x "$release_inputs/loomle"
 
       - name: Upload Release Inputs
         uses: actions/upload-artifact@v4
@@ -221,7 +201,8 @@ jobs:
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
           python3 tests/e2e/test_bridge_smoke.py \
-            --project-root "${{ steps.test_project.outputs.test_root }}"
+            --project-root "${{ steps.test_project.outputs.test_root }}" \
+            --loomle-bin "$GITHUB_WORKSPACE/client/target/release/loomle"
 
       - name: Run Regression Integration Test
         shell: bash
@@ -229,7 +210,8 @@ jobs:
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
           python3 tests/e2e/test_bridge_regression.py \
-            --project-root "${{ steps.test_project.outputs.test_root }}"
+            --project-root "${{ steps.test_project.outputs.test_root }}" \
+            --loomle-bin "$GITHUB_WORKSPACE/client/target/release/loomle"
 
       - name: Tail Unreal Project Log On Failure
         if: failure()
@@ -266,7 +248,8 @@ jobs:
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
           python3 tests/integration/test_loomle_latency.py \
-            --project-root "${{ steps.test_project.outputs.test_root }}"
+            --project-root "${{ steps.test_project.outputs.test_root }}" \
+            --loomle-bin "$GITHUB_WORKSPACE/client/target/release/loomle"
 
       - name: Upload Benchmark Artifact
         if: always()

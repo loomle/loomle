@@ -190,7 +190,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $pluginDst | Out-Null
           Copy-Item -Path (Join-Path $packageDir "*") -Destination $pluginDst -Recurse -Force
 
-      - name: Build LOOMLE Client And Sync To Test Project
+      - name: Build LOOMLE Client
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           Push-Location (Join-Path $env:GITHUB_WORKSPACE "client")
@@ -198,15 +198,9 @@ jobs:
           Pop-Location
 
           $clientSrc = Join-Path $env:GITHUB_WORKSPACE "client\target\release\loomle.exe"
-          $workspaceSrc = Join-Path $env:GITHUB_WORKSPACE "workspace\Loomle"
-          $workspaceDst = Join-Path "${{ steps.test_project.outputs.test_root }}" "Loomle"
-
-          if (Test-Path -LiteralPath $workspaceDst) {
-            Remove-Item -LiteralPath $workspaceDst -Recurse -Force
+          if (-not (Test-Path -LiteralPath $clientSrc)) {
+            throw "LOOMLE client binary missing: $clientSrc"
           }
-          New-Item -ItemType Directory -Force -Path $workspaceDst | Out-Null
-          Copy-Item -Path (Join-Path $workspaceSrc "*") -Destination $workspaceDst -Recurse -Force
-          Copy-Item -LiteralPath $clientSrc -Destination (Join-Path $workspaceDst "loomle.exe") -Force
 
       - name: Restart Unreal Editor For Benchmarking
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
@@ -224,7 +218,7 @@ jobs:
         run: |
           $deadline = (Get-Date).AddMinutes(4)
           while ((Get-Date) -lt $deadline) {
-            python tests/e2e/test_bridge_smoke.py --project-root "${{ steps.test_project.outputs.test_root }}"
+            python tests/e2e/test_bridge_smoke.py --project-root "${{ steps.test_project.outputs.test_root }}" --loomle-bin (Join-Path $env:GITHUB_WORKSPACE "client\target\release\loomle.exe")
             if ($LASTEXITCODE -eq 0) {
               exit 0
             }
@@ -239,6 +233,7 @@ jobs:
         run: |
           python tools/benchmarks/create_temp_blueprint_asset.py `
             --project-root "${{ steps.test_project.outputs.test_root }}" `
+            --loomle-bin (Join-Path $env:GITHUB_WORKSPACE "client\target\release\loomle.exe") `
             --github-output "$env:GITHUB_OUTPUT"
           if ($LASTEXITCODE -ne 0) {
             throw "Failed to create temporary benchmark asset"
@@ -249,6 +244,7 @@ jobs:
         run: |
           python tools/perf_bridge_latency.py `
             --project-root "${{ steps.test_project.outputs.test_root }}" `
+            --loomle-bin (Join-Path $env:GITHUB_WORKSPACE "client\target\release\loomle.exe") `
             --tool context `
             --total 384 `
             --concurrency 48 `
@@ -259,6 +255,7 @@ jobs:
         run: |
           python tools/benchmarks/run_graph_query_benchmark.py `
             --project-root "${{ steps.test_project.outputs.test_root }}" `
+            --loomle-bin (Join-Path $env:GITHUB_WORKSPACE "client\target\release\loomle.exe") `
             --asset-path "${{ steps.temp_asset.outputs.asset_path }}" `
             --output-file "$env:RUNNER_TEMP\loomle-graph-query-bench.txt"
 

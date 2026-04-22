@@ -63,21 +63,19 @@ jobs:
           fi
 
           rm -rf "$bundle_dir" "$release_dir"
-          mkdir -p "$bundle_dir/plugin/LoomleBridge" "$bundle_dir/Loomle" "$release_dir"
-          [[ -d "$inputs_dir/plugin/LoomleBridge" ]] || { echo "Verify plugin inputs missing: $inputs_dir/plugin/LoomleBridge" >&2; exit 1; }
-          [[ -d "$inputs_dir/loomle/Loomle" ]] || { echo "Verify Loomle inputs missing: $inputs_dir/loomle/Loomle" >&2; exit 1; }
-          client_relpath="Loomle/loomle"
+          mkdir -p "$bundle_dir/plugin-cache/LoomleBridge" "$release_dir"
+          [[ -d "$inputs_dir/plugin-cache/LoomleBridge" ]] || { echo "Verify plugin inputs missing: $inputs_dir/plugin-cache/LoomleBridge" >&2; exit 1; }
+          [[ -x "$inputs_dir/loomle" ]] || { echo "Verify loomle binary missing: $inputs_dir/loomle" >&2; exit 1; }
+          client_relpath="loomle"
           client_dst="$bundle_dir/$client_relpath"
 
-          rsync -a "$inputs_dir/plugin/LoomleBridge/" "$bundle_dir/plugin/LoomleBridge/"
-          rsync -a "$inputs_dir/loomle/Loomle/" "$bundle_dir/Loomle/"
-          chmod +x \
-            "$bundle_dir/$client_relpath"
+          rsync -a "$inputs_dir/plugin-cache/LoomleBridge/" "$bundle_dir/plugin-cache/LoomleBridge/"
+          cp "$inputs_dir/loomle" "$client_dst"
+          chmod +x "$client_dst"
 
-          (
-            cd "$bundle_dir"
-            zip -r "$archive_path" .
-          )
+          python3 "$GITHUB_WORKSPACE/packaging/release/write_bundle_zip.py" \
+            --bundle-dir "$bundle_dir" \
+            --archive-path "$archive_path"
 
           package_sha="$(shasum -a 256 "$archive_path" | awk '{print tolower($1)}')"
           client_sha="$(shasum -a 256 "$client_dst" | awk '{print tolower($1)}')"

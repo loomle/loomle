@@ -254,12 +254,20 @@ jobs:
               --notes "Stable alias release for the latest LOOMLE release archives and manifest." \
               release-finalize/loomle-darwin.zip \
               release-finalize/loomle-windows.zip \
+              release-finalize/loomle-manifest-darwin.json \
+              release-finalize/loomle-manifest-windows.json \
               release-finalize/loomle-manifest.json
           else
             gh release upload loomle-latest release-finalize/loomle-darwin.zip \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
             gh release upload loomle-latest release-finalize/loomle-windows.zip \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            gh release upload loomle-latest release-finalize/loomle-manifest-darwin.json \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            gh release upload loomle-latest release-finalize/loomle-manifest-windows.json \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
             gh release upload loomle-latest release-finalize/loomle-manifest.json \

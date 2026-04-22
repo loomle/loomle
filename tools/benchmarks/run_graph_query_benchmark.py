@@ -19,6 +19,7 @@ def main() -> int:
     parser.add_argument("--total", type=int, default=384, help="Total requests to send")
     parser.add_argument("--concurrency", type=int, default=48, help="Concurrent workers")
     parser.add_argument("--warmup", type=int, default=20, help="Warmup requests")
+    parser.add_argument("--loomle-bin", default="", help="Optional path to the loomle client binary")
     parser.add_argument(
         "--output-file",
         default="",
@@ -51,6 +52,8 @@ def main() -> int:
         "--warmup",
         str(args.warmup),
     ]
+    if args.loomle_bin:
+        command.extend(["--loomle-bin", args.loomle_bin])
     result = subprocess.run(command, capture_output=True, text=True)
     sys.stdout.write(result.stdout)
     sys.stderr.write(result.stderr)

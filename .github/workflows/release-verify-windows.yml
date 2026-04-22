@@ -214,7 +214,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $pluginDst | Out-Null
           Copy-Item -Path (Join-Path $packageDir "*") -Destination $pluginDst -Recurse -Force
 
-      - name: Build LOOMLE Client Binary (Release) And Sync To Test Project
+      - name: Build LOOMLE Client Binary (Release)
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           Push-Location (Join-Path $env:GITHUB_WORKSPACE "client")
@@ -222,44 +222,19 @@ jobs:
           Pop-Location
 
           $clientSrc = Join-Path $env:GITHUB_WORKSPACE "client\target\release\loomle.exe"
-          $clientRoot = Join-Path $env:GITHUB_WORKSPACE "client"
-          $workspaceSrc = Join-Path $env:GITHUB_WORKSPACE "workspace\Loomle"
           if (-not (Test-Path -LiteralPath $clientSrc)) {
             throw "LOOMLE client binary missing: $clientSrc"
           }
-          if (-not (Test-Path -LiteralPath $clientRoot)) {
-            throw "LOOMLE client root missing: $clientRoot"
-          }
-          if (-not (Test-Path -LiteralPath $workspaceSrc)) {
-            throw "LOOMLE workspace missing: $workspaceSrc"
-          }
-
-          $loomleDst = Join-Path "${{ steps.test_project.outputs.test_root }}" "Loomle"
-          if (Test-Path -LiteralPath $loomleDst) {
-            Remove-Item -LiteralPath $loomleDst -Recurse -Force
-          }
-          New-Item -ItemType Directory -Force -Path $loomleDst | Out-Null
-          Copy-Item -Path (Join-Path $workspaceSrc "*") -Destination $loomleDst -Recurse -Force
-          Copy-Item -LiteralPath $clientSrc -Destination (Join-Path $loomleDst "loomle.exe") -Force
-          Copy-Item -LiteralPath (Join-Path $clientRoot "update.ps1") -Destination (Join-Path $loomleDst "update.ps1") -Force
 
       - name: Stage Release Inputs
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           $releaseInputs = Join-Path $env:RUNNER_TEMP "loomle-release-inputs-windows"
           $pluginSrc = Join-Path $env:RUNNER_TEMP "LoomleBridge_Gating_Windows"
-          $clientRoot = Join-Path $env:GITHUB_WORKSPACE "client"
-          $workspaceSrc = Join-Path $env:GITHUB_WORKSPACE "workspace\Loomle"
           $clientSrc = Join-Path $env:GITHUB_WORKSPACE "client\target\release\loomle.exe"
 
           if (-not (Test-Path -LiteralPath $pluginSrc)) {
             throw "Packaged plugin missing: $pluginSrc"
-          }
-          if (-not (Test-Path -LiteralPath $clientRoot)) {
-            throw "Client root missing: $clientRoot"
-          }
-          if (-not (Test-Path -LiteralPath $workspaceSrc)) {
-            throw "Workspace missing: $workspaceSrc"
           }
           if (-not (Test-Path -LiteralPath $clientSrc)) {
             throw "Client binary missing: $clientSrc"
@@ -267,13 +242,10 @@ jobs:
 
           Remove-Item -LiteralPath $releaseInputs -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path `
-            (Join-Path $releaseInputs "plugin\LoomleBridge"), `
-            (Join-Path $releaseInputs "loomle\Loomle") | Out-Null
+            (Join-Path $releaseInputs "plugin-cache\LoomleBridge") | Out-Null
 
-          Copy-Item -Path (Join-Path $pluginSrc "*") -Destination (Join-Path $releaseInputs "plugin\LoomleBridge") -Recurse -Force
-          Copy-Item -Path (Join-Path $workspaceSrc "*") -Destination (Join-Path $releaseInputs "loomle\Loomle") -Recurse -Force
-          Copy-Item -LiteralPath $clientSrc -Destination (Join-Path $releaseInputs "loomle\Loomle\loomle.exe") -Force
-          Copy-Item -LiteralPath (Join-Path $clientRoot "update.ps1") -Destination (Join-Path $releaseInputs "loomle\Loomle\update.ps1") -Force
+          Copy-Item -Path (Join-Path $pluginSrc "*") -Destination (Join-Path $releaseInputs "plugin-cache\LoomleBridge") -Recurse -Force
+          Copy-Item -LiteralPath $clientSrc -Destination (Join-Path $releaseInputs "loomle.exe") -Force
 
       - name: Upload Release Inputs
         uses: actions/upload-artifact@v4
@@ -298,7 +270,7 @@ jobs:
         run: |
           $deadline = (Get-Date).AddMinutes(4)
           while ((Get-Date) -lt $deadline) {
-            python tests/e2e/test_bridge_smoke.py --project-root "${{ steps.test_project.outputs.test_root }}"
+            python tests/e2e/test_bridge_smoke.py --project-root "${{ steps.test_project.outputs.test_root }}" --loomle-bin (Join-Path $env:GITHUB_WORKSPACE "client\target\release\loomle.exe")
             if ($LASTEXITCODE -eq 0) {
               exit 0
             }
@@ -319,7 +291,7 @@ jobs:
 
           for ($attempt = 1; $attempt -le 2; $attempt++) {
             Push-Location $env:GITHUB_WORKSPACE
-            python tests/e2e/test_bridge_regression.py --project-root $projectRoot
+            python tests/e2e/test_bridge_regression.py --project-root $projectRoot --loomle-bin (Join-Path $env:GITHUB_WORKSPACE "client\target\release\loomle.exe")
             $exitCode = $LASTEXITCODE
             Pop-Location
 

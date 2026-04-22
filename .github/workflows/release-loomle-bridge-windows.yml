@@ -82,24 +82,22 @@ jobs:
 
           Remove-Item -LiteralPath $bundleDir, $releaseDir -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path `
-            (Join-Path $bundleDir "plugin\LoomleBridge"), `
-            (Join-Path $bundleDir "Loomle"), `
+            (Join-Path $bundleDir "plugin-cache\LoomleBridge"), `
             $releaseDir | Out-Null
 
-          if (-not (Test-Path -LiteralPath (Join-Path $inputsDir "plugin\LoomleBridge"))) {
-            throw "Verify plugin inputs missing: $(Join-Path $inputsDir 'plugin\LoomleBridge')"
+          if (-not (Test-Path -LiteralPath (Join-Path $inputsDir "plugin-cache\LoomleBridge"))) {
+            throw "Verify plugin inputs missing: $(Join-Path $inputsDir 'plugin-cache\LoomleBridge')"
           }
-          if (-not (Test-Path -LiteralPath (Join-Path $inputsDir "loomle\Loomle"))) {
-            throw "Verify Loomle inputs missing: $(Join-Path $inputsDir 'loomle\Loomle')"
+          if (-not (Test-Path -LiteralPath (Join-Path $inputsDir "loomle.exe"))) {
+            throw "Verify loomle binary missing: $(Join-Path $inputsDir 'loomle.exe')"
           }
-          $clientRelPath = "Loomle/loomle.exe"
+          $clientRelPath = "loomle.exe"
           $clientDst = Join-Path $bundleDir ($clientRelPath -replace '/', '\')
 
           New-Item -ItemType Directory -Force -Path (Split-Path -Parent $clientDst) | Out-Null
 
-          Copy-Item -Path (Join-Path $inputsDir "plugin\LoomleBridge\*") -Destination (Join-Path $bundleDir "plugin\LoomleBridge") -Recurse -Force
-          Copy-Item -Path (Join-Path $inputsDir "loomle\Loomle\*") -Destination (Join-Path $bundleDir "Loomle") -Recurse -Force
-          Copy-Item -LiteralPath (Join-Path $inputsDir "loomle\Loomle\loomle.exe") -Destination $clientDst -Force
+          Copy-Item -Path (Join-Path $inputsDir "plugin-cache\LoomleBridge\*") -Destination (Join-Path $bundleDir "plugin-cache\LoomleBridge") -Recurse -Force
+          Copy-Item -LiteralPath (Join-Path $inputsDir "loomle.exe") -Destination $clientDst -Force
 
           python (Join-Path $env:GITHUB_WORKSPACE "packaging\release\write_bundle_zip.py") `
             --bundle-dir $bundleDir `
