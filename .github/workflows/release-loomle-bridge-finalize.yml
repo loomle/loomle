@@ -88,12 +88,15 @@ jobs:
 
           resolve_workflow_state() {
             local workflow_name="$1"
-            gh run list \
-              --repo "$GITHUB_REPOSITORY" \
-              --workflow "$workflow_name" \
-              --limit 100 \
-              --json databaseId,headSha,status,conclusion,createdAt,url,event \
-              --jq '
+            local output=""
+            local attempt
+            for attempt in 1 2 3; do
+              if output="$(gh run list \
+                --repo "$GITHUB_REPOSITORY" \
+                --workflow "$workflow_name" \
+                --limit 100 \
+                --json databaseId,headSha,status,conclusion,createdAt,url,event \
+                --jq '
                 map(select(.headSha == "'"$tag_commit"'"))
                 | sort_by(.createdAt)
                 | reverse
@@ -133,7 +136,16 @@ jobs:
                           end
                       end
                   end
-              '
+              ')"; then
+                printf '%s\n' "$output"
+                return 0
+              fi
+              echo "gh run list failed for $workflow_name on attempt $attempt; retrying..." >&2
+              sleep 10
+            done
+
+            printf '{"status":"api_error","conclusion":"","url":"","event":""}\n'
+            return 0
           }
 
           for _ in $(seq 1 90); do
