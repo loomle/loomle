@@ -21,8 +21,9 @@ This site is intentionally minimal:
 
 - `index.html` is the install entrypoint page
 - `install.sh` and `install.ps1` are the only published site scripts
-- they install LOOMLE directly from the release manifest and platform zip
+- they install LOOMLE globally from the release manifest and platform zip
 - they do not download a temporary installer binary
-- they do not publish update or doctor entrypoints
+- they do not install into an Unreal project
+- project plugin install/update happens later through MCP `project.install`
 
 Keep the published bootstrap scripts aligned with `client/install.sh` and `client/install.ps1`.

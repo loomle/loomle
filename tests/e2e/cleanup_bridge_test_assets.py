@@ -28,7 +28,7 @@ def main() -> int:
     parser.add_argument(
         "--loomle-bin",
         default="",
-        help="Override path to the loomle client binary. Defaults to <ProjectRoot>/Loomle/loomle(.exe).",
+        help="Override path to the loomle client binary. Defaults to client/target/release/loomle(.exe).",
     )
     parser.add_argument(
         "--scan-root",

@@ -3,8 +3,6 @@ set -euo pipefail
 
 RELEASE_REPO="${LOOMLE_RELEASE_REPO:-loomle/loomle}"
 REQUESTED_VERSION="${LOOMLE_BOOTSTRAP_VERSION:-latest}"
-EDITOR_PERF_SECTION="[/Script/UnrealEd.EditorPerformanceSettings]"
-EDITOR_THROTTLE_SETTING="bThrottleCPUWhenNotForeground=False"
 
 fail() {
   echo "[loomle-install][ERROR] $*" >&2
@@ -14,11 +12,10 @@ fail() {
 usage() {
   cat <<'EOF'
 Usage:
-  install.sh [--project-root <ProjectRoot>] [--version <Version>] [--manifest-url <URL>] [--asset-url <URL>]
+  install.sh [--version <Version>] [--manifest-url <URL>] [--asset-url <URL>] [--install-root <Path>]
 
-Installs LOOMLE into one Unreal project by downloading the release manifest and
-platform bundle, extracting it, and materializing Plugins/LoomleBridge and
-Loomle/.
+Installs LOOMLE globally for the current user. Unreal projects are prepared
+later through the MCP tool project.install.
 EOF
 }
 
@@ -42,20 +39,6 @@ resolve_release_tag() {
   fi
 }
 
-find_project_root() {
-  local start="$1"
-  local dir
-  dir="$(cd "$start" && pwd)"
-  while [[ "$dir" != "/" ]]; do
-    if find "$dir" -maxdepth 1 -type f -name '*.uproject' | grep -q .; then
-      echo "$dir"
-      return 0
-    fi
-    dir="$(dirname "$dir")"
-  done
-  return 1
-}
-
 json_escape() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
@@ -72,22 +55,12 @@ resolve_effective_version() {
   fi
 }
 
-versioned_client_name() {
-  local version="$1"
+client_binary_name() {
   if [[ "$(detect_platform)" == "windows" ]]; then
-    printf 'loomle-%s.exe' "$version"
+    printf 'loomle.exe'
   else
-    printf 'loomle-%s' "$version"
+    printf 'loomle'
   fi
-}
-
-copy_tree_replace() {
-  local source="$1"
-  local destination="$2"
-  [[ -d "$source" ]] || fail "install source not found: $source"
-  rm -rf "$destination"
-  mkdir -p "$(dirname "$destination")"
-  cp -R "$source" "$destination"
 }
 
 remove_path_if_exists() {
@@ -96,26 +69,22 @@ remove_path_if_exists() {
   rm -rf "$path"
 }
 
-copy_entry() {
+copy_tree_replace() {
   local source="$1"
   local destination="$2"
-  if [[ -d "$source" ]]; then
-    cp -R "$source" "$destination"
-  else
-    cp "$source" "$destination"
-  fi
+  [[ -d "$source" ]] || fail "install source not found: $source"
+  remove_path_if_exists "$destination"
+  mkdir -p "$(dirname "$destination")"
+  cp -R "$source" "$destination"
 }
 
-sync_workspace_entries() {
-  local source_root="$1"
-  local destination_root="$2"
-  mkdir -p "$destination_root"
-  while IFS= read -r -d '' source_entry; do
-    local name
-    name="$(basename "$source_entry")"
-    remove_path_if_exists "$destination_root/$name"
-    copy_entry "$source_entry" "$destination_root/$name"
-  done < <(find "$source_root" -mindepth 1 -maxdepth 1 -print0 | sort -z)
+copy_file_replace() {
+  local source="$1"
+  local destination="$2"
+  [[ -f "$source" ]] || fail "install file not found: $source"
+  remove_path_if_exists "$destination"
+  mkdir -p "$(dirname "$destination")"
+  cp "$source" "$destination"
 }
 
 ensure_executable_if_present() {
@@ -125,86 +94,25 @@ ensure_executable_if_present() {
   fi
 }
 
-ensure_ini_setting() {
-  local ini_path="$1"
-  mkdir -p "$(dirname "$ini_path")"
-  if [[ -f "$ini_path" ]] && grep -Fqi "$EDITOR_THROTTLE_SETTING" "$ini_path"; then
-    return 0
-  fi
-  {
-    [[ -f "$ini_path" ]] && printf '\n'
-    printf '%s\n%s\n' "$EDITOR_PERF_SECTION" "$EDITOR_THROTTLE_SETTING"
-  } >> "$ini_path"
-}
-
-ensure_workspace_layout() {
-  local workspace_root="$1"
-  mkdir -p \
-    "$workspace_root/install/versions" \
-    "$workspace_root/install/manifests" \
-    "$workspace_root/install/pending" \
-    "$workspace_root/state/diag" \
-    "$workspace_root/state/captures"
-}
-
-copy_versioned_payload() {
-  local workspace_source="$1"
-  local workspace_destination="$2"
-  local version="$3"
-  local source_client_name="$4"
-  local target_client_name="$5"
-  local version_root="$workspace_destination/install/versions/$version"
-  local kit_root="$version_root/kit"
-
-  mkdir -p "$version_root"
-  cp "$workspace_source/$source_client_name" "$version_root/$target_client_name"
-  chmod +x "$version_root/$target_client_name"
-
-  rm -rf "$kit_root"
-  mkdir -p "$kit_root"
-  local entry
-  for entry in README.md blueprint material pcg workflows examples; do
-    if [[ -e "$workspace_source/$entry" ]]; then
-      copy_entry "$workspace_source/$entry" "$kit_root/$entry"
-    fi
-  done
-}
-
-copy_manifest_record() {
-  local manifest_path="$1"
-  local workspace_destination="$2"
-  local version="$3"
-  cp "$manifest_path" "$workspace_destination/install/manifests/$version.json"
-}
-
 write_active_state() {
   local active_state_path="$1"
   local version="$2"
   local platform="$3"
-  local project_root="$4"
-  local plugin_root="$5"
-  local workspace_root="$6"
-  local launcher_path="$7"
-  local active_client_path="$8"
-  local settings_path="$9"
+  local install_root="$4"
+  local launcher_path="$5"
+  local active_client_path="$6"
   mkdir -p "$(dirname "$active_state_path")"
   cat > "$active_state_path" <<EOF
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "installedVersion": "$(json_escape "$version")",
   "activeVersion": "$(json_escape "$version")",
   "platform": "$(json_escape "$platform")",
-  "projectRoot": "$(json_escape "$project_root")",
-  "loomleRoot": "$(json_escape "$workspace_root")",
-  "pluginRoot": "$(json_escape "$plugin_root")",
+  "installRoot": "$(json_escape "$install_root")",
   "launcherPath": "$(json_escape "$launcher_path")",
   "activeClientPath": "$(json_escape "$active_client_path")",
-  "manifestsRoot": "$(json_escape "$workspace_root/install/manifests")",
-  "versionsRoot": "$(json_escape "$workspace_root/install/versions")",
-  "editorPerformance": {
-    "settingsFile": "$(json_escape "$settings_path")",
-    "throttleWhenNotForeground": false
-  }
+  "versionsRoot": "$(json_escape "$install_root/versions")",
+  "pluginCacheRoot": "$(json_escape "$install_root/versions/$version/plugin-cache")"
 }
 EOF
 }
@@ -213,9 +121,9 @@ main() {
   require_command curl
   require_command unzip
 
-  local project_root=""
   local manifest_url=""
   local asset_url=""
+  local install_root="${LOOMLE_INSTALL_ROOT:-$HOME/.loomle}"
   local platform
   local release_tag
   local effective_version
@@ -223,24 +131,14 @@ main() {
   local manifest_path
   local archive_path
   local bundle_dir
-  local plugin_source
-  local workspace_source
-  local plugin_destination
-  local workspace_destination
-  local launcher_name="loomle"
-  local active_client_name
+  local client_name
+  local version_root
   local launcher_path
   local active_client_path
   local active_state_path
-  local settings_path
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --project-root)
-        [[ $# -ge 2 ]] || fail "missing value for --project-root"
-        project_root="$2"
-        shift 2
-        ;;
       --version)
         [[ $# -ge 2 ]] || fail "missing value for --version"
         REQUESTED_VERSION="$2"
@@ -256,6 +154,11 @@ main() {
         asset_url="$2"
         shift 2
         ;;
+      --install-root)
+        [[ $# -ge 2 ]] || fail "missing value for --install-root"
+        install_root="$2"
+        shift 2
+        ;;
       --help|-h)
         usage
         exit 0
@@ -266,12 +169,7 @@ main() {
     esac
   done
 
-  if [[ -z "$project_root" ]]; then
-    project_root="$(find_project_root "$PWD" || true)"
-  fi
-  [[ -n "$project_root" ]] || fail "could not resolve Unreal project root; pass --project-root"
-  project_root="$(cd "$project_root" && pwd)"
-
+  install_root="$(mkdir -p "$install_root" && cd "$install_root" && pwd)"
   platform="$(detect_platform)"
   if [[ -z "$manifest_url" ]]; then
     if [[ "$REQUESTED_VERSION" == "latest" ]]; then
@@ -299,7 +197,7 @@ main() {
   echo "[loomle-install] downloading manifest $manifest_url"
   curl -fsSL "$manifest_url" -o "$manifest_path"
   effective_version="$(resolve_effective_version "$manifest_path")"
-  active_client_name="$(versioned_client_name "$effective_version")"
+  client_name="$(client_binary_name)"
 
   echo "[loomle-install] downloading bundle $asset_url"
   curl -fsSL "$asset_url" -o "$archive_path"
@@ -307,60 +205,40 @@ main() {
   mkdir -p "$bundle_dir"
   unzip -q "$archive_path" -d "$bundle_dir"
 
-  plugin_source="$bundle_dir/plugin/LoomleBridge"
-  workspace_source="$bundle_dir/Loomle"
-  plugin_destination="$project_root/Plugins/LoomleBridge"
-  workspace_destination="$project_root/Loomle"
-  launcher_path="$workspace_destination/$launcher_name"
-  active_client_path="$workspace_destination/install/versions/$effective_version/$active_client_name"
-  active_state_path="$workspace_destination/install/active.json"
-  settings_path="$project_root/Config/DefaultEditorSettings.ini"
+  version_root="$install_root/versions/$effective_version"
+  launcher_path="$install_root/bin/$client_name"
+  active_client_path="$version_root/$client_name"
+  active_state_path="$install_root/install/active.json"
 
-  [[ -d "$plugin_source" ]] || fail "bundle missing plugin/LoomleBridge"
-  [[ -d "$workspace_source" ]] || fail "bundle missing Loomle/"
+  [[ -f "$bundle_dir/$client_name" ]] || fail "bundle missing $client_name"
+  [[ -d "$bundle_dir/plugin-cache/LoomleBridge" ]] || fail "bundle missing plugin-cache/LoomleBridge"
 
-  copy_tree_replace "$plugin_source" "$plugin_destination"
-  sync_workspace_entries "$workspace_source" "$workspace_destination"
-  ensure_workspace_layout "$workspace_destination"
-  copy_versioned_payload "$workspace_source" "$workspace_destination" "$effective_version" "$launcher_name" "$active_client_name"
-  copy_manifest_record "$manifest_path" "$workspace_destination" "$effective_version"
-
-  [[ -f "$launcher_path" ]] || fail "installed client missing: $launcher_path"
+  mkdir -p "$install_root/bin" "$install_root/install" "$install_root/state/runtimes" "$install_root/locks" "$install_root/logs"
+  copy_file_replace "$bundle_dir/$client_name" "$active_client_path"
+  copy_file_replace "$bundle_dir/$client_name" "$launcher_path"
+  copy_tree_replace "$bundle_dir/plugin-cache/LoomleBridge" "$version_root/plugin-cache/LoomleBridge"
+  cp "$manifest_path" "$version_root/manifest.json"
+  ensure_executable_if_present "$active_client_path"
   ensure_executable_if_present "$launcher_path"
-  ensure_executable_if_present "$workspace_destination/update.sh"
-
-  ensure_ini_setting "$settings_path"
-  write_active_state \
-    "$active_state_path" \
-    "$effective_version" \
-    "$platform" \
-    "$project_root" \
-    "$plugin_destination" \
-    "$workspace_destination" \
-    "$launcher_path" \
-    "$active_client_path" \
-    "$settings_path"
+  write_active_state "$active_state_path" "$effective_version" "$platform" "$install_root" "$launcher_path" "$active_client_path"
 
   cat <<EOF
 {
   "installedVersion": "$(json_escape "$effective_version")",
   "activeVersion": "$(json_escape "$effective_version")",
   "platform": "$(json_escape "$platform")",
-  "bundleRoot": "$(json_escape "$bundle_dir")",
-  "projectRoot": "$(json_escape "$project_root")",
-  "plugin": {
-    "source": "$(json_escape "$plugin_source")",
-    "destination": "$(json_escape "$plugin_destination")"
-  },
-  "workspace": {
-    "source": "$(json_escape "$workspace_source")",
-    "destination": "$(json_escape "$workspace_destination")"
-  },
-  "install": {
-    "activeState": "$(json_escape "$active_state_path")",
-    "activeClientPath": "$(json_escape "$active_client_path")"
-  }
+  "installRoot": "$(json_escape "$install_root")",
+  "launcherPath": "$(json_escape "$launcher_path")",
+  "activeClientPath": "$(json_escape "$active_client_path")",
+  "pluginCache": "$(json_escape "$version_root/plugin-cache/LoomleBridge")"
 }
+EOF
+
+  cat <<EOF
+
+Configure MCP hosts:
+  Codex:  codex mcp add loomle -- $launcher_path mcp
+  Claude: claude mcp add loomle --scope user $launcher_path mcp
 EOF
 }
 

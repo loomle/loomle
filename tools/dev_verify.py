@@ -17,7 +17,6 @@ if str(TESTS_E2E_DIR) not in sys.path:
 
 from test_bridge_smoke import McpStdioClient, call_tool
 
-INSTALL_FROM_CHECKOUT = REPO_ROOT / "packaging" / "install" / "install_from_checkout.py"
 SMOKE_SCRIPT = REPO_ROOT / "tests" / "e2e" / "test_bridge_smoke.py"
 REGRESSION_SCRIPT = REPO_ROOT / "tests" / "e2e" / "test_bridge_regression.py"
 LATENCY_SCRIPT = REPO_ROOT / "tests" / "integration" / "test_loomle_latency.py"
@@ -232,10 +231,12 @@ def loomle_binary_name(platform: str) -> str:
     return "loomle.exe" if platform == "windows" else "loomle"
 
 
-def resolve_project_local_loomle_binary(project_root: Path, platform: str) -> Path:
-    candidate = project_root / "Loomle" / loomle_binary_name(platform)
+def build_release_loomle_binary(platform: str) -> Path:
+    step("Build current checkout loomle binary")
+    run(["cargo", "build", "--release"], cwd=REPO_ROOT / "client")
+    candidate = REPO_ROOT / "client" / "target" / "release" / loomle_binary_name(platform)
     if not candidate.is_file():
-        fail(f"project-local loomle binary not found: {candidate}")
+        fail(f"release loomle binary not found after cargo build: {candidate}")
     return candidate
 
 
@@ -283,15 +284,6 @@ def is_tool_error_payload(payload: dict) -> bool:
     if isinstance(message, str) and message.strip():
         return True
     return False
-
-
-def ensure_project_local_install_ready(project_root: Path, platform: str) -> Path:
-    loomle_binary = resolve_project_local_loomle_binary(project_root, platform)
-    if not loomle_binary.exists():
-        fail(f"project-local loomle binary not found: {loomle_binary}")
-    if not loomle_binary.is_file():
-        fail(f"project-local loomle binary path is not a file: {loomle_binary}")
-    return loomle_binary
 
 
 def wait_for_bridge_runtime_ready(project_root: Path, loomle_binary: Path, timeout_s: float) -> None:
@@ -353,7 +345,14 @@ def run_smoke_with_retry(project_root: Path, timeout_s: float) -> None:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         result = run(
-            [sys.executable, str(SMOKE_SCRIPT), "--project-root", str(project_root)],
+            [
+                sys.executable,
+                str(SMOKE_SCRIPT),
+                "--project-root",
+                str(project_root),
+                "--loomle-bin",
+                str(REPO_ROOT / "client" / "target" / "release" / loomle_binary_name(detect_platform())),
+            ],
             allow_failure=True,
         )
         if result.returncode == 0:
@@ -364,7 +363,7 @@ def run_smoke_with_retry(project_root: Path, timeout_s: float) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Install the current checkout into a dev UE project, then verify through the project-local Loomle entrypoint."
+        description="Sync the current checkout plugin into a dev UE project, then verify through the release loomle binary."
     )
     parser.add_argument(
         "--project-root",
@@ -389,7 +388,7 @@ def main() -> int:
     parser.add_argument(
         "--version",
         default="0.0.0-dev",
-        help="Version string written into the temporary local install state.",
+        help="Reserved for compatibility; dev_verify no longer writes install state.",
     )
     parser.add_argument(
         "--wait-timeout",
@@ -400,7 +399,7 @@ def main() -> int:
     parser.add_argument("--skip-regression", action="store_true", help="Skip the regression suite.")
     parser.add_argument("--run-latency", action="store_true", help="Run latency validation after smoke/regression.")
     parser.add_argument("--no-restart", action="store_true", help="Skip Unreal Editor restart after install.")
-    parser.add_argument("--install-only", action="store_true", help="Only refresh the project-local install, do not run tests.")
+    parser.add_argument("--install-only", action="store_true", help="Only refresh the dev project plugin, do not run tests.")
     args = parser.parse_args()
 
     platform = detect_platform()
@@ -414,29 +413,15 @@ def main() -> int:
         shutil.rmtree(output_dir)
     output_dir.parent.mkdir(parents=True, exist_ok=True)
 
-    step("Install current checkout into the dev project")
-    run(
-        [
-            sys.executable,
-            str(INSTALL_FROM_CHECKOUT),
-            "--repo-root",
-            str(REPO_ROOT),
-            "--project-root",
-            str(project_root),
-            "--output-dir",
-            str(output_dir),
-            "--platform",
-            platform,
-            "--version",
-            args.version,
-        ]
-    )
-
+    loomle_binary = build_release_loomle_binary(platform)
+    plugin_dst = project_root / "Plugins" / "LoomleBridge"
+    if plugin_dst.exists():
+        shutil.rmtree(plugin_dst)
+    overlay_tree(REPO_ROOT / "engine" / "LoomleBridge", plugin_dst)
     sync_built_plugin_into_project(project_root, ue_root, platform, output_dir)
-    loomle_binary = ensure_project_local_install_ready(project_root, platform)
 
     if args.install_only:
-        print("[PASS] dev install completed", file=sys.stderr)
+        print("[PASS] dev plugin sync completed", file=sys.stderr)
         return 0
 
     if not args.no_restart:
@@ -450,7 +435,16 @@ def main() -> int:
 
     if not args.skip_regression:
         step("Run regression validation")
-        run([sys.executable, str(REGRESSION_SCRIPT), "--project-root", str(project_root)])
+        run(
+            [
+                sys.executable,
+                str(REGRESSION_SCRIPT),
+                "--project-root",
+                str(project_root),
+                "--loomle-bin",
+                str(loomle_binary),
+            ]
+        )
 
     if args.run_latency:
         step("Run latency validation")

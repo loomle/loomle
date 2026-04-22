@@ -76,7 +76,7 @@ If this is blocked, the client may run but still fail to locate:
 
 ### Layer 3: Local runtime transport
 
-The client must be allowed to connect to or launch the project-local runtime.
+The client must be allowed to connect to the project-scoped runtime transport.
 
 If this is blocked, the client may run but runtime connectivity still fails.
 
@@ -204,6 +204,6 @@ execution is restricted.
 This is a core reason to keep LOOMLE Lite:
 
 - explicit
-- project-local
+- project-readable
 - readable
 - useful before runtime permission is granted

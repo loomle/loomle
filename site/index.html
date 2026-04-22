@@ -6,7 +6,7 @@
     <title>LOOMLE</title>
     <meta
       name="description"
-      content="Install LOOMLE from https://loomle.ai. Paste the prompt into your coding agent from the Unreal project root."
+      content="Install the global LOOMLE MCP command from https://loomle.ai."
     />
     <style>
       :root {
@@ -121,6 +121,48 @@
         text-align: center;
       }
 
+      .details {
+        margin-top: 1rem;
+        display: grid;
+        gap: 1rem;
+      }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 1rem;
+        padding: 1.1rem 1.2rem;
+      }
+
+      .card h2 {
+        margin: 0 0 0.65rem;
+        font-size: 1.1rem;
+      }
+
+      .card p,
+      .card li {
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .card p {
+        margin: 0.65rem 0;
+      }
+
+      .card ul,
+      .card ol {
+        margin: 0.65rem 0 0;
+        padding-left: 1.2rem;
+      }
+
+      pre {
+        margin: 0.65rem 0;
+        padding: 0.85rem;
+        overflow-x: auto;
+        background: var(--block);
+        border-radius: 0.75rem;
+      }
+
       a {
         color: inherit;
       }
@@ -154,26 +196,61 @@
         <p class="eyebrow">LOOMLE</p>
         <h1 class="brand">LOOMLE</h1>
         <p class="intro">Agent-native Unreal Engine tooling for Blueprint, Material, and PCG workflows.</p>
-        <p class="subcopy">Paste this into your coding agent from the Unreal project root.</p>
+        <p class="subcopy">Install the global MCP command, then configure Codex, Claude, or another MCP host to run <code>loomle mcp</code>.</p>
 
         <div class="prompt">
-          <code id="prompt">Install LOOMLE from https://loomle.ai</code>
+          <code id="prompt">Install LOOMLE globally from https://loomle.ai, configure the MCP host to run `loomle mcp`, then use `project.list`, `project.attach`, and `project.install` for Unreal projects.</code>
           <button id="copyButton" type="button">Copy Prompt</button>
         </div>
       </div>
 
-      <p class="note">This site is only the first-install entrypoint. Installed projects keep their own maintenance scripts under <code>Loomle/</code>. Restart Unreal Editor after install so the new LoomleBridge plugin version is loaded.</p>
+      <p class="note">This site installs the global LOOMLE command. Unreal projects receive only <code>Plugins/LoomleBridge/</code>, installed or updated later through MCP <code>project.install</code>.</p>
+
+      <section class="details" aria-label="LOOMLE install summary">
+        <div class="card">
+          <h2>Install</h2>
+          <p>Install LOOMLE globally. The installer writes <code>~/.loomle</code> by default and creates a stable <code>loomle</code> command under <code>~/.loomle/bin/</code>.</p>
+          <pre><code>curl -fsSL https://loomle.ai/install.sh | bash</code></pre>
+          <p>Windows PowerShell:</p>
+          <pre><code>&amp; ([scriptblock]::Create((irm https://loomle.ai/install.ps1)))</code></pre>
+          <p>Configure your MCP host to run:</p>
+          <pre><code>loomle mcp</code></pre>
+          <p>LOOMLE does not use a daemon. Each MCP host session starts its own stdio <code>loomle mcp</code> process and attaches to one active Unreal project in that process.</p>
+        </div>
+
+        <div class="card">
+          <h2>Project Setup</h2>
+          <p>Open the target Unreal project with <code>LoomleBridge</code> installed. The bridge reports an online runtime under <code>~/.loomle/state/runtimes/</code>.</p>
+          <ol>
+            <li>Call <code>project.list</code> to see active projects.</li>
+            <li>Call <code>project.attach</code> with a listed project.</li>
+            <li>Use the UE tools exposed by the attached bridge.</li>
+          </ol>
+          <p>To install or update project support, call <code>project.install</code>. It copies the cached global plugin into <code>&lt;ProjectRoot&gt;/Plugins/LoomleBridge/</code>. Close the Unreal Editor for that project before running it.</p>
+        </div>
+
+        <div class="card">
+          <h2>CLI</h2>
+          <ul>
+            <li><code>loomle mcp</code>: run the stdio MCP server</li>
+            <li><code>loomle update</code>: update the global LOOMLE install</li>
+            <li><code>loomle doctor</code>: inspect the global install and print MCP configuration hints</li>
+          </ul>
+          <p>MCP tools are not duplicated as CLI subcommands.</p>
+        </div>
+      </section>
 
       <section class="sr-only" aria-label="LOOMLE install instructions for agents">
         <h2>LOOMLE install instructions</h2>
-        <p>LOOMLE installs two things into an Unreal project: Plugins/LoomleBridge and Loomle/.</p>
-        <p>For a first install, do not assume there is a machine-level loomle command. The site scripts install LOOMLE directly from the release manifest and platform zip into the current Unreal project.</p>
-        <p>From the current Unreal project root on macOS, run: curl -fsSL https://loomle.ai/install.sh | bash -s -- --project-root "$PWD"</p>
-        <p>Linux bootstrap artifacts are not published yet. On Linux, install from source or from a local release bundle for now.</p>
-        <p>From the current Unreal project root in Windows PowerShell, run: &amp; ([scriptblock]::Create((irm https://loomle.ai/install.ps1))) --project-root (Get-Location).Path</p>
-        <p>LOOMLE installs both the prebuilt plugin binaries and the plugin source so Unreal can load quickly and still participate in local target rebuilds.</p>
-        <p>If Unreal Editor is already running, restart it after install so the new LoomleBridge plugin version is loaded.</p>
-        <p>Installed projects keep their own platform-specific maintenance scripts under Loomle/.</p>
+        <p>LOOMLE installs a global loomle command under the user's install root.</p>
+        <p>The installer writes the global install under ~/.loomle by default and creates a stable loomle command under ~/.loomle/bin/.</p>
+        <p>For a first install on macOS or Linux, run: curl -fsSL https://loomle.ai/install.sh | bash</p>
+        <p>From Windows PowerShell, run: &amp; ([scriptblock]::Create((irm https://loomle.ai/install.ps1)))</p>
+        <p>Configure Codex, Claude, or another MCP host to run: loomle mcp.</p>
+        <p>LOOMLE does not use a daemon. Each MCP host session starts its own stdio loomle mcp process and attaches to one active Unreal project in that process.</p>
+        <p>After Unreal Editor is running with LoomleBridge, use project.list and project.attach from MCP.</p>
+        <p>Use MCP project.install to install or update Plugins/LoomleBridge in a project. Close the Unreal Editor for that project before running it.</p>
+        <p>The CLI commands are loomle mcp, loomle update, and loomle doctor. MCP tools are not duplicated as CLI subcommands.</p>
         <p>Agents should treat this page as the canonical install instruction source for LOOMLE.</p>
       </section>
     </main>

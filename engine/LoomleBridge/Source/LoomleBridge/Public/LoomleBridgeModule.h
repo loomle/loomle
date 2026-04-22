@@ -148,6 +148,8 @@ private:
     void StartNextJobIfNeeded();
     void RunQueuedJob(const FString& JobId);
     void AppendJobLogLine(const FString& JobId, const FString& Level, const FString& Message);
+    void WriteRuntimeRegistration();
+    void RemoveRuntimeRegistration();
 
 private:
     TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> PipeServer;
@@ -202,6 +204,7 @@ private:
     bool bDiagStoreInitialized = false;
     FOutputDevice* DiagLogOutputDevice = nullptr;
     FDelegateHandle BlueprintCompiledHandle;
+    FString RuntimeRegistrationPath;
     TSet<FString> BlueprintCompileErrorAssets;
     TAtomic<bool> bGraphMutateInProgress { false };
     TAtomic<bool> bBridgeRunningSnapshot { false };

@@ -37,6 +37,8 @@
 #include "IPythonScriptPlugin.h"
 #include "Input/HittestGrid.h"
 #include "Json.h"
+#include "HAL/PlatformMisc.h"
+#include "HAL/PlatformProcess.h"
 #include "HAL/FileManager.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
@@ -56,6 +58,8 @@
 #include "MaterialEditorUtilities.h"
 #include "Interfaces/IMainFrameModule.h"
 #include "LevelEditor.h"
+#include "Misc/App.h"
+#include "Misc/FileHelper.h"
 #include "MaterialGraph/MaterialGraph.h"
 #include "MaterialGraph/MaterialGraphNode.h"
 #include "MaterialGraph/MaterialGraphNode_Root.h"
@@ -149,6 +153,8 @@ namespace LoomleBridgeConstants
     static const TCHAR* MaterialQueryToolName = TEXT("material.query");
     static const TCHAR* PcgQueryToolName = TEXT("pcg.query");
     static const TCHAR* DiagTailToolName = TEXT("diag.tail");
+    static const TCHAR* PluginVersion = TEXT("0.5.0");
+    constexpr int32 ProtocolVersion = 1;
     constexpr double MutateIdempotencyTtlSeconds = 1800.0;
     constexpr int32 MaxMutateIdempotencyEntries = 2048;
 }
@@ -409,7 +415,6 @@ private:
     TFunction<void(const FString&, ELogVerbosity::Type, const FName&)> OnLine;
 };
 
-#if PLATFORM_WINDOWS
 uint64 StableFnv1a64(const FString& Input)
 {
     constexpr uint64 OffsetBasis = 0xcbf29ce484222325ull;
@@ -426,6 +431,32 @@ uint64 StableFnv1a64(const FString& Input)
     return Hash;
 }
 
+FString GetLoomleHomeDirectory()
+{
+#if PLATFORM_WINDOWS
+    FString Home = FPlatformMisc::GetEnvironmentVariable(TEXT("USERPROFILE"));
+    if (Home.IsEmpty())
+    {
+        const FString Drive = FPlatformMisc::GetEnvironmentVariable(TEXT("HOMEDRIVE"));
+        const FString Path = FPlatformMisc::GetEnvironmentVariable(TEXT("HOMEPATH"));
+        Home = Drive + Path;
+    }
+#else
+    FString Home = FPlatformMisc::GetEnvironmentVariable(TEXT("HOME"));
+#endif
+    if (Home.IsEmpty())
+    {
+        Home = FPlatformProcess::UserDir();
+    }
+    FPaths::NormalizeFilename(Home);
+    while (Home.EndsWith(TEXT("/")))
+    {
+        Home.LeftChopInline(1, EAllowShrinking::No);
+    }
+    return Home;
+}
+
+#if PLATFORM_WINDOWS
 FString NormalizeProjectRootForPipeName()
 {
     FString ProjectRoot = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
@@ -2928,9 +2959,8 @@ FString ResolveScreenshotOutputPath(const FString& RequestedPath)
     {
         const FString Timestamp = FDateTime::UtcNow().ToString(TEXT("%Y%m%d-%H%M%S"));
         OutputPath = FPaths::Combine(
-            FPaths::ProjectDir(),
+            FPaths::ProjectSavedDir(),
             TEXT("Loomle"),
-            TEXT("runtime"),
             TEXT("captures"),
             FString::Printf(TEXT("capture-%s.png"), *Timestamp));
     }
@@ -3914,6 +3944,86 @@ FString FLoomleBridgeModule::GetRuntimeEndpointDisplayString() const
 #endif
 }
 
+void FLoomleBridgeModule::WriteRuntimeRegistration()
+{
+    FString ProjectRoot = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
+    FPaths::NormalizeFilename(ProjectRoot);
+    while (ProjectRoot.EndsWith(TEXT("/")))
+    {
+        ProjectRoot.LeftChopInline(1, EAllowShrinking::No);
+    }
+    if (ProjectRoot.IsEmpty())
+    {
+        ProjectRoot = TEXT("/");
+    }
+
+    FString NormalizedProjectRoot = ProjectRoot;
+    NormalizedProjectRoot.ToLowerInline();
+    const FString ProjectId = FString::Printf(TEXT("%016llx"), static_cast<unsigned long long>(StableFnv1a64(NormalizedProjectRoot)));
+    const FString RuntimeId = ProjectId;
+    const FString LoomleRoot = FPaths::Combine(GetLoomleHomeDirectory(), TEXT(".loomle"));
+    const FString RuntimeDir = FPaths::Combine(LoomleRoot, TEXT("state"), TEXT("runtimes"));
+    IFileManager::Get().MakeDirectory(*RuntimeDir, true);
+
+    RuntimeRegistrationPath = FPaths::Combine(RuntimeDir, RuntimeId + TEXT(".json"));
+    const FString TempPath = RuntimeRegistrationPath + TEXT(".tmp");
+
+    TSharedPtr<FJsonObject> Record = MakeShared<FJsonObject>();
+    Record->SetNumberField(TEXT("schemaVersion"), 1);
+    Record->SetStringField(TEXT("runtimeId"), RuntimeId);
+    Record->SetStringField(TEXT("projectId"), ProjectId);
+    Record->SetStringField(TEXT("name"), FApp::GetProjectName());
+    Record->SetStringField(TEXT("projectRoot"), ProjectRoot);
+    Record->SetStringField(TEXT("uproject"), FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath()));
+    FString Endpoint = GetRuntimeEndpointDisplayString();
+#if !PLATFORM_WINDOWS
+    Endpoint = FPaths::ConvertRelativePathToFull(Endpoint);
+#endif
+    Record->SetStringField(TEXT("endpoint"), Endpoint);
+#if PLATFORM_WINDOWS
+    Record->SetStringField(TEXT("platform"), TEXT("windows"));
+#elif PLATFORM_MAC
+    Record->SetStringField(TEXT("platform"), TEXT("darwin"));
+#elif PLATFORM_LINUX
+    Record->SetStringField(TEXT("platform"), TEXT("linux"));
+#else
+    Record->SetStringField(TEXT("platform"), TEXT("unknown"));
+#endif
+    Record->SetNumberField(TEXT("pid"), static_cast<double>(FPlatformProcess::GetCurrentProcessId()));
+    Record->SetStringField(TEXT("pluginVersion"), LoomleBridgeConstants::PluginVersion);
+    Record->SetNumberField(TEXT("protocolVersion"), LoomleBridgeConstants::ProtocolVersion);
+    const FString Now = FDateTime::UtcNow().ToIso8601();
+    Record->SetStringField(TEXT("startedAt"), Now);
+    Record->SetStringField(TEXT("lastSeenAt"), Now);
+
+    FString Output;
+    const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Output);
+    FJsonSerializer::Serialize(Record.ToSharedRef(), Writer);
+
+    if (!FFileHelper::SaveStringToFile(Output + TEXT("\n"), *TempPath))
+    {
+        UE_LOG(LogLoomleBridge, Warning, TEXT("Failed to write LOOMLE runtime registration temp file %s"), *TempPath);
+        return;
+    }
+    if (!IFileManager::Get().Move(*RuntimeRegistrationPath, *TempPath, true, true))
+    {
+        UE_LOG(LogLoomleBridge, Warning, TEXT("Failed to publish LOOMLE runtime registration %s"), *RuntimeRegistrationPath);
+        IFileManager::Get().Delete(*TempPath, false, true);
+        return;
+    }
+
+    UE_LOG(LogLoomleBridge, Display, TEXT("LOOMLE runtime registered at %s"), *RuntimeRegistrationPath);
+}
+
+void FLoomleBridgeModule::RemoveRuntimeRegistration()
+{
+    if (!RuntimeRegistrationPath.IsEmpty())
+    {
+        IFileManager::Get().Delete(*RuntimeRegistrationPath, false, true);
+        RuntimeRegistrationPath.Reset();
+    }
+}
+
 void FLoomleBridgeModule::StartupModule()
 {
 #if PLATFORM_WINDOWS
@@ -3974,6 +4084,7 @@ void FLoomleBridgeModule::StartupModule()
             FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FLoomleBridgeModule::RegisterToolbarMenus));
     }
     RegisterToolbarStatusWidget();
+    WriteRuntimeRegistration();
 
 #if PLATFORM_WINDOWS
     UE_LOG(LogLoomleBridge, Display, TEXT("Loomle bridge started on named pipe \\\\.\\pipe\\%s"), *PipeName);
@@ -3986,6 +4097,8 @@ void FLoomleBridgeModule::StartupModule()
 
 void FLoomleBridgeModule::ShutdownModule()
 {
+    RemoveRuntimeRegistration();
+
     if (ToolbarStartupHandle.IsValid())
     {
         UToolMenus::UnRegisterStartupCallback(ToolbarStartupHandle);

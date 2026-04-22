@@ -6,10 +6,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::env;
 use std::path::{Path, PathBuf};
-#[cfg(unix)]
-use tokio::net::UnixStream;
 #[cfg(target_os = "windows")]
 use tokio::net::windows::named_pipe::ClientOptions;
+#[cfg(unix)]
+use tokio::net::UnixStream;
 #[cfg(target_os = "windows")]
 use tokio::time::{sleep, Duration};
 #[cfg(target_os = "windows")]
@@ -121,19 +121,16 @@ pub async fn connect_client(env_info: &Environment) -> Result<LoomleClient, Star
         let stream = UnixStream::connect(&env_info.runtime_endpoint_path)
             .await
             .map_err(|error| classify_unix_connect_error(env_info, &error))?;
-        return ()
-            .serve(stream)
-            .await
-            .map_err(|error| {
-                StartupError::new(
-                    StartupErrorKind::ConnectFailed,
-                    StartupAction::VerifyRuntimeHealth,
-                    12,
-                    true,
-                    "failed to establish MCP session with the LOOMLE runtime.",
-                )
-                .with_detail(error.to_string())
-            });
+        return ().serve(stream).await.map_err(|error| {
+            StartupError::new(
+                StartupErrorKind::ConnectFailed,
+                StartupAction::VerifyRuntimeHealth,
+                12,
+                true,
+                "failed to establish MCP session with the LOOMLE runtime.",
+            )
+            .with_detail(error.to_string())
+        });
     }
 
     #[cfg(target_os = "windows")]
@@ -150,19 +147,16 @@ pub async fn connect_client(env_info: &Environment) -> Result<LoomleClient, Star
                 }
             }
         };
-        return ()
-            .serve(client)
-            .await
-            .map_err(|error| {
-                StartupError::new(
-                    StartupErrorKind::ConnectFailed,
-                    StartupAction::VerifyRuntimeHealth,
-                    12,
-                    true,
-                    "failed to establish MCP session with the LOOMLE runtime.",
-                )
-                .with_detail(error.to_string())
-            });
+        return ().serve(client).await.map_err(|error| {
+            StartupError::new(
+                StartupErrorKind::ConnectFailed,
+                StartupAction::VerifyRuntimeHealth,
+                12,
+                true,
+                "failed to establish MCP session with the LOOMLE runtime.",
+            )
+            .with_detail(error.to_string())
+        });
     }
 
     #[cfg(not(any(unix, target_os = "windows")))]
@@ -273,24 +267,16 @@ pub fn validate_project_root(path: &Path) -> Result<PathBuf, String> {
     Ok(resolved)
 }
 
-pub fn active_install_state_path(project_root: &Path) -> PathBuf {
-    project_root.join("Loomle").join("install").join("active.json")
-}
-
-pub fn read_active_install_state(project_root: &Path) -> Result<ActiveInstallState, String> {
-    let path = active_install_state_path(project_root);
-    let raw = std::fs::read_to_string(&path)
-        .map_err(|error| format!("failed to read active install state {}: {error}", path.display()))?;
-    serde_json::from_str::<ActiveInstallState>(&raw)
-        .map_err(|error| format!("failed to parse active install state {}: {error}", path.display()))
-}
-
 pub fn should_handoff_to_active_client(
     current_exe: &Path,
     state: &ActiveInstallState,
 ) -> Result<Option<bool>, String> {
-    let current = canonicalize_for_compare(current_exe)
-        .map_err(|error| format!("failed to resolve current executable {}: {error}", current_exe.display()))?;
+    let current = canonicalize_for_compare(current_exe).map_err(|error| {
+        format!(
+            "failed to resolve current executable {}: {error}",
+            current_exe.display()
+        )
+    })?;
     let active = canonicalize_for_compare(&state.active_client_path).map_err(|error| {
         format!(
             "failed to resolve active client executable {}: {error}",
@@ -463,13 +449,16 @@ fn stable_fnv1a64(bytes: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        active_install_state_path, launcher_binary_name, should_handoff_to_active_client,
-        versioned_client_binary_name, ActiveInstallState,
+        launcher_binary_name, should_handoff_to_active_client, versioned_client_binary_name,
+        ActiveInstallState,
     };
     #[cfg(target_os = "windows")]
     use super::{runtime_pipe_name_for_project_root, strip_windows_verbatim_prefix};
     use std::path::PathBuf;
-    use std::{fs, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     fn temp_dir(label: &str) -> PathBuf {
         let unique = SystemTime::now()
@@ -482,26 +471,17 @@ mod tests {
     }
 
     #[test]
-    fn active_install_state_path_is_under_loomle_install() {
-        let project_root = PathBuf::from("/tmp/project");
-        assert_eq!(
-            active_install_state_path(&project_root),
-            PathBuf::from("/tmp/project/Loomle/install/active.json")
-        );
-    }
-
-    #[test]
     fn handoff_needed_when_current_exe_differs_from_active_client() {
         let root = temp_dir("handoff");
         let launcher = root.join(launcher_binary_name());
-        let active_dir = root.join("install").join("versions").join("0.4.0");
+        let active_dir = root.join("install").join("versions").join("0.5.0");
         fs::create_dir_all(&active_dir).expect("active dir");
-        let active = active_dir.join(versioned_client_binary_name("0.4.0"));
+        let active = active_dir.join(versioned_client_binary_name("0.5.0"));
         fs::write(&launcher, b"launcher").expect("write launcher");
         fs::write(&active, b"active").expect("write active");
 
         let state = ActiveInstallState {
-            active_version: String::from("0.4.0"),
+            active_version: String::from("0.5.0"),
             launcher_path: launcher.clone(),
             active_client_path: active,
         };
@@ -514,13 +494,13 @@ mod tests {
     #[test]
     fn handoff_not_needed_for_active_client_binary() {
         let root = temp_dir("active");
-        let active_dir = root.join("install").join("versions").join("0.4.0");
+        let active_dir = root.join("install").join("versions").join("0.5.0");
         fs::create_dir_all(&active_dir).expect("active dir");
-        let active = active_dir.join(versioned_client_binary_name("0.4.0"));
+        let active = active_dir.join(versioned_client_binary_name("0.5.0"));
         fs::write(&active, b"active").expect("write active");
 
         let state = ActiveInstallState {
-            active_version: String::from("0.4.0"),
+            active_version: String::from("0.5.0"),
             launcher_path: root.join(launcher_binary_name()),
             active_client_path: active.clone(),
         };

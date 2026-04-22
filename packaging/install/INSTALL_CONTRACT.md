@@ -2,115 +2,82 @@
 
 ## 1. Goal
 
-LOOMLE installs into a user project in one step.
+LOOMLE installs once into the current user's global install root.
 
-One installation must place:
+UE projects are prepared separately through MCP `project.install`, which installs
+or updates project support from the global plugin cache.
 
-1. the Unreal plugin
-2. the project-local `Loomle/` directory
-3. the project-local client binary
+## 2. Global Install Layout
 
-## 2. Installed Project Layout
+After installation, the user install root should contain:
 
-After installation, the user project should contain:
+```text
+~/.loomle/
+  bin/
+    loomle
+  install/
+    active.json
+  versions/
+    <version>/
+      loomle
+      manifest.json
+      plugin-cache/
+        LoomleBridge/
+  state/
+    runtimes/
+  locks/
+  logs/
+```
+
+Windows uses the equivalent `%USERPROFILE%\.loomle` root.
+
+## 3. Release Bundle Layout
+
+Release bundles contain:
+
+```text
+loomle(.exe)
+plugin-cache/
+  LoomleBridge/
+```
+
+Release bundles must not contain the old per-project client workspace,
+workflow guides, examples, or docs.
+
+## 4. Project Support Layout
+
+`project.install` materializes project support into:
 
 ```text
 <ProjectRoot>/
   Plugins/
     LoomleBridge/
-      Binaries/
-      Resources/
-
-  Loomle/
-    README.md
-    loomle(.exe)
-    update.(sh|ps1)
-    workflows/
-    examples/
-    install/
-    state/
 ```
 
-## 3. Placement Rules
-
-### Plugin install target
-
-Source bundle content:
-
-```text
-plugin/LoomleBridge/
-```
-
-Install destination:
-
-```text
-<ProjectRoot>/Plugins/LoomleBridge/
-```
-
-This target owns:
-- Unreal plugin files
-- bridge runtime assets
-
-### LOOMLE install target
-
-Source bundle content:
-
-```text
-Loomle/
-```
-
-Install destination:
-
-```text
-<ProjectRoot>/Loomle/
-```
-
-This target owns:
-- Rust client entrypoint
-- platform-specific installed maintenance scripts
-- one Agent-facing README entrypoint
-- workflow guides and small examples
-- install metadata under `install/`
-- machine-written runtime state under `state/`
-
-## 4. Runtime Ownership
-
-### Rust client
-
-Installed at:
-
-```text
-<ProjectRoot>/Loomle/loomle(.exe)
-```
-
-Reason:
-- project-local user and agent entrypoint
-- project-local runtime component
+The target project should not receive a per-project `Loomle/` client
+workspace in the global install model.
 
 ## 5. Installer Responsibilities
 
-An installer must:
+The public installer must:
 
-1. copy plugin content to `Plugins/LoomleBridge/`
-2. copy workspace content to `Loomle/`
-3. preserve the project-local client binary
-4. ship release bundles with plugin `Source/` alongside prebuilt binaries so Unreal can participate in local target rebuilds
-5. write `Loomle/install/active.json` with machine-readable install state
-6. ensure `Config/DefaultEditorSettings.ini` disables background CPU throttling for Unreal Editor
-7. avoid requiring a separate skill repository install
-8. be idempotent for repeated installs of the same version
-9. keep the public install and installed update paths shell/PowerShell-only, without Python or an internal bundle helper
-
-Source-checkout helper entrypoints:
-
-- `packaging/release/build_local_release.py`
-- `packaging/install/install_from_checkout.py`
+1. download the release manifest and platform bundle
+2. copy `loomle(.exe)` to `~/.loomle/versions/<version>/`
+3. copy `plugin-cache/LoomleBridge/` to `~/.loomle/versions/<version>/plugin-cache/LoomleBridge/`
+4. install the stable command at `~/.loomle/bin/loomle`
+5. write `~/.loomle/install/active.json`
+6. create `state/runtimes`, `locks`, and `logs`
+7. print Codex and Claude MCP configuration commands
+8. avoid writing Codex or Claude config directly
+9. be idempotent for repeated installs of the same version
 
 ## 6. Source-of-Truth Rule
 
 The release manifest determines:
-- which bundle is downloaded
-- how plugin content is installed
-- how `Loomle/` content is installed
 
-Packaging scripts must treat the manifest as the source of truth for install destinations.
+- which bundle is downloaded
+- which binary path is the client payload
+- where the plugin cache source lives inside the bundle
+
+Project installation is an MCP responsibility, not a public bootstrap script
+responsibility.

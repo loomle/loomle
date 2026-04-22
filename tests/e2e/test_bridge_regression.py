@@ -480,7 +480,7 @@ def main() -> int:
     parser.add_argument(
         "--loomle-bin",
         default="",
-        help="Override path to the loomle client binary. Defaults to <ProjectRoot>/Loomle/loomle(.exe).",
+        help="Override path to the loomle client binary. Defaults to client/target/release/loomle(.exe).",
     )
     parser.add_argument(
         "--close-editor-on-success",
@@ -2756,7 +2756,7 @@ def main() -> int:
             _, _, material_capture_before_hash = capture_editor_png_hash(
                 client,
                 10020,
-                f"Loomle/runtime/captures/material-layout-before-{int(time.time())}.png",
+                f"Saved/Loomle/captures/material-layout-before-{int(time.time())}.png",
             )
             material_visual_relayout_payload = call_domain_tool(
                 client,
@@ -2786,7 +2786,7 @@ def main() -> int:
             _, _, material_capture_after_hash = capture_editor_png_hash_until_changed(
                 client,
                 10022,
-                relative_path_prefix="Loomle/runtime/captures/material-layout-after",
+                relative_path_prefix="Saved/Loomle/captures/material-layout-after",
                 baseline_hash=material_capture_before_hash,
             )
             if material_capture_after_hash == material_capture_before_hash:
@@ -3087,7 +3087,7 @@ def main() -> int:
             _, _, pcg_capture_before_hash = capture_editor_png_hash(
                 client,
                 10114,
-                f"Loomle/runtime/captures/pcg-layout-before-{int(time.time())}.png",
+                f"Saved/Loomle/captures/pcg-layout-before-{int(time.time())}.png",
             )
             pcg_visual_relayout_payload = call_domain_tool(
                 client,
@@ -3117,7 +3117,7 @@ def main() -> int:
             _, _, pcg_capture_after_hash = capture_editor_png_hash_until_changed(
                 client,
                 10116,
-                relative_path_prefix="Loomle/runtime/captures/pcg-layout-after",
+                relative_path_prefix="Saved/Loomle/captures/pcg-layout-after",
                 baseline_hash=pcg_capture_before_hash,
             )
             if pcg_capture_after_hash == pcg_capture_before_hash:
@@ -3744,7 +3744,7 @@ def main() -> int:
             _, _, _ = capture_editor_png_hash(
                 client,
                 4003,
-                f"Loomle/runtime/captures/editor-open-regression-{int(time.time())}.png",
+                f"Saved/Loomle/captures/editor-open-regression-{int(time.time())}.png",
             )
             print("[PASS] editor.open, editor.focus, and editor.screenshot validated")
 

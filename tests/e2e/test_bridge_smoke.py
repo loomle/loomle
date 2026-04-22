@@ -2912,21 +2912,18 @@ def loomle_binary_name() -> str:
     return binary_name
 
 
-def resolve_project_local_loomle_binary(project_root: Path) -> Path:
-    return project_root / "Loomle" / loomle_binary_name()
-
-
 def resolve_repo_loomle_binary() -> Path:
     return REPO_ROOT / "client" / "target" / "release" / loomle_binary_name()
 
 
 def resolve_default_loomle_binary(project_root: Path) -> Path:
-    candidate = resolve_project_local_loomle_binary(project_root)
+    _ = project_root
+    candidate = resolve_repo_loomle_binary()
     if candidate.is_file():
         return candidate
     fail(
-        "project-local loomle binary not found: "
-        f"{candidate}. install the current checkout into the test project first, "
+        "checkout loomle release binary not found: "
+        f"{candidate}. run `cargo build --release` in client first, "
         "or pass --loomle-bin to override."
     )
     raise RuntimeError("unreachable")
@@ -3081,7 +3078,7 @@ def main() -> int:
     parser.add_argument(
         "--loomle-bin",
         default="",
-        help="Override path to the loomle client binary. Defaults to <ProjectRoot>/Loomle/loomle(.exe).",
+        help="Override path to the loomle client binary. Defaults to client/target/release/loomle(.exe).",
     )
     args = parser.parse_args()
 

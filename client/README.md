@@ -1,13 +1,15 @@
 # LOOMLE Client
 
-This directory is the canonical home for the project-local Rust client.
+This directory is the canonical home for the global Rust `loomle` command.
 
-Target role:
-- provide the project-local `loomle` entrypoint installed under `Loomle/`
-- discover the current Unreal project root
-- connect to the project-local native MCP runtime in `LoomleBridge`
-- expose a standard stdio MCP server to the host
-- live in the installed project under `Loomle/`
+## Role
+
+- `loomle mcp`: stdio MCP server for Codex, Claude, and other MCP hosts
+- `loomle update`: update the global install under `~/.loomle`
+- `loomle doctor`: inspect global install state and print MCP configuration hints
+
+The client is not installed into Unreal projects. Project support is installed
+by copying `LoomleBridge` into `<ProjectRoot>/Plugins/LoomleBridge/`.
 
 ## Build
 
@@ -16,26 +18,23 @@ cd client
 cargo build
 ```
 
-For local end-to-end validation during development, do not treat this checkout binary as the primary runtime entrypoint. Refresh the dev host project first, then validate through `<ProjectRoot>/Loomle/loomle(.exe)` by using:
+## Run MCP From A Checkout
 
 ```bash
-python3 tools/dev_verify.py --project-root "/Path/To/Project"
+cd client
+cargo run -- mcp
 ```
 
-## Runtime Role
+The MCP session starts unattached. Use `project.list` and `project.attach`
+after Unreal Editor has started with `LoomleBridge`.
+
+## Development Validation
+
+From the repository root:
 
 ```bash
-cargo run -- --project-root "/Path/To/Project"
+python3 tools/dev_verify.py --project-root /path/to/MyProject
 ```
 
-If `--project-root` is omitted, the client searches upward from the current
-directory until it finds a `.uproject`.
-
-This binary is no longer a multi-command CLI. It should only:
-
-- accept a project root
-- connect to the project-local Unreal runtime endpoint
-- proxy standard MCP over stdio
-
-Install and update are expected to move to scripts outside this
-binary.
+That command builds the checkout client, syncs the plugin into the dev project,
+starts Unreal Editor, and validates through the checkout-built binary.

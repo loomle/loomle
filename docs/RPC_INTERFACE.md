@@ -372,7 +372,7 @@ Field notes:
 ```json
 {
   "ok": true,
-  "imagePath": "absolute-or-project-local-path"
+  "imagePath": "absolute-or-project-relative-path"
 }
 ```
 
@@ -743,7 +743,8 @@ Field notes:
 
 Storage note:
 
-- Events are persisted under `<ProjectRoot>/Loomle/state/diag/diag.jsonl`.
+- Events are persisted under the Unreal project saved directory, currently
+  `Saved/Loomle/diag/diag.jsonl`.
 - Current v1 sources include UE log warnings/errors and Blueprint compile failures.
 
 Cursor semantics:

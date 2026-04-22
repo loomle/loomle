@@ -74,14 +74,26 @@
     "installPlan": {
       "type": "object",
       "required": [
-        "plugin",
-        "workspace"
+        "global"
       ],
       "properties": {
-        "plugin": {
-          "$ref": "#/$defs/installTarget"
+        "global": {
+          "$ref": "#/$defs/globalInstallPlan"
+        }
+      }
+    },
+    "globalInstallPlan": {
+      "type": "object",
+      "required": [
+        "clientBinary",
+        "pluginCache"
+      ],
+      "properties": {
+        "clientBinary": {
+          "type": "string",
+          "minLength": 1
         },
-        "workspace": {
+        "pluginCache": {
           "$ref": "#/$defs/installTarget"
         }
       }

@@ -870,7 +870,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run first-version PCG graph test plan cases against the current LOOMLE bridge.")
     parser.add_argument("--project-root", default="", help="UE project root containing the host .uproject")
     parser.add_argument("--dev-config", default="", help="Optional dev config path for project_root lookup")
-    parser.add_argument("--loomle-bin", default="", help="Optional override path to the project-local loomle client")
+    parser.add_argument("--loomle-bin", default="", help="Optional override path to the loomle client")
     parser.add_argument("--timeout", type=float, default=45.0, help="Per-request timeout in seconds")
     parser.add_argument("--plan-path", default="", help="Optional pre-generated PCG plan JSON path")
     parser.add_argument("--output", default="", help="Optional path to write a JSON execution report")

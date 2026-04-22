@@ -27,11 +27,11 @@ def resolve_loomle_binary(project_root: Path, override: str) -> Path:
         candidate = Path(override).resolve()
     else:
         binary_name = "loomle.exe" if sys.platform.startswith("win") else "loomle"
-        candidate = project_root / "Loomle" / binary_name
+        candidate = REPO_ROOT / "client" / "target" / "release" / binary_name
     if not candidate.is_file():
         fail(
-            "project-local loomle binary not found: "
-            f"{candidate}. install the current checkout into the test project first, "
+            "checkout loomle release binary not found: "
+            f"{candidate}. run `cargo build --release` in client first, "
             "or pass --loomle-bin to override."
         )
     return candidate
@@ -61,7 +61,7 @@ def main() -> int:
     parser.add_argument(
         "--loomle-bin",
         default="",
-        help="Optional path to the loomle client binary. Defaults to <ProjectRoot>/Loomle/loomle(.exe) when present.",
+        help="Optional path to the loomle client binary. Defaults to client/target/release/loomle(.exe).",
     )
     parser.add_argument(
         "--github-output",

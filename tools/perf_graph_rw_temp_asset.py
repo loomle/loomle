@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 def fail(msg: str) -> None:
     print(f"[FAIL] {msg}")
@@ -201,7 +203,7 @@ def choose_connection(args: argparse.Namespace) -> BridgeConnection:
         else:
             fail(f"unsupported platform for loomle client binary: {sys.platform}")
             raise RuntimeError("unreachable")
-        client_binary = project_root / "Loomle" / binary_name
+        client_binary = REPO_ROOT / "client" / "target" / "release" / binary_name
 
     return McpStdioConnection(
         project_root=str(project_root),
@@ -310,7 +312,7 @@ def main() -> int:
     parser.add_argument(
         "--loomle-bin",
         default="",
-        help="Override path to the project-local loomle client. Defaults to <project>/Loomle/loomle(.exe).",
+        help="Override path to the loomle client. Defaults to client/target/release/loomle(.exe).",
     )
     parser.add_argument("--timeout", type=float, default=8.0, help="Per-request timeout seconds")
     parser.add_argument("--output", default="", help="Optional CSV output file path")

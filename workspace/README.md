@@ -1,16 +1,17 @@
 # Workspace Layer
 
-This directory contains the source template for the installed user-project `Loomle/` directory.
+This directory contains repository-internal graph reference material.
 
-Everything under `workspace/Loomle/` is intended to be copied into a user's project during installation.
+It is retained for development and tests only. It is not copied into release
+bundles and is not installed into Unreal projects.
 
-Planned contents:
-- one root README that acts as the Agent-facing starting point
-- one project-local client entrypoint at `Loomle/loomle(.exe)`
-- workflow-specific operating guides under `Loomle/workflows/`
-- small payload examples under `Loomle/examples/`
-- machine-written runtime state under `Loomle/state/`
+Current contents:
 
-Design rule:
-- keep the installed workspace smaller and simpler than the repository layout
-- do not mirror repository maintainer docs or internal helper scripts into the installed project unless the Agent needs them directly
+- `Loomle/blueprint/`
+- `Loomle/material/`
+- `Loomle/pcg/`
+- `Loomle/widget/`
+- `tools/`
+
+Use this layer for catalogs, examples, and generation helpers while graph tools
+are being split into domain-specific MCP namespaces.

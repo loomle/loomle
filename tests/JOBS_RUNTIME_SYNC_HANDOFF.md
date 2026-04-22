@@ -228,34 +228,25 @@ The test side should not yet assume:
 
 ## Suggested Manual Probe
 
-```bash
-/path/to/MyProject/Loomle/loomle \
-  --project-root /path/to/MyProject \
-  call execute \
-  --args '{"mode":"exec","code":"import time, unreal\nunreal.log(\"jobs smoke start\")\ntime.sleep(2)\nunreal.log(\"jobs smoke end\")","execution":{"mode":"job","idempotencyKey":"manual-jobs-smoke","label":"manual_jobs_smoke","waitMs":1000}}'
+Start `loomle mcp`, attach the target project with `project.attach`, then call
+the `execute` MCP tool with:
+
+```json
+{"mode":"exec","code":"import time, unreal\nunreal.log(\"jobs smoke start\")\ntime.sleep(2)\nunreal.log(\"jobs smoke end\")","execution":{"mode":"job","idempotencyKey":"manual-jobs-smoke","label":"manual_jobs_smoke","waitMs":1000}}
 ```
 
 Then query:
 
-```bash
-/path/to/MyProject/Loomle/loomle \
-  --project-root /path/to/MyProject \
-  call jobs \
-  --args '{"action":"status","jobId":"<jobId>"}'
+```json
+{"action":"status","jobId":"<jobId>"}
 ```
 
-```bash
-/path/to/MyProject/Loomle/loomle \
-  --project-root /path/to/MyProject \
-  call jobs \
-  --args '{"action":"logs","jobId":"<jobId>","limit":200}'
+```json
+{"action":"logs","jobId":"<jobId>","limit":200}
 ```
 
-```bash
-/path/to/MyProject/Loomle/loomle \
-  --project-root /path/to/MyProject \
-  call jobs \
-  --args '{"action":"result","jobId":"<jobId>"}'
+```json
+{"action":"result","jobId":"<jobId>"}
 ```
 
 ## Important Boundary

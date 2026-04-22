@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 def fail(msg: str) -> None:
     print(f"[FAIL] {msg}")
@@ -42,13 +44,14 @@ def ensure_project_root(project_root: Path) -> Path:
 
 
 def default_loomle_binary(project_root: Path) -> Path:
+    _ = project_root
     binary_name = "loomle.exe" if sys.platform.startswith("win") else "loomle"
-    candidate = project_root.resolve() / "Loomle" / binary_name
+    candidate = REPO_ROOT / "client" / "target" / "release" / binary_name
     if candidate.is_file():
         return candidate
     fail(
-        "project-local loomle binary not found: "
-        f"{candidate}. install the current checkout into the test project first, "
+        "checkout loomle release binary not found: "
+        f"{candidate}. run `cargo build --release` in client first, "
         "or pass --loomle-bin to override."
     )
     raise RuntimeError("unreachable")
@@ -298,7 +301,7 @@ def main() -> int:
     parser.add_argument(
         "--loomle-bin",
         default="",
-        help="Override path to the loomle client binary. Defaults to <ProjectRoot>/Loomle/loomle(.exe).",
+        help="Override path to the loomle client binary. Defaults to client/target/release/loomle(.exe).",
     )
     parser.add_argument("--timeout", type=float, default=5.0, help="Per-request timeout in seconds")
     parser.add_argument("--total", type=int, default=200, help="Measured request count")

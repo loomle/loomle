@@ -20,10 +20,7 @@ def main() -> int:
     parser.add_argument("--sha256", required=True)
     parser.add_argument("--client-binary-relpath", required=True)
     parser.add_argument("--client-sha256", required=True)
-    parser.add_argument("--plugin-source", default="plugin/LoomleBridge")
-    parser.add_argument("--plugin-destination", default="Plugins/LoomleBridge")
-    parser.add_argument("--workspace-source", default="Loomle")
-    parser.add_argument("--workspace-destination", default="Loomle")
+    parser.add_argument("--plugin-cache-source", default="plugin-cache/LoomleBridge")
     parser.add_argument("--base-manifest")
     args = parser.parse_args()
 
@@ -42,13 +39,12 @@ def main() -> int:
         "client_binary_relpath": args.client_binary_relpath,
         "client_sha256": args.client_sha256,
         "install": {
-            "plugin": {
-                "source": args.plugin_source,
-                "destination": args.plugin_destination,
-            },
-            "workspace": {
-                "source": args.workspace_source,
-                "destination": args.workspace_destination,
+            "global": {
+                "clientBinary": args.client_binary_relpath,
+                "pluginCache": {
+                    "source": args.plugin_cache_source,
+                    "destination": "plugin-cache/LoomleBridge",
+                },
             },
         },
     }

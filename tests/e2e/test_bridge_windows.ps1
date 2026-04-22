@@ -41,8 +41,8 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot) -or -not (Test-Path -LiteralPath 
 $smoke = Join-Path $repoRoot "tests\e2e\test_bridge_smoke.py"
 $regression = Join-Path $repoRoot "tests\e2e\test_bridge_regression.py"
 $clientOut = Join-Path $repoRoot "client\target\release\loomle.exe"
-$workspaceSrc = Join-Path $repoRoot "workspace\Loomle"
-$workspaceDst = Join-Path $ProjectRoot "Loomle"
+$pluginSrc = Join-Path $repoRoot "engine\LoomleBridge"
+$pluginDst = Join-Path $ProjectRoot "Plugins\LoomleBridge"
 
 if (-not (Test-Path -LiteralPath $smoke)) {
     throw "Missing script: $smoke"
@@ -54,26 +54,28 @@ if (-not (Test-Path -LiteralPath $regression)) {
 Step "Run Rust tests"
 Run-Cmd ('cd /d "{0}" && cargo test' -f (Join-Path $repoRoot "client"))
 
-Step "Build LOOMLE client (release) and sync into project-local workspace"
+Step "Build LOOMLE client (release) and sync LoomleBridge into project"
 Run-Cmd ('cd /d "{0}" && cargo build --release' -f (Join-Path $repoRoot "client"))
 if (-not (Test-Path -LiteralPath $clientOut)) {
     throw "Missing built LOOMLE client binary: $clientOut"
 }
-if (Test-Path -LiteralPath $workspaceDst) {
-    Remove-Item -LiteralPath $workspaceDst -Recurse -Force
+if (-not (Test-Path -LiteralPath $pluginSrc)) {
+    throw "Missing plugin source: $pluginSrc"
 }
-New-Item -ItemType Directory -Force -Path $workspaceDst | Out-Null
-Copy-Item -Path (Join-Path $workspaceSrc "*") -Destination $workspaceDst -Recurse -Force
-Copy-Item -LiteralPath $clientOut -Destination (Join-Path $workspaceDst "loomle.exe") -Force
+if (Test-Path -LiteralPath $pluginDst) {
+    Remove-Item -LiteralPath $pluginDst -Recurse -Force
+}
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $pluginDst) | Out-Null
+Copy-Item -LiteralPath $pluginSrc -Destination $pluginDst -Recurse -Force
 
 if (-not $SkipSmoke) {
     Step "Run bridge smoke test"
-    Run-Cmd ('"{0}" "{1}" --project-root "{2}"' -f $Python, $smoke, $ProjectRoot)
+    Run-Cmd ('"{0}" "{1}" --project-root "{2}" --loomle-bin "{3}"' -f $Python, $smoke, $ProjectRoot, $clientOut)
 }
 
 if (-not $SkipRegression) {
     Step "Run bridge regression test"
-    Run-Cmd ('"{0}" "{1}" --project-root "{2}"' -f $Python, $regression, $ProjectRoot)
+    Run-Cmd ('"{0}" "{1}" --project-root "{2}" --loomle-bin "{3}"' -f $Python, $regression, $ProjectRoot, $clientOut)
 }
 
 Write-Host "[PASS] Windows bridge tests complete"

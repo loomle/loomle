@@ -2,97 +2,57 @@
 
 Developer-facing entrypoints and benchmark scripts.
 
-## Scope
-
-- `tools/` keeps high-frequency developer entrypoints and benchmarks.
-- test-suite workers and graph-test generators now live under `tests/tools/`.
-- release/install verification helpers now live under `packaging/tools/`.
-- workspace data-generation helpers now live under `workspace/tools/`.
-
 ## Current Tools
 
 - `dev_verify.py`: canonical local development verification flow
-- `perf_bridge_latency.py`: latency benchmark for a selected tool call
+- `perf_bridge_latency.py`: latency benchmark for a selected MCP tool call
 - `perf_graph_rw_temp_asset.py`: temporary-asset graph read/write benchmark
-- `benchmarks/create_temp_blueprint_asset.py`: benchmark-only helper for temporary Blueprint assets
-- `benchmarks/run_graph_query_benchmark.py`: wrapper for stable `graph.query` benchmark invocations
+- `benchmarks/create_temp_blueprint_asset.py`: helper for benchmark fixtures
+- `benchmarks/run_graph_query_benchmark.py`: wrapper for stable graph-query
+  benchmark invocations
 
-## Test Structure
+## Canonical Dev Flow
 
-- UE-independent client/runtime contract tests live in `client`:
-  - `cd client && cargo test`
-- UE-dependent validation scripts live in `tests/`:
-  - `tests/e2e/test_bridge_smoke.py`
-  - `tests/e2e/test_bridge_regression.py`
-  - `tests/e2e/test_bridge_windows.ps1`
-  - `tests/integration/test_loomle_latency.py`
-- graph-test runners, generators, and host-project bootstrap helpers live in `tests/tools/`
-- The canonical validation entrypoint is now the installed project-local client:
-  - `<ProjectRoot>/Loomle/loomle(.exe)`
-
-### Canonical Local Dev Flow
-
-Use `tools/dev_verify.py` instead of manually rebuilding and copying binaries. It installs the current checkout into the dev host project, restarts Unreal Editor, then validates through the same `Loomle/loomle` entrypoint that users get after install.
-
-Recommended command:
+Use:
 
 ```bash
-python3 tools/dev_verify.py --project-root "/path/to/MyProject"
+python3 tools/dev_verify.py --project-root /path/to/MyProject
 ```
+
+`dev_verify.py` builds the checkout `loomle` binary, syncs
+`engine/LoomleBridge` into the dev project, starts Unreal Editor, waits for the
+bridge runtime, then runs smoke and optional regression checks through the
+checkout-built global-client path.
 
 Useful variants:
 
 ```bash
-python3 tools/dev_verify.py --project-root "/path/to/MyProject" --run-latency
-python3 tools/dev_verify.py --project-root "/path/to/MyProject" --install-only
+python3 tools/dev_verify.py --project-root /path/to/MyProject --run-latency
+python3 tools/dev_verify.py --project-root /path/to/MyProject --install-only
 ```
 
-Only fall back to the lower-level scripts when you are intentionally debugging one phase in isolation.
-
-### Dev Project Root Config (optional)
+## Dev Project Root Config
 
 - Template: `tools/dev.project-root.example.json`
 - Local file: `tools/dev.project-root.local.json` (gitignored)
-- Recommended dev host: `/path/to/MyProject`
-- If `--project-root` is omitted, the E2E test scripts read `project_root` from this local file.
 
-### Windows quick run
+If `--project-root` is omitted, dev and E2E scripts read `project_root` from
+the local config file.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tests\e2e\test_bridge_windows.ps1 -ProjectRoot "D:\LoomleDevHost"
-```
+## Tests
+
+- UE-independent Rust tests: `cd client && cargo test`
+- UE smoke: `tests/e2e/test_bridge_smoke.py`
+- UE regression: `tests/e2e/test_bridge_regression.py`
+- Windows UE smoke: `tests/e2e/test_bridge_windows.ps1`
+- Graph-suite workers: `tests/tools/`
 
 ## Runtime Output
 
-- Runtime artifacts and benchmark outputs belong in `runtime/`.
-- `runtime/` is output-only; do not store tooling source there.
+Runtime artifacts and benchmark outputs belong in `runtime/`.
+`runtime/` is output-only; do not store tooling source there.
 
 ## Benchmark Standard
 
-- Use `--project-root` (stdio MCP mode only). Legacy socket/pipe benchmark mode is removed.
-- Export CSV with `--output` for reproducible comparison across runs.
-
-Example latency benchmark:
-
-```bash
-python3 tools/perf_bridge_latency.py \
-  --project-root "/path/to/MyProject" \
-  --tool loomle --total 200 --concurrency 1 --warmup 20 \
-  --output runtime/benchmarks/bridge-latency.csv
-```
-
-Example `loomle` fast-return validation:
-
-```bash
-python3 tests/integration/test_loomle_latency.py \
-  --project-root "/path/to/MyProject" \
-  --samples 30
-```
-
-Example graph RW benchmark:
-
-```bash
-python3 tools/perf_graph_rw_temp_asset.py \
-  --project-root "/path/to/MyProject" \
-  --output runtime/benchmarks/graph-rw.csv
-```
+Benchmarks should run through stdio MCP and accept an explicit `--loomle-bin`
+when they need to test a checkout-built client.

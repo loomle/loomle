@@ -2,79 +2,70 @@
 
 ## Goal
 
-Bootstrap should start from a machine with no existing LOOMLE install and
-materialize LOOMLE into a specific Unreal project.
+Bootstrap starts from a machine with no LOOMLE install and creates a global
+LOOMLE installation that MCP hosts can run with `loomle mcp`.
 
-The first `0.4` bootstrap direction is:
-
-- script-first
-- project-local
-- no downloaded installer binary
+It does not install into a specific Unreal project. Project support is installed
+later through the MCP tool `project.install`.
 
 ## Public Entrypoints
 
-Stable public script entrypoints should remain:
+Published script entrypoints:
 
 - `https://loomle.ai/install.sh`
 - `https://loomle.ai/install.ps1`
 
-These scripts target a specific Unreal project root.
-
-Their source-of-truth in the repository should live under:
+Repository source:
 
 - `client/install.sh`
 - `client/install.ps1`
-- `client/update.sh`
-- `client/update.ps1`
+- `site/install.sh`
+- `site/install.ps1`
 
 ## Bootstrap Responsibilities
 
 Bootstrap scripts should:
 
 1. detect platform
-2. resolve or require the target Unreal project root
-3. download or locate the release bundle
-4. verify the release bundle
-5. materialize `Plugins/LoomleBridge/`
-6. materialize `Loomle/`
-7. print a clear success/failure summary
-
-They should not download and execute a temporary installer binary.
+2. download or locate the release manifest and platform bundle
+3. verify bundle checksum
+4. create the global install root
+5. install `bin/loomle`
+6. install `versions/<version>/loomle`
+7. install `versions/<version>/plugin-cache/LoomleBridge`
+8. write `install/active.json`
+9. create `state/runtimes`, `locks`, and `logs`
+10. print MCP host configuration hints
 
 ## Artifact Contract
 
-Bootstrap should consume release bundles and manifests directly.
+Release assets:
 
-It should not require a separate `loomle-installer` artifact.
-It should not require Python or an internal bundle helper.
+- `loomle-<version>-<platform>.zip`
+- `manifest.json`
 
-The relevant release assets are:
+The bundle must contain:
 
-- `loomle-<platform>.zip`
-- `loomle-manifest-<platform>.json`
-- `loomle-manifest.json`
+- `loomle` or `loomle.exe`
+- `plugin-cache/LoomleBridge/`
 
-## Installed Outcome
+The bundle must not contain the old per-project client workspace.
 
-Successful bootstrap should leave the project with:
+## Update
 
-- `Plugins/LoomleBridge/`
-- `Loomle/loomle(.exe)`
-- `Loomle/install/active.json`
+Global updates are handled by:
 
-## Relationship To Update
+```bash
+loomle update
+```
 
-Update is not a public site entrypoint.
-
-Installed projects keep:
-
-- `Loomle/update.sh`
-- `Loomle/update.ps1`
+There are no per-project update scripts.
 
 ## Decision
 
-The first `0.4` bootstrap contract is:
+The bootstrap contract is global install only:
 
-- scripts only
-- project-local install only
-- no temporary installer binary
+- no project root argument
+- no per-project client
+- no per-project update scripts
+- no daemon

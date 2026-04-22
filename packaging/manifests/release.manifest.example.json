@@ -1,22 +1,21 @@
 {
-  "latest": "0.3.32",
+  "latest": "0.5.0",
   "versions": {
-    "0.3.32": {
+    "0.5.0": {
       "packages": {
         "darwin": {
-          "url": "https://example.invalid/loomle-0.3.32-darwin.zip",
+          "url": "https://example.invalid/loomle-0.5.0-darwin.zip",
           "sha256": "package-sha256",
           "format": "zip",
-          "client_binary_relpath": "Loomle/loomle",
+          "client_binary_relpath": "loomle",
           "client_sha256": "client-sha256",
           "install": {
-            "plugin": {
-              "source": "plugin/LoomleBridge",
-              "destination": "Plugins/LoomleBridge"
-            },
-            "workspace": {
-              "source": "Loomle",
-              "destination": "Loomle"
+            "global": {
+              "clientBinary": "loomle",
+              "pluginCache": {
+                "source": "plugin-cache/LoomleBridge",
+                "destination": "plugin-cache/LoomleBridge"
+              }
             }
           }
         }

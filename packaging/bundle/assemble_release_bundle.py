@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import argparse
 import json
-import os
 import shutil
 import sys
 from pathlib import Path
@@ -18,13 +17,14 @@ def reset_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
-def copy_tree(source: Path, destination: Path) -> None:
+def copy_tree(source: Path, destination: Path, ignore_names: set[str] | None = None) -> None:
     if not source.exists():
         fail(f"source not found: {source}")
     if destination.exists():
         shutil.rmtree(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source, destination)
+    ignore = shutil.ignore_patterns(*(ignore_names or set()))
+    shutil.copytree(source, destination, ignore=ignore)
 
 
 def copy_file(source: Path, destination: Path) -> None:
@@ -32,23 +32,6 @@ def copy_file(source: Path, destination: Path) -> None:
         fail(f"file not found: {source}")
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, destination)
-
-
-def ensure_executable(path: Path) -> None:
-    try:
-        mode = path.stat().st_mode
-        path.chmod(mode | 0o755)
-    except Exception as exc:
-        fail(f"failed to mark executable {path}: {exc}")
-
-
-def maintenance_scripts_for_platform(platform: str) -> tuple[list[str], list[str]]:
-    normalized = platform.lower()
-    if normalized == "windows":
-        return (["update.ps1"], [])
-    if normalized in {"darwin", "linux"}:
-        return (["update.sh"], ["update.sh"])
-    fail(f"unsupported platform: {platform}")
 
 
 def main() -> int:
@@ -63,30 +46,21 @@ def main() -> int:
     output_dir = Path(args.output_dir).resolve()
 
     engine_plugin = repo_root / "engine" / "LoomleBridge"
-    workspace_root = repo_root / "workspace" / "Loomle"
-    client_root = repo_root / "client"
-    release_plugin = output_dir / "plugin" / "LoomleBridge"
-    release_workspace = output_dir / "Loomle"
-    maintenance_scripts, executable_scripts = maintenance_scripts_for_platform(args.platform)
+    release_plugin_cache = output_dir / "plugin-cache" / "LoomleBridge"
 
     reset_dir(output_dir)
-    copy_tree(engine_plugin, release_plugin)
-    copy_tree(workspace_root, release_workspace)
-    for script_name in maintenance_scripts:
-        copy_file(client_root / script_name, release_workspace / script_name)
-    for script_name in executable_scripts:
-        ensure_executable(release_workspace / script_name)
+    copy_tree(engine_plugin, release_plugin_cache, {"Intermediate", "Saved", ".DS_Store"})
 
     client_binary = Path(args.client_binary).resolve()
     copy_file(
         client_binary,
-        release_workspace / client_binary.name,
+        output_dir / client_binary.name,
     )
 
     manifest = {
         "bundleRoot": str(output_dir),
-        "plugin": str(release_plugin),
-        "loomle": str(release_workspace),
+        "pluginCache": str(release_plugin_cache),
+        "loomle": str(output_dir / client_binary.name),
         "clientBinaryIncluded": True,
     }
     print(json.dumps(manifest, indent=2))

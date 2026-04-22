@@ -131,7 +131,7 @@ Handoff and collaboration notes should not be embedded as a special section in
 every architecture document.
 
 Instead, after completing a meaningful `Aeris` task, record the result in a
-project-local collaboration artifact when one exists.
+project collaboration artifact when one exists.
 
 The `Worklog` entry should capture at least:
 

@@ -2,8 +2,6 @@ $ErrorActionPreference = "Stop"
 
 $ReleaseRepo = if ($env:LOOMLE_RELEASE_REPO) { $env:LOOMLE_RELEASE_REPO } else { "loomle/loomle" }
 $RequestedVersion = if ($env:LOOMLE_BOOTSTRAP_VERSION) { $env:LOOMLE_BOOTSTRAP_VERSION } else { "latest" }
-$EditorPerfSection = "[/Script/UnrealEd.EditorPerformanceSettings]"
-$EditorThrottleSetting = "bThrottleCPUWhenNotForeground=False"
 
 function Fail([string]$Message) {
   Write-Error $Message
@@ -13,18 +11,6 @@ function Fail([string]$Message) {
 function Resolve-ReleaseTag([string]$Version) {
   if ($Version.StartsWith("v")) { return $Version }
   return "v$Version"
-}
-
-function Find-ProjectRoot([string]$Start) {
-  $dir = (Resolve-Path $Start).Path
-  while ($true) {
-    if (Get-ChildItem -LiteralPath $dir -Filter *.uproject -File -ErrorAction SilentlyContinue) {
-      return $dir
-    }
-    $parent = Split-Path -Parent $dir
-    if ($parent -eq $dir -or [string]::IsNullOrWhiteSpace($parent)) { return $null }
-    $dir = $parent
-  }
 }
 
 function Resolve-EffectiveVersion([string]$ManifestPath, [string]$Version) {
@@ -38,12 +24,8 @@ function Resolve-EffectiveVersion([string]$ManifestPath, [string]$Version) {
   return $Version.TrimStart('v')
 }
 
-function Get-VersionedClientName([string]$Version) {
-  return "loomle-$Version.exe"
-}
-
 function Copy-TreeReplace([string]$Source, [string]$Destination) {
-  if (-not (Test-Path -LiteralPath $Source)) {
+  if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
     Fail "install source not found: $Source"
   }
   Remove-Item -LiteralPath $Destination -Recurse -Force -ErrorAction SilentlyContinue
@@ -51,115 +33,43 @@ function Copy-TreeReplace([string]$Source, [string]$Destination) {
   Copy-Item -LiteralPath $Source -Destination $Destination -Recurse -Force
 }
 
-function Sync-WorkspaceEntries([string]$SourceRoot, [string]$DestinationRoot, [string[]]$SkipNames = @()) {
-  New-Item -ItemType Directory -Force -Path $DestinationRoot | Out-Null
-  foreach ($entry in Get-ChildItem -LiteralPath $SourceRoot -Force) {
-    if ($SkipNames -contains $entry.Name) {
-      continue
-    }
-    $destination = Join-Path $DestinationRoot $entry.Name
-    Remove-Item -LiteralPath $destination -Recurse -Force -ErrorAction SilentlyContinue
-    Copy-Item -LiteralPath $entry.FullName -Destination $destination -Recurse -Force
+function Copy-FileReplace([string]$Source, [string]$Destination) {
+  if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) {
+    Fail "install file not found: $Source"
   }
-}
-
-function Ensure-IniSetting([string]$Path, [string]$Section, [string]$Setting) {
-  $existing = ""
-  if (Test-Path -LiteralPath $Path) {
-    $existing = Get-Content -LiteralPath $Path -Raw
-    if ($existing -match [regex]::Escape($Setting)) {
-      return
-    }
-  }
-
-  $addition = if ([string]::IsNullOrWhiteSpace($existing)) {
-    "$Section`r`n$Setting`r`n"
-  } else {
-    $existing.TrimEnd("`r", "`n") + "`r`n`r`n$Section`r`n$Setting`r`n"
-  }
-  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Path) | Out-Null
-  Set-Content -LiteralPath $Path -Value $addition -Encoding UTF8
-}
-
-function Ensure-WorkspaceLayout([string]$WorkspaceRoot) {
-  @(
-    "install\versions",
-    "install\manifests",
-    "install\pending",
-    "state\diag",
-    "state\captures"
-  ) | ForEach-Object {
-    New-Item -ItemType Directory -Force -Path (Join-Path $WorkspaceRoot $_) | Out-Null
-  }
-}
-
-function Copy-VersionedPayload(
-  [string]$WorkspaceSource,
-  [string]$WorkspaceRoot,
-  [string]$Version,
-  [string]$SourceClientName,
-  [string]$TargetClientName
-) {
-  $VersionRoot = Join-Path $WorkspaceRoot "install\versions\$Version"
-  $KitRoot = Join-Path $VersionRoot "kit"
-  New-Item -ItemType Directory -Force -Path $VersionRoot | Out-Null
-  Copy-Item -LiteralPath (Join-Path $WorkspaceSource $SourceClientName) -Destination (Join-Path $VersionRoot $TargetClientName) -Force
-  Remove-Item -LiteralPath $KitRoot -Recurse -Force -ErrorAction SilentlyContinue
-  New-Item -ItemType Directory -Force -Path $KitRoot | Out-Null
-  foreach ($entryName in @("README.md", "blueprint", "material", "pcg", "workflows", "examples")) {
-    $entryPath = Join-Path $WorkspaceSource $entryName
-    if (Test-Path -LiteralPath $entryPath) {
-      Copy-Item -LiteralPath $entryPath -Destination (Join-Path $KitRoot $entryName) -Recurse -Force
-    }
-  }
-}
-
-function Copy-ManifestRecord([string]$ManifestPath, [string]$WorkspaceRoot, [string]$Version) {
-  Copy-Item -LiteralPath $ManifestPath -Destination (Join-Path $WorkspaceRoot "install\manifests\$Version.json") -Force
+  Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Destination) | Out-Null
+  Copy-Item -LiteralPath $Source -Destination $Destination -Force
 }
 
 function Write-ActiveState(
   [string]$ActiveStatePath,
   [string]$Version,
-  [string]$Platform,
-  [string]$ProjectRoot,
-  [string]$PluginRoot,
-  [string]$WorkspaceRoot,
+  [string]$InstallRoot,
   [string]$LauncherPath,
-  [string]$ActiveClientPath,
-  [string]$SettingsPath
+  [string]$ActiveClientPath
 ) {
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ActiveStatePath) | Out-Null
   $payload = [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
     installedVersion = $Version
     activeVersion = $Version
-    platform = $Platform
-    projectRoot = $ProjectRoot
-    loomleRoot = $WorkspaceRoot
-    pluginRoot = $PluginRoot
+    platform = "windows"
+    installRoot = $InstallRoot
     launcherPath = $LauncherPath
     activeClientPath = $ActiveClientPath
-    manifestsRoot = (Join-Path $WorkspaceRoot "install\manifests")
-    versionsRoot = (Join-Path $WorkspaceRoot "install\versions")
-    editorPerformance = [ordered]@{
-      settingsFile = $SettingsPath
-      throttleWhenNotForeground = $false
-    }
+    versionsRoot = (Join-Path $InstallRoot "versions")
+    pluginCacheRoot = (Join-Path $InstallRoot "versions\$Version\plugin-cache")
   }
   $payload | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $ActiveStatePath -Encoding UTF8
 }
 
-$ProjectRoot = ""
 $ManifestUrl = ""
 $AssetUrl = ""
+$InstallRoot = if ($env:LOOMLE_INSTALL_ROOT) { $env:LOOMLE_INSTALL_ROOT } else { Join-Path $HOME ".loomle" }
 
 for ($i = 0; $i -lt $args.Count; $i++) {
   switch ($args[$i]) {
-    "--project-root" {
-      $i++; if ($i -ge $args.Count) { Fail "missing value for --project-root" }
-      $ProjectRoot = $args[$i]
-    }
     "--version" {
       $i++; if ($i -ge $args.Count) { Fail "missing value for --version" }
       $RequestedVersion = $args[$i]
@@ -172,18 +82,20 @@ for ($i = 0; $i -lt $args.Count; $i++) {
       $i++; if ($i -ge $args.Count) { Fail "missing value for --asset-url" }
       $AssetUrl = $args[$i]
     }
-    "--help" { Write-Host "Usage: install.ps1 [--project-root <ProjectRoot>] [--version <Version>] [--manifest-url <URL>] [--asset-url <URL>]"; exit 0 }
+    "--install-root" {
+      $i++; if ($i -ge $args.Count) { Fail "missing value for --install-root" }
+      $InstallRoot = $args[$i]
+    }
+    "--help" {
+      Write-Host "Usage: install.ps1 [--version <Version>] [--manifest-url <URL>] [--asset-url <URL>] [--install-root <Path>]"
+      exit 0
+    }
     default { Fail "unknown argument: $($args[$i])" }
   }
 }
 
-if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
-  $ProjectRoot = Find-ProjectRoot (Get-Location).Path
-}
-if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
-  Fail "could not resolve Unreal project root; pass --project-root"
-}
-$ProjectRoot = (Resolve-Path $ProjectRoot).Path
+New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
+$InstallRoot = (Resolve-Path $InstallRoot).Path
 
 if ([string]::IsNullOrWhiteSpace($ManifestUrl)) {
   if ($RequestedVersion -eq "latest") {
@@ -211,62 +123,45 @@ $BundleDir = Join-Path $TmpDir "bundle"
 try {
   Invoke-WebRequest -Uri $ManifestUrl -OutFile $ManifestPath
   $EffectiveVersion = Resolve-EffectiveVersion -ManifestPath $ManifestPath -Version $RequestedVersion
-  $ActiveClientName = Get-VersionedClientName $EffectiveVersion
 
   Invoke-WebRequest -Uri $AssetUrl -OutFile $ArchivePath
   Expand-Archive -LiteralPath $ArchivePath -DestinationPath $BundleDir -Force
 
-  $PluginSource = Join-Path $BundleDir "plugin\LoomleBridge"
-  $WorkspaceSource = Join-Path $BundleDir "Loomle"
-  $PluginDestination = Join-Path $ProjectRoot "Plugins\LoomleBridge"
-  $WorkspaceDestination = Join-Path $ProjectRoot "Loomle"
-  $LauncherPath = Join-Path $WorkspaceDestination "loomle.exe"
-  $ActiveClientPath = Join-Path $WorkspaceDestination "install\versions\$EffectiveVersion\$ActiveClientName"
-  $ActiveStatePath = Join-Path $WorkspaceDestination "install\active.json"
-  $SettingsPath = Join-Path $ProjectRoot "Config\DefaultEditorSettings.ini"
+  $ClientName = "loomle.exe"
+  $ClientSource = Join-Path $BundleDir $ClientName
+  $PluginCacheSource = Join-Path $BundleDir "plugin-cache\LoomleBridge"
+  $VersionRoot = Join-Path $InstallRoot "versions\$EffectiveVersion"
+  $LauncherPath = Join-Path $InstallRoot "bin\$ClientName"
+  $ActiveClientPath = Join-Path $VersionRoot $ClientName
+  $ActiveStatePath = Join-Path $InstallRoot "install\active.json"
 
-  if (-not (Test-Path -LiteralPath $PluginSource)) { Fail "bundle missing plugin/LoomleBridge" }
-  if (-not (Test-Path -LiteralPath $WorkspaceSource)) { Fail "bundle missing Loomle" }
+  if (-not (Test-Path -LiteralPath $ClientSource -PathType Leaf)) { Fail "bundle missing $ClientName" }
+  if (-not (Test-Path -LiteralPath $PluginCacheSource -PathType Container)) { Fail "bundle missing plugin-cache/LoomleBridge" }
 
-  Copy-TreeReplace -Source $PluginSource -Destination $PluginDestination
-  Sync-WorkspaceEntries -SourceRoot $WorkspaceSource -DestinationRoot $WorkspaceDestination
-  Ensure-WorkspaceLayout -WorkspaceRoot $WorkspaceDestination
-  Copy-VersionedPayload -WorkspaceSource $WorkspaceSource -WorkspaceRoot $WorkspaceDestination -Version $EffectiveVersion -SourceClientName "loomle.exe" -TargetClientName $ActiveClientName
-  Copy-ManifestRecord -ManifestPath $ManifestPath -WorkspaceRoot $WorkspaceDestination -Version $EffectiveVersion
+  foreach ($dir in @("bin", "install", "state\runtimes", "locks", "logs")) {
+    New-Item -ItemType Directory -Force -Path (Join-Path $InstallRoot $dir) | Out-Null
+  }
 
-  if (-not (Test-Path -LiteralPath $LauncherPath)) { Fail "installed client missing: $LauncherPath" }
-
-  Ensure-IniSetting -Path $SettingsPath -Section $EditorPerfSection -Setting $EditorThrottleSetting
-  Write-ActiveState `
-    -ActiveStatePath $ActiveStatePath `
-    -Version $EffectiveVersion `
-    -Platform "windows" `
-    -ProjectRoot $ProjectRoot `
-    -PluginRoot $PluginDestination `
-    -WorkspaceRoot $WorkspaceDestination `
-    -LauncherPath $LauncherPath `
-    -ActiveClientPath $ActiveClientPath `
-    -SettingsPath $SettingsPath
+  Copy-FileReplace -Source $ClientSource -Destination $ActiveClientPath
+  Copy-FileReplace -Source $ClientSource -Destination $LauncherPath
+  Copy-TreeReplace -Source $PluginCacheSource -Destination (Join-Path $VersionRoot "plugin-cache\LoomleBridge")
+  Copy-FileReplace -Source $ManifestPath -Destination (Join-Path $VersionRoot "manifest.json")
+  Write-ActiveState -ActiveStatePath $ActiveStatePath -Version $EffectiveVersion -InstallRoot $InstallRoot -LauncherPath $LauncherPath -ActiveClientPath $ActiveClientPath
 
   [pscustomobject]@{
     installedVersion = $EffectiveVersion
     activeVersion = $EffectiveVersion
     platform = "windows"
-    bundleRoot = $BundleDir
-    projectRoot = $ProjectRoot
-    plugin = [pscustomobject]@{
-      source = $PluginSource
-      destination = $PluginDestination
-    }
-    workspace = [pscustomobject]@{
-      source = $WorkspaceSource
-      destination = $WorkspaceDestination
-    }
-    install = [pscustomobject]@{
-      activeState = $ActiveStatePath
-      activeClientPath = $ActiveClientPath
-    }
+    installRoot = $InstallRoot
+    launcherPath = $LauncherPath
+    activeClientPath = $ActiveClientPath
+    pluginCache = (Join-Path $VersionRoot "plugin-cache\LoomleBridge")
   } | ConvertTo-Json -Depth 5
+
+  Write-Host ""
+  Write-Host "Configure MCP hosts:"
+  Write-Host "  Codex:  codex mcp add loomle -- $LauncherPath mcp"
+  Write-Host "  Claude: claude mcp add loomle --scope user $LauncherPath mcp"
 }
 finally {
   Remove-Item -LiteralPath $TmpDir -Recurse -Force -ErrorAction SilentlyContinue

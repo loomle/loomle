@@ -132,7 +132,7 @@ def main() -> int:
     parser.add_argument(
         "--loomle-bin",
         default="",
-        help="Override path to the loomle client binary. Defaults to <ProjectRoot>/Loomle/loomle(.exe).",
+        help="Override path to the loomle client binary. Defaults to client/target/release/loomle(.exe).",
     )
     parser.add_argument("--timeout", type=float, default=2.0, help="Per-request timeout seconds for validation clients")
     parser.add_argument("--warmup", type=int, default=5, help="Warmup loomle calls before measuring")
