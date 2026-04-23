@@ -70,6 +70,7 @@ jobs:
 
       - name: Package LOOMLE Release (Mac)
         id: package
+        timeout-minutes: 25
         shell: bash
         run: |
           set -euo pipefail

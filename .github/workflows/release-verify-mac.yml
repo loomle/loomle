@@ -105,6 +105,7 @@ jobs:
           sleep 2
 
       - name: Build Plugin From Current Commit And Sync To Test Project
+        timeout-minutes: 15
         shell: bash
         run: |
           set -euo pipefail
@@ -125,6 +126,7 @@ jobs:
           rsync -a --delete "$package_dir"/ "$plugin_dst"/
 
       - name: Build LOOMLE Client Binary (Release)
+        timeout-minutes: 10
         shell: bash
         run: |
           set -euo pipefail
@@ -171,6 +173,7 @@ jobs:
           PY
 
       - name: Run Smoke Integration Test
+        timeout-minutes: 5
         shell: bash
         run: |
           set -euo pipefail
@@ -180,6 +183,7 @@ jobs:
             --loomle-bin "$GITHUB_WORKSPACE/client/target/release/loomle"
 
       - name: Run Regression Integration Test
+        timeout-minutes: 20
         shell: bash
         run: |
           set -euo pipefail

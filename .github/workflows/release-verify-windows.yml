@@ -190,6 +190,7 @@ jobs:
           Pop-Location
 
       - name: Build Plugin From Current Commit And Sync To Test Project
+        timeout-minutes: 15
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           $plugin = Join-Path $env:GITHUB_WORKSPACE "engine\LoomleBridge\LoomleBridge.uplugin"
@@ -215,6 +216,7 @@ jobs:
           Copy-Item -Path (Join-Path $packageDir "*") -Destination $pluginDst -Recurse -Force
 
       - name: Build LOOMLE Client Binary (Release)
+        timeout-minutes: 10
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           Push-Location (Join-Path $env:GITHUB_WORKSPACE "client")
@@ -238,6 +240,7 @@ jobs:
           Start-Process -FilePath "${{ steps.ue_root_windows.outputs.ue_editor }}" -ArgumentList $ueArgs
 
       - name: Wait For Bridge And Run Smoke Test
+        timeout-minutes: 8
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           $deadline = (Get-Date).AddMinutes(4)
@@ -252,7 +255,7 @@ jobs:
           throw "TIMEOUT waiting for bridge smoke test to pass"
 
       - name: Run Regression Integration Test
-        timeout-minutes: 15
+        timeout-minutes: 20
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           $projectRoot = "${{ steps.test_project.outputs.test_root }}"
