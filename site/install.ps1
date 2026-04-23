@@ -8,6 +8,21 @@ function Fail([string]$Message) {
   exit 1
 }
 
+function Download-File([string]$Uri, [string]$OutFile) {
+  $attempts = 5
+  for ($i = 1; $i -le $attempts; $i++) {
+    try {
+      Invoke-WebRequest -Uri $Uri -OutFile $OutFile -TimeoutSec 180
+      return
+    } catch {
+      if ($i -eq $attempts) {
+        throw
+      }
+      Start-Sleep -Seconds 2
+    }
+  }
+}
+
 function Resolve-ReleaseTag([string]$Version) {
   if ($Version.StartsWith("v")) { return $Version }
   return "v$Version"
@@ -121,10 +136,10 @@ $ArchivePath = Join-Path $TmpDir "loomle-windows.zip"
 $BundleDir = Join-Path $TmpDir "bundle"
 
 try {
-  Invoke-WebRequest -Uri $ManifestUrl -OutFile $ManifestPath
+  Download-File -Uri $ManifestUrl -OutFile $ManifestPath
   $EffectiveVersion = Resolve-EffectiveVersion -ManifestPath $ManifestPath -Version $RequestedVersion
 
-  Invoke-WebRequest -Uri $AssetUrl -OutFile $ArchivePath
+  Download-File -Uri $AssetUrl -OutFile $ArchivePath
   Expand-Archive -LiteralPath $ArchivePath -DestinationPath $BundleDir -Force
 
   $ClientName = "loomle.exe"

@@ -1,7 +1,6 @@
 use loomle::{
-    connect_client, launcher_binary_name, resolve_project_root, should_handoff_to_active_client,
-    validate_project_root, Environment, LoomleClient, StartupAction, StartupError,
-    StartupErrorKind,
+    connect_client, resolve_project_root, should_handoff_to_active_client, validate_project_root,
+    Environment, LoomleClient, StartupAction, StartupError, StartupErrorKind,
 };
 use rmcp::{
     model::{
@@ -135,13 +134,7 @@ fn run_doctor() -> ExitCode {
 
 fn run_update(options: UpdateOptions) -> ExitCode {
     match update_global_install(options) {
-        Ok(summary) => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&summary).unwrap_or_else(|_| "{}".to_string())
-            );
-            ExitCode::SUCCESS
-        }
+        Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
             eprintln!("[loomle][update] {message}");
             ExitCode::from(1)
@@ -942,30 +935,6 @@ fn copy_tree_replace(source: &Path, destination: &Path) -> Result<(), String> {
     copy_dir_recursive(source, destination)
 }
 
-fn copy_file_replace(source: &Path, destination: &Path) -> Result<(), String> {
-    if !source.is_file() {
-        return Err(format!("install file not found: {}", source.display()));
-    }
-    if destination.exists() || destination.is_symlink() {
-        fs::remove_file(destination)
-            .map_err(|error| format!("failed to remove {}: {error}", destination.display()))?;
-    }
-    fs::create_dir_all(
-        destination
-            .parent()
-            .ok_or_else(|| format!("invalid destination: {}", destination.display()))?,
-    )
-    .map_err(|error| format!("failed to create {}: {error}", destination.display()))?;
-    fs::copy(source, destination).map_err(|error| {
-        format!(
-            "failed to copy {} to {}: {error}",
-            source.display(),
-            destination.display()
-        )
-    })?;
-    Ok(())
-}
-
 fn copy_dir_recursive(source: &Path, destination: &Path) -> Result<(), String> {
     fs::create_dir_all(destination)
         .map_err(|error| format!("failed to create {}: {error}", destination.display()))?;
@@ -1071,169 +1040,78 @@ fn same_path(left: &Path, right: &Path) -> bool {
     left == right
 }
 
-#[derive(Debug, serde::Serialize)]
-struct UpdateSummary {
-    installed_version: String,
-    active_version: String,
-    install_root: String,
-    active_client_path: String,
-    plugin_cache: String,
-}
-
-fn update_global_install(options: UpdateOptions) -> Result<UpdateSummary, String> {
-    if cfg!(windows) {
-        return Err("loomle update is not implemented on Windows in this build".to_string());
-    }
-
+fn update_global_install(options: UpdateOptions) -> Result<(), String> {
     let install_root = loomle_root();
     let lock_path = install_root.join("locks").join("update.lock");
     let _lock = acquire_file_lock(&lock_path, "another loomle update is already running")?;
 
-    let active_state_path = install_root.join("install").join("active.json");
-    let current_state = read_json_file_optional(&active_state_path)?;
-    let requested_version = options
-        .version
-        .or_else(|| {
-            current_state
-                .get("activeVersion")
-                .and_then(|v| v.as_str())
-                .map(str::to_owned)
-        })
-        .unwrap_or_else(|| "latest".to_string());
-    let platform = platform_key_for_update();
-    let manifest_url = options.manifest_url.unwrap_or_else(|| {
-        if requested_version == "latest" {
-            format!("https://github.com/loomle/loomle/releases/latest/download/loomle-manifest-{platform}.json")
-        } else {
-            format!(
-                "https://github.com/loomle/loomle/releases/download/{}/loomle-manifest-{platform}.json",
-                release_tag(&requested_version)
-            )
-        }
-    });
-
     let tmp_dir = make_temp_update_dir()?;
-    let manifest_path = tmp_dir.join("manifest.json");
-    let archive_path = tmp_dir.join(format!("loomle-{platform}.zip"));
-    let bundle_dir = tmp_dir.join("bundle");
-
-    download_to_file(&manifest_url, &manifest_path)?;
-    let manifest = read_json_file(&manifest_path)?;
-    let effective_version = if requested_version == "latest" {
-        manifest
-            .get("latest")
-            .and_then(|value| value.as_str())
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| "manifest latest version is missing".to_string())?
-            .to_string()
+    let installer_path = if cfg!(windows) {
+        tmp_dir.join("install.ps1")
     } else {
-        requested_version.trim_start_matches('v').to_string()
+        tmp_dir.join("install.sh")
     };
+    let installer_url = installer_url_for_update();
 
-    let package = manifest
-        .get("versions")
-        .and_then(|value| value.get(&effective_version))
-        .and_then(|value| value.get("packages"))
-        .and_then(|value| value.get(platform))
-        .ok_or_else(|| {
-            format!("manifest missing package for version={effective_version} platform={platform}")
-        })?;
-    let asset_url = options
-        .asset_url
-        .or_else(|| {
-            package
-                .get("url")
-                .and_then(|value| value.as_str())
-                .map(str::to_owned)
-        })
-        .ok_or_else(|| "manifest package missing url".to_string())?;
-    let expected_sha = package
-        .get("sha256")
-        .and_then(|value| value.as_str())
-        .ok_or_else(|| "manifest package missing sha256".to_string())?;
-    let client_relpath = package
-        .get("client_binary_relpath")
-        .and_then(|value| value.as_str())
-        .unwrap_or_else(|| launcher_binary_name());
-
-    download_to_file(&asset_url, &archive_path)?;
-    verify_sha256(&archive_path, expected_sha)?;
-    unzip_archive(&archive_path, &bundle_dir)?;
-
-    let version_root = install_root.join("versions").join(&effective_version);
-    let active_client_path = version_root.join(launcher_binary_name());
-    let launcher_path = install_root.join("bin").join(launcher_binary_name());
-    let plugin_cache = version_root.join("plugin-cache").join("LoomleBridge");
-    let client_source = bundle_dir.join(client_relpath);
-    let plugin_source = bundle_dir.join("plugin-cache").join("LoomleBridge");
-
-    if !client_source.is_file() {
-        return Err(format!(
-            "bundle missing client binary: {}",
-            client_source.display()
-        ));
-    }
-    if !plugin_source.is_dir() {
-        return Err(format!(
-            "bundle missing plugin-cache/LoomleBridge: {}",
-            plugin_source.display()
-        ));
+    eprintln!("[loomle-update] downloading installer {installer_url}");
+    download_to_file(&installer_url, &installer_path)?;
+    if !cfg!(windows) {
+        make_executable_if_unix(&installer_path)?;
     }
 
-    fs::create_dir_all(install_root.join("bin"))
-        .map_err(|error| format!("failed to create bin dir: {error}"))?;
-    fs::create_dir_all(install_root.join("install"))
-        .map_err(|error| format!("failed to create install dir: {error}"))?;
-    fs::create_dir_all(install_root.join("state").join("runtimes"))
-        .map_err(|error| format!("failed to create runtimes dir: {error}"))?;
-    fs::create_dir_all(install_root.join("logs"))
-        .map_err(|error| format!("failed to create logs dir: {error}"))?;
-
-    copy_file_replace(&client_source, &active_client_path)?;
-    copy_file_replace(&client_source, &launcher_path)?;
-    copy_tree_replace(&plugin_source, &plugin_cache)?;
-    copy_file_replace(&manifest_path, &version_root.join("manifest.json"))?;
-    make_executable(&active_client_path)?;
-    make_executable(&launcher_path)?;
-
-    let active_state = serde_json::json!({
-        "schemaVersion": 2,
-        "installedVersion": effective_version,
-        "activeVersion": effective_version,
-        "platform": platform,
-        "installRoot": install_root,
-        "launcherPath": launcher_path,
-        "activeClientPath": active_client_path,
-        "versionsRoot": install_root.join("versions"),
-        "pluginCacheRoot": version_root.join("plugin-cache"),
-    });
-    write_json_atomic(&active_state_path, &active_state)?;
-
+    let status = run_installer(&installer_path, &install_root, options)?;
     let _ = fs::remove_dir_all(&tmp_dir);
-    Ok(UpdateSummary {
-        installed_version: effective_version.clone(),
-        active_version: effective_version,
-        install_root: install_root.display().to_string(),
-        active_client_path: active_client_path.display().to_string(),
-        plugin_cache: plugin_cache.display().to_string(),
-    })
+    if !status.success() {
+        return Err(format!("installer failed with status {status}"));
+    }
+    Ok(())
 }
 
-fn platform_key_for_update() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "darwin"
-    } else if cfg!(target_os = "linux") {
-        "linux"
+fn installer_url_for_update() -> String {
+    if let Some(url) = env::var_os("LOOMLE_INSTALLER_URL") {
+        return url.to_string_lossy().to_string();
+    }
+    if cfg!(windows) {
+        "https://loomle.ai/install.ps1".to_string()
     } else {
-        "windows"
+        "https://loomle.ai/install.sh".to_string()
     }
 }
 
-fn release_tag(version: &str) -> String {
-    if version.starts_with('v') {
-        version.to_string()
+fn run_installer(
+    installer_path: &Path,
+    install_root: &Path,
+    options: UpdateOptions,
+) -> Result<ExitStatus, String> {
+    let mut args = Vec::new();
+    if let Some(version) = options.version {
+        args.push("--version".to_string());
+        args.push(version);
+    }
+    if let Some(manifest_url) = options.manifest_url {
+        args.push("--manifest-url".to_string());
+        args.push(manifest_url);
+    }
+    if let Some(asset_url) = options.asset_url {
+        args.push("--asset-url".to_string());
+        args.push(asset_url);
+    }
+    args.push("--install-root".to_string());
+    args.push(install_root.display().to_string());
+
+    if cfg!(windows) {
+        Command::new("powershell")
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+            .arg(installer_path)
+            .args(args)
+            .status()
+            .map_err(|error| format!("failed to start PowerShell installer: {error}"))
     } else {
-        format!("v{version}")
+        Command::new("bash")
+            .arg(installer_path)
+            .args(args)
+            .status()
+            .map_err(|error| format!("failed to start install.sh: {error}"))
     }
 }
 
@@ -1254,7 +1132,20 @@ fn download_to_file(url: &str, destination: &Path) -> Result<(), String> {
             .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
     }
     let status = Command::new("curl")
-        .args(["-fsSL", url, "-o"])
+        .args([
+            "-fsSL",
+            "--retry",
+            "5",
+            "--retry-delay",
+            "2",
+            "--retry-all-errors",
+            "--connect-timeout",
+            "15",
+            "--max-time",
+            "180",
+            url,
+            "-o",
+        ])
         .arg(destination)
         .status()
         .map_err(|error| format!("failed to start curl: {error}"))?;
@@ -1264,85 +1155,7 @@ fn download_to_file(url: &str, destination: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn verify_sha256(path: &Path, expected: &str) -> Result<(), String> {
-    let output = Command::new("shasum")
-        .args(["-a", "256"])
-        .arg(path)
-        .output()
-        .map_err(|error| format!("failed to start shasum: {error}"))?;
-    if !output.status.success() {
-        return Err(format!("shasum failed for {}", path.display()));
-    }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let actual = text.split_whitespace().next().unwrap_or_default();
-    if !actual.eq_ignore_ascii_case(expected) {
-        return Err(format!(
-            "sha256 mismatch for {}: expected {}, got {}",
-            path.display(),
-            expected,
-            actual
-        ));
-    }
-    Ok(())
-}
-
-fn unzip_archive(archive: &Path, destination: &Path) -> Result<(), String> {
-    if destination.exists() {
-        fs::remove_dir_all(destination)
-            .map_err(|error| format!("failed to reset {}: {error}", destination.display()))?;
-    }
-    fs::create_dir_all(destination)
-        .map_err(|error| format!("failed to create {}: {error}", destination.display()))?;
-    let status = Command::new("unzip")
-        .arg("-q")
-        .arg(archive)
-        .arg("-d")
-        .arg(destination)
-        .status()
-        .map_err(|error| format!("failed to start unzip: {error}"))?;
-    if !status.success() {
-        return Err(format!(
-            "unzip failed for {} with status {status}",
-            archive.display()
-        ));
-    }
-    Ok(())
-}
-
-fn read_json_file(path: &Path) -> Result<serde_json::Value, String> {
-    let raw = fs::read_to_string(path)
-        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
-    serde_json::from_str(&raw)
-        .map_err(|error| format!("failed to parse {}: {error}", path.display()))
-}
-
-fn read_json_file_optional(path: &Path) -> Result<serde_json::Value, String> {
-    if !path.exists() {
-        return Ok(serde_json::Value::Object(serde_json::Map::new()));
-    }
-    read_json_file(path)
-}
-
-fn write_json_atomic(path: &Path, value: &serde_json::Value) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
-    }
-    let tmp = path.with_extension("tmp");
-    let raw = serde_json::to_string_pretty(value)
-        .map_err(|error| format!("failed to encode {}: {error}", path.display()))?
-        + "\n";
-    fs::write(&tmp, raw).map_err(|error| format!("failed to write {}: {error}", tmp.display()))?;
-    fs::rename(&tmp, path).map_err(|error| {
-        format!(
-            "failed to replace {} with {}: {error}",
-            path.display(),
-            tmp.display()
-        )
-    })
-}
-
-fn make_executable(path: &Path) -> Result<(), String> {
+fn make_executable_if_unix(path: &Path) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

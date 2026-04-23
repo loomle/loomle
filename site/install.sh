@@ -23,6 +23,19 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "$1 is required"
 }
 
+download_file() {
+  local url="$1"
+  local output="$2"
+  curl -fsSL \
+    --retry 5 \
+    --retry-delay 2 \
+    --retry-all-errors \
+    --connect-timeout 15 \
+    --max-time 180 \
+    "$url" \
+    -o "$output"
+}
+
 detect_platform() {
   case "$(uname -s)" in
     Darwin) echo "darwin" ;;
@@ -195,12 +208,12 @@ main() {
   bundle_dir="$tmp_dir/bundle"
 
   echo "[loomle-install] downloading manifest $manifest_url"
-  curl -fsSL "$manifest_url" -o "$manifest_path"
+  download_file "$manifest_url" "$manifest_path"
   effective_version="$(resolve_effective_version "$manifest_path")"
   client_name="$(client_binary_name)"
 
   echo "[loomle-install] downloading bundle $asset_url"
-  curl -fsSL "$asset_url" -o "$archive_path"
+  download_file "$asset_url" "$archive_path"
 
   mkdir -p "$bundle_dir"
   unzip -q "$archive_path" -d "$bundle_dir"
