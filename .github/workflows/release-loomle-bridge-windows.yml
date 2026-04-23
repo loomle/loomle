@@ -26,7 +26,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Download Verify Release Inputs
         uses: actions/download-artifact@v4
@@ -42,7 +42,7 @@ jobs:
       - name: Ensure Tag Commit Is On Main
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
-          git fetch origin main --no-tags
+          git fetch origin main --depth=100 --no-tags
           $tagCommit = (git rev-parse HEAD).Trim()
           git merge-base --is-ancestor $tagCommit origin/main
           if ($LASTEXITCODE -ne 0) {
