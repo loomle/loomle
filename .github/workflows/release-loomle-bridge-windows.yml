@@ -28,12 +28,6 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Download Verify Release Inputs
-        uses: actions/download-artifact@v4
-        with:
-          name: release-verify-windows-inputs
-          path: ${{ runner.temp }}/loomle-release-inputs-windows
-
       - name: Mark Workspace As Git Safe Directory
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
@@ -65,6 +59,28 @@ jobs:
             throw "Release tag commit $tagCommit is not reachable from origin/main"
           }
 
+      - name: Resolve Unreal Engine Root (Windows)
+        id: ue_root_windows
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
+        env:
+          UE_FROM_VARS: ${{ vars.UE_5_7_ROOT_WINDOWS }}
+        run: |
+          $candidate = ""
+          if (-not [string]::IsNullOrWhiteSpace($env:UE_FROM_VARS)) {
+            $candidate = $env:UE_FROM_VARS
+          } elseif (-not [string]::IsNullOrWhiteSpace($env:UE_5_7_ROOT_WINDOWS)) {
+            $candidate = $env:UE_5_7_ROOT_WINDOWS
+          } else {
+            $candidate = "C:\Program Files\Epic Games\UE_5.7"
+          }
+
+          $runUat = Join-Path $candidate "Engine\Build\BatchFiles\RunUAT.bat"
+          if (-not (Test-Path -LiteralPath $runUat)) {
+            throw "RunUAT.bat not found: $runUat"
+          }
+
+          "run_uat=$runUat" >> $env:GITHUB_OUTPUT
+
       - name: Package LOOMLE Release (Windows)
         id: package
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
@@ -85,15 +101,36 @@ jobs:
           }
 
           $version = "${{ github.ref_name }}".Substring(1)
-          $inputsDir = Join-Path $env:RUNNER_TEMP "loomle-release-inputs-windows"
+          $packageDir = Join-Path $env:RUNNER_TEMP "LoomleBridge_Release_Windows"
           $bundleDir = Join-Path $env:RUNNER_TEMP "loomle-release-bundle-windows"
           $releaseDir = Join-Path $env:RUNNER_TEMP "loomle-release-assets-windows"
           $archivePath = Join-Path $releaseDir "loomle-windows.zip"
           $manifestPath = Join-Path $releaseDir "loomle-manifest-windows.json"
 
-          $nestedInputsDir = Join-Path $inputsDir "release-verify-windows-inputs"
-          if (Test-Path -LiteralPath $nestedInputsDir) {
-            $inputsDir = $nestedInputsDir
+          $plugin = Join-Path $env:GITHUB_WORKSPACE "engine\LoomleBridge\LoomleBridge.uplugin"
+          if (-not (Test-Path -LiteralPath $plugin)) {
+            throw "Plugin descriptor not found: $plugin"
+          }
+          if (Test-Path -LiteralPath $packageDir) {
+            Remove-Item -LiteralPath $packageDir -Recurse -Force
+          }
+
+          & "${{ steps.ue_root_windows.outputs.run_uat }}" BuildPlugin "-Plugin=$plugin" "-Package=$packageDir" "-TargetPlatforms=Win64" -Rocket
+          if ($LASTEXITCODE -ne 0) {
+            throw "BuildPlugin failed with exit code $LASTEXITCODE"
+          }
+
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE "client")
+          cargo build --release
+          if ($LASTEXITCODE -ne 0) {
+            Pop-Location
+            throw "cargo build --release failed with exit code $LASTEXITCODE"
+          }
+          Pop-Location
+
+          $clientSrc = Join-Path $env:GITHUB_WORKSPACE "client\target\release\loomle.exe"
+          if (-not (Test-Path -LiteralPath $clientSrc)) {
+            throw "LOOMLE client binary missing: $clientSrc"
           }
 
           Remove-Item -LiteralPath $bundleDir, $releaseDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -101,19 +138,13 @@ jobs:
             (Join-Path $bundleDir "plugin-cache\LoomleBridge"), `
             $releaseDir | Out-Null
 
-          if (-not (Test-Path -LiteralPath (Join-Path $inputsDir "plugin-cache\LoomleBridge"))) {
-            throw "Verify plugin inputs missing: $(Join-Path $inputsDir 'plugin-cache\LoomleBridge')"
-          }
-          if (-not (Test-Path -LiteralPath (Join-Path $inputsDir "loomle.exe"))) {
-            throw "Verify loomle binary missing: $(Join-Path $inputsDir 'loomle.exe')"
-          }
           $clientRelPath = "loomle.exe"
           $clientDst = Join-Path $bundleDir ($clientRelPath -replace '/', '\')
 
           New-Item -ItemType Directory -Force -Path (Split-Path -Parent $clientDst) | Out-Null
 
-          Copy-Item -Path (Join-Path $inputsDir "plugin-cache\LoomleBridge\*") -Destination (Join-Path $bundleDir "plugin-cache\LoomleBridge") -Recurse -Force
-          Copy-Item -LiteralPath (Join-Path $inputsDir "loomle.exe") -Destination $clientDst -Force
+          Copy-Item -Path (Join-Path $packageDir "*") -Destination (Join-Path $bundleDir "plugin-cache\LoomleBridge") -Recurse -Force
+          Copy-Item -LiteralPath $clientSrc -Destination $clientDst -Force
 
           python (Join-Path $env:GITHUB_WORKSPACE "packaging\release\write_bundle_zip.py") `
             --bundle-dir $bundleDir `

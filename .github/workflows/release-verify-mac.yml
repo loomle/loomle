@@ -134,31 +134,6 @@ jobs:
           client_src="$GITHUB_WORKSPACE/client/target/release/loomle"
           [[ -x "$client_src" ]] || { echo "LOOMLE client binary missing or not executable: $client_src" >&2; exit 1; }
 
-      - name: Stage Release Inputs
-        shell: bash
-        run: |
-          set -euo pipefail
-          release_inputs="$RUNNER_TEMP/loomle-release-inputs-darwin"
-          plugin_src="$RUNNER_TEMP/LoomleBridge_Gating"
-          client_src="$GITHUB_WORKSPACE/client/target/release/loomle"
-
-          [[ -d "$plugin_src" ]] || { echo "Packaged plugin missing: $plugin_src" >&2; exit 1; }
-          [[ -x "$client_src" ]] || { echo "Client binary missing: $client_src" >&2; exit 1; }
-
-          rm -rf "$release_inputs"
-          mkdir -p "$release_inputs/plugin-cache/LoomleBridge"
-
-          rsync -a "$plugin_src"/ "$release_inputs/plugin-cache/LoomleBridge"/
-          cp "$client_src" "$release_inputs/loomle"
-          chmod +x "$release_inputs/loomle"
-
-      - name: Upload Release Inputs
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-verify-mac-inputs
-          path: ${{ runner.temp }}/loomle-release-inputs-darwin
-          if-no-files-found: error
-
       - name: Restart Unreal Editor For Verification
         shell: bash
         run: |

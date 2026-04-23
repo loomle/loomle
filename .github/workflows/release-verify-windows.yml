@@ -226,34 +226,6 @@ jobs:
             throw "LOOMLE client binary missing: $clientSrc"
           }
 
-      - name: Stage Release Inputs
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
-        run: |
-          $releaseInputs = Join-Path $env:RUNNER_TEMP "loomle-release-inputs-windows"
-          $pluginSrc = Join-Path $env:RUNNER_TEMP "LoomleBridge_Gating_Windows"
-          $clientSrc = Join-Path $env:GITHUB_WORKSPACE "client\target\release\loomle.exe"
-
-          if (-not (Test-Path -LiteralPath $pluginSrc)) {
-            throw "Packaged plugin missing: $pluginSrc"
-          }
-          if (-not (Test-Path -LiteralPath $clientSrc)) {
-            throw "Client binary missing: $clientSrc"
-          }
-
-          Remove-Item -LiteralPath $releaseInputs -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path `
-            (Join-Path $releaseInputs "plugin-cache\LoomleBridge") | Out-Null
-
-          Copy-Item -Path (Join-Path $pluginSrc "*") -Destination (Join-Path $releaseInputs "plugin-cache\LoomleBridge") -Recurse -Force
-          Copy-Item -LiteralPath $clientSrc -Destination (Join-Path $releaseInputs "loomle.exe") -Force
-
-      - name: Upload Release Inputs
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-verify-windows-inputs
-          path: ${{ runner.temp }}/loomle-release-inputs-windows
-          if-no-files-found: error
-
       - name: Restart Unreal Editor For Verification
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |

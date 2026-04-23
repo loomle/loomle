@@ -28,12 +28,6 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Download Verify Release Inputs
-        uses: actions/download-artifact@v4
-        with:
-          name: release-verify-mac-inputs
-          path: ${{ runner.temp }}/loomle-release-inputs-darwin
-
       - name: Ensure Tag Commit Is On Main
         shell: bash
         run: |
@@ -54,6 +48,26 @@ jobs:
             exit 1
           }
 
+      - name: Resolve Unreal Engine Root (Mac)
+        id: ue_root_mac
+        shell: bash
+        env:
+          UE_FROM_VARS: ${{ vars.UE_5_7_ROOT_MAC }}
+        run: |
+          set -euo pipefail
+          candidate=""
+          if [[ -n "${UE_FROM_VARS:-}" ]]; then
+            candidate="$UE_FROM_VARS"
+          elif [[ -n "${UE_5_7_ROOT_MAC:-}" ]]; then
+            candidate="$UE_5_7_ROOT_MAC"
+          else
+            candidate="/Users/Shared/Epic Games/UE_5.7"
+          fi
+
+          run_uat="$candidate/Engine/Build/BatchFiles/RunUAT.sh"
+          [[ -x "$run_uat" ]] || { echo "RunUAT.sh not found: $run_uat" >&2; exit 1; }
+          echo "run_uat=$run_uat" >> "$GITHUB_OUTPUT"
+
       - name: Package LOOMLE Release (Mac)
         id: package
         shell: bash
@@ -61,25 +75,33 @@ jobs:
           set -euo pipefail
 
           version="${GITHUB_REF_NAME#v}"
-          inputs_dir="$RUNNER_TEMP/loomle-release-inputs-darwin"
+          package_dir="$RUNNER_TEMP/LoomleBridge_Release_Darwin"
           bundle_dir="$RUNNER_TEMP/loomle-release-bundle-darwin"
           release_dir="$RUNNER_TEMP/loomle-release-assets-darwin"
           archive_path="$release_dir/loomle-darwin.zip"
           manifest_path="$release_dir/loomle-manifest-darwin.json"
 
-          if [[ -d "$inputs_dir/release-verify-mac-inputs" ]]; then
-            inputs_dir="$inputs_dir/release-verify-mac-inputs"
-          fi
+          plugin="$GITHUB_WORKSPACE/engine/LoomleBridge/LoomleBridge.uplugin"
+          [[ -f "$plugin" ]] || { echo "Plugin descriptor not found: $plugin" >&2; exit 1; }
+          rm -rf "$package_dir" "$bundle_dir" "$release_dir"
+          "${{ steps.ue_root_mac.outputs.run_uat }}" BuildPlugin \
+            -Plugin="$plugin" \
+            -Package="$package_dir" \
+            -TargetPlatforms=Mac \
+            -Rocket
 
-          rm -rf "$bundle_dir" "$release_dir"
+          cd "$GITHUB_WORKSPACE/client"
+          cargo build --release
+
+          client_src="$GITHUB_WORKSPACE/client/target/release/loomle"
+          [[ -x "$client_src" ]] || { echo "LOOMLE client binary missing or not executable: $client_src" >&2; exit 1; }
+
           mkdir -p "$bundle_dir/plugin-cache/LoomleBridge" "$release_dir"
-          [[ -d "$inputs_dir/plugin-cache/LoomleBridge" ]] || { echo "Verify plugin inputs missing: $inputs_dir/plugin-cache/LoomleBridge" >&2; exit 1; }
-          [[ -x "$inputs_dir/loomle" ]] || { echo "Verify loomle binary missing: $inputs_dir/loomle" >&2; exit 1; }
           client_relpath="loomle"
           client_dst="$bundle_dir/$client_relpath"
 
-          rsync -a "$inputs_dir/plugin-cache/LoomleBridge/" "$bundle_dir/plugin-cache/LoomleBridge/"
-          cp "$inputs_dir/loomle" "$client_dst"
+          rsync -a "$package_dir/" "$bundle_dir/plugin-cache/LoomleBridge/"
+          cp "$client_src" "$client_dst"
           chmod +x "$client_dst"
 
           python3 "$GITHUB_WORKSPACE/packaging/release/write_bundle_zip.py" \
