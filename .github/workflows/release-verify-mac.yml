@@ -214,6 +214,8 @@ jobs:
 
       - name: Upload Unreal Project Logs
         if: always()
+        timeout-minutes: 2
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: release-verify-mac-logs
@@ -232,6 +234,8 @@ jobs:
 
       - name: Upload Benchmark Artifact
         if: always()
+        timeout-minutes: 2
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: release-verify-benchmarks
