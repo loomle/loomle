@@ -138,6 +138,7 @@ jobs:
             gh release create "$tag" \
               --repo "$GITHUB_REPOSITORY" \
               --title "$tag" \
+              --latest=false \
               --generate-notes
           fi
 

@@ -263,6 +263,7 @@ jobs:
             gh release create loomle-latest \
               --repo "$GITHUB_REPOSITORY" \
               --title "LOOMLE Latest" \
+              --latest=false \
               --notes "Stable alias release for the latest LOOMLE release archives and manifest." \
               release-finalize/loomle-darwin.zip \
               release-finalize/loomle-windows.zip \
@@ -286,3 +287,14 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --clobber
           fi
+
+      - name: Mark Tag Release As GitHub Latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.tag.outputs.tag }}"
+          gh release edit "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --latest

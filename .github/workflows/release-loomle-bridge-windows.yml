@@ -178,6 +178,7 @@ jobs:
             gh release create $tag `
               --repo "${{ github.repository }}" `
               --title $tag `
+              --latest=false `
               --generate-notes
             if ($LASTEXITCODE -ne 0) {
               throw "Failed to create release $tag"
