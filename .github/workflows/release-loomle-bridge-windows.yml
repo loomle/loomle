@@ -168,12 +168,27 @@ jobs:
           "manifest_path=$manifestPath" >> $env:GITHUB_OUTPUT
 
       - name: Publish Tag Release Assets
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            ${{ steps.package.outputs.archive_path }}
-            ${{ steps.package.outputs.manifest_path }}
-          generate_release_notes: true
-          fail_on_unmatched_files: true
-          draft: false
-          prerelease: false
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
+        run: |
+          $tag = "${{ github.ref_name }}"
+          gh release view $tag --repo "${{ github.repository }}" *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag `
+              --repo "${{ github.repository }}" `
+              --title $tag `
+              --generate-notes
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to create release $tag"
+            }
+          }
+
+          gh release upload $tag `
+            "${{ steps.package.outputs.archive_path }}" `
+            "${{ steps.package.outputs.manifest_path }}" `
+            --repo "${{ github.repository }}" `
+            --clobber
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to upload release assets for $tag"
+          }

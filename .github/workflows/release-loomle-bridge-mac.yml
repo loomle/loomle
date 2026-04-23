@@ -128,12 +128,21 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Publish Tag Release Assets
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            ${{ steps.package.outputs.archive_path }}
-            ${{ steps.package.outputs.manifest_path }}
-          generate_release_notes: true
-          fail_on_unmatched_files: true
-          draft: false
-          prerelease: false
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$tag" \
+              --generate-notes
+          fi
+
+          gh release upload "$tag" \
+            "${{ steps.package.outputs.archive_path }}" \
+            "${{ steps.package.outputs.manifest_path }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
