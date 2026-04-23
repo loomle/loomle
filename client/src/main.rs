@@ -62,9 +62,12 @@ fn maybe_handoff_to_global_active_client() -> Option<ExitCode> {
 }
 
 async fn run_mcp(project_root_arg: Option<PathBuf>) -> ExitCode {
-    let project_root = project_root_arg
+    let explicit_project_root = project_root_arg
         .as_deref()
         .and_then(|path| resolve_project_root(Some(path)).ok());
+    let cwd = env::current_dir().ok();
+    let online_projects = discover_runtime_projects(ProjectStatusFilter::Online);
+    let project_root = infer_attached_project_root(explicit_project_root, cwd, &online_projects);
     let env_info = project_root.map(Environment::for_project_root);
     let server = LoomleProxyServer::new(env_info);
     let running = match server.serve(stdio()).await {
@@ -267,6 +270,7 @@ fn exit_code_from_status(status: ExitStatus) -> ExitCode {
 }
 
 struct LoomleProxyServer {
+    session_cwd: Option<PathBuf>,
     env_info: Mutex<Option<Arc<Environment>>>,
     client: Mutex<Option<LoomleClient>>,
 }
@@ -274,6 +278,7 @@ struct LoomleProxyServer {
 impl LoomleProxyServer {
     fn new(env_info: Option<Environment>) -> Self {
         Self {
+            session_cwd: env::current_dir().ok(),
             env_info: Mutex::new(env_info.map(Arc::new)),
             client: Mutex::new(None),
         }
@@ -282,6 +287,7 @@ impl LoomleProxyServer {
     /// Returns a connected client, attempting to connect if not already connected.
     /// Returns None (with a human-readable reason) when the Bridge is unavailable.
     async fn get_or_connect(&self) -> Result<(), String> {
+        self.try_auto_attach().await;
         let env_info = self.env_info.lock().await.clone();
         let Some(env_info) = env_info else {
             return Err(
@@ -331,6 +337,22 @@ impl LoomleProxyServer {
             .as_ref()
             .map(|env_info| env_info.project_root.clone())
     }
+
+    async fn try_auto_attach(&self) {
+        let mut guard = self.env_info.lock().await;
+        if guard.is_some() {
+            return;
+        }
+
+        let online_projects = discover_runtime_projects(ProjectStatusFilter::Online);
+        let Some(project_root) =
+            infer_attached_project_root(None, self.session_cwd.clone(), &online_projects)
+        else {
+            return;
+        };
+
+        *guard = Some(Arc::new(Environment::for_project_root(project_root)));
+    }
 }
 
 impl ServerHandler for LoomleProxyServer {
@@ -349,25 +371,7 @@ impl ServerHandler for LoomleProxyServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
-        match self.get_or_connect().await {
-            Ok(()) => {
-                let guard = self.client.lock().await;
-                let client = guard.as_ref().expect("connected above");
-                match client.peer().list_all_tools().await {
-                    Ok(mut tools) => {
-                        let mut local_tools = pre_attach_tools();
-                        local_tools.append(&mut tools);
-                        Ok(ListToolsResult::with_all_items(local_tools))
-                    }
-                    Err(_) => {
-                        drop(guard);
-                        self.invalidate().await;
-                        Ok(ListToolsResult::with_all_items(pre_attach_tools()))
-                    }
-                }
-            }
-            Err(_) => Ok(ListToolsResult::with_all_items(pre_attach_tools())),
-        }
+        Ok(ListToolsResult::with_all_items(all_declared_tools()))
     }
 
     fn get_tool(&self, _name: &str) -> Option<Tool> {
@@ -414,6 +418,7 @@ impl LoomleProxyServer {
     }
 
     async fn call_loomle_status(&self) -> CallToolResult {
+        self.try_auto_attach().await;
         let projects = discover_runtime_projects(ProjectStatusFilter::All);
         let attached_project_root = self.attached_project_root().await;
         let payload = serde_json::json!({
@@ -509,6 +514,80 @@ fn pre_attach_tools() -> Vec<Tool> {
     ]
 }
 
+fn all_declared_tools() -> Vec<Tool> {
+    let mut tools = pre_attach_tools();
+    tools.extend(runtime_declared_tools());
+    tools
+}
+
+fn runtime_declared_tools() -> Vec<Tool> {
+    use std::sync::Arc;
+
+    const RUNTIME_TOOLS: [(&str, &str); 22] = [
+        ("loomle", "Bridge health and runtime status."),
+        ("context", "Read active editor context and selection."),
+        ("execute", "Execute Unreal-side Python inside the editor process."),
+        ("jobs", "Inspect or retrieve long-running job state, results, and logs."),
+        (
+            "profiling",
+            "Bridge official Unreal profiling data families such as stat unit, stat groups, ticks, memory reports, and capture workflows.",
+        ),
+        ("editor.open", "Open or focus the editor for a specific Unreal asset path."),
+        (
+            "editor.focus",
+            "Focus a semantic panel inside an asset editor, such as graph, viewport, details, palette, or find.",
+        ),
+        (
+            "editor.screenshot",
+            "Capture a PNG of the active editor window and return the written file path.",
+        ),
+        ("graph", "Read graph capability descriptor and runtime status."),
+        ("blueprint.list", "List Blueprint graphs in an asset."),
+        ("blueprint.query", "Read node and pin data from a Blueprint graph."),
+        ("blueprint.mutate", "Apply a batch of write operations to a Blueprint graph."),
+        ("blueprint.verify", "Run read-only structural validation for a Blueprint graph."),
+        ("blueprint.describe", "Describe a Blueprint class or a specific Blueprint graph node."),
+        ("material.list", "List material expressions in a material asset."),
+        ("material.query", "Read expression nodes and pin data from a material."),
+        ("material.mutate", "Apply a batch of write operations to a material asset."),
+        ("material.verify", "Compile a material and return diagnostics."),
+        ("material.describe", "Describe a material expression class or instance."),
+        ("pcg.list", "List nodes in a PCG graph asset."),
+        ("pcg.query", "Read node and pin data from a PCG graph."),
+        ("pcg.mutate", "Apply a batch of write operations to a PCG graph."),
+    ];
+    const RUNTIME_TOOLS_TAIL: [(&str, &str); 6] = [
+        ("pcg.verify", "Run read-only validation for a PCG graph."),
+        ("pcg.describe", "Describe a PCG settings class or instance."),
+        ("diag.tail", "Read persisted diagnostics incrementally by sequence cursor."),
+        ("widget.query", "Read the UMG WidgetTree of a WidgetBlueprint asset."),
+        (
+            "widget.mutate",
+            "Apply structural write operations to the UMG WidgetTree of a WidgetBlueprint asset.",
+        ),
+        (
+            "widget.verify",
+            "Compile a WidgetBlueprint and return diagnostics.",
+        ),
+    ];
+
+    let mut tools: Vec<Tool> = RUNTIME_TOOLS
+        .into_iter()
+        .map(|(name, description)| Tool::new(name, description, Arc::new(loose_object_schema())))
+        .collect();
+    tools.extend(
+        RUNTIME_TOOLS_TAIL.into_iter().map(|(name, description)| {
+            Tool::new(name, description, Arc::new(loose_object_schema()))
+        }),
+    );
+    tools.push(Tool::new(
+        "widget.describe",
+        "Enumerate the editable properties of a UMG widget class, with optional current values from a live instance.",
+        Arc::new(loose_object_schema()),
+    ));
+    tools
+}
+
 fn bridge_unavailable_result(reason: &str) -> CallToolResult {
     CallToolResult::error(vec![rmcp::model::Content::text(format!(
         "LOOMLE Bridge unavailable: {reason}"
@@ -524,6 +603,11 @@ fn is_pre_attach_tool(name: &str) -> bool {
 
 fn empty_schema() -> rmcp::model::JsonObject {
     serde_json::from_str(r#"{"type":"object","properties":{},"additionalProperties":false}"#)
+        .expect("valid schema")
+}
+
+fn loose_object_schema() -> rmcp::model::JsonObject {
+    serde_json::from_str(r#"{"type":"object","properties":{},"additionalProperties":true}"#)
         .expect("valid schema")
 }
 
@@ -724,6 +808,35 @@ fn call_project_install(args: &rmcp::model::JsonObject) -> CallToolResult {
         "requiresEditorRestart": true,
         "message": "LOOMLE project support installed. Restart Unreal Editor to activate LoomleBridge."
     }))
+}
+
+fn infer_attached_project_root(
+    explicit_project_root: Option<PathBuf>,
+    cwd: Option<PathBuf>,
+    online_projects: &[RuntimeProject],
+) -> Option<PathBuf> {
+    if explicit_project_root.is_some() {
+        return explicit_project_root;
+    }
+
+    let cwd = cwd
+        .map(|path| path.canonicalize().unwrap_or(path))
+        .unwrap_or_default();
+    if !cwd.as_os_str().is_empty() {
+        if let Some(project) = online_projects
+            .iter()
+            .filter(|project| cwd.starts_with(&project.project_root))
+            .max_by_key(|project| project.project_root.components().count())
+        {
+            return Some(project.project_root.clone());
+        }
+    }
+
+    if online_projects.len() == 1 {
+        return Some(online_projects[0].project_root.clone());
+    }
+
+    None
 }
 
 fn discover_runtime_projects(filter: ProjectStatusFilter) -> Vec<RuntimeProject> {
@@ -1369,7 +1482,7 @@ fn print_usage() {
 
 #[cfg(test)]
 mod tests {
-    use super::Cli;
+    use super::{infer_attached_project_root, Cli, RuntimeProject};
     use std::ffi::OsString;
     use std::path::PathBuf;
 
@@ -1438,5 +1551,74 @@ mod tests {
             Cli::Update(_) => {}
             _ => panic!("expected update"),
         }
+    }
+
+    fn online_project(project_root: &str) -> RuntimeProject {
+        let root = PathBuf::from(project_root);
+        RuntimeProject {
+            project_id: project_root.to_string(),
+            name: root
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(project_root)
+                .to_string(),
+            project_root: root.clone(),
+            uproject: None,
+            endpoint: root.join("Intermediate").join("loomle.sock"),
+            status: "online".to_string(),
+            attachable: true,
+            plugin_installed: true,
+            plugin_version: Some("0.5.2".to_string()),
+            protocol_version: Some(1),
+            last_seen_at: None,
+            reason: None,
+        }
+    }
+
+    #[test]
+    fn infer_attached_project_prefers_explicit_project() {
+        let explicit = Some(PathBuf::from("/Projects/Explicit"));
+        let inferred = infer_attached_project_root(
+            explicit.clone(),
+            Some(PathBuf::from("/Projects/StackBot/Content")),
+            &[online_project("/Projects/StackBot")],
+        );
+        assert_eq!(inferred, explicit);
+    }
+
+    #[test]
+    fn infer_attached_project_uses_cwd_match() {
+        let inferred = infer_attached_project_root(
+            None,
+            Some(PathBuf::from("/Projects/StackBot/Plugins/LoomleBridge")),
+            &[
+                online_project("/Projects/OtherGame"),
+                online_project("/Projects/StackBot"),
+            ],
+        );
+        assert_eq!(inferred, Some(PathBuf::from("/Projects/StackBot")));
+    }
+
+    #[test]
+    fn infer_attached_project_falls_back_to_single_online_project() {
+        let inferred = infer_attached_project_root(
+            None,
+            Some(PathBuf::from("/Users/example")),
+            &[online_project("/Projects/StackBot")],
+        );
+        assert_eq!(inferred, Some(PathBuf::from("/Projects/StackBot")));
+    }
+
+    #[test]
+    fn infer_attached_project_requires_manual_choice_when_ambiguous() {
+        let inferred = infer_attached_project_root(
+            None,
+            Some(PathBuf::from("/Users/example")),
+            &[
+                online_project("/Projects/StackBot"),
+                online_project("/Projects/OtherGame"),
+            ],
+        );
+        assert_eq!(inferred, None);
     }
 }
