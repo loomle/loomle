@@ -38,7 +38,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin main --depth=100 --no-tags
+          for attempt in 1 2 3; do
+            if git fetch origin main --depth=100 --no-tags; then
+              break
+            fi
+            if [[ "$attempt" == "3" ]]; then
+              echo "Failed to fetch origin/main after $attempt attempts" >&2
+              exit 1
+            fi
+            sleep $((attempt * 5))
+          done
           tag_commit="$(git rev-parse HEAD)"
           git merge-base --is-ancestor "$tag_commit" origin/main || {
             echo "Release tag commit $tag_commit is not reachable from origin/main" >&2

@@ -42,7 +42,23 @@ jobs:
       - name: Ensure Tag Commit Is On Main
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
-          git fetch origin main --depth=100 --no-tags
+          $fetched = $false
+          foreach ($attempt in 1..3) {
+            git fetch origin main --depth=100 --no-tags
+            if ($LASTEXITCODE -eq 0) {
+              $fetched = $true
+              break
+            }
+
+            if ($attempt -lt 3) {
+              Start-Sleep -Seconds ($attempt * 5)
+            }
+          }
+
+          if (-not $fetched) {
+            throw "Failed to fetch origin/main after 3 attempts"
+          }
+
           $tagCommit = (git rev-parse HEAD).Trim()
           git merge-base --is-ancestor $tagCommit origin/main
           if ($LASTEXITCODE -ne 0) {
