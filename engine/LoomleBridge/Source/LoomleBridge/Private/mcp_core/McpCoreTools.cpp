@@ -7,7 +7,7 @@
 namespace
 {
 constexpr const TCHAR* LoomleMcpProtocolVersion = TEXT("2025-11-25");
-constexpr const TCHAR* LoomleMcpServerVersion = TEXT("0.5.0");
+constexpr const TCHAR* LoomleMcpServerVersion = TEXT("0.5.1");
 constexpr const TCHAR* JsonSchemaDraft2020 = TEXT("https://json-schema.org/draft/2020-12/schema");
 
 TSharedPtr<FJsonObject> MakeObjectSchema(bool bAdditionalProperties)
