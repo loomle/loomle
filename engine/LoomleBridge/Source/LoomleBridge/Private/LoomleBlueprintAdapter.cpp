@@ -4521,21 +4521,67 @@ bool FLoomleBlueprintAdapter::ConnectPins(const FString& BlueprintAssetPath, con
 
     UEdGraphNode* FromNode = LoomleBlueprintAdapterInternal::FindNodeByGuid(EventGraph, FromNodeGuid);
     UEdGraphNode* ToNode = LoomleBlueprintAdapterInternal::FindNodeByGuid(EventGraph, ToNodeGuid);
+    if (!FromNode)
+    {
+        OutError = FString::Printf(TEXT("NODE_REF_NOT_FOUND: from.node id was not found in graph: %s"), *FromNodeGuid);
+        return false;
+    }
+    if (!ToNode)
+    {
+        OutError = FString::Printf(TEXT("NODE_REF_NOT_FOUND: to.node id was not found in graph: %s"), *ToNodeGuid);
+        return false;
+    }
+
     UEdGraphPin* FromPin = LoomleBlueprintAdapterInternal::ResolvePin(FromNode, FromPinName);
     UEdGraphPin* ToPin = LoomleBlueprintAdapterInternal::ResolvePin(ToNode, ToPinName);
-    if (!FromNode || !ToNode || !FromPin || !ToPin)
+    if (!FromPin)
     {
-        OutError = TEXT("Failed to resolve nodes or pins.");
+        OutError = FString::Printf(TEXT("PIN_REF_NOT_FOUND: from pin was not found on node %s: %s"), *FromNodeGuid, *FromPinName);
+        return false;
+    }
+    if (!ToPin)
+    {
+        OutError = FString::Printf(TEXT("PIN_REF_NOT_FOUND: to pin was not found on node %s: %s"), *ToNodeGuid, *ToPinName);
+        return false;
+    }
+    if (FromPin->Direction != EGPD_Output || ToPin->Direction != EGPD_Input)
+    {
+        OutError = TEXT("CONNECT_REQUIRES_OUTPUT_TO_INPUT: connect requires from to be an output pin and to to be an input pin.");
         return false;
     }
 
     const UEdGraphSchema_K2* Schema = GetDefault<UEdGraphSchema_K2>();
-    if (!Schema || !Schema->TryCreateConnection(FromPin, ToPin))
+    if (!Schema)
     {
-        OutError = TEXT("TryCreateConnection failed.");
+        OutError = TEXT("INTERNAL_ERROR: Failed to resolve K2 graph schema.");
         return false;
     }
 
+    const FPinConnectionResponse Response = Schema->CanCreateConnection(FromPin, ToPin);
+    if (Response.Response == CONNECT_RESPONSE_MAKE_WITH_CONVERSION_NODE || Response.Response == CONNECT_RESPONSE_MAKE_WITH_PROMOTION)
+    {
+        OutError = FString::Printf(TEXT("CONNECT_PIN_TYPE_MISMATCH: Pins require conversion or promotion, which blueprint.graph.edit does not auto-insert. %s"), *Response.Message.ToString());
+        return false;
+    }
+    if (Response.Response == CONNECT_RESPONSE_DISALLOW)
+    {
+        OutError = FString::Printf(TEXT("CONNECT_PIN_TYPE_MISMATCH: %s"), *Response.Message.ToString());
+        return false;
+    }
+
+    Blueprint->Modify();
+    EventGraph->Modify();
+    FromNode->Modify();
+    ToNode->Modify();
+    if (!Schema->TryCreateConnection(FromPin, ToPin))
+    {
+        OutError = FString::Printf(TEXT("CONNECT_PIN_TYPE_MISMATCH: %s"), *Response.Message.ToString());
+        return false;
+    }
+
+    EventGraph->NotifyGraphChanged();
+    FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+    Blueprint->MarkPackageDirty();
     return true;
 }
 
@@ -4633,21 +4679,49 @@ bool FLoomleBlueprintAdapter::DisconnectPins(const FString& BlueprintAssetPath, 
 
     UEdGraphNode* FromNode = LoomleBlueprintAdapterInternal::FindNodeByGuid(EventGraph, FromNodeGuid);
     UEdGraphNode* ToNode = LoomleBlueprintAdapterInternal::FindNodeByGuid(EventGraph, ToNodeGuid);
+    if (!FromNode)
+    {
+        OutError = FString::Printf(TEXT("NODE_REF_NOT_FOUND: from.node id was not found in graph: %s"), *FromNodeGuid);
+        return false;
+    }
+    if (!ToNode)
+    {
+        OutError = FString::Printf(TEXT("NODE_REF_NOT_FOUND: to.node id was not found in graph: %s"), *ToNodeGuid);
+        return false;
+    }
+
     UEdGraphPin* FromPin = LoomleBlueprintAdapterInternal::ResolvePin(FromNode, FromPinName);
     UEdGraphPin* ToPin = LoomleBlueprintAdapterInternal::ResolvePin(ToNode, ToPinName);
-    if (!FromNode || !ToNode || !FromPin || !ToPin)
+    if (!FromPin)
     {
-        OutError = TEXT("Failed to resolve nodes or pins.");
+        OutError = FString::Printf(TEXT("PIN_REF_NOT_FOUND: from pin was not found on node %s: %s"), *FromNodeGuid, *FromPinName);
+        return false;
+    }
+    if (!ToPin)
+    {
+        OutError = FString::Printf(TEXT("PIN_REF_NOT_FOUND: to pin was not found on node %s: %s"), *ToNodeGuid, *ToPinName);
+        return false;
+    }
+    if (FromPin->Direction != EGPD_Output || ToPin->Direction != EGPD_Input)
+    {
+        OutError = TEXT("CONNECT_REQUIRES_OUTPUT_TO_INPUT: disconnect requires from to be an output pin and to to be an input pin.");
         return false;
     }
 
     if (!(FromPin->LinkedTo.Contains(ToPin) || ToPin->LinkedTo.Contains(FromPin)))
     {
-        OutError = TEXT("Specified pin link does not exist.");
-        return false;
+        OutError = TEXT("LINK_NOT_FOUND: specified pin link does not exist; disconnect treated it as a no-op.");
+        return true;
     }
 
+    Blueprint->Modify();
+    EventGraph->Modify();
+    FromNode->Modify();
+    ToNode->Modify();
     FromPin->BreakLinkTo(ToPin);
+    EventGraph->NotifyGraphChanged();
+    FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+    Blueprint->MarkPackageDirty();
     return true;
 }
 
@@ -4665,13 +4739,24 @@ bool FLoomleBlueprintAdapter::BreakPinLinks(const FString& BlueprintAssetPath, c
 
     UEdGraphNode* Node = LoomleBlueprintAdapterInternal::FindNodeByGuid(EventGraph, NodeGuid);
     UEdGraphPin* Pin = LoomleBlueprintAdapterInternal::ResolvePin(Node, PinName);
-    if (!Node || !Pin)
+    if (!Node)
     {
-        OutError = TEXT("Failed to resolve node or pin.");
+        OutError = FString::Printf(TEXT("NODE_REF_NOT_FOUND: target.node id was not found in graph: %s"), *NodeGuid);
+        return false;
+    }
+    if (!Pin)
+    {
+        OutError = FString::Printf(TEXT("PIN_REF_NOT_FOUND: target pin was not found on node %s: %s"), *NodeGuid, *PinName);
         return false;
     }
 
+    Blueprint->Modify();
+    EventGraph->Modify();
+    Node->Modify();
     Pin->BreakAllPinLinks(true);
+    EventGraph->NotifyGraphChanged();
+    FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+    Blueprint->MarkPackageDirty();
     return true;
 }
 

@@ -2725,6 +2725,31 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             return DirectResult;
         };
 
+        auto ErrorCodeFromPrefixedMessage = [](const FString& ErrorMessage) -> FString
+        {
+            if (ErrorMessage.StartsWith(TEXT("CONNECT_REQUIRES_OUTPUT_TO_INPUT")))
+            {
+                return TEXT("CONNECT_REQUIRES_OUTPUT_TO_INPUT");
+            }
+            if (ErrorMessage.StartsWith(TEXT("CONNECT_PIN_TYPE_MISMATCH")))
+            {
+                return TEXT("CONNECT_PIN_TYPE_MISMATCH");
+            }
+            if (ErrorMessage.StartsWith(TEXT("NODE_REF_NOT_FOUND")))
+            {
+                return TEXT("NODE_REF_NOT_FOUND");
+            }
+            if (ErrorMessage.StartsWith(TEXT("PIN_REF_NOT_FOUND")))
+            {
+                return TEXT("PIN_REF_NOT_FOUND");
+            }
+            if (ErrorMessage.StartsWith(TEXT("LINK_NOT_FOUND")))
+            {
+                return TEXT("LINK_NOT_FOUND");
+            }
+            return TEXT("");
+        };
+
         auto ReadStringAlias = [&](std::initializer_list<const TCHAR*> FieldNames, FString& OutValue) -> bool
         {
             OutValue.Empty();
@@ -3114,7 +3139,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 const bool bOk = OpName.Equals(TEXT("connectpins"))
                     ? FLoomleBlueprintAdapter::ConnectPins(AssetPath, EffectiveGraphName, FromNodeId, FromPinName, ToNodeId, ToPinName, Error)
                     : FLoomleBlueprintAdapter::DisconnectPins(AssetPath, EffectiveGraphName, FromNodeId, FromPinName, ToNodeId, ToPinName, Error);
-                SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error);
+                const FString ErrorCode = ErrorCodeFromPrefixedMessage(Error);
+                const bool bChanged = bOk && !ErrorCode.Equals(TEXT("LINK_NOT_FOUND"));
+                SingleResult = BuildDirectSingleResult(bOk, bChanged, ErrorCode, Error);
             }
         }
         else if (OpName.Equals(TEXT("breakpinlinks")))
