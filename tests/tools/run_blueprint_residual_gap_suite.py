@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-BLUEPRINT_NODE_DATABASE = REPO_ROOT / "workspace" / "Loomle" / "blueprint" / "catalogs" / "node-database.json"
+BLUEPRINT_NODE_DATABASE = REPO_ROOT / "tests" / "fixtures" / "catalogs" / "blueprint" / "catalogs" / "node-database.json"
 
 
 def load_blueprint_nodes() -> list[dict[str, Any]]:

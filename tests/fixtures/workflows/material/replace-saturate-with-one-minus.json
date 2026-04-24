@@ -1,0 +1,90 @@
+{
+  "tool": "material.mutate",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "roughness_scalar",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "old_saturate",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionSaturate"
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "roughness_scalar"
+      },
+      "to": {
+        "nodeRef": "old_saturate",
+        "pin": "Input"
+      }
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "old_saturate"
+      },
+      "to": {
+        "nodeId": "__material_root__",
+        "pin": "Roughness"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "replacement_invert",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionOneMinus"
+    },
+    {
+      "op": "disconnectPins",
+      "from": {
+        "nodeRef": "roughness_scalar"
+      },
+      "to": {
+        "nodeRef": "old_saturate",
+        "pin": "Input"
+      }
+    },
+    {
+      "op": "disconnectPins",
+      "from": {
+        "nodeRef": "old_saturate"
+      },
+      "to": {
+        "nodeId": "__material_root__",
+        "pin": "Roughness"
+      }
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "roughness_scalar"
+      },
+      "to": {
+        "nodeRef": "replacement_invert",
+        "pin": "Input"
+      }
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "replacement_invert"
+      },
+      "to": {
+        "nodeId": "__material_root__",
+        "pin": "Roughness"
+      }
+    },
+    {
+      "op": "removeNode",
+      "target": {
+        "nodeRef": "old_saturate"
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "scope": "touched"
+    }
+  ]
+}

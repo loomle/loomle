@@ -1,0 +1,3087 @@
+{
+  "graphType": "blueprint",
+  "coverage": "source-derived",
+  "source": "UE 5.7 local source scan",
+  "jsonPath": "tests/fixtures/catalogs/blueprint/catalogs/node-database.json",
+  "summary": {
+    "purpose": "Full source-derived Blueprint K2 node database for LOOMLE workspace agents. Use node-index.json for the smaller working set and examples/GUIDE/SEMANTICS for execution guidance.",
+    "notes": [
+      "This database is generated from local Unreal Engine 5.7 headers.",
+      "Function-library calls such as Delay or Print String are usually realized as K2Node_CallFunction instances and therefore belong in the curated node index rather than as standalone source classes here.",
+      "Addability is a best-effort classification that distinguishes direct by-class creation from context-only or helper-style nodes.",
+      "Testing metadata in nodes[].testing is LOOMLE test strategy data, not engine truth."
+    ],
+    "totalNodeClasses": 101,
+    "addabilityCounts": {
+      "by_class": 88,
+      "by_class_with_args": 4,
+      "not_direct": 6,
+      "context_only": 2,
+      "action_only": 1
+    },
+    "familyCounts": {
+      "variable": 14,
+      "utility": 71,
+      "delegate": 8,
+      "function_call": 1,
+      "struct": 6,
+      "branch": 1
+    },
+    "nodeKindCounts": {
+      "variable": 14,
+      "utility": 71,
+      "delegate": 8,
+      "function": 1,
+      "graph_structure": 6,
+      "control_flow": 1
+    },
+    "testingProfileCounts": {
+      "construct_and_query": 83,
+      "context_recipe_required": 12,
+      "inventory_only": 5,
+      "semantic_family_represented": 1
+    },
+    "sourceGroups": {
+      "Editor/BlueprintGraph": 88,
+      "Editor/AIGraph": 1,
+      "Editor/AnimGraph": 4,
+      "Editor/UMGEditor": 6,
+      "Editor/MovieSceneTools": 1,
+      "Editor/GameplayTasksEditor": 1
+    }
+  },
+  "nodes": [
+    {
+      "className": "UDEPRECATED_K2Node_LocalVariable",
+      "baseClassName": "UK2Node_TemporaryVariable",
+      "nodeClassPath": "/Script/BlueprintGraph.DEPRECATED_K2Node_LocalVariable",
+      "displayName": "UDEPRECATED K2Node Local Variable",
+      "family": "variable",
+      "nodeKind": "variable",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_LocalVariable.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_LocalVariable.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "CustomVariableName",
+          "cppType": "FName",
+          "declaration": "FName CustomVariableName;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "VariableTooltip",
+          "cppType": "FText",
+          "declaration": "FText VariableTooltip;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_AIMoveTo",
+      "baseClassName": "UK2Node_BaseAsyncTask",
+      "nodeClassPath": "/Script/AIGraph.K2Node_AIMoveTo",
+      "displayName": "AI Move To",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "AIGraph",
+      "sourceGroup": "Editor/AIGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/AIGraph/Public/K2Node_AIMoveTo.h",
+      "relativeHeaderPath": "Editor/AIGraph/Public/K2Node_AIMoveTo.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_AddComponent",
+      "baseClassName": "UK2Node_CallFunction",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_AddComponent",
+      "displayName": "Add Component",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_AddComponent.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_AddComponent.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "TemplateBlueprint",
+          "cppType": "FString",
+          "declaration": "FString TemplateBlueprint;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "TemplateType",
+          "cppType": "TObjectPtr<UClass>",
+          "declaration": "TObjectPtr<UClass> TemplateType;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "context_recipe_required",
+        "recipe": "blueprint_component_template_context",
+        "querySurface": {
+          "kind": "embedded_template"
+        },
+        "reason": "AddComponent nodes surface Blueprint-owned component template truth through the embedded-template query layer and still require component-template-capable graph context."
+      }
+    },
+    {
+      "className": "UK2Node_AddComponentByClass",
+      "baseClassName": "UK2Node_ConstructObjectFromClass",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_AddComponentByClass",
+      "displayName": "Add Component By Class",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_AddComponentByClass.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_AddComponentByClass.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "context_recipe_required",
+        "recipe": "blueprint_actor_execution_graph",
+        "querySurface": {
+          "kind": "context_sensitive_construct"
+        },
+        "reason": "AddComponentByClass requires an actor execution context and now surfaces its stable construct truth through the context-sensitive query layer."
+      }
+    },
+    {
+      "className": "UK2Node_AddDelegate",
+      "baseClassName": "UK2Node_BaseMCDelegate",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_AddDelegate",
+      "displayName": "Add Delegate",
+      "family": "delegate",
+      "nodeKind": "delegate",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_AddDelegate.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_AddDelegate.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_AnimGetter",
+      "baseClassName": "UK2Node_CallFunction",
+      "nodeClassPath": "/Script/AnimGraph.K2Node_AnimGetter",
+      "displayName": "Anim Getter",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "AnimGraph",
+      "sourceGroup": "Editor/AnimGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/AnimGraph/Public/K2Node_AnimGetter.h",
+      "relativeHeaderPath": "Editor/AnimGraph/Public/K2Node_AnimGetter.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "SourceNode",
+          "cppType": "TObjectPtr<UAnimGraphNode_Base>",
+          "declaration": "TObjectPtr<UAnimGraphNode_Base> SourceNode;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "SourceStateNode",
+          "cppType": "TObjectPtr<UAnimStateNodeBase>",
+          "declaration": "TObjectPtr<UAnimStateNodeBase> SourceStateNode;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "GetterClass",
+          "cppType": "TObjectPtr<UClass>",
+          "declaration": "TObjectPtr<UClass> GetterClass;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "SourceAnimBlueprint",
+          "cppType": "TObjectPtr<const UAnimBlueprint>",
+          "declaration": "TObjectPtr<const UAnimBlueprint> SourceAnimBlueprint;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "CachedTitle",
+          "cppType": "FText",
+          "declaration": "FText CachedTitle;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "Contexts",
+          "cppType": "TArray<FString>",
+          "declaration": "TArray<FString> Contexts;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_AnimNodeReference",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/AnimGraph.K2Node_AnimNodeReference",
+      "displayName": "Anim Node Reference",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "AnimGraph",
+      "sourceGroup": "Editor/AnimGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/AnimGraph/Public/K2Node_AnimNodeReference.h",
+      "relativeHeaderPath": "Editor/AnimGraph/Public/K2Node_AnimNodeReference.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "Tag",
+          "cppType": "FName",
+          "declaration": "FName Tag;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_AssignDelegate",
+      "baseClassName": "UK2Node_AddDelegate",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_AssignDelegate",
+      "displayName": "Assign Delegate",
+      "family": "delegate",
+      "nodeKind": "delegate",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_AssignDelegate.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_AssignDelegate.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_AssignmentStatement",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_AssignmentStatement",
+      "displayName": "Assignment Statement",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_AssignmentStatement.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_AssignmentStatement.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_AsyncAction",
+      "baseClassName": "UK2Node_BaseAsyncTask",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_AsyncAction",
+      "displayName": "Async Action",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_AsyncAction.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_AsyncAction.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_BaseAsyncTask",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_BaseAsyncTask",
+      "displayName": "Base Async Task",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_BaseAsyncTask.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_BaseAsyncTask.h",
+      "uclassFlags": [
+        "Abstract",
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "ProxyFactoryFunctionName",
+          "cppType": "FName",
+          "declaration": "FName ProxyFactoryFunctionName;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "ProxyFactoryClass",
+          "cppType": "TObjectPtr<UClass>",
+          "declaration": "TObjectPtr<UClass> ProxyFactoryClass;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "ProxyClass",
+          "cppType": "TObjectPtr<UClass>",
+          "declaration": "TObjectPtr<UClass> ProxyClass;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "ProxyActivateFunctionName",
+          "cppType": "FName",
+          "declaration": "FName ProxyActivateFunctionName;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_BaseMCDelegate",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_BaseMCDelegate",
+      "displayName": "Base MC Delegate",
+      "family": "delegate",
+      "nodeKind": "delegate",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_BaseMCDelegate.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_BaseMCDelegate.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "DelegateReference",
+          "cppType": "FMemberReference",
+          "declaration": "FMemberReference DelegateReference;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_BreakStruct",
+      "baseClassName": "UK2Node_StructMemberGet",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_BreakStruct",
+      "displayName": "Break Struct",
+      "family": "variable",
+      "nodeKind": "variable",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_BreakStruct.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_BreakStruct.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "bMadeAfterOverridePinRemoval",
+          "cppType": "bool",
+          "declaration": "bool bMadeAfterOverridePinRemoval;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_CallArrayFunction",
+      "baseClassName": "UK2Node_CallFunction",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallArrayFunction",
+      "displayName": "Call Array Function",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_CallArrayFunction.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_CallArrayFunction.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_CallDataTableFunction",
+      "baseClassName": "UK2Node_CallFunction",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallDataTableFunction",
+      "displayName": "Call Data Table Function",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_CallDataTableFunction.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_CallDataTableFunction.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_CallDelegate",
+      "baseClassName": "UK2Node_BaseMCDelegate",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallDelegate",
+      "displayName": "Call Delegate",
+      "family": "delegate",
+      "nodeKind": "delegate",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_CallDelegate.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_CallDelegate.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_CallFunction",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+      "displayName": "Call Function",
+      "family": "function_call",
+      "nodeKind": "function",
+      "addability": "by_class_with_args",
+      "contextRequirements": [
+        "functionClassPath",
+        "functionName"
+      ],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_CallFunction.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_CallFunction.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "FunctionReference",
+          "cppType": "FMemberReference",
+          "declaration": "FMemberReference FunctionReference;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "CallFunctionName_DEPRECATED",
+          "cppType": "FName",
+          "declaration": "FName CallFunctionName_DEPRECATED;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "CallFunctionClass_DEPRECATED",
+          "cppType": "TSubclassOf<class UObject>",
+          "declaration": "TSubclassOf<class UObject> CallFunctionClass_DEPRECATED;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "NodePurityOverride",
+          "cppType": "ENodePurityOverride",
+          "declaration": "ENodePurityOverride NodePurityOverride;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "context_recipe_required",
+        "recipe": "blueprint_function_call",
+        "reason": "Requires a callable Blueprint function signature."
+      }
+    },
+    {
+      "className": "UK2Node_CallFunctionOnMember",
+      "baseClassName": "UK2Node_CallFunction",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunctionOnMember",
+      "displayName": "Call Function On Member",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_CallFunctionOnMember.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_CallFunctionOnMember.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "MemberVariableToCallOn",
+          "cppType": "FMemberReference",
+          "declaration": "FMemberReference MemberVariableToCallOn;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_CallMaterialParameterCollectionFunction",
+      "baseClassName": "UK2Node_CallFunction",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallMaterialParameterCollectionFunction",
+      "displayName": "Call Material Parameter Collection Function",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_CallMaterialParameterCollectionFunction.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_CallMaterialParameterCollectionFunction.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_CallParentFunction",
+      "baseClassName": "UK2Node_CallFunction",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallParentFunction",
+      "displayName": "Call Parent Function",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_CallParentFunction.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_CallParentFunction.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_ClassDynamicCast",
+      "baseClassName": "UK2Node_DynamicCast",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_ClassDynamicCast",
+      "displayName": "Class Dynamic Cast",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_ClassDynamicCast.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_ClassDynamicCast.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_ClearDelegate",
+      "baseClassName": "UK2Node_BaseMCDelegate",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_ClearDelegate",
+      "displayName": "Clear Delegate",
+      "family": "delegate",
+      "nodeKind": "delegate",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_ClearDelegate.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_ClearDelegate.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_Composite",
+      "baseClassName": "UK2Node_Tunnel",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_Composite",
+      "displayName": "Composite",
+      "family": "struct",
+      "nodeKind": "graph_structure",
+      "addability": "not_direct",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_Composite.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_Composite.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "BoundGraph",
+          "cppType": "TObjectPtr<class UEdGraph>",
+          "declaration": "TObjectPtr<class UEdGraph> BoundGraph;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "context_recipe_required",
+        "recipe": "blueprint_actor_execution_graph",
+        "querySurface": {
+          "kind": "graph_boundary_summary"
+        },
+        "reason": "Composite nodes now surface graph-boundary summary and require an owning Blueprint execution graph to author and query their bound subgraph."
+      }
+    },
+    {
+      "className": "UK2Node_ConstructObjectFromClass",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_ConstructObjectFromClass",
+      "displayName": "Construct Object From Class",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_ConstructObjectFromClass.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_ConstructObjectFromClass.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_ConvertAsset",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_ConvertAsset",
+      "displayName": "Convert Asset",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_ConvertAsset.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_ConvertAsset.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_Copy",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_Copy",
+      "displayName": "Copy",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_Copy.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_Copy.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_CreateDelegate",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_CreateDelegate",
+      "displayName": "Create Delegate",
+      "family": "delegate",
+      "nodeKind": "delegate",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_CreateDelegate.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_CreateDelegate.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "SelectedFunctionName",
+          "cppType": "FName",
+          "declaration": "FName SelectedFunctionName;",
+          "category": null,
+          "flags": [],
+          "meta": "meta = (BlueprintSearchable = \"true\")"
+        },
+        {
+          "name": "SelectedFunctionGuid",
+          "cppType": "FGuid",
+          "declaration": "FGuid SelectedFunctionGuid;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_CreateDragDropOperation",
+      "baseClassName": "UK2Node_ConstructObjectFromClass",
+      "nodeClassPath": "/Script/UMGEditor.K2Node_CreateDragDropOperation",
+      "displayName": "Create Drag Drop Operation",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "UMGEditor",
+      "sourceGroup": "Editor/UMGEditor",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/UMGEditor/Private/Nodes/K2Node_CreateDragDropOperation.h",
+      "relativeHeaderPath": "Editor/UMGEditor/Private/Nodes/K2Node_CreateDragDropOperation.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_CreateWidget",
+      "baseClassName": "UK2Node_ConstructObjectFromClass",
+      "nodeClassPath": "/Script/UMGEditor.K2Node_CreateWidget",
+      "displayName": "Create Widget",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "UMGEditor",
+      "sourceGroup": "Editor/UMGEditor",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/UMGEditor/Private/Nodes/K2Node_CreateWidget.h",
+      "relativeHeaderPath": "Editor/UMGEditor/Private/Nodes/K2Node_CreateWidget.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_DeadClass",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_DeadClass",
+      "displayName": "Dead Class",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_DeadClass.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_DeadClass.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_DelegateSet",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_DelegateSet",
+      "displayName": "Delegate Set",
+      "family": "delegate",
+      "nodeKind": "delegate",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_DelegateSet.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_DelegateSet.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "DelegatePropertyName",
+          "cppType": "FName",
+          "declaration": "FName DelegatePropertyName;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "DelegatePropertyClass",
+          "cppType": "TSubclassOf<class UObject>",
+          "declaration": "TSubclassOf<class UObject> DelegatePropertyClass;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_DynamicCast",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_DynamicCast",
+      "displayName": "Dynamic Cast",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_DynamicCast.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_DynamicCast.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "TargetType",
+          "cppType": "TSubclassOf<class UObject>",
+          "declaration": "TSubclassOf<class UObject> TargetType;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "bIsPureCast_DEPRECATED",
+          "cppType": "bool",
+          "declaration": "bool bIsPureCast_DEPRECATED;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_EaseFunction",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_EaseFunction",
+      "displayName": "Ease Function",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_EaseFunction.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_EaseFunction.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "EaseFunctionName",
+          "cppType": "FName",
+          "declaration": "FName EaseFunctionName;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_EditablePinBase",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_EditablePinBase",
+      "displayName": "Editable Pin Base",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "not_direct",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_EditablePinBase.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_EditablePinBase.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "inventory_only",
+        "reason": "This Blueprint node is not a direct by-class construction target in the current LOOMLE surface."
+      }
+    },
+    {
+      "className": "UK2Node_EditorPropertyAccessBase",
+      "baseClassName": "UK2Node_CallFunction",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_EditorPropertyAccessBase",
+      "displayName": "Editor Property Access Base",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Private/K2Node_EditorPropertyAccess.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Private/K2Node_EditorPropertyAccess.h",
+      "uclassFlags": [
+        "Abstract"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_EnumEquality",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_EnumEquality",
+      "displayName": "Enum Equality",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_EnumEquality.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_EnumEquality.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_EnumInequality",
+      "baseClassName": "UK2Node_EnumEquality",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_EnumInequality",
+      "displayName": "Enum Inequality",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_EnumInequality.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_EnumInequality.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_FormatText",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_FormatText",
+      "displayName": "Format Text",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_FormatText.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_FormatText.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "PinNames",
+          "cppType": "TArray<FName>",
+          "declaration": "TArray<FName> PinNames;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_FunctionEntry",
+      "baseClassName": "UK2Node_FunctionTerminator",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_FunctionEntry",
+      "displayName": "Function Entry",
+      "family": "struct",
+      "nodeKind": "graph_structure",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_FunctionEntry.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_FunctionEntry.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "CustomGeneratedFunctionName",
+          "cppType": "FName",
+          "declaration": "FName CustomGeneratedFunctionName;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "MetaData",
+          "cppType": "struct FKismetUserDeclaredFunctionMetadata",
+          "declaration": "struct FKismetUserDeclaredFunctionMetadata MetaData;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "LocalVariables",
+          "cppType": "TArray<FBPVariableDescription>",
+          "declaration": "TArray<FBPVariableDescription> LocalVariables;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "bEnforceConstCorrectness",
+          "cppType": "bool",
+          "declaration": "bool bEnforceConstCorrectness;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "ExtraFlags",
+          "cppType": "int32",
+          "declaration": "int32 ExtraFlags;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "context_recipe_required",
+        "recipe": "blueprint_function_graph",
+        "querySurface": {
+          "kind": "graph_boundary_summary"
+        },
+        "reason": "FunctionEntry nodes now surface graph-boundary summary and are stably queryable through a dedicated Blueprint function-graph context."
+      }
+    },
+    {
+      "className": "UK2Node_FunctionResult",
+      "baseClassName": "UK2Node_FunctionTerminator",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_FunctionResult",
+      "displayName": "Function Result",
+      "family": "struct",
+      "nodeKind": "graph_structure",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_FunctionResult.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_FunctionResult.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "context_recipe_required",
+        "recipe": "blueprint_function_graph",
+        "querySurface": {
+          "kind": "graph_boundary_summary"
+        },
+        "reason": "FunctionResult nodes now surface graph-boundary summary and can be authored and queried through a dedicated Blueprint function-graph context."
+      }
+    },
+    {
+      "className": "UK2Node_FunctionTerminator",
+      "baseClassName": "UK2Node_EditablePinBase",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_FunctionTerminator",
+      "displayName": "Function Terminator",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_FunctionTerminator.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_FunctionTerminator.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "FunctionReference",
+          "cppType": "FMemberReference",
+          "declaration": "FMemberReference FunctionReference;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "SignatureClass_DEPRECATED",
+          "cppType": "TSubclassOf<class UObject>",
+          "declaration": "TSubclassOf<class UObject> SignatureClass_DEPRECATED;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "SignatureName_DEPRECATED",
+          "cppType": "FName",
+          "declaration": "FName SignatureName_DEPRECATED;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_GenericCreateObject",
+      "baseClassName": "UK2Node_ConstructObjectFromClass",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_GenericCreateObject",
+      "displayName": "Generic Create Object",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_GenericCreateObject.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_GenericCreateObject.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_GenericToText",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_GenericToText",
+      "displayName": "Generic To Text",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_GenericToText.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_GenericToText.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_GetArrayItem",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_GetArrayItem",
+      "displayName": "Get Array Item",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_GetArrayItem.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_GetArrayItem.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "bReturnByRefDesired",
+          "cppType": "bool",
+          "declaration": "bool bReturnByRefDesired;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_GetClassDefaults",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_GetClassDefaults",
+      "displayName": "Get Class Defaults",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_GetClassDefaults.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_GetClassDefaults.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "BlueprintSubscribedTo",
+          "cppType": "TObjectPtr<UBlueprint>",
+          "declaration": "TObjectPtr<UBlueprint> BlueprintSubscribedTo;",
+          "category": null,
+          "flags": [
+            "Transient"
+          ],
+          "meta": "Transient"
+        },
+        {
+          "name": "ShowPinForProperties",
+          "cppType": "TArray<FOptionalPinFromProperty>",
+          "declaration": "TArray<FOptionalPinFromProperty> ShowPinForProperties;",
+          "category": "PinOptions",
+          "flags": [
+            "EditAnywhere"
+          ],
+          "meta": "EditAnywhere, Category=PinOptions, EditFixedSize"
+        },
+        {
+          "name": "bExcludeObjectContainers",
+          "cppType": "bool",
+          "declaration": "bool bExcludeObjectContainers;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "bExcludeObjectArrays_DEPRECATED",
+          "cppType": "bool",
+          "declaration": "bool bExcludeObjectArrays_DEPRECATED;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_GetDataTableRow",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_GetDataTableRow",
+      "displayName": "Get Data Table Row",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_GetDataTableRow.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_GetDataTableRow.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_GetEditorProperty",
+      "baseClassName": "UK2Node_EditorPropertyAccessBase",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_GetEditorProperty",
+      "displayName": "Get Editor Property",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Private/K2Node_EditorPropertyAccess.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Private/K2Node_EditorPropertyAccess.h",
+      "uclassFlags": [],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_GetEditorSubsystem",
+      "baseClassName": "UK2Node_GetSubsystem",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_GetEditorSubsystem",
+      "displayName": "Get Editor Subsystem",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_GetSubsystem.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_GetSubsystem.h",
+      "uclassFlags": [],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_GetEngineSubsystem",
+      "baseClassName": "UK2Node_GetSubsystem",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_GetEngineSubsystem",
+      "displayName": "Get Engine Subsystem",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_GetSubsystem.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_GetSubsystem.h",
+      "uclassFlags": [],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_GetEnumeratorName",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_GetEnumeratorName",
+      "displayName": "Get Enumerator Name",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_GetEnumeratorName.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_GetEnumeratorName.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_GetEnumeratorNameAsString",
+      "baseClassName": "UK2Node_GetEnumeratorName",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_GetEnumeratorNameAsString",
+      "displayName": "Get Enumerator Name As String",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_GetEnumeratorNameAsString.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_GetEnumeratorNameAsString.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_GetInputAxisKeyValue",
+      "baseClassName": "UK2Node_CallFunction",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_GetInputAxisKeyValue",
+      "displayName": "Get Input Axis Key Value",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "context_only",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_GetInputAxisKeyValue.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_GetInputAxisKeyValue.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "InputAxisKey",
+          "cppType": "FKey",
+          "declaration": "FKey InputAxisKey;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_GetInputAxisValue",
+      "baseClassName": "UK2Node_CallFunction",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_GetInputAxisValue",
+      "displayName": "Get Input Axis Value",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "context_only",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_GetInputAxisValue.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_GetInputAxisValue.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "InputAxisName",
+          "cppType": "FName",
+          "declaration": "FName InputAxisName;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_GetInputVectorAxisValue",
+      "baseClassName": "UK2Node_GetInputAxisKeyValue",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_GetInputVectorAxisValue",
+      "displayName": "Get Input Vector Axis Value",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_GetInputVectorAxisValue.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_GetInputVectorAxisValue.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_GetSequenceBinding",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/MovieSceneTools.K2Node_GetSequenceBinding",
+      "displayName": "Get Sequence Binding",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "MovieSceneTools",
+      "sourceGroup": "Editor/MovieSceneTools",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/MovieSceneTools/Public/K2Node_GetSequenceBinding.h",
+      "relativeHeaderPath": "Editor/MovieSceneTools/Public/K2Node_GetSequenceBinding.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "SourceSequence_DEPRECATED",
+          "cppType": "FSoftObjectPath",
+          "declaration": "FSoftObjectPath SourceSequence_DEPRECATED;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "Binding",
+          "cppType": "FMovieSceneObjectBindingID",
+          "declaration": "FMovieSceneObjectBindingID Binding;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "SourceMovieSequence",
+          "cppType": "TObjectPtr<UMovieSceneSequence>",
+          "declaration": "TObjectPtr<UMovieSceneSequence> SourceMovieSequence;",
+          "category": "Sequence",
+          "flags": [
+            "EditAnywhere"
+          ],
+          "meta": "EditAnywhere, Category=\"Sequence\", meta=(DisplayName=\"Source Sequence\")"
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_GetSubsystem",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_GetSubsystem",
+      "displayName": "Get Subsystem",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_GetSubsystem.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_GetSubsystem.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "CustomClass",
+          "cppType": "TSubclassOf<USubsystem>",
+          "declaration": "TSubclassOf<USubsystem> CustomClass;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_GetSubsystemFromPC",
+      "baseClassName": "UK2Node_GetSubsystem",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_GetSubsystemFromPC",
+      "displayName": "Get Subsystem From PC",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_GetSubsystem.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_GetSubsystem.h",
+      "uclassFlags": [],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_IfThenElse",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
+      "displayName": "If Then Else",
+      "family": "branch",
+      "nodeKind": "control_flow",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_IfThenElse.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_IfThenElse.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "semantic_family_represented",
+        "focus": {
+          "workflowFamilies": [
+            "blueprint_local_control_flow"
+          ]
+        },
+        "reason": "Most useful Blueprint branch coverage comes from local control-flow workflows."
+      }
+    },
+    {
+      "className": "UK2Node_InstancedStruct",
+      "baseClassName": "UK2Node_CallFunction",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_InstancedStruct",
+      "displayName": "Instanced Struct",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_InstancedStruct.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_InstancedStruct.h",
+      "uclassFlags": [],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_Knot",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_Knot",
+      "displayName": "Knot",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_Knot.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_Knot.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_LatentGameplayTaskCall",
+      "baseClassName": "UK2Node_BaseAsyncTask",
+      "nodeClassPath": "/Script/GameplayTasksEditor.K2Node_LatentGameplayTaskCall",
+      "displayName": "Latent Gameplay Task Call",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "GameplayTasksEditor",
+      "sourceGroup": "Editor/GameplayTasksEditor",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/GameplayTasksEditor/Classes/K2Node_LatentGameplayTaskCall.h",
+      "relativeHeaderPath": "Editor/GameplayTasksEditor/Classes/K2Node_LatentGameplayTaskCall.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "SpawnParamPins",
+          "cppType": "TArray<FName>",
+          "declaration": "TArray<FName> SpawnParamPins;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_Literal",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_Literal",
+      "displayName": "Literal",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_Literal.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_Literal.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "ObjectRef",
+          "cppType": "TObjectPtr<class UObject>",
+          "declaration": "TObjectPtr<class UObject> ObjectRef;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_LoadAsset",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_LoadAsset",
+      "displayName": "Load Asset",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_LoadAsset.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_LoadAsset.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_LoadAssetClass",
+      "baseClassName": "UK2Node_LoadAsset",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_LoadAssetClass",
+      "displayName": "Load Asset Class",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_LoadAsset.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_LoadAsset.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_LoadAssets",
+      "baseClassName": "UK2Node_LoadAsset",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_LoadAssets",
+      "displayName": "Load Assets",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_LoadAsset.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_LoadAsset.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_MacroInstance",
+      "baseClassName": "UK2Node_Tunnel",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_MacroInstance",
+      "displayName": "Macro Instance",
+      "family": "struct",
+      "nodeKind": "graph_structure",
+      "addability": "by_class_with_args",
+      "contextRequirements": [
+        "macroGraphName"
+      ],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_MacroInstance.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_MacroInstance.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "MacroGraph_DEPRECATED",
+          "cppType": "TObjectPtr<class UEdGraph>",
+          "declaration": "TObjectPtr<class UEdGraph> MacroGraph_DEPRECATED;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "MacroGraphReference",
+          "cppType": "FGraphReference",
+          "declaration": "FGraphReference MacroGraphReference;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "ResolvedWildcardType",
+          "cppType": "struct FEdGraphPinType",
+          "declaration": "struct FEdGraphPinType ResolvedWildcardType;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "context_recipe_required",
+        "recipe": "blueprint_actor_execution_graph",
+        "querySurface": {
+          "kind": "graph_boundary_summary"
+        },
+        "reason": "MacroInstance nodes now surface graph-boundary summary and require a macro-capable execution graph plus macro identity context."
+      }
+    },
+    {
+      "className": "UK2Node_MakeStruct",
+      "baseClassName": "UK2Node_StructMemberSet",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_MakeStruct",
+      "displayName": "Make Struct",
+      "family": "variable",
+      "nodeKind": "variable",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_MakeStruct.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_MakeStruct.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "bMadeAfterOverridePinRemoval",
+          "cppType": "bool",
+          "declaration": "bool bMadeAfterOverridePinRemoval;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_MakeVariable",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_MakeVariable",
+      "displayName": "Make Variable",
+      "family": "variable",
+      "nodeKind": "variable",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_MakeVariable.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_MakeVariable.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "VariableType",
+          "cppType": "FBPVariableDescription",
+          "declaration": "FBPVariableDescription VariableType;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_MapForEach",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_MapForEach",
+      "displayName": "Map For Each",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_MapForEach.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_MapForEach.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "KeyName",
+          "cppType": "FString",
+          "declaration": "FString KeyName;",
+          "category": "Map For Each",
+          "flags": [],
+          "meta": "EditDefaultsOnly, Category = \"Map For Each\""
+        },
+        {
+          "name": "ValueName",
+          "cppType": "FString",
+          "declaration": "FString ValueName;",
+          "category": "Map For Each",
+          "flags": [],
+          "meta": "EditDefaultsOnly, Category = \"Map For Each\""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_MathExpression",
+      "baseClassName": "UK2Node_Composite",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_MathExpression",
+      "displayName": "Math Expression",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "action_only",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_MathExpression.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_MathExpression.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "Expression",
+          "cppType": "FString",
+          "declaration": "FString Expression;",
+          "category": "Expression",
+          "flags": [
+            "EditAnywhere"
+          ],
+          "meta": "EditAnywhere, Category = Expression"
+        },
+        {
+          "name": "bMadeAfterRotChange",
+          "cppType": "bool",
+          "declaration": "bool bMadeAfterRotChange;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "inventory_only",
+        "reason": "This Blueprint node is not a direct by-class construction target in the current LOOMLE surface."
+      }
+    },
+    {
+      "className": "UK2Node_Message",
+      "baseClassName": "UK2Node_CallFunction",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_Message",
+      "displayName": "Message",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_Message.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_Message.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_PlayAnimation",
+      "baseClassName": "UK2Node_BaseAsyncTask",
+      "nodeClassPath": "/Script/UMGEditor.K2Node_PlayAnimation",
+      "displayName": "Play Animation",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "UMGEditor",
+      "sourceGroup": "Editor/UMGEditor",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/UMGEditor/Private/Nodes/K2Node_PlayAnimation.h",
+      "relativeHeaderPath": "Editor/UMGEditor/Private/Nodes/K2Node_PlayAnimation.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_PlayAnimation2",
+      "baseClassName": "UK2Node_BaseAsyncTask",
+      "nodeClassPath": "/Script/UMGEditor.K2Node_PlayAnimation2",
+      "displayName": "Play Animation2",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "UMGEditor",
+      "sourceGroup": "Editor/UMGEditor",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/UMGEditor/Private/Nodes/K2Node_PlayAnimation.h",
+      "relativeHeaderPath": "Editor/UMGEditor/Private/Nodes/K2Node_PlayAnimation.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_PlayAnimationTimeRange",
+      "baseClassName": "UK2Node_BaseAsyncTask",
+      "nodeClassPath": "/Script/UMGEditor.K2Node_PlayAnimationTimeRange",
+      "displayName": "Play Animation Time Range",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "UMGEditor",
+      "sourceGroup": "Editor/UMGEditor",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/UMGEditor/Private/Nodes/K2Node_PlayAnimation.h",
+      "relativeHeaderPath": "Editor/UMGEditor/Private/Nodes/K2Node_PlayAnimation.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_PlayAnimationTimeRange2",
+      "baseClassName": "UK2Node_BaseAsyncTask",
+      "nodeClassPath": "/Script/UMGEditor.K2Node_PlayAnimationTimeRange2",
+      "displayName": "Play Animation Time Range2",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "UMGEditor",
+      "sourceGroup": "Editor/UMGEditor",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/UMGEditor/Private/Nodes/K2Node_PlayAnimation.h",
+      "relativeHeaderPath": "Editor/UMGEditor/Private/Nodes/K2Node_PlayAnimation.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_PlayMontage",
+      "baseClassName": "UK2Node_BaseAsyncTask",
+      "nodeClassPath": "/Script/AnimGraph.K2Node_PlayMontage",
+      "displayName": "Play Montage",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "AnimGraph",
+      "sourceGroup": "Editor/AnimGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/AnimGraph/Public/K2Node_PlayMontage.h",
+      "relativeHeaderPath": "Editor/AnimGraph/Public/K2Node_PlayMontage.h",
+      "uclassFlags": [],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_PureAssignmentStatement",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_PureAssignmentStatement",
+      "displayName": "Pure Assignment Statement",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_PureAssignmentStatement.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_PureAssignmentStatement.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_RemoveDelegate",
+      "baseClassName": "UK2Node_BaseMCDelegate",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_RemoveDelegate",
+      "displayName": "Remove Delegate",
+      "family": "delegate",
+      "nodeKind": "delegate",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_RemoveDelegate.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_RemoveDelegate.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_Self",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_Self",
+      "displayName": "Self",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_Self.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_Self.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_SetEditorProperty",
+      "baseClassName": "UK2Node_EditorPropertyAccessBase",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_SetEditorProperty",
+      "displayName": "Set Editor Property",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Private/K2Node_EditorPropertyAccess.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Private/K2Node_EditorPropertyAccess.h",
+      "uclassFlags": [],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_SetFieldsInStruct",
+      "baseClassName": "UK2Node_MakeStruct",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_SetFieldsInStruct",
+      "displayName": "Set Fields In Struct",
+      "family": "variable",
+      "nodeKind": "variable",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_SetFieldsInStruct.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_SetFieldsInStruct.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_SetForEach",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_SetForEach",
+      "displayName": "Set For Each",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_SetForEach.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_SetForEach.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "ValueName",
+          "cppType": "FString",
+          "declaration": "FString ValueName;",
+          "category": "Set For Each",
+          "flags": [],
+          "meta": "EditDefaultsOnly, Category = \"Set For Each\""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_SetVariableOnPersistentFrame",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_SetVariableOnPersistentFrame",
+      "displayName": "Set Variable On Persistent Frame",
+      "family": "variable",
+      "nodeKind": "variable",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_SetVariableOnPersistentFrame.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_SetVariableOnPersistentFrame.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_SpawnActor",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_SpawnActor",
+      "displayName": "Spawn Actor",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_SpawnActor.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_SpawnActor.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_SpawnActorFromClass",
+      "baseClassName": "UK2Node_ConstructObjectFromClass",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_SpawnActorFromClass",
+      "displayName": "Spawn Actor From Class",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_SpawnActorFromClass.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_SpawnActorFromClass.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_StructMemberGet",
+      "baseClassName": "UK2Node_StructOperation",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_StructMemberGet",
+      "displayName": "Struct Member Get",
+      "family": "variable",
+      "nodeKind": "variable",
+      "addability": "not_direct",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_StructMemberGet.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_StructMemberGet.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "ShowPinForProperties",
+          "cppType": "TArray<FOptionalPinFromProperty>",
+          "declaration": "TArray<FOptionalPinFromProperty> ShowPinForProperties;",
+          "category": "PinOptions",
+          "flags": [
+            "EditAnywhere"
+          ],
+          "meta": "EditAnywhere, Category=PinOptions, EditFixedSize"
+        }
+      ],
+      "testing": {
+        "profile": "inventory_only",
+        "reason": "This Blueprint node is not a direct by-class construction target in the current LOOMLE surface."
+      }
+    },
+    {
+      "className": "UK2Node_StructMemberSet",
+      "baseClassName": "UK2Node_StructOperation",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_StructMemberSet",
+      "displayName": "Struct Member Set",
+      "family": "variable",
+      "nodeKind": "variable",
+      "addability": "not_direct",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_StructMemberSet.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_StructMemberSet.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "ShowPinForProperties",
+          "cppType": "TArray<FOptionalPinFromProperty>",
+          "declaration": "TArray<FOptionalPinFromProperty> ShowPinForProperties;",
+          "category": "PinOptions",
+          "flags": [
+            "EditAnywhere"
+          ],
+          "meta": "EditAnywhere, Category=PinOptions, EditFixedSize"
+        }
+      ],
+      "testing": {
+        "profile": "inventory_only",
+        "reason": "This Blueprint node is not a direct by-class construction target in the current LOOMLE surface."
+      }
+    },
+    {
+      "className": "UK2Node_StructOperation",
+      "baseClassName": "UK2Node_Variable",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_StructOperation",
+      "displayName": "Struct Operation",
+      "family": "variable",
+      "nodeKind": "variable",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_StructOperation.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_StructOperation.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "StructType",
+          "cppType": "TObjectPtr<UScriptStruct>",
+          "declaration": "TObjectPtr<UScriptStruct> StructType;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_Switch",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_Switch",
+      "displayName": "Switch",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_Switch.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_Switch.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "FunctionName",
+          "cppType": "FName",
+          "declaration": "FName FunctionName;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "FunctionClass",
+          "cppType": "TSubclassOf<class UObject>",
+          "declaration": "TSubclassOf<class UObject> FunctionClass;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_SwitchInteger",
+      "baseClassName": "UK2Node_Switch",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_SwitchInteger",
+      "displayName": "Switch Integer",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_SwitchInteger.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_SwitchInteger.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "StartIndex",
+          "cppType": "int32",
+          "declaration": "int32 StartIndex;",
+          "category": "PinOptions",
+          "flags": [
+            "EditAnywhere"
+          ],
+          "meta": "EditAnywhere, Category=PinOptions, meta=(NoSpinbox=true)"
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_SwitchName",
+      "baseClassName": "UK2Node_Switch",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_SwitchName",
+      "displayName": "Switch Name",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_SwitchName.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_SwitchName.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "PinNames",
+          "cppType": "TArray<FName>",
+          "declaration": "TArray<FName> PinNames;",
+          "category": "PinOptions",
+          "flags": [
+            "EditAnywhere"
+          ],
+          "meta": "EditAnywhere, Category=PinOptions"
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_SwitchString",
+      "baseClassName": "UK2Node_Switch",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_SwitchString",
+      "displayName": "Switch String",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_SwitchString.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_SwitchString.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "PinNames",
+          "cppType": "TArray<FName>",
+          "declaration": "TArray<FName> PinNames;",
+          "category": "PinOptions",
+          "flags": [
+            "EditAnywhere"
+          ],
+          "meta": "EditAnywhere, Category=PinOptions"
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_TemporaryVariable",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_TemporaryVariable",
+      "displayName": "Temporary Variable",
+      "family": "variable",
+      "nodeKind": "variable",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_TemporaryVariable.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_TemporaryVariable.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "VariableType",
+          "cppType": "struct FEdGraphPinType",
+          "declaration": "struct FEdGraphPinType VariableType;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "bIsPersistent",
+          "cppType": "bool",
+          "declaration": "bool bIsPersistent;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_Timeline",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_Timeline",
+      "displayName": "Timeline",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_Timeline.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_Timeline.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "TimelineName",
+          "cppType": "FName",
+          "declaration": "FName TimelineName;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "TimelineGuid",
+          "cppType": "FGuid",
+          "declaration": "FGuid TimelineGuid;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "context_recipe_required",
+        "recipe": "blueprint_timeline_graph",
+        "querySurface": {
+          "kind": "embedded_template"
+        },
+        "reason": "Timeline nodes surface Blueprint-owned timeline template truth through the embedded-template query layer and still require timeline-capable graph context."
+      }
+    },
+    {
+      "className": "UK2Node_TransitionRuleGetter",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/AnimGraph.K2Node_TransitionRuleGetter",
+      "displayName": "Transition Rule Getter",
+      "family": "utility",
+      "nodeKind": "utility",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "AnimGraph",
+      "sourceGroup": "Editor/AnimGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/AnimGraph/Public/K2Node_TransitionRuleGetter.h",
+      "relativeHeaderPath": "Editor/AnimGraph/Public/K2Node_TransitionRuleGetter.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "GetterType",
+          "cppType": "TEnumAsByte<ETransitionGetter::Type>",
+          "declaration": "TEnumAsByte<ETransitionGetter::Type> GetterType;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "AssociatedAnimAssetPlayerNode",
+          "cppType": "TObjectPtr<UAnimGraphNode_Base>",
+          "declaration": "TObjectPtr<UAnimGraphNode_Base> AssociatedAnimAssetPlayerNode;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "AssociatedStateNode",
+          "cppType": "TObjectPtr<UAnimStateNode>",
+          "declaration": "TObjectPtr<UAnimStateNode> AssociatedStateNode;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    },
+    {
+      "className": "UK2Node_Tunnel",
+      "baseClassName": "UK2Node_EditablePinBase",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_Tunnel",
+      "displayName": "Tunnel",
+      "family": "struct",
+      "nodeKind": "graph_structure",
+      "addability": "not_direct",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_Tunnel.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_Tunnel.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "OutputSourceNode",
+          "cppType": "TObjectPtr<UK2Node_Tunnel>",
+          "declaration": "TObjectPtr<UK2Node_Tunnel> OutputSourceNode;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "InputSinkNode",
+          "cppType": "TObjectPtr<UK2Node_Tunnel>",
+          "declaration": "TObjectPtr<UK2Node_Tunnel> InputSinkNode;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "MetaData",
+          "cppType": "struct FKismetUserDeclaredFunctionMetadata",
+          "declaration": "struct FKismetUserDeclaredFunctionMetadata MetaData;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "context_recipe_required",
+        "recipe": "blueprint_actor_execution_graph",
+        "querySurface": {
+          "kind": "graph_boundary_summary"
+        },
+        "reason": "Tunnel nodes now surface graph-boundary summary and are stably queryable through composite subgraph contexts inside Blueprint execution graphs."
+      }
+    },
+    {
+      "className": "UK2Node_TunnelBoundary",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_TunnelBoundary",
+      "displayName": "Tunnel Boundary",
+      "family": "struct",
+      "nodeKind": "graph_structure",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_TunnelBoundary.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_TunnelBoundary.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "BaseName",
+          "cppType": "FName",
+          "declaration": "FName BaseName;",
+          "category": null,
+          "flags": [
+            "Transient"
+          ],
+          "meta": "Transient"
+        },
+        {
+          "name": "TunnelBoundaryType",
+          "cppType": "ETunnelBoundaryType",
+          "declaration": "ETunnelBoundaryType TunnelBoundaryType;",
+          "category": null,
+          "flags": [
+            "Transient"
+          ],
+          "meta": "Transient"
+        }
+      ],
+      "testing": {
+        "profile": "context_recipe_required",
+        "querySurface": {
+          "kind": "graph_boundary_summary"
+        },
+        "reason": "Graph-boundary Blueprint nodes surface structural summary through the graph-boundary query layer and still require an owning graph or macro context."
+      }
+    },
+    {
+      "className": "UK2Node_Variable",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_Variable",
+      "displayName": "Variable",
+      "family": "variable",
+      "nodeKind": "variable",
+      "addability": "not_direct",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_Variable.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_Variable.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "VariableReference",
+          "cppType": "FMemberReference",
+          "declaration": "FMemberReference VariableReference;",
+          "category": null,
+          "flags": [],
+          "meta": "meta=(BlueprintSearchable=\"true\", BlueprintSearchableHiddenExplicit=\"true\", BlueprintSearchableFormatVersion=\"FIB_VER_VARIABLE_REFERENCE\")"
+        },
+        {
+          "name": "SelfContextInfo",
+          "cppType": "TEnumAsByte<ESelfContextInfo::Type>",
+          "declaration": "TEnumAsByte<ESelfContextInfo::Type> SelfContextInfo;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "VariableSourceClass_DEPRECATED",
+          "cppType": "TSubclassOf<class UObject>",
+          "declaration": "TSubclassOf<class UObject> VariableSourceClass_DEPRECATED;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "VariableName_DEPRECATED",
+          "cppType": "FName",
+          "declaration": "FName VariableName_DEPRECATED;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "inventory_only",
+        "reason": "This Blueprint node is not a direct by-class construction target in the current LOOMLE surface."
+      }
+    },
+    {
+      "className": "UK2Node_VariableGet",
+      "baseClassName": "UK2Node_Variable",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_VariableGet",
+      "displayName": "Variable Get",
+      "family": "variable",
+      "nodeKind": "variable",
+      "addability": "by_class_with_args",
+      "contextRequirements": [
+        "variableName"
+      ],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_VariableGet.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_VariableGet.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [
+        {
+          "name": "bIsPureGet_DEPRECATED",
+          "cppType": "bool",
+          "declaration": "bool bIsPureGet_DEPRECATED = true;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        },
+        {
+          "name": "CurrentVariation",
+          "cppType": "EGetNodeVariation",
+          "declaration": "EGetNodeVariation CurrentVariation;",
+          "category": null,
+          "flags": [],
+          "meta": ""
+        }
+      ],
+      "testing": {
+        "profile": "context_recipe_required",
+        "recipe": "blueprint_variable_access",
+        "reason": "Requires an owning Blueprint variable definition."
+      }
+    },
+    {
+      "className": "UK2Node_VariableSet",
+      "baseClassName": "UK2Node_Variable",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_VariableSet",
+      "displayName": "Variable Set",
+      "family": "variable",
+      "nodeKind": "variable",
+      "addability": "by_class_with_args",
+      "contextRequirements": [
+        "variableName"
+      ],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_VariableSet.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_VariableSet.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "context_recipe_required",
+        "recipe": "blueprint_variable_access",
+        "reason": "Requires an owning Blueprint variable definition."
+      }
+    },
+    {
+      "className": "UK2Node_VariableSetRef",
+      "baseClassName": "UK2Node",
+      "nodeClassPath": "/Script/BlueprintGraph.K2Node_VariableSetRef",
+      "displayName": "Variable Set Ref",
+      "family": "variable",
+      "nodeKind": "variable",
+      "addability": "by_class",
+      "contextRequirements": [],
+      "moduleName": "BlueprintGraph",
+      "sourceGroup": "Editor/BlueprintGraph",
+      "headerPath": "/Users/Shared/Epic Games/UE_5.7/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_VariableSetRef.h",
+      "relativeHeaderPath": "Editor/BlueprintGraph/Classes/K2Node_VariableSetRef.h",
+      "uclassFlags": [
+        "MinimalAPI"
+      ],
+      "properties": [],
+      "testing": {
+        "profile": "construct_and_query",
+        "reason": "This Blueprint node is expected to support baseline construction and query coverage."
+      }
+    }
+  ]
+}

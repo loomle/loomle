@@ -1,0 +1,78 @@
+{
+  "tool": "blueprint.graph.edit",
+  "commands": [
+    {
+      "kind": "addNode",
+      "nodeType": {
+        "kind": "sequence"
+      },
+      "alias": "sequence_main"
+    },
+    {
+      "kind": "addNode",
+      "nodeType": {
+        "functionName": "PrintString",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary"
+      },
+      "alias": "print_first"
+    },
+    {
+      "kind": "addNode",
+      "nodeType": {
+        "functionName": "PrintString",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary"
+      },
+      "alias": "print_second"
+    },
+    {
+      "kind": "connect",
+      "from": {
+        "node": {
+          "alias": "sequence_main"
+        },
+        "pin": "Then_0"
+      },
+      "to": {
+        "node": {
+          "alias": "print_first"
+        },
+        "pin": "execute"
+      }
+    },
+    {
+      "kind": "connect",
+      "from": {
+        "node": {
+          "alias": "sequence_main"
+        },
+        "pin": "Then_1"
+      },
+      "to": {
+        "node": {
+          "alias": "print_second"
+        },
+        "pin": "execute"
+      }
+    },
+    {
+      "kind": "setPinDefault",
+      "target": {
+        "node": {
+          "alias": "print_first"
+        },
+        "pin": "InString"
+      },
+      "value": "Executable local sequence branch 0"
+    },
+    {
+      "kind": "setPinDefault",
+      "target": {
+        "node": {
+          "alias": "print_second"
+        },
+        "pin": "InString"
+      },
+      "value": "Executable local sequence branch 1"
+    }
+  ]
+}

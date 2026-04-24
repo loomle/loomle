@@ -32,7 +32,7 @@ class MaterialWorkflowSuiteError(RuntimeError):
 WORKFLOW_CASES = [
     {
         "id": "root_sink_then_layout",
-        "example": "workspace/Loomle/material/examples/root-sink-then-layout.json",
+        "payloadFixture": "tests/fixtures/workflows/material/root-sink-then-layout.json",
         "families": ["expression", "parameter"],
         "expectedNodes": ["scalar_a", "scalar_b", "multiply_ab"],
         "expectedEdges": [
@@ -47,7 +47,7 @@ WORKFLOW_CASES = [
     },
     {
         "id": "insert_multiply_before_base_color_root",
-        "example": "workspace/Loomle/material/examples/insert-multiply-before-base-color-root.json",
+        "payloadFixture": "tests/fixtures/workflows/material/insert-multiply-before-base-color-root.json",
         "families": ["expression", "parameter", "texture"],
         "expectedNodes": ["albedo_tex", "tint_scalar", "multiply_tint"],
         "expectedEdges": [
@@ -65,7 +65,7 @@ WORKFLOW_CASES = [
     },
     {
         "id": "insert_one_minus_before_multiply_b",
-        "example": "workspace/Loomle/material/examples/insert-one-minus-before-multiply-b.json",
+        "payloadFixture": "tests/fixtures/workflows/material/insert-one-minus-before-multiply-b.json",
         "families": ["expression", "parameter", "texture"],
         "expectedNodes": ["albedo_tex", "tint_scalar", "multiply_tint", "invert_tint"],
         "expectedEdges": [
@@ -85,7 +85,7 @@ WORKFLOW_CASES = [
     },
     {
         "id": "replace_saturate_with_one_minus",
-        "example": "workspace/Loomle/material/examples/replace-saturate-with-one-minus.json",
+        "payloadFixture": "tests/fixtures/workflows/material/replace-saturate-with-one-minus.json",
         "families": ["expression", "parameter"],
         "expectedNodes": ["roughness_scalar", "replacement_invert"],
         "absentNodes": ["old_saturate"],
@@ -104,7 +104,7 @@ WORKFLOW_CASES = [
     },
     {
         "id": "replace_multiply_with_lerp",
-        "example": "workspace/Loomle/material/examples/replace-multiply-with-lerp.json",
+        "payloadFixture": "tests/fixtures/workflows/material/replace-multiply-with-lerp.json",
         "families": ["expression", "parameter"],
         "expectedNodes": ["color_a", "color_b", "alpha_control", "replacement_lerp"],
         "absentNodes": ["old_multiply"],
@@ -128,7 +128,7 @@ WORKFLOW_CASES = [
 
 
 def load_case_payload(case: dict[str, Any]) -> dict[str, Any]:
-    path = REPO_ROOT / str(case["example"])
+    path = REPO_ROOT / str(case["payloadFixture"])
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise MaterialWorkflowSuiteError("case_definition_gap", f"workflow payload is not an object: {path}")
@@ -146,12 +146,12 @@ def list_cases_payload() -> dict[str, Any]:
         "summary": {
             "totalCases": len(WORKFLOW_CASES),
             "families": sorted(family_counter),
-            "exampleBackedCases": sum(1 for case in WORKFLOW_CASES if case.get("example")),
+            "payloadFixtureBackedCases": sum(1 for case in WORKFLOW_CASES if case.get("payloadFixture")),
         },
         "cases": [
             {
                 "id": case["id"],
-                "example": case["example"],
+                "payloadFixture": case["payloadFixture"],
                 "families": case.get("families", []),
                 "expectedNodes": len(case.get("expectedNodes", [])),
                 "expectedEdges": len(case.get("expectedEdges", [])),
@@ -388,7 +388,7 @@ def audit_workflow_query_truth(case: dict[str, Any], snapshot: dict[str, Any], r
 def run_workflow_case(client: McpStdioClient, *, request_id_base: int, case_index: int, case: dict[str, Any]) -> dict[str, Any]:
     result = {
         "caseId": case["id"],
-        "example": case.get("example"),
+        "payloadFixture": case.get("payloadFixture"),
         "families": case.get("families", []),
         "status": "fail",
     }

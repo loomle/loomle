@@ -58,10 +58,11 @@ Published website and bootstrap scripts:
 The site scripts must stay aligned with `client/install.sh` and
 `client/install.ps1`.
 
-### `workspace/`
+### `docs/archive/workspace/`
 
-Legacy graph guide and example material retained in the repository for product
-development and tests. It is not part of release bundles and is not installed
+Archived graph guide, catalog, example, and prototype workspace material. It is
+kept for historical reference and for legacy fixture coverage only. It is not a
+current public contract, is not part of release bundles, and is not installed
 into user projects.
 
 ## Installed Global Shape

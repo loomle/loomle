@@ -1,0 +1,70 @@
+{
+  "tool": "pcg.mutate",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "source_points",
+      "nodeClassPath": "/Script/PCG.PCGDataFromActorSettings"
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "projection_target",
+      "nodeClassPath": "/Script/PCG.PCGDataFromActorSettings"
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "project_surface",
+      "nodeClassPath": "/Script/PCG.PCGProjectionSettings"
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "tag_projected",
+      "nodeClassPath": "/Script/PCG.PCGAddTagSettings"
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "source_points",
+        "pin": "Out"
+      },
+      "to": {
+        "nodeRef": "project_surface",
+        "pin": "In"
+      }
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "projection_target",
+        "pin": "Out"
+      },
+      "to": {
+        "nodeRef": "project_surface",
+        "pin": "Projection Target"
+      }
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "project_surface",
+        "pin": "Out"
+      },
+      "to": {
+        "nodeRef": "tag_projected",
+        "pin": "In"
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "target": {
+        "nodeRef": "tag_projected",
+        "pin": "TagsToAdd"
+      },
+      "value": "Gameplay.Projected"
+    },
+    {
+      "op": "layoutGraph",
+      "scope": "touched"
+    }
+  ]
+}

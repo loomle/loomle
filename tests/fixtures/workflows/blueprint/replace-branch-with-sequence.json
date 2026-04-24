@@ -1,0 +1,206 @@
+{
+  "tool": "blueprint.graph.edit",
+  "commands": [
+    {
+      "kind": "addNode",
+      "nodeType": {
+        "kind": "branch"
+      },
+      "alias": "old_branch"
+    },
+    {
+      "kind": "addNode",
+      "nodeType": {
+        "functionName": "PrintString",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary"
+      },
+      "alias": "true_print"
+    },
+    {
+      "kind": "addNode",
+      "nodeType": {
+        "functionName": "PrintString",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary"
+      },
+      "alias": "false_print"
+    },
+    {
+      "kind": "connect",
+      "from": {
+        "node": {
+          "id": "EventBeginPlay"
+        },
+        "pin": "Then"
+      },
+      "to": {
+        "node": {
+          "alias": "old_branch"
+        },
+        "pin": "Execute"
+      }
+    },
+    {
+      "kind": "connect",
+      "from": {
+        "node": {
+          "alias": "old_branch"
+        },
+        "pin": "Then"
+      },
+      "to": {
+        "node": {
+          "alias": "true_print"
+        },
+        "pin": "execute"
+      }
+    },
+    {
+      "kind": "connect",
+      "from": {
+        "node": {
+          "alias": "old_branch"
+        },
+        "pin": "Else"
+      },
+      "to": {
+        "node": {
+          "alias": "false_print"
+        },
+        "pin": "execute"
+      }
+    },
+    {
+      "kind": "setPinDefault",
+      "target": {
+        "node": {
+          "alias": "old_branch"
+        },
+        "pin": "Condition"
+      },
+      "value": true
+    },
+    {
+      "kind": "setPinDefault",
+      "target": {
+        "node": {
+          "alias": "true_print"
+        },
+        "pin": "InString"
+      },
+      "value": "Legacy true branch"
+    },
+    {
+      "kind": "setPinDefault",
+      "target": {
+        "node": {
+          "alias": "false_print"
+        },
+        "pin": "InString"
+      },
+      "value": "Legacy false branch"
+    },
+    {
+      "kind": "addNode",
+      "nodeType": {
+        "kind": "sequence"
+      },
+      "alias": "replacement_sequence"
+    },
+    {
+      "kind": "disconnect",
+      "from": {
+        "node": {
+          "id": "EventBeginPlay"
+        },
+        "pin": "Then"
+      },
+      "to": {
+        "node": {
+          "alias": "old_branch"
+        },
+        "pin": "Execute"
+      }
+    },
+    {
+      "kind": "disconnect",
+      "from": {
+        "node": {
+          "alias": "old_branch"
+        },
+        "pin": "Then"
+      },
+      "to": {
+        "node": {
+          "alias": "true_print"
+        },
+        "pin": "execute"
+      }
+    },
+    {
+      "kind": "disconnect",
+      "from": {
+        "node": {
+          "alias": "old_branch"
+        },
+        "pin": "Else"
+      },
+      "to": {
+        "node": {
+          "alias": "false_print"
+        },
+        "pin": "execute"
+      }
+    },
+    {
+      "kind": "connect",
+      "from": {
+        "node": {
+          "id": "EventBeginPlay"
+        },
+        "pin": "Then"
+      },
+      "to": {
+        "node": {
+          "alias": "replacement_sequence"
+        },
+        "pin": "execute"
+      }
+    },
+    {
+      "kind": "connect",
+      "from": {
+        "node": {
+          "alias": "replacement_sequence"
+        },
+        "pin": "Then_0"
+      },
+      "to": {
+        "node": {
+          "alias": "true_print"
+        },
+        "pin": "execute"
+      }
+    },
+    {
+      "kind": "connect",
+      "from": {
+        "node": {
+          "alias": "replacement_sequence"
+        },
+        "pin": "Then_1"
+      },
+      "to": {
+        "node": {
+          "alias": "false_print"
+        },
+        "pin": "execute"
+      }
+    },
+    {
+      "kind": "removeNode",
+      "node": {
+        "alias": "old_branch"
+      }
+    }
+  ]
+}

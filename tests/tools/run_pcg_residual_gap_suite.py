@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PCG_NODE_DATABASE = REPO_ROOT / "workspace" / "Loomle" / "pcg" / "catalogs" / "node-database.json"
+PCG_NODE_DATABASE = REPO_ROOT / "tests" / "fixtures" / "catalogs" / "pcg" / "catalogs" / "node-database.json"
 
 
 def load_pcg_nodes() -> list[dict[str, Any]]:

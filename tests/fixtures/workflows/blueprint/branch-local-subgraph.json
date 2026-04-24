@@ -1,0 +1,88 @@
+{
+  "tool": "blueprint.graph.edit",
+  "commands": [
+    {
+      "kind": "addNode",
+      "nodeType": {
+        "kind": "branch"
+      },
+      "alias": "branch_main"
+    },
+    {
+      "kind": "addNode",
+      "nodeType": {
+        "functionName": "PrintString",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary"
+      },
+      "alias": "true_print"
+    },
+    {
+      "kind": "addNode",
+      "nodeType": {
+        "functionName": "PrintString",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary"
+      },
+      "alias": "false_print"
+    },
+    {
+      "kind": "connect",
+      "from": {
+        "node": {
+          "alias": "branch_main"
+        },
+        "pin": "Then"
+      },
+      "to": {
+        "node": {
+          "alias": "true_print"
+        },
+        "pin": "execute"
+      }
+    },
+    {
+      "kind": "connect",
+      "from": {
+        "node": {
+          "alias": "branch_main"
+        },
+        "pin": "Else"
+      },
+      "to": {
+        "node": {
+          "alias": "false_print"
+        },
+        "pin": "execute"
+      }
+    },
+    {
+      "kind": "setPinDefault",
+      "target": {
+        "node": {
+          "alias": "branch_main"
+        },
+        "pin": "Condition"
+      },
+      "value": true
+    },
+    {
+      "kind": "setPinDefault",
+      "target": {
+        "node": {
+          "alias": "true_print"
+        },
+        "pin": "InString"
+      },
+      "value": "Executable local true branch"
+    },
+    {
+      "kind": "setPinDefault",
+      "target": {
+        "node": {
+          "alias": "false_print"
+        },
+        "pin": "InString"
+      },
+      "value": "Executable local false branch"
+    }
+  ]
+}

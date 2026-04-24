@@ -1,0 +1,84 @@
+{
+  "tool": "pcg.mutate",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "create_points",
+      "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "static_mesh_spawner",
+      "nodeClassPath": "/Script/PCG.PCGStaticMeshSpawnerSettings"
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "create_points",
+        "pin": "Out"
+      },
+      "to": {
+        "nodeRef": "static_mesh_spawner",
+        "pin": "In"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "density_filter",
+      "nodeClassPath": "/Script/PCG.PCGDensityFilterSettings"
+    },
+    {
+      "op": "disconnectPins",
+      "from": {
+        "nodeRef": "create_points",
+        "pin": "Out"
+      },
+      "to": {
+        "nodeRef": "static_mesh_spawner",
+        "pin": "In"
+      }
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "create_points",
+        "pin": "Out"
+      },
+      "to": {
+        "nodeRef": "density_filter",
+        "pin": "In"
+      }
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "density_filter",
+        "pin": "Out"
+      },
+      "to": {
+        "nodeRef": "static_mesh_spawner",
+        "pin": "In"
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "target": {
+        "nodeRef": "density_filter",
+        "pin": "LowerBound"
+      },
+      "value": 0.2
+    },
+    {
+      "op": "setPinDefault",
+      "target": {
+        "nodeRef": "density_filter",
+        "pin": "UpperBound"
+      },
+      "value": 0.8
+    },
+    {
+      "op": "layoutGraph",
+      "scope": "touched"
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "tool": "material.mutate",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "roughness_scalar",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "one_minus_roughness",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionOneMinus"
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "roughness_scalar"
+      },
+      "to": {
+        "nodeRef": "one_minus_roughness",
+        "pin": "Input"
+      }
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "one_minus_roughness"
+      },
+      "to": {
+        "nodeId": "__material_root__",
+        "pin": "Roughness"
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "scope": "touched"
+    }
+  ]
+}

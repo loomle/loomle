@@ -86,7 +86,7 @@ Release bundles contain only:
 - `loomle` / `loomle.exe`
 - `plugin-cache/LoomleBridge/`
 
-They do not include the repository-internal `workspace/Loomle` reference
+They do not include the repository-internal `docs/archive/workspace/Loomle` reference
 material or any per-project client.
 
 ## Docs

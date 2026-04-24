@@ -1,0 +1,145 @@
+{
+  "tool": "blueprint.graph.edit",
+  "commands": [
+    {
+      "kind": "addNode",
+      "nodeType": {
+        "functionName": "Delay",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary"
+      },
+      "alias": "old_delay"
+    },
+    {
+      "kind": "addNode",
+      "nodeType": {
+        "functionName": "PrintString",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary"
+      },
+      "alias": "terminal_print"
+    },
+    {
+      "kind": "connect",
+      "from": {
+        "node": {
+          "id": "EventBeginPlay"
+        },
+        "pin": "Then"
+      },
+      "to": {
+        "node": {
+          "alias": "old_delay"
+        },
+        "pin": "execute"
+      }
+    },
+    {
+      "kind": "connect",
+      "from": {
+        "node": {
+          "alias": "old_delay"
+        },
+        "pin": "then"
+      },
+      "to": {
+        "node": {
+          "alias": "terminal_print"
+        },
+        "pin": "execute"
+      }
+    },
+    {
+      "kind": "setPinDefault",
+      "target": {
+        "node": {
+          "alias": "old_delay"
+        },
+        "pin": "Duration"
+      },
+      "value": 0.1
+    },
+    {
+      "kind": "setPinDefault",
+      "target": {
+        "node": {
+          "alias": "terminal_print"
+        },
+        "pin": "InString"
+      },
+      "value": "Preserved downstream consumer"
+    },
+    {
+      "kind": "addNode",
+      "nodeType": {
+        "id": "class:/Script/BlueprintGraph.K2Node_MacroInstance",
+        "macroGraphName": "DoOnce"
+      },
+      "alias": "replacement_gate"
+    },
+    {
+      "kind": "disconnect",
+      "from": {
+        "node": {
+          "id": "EventBeginPlay"
+        },
+        "pin": "Then"
+      },
+      "to": {
+        "node": {
+          "alias": "old_delay"
+        },
+        "pin": "execute"
+      }
+    },
+    {
+      "kind": "disconnect",
+      "from": {
+        "node": {
+          "alias": "old_delay"
+        },
+        "pin": "then"
+      },
+      "to": {
+        "node": {
+          "alias": "terminal_print"
+        },
+        "pin": "execute"
+      }
+    },
+    {
+      "kind": "connect",
+      "from": {
+        "node": {
+          "id": "EventBeginPlay"
+        },
+        "pin": "Then"
+      },
+      "to": {
+        "node": {
+          "alias": "replacement_gate"
+        },
+        "pin": "Execute"
+      }
+    },
+    {
+      "kind": "connect",
+      "from": {
+        "node": {
+          "alias": "replacement_gate"
+        },
+        "pin": "Completed"
+      },
+      "to": {
+        "node": {
+          "alias": "terminal_print"
+        },
+        "pin": "execute"
+      }
+    },
+    {
+      "kind": "removeNode",
+      "node": {
+        "alias": "old_delay"
+      }
+    }
+  ]
+}

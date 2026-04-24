@@ -1,0 +1,57 @@
+{
+  "tool": "material.mutate",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "scalar_a",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "scalar_b",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "multiply_ab",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionMultiply"
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "scalar_a",
+        "pinName": ""
+      },
+      "to": {
+        "nodeRef": "multiply_ab",
+        "pinName": "A"
+      }
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "scalar_b",
+        "pinName": ""
+      },
+      "to": {
+        "nodeRef": "multiply_ab",
+        "pinName": "B"
+      }
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "multiply_ab",
+        "pinName": ""
+      },
+      "to": {
+        "nodeId": "__material_root__",
+        "pinName": "Base Color"
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "scope": "touched"
+    }
+  ]
+}

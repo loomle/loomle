@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-WORKSPACE_ROOT = REPO_ROOT / "workspace" / "Loomle"
+CATALOG_FIXTURE_ROOT = REPO_ROOT / "tests" / "fixtures" / "catalogs"
 PLAN_VERSION = "1"
 
 SUPPORTED_GRAPH_TYPES = {"blueprint", "material", "pcg"}
@@ -292,11 +292,11 @@ def build_summary(entries: list[dict[str, Any]]) -> dict[str, int]:
     }
 
 
-def build_plan(graph_type: str, workspace_root: Path) -> dict[str, Any]:
+def build_plan(graph_type: str, catalog_fixture_root: Path) -> dict[str, Any]:
     if graph_type not in SUPPORTED_GRAPH_TYPES:
         raise ValueError(f"unsupported graphType {graph_type}; supported={sorted(SUPPORTED_GRAPH_TYPES)}")
 
-    source_catalog = workspace_root / graph_type / "catalogs" / "node-database.json"
+    source_catalog = catalog_fixture_root / graph_type / "catalogs" / "node-database.json"
     database = load_json(source_catalog)
     nodes = database.get("nodes")
     if not isinstance(nodes, list):
@@ -321,11 +321,11 @@ def build_plan(graph_type: str, workspace_root: Path) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate first-version LOOMLE graph test plans.")
     parser.add_argument("--graph-type", choices=sorted(SUPPORTED_GRAPH_TYPES), required=True)
-    parser.add_argument("--workspace-root", type=Path, default=WORKSPACE_ROOT)
+    parser.add_argument("--catalog-fixture-root", type=Path, default=CATALOG_FIXTURE_ROOT)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
-    plan = build_plan(args.graph_type, args.workspace_root)
+    plan = build_plan(args.graph_type, args.catalog_fixture_root)
     text = json.dumps(plan, indent=2, ensure_ascii=False) + "\n"
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

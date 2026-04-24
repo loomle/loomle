@@ -53,7 +53,7 @@ REQUIRED_TOOLS = {
     "widget.verify",
 }
 
-EXPECTED_WORKSPACE_EXAMPLES = {
+EXPECTED_ARCHIVED_WORKSPACE_EXAMPLES = {
     "blueprint/examples/executable/branch-local-subgraph.json",
     "blueprint/examples/executable/delay-local-chain.json",
     "blueprint/examples/executable/sequence-local-fanout.json",
@@ -87,7 +87,7 @@ EXPECTED_WORKSPACE_EXAMPLES = {
     "pcg/examples/insert-points-ratio-on-inside-filter.json",
 }
 
-EXPECTED_WORKSPACE_CATALOGS = {
+EXPECTED_ARCHIVED_WORKSPACE_CATALOGS = {
     "blueprint/catalogs/node-database.json",
     "blueprint/catalogs/node-index.json",
     "material/catalogs/node-database.json",
@@ -132,7 +132,7 @@ EXPECTED_BLUEPRINT_COVERAGE_SUMMARY = {
 EXPECTED_BLUEPRINT_WORKFLOW_SUITE_SUMMARY = {
     "totalCases": 5,
     "families": ["branch", "function_call", "struct", "utility"],
-    "exampleBackedCases": 5,
+    "payloadFixtureBackedCases": 5,
 }
 
 EXPECTED_BLUEPRINT_NEGATIVE_SUITE_SUMMARY = {
@@ -188,7 +188,7 @@ EXPECTED_MATERIAL_COVERAGE_SUMMARY = {
 
 EXPECTED_MATERIAL_WORKFLOW_SUITE_SUMMARY = {
     "totalCases": 5,
-    "exampleBackedCases": 5,
+    "payloadFixtureBackedCases": 5,
     "families": ["expression", "parameter", "texture"],
 }
 
@@ -230,6 +230,7 @@ EXPECTED_PCG_WORKFLOW_SUITE_SUMMARY = {
     "totalCases": 10,
     "worldContextCases": 3,
     "families": ["branch", "create", "filter", "meta", "predicate", "route", "sample", "select", "source", "spawn", "struct", "transform"],
+    "payloadFixtureBackedCases": 5,
 }
 
 EXPECTED_PCG_NEGATIVE_SUITE_SUMMARY = {
@@ -374,20 +375,31 @@ def _payload_uses_node_id(payload: dict[str, Any]) -> bool:
     return any(_walk(op) for op in ops if isinstance(op, dict))
 
 
-def validate_workspace_examples() -> None:
-    workspace_root = REPO_ROOT / "workspace" / "Loomle"
+def _require_payload_fixture(case: dict[str, Any], expected_tool: str) -> None:
+    fixture = case.get("payloadFixture")
+    _require(isinstance(fixture, str) and fixture.startswith("tests/fixtures/"), f"case missing active payloadFixture: {case}")
+    fixture_path = REPO_ROOT / fixture
+    _require(fixture_path.exists(), f"payloadFixture does not exist: {case}")
+    payload = _load_json_file(fixture_path)
+    _require(payload.get("tool") == expected_tool, f"payloadFixture tool mismatch for {fixture}: {payload}")
+    _require("graphType" not in payload, f"payloadFixture should not carry legacy graphType: {fixture}")
+    _require(payload.get("tool") != "graph.mutate", f"payloadFixture should not use legacy graph.mutate: {fixture}")
+
+
+def validate_archived_workspace_examples() -> None:
+    workspace_root = REPO_ROOT / "docs" / "archive" / "workspace" / "Loomle"
     example_paths = sorted(workspace_root.glob("*/examples/**/*.json"))
     actual_relpaths = {str(path.relative_to(workspace_root)).replace("\\", "/") for path in example_paths}
     _require(
-        actual_relpaths == EXPECTED_WORKSPACE_EXAMPLES,
-        f"workspace example set mismatch expected={sorted(EXPECTED_WORKSPACE_EXAMPLES)} actual={sorted(actual_relpaths)}",
+        actual_relpaths == EXPECTED_ARCHIVED_WORKSPACE_EXAMPLES,
+        f"archived workspace example set mismatch expected={sorted(EXPECTED_ARCHIVED_WORKSPACE_EXAMPLES)} actual={sorted(actual_relpaths)}",
     )
 
     for path in example_paths:
         payload = _load_json_file(path)
         relpath = str(path.relative_to(workspace_root)).replace("\\", "/")
         graph_dir = path.relative_to(workspace_root).parts[0]
-        _require(payload.get("tool") == "graph.mutate", f"example must target graph.mutate: {relpath}")
+        _require(payload.get("tool") == "graph.mutate", f"archived example must preserve legacy graph.mutate: {relpath}")
         _require(payload.get("graphType") == graph_dir, f"example graphType mismatch for {relpath}: {payload}")
         ops = payload.get("ops")
         _require(isinstance(ops, list) and ops, f"example must contain ops[]: {relpath}")
@@ -942,16 +954,16 @@ def validate_workspace_examples() -> None:
                 f"pcg branch-local insertion example missing ratio default: {relpath}",
             )
 
-    print("[PASS] workspace graph examples validated")
+    print("[PASS] archived workspace graph examples validated")
 
 
-def validate_workspace_catalogs() -> None:
-    workspace_root = REPO_ROOT / "workspace" / "Loomle"
+def validate_archived_workspace_catalogs() -> None:
+    workspace_root = REPO_ROOT / "docs" / "archive" / "workspace" / "Loomle"
     catalog_paths = sorted(workspace_root.glob("*/catalogs/*.json"))
     actual_relpaths = {str(path.relative_to(workspace_root)).replace("\\", "/") for path in catalog_paths}
     _require(
-        actual_relpaths == EXPECTED_WORKSPACE_CATALOGS,
-        f"workspace catalog set mismatch expected={sorted(EXPECTED_WORKSPACE_CATALOGS)} actual={sorted(actual_relpaths)}",
+        actual_relpaths == EXPECTED_ARCHIVED_WORKSPACE_CATALOGS,
+        f"archived workspace catalog set mismatch expected={sorted(EXPECTED_ARCHIVED_WORKSPACE_CATALOGS)} actual={sorted(actual_relpaths)}",
     )
 
     blueprint_index = _load_json_file(workspace_root / "blueprint" / "catalogs" / "node-index.json")
@@ -1252,7 +1264,7 @@ def validate_workspace_catalogs() -> None:
         f"pcg SpawnActor querySurface mismatch: {spawn_actor}",
     )
 
-    print("[PASS] workspace graph catalogs validated")
+    print("[PASS] archived workspace graph catalogs validated")
 
 
 def validate_generated_blueprint_test_plan() -> None:
@@ -1276,7 +1288,7 @@ def validate_generated_blueprint_test_plan() -> None:
         source_catalog = plan.get("sourceCatalog")
         _require(isinstance(source_catalog, dict), f"blueprint test plan sourceCatalog missing: {plan}")
         _require(
-            source_catalog.get("path") == str(REPO_ROOT / "workspace" / "Loomle" / "blueprint" / "catalogs" / "node-database.json"),
+            source_catalog.get("path") == str(REPO_ROOT / "tests" / "fixtures" / "catalogs" / "blueprint" / "catalogs" / "node-database.json"),
             f"blueprint test plan sourceCatalog path mismatch: {source_catalog}",
         )
         summary = plan.get("summary")
@@ -1450,7 +1462,7 @@ def validate_generated_pcg_test_plan() -> None:
         source_catalog = plan.get("sourceCatalog")
         _require(isinstance(source_catalog, dict), f"pcg test plan sourceCatalog missing: {plan}")
         _require(
-            source_catalog.get("path") == str(REPO_ROOT / "workspace" / "Loomle" / "pcg" / "catalogs" / "node-database.json"),
+            source_catalog.get("path") == str(REPO_ROOT / "tests" / "fixtures" / "catalogs" / "pcg" / "catalogs" / "node-database.json"),
             f"pcg test plan sourceCatalog path mismatch: {source_catalog}",
         )
         summary = plan.get("summary")
@@ -1655,6 +1667,9 @@ def validate_generated_blueprint_workflow_truth_suite() -> None:
 
     cases = suite.get("cases")
     _require(isinstance(cases, list) and len(cases) == EXPECTED_BLUEPRINT_WORKFLOW_SUITE_SUMMARY["totalCases"], f"blueprint workflow suite cases mismatch: {suite}")
+    for case in cases:
+        _require(isinstance(case, dict), f"blueprint workflow case must be an object: {case}")
+        _require_payload_fixture(case, "blueprint.graph.edit")
     case_by_id = {
         case.get("id"): case
         for case in cases
@@ -1663,16 +1678,19 @@ def validate_generated_blueprint_workflow_truth_suite() -> None:
 
     branch_case = case_by_id.get("branch_local_subgraph")
     _require(isinstance(branch_case, dict), "blueprint workflow suite missing branch_local_subgraph")
+    _require_payload_fixture(branch_case, "blueprint.graph.edit")
     _require(branch_case.get("expectedNodes") == 3, f"blueprint branch workflow expectedNodes mismatch: {branch_case}")
     _require(branch_case.get("expectedEdges") == 2, f"blueprint branch workflow expectedEdges mismatch: {branch_case}")
 
     replace_branch_case = case_by_id.get("replace_branch_with_sequence")
     _require(isinstance(replace_branch_case, dict), "blueprint workflow suite missing replace_branch_with_sequence")
+    _require_payload_fixture(replace_branch_case, "blueprint.graph.edit")
     _require(replace_branch_case.get("expectedNodes") == 4, f"blueprint replace-branch expectedNodes mismatch: {replace_branch_case}")
     _require(replace_branch_case.get("expectedEdges") == 3, f"blueprint replace-branch expectedEdges mismatch: {replace_branch_case}")
 
     replace_delay_case = case_by_id.get("replace_delay_with_do_once")
     _require(isinstance(replace_delay_case, dict), "blueprint workflow suite missing replace_delay_with_do_once")
+    _require_payload_fixture(replace_delay_case, "blueprint.graph.edit")
     _require(
         replace_delay_case.get("families") == ["function_call", "struct", "utility"],
         f"blueprint replace-delay workflow families mismatch: {replace_delay_case}",
@@ -1863,7 +1881,7 @@ def validate_generated_material_test_plan() -> None:
         source_catalog = plan.get("sourceCatalog")
         _require(isinstance(source_catalog, dict), f"material test plan sourceCatalog missing: {plan}")
         _require(
-            source_catalog.get("path") == str(REPO_ROOT / "workspace" / "Loomle" / "material" / "catalogs" / "node-database.json"),
+            source_catalog.get("path") == str(REPO_ROOT / "tests" / "fixtures" / "catalogs" / "material" / "catalogs" / "node-database.json"),
             f"material test plan sourceCatalog path mismatch: {source_catalog}",
         )
         summary = plan.get("summary")
@@ -1990,6 +2008,9 @@ def validate_generated_material_workflow_truth_suite() -> None:
 
     cases = suite.get("cases")
     _require(isinstance(cases, list) and len(cases) == EXPECTED_MATERIAL_WORKFLOW_SUITE_SUMMARY["totalCases"], f"material workflow suite cases mismatch: {suite}")
+    for case in cases:
+        _require(isinstance(case, dict), f"material workflow case must be an object: {case}")
+        _require_payload_fixture(case, "material.mutate")
     case_by_id = {
         case.get("id"): case
         for case in cases
@@ -1998,11 +2019,13 @@ def validate_generated_material_workflow_truth_suite() -> None:
 
     replace_lerp = case_by_id.get("replace_multiply_with_lerp")
     _require(isinstance(replace_lerp, dict), "material workflow suite missing replace_multiply_with_lerp")
+    _require_payload_fixture(replace_lerp, "material.mutate")
     _require(replace_lerp.get("expectedNodes") == 4, f"material replace_multiply_with_lerp expectedNodes mismatch: {replace_lerp}")
     _require(replace_lerp.get("expectedEdges") == 4, f"material replace_multiply_with_lerp expectedEdges mismatch: {replace_lerp}")
 
     root_sink = case_by_id.get("root_sink_then_layout")
     _require(isinstance(root_sink, dict), "material workflow suite missing root_sink_then_layout")
+    _require_payload_fixture(root_sink, "material.mutate")
     _require(root_sink.get("expectedNodes") == 3, f"material root_sink_then_layout expectedNodes mismatch: {root_sink}")
     _require(root_sink.get("expectedEdges") == 3, f"material root_sink_then_layout expectedEdges mismatch: {root_sink}")
 
@@ -2211,6 +2234,10 @@ def validate_generated_pcg_workflow_truth_suite() -> None:
 
     cases = report.get("cases")
     _require(isinstance(cases, list) and len(cases) == EXPECTED_PCG_WORKFLOW_SUITE_SUMMARY["totalCases"], "pcg workflow cases mismatch")
+    for case in cases:
+        _require(isinstance(case, dict), f"pcg workflow case must be an object: {case}")
+        if case.get("payloadFixture") is not None:
+            _require_payload_fixture(case, "pcg.mutate")
     case_by_id = {
         case.get("id"): case
         for case in cases
@@ -2219,18 +2246,21 @@ def validate_generated_pcg_workflow_truth_suite() -> None:
 
     actor_route = case_by_id.get("actor_data_tag_route")
     _require(isinstance(actor_route, dict), "pcg workflow suite missing actor_data_tag_route")
+    _require_payload_fixture(actor_route, "pcg.mutate")
     _require(actor_route.get("fixture") == "pcg_graph_with_world_actor", f"pcg actor route fixture mismatch: {actor_route}")
     _require(actor_route.get("families") == ["source", "route", "meta"], f"pcg actor route families mismatch: {actor_route}")
     _require(actor_route.get("queryDefaults") == 2, f"pcg actor route queryDefaults mismatch: {actor_route}")
 
     density_insert = case_by_id.get("insert_density_filter_before_static_mesh")
     _require(isinstance(density_insert, dict), "pcg workflow suite missing insert_density_filter_before_static_mesh")
+    _require_payload_fixture(density_insert, "pcg.mutate")
     _require(density_insert.get("fixture") == "pcg_graph", f"pcg density insert fixture mismatch: {density_insert}")
     _require(density_insert.get("families") == ["create", "filter", "spawn"], f"pcg density insert families mismatch: {density_insert}")
     _require(density_insert.get("expectedEdges") == 2, f"pcg density insert expectedEdges mismatch: {density_insert}")
 
     attribute_route = case_by_id.get("replace_tag_route_with_attribute_route")
     _require(isinstance(attribute_route, dict), "pcg workflow suite missing replace_tag_route_with_attribute_route")
+    _require_payload_fixture(attribute_route, "pcg.mutate")
     _require(
         attribute_route.get("families") == ["create", "filter", "route", "meta"],
         f"pcg attribute route families mismatch: {attribute_route}",
@@ -3229,8 +3259,8 @@ def main() -> int:
             fail(f"pcg.describe missing properties[]: {pcg_describe}")
         print("[PASS] domain describe class-mode smoke validated")
 
-        validate_workspace_catalogs()
-        validate_workspace_examples()
+        validate_archived_workspace_catalogs()
+        validate_archived_workspace_examples()
         validate_generated_blueprint_test_plan()
         validate_generated_blueprint_coverage_report()
         validate_generated_blueprint_workflow_truth_suite()

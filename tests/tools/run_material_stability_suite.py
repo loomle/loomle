@@ -138,7 +138,7 @@ def execute_query_snapshot_repeatability_roundtrip(
     client: McpStdioClient, request_id_base: int, asset_path: str
 ) -> dict[str, Any]:
     surface_matrix = blank_surface_matrix()
-    payload = json.loads((REPO_ROOT / "workspace" / "Loomle" / "material" / "examples" / "scalar-one-minus-to-roughness.json").read_text(encoding="utf-8"))
+    payload = json.loads((REPO_ROOT / "tests" / "fixtures" / "workflows" / "material-stability" / "scalar-one-minus-to-roughness.json").read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise MaterialStabilitySuiteError("case_definition_gap", "material stability example payload is not an object")
     payload["assetPath"] = asset_path

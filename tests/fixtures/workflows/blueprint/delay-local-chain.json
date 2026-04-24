@@ -1,0 +1,56 @@
+{
+  "tool": "blueprint.graph.edit",
+  "commands": [
+    {
+      "kind": "addNode",
+      "nodeType": {
+        "functionName": "Delay",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary"
+      },
+      "alias": "delay_main"
+    },
+    {
+      "kind": "addNode",
+      "nodeType": {
+        "functionName": "PrintString",
+        "functionClassPath": "/Script/Engine.KismetSystemLibrary"
+      },
+      "alias": "print_after_delay"
+    },
+    {
+      "kind": "connect",
+      "from": {
+        "node": {
+          "alias": "delay_main"
+        },
+        "pin": "then"
+      },
+      "to": {
+        "node": {
+          "alias": "print_after_delay"
+        },
+        "pin": "execute"
+      }
+    },
+    {
+      "kind": "setPinDefault",
+      "target": {
+        "node": {
+          "alias": "delay_main"
+        },
+        "pin": "Duration"
+      },
+      "value": 0.2
+    },
+    {
+      "kind": "setPinDefault",
+      "target": {
+        "node": {
+          "alias": "print_after_delay"
+        },
+        "pin": "InString"
+      },
+      "value": "Executable local delay chain"
+    }
+  ]
+}

@@ -38,7 +38,7 @@ class BlueprintWorkflowSuiteError(RuntimeError):
 WORKFLOW_CASES = [
     {
         "id": "branch_local_subgraph",
-        "example": "workspace/Loomle/blueprint/examples/executable/branch-local-subgraph.json",
+        "payloadFixture": "tests/fixtures/workflows/blueprint/branch-local-subgraph.json",
         "families": ["branch", "function_call"],
         "expectedNodes": ["branch_main", "true_print", "false_print"],
         "expectedEdges": [
@@ -53,7 +53,7 @@ WORKFLOW_CASES = [
     },
     {
         "id": "delay_local_chain",
-        "example": "workspace/Loomle/blueprint/examples/executable/delay-local-chain.json",
+        "payloadFixture": "tests/fixtures/workflows/blueprint/delay-local-chain.json",
         "families": ["function_call", "utility"],
         "expectedNodes": ["delay_main", "print_after_delay"],
         "expectedEdges": [
@@ -66,7 +66,7 @@ WORKFLOW_CASES = [
     },
     {
         "id": "sequence_local_fanout",
-        "example": "workspace/Loomle/blueprint/examples/executable/sequence-local-fanout.json",
+        "payloadFixture": "tests/fixtures/workflows/blueprint/sequence-local-fanout.json",
         "families": ["function_call", "utility"],
         "expectedNodes": ["sequence_main", "print_first", "print_second"],
         "expectedEdges": [
@@ -81,7 +81,7 @@ WORKFLOW_CASES = [
     },
     {
         "id": "replace_branch_with_sequence",
-        "example": "workspace/Loomle/blueprint/examples/illustrative/replace-branch-with-sequence.json",
+        "payloadFixture": "tests/fixtures/workflows/blueprint/replace-branch-with-sequence.json",
         "families": ["branch", "function_call", "utility"],
         "expectedNodes": ["replacement_sequence", "true_print", "false_print", "EventBeginPlay"],
         "absentNodes": ["old_branch"],
@@ -99,7 +99,7 @@ WORKFLOW_CASES = [
     },
     {
         "id": "replace_delay_with_do_once",
-        "example": "workspace/Loomle/blueprint/examples/illustrative/replace-delay-with-do-once.json",
+        "payloadFixture": "tests/fixtures/workflows/blueprint/replace-delay-with-do-once.json",
         "families": ["function_call", "struct", "utility"],
         "expectedNodes": ["replacement_gate", "terminal_print", "EventBeginPlay"],
         "absentNodes": ["old_delay"],
@@ -117,7 +117,7 @@ WORKFLOW_CASES = [
 
 
 def load_case_payload(case: dict[str, Any]) -> dict[str, Any]:
-    path = REPO_ROOT / str(case["example"])
+    path = REPO_ROOT / str(case["payloadFixture"])
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise BlueprintWorkflowSuiteError("case_definition_gap", f"workflow payload is not an object: {path}")
@@ -136,12 +136,12 @@ def list_cases_payload() -> dict[str, Any]:
         "summary": {
             "totalCases": len(WORKFLOW_CASES),
             "families": sorted(family_counter),
-            "exampleBackedCases": sum(1 for case in WORKFLOW_CASES if case.get("example")),
+            "payloadFixtureBackedCases": sum(1 for case in WORKFLOW_CASES if case.get("payloadFixture")),
         },
         "cases": [
             {
                 "id": case["id"],
-                "example": case["example"],
+                "payloadFixture": case["payloadFixture"],
                 "families": case.get("families", []),
                 "expectedNodes": len(case.get("expectedNodes", [])),
                 "expectedEdges": len(case.get("expectedEdges", [])),
@@ -240,7 +240,7 @@ def rewrite_live_node_ids(payload: dict[str, Any], snapshot: dict[str, Any]) -> 
         if isinstance(value, dict):
             rewritten: dict[str, Any] = {}
             for key, child in value.items():
-                if key == "nodeId" and child == "EventBeginPlay":
+                if key in {"nodeId", "id"} and child == "EventBeginPlay":
                     rewritten[key] = live_begin_play
                 else:
                     rewritten[key] = rewrite_value(child)
@@ -417,7 +417,7 @@ def audit_workflow_query_truth(case: dict[str, Any], snapshot: dict[str, Any], r
 def run_workflow_case(client: McpStdioClient, *, request_id_base: int, case: dict[str, Any]) -> dict[str, Any]:
     result = {
         "caseId": case["id"],
-        "example": case.get("example"),
+        "payloadFixture": case.get("payloadFixture"),
         "families": case.get("families", []),
         "status": "fail",
     }
@@ -429,7 +429,11 @@ def run_workflow_case(client: McpStdioClient, *, request_id_base: int, case: dic
         payload = rewrite_live_node_ids(load_case_payload(case), initial_snapshot)
         payload["assetPath"] = asset_path
         payload["graphName"] = "EventGraph"
-        edit_payload = blueprint_edit_args_from_legacy_payload(payload)
+        edit_payload = (
+            {key: value for key, value in payload.items() if key != "tool"}
+            if isinstance(payload.get("commands"), list)
+            else blueprint_edit_args_from_legacy_payload(payload)
+        )
         mutate_result = safe_call_tool(client, request_id_base + 10, "blueprint.graph.edit", edit_payload)
         surface_matrix["mutate"] = "pass"
         ref_map = build_client_ref_map(edit_payload, mutate_result)

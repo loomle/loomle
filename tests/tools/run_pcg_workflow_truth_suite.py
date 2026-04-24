@@ -39,7 +39,7 @@ class WorkflowSuiteError(RuntimeError):
 WORKFLOW_CASES = [
     {
         "id": "actor_data_tag_route",
-        "example": "workspace/Loomle/pcg/examples/actor-data-tag-route.json",
+        "payloadFixture": "tests/fixtures/workflows/pcg/actor-data-tag-route.json",
         "fixture": "pcg_graph_with_world_actor",
         "families": ["source", "route", "meta"],
         "expectedNodes": ["actor_data", "filter_by_tag", "tag_matched_branch"],
@@ -54,7 +54,7 @@ WORKFLOW_CASES = [
     },
     {
         "id": "surface_sample_to_static_mesh",
-        "example": "workspace/Loomle/pcg/examples/surface-sample-to-static-mesh.json",
+        "payloadFixture": "tests/fixtures/workflows/pcg/surface-sample-to-static-mesh.json",
         "fixture": "pcg_graph_with_world_actor",
         "families": ["source", "sample", "spawn"],
         "expectedNodes": ["actor_surface", "surface_sampler", "static_mesh_spawner"],
@@ -68,7 +68,7 @@ WORKFLOW_CASES = [
     },
     {
         "id": "project_surface_from_actor_data",
-        "example": "workspace/Loomle/pcg/examples/project-surface-from-actor-data.json",
+        "payloadFixture": "tests/fixtures/workflows/pcg/project-surface-from-actor-data.json",
         "fixture": "pcg_graph_with_world_actor",
         "families": ["source", "transform", "meta"],
         "expectedNodes": ["source_points", "projection_target", "project_surface", "tag_projected"],
@@ -83,7 +83,7 @@ WORKFLOW_CASES = [
     },
     {
         "id": "insert_density_filter_before_static_mesh",
-        "example": "workspace/Loomle/pcg/examples/insert-density-filter-before-static-mesh.json",
+        "payloadFixture": "tests/fixtures/workflows/pcg/insert-density-filter-before-static-mesh.json",
         "fixture": "pcg_graph",
         "families": ["create", "filter", "spawn"],
         "expectedNodes": ["create_points", "density_filter", "static_mesh_spawner"],
@@ -101,7 +101,7 @@ WORKFLOW_CASES = [
     },
     {
         "id": "replace_tag_route_with_attribute_route",
-        "example": "workspace/Loomle/pcg/examples/replace-tag-route-with-attribute-route.json",
+        "payloadFixture": "tests/fixtures/workflows/pcg/replace-tag-route-with-attribute-route.json",
         "fixture": "pcg_graph",
         "families": ["create", "filter", "route", "meta"],
         "expectedNodes": ["create_points", "replacement_filter_by_attribute", "matched_branch", "unmatched_branch"],
@@ -469,8 +469,8 @@ def load_case_payload(case: dict[str, Any]) -> dict[str, Any]:
     inline_payload = case.get("payload")
     if isinstance(inline_payload, dict):
         return json.loads(json.dumps(inline_payload))
-    example_path = REPO_ROOT / case["example"]
-    return json.loads(example_path.read_text(encoding="utf-8"))
+    fixture_path = REPO_ROOT / case["payloadFixture"]
+    return json.loads(fixture_path.read_text(encoding="utf-8"))
 
 
 def list_cases_payload() -> dict[str, Any]:
@@ -489,11 +489,12 @@ def list_cases_payload() -> dict[str, Any]:
             "totalCases": len(WORKFLOW_CASES),
             "worldContextCases": sum(1 for case in WORKFLOW_CASES if case["fixture"] == "pcg_graph_with_world_actor"),
             "families": families,
+            "payloadFixtureBackedCases": sum(1 for case in WORKFLOW_CASES if case.get("payloadFixture")),
         },
         "cases": [
             {
                 "id": case["id"],
-                "example": case.get("example"),
+                "payloadFixture": case.get("payloadFixture"),
                 "fixture": case["fixture"],
                 "families": case.get("families", []),
                 "expectedNodes": len(case.get("expectedNodes", [])),
@@ -700,7 +701,7 @@ def run_workflow_case(
 ) -> dict[str, Any]:
     result = {
         "caseId": case["id"],
-        "example": case.get("example"),
+        "payloadFixture": case.get("payloadFixture"),
         "fixture": case["fixture"],
         "families": case.get("families", []),
         "status": "fail",
@@ -796,7 +797,7 @@ def execute_case_with_fresh_client(
     except Exception as exc:
         result = {
             "caseId": case["id"],
-            "example": case.get("example"),
+            "payloadFixture": case.get("payloadFixture"),
             "fixture": case["fixture"],
             "families": case.get("families", []),
             "status": "fail",

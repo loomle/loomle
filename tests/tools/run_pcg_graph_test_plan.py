@@ -828,9 +828,9 @@ def main() -> int:
         with open(args.plan_path, encoding="utf-8") as handle:
             plan = json.load(handle)
     else:
-        plan = build_plan("pcg", REPO_ROOT / "workspace" / "Loomle")
+        plan = build_plan("pcg", REPO_ROOT / "tests" / "fixtures" / "catalogs")
 
-    with open(REPO_ROOT / "workspace" / "Loomle" / "pcg" / "catalogs" / "node-database.json", encoding="utf-8") as handle:
+    with open(REPO_ROOT / "tests" / "fixtures" / "catalogs" / "pcg" / "catalogs" / "node-database.json", encoding="utf-8") as handle:
         database = json.load(handle)
     nodes_by_class = {node["className"]: node for node in database["nodes"] if isinstance(node, dict) and isinstance(node.get("className"), str)}
 

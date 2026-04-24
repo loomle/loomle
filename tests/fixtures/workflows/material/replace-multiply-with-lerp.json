@@ -1,0 +1,140 @@
+{
+  "tool": "material.mutate",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "color_a",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionVectorParameter"
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "color_b",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionVectorParameter"
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "old_multiply",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionMultiply"
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "color_a"
+      },
+      "to": {
+        "nodeRef": "old_multiply",
+        "pin": "A"
+      }
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "color_b"
+      },
+      "to": {
+        "nodeRef": "old_multiply",
+        "pin": "B"
+      }
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "old_multiply"
+      },
+      "to": {
+        "nodeId": "__material_root__",
+        "pin": "Base Color"
+      }
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "alpha_control",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "replacement_lerp",
+      "nodeClassPath": "/Script/Engine.MaterialExpressionLinearInterpolate"
+    },
+    {
+      "op": "disconnectPins",
+      "from": {
+        "nodeRef": "color_a"
+      },
+      "to": {
+        "nodeRef": "old_multiply",
+        "pin": "A"
+      }
+    },
+    {
+      "op": "disconnectPins",
+      "from": {
+        "nodeRef": "color_b"
+      },
+      "to": {
+        "nodeRef": "old_multiply",
+        "pin": "B"
+      }
+    },
+    {
+      "op": "disconnectPins",
+      "from": {
+        "nodeRef": "old_multiply"
+      },
+      "to": {
+        "nodeId": "__material_root__",
+        "pin": "Base Color"
+      }
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "color_a"
+      },
+      "to": {
+        "nodeRef": "replacement_lerp",
+        "pin": "A"
+      }
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "color_b"
+      },
+      "to": {
+        "nodeRef": "replacement_lerp",
+        "pin": "B"
+      }
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "alpha_control"
+      },
+      "to": {
+        "nodeRef": "replacement_lerp",
+        "pin": "Alpha"
+      }
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "replacement_lerp"
+      },
+      "to": {
+        "nodeId": "__material_root__",
+        "pin": "Base Color"
+      }
+    },
+    {
+      "op": "removeNode",
+      "target": {
+        "nodeRef": "old_multiply"
+      }
+    },
+    {
+      "op": "layoutGraph",
+      "scope": "touched"
+    }
+  ]
+}
