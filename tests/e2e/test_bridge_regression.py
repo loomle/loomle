@@ -525,6 +525,7 @@ def main() -> int:
 
     client = McpStdioClient(project_root=project_root, server_binary=server_binary, timeout_s=args.timeout)
     temp_asset = make_temp_asset_path(args.asset_prefix)
+    temp_interface_asset = make_temp_asset_path("/Game/Codex/BPI_BridgeRegression")
     temp_pcg_asset = make_temp_asset_path("/Game/Codex/PCG_BridgeRegression")
     temp_pcg_health_asset = make_temp_asset_path("/Game/Codex/PCG_HealthRegression")
     temp_pcg_remove_asset = make_temp_asset_path("/Game/Codex/PCG_RemoveRegression")
@@ -693,6 +694,91 @@ def main() -> int:
         if not isinstance(event_graph_ref, dict) or event_graph_ref.get("kind") != "asset":
             fail(f"graph.list event graph graphRef missing/invalid: {event_graph}")
         print("[PASS] blueprint.list validated")
+
+        interface_fixture_payload = call_tool(
+            client,
+            600,
+            "execute",
+            {
+                "mode": "exec",
+                "code": (
+                    "import json, unreal\n"
+                    f"asset={json.dumps(temp_interface_asset, ensure_ascii=False)}\n"
+                    "pkg_path, asset_name = asset.rsplit('/', 1)\n"
+                    "asset_tools = unreal.AssetToolsHelpers.get_asset_tools()\n"
+                    "bpi = unreal.EditorAssetLibrary.load_asset(asset)\n"
+                    "if bpi is None:\n"
+                    "    factory = unreal.BlueprintInterfaceFactory()\n"
+                    "    bpi = asset_tools.create_asset(asset_name, pkg_path, unreal.Blueprint, factory)\n"
+                    "if bpi is None:\n"
+                    "    raise RuntimeError('failed to create Blueprint Interface asset')\n"
+                    "generated_class = bpi.generated_class() if hasattr(bpi, 'generated_class') and callable(bpi.generated_class) else None\n"
+                    "if generated_class is None:\n"
+                    "    generated_class = bpi.get_editor_property('generated_class')\n"
+                    "print(json.dumps({'asset': asset, 'classPath': generated_class.get_path_name() if generated_class else ''}, ensure_ascii=False))\n"
+                ),
+            },
+        )
+        interface_fixture = parse_execute_json(interface_fixture_payload)
+        interface_class_path = interface_fixture.get("classPath")
+        if not isinstance(interface_class_path, str) or not interface_class_path:
+            fail(f"failed to resolve Blueprint Interface class path: {interface_fixture}")
+        add_interface_payload = call_tool(
+            client,
+            601,
+            "blueprint.asset.edit",
+            {
+                "assetPath": temp_asset,
+                "operation": "addInterface",
+                "args": {"interfaceClassPath": interface_class_path},
+            },
+        )
+        if add_interface_payload.get("applied") is not True:
+            fail(f"blueprint.asset.edit addInterface did not apply: {add_interface_payload}")
+        list_interface_payload = call_tool(
+            client,
+            602,
+            "blueprint.asset.edit",
+            {"assetPath": temp_asset, "operation": "listInterfaces"},
+        )
+        listed_interfaces = list_interface_payload.get("interfaces")
+        if not isinstance(listed_interfaces, list) or not any(
+            isinstance(entry, dict) and entry.get("classPath") == interface_class_path
+            for entry in listed_interfaces
+        ):
+            fail(f"blueprint.asset.edit listInterfaces missing added interface: {list_interface_payload}")
+        asset_inspect_payload = call_tool(client, 603, "blueprint.asset.inspect", {"assetPath": temp_asset})
+        inspected_interfaces = asset_inspect_payload.get("implementedInterfaces")
+        if not isinstance(inspected_interfaces, list) or not any(
+            isinstance(entry, dict) and entry.get("classPath") == interface_class_path
+            for entry in inspected_interfaces
+        ):
+            fail(f"blueprint.asset.inspect missing implementedInterfaces entry: {asset_inspect_payload}")
+        remove_interface_payload = call_tool(
+            client,
+            604,
+            "blueprint.asset.edit",
+            {
+                "assetPath": temp_asset,
+                "operation": "removeInterface",
+                "args": {"interfaceClassPath": interface_class_path},
+            },
+        )
+        if remove_interface_payload.get("applied") is not True:
+            fail(f"blueprint.asset.edit removeInterface did not apply: {remove_interface_payload}")
+        list_after_remove_payload = call_tool(
+            client,
+            605,
+            "blueprint.asset.edit",
+            {"assetPath": temp_asset, "operation": "listInterfaces"},
+        )
+        interfaces_after_remove = list_after_remove_payload.get("interfaces")
+        if not isinstance(interfaces_after_remove, list) or any(
+            isinstance(entry, dict) and entry.get("classPath") == interface_class_path
+            for entry in interfaces_after_remove
+        ):
+            fail(f"blueprint.asset.edit removeInterface did not remove interface: {list_after_remove_payload}")
+        print("[PASS] blueprint.asset.edit interface lifecycle validated")
 
         graph_query = call_domain_tool(
             client,
@@ -1078,6 +1164,30 @@ def main() -> int:
         component_items = component_inspect_payload.get("items")
         if not isinstance(component_items, list):
             fail(f"blueprint.member.inspect component items missing: {component_inspect_payload}")
+        macro_inspect_payload = call_tool(
+            client,
+            6529,
+            "blueprint.member.inspect",
+            {"assetPath": temp_asset, "memberKind": "macro"},
+        )
+        macro_items = macro_inspect_payload.get("items")
+        if not isinstance(macro_items, list) or not any(
+            isinstance(entry, dict) and entry.get("name") == "GuardMacroRenamed"
+            for entry in macro_items
+        ):
+            fail(f"blueprint.member.inspect macro items missing renamed macro: {macro_inspect_payload}")
+        dispatcher_inspect_payload = call_tool(
+            client,
+            6530,
+            "blueprint.member.inspect",
+            {"assetPath": temp_asset, "memberKind": "dispatcher"},
+        )
+        dispatcher_items = dispatcher_inspect_payload.get("items")
+        if not isinstance(dispatcher_items, list) or not any(
+            isinstance(entry, dict) and entry.get("name") == "OnReadyChanged"
+            for entry in dispatcher_items
+        ):
+            fail(f"blueprint.member.inspect dispatcher items missing renamed dispatcher: {dispatcher_inspect_payload}")
         graph_list_payload = call_tool(client, 6524, "blueprint.graph.list", {"assetPath": temp_asset})
         listed_graphs = graph_list_payload.get("graphs")
         if not isinstance(listed_graphs, list):
@@ -1112,7 +1222,7 @@ def main() -> int:
 
         member_state_payload = call_execute_exec_with_retry(
             client=client,
-            req_id_base=6530,
+            req_id_base=6540,
             code=(
                 "import json, unreal\n"
                 f"asset={json.dumps(temp_asset, ensure_ascii=False)}\n"

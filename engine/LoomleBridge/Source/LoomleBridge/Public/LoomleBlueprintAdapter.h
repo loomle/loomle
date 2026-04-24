@@ -22,6 +22,10 @@ class LOOMLEBRIDGE_API FLoomleBlueprintAdapter
 
 public:
     static bool CreateBlueprint(const FString& AssetPath, const FString& ParentClassPath, FString& OutBlueprintObjectPath, FString& OutError);
+    static bool SetParentClass(const FString& BlueprintAssetPath, const FString& ParentClassPath, FString& OutError);
+    static bool ListImplementedInterfaces(const FString& BlueprintAssetPath, FString& OutInterfacesJson, FString& OutError);
+    static bool AddInterface(const FString& BlueprintAssetPath, const FString& InterfaceClassPath, FString& OutError);
+    static bool RemoveInterface(const FString& BlueprintAssetPath, const FString& InterfaceClassPath, bool bPreserveFunctions, FString& OutError);
     static bool EditComponentMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError);
     static bool EditVariableMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError);
     static bool EditFunctionMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError);

@@ -42,6 +42,7 @@
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "Misc/PackageName.h"
+#include "UObject/Interface.h"
 #include "UObject/UnrealType.h"
 
 namespace LoomleBlueprintAdapterInternal
@@ -62,6 +63,7 @@ namespace LoomleBlueprintAdapterInternal
     };
 
     static FBlueprintMacroDescriptor DescribeMacroNode(const UK2Node_MacroInstance* MacroNode);
+    static FString JsonArrayToString(const TArray<TSharedPtr<FJsonValue>>& ArrayValues);
 
     static FString BoolToJsonString(bool bValue)
     {
@@ -2874,6 +2876,178 @@ bool FLoomleBlueprintAdapter::CreateBlueprint(const FString& AssetPath, const FS
     FAssetRegistryModule::AssetCreated(Blueprint);
     Blueprint->MarkPackageDirty();
     OutBlueprintObjectPath = FString::Printf(TEXT("%s.%s"), *AssetPath, *AssetName);
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::SetParentClass(const FString& BlueprintAssetPath, const FString& ParentClassPath, FString& OutError)
+{
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    if (Blueprint == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintAssetPath);
+        return false;
+    }
+
+    UClass* ParentClass = LoomleBlueprintAdapterInternal::ResolveClass(ParentClassPath);
+    if (ParentClass == nullptr || !FKismetEditorUtilities::CanCreateBlueprintOfClass(ParentClass))
+    {
+        OutError = FString::Printf(TEXT("Failed to resolve Blueprint parent class: %s"), *ParentClassPath);
+        return false;
+    }
+
+    if (Blueprint->ParentClass == ParentClass)
+    {
+        return true;
+    }
+
+    Blueprint->Modify();
+    if (Blueprint->SimpleConstructionScript != nullptr)
+    {
+        Blueprint->SimpleConstructionScript->Modify();
+        for (USCS_Node* Node : Blueprint->SimpleConstructionScript->GetAllNodes())
+        {
+            if (Node != nullptr)
+            {
+                Node->Modify();
+            }
+        }
+    }
+
+    Blueprint->ParentClass = ParentClass;
+    FBlueprintEditorUtils::RefreshAllNodes(Blueprint);
+    FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+    Blueprint->MarkPackageDirty();
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::ListImplementedInterfaces(const FString& BlueprintAssetPath, FString& OutInterfacesJson, FString& OutError)
+{
+    OutInterfacesJson = TEXT("[]");
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    if (Blueprint == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintAssetPath);
+        return false;
+    }
+
+    TArray<TSharedPtr<FJsonValue>> Interfaces;
+    for (const FBPInterfaceDescription& InterfaceDesc : Blueprint->ImplementedInterfaces)
+    {
+        UClass* InterfaceClass = InterfaceDesc.Interface;
+        if (InterfaceClass == nullptr)
+        {
+            continue;
+        }
+
+        TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+        Entry->SetStringField(TEXT("name"), InterfaceClass->GetName());
+        Entry->SetStringField(TEXT("classPath"), InterfaceClass->GetPathName());
+        Entry->SetStringField(TEXT("classPathName"), InterfaceClass->GetClassPathName().ToString());
+        Entry->SetStringField(TEXT("displayName"), InterfaceClass->GetDisplayNameText().ToString());
+
+        TArray<TSharedPtr<FJsonValue>> Graphs;
+        for (UEdGraph* Graph : InterfaceDesc.Graphs)
+        {
+            if (Graph == nullptr)
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> GraphEntry = MakeShared<FJsonObject>();
+            GraphEntry->SetStringField(TEXT("name"), Graph->GetName());
+            GraphEntry->SetStringField(TEXT("graphName"), Graph->GetName());
+            GraphEntry->SetStringField(TEXT("graphClassPath"), Graph->GetClass() ? Graph->GetClass()->GetPathName() : TEXT(""));
+            Graphs.Add(MakeShared<FJsonValueObject>(GraphEntry));
+        }
+        Entry->SetArrayField(TEXT("graphs"), Graphs);
+        Interfaces.Add(MakeShared<FJsonValueObject>(Entry));
+    }
+
+    OutInterfacesJson = LoomleBlueprintAdapterInternal::JsonArrayToString(Interfaces);
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::AddInterface(const FString& BlueprintAssetPath, const FString& InterfaceClassPath, FString& OutError)
+{
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    if (Blueprint == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintAssetPath);
+        return false;
+    }
+
+    UClass* InterfaceClass = LoomleBlueprintAdapterInternal::ResolveClass(InterfaceClassPath);
+    if (InterfaceClass == nullptr || !InterfaceClass->IsChildOf(UInterface::StaticClass()))
+    {
+        OutError = FString::Printf(TEXT("Failed to resolve Blueprint interface class: %s"), *InterfaceClassPath);
+        return false;
+    }
+
+    for (const FBPInterfaceDescription& InterfaceDesc : Blueprint->ImplementedInterfaces)
+    {
+        if (InterfaceDesc.Interface == InterfaceClass)
+        {
+            return true;
+        }
+    }
+
+    if (!FKismetEditorUtilities::CanBlueprintImplementInterface(Blueprint, InterfaceClass))
+    {
+        OutError = FString::Printf(TEXT("Blueprint cannot implement interface: %s"), *InterfaceClassPath);
+        return false;
+    }
+
+    if (!FBlueprintEditorUtils::ImplementNewInterface(Blueprint, InterfaceClass->GetClassPathName()))
+    {
+        OutError = FString::Printf(TEXT("Failed to add Blueprint interface: %s"), *InterfaceClassPath);
+        return false;
+    }
+
+    Blueprint->MarkPackageDirty();
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::RemoveInterface(const FString& BlueprintAssetPath, const FString& InterfaceClassPath, bool bPreserveFunctions, FString& OutError)
+{
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    if (Blueprint == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintAssetPath);
+        return false;
+    }
+
+    UClass* InterfaceClass = LoomleBlueprintAdapterInternal::ResolveClass(InterfaceClassPath);
+    if (InterfaceClass == nullptr || !InterfaceClass->IsChildOf(UInterface::StaticClass()))
+    {
+        OutError = FString::Printf(TEXT("Failed to resolve Blueprint interface class: %s"), *InterfaceClassPath);
+        return false;
+    }
+
+    bool bFound = false;
+    for (const FBPInterfaceDescription& InterfaceDesc : Blueprint->ImplementedInterfaces)
+    {
+        if (InterfaceDesc.Interface == InterfaceClass)
+        {
+            bFound = true;
+            break;
+        }
+    }
+    if (!bFound)
+    {
+        return true;
+    }
+
+    FBlueprintEditorUtils::RemoveInterface(Blueprint, InterfaceClass->GetClassPathName(), bPreserveFunctions);
+    FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+    Blueprint->MarkPackageDirty();
     return true;
 }
 

@@ -665,6 +665,10 @@ impl LoomleProxyServer {
             .get("components")
             .and_then(|value| value.as_array())
             .map_or(0, |items| items.len());
+        let interfaces = payload
+            .get("implementedInterfaces")
+            .and_then(|value| value.as_array())
+            .map_or(0, |items| items.len());
         let event_signatures = payload
             .get("eventSignatures")
             .and_then(|value| value.as_array())
@@ -674,11 +678,16 @@ impl LoomleProxyServer {
             "assetPath": payload.get("assetPath").cloned().unwrap_or(serde_json::Value::Null),
             "blueprintClass": payload.get("blueprintClass").cloned().unwrap_or(serde_json::Value::Null),
             "parentClass": payload.get("parentClass").cloned().unwrap_or(serde_json::Value::Null),
+            "parentClassPath": payload.get("parentClassPath").cloned().unwrap_or(serde_json::Value::Null),
+            "implementedInterfaces": payload.get("implementedInterfaces").cloned().unwrap_or(serde_json::json!([])),
             "variables": payload.get("variables").cloned().unwrap_or(serde_json::json!([])),
             "functions": payload.get("functions").cloned().unwrap_or(serde_json::json!([])),
+            "macros": payload.get("macros").cloned().unwrap_or(serde_json::json!([])),
+            "dispatchers": payload.get("dispatchers").cloned().unwrap_or(serde_json::json!([])),
             "eventSignatures": payload.get("eventSignatures").cloned().unwrap_or(serde_json::json!([])),
             "components": payload.get("components").cloned().unwrap_or(serde_json::json!([])),
             "summary": {
+                "interfaceCount": interfaces,
                 "variableCount": variables,
                 "functionCount": functions,
                 "componentCount": components,
@@ -724,12 +733,14 @@ impl LoomleProxyServer {
                 .get("components")
                 .cloned()
                 .unwrap_or(serde_json::json!([])),
-            "macro" | "dispatcher" => {
-                return Ok(not_implemented_result(
-                    "blueprint.member.inspect",
-                    "Macro and dispatcher inspection are not exposed by the legacy runtime describe surface yet.",
-                ));
-            }
+            "macro" => payload
+                .get("macros")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+            "dispatcher" => payload
+                .get("dispatchers")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
             other => {
                 return Ok(CallToolResult::structured_error(serde_json::json!({
                     "code": "INVALID_ARGUMENT",

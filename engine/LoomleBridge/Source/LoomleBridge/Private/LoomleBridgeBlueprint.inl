@@ -440,6 +440,41 @@ TSharedPtr<FJsonObject> BuildBlueprintClassDescribeResult(const FString& AssetPa
     Result->SetStringField(TEXT("assetPath"), AssetPath);
     Result->SetStringField(TEXT("blueprintClass"), BlueprintClass->GetPathName());
     Result->SetStringField(TEXT("parentClass"), BlueprintClass->GetSuperClass() ? BlueprintClass->GetSuperClass()->GetPathName() : TEXT(""));
+    Result->SetStringField(TEXT("parentClassPath"), Blueprint->ParentClass ? Blueprint->ParentClass->GetPathName() : TEXT(""));
+
+    TArray<TSharedPtr<FJsonValue>> ImplementedInterfaces;
+    for (const FBPInterfaceDescription& InterfaceDesc : Blueprint->ImplementedInterfaces)
+    {
+        UClass* InterfaceClass = InterfaceDesc.Interface;
+        if (InterfaceClass == nullptr)
+        {
+            continue;
+        }
+
+        TSharedPtr<FJsonObject> InterfaceEntry = MakeShared<FJsonObject>();
+        InterfaceEntry->SetStringField(TEXT("name"), InterfaceClass->GetName());
+        InterfaceEntry->SetStringField(TEXT("classPath"), InterfaceClass->GetPathName());
+        InterfaceEntry->SetStringField(TEXT("classPathName"), InterfaceClass->GetClassPathName().ToString());
+        InterfaceEntry->SetStringField(TEXT("displayName"), InterfaceClass->GetDisplayNameText().ToString());
+
+        TArray<TSharedPtr<FJsonValue>> InterfaceGraphs;
+        for (UEdGraph* Graph : InterfaceDesc.Graphs)
+        {
+            if (Graph == nullptr)
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> GraphEntry = MakeShared<FJsonObject>();
+            GraphEntry->SetStringField(TEXT("name"), Graph->GetName());
+            GraphEntry->SetStringField(TEXT("graphName"), Graph->GetName());
+            GraphEntry->SetStringField(TEXT("graphClassPath"), Graph->GetClass() ? Graph->GetClass()->GetPathName() : TEXT(""));
+            InterfaceGraphs.Add(MakeShared<FJsonValueObject>(GraphEntry));
+        }
+        InterfaceEntry->SetArrayField(TEXT("graphs"), InterfaceGraphs);
+        ImplementedInterfaces.Add(MakeShared<FJsonValueObject>(InterfaceEntry));
+    }
+    Result->SetArrayField(TEXT("implementedInterfaces"), ImplementedInterfaces);
 
     TArray<TSharedPtr<FJsonValue>> Variables;
     TSet<FString> SeenVariables;
@@ -500,6 +535,48 @@ TSharedPtr<FJsonObject> BuildBlueprintClassDescribeResult(const FString& AssetPa
         }
     }
     Result->SetArrayField(TEXT("functions"), Functions);
+
+    TArray<TSharedPtr<FJsonValue>> Macros;
+    for (UEdGraph* Graph : Blueprint->MacroGraphs)
+    {
+        if (Graph == nullptr)
+        {
+            continue;
+        }
+
+        TSharedPtr<FJsonObject> MacroEntry = MakeShared<FJsonObject>();
+        MacroEntry->SetStringField(TEXT("name"), Graph->GetName());
+        MacroEntry->SetStringField(TEXT("displayName"), FName::NameToDisplayString(Graph->GetName(), false));
+        MacroEntry->SetStringField(TEXT("graphName"), Graph->GetName());
+        MacroEntry->SetStringField(TEXT("kind"), TEXT("macro"));
+
+        TArray<TSharedPtr<FJsonValue>> Pins;
+        AppendBlueprintDescribeGraphPins(Graph, TEXT("K2Node_Tunnel"), Pins);
+        MacroEntry->SetArrayField(TEXT("pins"), Pins);
+        Macros.Add(MakeShared<FJsonValueObject>(MacroEntry));
+    }
+    Result->SetArrayField(TEXT("macros"), Macros);
+
+    TArray<TSharedPtr<FJsonValue>> Dispatchers;
+    for (UEdGraph* Graph : Blueprint->DelegateSignatureGraphs)
+    {
+        if (Graph == nullptr)
+        {
+            continue;
+        }
+
+        TSharedPtr<FJsonObject> DispatcherEntry = MakeShared<FJsonObject>();
+        DispatcherEntry->SetStringField(TEXT("name"), Graph->GetName());
+        DispatcherEntry->SetStringField(TEXT("displayName"), FName::NameToDisplayString(Graph->GetName(), false));
+        DispatcherEntry->SetStringField(TEXT("graphName"), Graph->GetName());
+        DispatcherEntry->SetStringField(TEXT("kind"), TEXT("dispatcher"));
+
+        TArray<TSharedPtr<FJsonValue>> Pins;
+        AppendBlueprintDescribeGraphPins(Graph, TEXT("K2Node_FunctionEntry"), Pins);
+        DispatcherEntry->SetArrayField(TEXT("pins"), Pins);
+        Dispatchers.Add(MakeShared<FJsonValueObject>(DispatcherEntry));
+    }
+    Result->SetArrayField(TEXT("dispatchers"), Dispatchers);
 
     TArray<TSharedPtr<FJsonValue>> EventSignatures;
     if (UEdGraph* EventGraph = ResolveBlueprintGraph(Blueprint, TEXT("EventGraph")))
@@ -1106,6 +1183,104 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintAssetEditToolResult(c
         Result->SetBoolField(TEXT("applied"), true);
         Result->SetStringField(TEXT("blueprintObjectPath"), BlueprintObjectPath);
         Result->SetStringField(TEXT("parentClassPath"), ParentClassPath);
+        return Result;
+    }
+
+    if (Operation.Equals(TEXT("setParent"), ESearchCase::IgnoreCase) || Operation.Equals(TEXT("reparent"), ESearchCase::IgnoreCase))
+    {
+        FString ParentClassPath;
+        EffectiveArgs->TryGetStringField(TEXT("parentClassPath"), ParentClassPath);
+        if (ParentClassPath.IsEmpty())
+        {
+            EffectiveArgs->TryGetStringField(TEXT("parentClass"), ParentClassPath);
+        }
+        if (ParentClassPath.IsEmpty())
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Result->SetStringField(TEXT("message"), TEXT("blueprint.asset.edit setParent requires args.parentClassPath."));
+            return Result;
+        }
+
+        FString Error;
+        const bool bOk = FLoomleBlueprintAdapter::SetParentClass(AssetPath, ParentClassPath, Error);
+        if (!bOk)
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.asset.edit setParent failed") : Error);
+            return Result;
+        }
+
+        Result->SetBoolField(TEXT("applied"), true);
+        Result->SetStringField(TEXT("parentClassPath"), ParentClassPath);
+        return Result;
+    }
+
+    if (Operation.Equals(TEXT("listInterfaces"), ESearchCase::IgnoreCase))
+    {
+        FString InterfacesJson;
+        FString Error;
+        const bool bOk = FLoomleBlueprintAdapter::ListImplementedInterfaces(AssetPath, InterfacesJson, Error);
+        if (!bOk)
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+            Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.asset.edit listInterfaces failed") : Error);
+            return Result;
+        }
+
+        TArray<TSharedPtr<FJsonValue>> Interfaces;
+        const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(InterfacesJson);
+        FJsonSerializer::Deserialize(Reader, Interfaces);
+        Result->SetBoolField(TEXT("applied"), false);
+        Result->SetArrayField(TEXT("interfaces"), Interfaces);
+        return Result;
+    }
+
+    if (Operation.Equals(TEXT("addInterface"), ESearchCase::IgnoreCase) || Operation.Equals(TEXT("removeInterface"), ESearchCase::IgnoreCase))
+    {
+        FString InterfaceClassPath;
+        EffectiveArgs->TryGetStringField(TEXT("interfaceClassPath"), InterfaceClassPath);
+        if (InterfaceClassPath.IsEmpty())
+        {
+            EffectiveArgs->TryGetStringField(TEXT("interface"), InterfaceClassPath);
+        }
+        if (InterfaceClassPath.IsEmpty())
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Result->SetStringField(
+                TEXT("message"),
+                Operation.Equals(TEXT("addInterface"), ESearchCase::IgnoreCase)
+                    ? TEXT("blueprint.asset.edit addInterface requires args.interfaceClassPath.")
+                    : TEXT("blueprint.asset.edit removeInterface requires args.interfaceClassPath."));
+            return Result;
+        }
+
+        FString Error;
+        bool bOk = false;
+        if (Operation.Equals(TEXT("addInterface"), ESearchCase::IgnoreCase))
+        {
+            bOk = FLoomleBlueprintAdapter::AddInterface(AssetPath, InterfaceClassPath, Error);
+        }
+        else
+        {
+            bool bPreserveFunctions = false;
+            EffectiveArgs->TryGetBoolField(TEXT("preserveFunctions"), bPreserveFunctions);
+            bOk = FLoomleBlueprintAdapter::RemoveInterface(AssetPath, InterfaceClassPath, bPreserveFunctions, Error);
+        }
+
+        if (!bOk)
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.asset.edit interface operation failed") : Error);
+            return Result;
+        }
+
+        Result->SetBoolField(TEXT("applied"), true);
+        Result->SetStringField(TEXT("interfaceClassPath"), InterfaceClassPath);
         return Result;
     }
 
