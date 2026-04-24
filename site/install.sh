@@ -107,6 +107,53 @@ ensure_executable_if_present() {
   fi
 }
 
+preferred_shell_profile() {
+  local shell_name
+  shell_name="$(basename "${SHELL:-}")"
+  case "$shell_name" in
+    zsh)
+      printf '%s/.zshrc' "$HOME"
+      ;;
+    bash)
+      if [[ "$(uname -s)" == "Darwin" ]]; then
+        printf '%s/.bash_profile' "$HOME"
+      else
+        printf '%s/.bashrc' "$HOME"
+      fi
+      ;;
+    *)
+      printf '%s/.profile' "$HOME"
+      ;;
+  esac
+}
+
+ensure_path_entry() {
+  local bin_dir="$1"
+  local profile_path
+  local escaped_bin_dir
+  local marker="LOOMLE installer PATH"
+
+  case ":${PATH:-}:" in
+    *":$bin_dir:"*) ;;
+    *) export PATH="$bin_dir:${PATH:-}" ;;
+  esac
+
+  profile_path="$(preferred_shell_profile)"
+  if [[ -f "$profile_path" ]] && grep -F "$bin_dir" "$profile_path" >/dev/null 2>&1; then
+    echo "[loomle-install] PATH already includes $bin_dir in $profile_path"
+    return 0
+  fi
+
+  escaped_bin_dir="$(printf '%q' "$bin_dir")"
+  mkdir -p "$(dirname "$profile_path")"
+  {
+    printf '\n# >>> %s >>>\n' "$marker"
+    printf 'export PATH=%s:$PATH\n' "$escaped_bin_dir"
+    printf '# <<< %s <<<\n' "$marker"
+  } >> "$profile_path"
+  echo "[loomle-install] added $bin_dir to PATH in $profile_path"
+}
+
 write_active_state() {
   local active_state_path="$1"
   local version="$2"
@@ -234,6 +281,7 @@ main() {
   ensure_executable_if_present "$active_client_path"
   ensure_executable_if_present "$launcher_path"
   write_active_state "$active_state_path" "$effective_version" "$platform" "$install_root" "$launcher_path" "$active_client_path"
+  ensure_path_entry "$install_root/bin"
 
   cat <<EOF
 {

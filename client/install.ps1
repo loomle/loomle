@@ -79,6 +79,41 @@ function Write-ActiveState(
   $payload | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $ActiveStatePath -Encoding UTF8
 }
 
+function Split-PathEntries([string]$PathValue) {
+  if ([string]::IsNullOrWhiteSpace($PathValue)) { return @() }
+  return $PathValue -split [System.IO.Path]::PathSeparator | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+}
+
+function Test-PathEntryExists([string[]]$Entries, [string]$Target) {
+  foreach ($entry in $Entries) {
+    if ([string]::Equals($entry.TrimEnd('\'), $Target.TrimEnd('\'), [System.StringComparison]::OrdinalIgnoreCase)) {
+      return $true
+    }
+  }
+  return $false
+}
+
+function Ensure-PathEntry([string]$BinDir) {
+  $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+  $userEntries = @(Split-PathEntries $userPath)
+  if (Test-PathEntryExists -Entries $userEntries -Target $BinDir) {
+    Write-Host "[loomle-install] User PATH already includes $BinDir"
+  } else {
+    $newUserPath = if ([string]::IsNullOrWhiteSpace($userPath)) {
+      $BinDir
+    } else {
+      "$userPath$([System.IO.Path]::PathSeparator)$BinDir"
+    }
+    [Environment]::SetEnvironmentVariable("Path", $newUserPath, "User")
+    Write-Host "[loomle-install] added $BinDir to User PATH"
+  }
+
+  $processEntries = @(Split-PathEntries $env:Path)
+  if (-not (Test-PathEntryExists -Entries $processEntries -Target $BinDir)) {
+    $env:Path = "$BinDir$([System.IO.Path]::PathSeparator)$env:Path"
+  }
+}
+
 $ManifestUrl = ""
 $AssetUrl = ""
 $InstallRoot = if ($env:LOOMLE_INSTALL_ROOT) { $env:LOOMLE_INSTALL_ROOT } else { Join-Path $HOME ".loomle" }
@@ -162,6 +197,7 @@ try {
   Copy-TreeReplace -Source $PluginCacheSource -Destination (Join-Path $VersionRoot "plugin-cache\LoomleBridge")
   Copy-FileReplace -Source $ManifestPath -Destination (Join-Path $VersionRoot "manifest.json")
   Write-ActiveState -ActiveStatePath $ActiveStatePath -Version $EffectiveVersion -InstallRoot $InstallRoot -LauncherPath $LauncherPath -ActiveClientPath $ActiveClientPath
+  Ensure-PathEntry -BinDir (Join-Path $InstallRoot "bin")
 
   [pscustomobject]@{
     installedVersion = $EffectiveVersion

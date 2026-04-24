@@ -66,10 +66,11 @@ The public installer must:
 3. copy `plugin-cache/LoomleBridge/` to `~/.loomle/versions/<version>/plugin-cache/LoomleBridge/`
 4. install the stable command at `~/.loomle/bin/loomle`
 5. write `~/.loomle/install/active.json`
-6. create `state/runtimes`, `locks`, and `logs`
-7. print Codex and Claude MCP configuration commands
-8. avoid writing Codex or Claude config directly
-9. be idempotent for repeated installs of the same version
+6. add `~/.loomle/bin` to the current user's PATH
+7. create `state/runtimes`, `locks`, and `logs`
+8. print Codex and Claude MCP configuration commands
+9. avoid writing Codex or Claude config directly
+10. be idempotent for repeated installs of the same version
 
 ## 6. Source-of-Truth Rule
 

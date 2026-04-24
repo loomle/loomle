@@ -24,5 +24,6 @@ Current expectations:
 - release bundles do not include the old per-project workspace docs, guides, workflows, or examples
 - install scripts are served by `loomle.ai`, not by GitHub release assets
 - public install scripts materialize `~/.loomle` or `%USERPROFILE%\.loomle`
+- public install scripts add the global install `bin` directory to the current user's PATH
 - UE project support is installed later through MCP `project.install`
 - GitHub Releases is the canonical host for published bundle and manifest assets; `loomle.ai` serves the install scripts and site content

@@ -34,8 +34,9 @@ Bootstrap scripts should:
 6. install `versions/<version>/loomle`
 7. install `versions/<version>/plugin-cache/LoomleBridge`
 8. write `install/active.json`
-9. create `state/runtimes`, `locks`, and `logs`
-10. print MCP host configuration hints
+9. add the global `bin` directory to the current user's PATH
+10. create `state/runtimes`, `locks`, and `logs`
+11. print MCP host configuration hints
 
 ## Artifact Contract
 
