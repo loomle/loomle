@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from generate_graph_test_plan import REPO_ROOT, WORKSPACE_ROOT, build_plan, load_json
+from generate_graph_test_plan import CATALOG_FIXTURE_ROOT, build_plan, load_json
 
 REPORT_VERSION = "1"
 
@@ -14,7 +14,7 @@ REPORT_VERSION = "1"
 def load_plan(graph_type: str, plan_path: Path | None) -> tuple[dict[str, Any], str]:
     if plan_path:
         return load_json(plan_path), str(plan_path)
-    return build_plan(graph_type, WORKSPACE_ROOT), "<generated>"
+    return build_plan(graph_type, CATALOG_FIXTURE_ROOT), "<generated>"
 
 
 def coverage_dimensions_for_entry(entry: dict[str, Any]) -> list[str]:

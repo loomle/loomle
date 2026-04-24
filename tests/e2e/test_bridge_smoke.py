@@ -14,6 +14,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TOOLS_DIR = REPO_ROOT / "tools"
 TEST_TOOLS_DIR = REPO_ROOT / "tests" / "tools"
+TEST_FIXTURES_DIR = REPO_ROOT / "tests" / "fixtures"
 
 REQUIRED_TOOLS = {
     "loomle",
@@ -384,6 +385,37 @@ def _require_payload_fixture(case: dict[str, Any], expected_tool: str) -> None:
     _require(payload.get("tool") == expected_tool, f"payloadFixture tool mismatch for {fixture}: {payload}")
     _require("graphType" not in payload, f"payloadFixture should not carry legacy graphType: {fixture}")
     _require(payload.get("tool") != "graph.mutate", f"payloadFixture should not use legacy graph.mutate: {fixture}")
+
+
+def _json_contains_key(value: Any, key: str) -> bool:
+    if isinstance(value, dict):
+        return key in value or any(_json_contains_key(child, key) for child in value.values())
+    if isinstance(value, list):
+        return any(_json_contains_key(child, key) for child in value)
+    return False
+
+
+def validate_active_test_fixtures_are_current_contract() -> None:
+    forbidden_archive_refs: list[str] = []
+    for root in [TEST_TOOLS_DIR, REPO_ROOT / "tests" / "e2e"]:
+        for path in root.glob("*.py"):
+            if path.name == "test_bridge_smoke.py":
+                continue
+            text = path.read_text(encoding="utf-8")
+            if "docs/archive/workspace/Loomle" in text:
+                forbidden_archive_refs.append(str(path.relative_to(REPO_ROOT)))
+    _require(not forbidden_archive_refs, f"active tests must not read archived workspace fixtures: {forbidden_archive_refs}")
+
+    workflow_payloads = sorted((TEST_FIXTURES_DIR / "workflows").glob("**/*.json"))
+    _require(workflow_payloads, "active workflow fixtures are missing")
+    for path in workflow_payloads:
+        relpath = str(path.relative_to(REPO_ROOT))
+        payload = _load_json_file(path)
+        _require(payload.get("tool") != "graph.mutate", f"active workflow fixture must not use legacy graph.mutate: {relpath}")
+        _require("graphType" not in payload, f"active workflow fixture must not carry legacy graphType: {relpath}")
+        _require(not _json_contains_key(payload, "args"), f"active workflow fixture must use flat/domain-native payload shape: {relpath}")
+
+    print("[PASS] active test fixtures use current contracts")
 
 
 def validate_archived_workspace_examples() -> None:
@@ -3259,6 +3291,7 @@ def main() -> int:
             fail(f"pcg.describe missing properties[]: {pcg_describe}")
         print("[PASS] domain describe class-mode smoke validated")
 
+        validate_active_test_fixtures_are_current_contract()
         validate_archived_workspace_catalogs()
         validate_archived_workspace_examples()
         validate_generated_blueprint_test_plan()
