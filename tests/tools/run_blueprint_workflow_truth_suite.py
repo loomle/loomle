@@ -21,7 +21,12 @@ from test_bridge_smoke import (  # noqa: E402
 )
 
 sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
-from run_pcg_graph_test_plan import blank_surface_matrix, compact_json, wait_for_bridge_ready  # noqa: E402
+from domain_test_helpers import (  # noqa: E402
+    blank_surface_matrix,
+    blueprint_edit_args_from_legacy_payload,
+    compact_json,
+    wait_for_bridge_ready,
+)
 
 
 class BlueprintWorkflowSuiteError(RuntimeError):
@@ -203,23 +208,23 @@ def query_blueprint_snapshot(client: McpStdioClient, request_id: int, asset_path
     payload = safe_call_tool(
         client,
         request_id,
-        "graph.query",
-        {"assetPath": asset_path, "graphName": "EventGraph", "graphType": "blueprint", "limit": 200},
+        "blueprint.graph.inspect",
+        {"assetPath": asset_path, "graphName": "EventGraph", "limit": 200},
     )
     snapshot = payload.get("semanticSnapshot")
     if not isinstance(snapshot, dict):
-        raise BlueprintWorkflowSuiteError("query_gap", f"blueprint graph.query missing semanticSnapshot: {compact_json(payload)}")
+        raise BlueprintWorkflowSuiteError("query_gap", f"blueprint.graph.inspect missing semanticSnapshot: {compact_json(payload)}")
     nodes = snapshot.get("nodes")
     edges = snapshot.get("edges")
     if not isinstance(nodes, list) or not isinstance(edges, list):
-        raise BlueprintWorkflowSuiteError("query_gap", f"blueprint graph.query missing nodes/edges: {compact_json(payload)}")
+        raise BlueprintWorkflowSuiteError("query_gap", f"blueprint.graph.inspect missing nodes/edges: {compact_json(payload)}")
     return snapshot
 
 
 def find_event_begin_play_node_id(snapshot: dict[str, Any]) -> str:
     nodes = snapshot.get("nodes")
     if not isinstance(nodes, list):
-        raise BlueprintWorkflowSuiteError("query_gap", "blueprint graph.query missing nodes[] while resolving EventBeginPlay")
+        raise BlueprintWorkflowSuiteError("query_gap", "blueprint.graph.inspect missing nodes[] while resolving EventBeginPlay")
     for node in nodes:
         if not isinstance(node, dict):
             continue
@@ -251,17 +256,17 @@ def verify_blueprint_graph(client: McpStdioClient, request_id: int, asset_path: 
     payload = safe_call_tool(
         client,
         request_id,
-        "graph.verify",
-        {"assetPath": asset_path, "graphName": "EventGraph", "graphType": "blueprint", "limit": 200},
+        "blueprint.validate",
+        {"assetPath": asset_path, "graphName": "EventGraph", "limit": 200},
     )
     if payload.get("status") not in {"ok", "warn"}:
-        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint graph.verify returned error: {compact_json(payload)}")
+        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint.validate returned error: {compact_json(payload)}")
     compile_report = payload.get("compileReport")
     if not isinstance(compile_report, dict) or compile_report.get("compiled") is not True:
-        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint graph.verify missing compiled=true: {compact_json(payload)}")
+        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint.validate missing compiled=true: {compact_json(payload)}")
     diagnostics = payload.get("diagnostics")
     if not isinstance(diagnostics, list):
-        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint graph.verify missing diagnostics[]: {compact_json(payload)}")
+        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint.validate missing diagnostics[]: {compact_json(payload)}")
     return {
         "status": payload.get("status"),
         "compiled": True,
@@ -271,19 +276,19 @@ def verify_blueprint_graph(client: McpStdioClient, request_id: int, asset_path: 
 
 def build_client_ref_map(payload: dict[str, Any], mutate_result: dict[str, Any]) -> dict[str, str]:
     ref_map: dict[str, str] = {}
-    ops = payload.get("ops")
+    commands = payload.get("commands")
     op_results = mutate_result.get("opResults")
-    if not isinstance(ops, list) or not isinstance(op_results, list) or len(ops) != len(op_results):
+    if not isinstance(commands, list) or not isinstance(op_results, list) or len(commands) != len(op_results):
         raise BlueprintWorkflowSuiteError(
             "mutate_result_gap",
-            f"blueprint workflow mutate result missing aligned ops/opResults: {compact_json(mutate_result)}",
+            f"blueprint workflow mutate result missing aligned commands/opResults: {compact_json(mutate_result)}",
         )
-    for op, result in zip(ops, op_results):
-        if not isinstance(op, dict) or not isinstance(result, dict):
+    for command, result in zip(commands, op_results):
+        if not isinstance(command, dict) or not isinstance(result, dict):
             continue
-        if op.get("op") != "addNode.byClass":
+        if command.get("kind") != "addNode":
             continue
-        client_ref = op.get("clientRef")
+        client_ref = command.get("alias")
         node_id = result.get("nodeId")
         if isinstance(client_ref, str) and client_ref and isinstance(node_id, str) and node_id:
             ref_map[client_ref] = node_id
@@ -424,9 +429,10 @@ def run_workflow_case(client: McpStdioClient, *, request_id_base: int, case: dic
         payload = rewrite_live_node_ids(load_case_payload(case), initial_snapshot)
         payload["assetPath"] = asset_path
         payload["graphName"] = "EventGraph"
-        mutate_result = safe_call_tool(client, request_id_base + 10, "graph.mutate", payload)
+        edit_payload = blueprint_edit_args_from_legacy_payload(payload)
+        mutate_result = safe_call_tool(client, request_id_base + 10, "blueprint.graph.edit", edit_payload)
         surface_matrix["mutate"] = "pass"
-        ref_map = build_client_ref_map(payload, mutate_result)
+        ref_map = build_client_ref_map(edit_payload, mutate_result)
         snapshot = query_blueprint_snapshot(client, request_id_base + 20, asset_path)
         structure_details = assert_workflow_structure(case, snapshot, ref_map)
         surface_matrix["queryStructure"] = "pass"

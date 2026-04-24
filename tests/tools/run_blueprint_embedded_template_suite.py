@@ -17,13 +17,18 @@ from test_bridge_smoke import (  # noqa: E402
 )
 
 sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
+from domain_test_helpers import (  # noqa: E402
+    blank_surface_matrix,
+    blueprint_edit_args_from_legacy_payload,
+    compact_json,
+    wait_for_bridge_ready,
+)
 from run_blueprint_workflow_truth_suite import (  # noqa: E402
     cleanup_blueprint_fixture,
     create_blueprint_fixture,
     query_blueprint_snapshot,
     safe_call_tool,
 )
-from run_pcg_graph_test_plan import blank_surface_matrix, compact_json, wait_for_bridge_ready  # noqa: E402
 from run_pcg_selector_truth_suite import _assert_expected_subset  # noqa: E402
 
 
@@ -158,13 +163,13 @@ def list_cases_payload() -> dict[str, Any]:
 def _find_node(snapshot: dict[str, Any], node_class_path: str) -> dict[str, Any]:
     nodes = snapshot.get("nodes")
     if not isinstance(nodes, list):
-        raise BlueprintEmbeddedTemplateSuiteError("query_gap", "blueprint graph.query missing nodes[]")
+        raise BlueprintEmbeddedTemplateSuiteError("query_gap", "blueprint.graph.inspect missing nodes[]")
     for node in nodes:
         if isinstance(node, dict) and node.get("nodeClassPath") == node_class_path:
             return node
     raise BlueprintEmbeddedTemplateSuiteError(
         "query_gap",
-        f"blueprint graph.query missing node {node_class_path}: {compact_json(snapshot)}",
+        f"blueprint.graph.inspect missing node {node_class_path}: {compact_json(snapshot)}",
     )
 
 
@@ -188,14 +193,10 @@ def _run_case(client: McpStdioClient, *, request_id_base: int, case: dict[str, A
     surface_matrix = blank_surface_matrix()
     try:
         create_blueprint_fixture(client, request_id_base, asset_path=asset_path)
-        payload = safe_call_tool(
-            client,
-            request_id_base + 10,
-            "graph.mutate",
+        edit_args = blueprint_edit_args_from_legacy_payload(
             {
                 "assetPath": asset_path,
                 "graphName": "EventGraph",
-                "graphType": "blueprint",
                 "ops": [
                     {
                         "op": "addNode.byClass",
@@ -207,8 +208,9 @@ def _run_case(client: McpStdioClient, *, request_id_base: int, case: dict[str, A
                         },
                     }
                 ],
-            },
+            }
         )
+        payload = safe_call_tool(client, request_id_base + 10, "blueprint.graph.edit", edit_args)
         op_results = payload.get("opResults")
         if not isinstance(op_results, list) or not op_results or not isinstance(op_results[0], dict) or op_results[0].get("ok") is not True:
             raise BlueprintEmbeddedTemplateSuiteError(
@@ -225,13 +227,13 @@ def _run_case(client: McpStdioClient, *, request_id_base: int, case: dict[str, A
         if not isinstance(embedded_template, dict):
             raise BlueprintEmbeddedTemplateSuiteError(
                 "embedded_template_unsurfaced",
-                f"graph.query missing embeddedTemplate surface: {compact_json(node)}",
+                f"blueprint.graph.inspect missing embeddedTemplate surface: {compact_json(node)}",
             )
         effective_settings = node.get("effectiveSettings")
         if not isinstance(effective_settings, dict):
             raise BlueprintEmbeddedTemplateSuiteError(
                 "embedded_template_unsurfaced",
-                f"graph.query missing effectiveSettings mirror for embedded template node: {compact_json(node)}",
+                f"blueprint.graph.inspect missing effectiveSettings mirror for embedded template node: {compact_json(node)}",
             )
 
         _assert_surface(case, embedded_template, label="embeddedTemplate")

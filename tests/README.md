@@ -16,9 +16,9 @@ This directory holds formal LOOMLE test organization.
 - `e2e/test_bridge_regression.py`: broader regression validation
 - `e2e/test_bridge_windows.ps1`: Windows bridge validation
 - `integration/test_loomle_latency.py`: latency checks
-- `tools/run_blueprint_*.py`: Blueprint graph suites
-- `tools/run_material_*.py`: Material graph suites
-- `tools/run_pcg_*.py`: PCG graph suites
+- `tools/run_blueprint_*.py`: Blueprint suites using the `blueprint.*` public contract
+- `tools/run_material_*.py`: Material suites using the `material.*` public contract
+- `tools/run_pcg_*.py`: PCG suites using the `pcg.*` public contract
 
 For day-to-day local development, prefer:
 
@@ -37,7 +37,7 @@ Smoke and regression coverage includes:
 - global-client MCP startup
 - project runtime discovery and attach
 - editor context and command execution
-- graph query/mutation/verification coverage
+- domain query/mutation/verification coverage
 - top-level `jobs`
 - `execute` submission with `execution.mode = "job"`
 - lifecycle reads through `jobs.status`, `jobs.result`, `jobs.logs`, and

@@ -19,6 +19,7 @@ from test_bridge_smoke import (  # noqa: E402
 )
 
 sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
+from domain_test_helpers import blank_surface_matrix, compact_json, flatten_graph_mutate_ops, wait_for_bridge_ready  # noqa: E402
 from run_material_workflow_truth_suite import (  # noqa: E402
     WORKFLOW_CASES,
     assert_workflow_structure,
@@ -30,7 +31,6 @@ from run_material_workflow_truth_suite import (  # noqa: E402
     query_material_snapshot,
     verify_material_graph,
 )
-from run_pcg_graph_test_plan import blank_surface_matrix, compact_json, wait_for_bridge_ready  # noqa: E402
 
 
 class MaterialStabilitySuiteError(RuntimeError):
@@ -44,13 +44,13 @@ STABILITY_CASES = [
         "id": "query_snapshot_repeatability_roundtrip",
         "fixture": "material_graph",
         "families": ["expression", "parameter"],
-        "summary": "Repeated material graph.query snapshots should stay stable after a simple root-bound edit.",
+        "summary": "Repeated material query snapshots should stay stable after a simple root-bound edit.",
     },
     {
         "id": "verify_repeatability_workflow",
         "fixture": "material_graph",
         "families": ["expression", "parameter", "texture"],
-        "summary": "Repeated material graph.verify calls should stay stable on a workflow graph.",
+        "summary": "Repeated material verify calls should stay stable on a workflow graph.",
         "workflowCaseId": "insert_multiply_before_base_color_root",
     },
     {
@@ -142,12 +142,12 @@ def execute_query_snapshot_repeatability_roundtrip(
     if not isinstance(payload, dict):
         raise MaterialStabilitySuiteError("case_definition_gap", "material stability example payload is not an object")
     payload["assetPath"] = asset_path
-    payload["graphName"] = "MaterialGraph"
-    mutate_result = call_tool(client, request_id_base + 1, "graph.mutate", payload)
+    mutate_args = flatten_graph_mutate_ops(payload)
+    mutate_result = call_tool(client, request_id_base + 1, "material.mutate", mutate_args)
     op_results = mutate_result.get("opResults")
     if not isinstance(op_results, list) or len(op_results) < 2:
         raise MaterialStabilitySuiteError("runner_error", f"missing material setup opResults: {compact_json(mutate_result)}")
-    ref_map = build_client_ref_map(payload, mutate_result)
+    ref_map = build_client_ref_map(mutate_args, mutate_result)
     invert_id = ref_map.get("one_minus_roughness")
     if not isinstance(invert_id, str) or not invert_id:
         raise MaterialStabilitySuiteError("runner_error", f"missing invert node id: {compact_json(mutate_result)}")
@@ -183,11 +183,11 @@ def execute_verify_repeatability_workflow(
     surface_matrix = blank_surface_matrix()
     payload = load_case_payload(workflow_case)
     payload["assetPath"] = asset_path
-    payload["graphName"] = "MaterialGraph"
-    mutate_result = call_tool(client, request_id_base + 1, "graph.mutate", payload)
+    mutate_args = flatten_graph_mutate_ops(payload)
+    mutate_result = call_tool(client, request_id_base + 1, "material.mutate", mutate_args)
     surface_matrix["mutate"] = "pass"
 
-    ref_map = build_client_ref_map(payload, mutate_result)
+    ref_map = build_client_ref_map(mutate_args, mutate_result)
     snapshot = query_material_snapshot(client, request_id_base + 2, asset_path)
     _ = assert_workflow_structure(workflow_case, snapshot, ref_map)
     surface_matrix["queryStructure"] = "pass"

@@ -1,34 +1,35 @@
 # Graph Test Framework
 
-This document is the top-level design overview for `LOOMLE` graph testing in `0.4`.
+This document is the top-level design overview for LOOMLE graph-domain testing.
 
 The goal is not "one handcrafted test per node." The goal is:
 
 - every graph node is inventoried
 - every graph node has a declared testing strategy
-- every graph type shares one common execution framework
-- Blueprint, Material, and PCG keep their own semantic test logic
+- shared test infrastructure stays limited to process lifecycle, JSON helpers, reporting, and reusable assertions
+- Blueprint, Material, and PCG keep separate public contracts and semantic test logic
 - high-frequency editing workflows are protected by strong semantic regressions
 
 ## Core Principle
 
-Use one unified graph test framework with three graph-specific adapters:
+Use a small shared harness with domain-owned suites:
 
 - Blueprint
 - Material
 - PCG
 
-The common framework should own:
+The shared harness may own:
 
-- fixture lifecycle
-- tool calling
-- assertions
-- case generation
-- result collection
+- bridge readiness checks
+- compact JSON/error formatting
+- surface-matrix aggregation
+- generated plan/report shape checks
+- generic assertion helpers that do not encode a domain API
 
-Each graph adapter should own:
+Each domain suite should own:
 
 - graph-specific fixtures
+- public tool calls and payload shape
 - node classification details
 - semantic assertions
 - validation rules
@@ -36,7 +37,7 @@ Each graph adapter should own:
 
 ## Why Not One Flat Test Suite
 
-Blueprint, Material, and PCG share a common graph editing protocol, but they do not share:
+Blueprint, Material, and PCG no longer have to share a common editing protocol. They also do not share:
 
 - node semantics
 - success criteria
@@ -46,8 +47,9 @@ Blueprint, Material, and PCG share a common graph editing protocol, but they do 
 
 So the right split is:
 
-- common execution framework
-- graph-type-specific test logic
+- common harness utilities
+- domain-specific public-contract tests
+- domain-specific workflow and truth suites
 
 ## Coverage Model
 
@@ -96,7 +98,7 @@ Phase 3 then turns part of that visibility into hard failure signals and gap tax
   - `verify`
   - `diagnostics`
 
-So the framework can say not just that `graph.query` is weak, but exactly how it is weak and which surface failed first.
+So the framework can say not just that a domain query surface is weak, but exactly how it is weak and which surface failed first.
 
 After one graph type reaches that depth, Phase 4 scales the same testing patterns into other graph types and long-tail serializer surfaces without relaxing the stronger signal model.
 
@@ -141,7 +143,7 @@ These are the primary testing methods. Not every node should use every method.
 Purpose:
 
 - confirm a node can be created
-- confirm `graph.query` can see it
+- confirm the domain query tool can see it
 
 ### 2. Structural Read Test
 
@@ -326,19 +328,15 @@ For each graph family, maintain a small number of strong workflow regressions.
 
 ## Common Framework Responsibilities
 
-The shared framework should provide:
+The shared harness should provide:
 
-- temporary asset creation
-- graph bootstrap helpers
 - cleanup
 - deterministic naming
-- `graph.query`
-- `graph.mutate`
-- `graph.verify`
+- bridge readiness helpers
 - shared JSON parsing helpers
 - node/edge/pin assertion helpers
 - diagnostics helpers
-- "query truth vs engine truth" comparison helpers
+- "query truth vs engine truth" comparison helpers where the domain opts in
 - multi-surface truth aggregation helpers
 - catalog-driven case generation
 - query-surface-aware assertions for:
@@ -353,6 +351,9 @@ The shared framework should provide:
 
 Owns:
 
+- `blueprint.graph.inspect`
+- `blueprint.graph.edit`
+- `blueprint.validate`
 - exec/data pin semantics
 - variable and function fixtures
 - event/context recipes
@@ -362,6 +363,9 @@ Owns:
 
 Owns:
 
+- `material.query`
+- `material.mutate`
+- `material.verify`
 - root sink rules
 - expression-chain assertions
 - function call recipes
@@ -372,12 +376,15 @@ Owns:
 
 Owns:
 
+- `pcg.query`
+- `pcg.mutate`
+- `pcg.verify`
 - pipeline fixtures
 - source/filter/route/spawn recipes
 - selector and synthetic pin validation
 - settings truth vs query truth comparisons
 - selector-truth classification for selector-backed fields such as attribute selectors, actor selectors, and mesh selectors
-- strict query-truth assertions when generated cases can prove Unreal-side truth but `graph.query` does not surface it
+- strict query-truth assertions when generated cases can prove Unreal-side truth but `pcg.query` does not surface it
 - workflow-truth suites that exercise insert/replace/preserve-interface edits over live PCG pipelines
 
 ## Recommended First Priorities

@@ -20,7 +20,7 @@ from test_bridge_smoke import (  # noqa: E402
 )
 
 sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
-from run_pcg_graph_test_plan import blank_surface_matrix, compact_json, wait_for_bridge_ready  # noqa: E402
+from domain_test_helpers import blank_surface_matrix, compact_json, flatten_graph_mutate_ops, wait_for_bridge_ready  # noqa: E402
 
 
 class MaterialWorkflowSuiteError(RuntimeError):
@@ -208,16 +208,16 @@ def query_material_snapshot(client: McpStdioClient, request_id: int, asset_path:
     payload = call_tool(
         client,
         request_id,
-        "graph.query",
-        {"assetPath": asset_path, "graphName": "MaterialGraph", "graphType": "material", "limit": 200},
+        "material.query",
+        {"assetPath": asset_path, "includeConnections": True},
     )
     snapshot = payload.get("semanticSnapshot")
     if not isinstance(snapshot, dict):
-        raise MaterialWorkflowSuiteError("query_gap", f"material graph.query missing semanticSnapshot: {compact_json(payload)}")
+        raise MaterialWorkflowSuiteError("query_gap", f"material.query missing semanticSnapshot: {compact_json(payload)}")
     nodes = snapshot.get("nodes")
     edges = snapshot.get("edges")
     if not isinstance(nodes, list) or not isinstance(edges, list):
-        raise MaterialWorkflowSuiteError("query_gap", f"material graph.query missing nodes/edges: {compact_json(payload)}")
+        raise MaterialWorkflowSuiteError("query_gap", f"material.query missing nodes/edges: {compact_json(payload)}")
     return snapshot
 
 
@@ -225,17 +225,17 @@ def verify_material_graph(client: McpStdioClient, request_id: int, asset_path: s
     payload = call_tool(
         client,
         request_id,
-        "graph.verify",
-        {"assetPath": asset_path, "graphName": "MaterialGraph", "graphType": "material"},
+        "material.verify",
+        {"assetPath": asset_path},
     )
     if payload.get("status") == "error":
-        raise MaterialWorkflowSuiteError("verify_gap", f"material graph.verify returned error: {compact_json(payload)}")
+        raise MaterialWorkflowSuiteError("verify_gap", f"material.verify returned error: {compact_json(payload)}")
     compile_report = payload.get("compileReport")
     if not isinstance(compile_report, dict) or compile_report.get("compiled") is not True:
-        raise MaterialWorkflowSuiteError("verify_gap", f"material graph.verify missing compiled=true: {compact_json(payload)}")
+        raise MaterialWorkflowSuiteError("verify_gap", f"material.verify missing compiled=true: {compact_json(payload)}")
     diagnostics = payload.get("diagnostics")
     if not isinstance(diagnostics, list):
-        raise MaterialWorkflowSuiteError("verify_gap", f"material graph.verify missing diagnostics[]: {compact_json(payload)}")
+        raise MaterialWorkflowSuiteError("verify_gap", f"material.verify missing diagnostics[]: {compact_json(payload)}")
     return {
         "status": payload.get("status"),
         "compiled": True,
@@ -398,10 +398,10 @@ def run_workflow_case(client: McpStdioClient, *, request_id_base: int, case_inde
         create_material_fixture(client, request_id_base, asset_path=asset_path)
         payload = load_case_payload(case)
         payload["assetPath"] = asset_path
-        payload["graphName"] = "MaterialGraph"
-        mutate_result = call_tool(client, request_id_base + 10, "graph.mutate", payload)
+        mutate_args = flatten_graph_mutate_ops(payload)
+        mutate_result = call_tool(client, request_id_base + 10, "material.mutate", mutate_args)
         surface_matrix["mutate"] = "pass"
-        ref_map = build_client_ref_map(payload, mutate_result)
+        ref_map = build_client_ref_map(mutate_args, mutate_result)
         snapshot = query_material_snapshot(client, request_id_base + 20, asset_path)
         structure_details = assert_workflow_structure(case, snapshot, ref_map)
         surface_matrix["queryStructure"] = "pass"

@@ -19,6 +19,12 @@ from test_bridge_smoke import (  # noqa: E402
 )
 
 sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
+from domain_test_helpers import (  # noqa: E402
+    blank_surface_matrix,
+    blueprint_edit_args_from_legacy_payload,
+    compact_json,
+    wait_for_bridge_ready,
+)
 from run_blueprint_workflow_truth_suite import (  # noqa: E402
     WORKFLOW_CASES,
     assert_workflow_structure,
@@ -32,7 +38,6 @@ from run_blueprint_workflow_truth_suite import (  # noqa: E402
     run_workflow_case as run_blueprint_workflow_case,
     verify_blueprint_graph,
 )
-from run_pcg_graph_test_plan import blank_surface_matrix, compact_json, wait_for_bridge_ready  # noqa: E402
 
 
 class BlueprintStabilitySuiteError(RuntimeError):
@@ -46,13 +51,13 @@ STABILITY_CASES = [
         "id": "query_snapshot_repeatability_roundtrip",
         "fixture": "blueprint_event_graph",
         "families": ["branch", "function_call"],
-        "summary": "Repeated Blueprint graph.query snapshots should stay stable after a simple local branch edit.",
+        "summary": "Repeated Blueprint graph inspect snapshots should stay stable after a simple local branch edit.",
     },
     {
         "id": "verify_repeatability_workflow",
         "fixture": "blueprint_event_graph",
         "families": ["branch", "function_call", "utility"],
-        "summary": "Repeated Blueprint graph.verify calls should stay stable on a workflow graph.",
+        "summary": "Repeated Blueprint validate calls should stay stable on a workflow graph.",
         "workflowCaseId": "replace_branch_with_sequence",
     },
     {
@@ -143,11 +148,12 @@ def execute_query_snapshot_repeatability_roundtrip(
     payload = load_case_payload(next(case for case in WORKFLOW_CASES if case["id"] == "branch_local_subgraph"))
     payload["assetPath"] = asset_path
     payload["graphName"] = "EventGraph"
-    mutate_result = call_tool(client, request_id_base + 1, "graph.mutate", payload)
+    edit_payload = blueprint_edit_args_from_legacy_payload(payload)
+    mutate_result = call_tool(client, request_id_base + 1, "blueprint.graph.edit", edit_payload)
     op_results = mutate_result.get("opResults")
     if not isinstance(op_results, list) or len(op_results) < 1:
         raise BlueprintStabilitySuiteError("runner_error", f"missing blueprint setup opResults: {compact_json(mutate_result)}")
-    ref_map = build_client_ref_map(payload, mutate_result)
+    ref_map = build_client_ref_map(edit_payload, mutate_result)
     branch_id = ref_map.get("branch_main")
     if not isinstance(branch_id, str) or not branch_id:
         raise BlueprintStabilitySuiteError("runner_error", f"missing branch node id: {compact_json(mutate_result)}")
@@ -186,10 +192,11 @@ def execute_verify_repeatability_workflow(
     payload["graphName"] = "EventGraph"
     initial_snapshot = query_blueprint_snapshot(client, request_id_base, asset_path)
     payload = rewrite_live_node_ids(payload, initial_snapshot)
-    mutate_result = call_tool(client, request_id_base + 1, "graph.mutate", payload)
+    edit_payload = blueprint_edit_args_from_legacy_payload(payload)
+    mutate_result = call_tool(client, request_id_base + 1, "blueprint.graph.edit", edit_payload)
     surface_matrix["mutate"] = "pass"
 
-    ref_map = build_client_ref_map(payload, mutate_result)
+    ref_map = build_client_ref_map(edit_payload, mutate_result)
     snapshot = query_blueprint_snapshot(client, request_id_base + 2, asset_path)
     _ = assert_workflow_structure(workflow_case, snapshot, ref_map)
     surface_matrix["queryStructure"] = "pass"

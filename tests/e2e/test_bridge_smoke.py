@@ -53,22 +53,6 @@ REQUIRED_TOOLS = {
     "widget.verify",
 }
 
-# Kept temporarily so regression imports keep loading while that suite is migrated
-# away from the removed graph.* tool family.
-EXPECTED_GRAPH_MUTATE_OPS = {
-    "addNode.byClass",
-    "connectPins",
-    "disconnectPins",
-    "breakPinLinks",
-    "setPinDefault",
-    "removeNode",
-    "moveNode",
-    "moveNodeBy",
-    "moveNodes",
-    "layoutGraph",
-    "compile",
-}
-
 EXPECTED_WORKSPACE_EXAMPLES = {
     "blueprint/examples/executable/branch-local-subgraph.json",
     "blueprint/examples/executable/delay-local-chain.json",
@@ -153,7 +137,7 @@ EXPECTED_BLUEPRINT_WORKFLOW_SUITE_SUMMARY = {
 
 EXPECTED_BLUEPRINT_NEGATIVE_SUITE_SUMMARY = {
     "totalCases": 4,
-    "operations": ["addNode.byClass", "batch_partial_apply", "setPinDefault"],
+    "operations": ["addNode.byClass", "batch_preflight", "setPinDefault"],
 }
 
 EXPECTED_BLUEPRINT_STABILITY_SUITE_SUMMARY = {
@@ -1732,9 +1716,9 @@ def validate_generated_blueprint_negative_boundary_suite() -> None:
     _require(bad_default_case.get("operation") == "setPinDefault", f"blueprint bad setPinDefault operation mismatch: {bad_default_case}")
     _require(bad_default_case.get("families") == ["branch", "variable"], f"blueprint bad setPinDefault families mismatch: {bad_default_case}")
 
-    partial_case = case_by_id.get("partial_apply_unsupported_op")
-    _require(isinstance(partial_case, dict), "blueprint negative suite missing partial_apply_unsupported_op")
-    _require(partial_case.get("operation") == "batch_partial_apply", f"blueprint partial-apply operation mismatch: {partial_case}")
+    partial_case = case_by_id.get("invalid_command_batch_preflight")
+    _require(isinstance(partial_case, dict), "blueprint negative suite missing invalid_command_batch_preflight")
+    _require(partial_case.get("operation") == "batch_preflight", f"blueprint batch-preflight operation mismatch: {partial_case}")
     _require(
         partial_case.get("families") == ["branch", "struct", "utility"],
         f"blueprint partial-apply families mismatch: {partial_case}",

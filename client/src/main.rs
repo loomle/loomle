@@ -453,6 +453,15 @@ impl ServerHandler for LoomleProxyServer {
         {
             return Ok(result);
         }
+        if let Some(result) = self
+            .call_public_material_tool(
+                request.name.as_ref(),
+                request.arguments.clone().unwrap_or_default(),
+            )
+            .await?
+        {
+            return Ok(result);
+        }
         self.runtime_call(request.name.as_ref(), request.arguments.unwrap_or_default())
             .await
     }
@@ -639,6 +648,23 @@ impl LoomleProxyServer {
             }
             "blueprint.graph.recipe.validate" => {
                 Ok(Some(call_blueprint_graph_recipe_validate(&args)))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    async fn call_public_material_tool(
+        &self,
+        tool_name: &str,
+        args: rmcp::model::JsonObject,
+    ) -> Result<Option<CallToolResult>, McpError> {
+        match tool_name {
+            "material.query" => {
+                let query_args = match translate_material_query_args(&args) {
+                    Ok(value) => value,
+                    Err(error) => return Ok(Some(error)),
+                };
+                Ok(Some(self.runtime_call("material.query", query_args).await?))
             }
             _ => Ok(None),
         }
@@ -1006,6 +1032,56 @@ fn copy_if_present(
     }
 }
 
+fn extract_material_graph_asset_path(
+    args: &rmcp::model::JsonObject,
+) -> Result<Option<String>, CallToolResult> {
+    let graph_obj = args
+        .get("graph")
+        .or_else(|| args.get("graphRef"))
+        .and_then(|value| value.as_object());
+    let Some(graph_obj) = graph_obj else {
+        return Ok(None);
+    };
+
+    if let Some(kind) = graph_obj.get("kind").and_then(|value| value.as_str()) {
+        if kind != "asset" {
+            return Err(invalid_argument_result(
+                "material.query supports only asset graph references.",
+            ));
+        }
+    }
+
+    let asset_path = graph_obj
+        .get("assetPath")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            invalid_argument_result("material.query graph references require assetPath.")
+        })?;
+    Ok(Some(asset_path.to_owned()))
+}
+
+fn translate_material_query_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let graph_asset_path = extract_material_graph_asset_path(args)?;
+    let direct_asset_path = args
+        .get("assetPath")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty());
+    let asset_path = graph_asset_path
+        .as_deref()
+        .or(direct_asset_path)
+        .ok_or_else(|| invalid_argument_result("material.query requires assetPath or graph."))?;
+
+    let mut translated = rmcp::model::JsonObject::new();
+    translated.insert("assetPath".into(), serde_json::json!(asset_path));
+    for field in ["nodeIds", "nodeClasses", "includeConnections", "graphName"] {
+        copy_if_present(args, &mut translated, field);
+    }
+    Ok(translated)
+}
+
 fn translate_blueprint_graph_list_args(
     args: &rmcp::model::JsonObject,
 ) -> Result<rmcp::model::JsonObject, CallToolResult> {
@@ -1099,6 +1175,21 @@ fn extract_pin_endpoint(endpoint: &serde_json::Value) -> Result<serde_json::Valu
     Ok(serde_json::Value::Object(result))
 }
 
+fn copy_add_node_type_payload_fields(
+    node_type_obj: &serde_json::Map<String, serde_json::Value>,
+    args: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    for (key, value) in node_type_obj {
+        if matches!(
+            key.as_str(),
+            "id" | "kind" | "nodeClassPath" | "functionClassPath" | "functionName"
+        ) {
+            continue;
+        }
+        args.entry(key.clone()).or_insert_with(|| value.clone());
+    }
+}
+
 fn infer_add_node_op(
     command: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<(String, serde_json::Map<String, serde_json::Value>), String> {
@@ -1173,6 +1264,7 @@ fn infer_add_node_op(
         }
         if let Some(class_path) = node_type_id.strip_prefix("class:") {
             args.insert("nodeClassPath".into(), serde_json::json!(class_path));
+            copy_add_node_type_payload_fields(node_type_obj, &mut args);
             return Ok(("addNode.byClass".into(), args));
         }
         if let Some(class_path) = node_type_id.strip_prefix("event:") {
@@ -1185,6 +1277,7 @@ fn infer_add_node_op(
         }
         if node_type_id.starts_with("/Script/") {
             args.insert("nodeClassPath".into(), serde_json::json!(node_type_id));
+            copy_add_node_type_payload_fields(node_type_obj, &mut args);
             return Ok(("addNode.byClass".into(), args));
         }
     }
@@ -1199,6 +1292,7 @@ fn infer_add_node_op(
         })
     {
         args.insert("nodeClassPath".into(), serde_json::json!(node_class_path));
+        copy_add_node_type_payload_fields(node_type_obj, &mut args);
         return Ok(("addNode.byClass".into(), args));
     }
 
@@ -3238,7 +3332,36 @@ fn blueprint_validate_schema() -> rmcp::model::JsonObject {
 }
 
 fn material_query_schema() -> rmcp::model::JsonObject {
-    node_filter_query_schema("Material asset path.")
+    schema_from_value(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "assetPath": { "type": "string", "minLength": 1, "description": "Material or MaterialFunction asset path." },
+            "graphName": { "type": "string", "minLength": 1 },
+            "graph": { "$ref": "#/$defs/materialGraphRef" },
+            "graphRef": { "$ref": "#/$defs/materialGraphRef" },
+            "nodeIds": { "type": "array", "items": { "type": "string" } },
+            "nodeClasses": { "type": "array", "items": { "type": "string" } },
+            "includeConnections": { "type": "boolean", "default": false }
+        },
+        "anyOf": [
+            { "required": ["assetPath"] },
+            { "required": ["graph"] },
+            { "required": ["graphRef"] }
+        ],
+        "$defs": {
+            "materialGraphRef": {
+                "type": "object",
+                "properties": {
+                    "kind": { "type": "string", "enum": ["asset"] },
+                    "assetPath": { "type": "string", "minLength": 1 },
+                    "graphName": { "type": "string" }
+                },
+                "required": ["assetPath"],
+                "additionalProperties": true
+            }
+        },
+        "additionalProperties": false
+    }))
 }
 
 fn material_mutate_schema() -> rmcp::model::JsonObject {
@@ -4209,7 +4332,7 @@ fn print_usage() {
 mod tests {
     use super::{
         compile_blueprint_refactor_request, infer_attached_project_root,
-        translate_blueprint_graph_edit_args, Cli, RuntimeProject,
+        translate_blueprint_graph_edit_args, translate_material_query_args, Cli, RuntimeProject,
     };
     use rmcp::model::JsonObject;
     use std::ffi::OsString;
@@ -4420,5 +4543,45 @@ mod tests {
                 .and_then(|value| value.as_str()),
             Some("graph-guid")
         );
+    }
+
+    #[test]
+    fn material_query_accepts_child_graph_ref_as_graph() {
+        let mut args = JsonObject::new();
+        args.insert(
+            "graph".into(),
+            serde_json::json!({
+                "kind": "asset",
+                "assetPath": "/Game/MF_Test"
+            }),
+        );
+        args.insert("includeConnections".into(), serde_json::json!(true));
+
+        let translated = translate_material_query_args(&args).expect("translated args");
+        assert_eq!(
+            translated.get("assetPath").and_then(|value| value.as_str()),
+            Some("/Game/MF_Test")
+        );
+        assert_eq!(
+            translated
+                .get("includeConnections")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn material_query_rejects_inline_graph_ref() {
+        let mut args = JsonObject::new();
+        args.insert(
+            "graph".into(),
+            serde_json::json!({
+                "kind": "inline",
+                "assetPath": "/Game/MF_Test",
+                "nodeGuid": "node-guid"
+            }),
+        );
+
+        assert!(translate_material_query_args(&args).is_err());
     }
 }

@@ -9,7 +9,6 @@ import time
 from pathlib import Path
 
 from test_bridge_smoke import (
-    EXPECTED_GRAPH_MUTATE_OPS,
     REQUIRED_TOOLS,
     McpStdioClient,
     call_execute_exec_with_retry,

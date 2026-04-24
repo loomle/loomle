@@ -21,8 +21,8 @@ from test_bridge_smoke import (  # noqa: E402
 )
 
 sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
+from domain_test_helpers import blank_surface_matrix, compact_json, flatten_graph_mutate_ops, wait_for_bridge_ready  # noqa: E402
 from run_material_workflow_truth_suite import cleanup_material_fixture, create_material_fixture  # noqa: E402
-from run_pcg_graph_test_plan import blank_surface_matrix, compact_json, wait_for_bridge_ready  # noqa: E402
 
 
 class MaterialNegativeSuiteError(RuntimeError):
@@ -124,15 +124,24 @@ def call_tool_allow_error(
     return payload, is_tool_error_payload(payload)
 
 
+def material_mutate_args(payload: dict[str, Any]) -> dict[str, Any]:
+    return flatten_graph_mutate_ops(payload)
+
+
+def call_material_mutate(client: McpStdioClient, req_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    return call_tool(client, req_id, "material.mutate", material_mutate_args(payload))
+
+
+def call_material_mutate_allow_error(client: McpStdioClient, req_id: int, payload: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    return call_tool_allow_error(client, req_id, "material.mutate", material_mutate_args(payload))
+
+
 def add_node_by_class(client: McpStdioClient, request_id: int, *, asset_path: str, node_class_path: str) -> str:
-    payload = call_tool(
+    payload = call_material_mutate(
         client,
         request_id,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "MaterialGraph",
-            "graphType": "material",
             "ops": [{"op": "addNode.byClass", "args": {"nodeClassPath": node_class_path}}],
         },
     )
@@ -156,8 +165,8 @@ def query_material_revision_and_node_count(client: McpStdioClient, request_id: i
     payload = call_tool(
         client,
         request_id,
-        "graph.query",
-        {"assetPath": asset_path, "graphName": "MaterialGraph", "graphType": "material", "limit": 200},
+        "material.query",
+        {"assetPath": asset_path, "includeConnections": True},
     )
     revision = payload.get("revision")
     snapshot = payload.get("semanticSnapshot")
@@ -174,14 +183,11 @@ def run_stale_expected_revision_conflict(
 ) -> dict[str, Any]:
     surface_matrix = blank_surface_matrix()
     revision_r0, node_count_r0 = query_material_revision_and_node_count(client, request_id_base + 1, asset_path)
-    apply_payload = call_tool(
+    apply_payload = call_material_mutate(
         client,
         request_id_base + 2,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "MaterialGraph",
-            "graphType": "material",
             "expectedRevision": revision_r0,
             "ops": [{"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}}],
         },
@@ -196,21 +202,17 @@ def run_stale_expected_revision_conflict(
             f"control mutate did not advance material graph state: before={(revision_r0, node_count_r0)} after={(revision_r1, node_count_r1)}",
         )
 
-    payload = call_tool(
+    payload, has_error = call_material_mutate_allow_error(
         client,
         request_id_base + 4,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "MaterialGraph",
-            "graphType": "material",
             "expectedRevision": revision_r0,
             "ops": [{"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}}],
         },
-        expect_error=True,
     )
     surface_matrix["mutate"] = "pass"
-    if payload.get("domainCode") != "REVISION_CONFLICT":
+    if not has_error or payload.get("domainCode") != "REVISION_CONFLICT":
         raise MaterialNegativeSuiteError(
             "contract_surface_gap",
             f"expected REVISION_CONFLICT for stale expectedRevision: {compact_json(payload)}",
@@ -233,14 +235,11 @@ def run_stale_expected_revision_conflict(
 
 def run_duplicate_client_ref_rejected(client: McpStdioClient, request_id_base: int, asset_path: str) -> dict[str, Any]:
     surface_matrix = blank_surface_matrix()
-    payload = call_tool(
+    payload, has_error = call_material_mutate_allow_error(
         client,
         request_id_base + 1,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "MaterialGraph",
-            "graphType": "material",
             "ops": [
                 {
                     "op": "addNode.byClass",
@@ -254,9 +253,14 @@ def run_duplicate_client_ref_rejected(client: McpStdioClient, request_id_base: i
                 },
             ],
         },
-        expect_error=True,
     )
     surface_matrix["mutate"] = "pass"
+    if not has_error:
+        raise MaterialNegativeSuiteError(
+            "contract_surface_gap",
+            f"duplicate clientRef was accepted: {compact_json(payload)}",
+            details={"surfaceMatrix": surface_matrix, "unexpectedPayload": payload},
+        )
     op_results = extract_error_op_results(payload)
     if len(op_results) < 2:
         raise MaterialNegativeSuiteError(
@@ -294,14 +298,11 @@ def run_set_pin_default_unsupported(client: McpStdioClient, request_id_base: int
         asset_path=asset_path,
         node_class_path="/Script/Engine.MaterialExpressionScalarParameter",
     )
-    payload = call_tool(
+    payload, has_error = call_material_mutate_allow_error(
         client,
         request_id_base + 2,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "MaterialGraph",
-            "graphType": "material",
             "ops": [
                 {
                     "op": "setPinDefault",
@@ -309,9 +310,14 @@ def run_set_pin_default_unsupported(client: McpStdioClient, request_id_base: int
                 }
             ],
         },
-        expect_error=True,
     )
     surface_matrix["mutate"] = "pass"
+    if not has_error:
+        raise MaterialNegativeSuiteError(
+            "contract_surface_gap",
+            f"setPinDefault was accepted for material: {compact_json(payload)}",
+            details={"surfaceMatrix": surface_matrix, "unexpectedPayload": payload},
+        )
     detail = payload.get("detail")
     parsed_detail = None
     if isinstance(detail, str) and detail.strip():
@@ -343,14 +349,11 @@ def run_set_pin_default_unsupported(client: McpStdioClient, request_id_base: int
 
 def run_connect_pins_bad_output_pin(client: McpStdioClient, request_id_base: int, asset_path: str) -> dict[str, Any]:
     surface_matrix = blank_surface_matrix()
-    setup = call_tool(
+    setup = call_material_mutate(
         client,
         request_id_base + 1,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "MaterialGraph",
-            "graphType": "material",
             "ops": [
                 {"op": "addNode.byClass", "clientRef": "scalar_a", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}},
                 {"op": "addNode.byClass", "clientRef": "multiply_ab", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionMultiply"}},
@@ -364,14 +367,11 @@ def run_connect_pins_bad_output_pin(client: McpStdioClient, request_id_base: int
     target_id = op_results[1].get("nodeId") if isinstance(op_results[1], dict) else None
     if not isinstance(source_id, str) or not isinstance(target_id, str):
         raise MaterialNegativeSuiteError("runner_error", f"missing material setup node ids: {compact_json(setup)}")
-    payload, has_error = call_tool_allow_error(
+    payload, has_error = call_material_mutate_allow_error(
         client,
         request_id_base + 2,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "MaterialGraph",
-            "graphType": "material",
             "ops": [
                 {
                     "op": "connectPins",
@@ -407,14 +407,11 @@ def run_connect_pins_bad_output_pin(client: McpStdioClient, request_id_base: int
 
 def run_disconnect_pins_bad_output_pin(client: McpStdioClient, request_id_base: int, asset_path: str) -> dict[str, Any]:
     surface_matrix = blank_surface_matrix()
-    setup = call_tool(
+    setup = call_material_mutate(
         client,
         request_id_base + 1,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "MaterialGraph",
-            "graphType": "material",
             "ops": [
                 {"op": "addNode.byClass", "clientRef": "scalar_a", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}},
                 {"op": "addNode.byClass", "clientRef": "multiply_ab", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionMultiply"}},
@@ -435,14 +432,11 @@ def run_disconnect_pins_bad_output_pin(client: McpStdioClient, request_id_base: 
     target_id = op_results[1].get("nodeId") if isinstance(op_results[1], dict) else None
     if not isinstance(source_id, str) or not isinstance(target_id, str):
         raise MaterialNegativeSuiteError("runner_error", f"missing material setup node ids: {compact_json(setup)}")
-    payload, has_error = call_tool_allow_error(
+    payload, has_error = call_material_mutate_allow_error(
         client,
         request_id_base + 2,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "MaterialGraph",
-            "graphType": "material",
             "ops": [
                 {
                     "op": "disconnectPins",

@@ -21,8 +21,8 @@ from test_bridge_smoke import (  # noqa: E402
 )
 
 sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
+from domain_test_helpers import blank_surface_matrix, compact_json, wait_for_bridge_ready  # noqa: E402
 from run_material_workflow_truth_suite import query_material_snapshot, verify_material_graph  # noqa: E402
-from run_pcg_graph_test_plan import blank_surface_matrix, compact_json, wait_for_bridge_ready  # noqa: E402
 
 
 class MaterialChildGraphRefSuiteError(RuntimeError):
@@ -133,25 +133,16 @@ def cleanup_material_function_fixture(
     )
 
 
-def _list_graphs(client: McpStdioClient, request_id: int, *, asset_path: str) -> dict[str, Any]:
-    return call_tool(
-        client,
-        request_id,
-        "graph.list",
-        {"assetPath": asset_path, "graphType": "material"},
-    )
-
-
 def _query_graph_by_ref(client: McpStdioClient, request_id: int, *, graph_ref: dict[str, Any]) -> dict[str, Any]:
     payload = call_tool(
         client,
         request_id,
-        "graph.query",
-        {"graphType": "material", "graphRef": graph_ref, "limit": 200},
+        "material.query",
+        {"graph": graph_ref, "includeConnections": True},
     )
     snapshot = payload.get("semanticSnapshot")
     if not isinstance(snapshot, dict):
-        raise MaterialChildGraphRefSuiteError("child_graph_ref_unqueryable", f"graph.query(graphRef) missing semanticSnapshot: {compact_json(payload)}")
+        raise MaterialChildGraphRefSuiteError("child_graph_ref_unqueryable", f"material.query(graph) missing semanticSnapshot: {compact_json(payload)}")
     return snapshot
 
 
@@ -159,12 +150,12 @@ def _query_graph_by_name(client: McpStdioClient, request_id: int, *, asset_path:
     payload = call_tool(
         client,
         request_id,
-        "graph.query",
-        {"graphType": "material", "assetPath": asset_path, "graphName": graph_name, "limit": 200},
+        "material.query",
+        {"assetPath": asset_path, "graphName": graph_name, "includeConnections": True},
     )
     snapshot = payload.get("semanticSnapshot")
     if not isinstance(snapshot, dict):
-        raise MaterialChildGraphRefSuiteError("child_graph_ref_unqueryable", f"graph.query(graphName) missing semanticSnapshot: {compact_json(payload)}")
+        raise MaterialChildGraphRefSuiteError("child_graph_ref_unqueryable", f"material.query(graphName) missing semanticSnapshot: {compact_json(payload)}")
     return snapshot
 
 
@@ -234,29 +225,15 @@ def execute_case_with_fresh_client(
 
         child_graph_ref = node.get("childGraphRef")
         if not isinstance(child_graph_ref, dict):
-            raise MaterialChildGraphRefSuiteError("child_graph_ref_unsurfaced", f"graph.query missing childGraphRef: {compact_json(node)}")
+            raise MaterialChildGraphRefSuiteError("child_graph_ref_unsurfaced", f"material.query missing childGraphRef: {compact_json(node)}")
         if child_graph_ref.get("assetPath") != function_asset_path:
             raise MaterialChildGraphRefSuiteError(
                 "child_graph_ref_second_hop_mismatch",
                 f"material childGraphRef points at the wrong asset: {compact_json(node)}",
             )
 
-        graph_list_payload = _list_graphs(client, request_id_base + 40, asset_path=function_asset_path)
-        graphs = graph_list_payload.get("graphs")
-        if not isinstance(graphs, list) or not graphs or not isinstance(graphs[0], dict):
-            raise MaterialChildGraphRefSuiteError(
-                "child_graph_ref_second_hop_missing",
-                f"graph.list missing function graph entry: {compact_json(graph_list_payload)}",
-            )
-        child_entry = graphs[0]
-        graph_name = child_entry.get("graphName")
-        if not isinstance(graph_name, str) or not graph_name:
-            raise MaterialChildGraphRefSuiteError(
-                "child_graph_ref_second_hop_missing",
-                f"function graph entry missing graphName: {compact_json(child_entry)}",
-            )
-
         by_ref_snapshot = _query_graph_by_ref(client, request_id_base + 50, graph_ref=child_graph_ref)
+        graph_name = str(child_graph_ref.get("graphName") or "MaterialGraph")
         by_name_snapshot = _query_graph_by_name(client, request_id_base + 60, asset_path=function_asset_path, graph_name=graph_name)
         by_ref_signature = by_ref_snapshot.get("signature")
         by_name_signature = by_name_snapshot.get("signature")
@@ -279,11 +256,7 @@ def execute_case_with_fresh_client(
         result["details"]["surfaceMatrix"]["queryTruth"] = "pass"
         result["details"]["query"] = {
             "childGraphRef": child_graph_ref,
-            "graphEntry": {
-                "graphKind": child_entry.get("graphKind"),
-                "graphName": graph_name,
-                "graphRef": child_entry.get("graphRef"),
-            },
+            "graphName": graph_name,
             "secondHop": {
                 "signature": by_ref_signature,
                 "nodeCount": len(by_ref_snapshot.get("nodes", [])) if isinstance(by_ref_snapshot.get("nodes"), list) else 0,

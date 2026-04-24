@@ -20,8 +20,8 @@ from test_bridge_smoke import (  # noqa: E402
 )
 
 sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
+from domain_test_helpers import blank_surface_matrix, compact_json, wait_for_bridge_ready  # noqa: E402
 from run_blueprint_workflow_truth_suite import cleanup_blueprint_fixture, create_blueprint_fixture  # noqa: E402
-from run_pcg_graph_test_plan import blank_surface_matrix, compact_json, wait_for_bridge_ready  # noqa: E402
 
 
 class BlueprintNegativeSuiteError(RuntimeError):
@@ -54,11 +54,11 @@ NEGATIVE_CASES = [
         "summary": "bad Blueprint setPinDefault targets should surface candidate pin diagnostics",
     },
     {
-        "id": "partial_apply_unsupported_op",
+        "id": "invalid_command_batch_preflight",
         "fixture": "blueprint_event_graph",
-        "operation": "batch_partial_apply",
+        "operation": "batch_preflight",
         "families": ["branch", "struct", "utility"],
-        "summary": "mixed Blueprint batches should report partialApplied when an earlier op commits before an unsupported op",
+        "summary": "invalid Blueprint command batches should fail before mutating graph state",
     },
 ]
 
@@ -127,8 +127,8 @@ def query_blueprint_revision_and_node_count(client: McpStdioClient, request_id: 
     payload = call_tool_ok(
         client,
         request_id,
-        "graph.query",
-        {"assetPath": asset_path, "graphName": "EventGraph", "graphType": "blueprint", "limit": 200},
+        "blueprint.graph.inspect",
+        {"assetPath": asset_path, "graphName": "EventGraph", "limit": 200},
     )
     revision = payload.get("revision")
     snapshot = payload.get("semanticSnapshot")
@@ -144,19 +144,16 @@ def add_branch_node(client: McpStdioClient, request_id: int, *, asset_path: str,
     payload = call_tool_ok(
         client,
         request_id,
-        "graph.mutate",
+        "blueprint.graph.edit",
         {
             "assetPath": asset_path,
             "graphName": "EventGraph",
-            "graphType": "blueprint",
-            "ops": [
+            "commands": [
                 {
-                    "op": "addNode.byClass",
-                    "clientRef": client_ref,
-                    "args": {
-                        "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
-                        "position": {"x": 640, "y": 0},
-                    },
+                    "kind": "addNode",
+                    "alias": client_ref,
+                    "nodeType": {"kind": "branch"},
+                    "position": {"x": 640, "y": 0},
                 }
             ],
         },
@@ -176,19 +173,16 @@ def run_stale_expected_revision_conflict(client: McpStdioClient, request_id_base
     apply_payload = call_tool_ok(
         client,
         request_id_base + 2,
-        "graph.mutate",
+        "blueprint.graph.edit",
         {
             "assetPath": asset_path,
             "graphName": "EventGraph",
-            "graphType": "blueprint",
             "expectedRevision": revision_r0,
-            "ops": [
+            "commands": [
                 {
-                    "op": "addNode.byClass",
-                    "args": {
-                        "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
-                        "position": {"x": 640, "y": 0},
-                    },
+                    "kind": "addNode",
+                    "nodeType": {"kind": "branch"},
+                    "position": {"x": 640, "y": 0},
                 }
             ],
         },
@@ -206,19 +200,16 @@ def run_stale_expected_revision_conflict(client: McpStdioClient, request_id_base
     payload, has_error = call_tool_allow_error(
         client,
         request_id_base + 4,
-        "graph.mutate",
+        "blueprint.graph.edit",
         {
             "assetPath": asset_path,
             "graphName": "EventGraph",
-            "graphType": "blueprint",
             "expectedRevision": revision_r0,
-            "ops": [
+            "commands": [
                 {
-                    "op": "addNode.byClass",
-                    "args": {
-                        "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
-                        "position": {"x": 960, "y": 0},
-                    },
+                    "kind": "addNode",
+                    "nodeType": {"kind": "branch"},
+                    "position": {"x": 960, "y": 0},
                 }
             ],
         },
@@ -247,27 +238,22 @@ def run_duplicate_client_ref_rejected(client: McpStdioClient, request_id_base: i
     payload, has_error = call_tool_allow_error(
         client,
         request_id_base + 1,
-        "graph.mutate",
+        "blueprint.graph.edit",
         {
             "assetPath": asset_path,
             "graphName": "EventGraph",
-            "graphType": "blueprint",
-            "ops": [
+            "commands": [
                 {
-                    "op": "addNode.byClass",
-                    "clientRef": "dup_ref",
-                    "args": {
-                        "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
-                        "position": {"x": 1440, "y": 0},
-                    },
+                    "kind": "addNode",
+                    "alias": "dup_ref",
+                    "nodeType": {"kind": "branch"},
+                    "position": {"x": 1440, "y": 0},
                 },
                 {
-                    "op": "addNode.byClass",
-                    "clientRef": "dup_ref",
-                    "args": {
-                        "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
-                        "position": {"x": 1600, "y": 0},
-                    },
+                    "kind": "addNode",
+                    "alias": "dup_ref",
+                    "nodeType": {"kind": "branch"},
+                    "position": {"x": 1600, "y": 0},
                 },
             ],
         },
@@ -312,18 +298,15 @@ def run_set_pin_default_bad_target_diagnostics(client: McpStdioClient, request_i
     payload, has_error = call_tool_allow_error(
         client,
         request_id_base + 2,
-        "graph.mutate",
+        "blueprint.graph.edit",
         {
             "assetPath": asset_path,
             "graphName": "EventGraph",
-            "graphType": "blueprint",
-            "ops": [
+            "commands": [
                 {
-                    "op": "setPinDefault",
-                    "args": {
-                        "target": {"nodeId": node_id, "pin": "DefinitelyMissingPin"},
-                        "value": True,
-                    },
+                    "kind": "setPinDefault",
+                    "target": {"node": {"id": node_id}, "pin": "DefinitelyMissingPin"},
+                    "value": True,
                 }
             ],
         },
@@ -386,21 +369,20 @@ def run_set_pin_default_bad_target_diagnostics(client: McpStdioClient, request_i
     return {"surfaceMatrix": surface_matrix, "errorPayload": payload}
 
 
-def run_partial_apply_unsupported_op(client: McpStdioClient, request_id_base: int, asset_path: str) -> dict[str, Any]:
+def run_invalid_command_batch_preflight(client: McpStdioClient, request_id_base: int, asset_path: str) -> dict[str, Any]:
     surface_matrix = blank_surface_matrix()
     node_id = add_branch_node(client, request_id_base + 1, asset_path=asset_path, client_ref="partial_apply_node")
     revision_before, node_count_before = query_blueprint_revision_and_node_count(client, request_id_base + 2, asset_path)
     payload, has_error = call_tool_allow_error(
         client,
         request_id_base + 3,
-        "graph.mutate",
+        "blueprint.graph.edit",
         {
             "assetPath": asset_path,
             "graphName": "EventGraph",
-            "graphType": "blueprint",
-            "ops": [
-                {"op": "removeNode", "args": {"target": {"nodeId": node_id}}},
-                {"op": "addNode", "args": {"nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse"}},
+            "commands": [
+                {"kind": "removeNode", "node": {"id": node_id}},
+                {"kind": "runScript"},
             ],
         },
     )
@@ -409,69 +391,27 @@ def run_partial_apply_unsupported_op(client: McpStdioClient, request_id_base: in
         surface_matrix["mutate"] = "fail"
         raise BlueprintNegativeSuiteError(
             "contract_surface_gap",
-            f"partial-apply mixed batch unexpectedly succeeded: {compact_json(payload)}",
+            f"invalid command batch unexpectedly succeeded: {compact_json(payload)}",
             details={"surfaceMatrix": surface_matrix, "unexpectedPayload": payload},
         )
-    detail = payload.get("detail")
-    try:
-        parsed_detail = json.loads(detail) if isinstance(detail, str) and detail.strip() else None
-    except Exception:
-        parsed_detail = None
-    if not isinstance(parsed_detail, dict):
+    if payload.get("domainCode") != "INVALID_ARGUMENT":
+        surface_matrix["diagnostics"] = "fail"
         raise BlueprintNegativeSuiteError(
             "diagnostic_surface_gap",
-            f"partial-apply missing structured detail: {compact_json(payload)}",
+            f"invalid command batch returned wrong error code: {compact_json(payload)}",
             details={"surfaceMatrix": surface_matrix, "errorPayload": payload},
         )
-    if parsed_detail.get("code") != "UNSUPPORTED_OP":
-        surface_matrix["diagnostics"] = "fail"
-        raise BlueprintNegativeSuiteError(
-            "diagnostic_surface_gap",
-            f"partial-apply structured detail missing UNSUPPORTED_OP: {compact_json(parsed_detail)}",
-            details={"surfaceMatrix": surface_matrix, "errorPayload": payload, "detail": parsed_detail},
-        )
-    if parsed_detail.get("applied") is not False or parsed_detail.get("partialApplied") is not True:
-        surface_matrix["diagnostics"] = "fail"
-        raise BlueprintNegativeSuiteError(
-            "diagnostic_surface_gap",
-            f"partial-apply metadata mismatch: {compact_json(parsed_detail)}",
-            details={"surfaceMatrix": surface_matrix, "errorPayload": payload, "detail": parsed_detail},
-        )
-    op_results = parsed_detail.get("opResults")
-    if not isinstance(op_results, list) or len(op_results) != 2:
-        surface_matrix["diagnostics"] = "fail"
-        raise BlueprintNegativeSuiteError(
-            "diagnostic_surface_gap",
-            f"partial-apply missing opResults: {compact_json(parsed_detail)}",
-            details={"surfaceMatrix": surface_matrix, "errorPayload": payload, "detail": parsed_detail},
-        )
-    first = op_results[0] if isinstance(op_results[0], dict) else {}
-    second = op_results[1] if isinstance(op_results[1], dict) else {}
-    if first.get("ok") is not True or first.get("changed") is not True:
-        surface_matrix["diagnostics"] = "fail"
-        raise BlueprintNegativeSuiteError(
-            "diagnostic_surface_gap",
-            f"partial-apply first op metadata mismatch: {compact_json(parsed_detail)}",
-            details={"surfaceMatrix": surface_matrix, "errorPayload": payload, "detail": parsed_detail},
-        )
-    if second.get("errorCode") != "UNSUPPORTED_OP":
-        surface_matrix["diagnostics"] = "fail"
-        raise BlueprintNegativeSuiteError(
-            "diagnostic_surface_gap",
-            f"partial-apply second op errorCode mismatch: {compact_json(parsed_detail)}",
-            details={"surfaceMatrix": surface_matrix, "errorPayload": payload, "detail": parsed_detail},
-        )
     revision_after, node_count_after = query_blueprint_revision_and_node_count(client, request_id_base + 4, asset_path)
-    if revision_after == revision_before or node_count_after != node_count_before - 1:
+    if revision_after != revision_before or node_count_after != node_count_before:
         surface_matrix["queryStructure"] = "fail"
         raise BlueprintNegativeSuiteError(
             "query_surface_gap",
-            f"partial-apply batch did not commit earlier removal: before={(revision_before, node_count_before)} after={(revision_after, node_count_after)}",
-            details={"surfaceMatrix": surface_matrix, "errorPayload": payload, "detail": parsed_detail},
+            f"invalid command batch changed graph state: before={(revision_before, node_count_before)} after={(revision_after, node_count_after)}",
+            details={"surfaceMatrix": surface_matrix, "errorPayload": payload},
         )
     surface_matrix["queryStructure"] = "pass"
     surface_matrix["diagnostics"] = "pass"
-    return {"surfaceMatrix": surface_matrix, "errorPayload": payload, "detail": parsed_detail}
+    return {"surfaceMatrix": surface_matrix, "errorPayload": payload}
 
 
 def run_negative_case(client: McpStdioClient, request_id_base: int, case: dict[str, Any], case_index: int) -> dict[str, Any]:
@@ -492,8 +432,8 @@ def run_negative_case(client: McpStdioClient, request_id_base: int, case: dict[s
             details = run_duplicate_client_ref_rejected(client, request_id_base + 100, asset_path)
         elif case["id"] == "set_pin_default_bad_target_diagnostics":
             details = run_set_pin_default_bad_target_diagnostics(client, request_id_base + 100, asset_path)
-        elif case["id"] == "partial_apply_unsupported_op":
-            details = run_partial_apply_unsupported_op(client, request_id_base + 100, asset_path)
+        elif case["id"] == "invalid_command_batch_preflight":
+            details = run_invalid_command_batch_preflight(client, request_id_base + 100, asset_path)
         else:
             raise BlueprintNegativeSuiteError("runner_error", f"unsupported case id: {case['id']}")
 

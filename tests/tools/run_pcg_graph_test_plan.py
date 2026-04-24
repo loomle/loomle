@@ -4,7 +4,6 @@ import contextlib
 import io
 import json
 import sys
-import time
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -24,59 +23,11 @@ from test_bridge_smoke import (  # noqa: E402
 
 sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
 from generate_graph_test_plan import build_plan  # noqa: E402
+from domain_test_helpers import blank_surface_matrix, compact_json, wait_for_bridge_ready  # noqa: E402
 
 GRAPH_NAME = "PCGGraph"
 SUPPORTED_ROUNDTRIP_TYPES = {"bool", "int32", "int", "float", "double", "FString", "FName", "enum"}
 SUPPORTED_DYNAMIC_TRIGGER_TYPES = {"bool", "int32", "int", "float", "double", "FString", "FName"}
-SURFACE_NOT_RUN = "not_run"
-
-
-def blank_surface_matrix() -> dict[str, str]:
-    return {
-        "mutate": SURFACE_NOT_RUN,
-        "queryStructure": SURFACE_NOT_RUN,
-        "queryTruth": SURFACE_NOT_RUN,
-        "engineTruth": SURFACE_NOT_RUN,
-        "verify": SURFACE_NOT_RUN,
-        "diagnostics": SURFACE_NOT_RUN,
-    }
-
-
-def wait_for_bridge_ready(client: McpStdioClient, timeout_s: float = 120.0, interval_s: float = 2.0) -> None:
-    deadline = time.time() + timeout_s
-    attempt = 0
-    while time.time() < deadline:
-        attempt += 1
-        try:
-            loomle = call_tool(client, 9000 + attempt, "loomle", {})
-            status = loomle.get("status")
-            rpc_health = loomle.get("runtime", {}).get("rpcHealth", {})
-            if status not in {"ok", "degraded"} or rpc_health.get("status") not in {"ok", "degraded"}:
-                print(f"[WARN] bridge not ready yet (attempt {attempt}): status={status}, rpc={rpc_health}")
-                time.sleep(interval_s)
-                continue
-
-            _ = call_execute_exec_with_retry(
-                client=client,
-                req_id_base=9500 + (attempt * 10),
-                code="import unreal\nunreal.log('loomle PCG plan warmup')",
-                max_attempts=10,
-                retry_delay_s=1.0,
-            )
-            print(f"[PASS] bridge ready after {attempt} attempt(s)")
-            return
-        except BaseException as exc:
-            print(f"[WARN] bridge readiness probe failed (attempt {attempt}): {exc}")
-            time.sleep(interval_s)
-
-    raise RuntimeError(f"bridge did not become ready within {timeout_s:.0f}s")
-
-
-def compact_json(value: Any, limit: int = 1200) -> str:
-    text = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    if len(text) <= limit:
-        return text
-    return text[: limit - 3] + "..."
 
 
 def camel_to_snake(name: str) -> str:
