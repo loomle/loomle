@@ -27,6 +27,7 @@ Excluded for now:
 - Asset-level and member-level operations are separated from graph editing.
 - Graph is treated as a child resource inside a Blueprint asset.
 - Public tool names should expose user intent, not low-level mutate ops.
+- Low-frequency asset and member operations should be aggregated into a small public tool surface.
 
 ## Object Hierarchy
 
@@ -37,21 +38,58 @@ Excluded for now:
 
 This document defines public interfaces for levels 1-3 and for member domains under level 2.
 
+## Public Surface Strategy
+
+This design distinguishes between:
+
+- conceptual domains
+- public MCP tools
+
+Conceptual domains remain explicit so the model stays clear.
+
+Public MCP tools should still be compressed where usage is low-frequency and schema cost would otherwise be too high.
+
+Recommended compressed public surface for non-graph Blueprint operations:
+
+- `blueprint.asset.inspect`
+- `blueprint.asset.edit`
+- `blueprint.member.inspect`
+- `blueprint.member.edit`
+
+Recommended public graph surface:
+
+- `blueprint.graph.list`
+- `blueprint.graph.inspect`
+- `blueprint.graph.edit`
+- `blueprint.graph.refactor`
+- `blueprint.graph.generate`
+- `blueprint.graph.recipe.list`
+- `blueprint.graph.recipe.inspect`
+- `blueprint.graph.recipe.validate`
+- `blueprint.compile`
+- `blueprint.validate`
+
 ## Domain 1: Asset
 
-Asset-level tools manage the Blueprint as a whole.
+Asset is a conceptual domain. Public MCP tools should expose asset operations through `blueprint.asset.inspect` and `blueprint.asset.edit`.
 
 ### Tools
 
 - `blueprint.asset.inspect`
-- `blueprint.asset.create`
-- `blueprint.asset.duplicate`
-- `blueprint.asset.rename`
-- `blueprint.asset.delete`
-- `blueprint.asset.reparent`
-- `blueprint.asset.setMetadata`
-- `blueprint.asset.getDefaults`
-- `blueprint.asset.setDefaults`
+- `blueprint.asset.edit`
+
+### Asset Edit Operations
+
+Recommended `blueprint.asset.edit` operation set:
+
+- `create`
+- `duplicate`
+- `rename`
+- `delete`
+- `reparent`
+- `setMetadata`
+- `getDefaults`
+- `setDefaults`
 
 ### Scope
 
@@ -71,15 +109,21 @@ Asset-level tools manage the Blueprint as a whole.
 
 ## Domain 2: Inheritance / Interfaces
 
-This domain exposes the class relationship surface of the Blueprint.
+Inheritance and interfaces remain a conceptual asset subdomain. Public MCP tools should expose these operations through `blueprint.asset.inspect` and `blueprint.asset.edit`.
 
 ### Tools
 
-- `blueprint.inheritance.inspect`
-- `blueprint.inheritance.setParent`
-- `blueprint.interface.list`
-- `blueprint.interface.add`
-- `blueprint.interface.remove`
+- `blueprint.asset.inspect`
+- `blueprint.asset.edit`
+
+### Asset Edit Operations
+
+Recommended asset-level operations for this domain:
+
+- `setParent`
+- `listInterfaces`
+- `addInterface`
+- `removeInterface`
 
 ### Scope
 
@@ -95,18 +139,25 @@ This domain exposes the class relationship surface of the Blueprint.
 
 ## Domain 3: Variable
 
-Variable tools manage Blueprint member variables.
+Variable is a conceptual member domain. Public MCP tools should expose variable operations through `blueprint.member.inspect` and `blueprint.member.edit`.
 
 ### Tools
 
-- `blueprint.variable.list`
-- `blueprint.variable.inspect`
-- `blueprint.variable.create`
-- `blueprint.variable.update`
-- `blueprint.variable.rename`
-- `blueprint.variable.delete`
-- `blueprint.variable.reorder`
-- `blueprint.variable.setDefault`
+- `blueprint.member.inspect`
+- `blueprint.member.edit`
+
+### Member Edit Operations
+
+Recommended member-level operations for this domain:
+
+- `variable.list`
+- `variable.inspect`
+- `variable.create`
+- `variable.update`
+- `variable.rename`
+- `variable.delete`
+- `variable.reorder`
+- `variable.setDefault`
 
 ### Scope
 
@@ -126,17 +177,24 @@ Variable tools manage Blueprint member variables.
 
 ## Domain 4: Function
 
-Function tools manage Blueprint function declarations and their signatures.
+Function is a conceptual member domain. Public MCP tools should expose function operations through `blueprint.member.inspect` and `blueprint.member.edit`.
 
 ### Tools
 
-- `blueprint.function.list`
-- `blueprint.function.inspect`
-- `blueprint.function.create`
-- `blueprint.function.updateSignature`
-- `blueprint.function.rename`
-- `blueprint.function.delete`
-- `blueprint.function.setFlags`
+- `blueprint.member.inspect`
+- `blueprint.member.edit`
+
+### Member Edit Operations
+
+Recommended member-level operations for this domain:
+
+- `function.list`
+- `function.inspect`
+- `function.create`
+- `function.updateSignature`
+- `function.rename`
+- `function.delete`
+- `function.setFlags`
 
 ### Scope
 
@@ -154,16 +212,23 @@ Function tools manage Blueprint function declarations and their signatures.
 
 ## Domain 5: Macro
 
-Macro tools manage Blueprint macro declarations.
+Macro is a conceptual member domain. Public MCP tools should expose macro operations through `blueprint.member.inspect` and `blueprint.member.edit`.
 
 ### Tools
 
-- `blueprint.macro.list`
-- `blueprint.macro.inspect`
-- `blueprint.macro.create`
-- `blueprint.macro.updateSignature`
-- `blueprint.macro.rename`
-- `blueprint.macro.delete`
+- `blueprint.member.inspect`
+- `blueprint.member.edit`
+
+### Member Edit Operations
+
+Recommended member-level operations for this domain:
+
+- `macro.list`
+- `macro.inspect`
+- `macro.create`
+- `macro.updateSignature`
+- `macro.rename`
+- `macro.delete`
 
 ### Scope
 
@@ -177,16 +242,23 @@ Macro tools manage Blueprint macro declarations.
 
 ## Domain 6: Dispatcher
 
-Dispatcher tools manage event dispatcher declarations.
+Dispatcher is a conceptual member domain. Public MCP tools should expose dispatcher operations through `blueprint.member.inspect` and `blueprint.member.edit`.
 
 ### Tools
 
-- `blueprint.dispatcher.list`
-- `blueprint.dispatcher.inspect`
-- `blueprint.dispatcher.create`
-- `blueprint.dispatcher.updateSignature`
-- `blueprint.dispatcher.rename`
-- `blueprint.dispatcher.delete`
+- `blueprint.member.inspect`
+- `blueprint.member.edit`
+
+### Member Edit Operations
+
+Recommended member-level operations for this domain:
+
+- `dispatcher.list`
+- `dispatcher.inspect`
+- `dispatcher.create`
+- `dispatcher.updateSignature`
+- `dispatcher.rename`
+- `dispatcher.delete`
 
 ### Scope
 
@@ -200,18 +272,25 @@ Dispatcher tools manage event dispatcher declarations.
 
 ## Domain 7: Component
 
-Component tools manage the Blueprint component tree and component declarations.
+Component is a conceptual member domain. Public MCP tools should expose component operations through `blueprint.member.inspect` and `blueprint.member.edit`.
 
 ### Tools
 
-- `blueprint.component.list`
-- `blueprint.component.inspect`
-- `blueprint.component.create`
-- `blueprint.component.update`
-- `blueprint.component.rename`
-- `blueprint.component.delete`
-- `blueprint.component.reparent`
-- `blueprint.component.reorder`
+- `blueprint.member.inspect`
+- `blueprint.member.edit`
+
+### Member Edit Operations
+
+Recommended member-level operations for this domain:
+
+- `component.list`
+- `component.inspect`
+- `component.create`
+- `component.update`
+- `component.rename`
+- `component.delete`
+- `component.reparent`
+- `component.reorder`
 
 ### Scope
 
@@ -228,23 +307,28 @@ Component tools manage the Blueprint component tree and component declarations.
 
 ## Domain 8: Graph
 
-Graph tools manage graph resources that belong to a Blueprint asset.
+Graph is a conceptual domain. Public MCP tools should keep high-frequency graph inspection and graph mutation explicit, while lower-frequency graph management can remain folded into broader edit surfaces if schema pressure requires it.
 
 ### Tools
 
 - `blueprint.graph.list`
 - `blueprint.graph.inspect`
-- `blueprint.graph.create`
-- `blueprint.graph.rename`
-- `blueprint.graph.delete`
-- `blueprint.graph.setEntry`
-- `blueprint.graph.layout`
+- `blueprint.graph.edit`
+- `blueprint.graph.refactor`
+- `blueprint.graph.generate`
 - `blueprint.graph.recipe.list`
 - `blueprint.graph.recipe.inspect`
 - `blueprint.graph.recipe.validate`
-- `blueprint.graph.recipe.create`
-- `blueprint.graph.recipe.update`
-- `blueprint.graph.recipe.delete`
+
+### Graph Management Operations
+
+Conceptually required graph-level operations:
+
+- `create`
+- `rename`
+- `delete`
+- `setEntry`
+- `layout`
 
 ### Scope
 
@@ -260,7 +344,7 @@ Graph tools manage graph resources that belong to a Blueprint asset.
 
 - Graphs are child resources inside the Blueprint asset.
 - `graph.inspect` is graph-level structure read, not low-level edit.
-- `graph.layout` is graph-scoped and intentionally separated from low-level graph mutation.
+- graph management operations are lower-frequency than graph inspection and graph mutation.
 - `graph.recipe.*` is the recipe discovery and management surface for graph generation.
 
 ## Graph Object Model
@@ -2274,76 +2358,27 @@ should remain consistent across all Blueprint write interfaces.
 The current recommended public Blueprint surface for these domains is:
 
 - `blueprint.asset.inspect`
-- `blueprint.asset.create`
-- `blueprint.asset.duplicate`
-- `blueprint.asset.rename`
-- `blueprint.asset.delete`
-- `blueprint.asset.reparent`
-- `blueprint.asset.setMetadata`
-- `blueprint.asset.getDefaults`
-- `blueprint.asset.setDefaults`
-
-- `blueprint.inheritance.inspect`
-- `blueprint.inheritance.setParent`
-- `blueprint.interface.list`
-- `blueprint.interface.add`
-- `blueprint.interface.remove`
-
-- `blueprint.variable.list`
-- `blueprint.variable.inspect`
-- `blueprint.variable.create`
-- `blueprint.variable.update`
-- `blueprint.variable.rename`
-- `blueprint.variable.delete`
-- `blueprint.variable.reorder`
-- `blueprint.variable.setDefault`
-
-- `blueprint.function.list`
-- `blueprint.function.inspect`
-- `blueprint.function.create`
-- `blueprint.function.updateSignature`
-- `blueprint.function.rename`
-- `blueprint.function.delete`
-- `blueprint.function.setFlags`
-
-- `blueprint.macro.list`
-- `blueprint.macro.inspect`
-- `blueprint.macro.create`
-- `blueprint.macro.updateSignature`
-- `blueprint.macro.rename`
-- `blueprint.macro.delete`
-
-- `blueprint.dispatcher.list`
-- `blueprint.dispatcher.inspect`
-- `blueprint.dispatcher.create`
-- `blueprint.dispatcher.updateSignature`
-- `blueprint.dispatcher.rename`
-- `blueprint.dispatcher.delete`
-
-- `blueprint.component.list`
-- `blueprint.component.inspect`
-- `blueprint.component.create`
-- `blueprint.component.update`
-- `blueprint.component.rename`
-- `blueprint.component.delete`
-- `blueprint.component.reparent`
-- `blueprint.component.reorder`
-
+- `blueprint.asset.edit`
+- `blueprint.member.inspect`
+- `blueprint.member.edit`
 - `blueprint.graph.list`
 - `blueprint.graph.inspect`
-- `blueprint.graph.create`
-- `blueprint.graph.rename`
-- `blueprint.graph.delete`
-- `blueprint.graph.setEntry`
-- `blueprint.graph.layout`
+- `blueprint.graph.edit`
+- `blueprint.graph.refactor`
+- `blueprint.graph.generate`
+- `blueprint.graph.recipe.list`
+- `blueprint.graph.recipe.inspect`
+- `blueprint.graph.recipe.validate`
+- `blueprint.compile`
+- `blueprint.validate`
 
 ## Deferred Topics
 
 The following topics are intentionally deferred to a separate design pass:
 
-- graph edit command vocabulary
-- graph refactor interface
-- graph generation interface
+- compile and validate payload details
+- final recipe file format
+- final asset/member edit command schemas
 - compile and validation contract
 - preview and transaction semantics
 - unified identifier model for graph elements
