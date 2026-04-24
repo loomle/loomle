@@ -232,7 +232,7 @@ EXPECTED_PCG_WORKFLOW_SUITE_SUMMARY = {
     "totalCases": 10,
     "worldContextCases": 3,
     "families": ["branch", "create", "filter", "meta", "predicate", "route", "sample", "select", "source", "spawn", "struct", "transform"],
-    "payloadFixtureBackedCases": 5,
+    "payloadFixtureBackedCases": 10,
 }
 
 EXPECTED_PCG_NEGATIVE_SUITE_SUMMARY = {
@@ -3198,6 +3198,7 @@ def main() -> int:
 
     client = McpStdioClient(project_root=project_root, server_binary=server_binary, timeout_s=args.timeout)
     temp_asset = make_temp_asset_path(args.asset_prefix)
+    temp_wbp_asset = None
 
     try:
         print(f"[PASS] initialize protocol={client.protocol_version}")
