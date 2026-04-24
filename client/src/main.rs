@@ -821,6 +821,7 @@ impl LoomleProxyServer {
         &self,
         args: rmcp::model::JsonObject,
     ) -> Result<CallToolResult, McpError> {
+        let uses_legacy_ops = args.contains_key("ops");
         let legacy_args = match translate_blueprint_graph_edit_args(&args) {
             Ok(value) => value,
             Err(error) => return Ok(error),
@@ -828,7 +829,10 @@ impl LoomleProxyServer {
         let payload = self
             .runtime_payload("blueprint.mutate", legacy_args)
             .await?;
-        Ok(structured_result(augment_blueprint_mutate_result(payload)))
+        Ok(structured_result(augment_blueprint_mutate_result(
+            payload,
+            uses_legacy_ops,
+        )))
     }
 
     async fn call_blueprint_graph_refactor(
@@ -1556,12 +1560,32 @@ fn translate_blueprint_graph_edit_args(
     Ok(translated)
 }
 
-fn augment_blueprint_mutate_result(payload: serde_json::Value) -> serde_json::Value {
+fn augment_blueprint_mutate_result(
+    payload: serde_json::Value,
+    uses_legacy_ops: bool,
+) -> serde_json::Value {
     let Some(mut object) = payload.as_object().cloned() else {
         return payload;
     };
     if let Some(op_results) = object.get("opResults").cloned() {
         object.entry("commandResults").or_insert(op_results);
+    }
+    if uses_legacy_ops {
+        let diagnostic = serde_json::json!({
+            "code": "BLUEPRINT_GRAPH_EDIT_OPS_COMPATIBILITY",
+            "severity": "warning",
+            "message": "blueprint.graph.edit accepted legacy ops for compatibility; new callers should use commands.",
+            "sourceKind": "client"
+        });
+        match object
+            .get_mut("diagnostics")
+            .and_then(|value| value.as_array_mut())
+        {
+            Some(diagnostics) => diagnostics.push(diagnostic),
+            None => {
+                object.insert("diagnostics".into(), serde_json::json!([diagnostic]));
+            }
+        }
     }
     serde_json::Value::Object(object)
 }
@@ -4224,8 +4248,8 @@ fn print_usage() {
 #[cfg(test)]
 mod tests {
     use super::{
-        compile_blueprint_refactor_request, infer_attached_project_root,
-        translate_blueprint_graph_edit_args, Cli, RuntimeProject,
+        augment_blueprint_mutate_result, compile_blueprint_refactor_request,
+        infer_attached_project_root, translate_blueprint_graph_edit_args, Cli, RuntimeProject,
     };
     use rmcp::model::JsonObject;
     use std::ffi::OsString;
@@ -4418,5 +4442,24 @@ mod tests {
                 .and_then(|value| value.as_str()),
             Some("graph-guid")
         );
+    }
+
+    #[test]
+    fn blueprint_graph_edit_legacy_ops_adds_compatibility_warning() {
+        let payload = serde_json::json!({
+            "opResults": [],
+            "diagnostics": []
+        });
+        let augmented = augment_blueprint_mutate_result(payload, true);
+        let warning = augmented
+            .get("diagnostics")
+            .and_then(|value| value.as_array())
+            .and_then(|items| {
+                items.iter().find(|item| {
+                    item.get("code").and_then(|value| value.as_str())
+                        == Some("BLUEPRINT_GRAPH_EDIT_OPS_COMPATIBILITY")
+                })
+            });
+        assert!(warning.is_some());
     }
 }
