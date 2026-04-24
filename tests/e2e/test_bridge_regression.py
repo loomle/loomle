@@ -81,6 +81,43 @@ def op_ok(payload: dict) -> dict:
     return first
 
 
+def bp_node(node_id: str) -> dict:
+    return {"id": node_id}
+
+
+def bp_pin(node_id: str, pin: str) -> dict:
+    return {"node": bp_node(node_id), "pin": pin}
+
+
+def bp_branch(position: dict | None = None, *, alias: str | None = None) -> dict:
+    command = {"kind": "addNode", "nodeType": {"kind": "branch"}}
+    if position is not None:
+        command["position"] = position
+    if alias:
+        command["alias"] = alias
+    return command
+
+
+def bp_remove(node_id: str) -> dict:
+    return {"kind": "removeNode", "node": bp_node(node_id)}
+
+
+def bp_connect(from_node: str, from_pin: str, to_node: str, to_pin: str) -> dict:
+    return {"kind": "connect", "from": bp_pin(from_node, from_pin), "to": bp_pin(to_node, to_pin)}
+
+
+def bp_disconnect(from_node: str, from_pin: str, to_node: str, to_pin: str) -> dict:
+    return {"kind": "disconnect", "from": bp_pin(from_node, from_pin), "to": bp_pin(to_node, to_pin)}
+
+
+def bp_break_links(node_id: str, pin: str) -> dict:
+    return {"kind": "breakLinks", "target": bp_pin(node_id, pin)}
+
+
+def bp_set_default(node_id: str, pin: str, value) -> dict:
+    return {"kind": "setPinDefault", "target": bp_pin(node_id, pin), "value": value}
+
+
 def widget_op_ok(payload: dict, index: int = 0) -> dict:
     op_results = payload.get("opResults")
     if not isinstance(op_results, list) or len(op_results) <= index:
@@ -104,12 +141,12 @@ def mutate_with_plan_steps(
     steps = preferred_plan.get("steps")
     if not isinstance(steps, list) or not steps:
         fail(f"preferredPlan missing steps[]: {preferred_plan}")
-    arguments = {
-        "assetPath": asset_path,
-        "ops": steps,
-    }
+    arguments = {"assetPath": asset_path}
     if domain == "blueprint":
         arguments["graphName"] = graph_name
+        arguments["commands"] = steps
+    else:
+        arguments["ops"] = steps
     payload = call_domain_tool(
         client,
         request_id,
@@ -190,12 +227,12 @@ def mutate_with_combined_plan_steps(
         if not isinstance(plan_steps, list) or not plan_steps:
             fail(f"preferredPlan missing steps[]: {plan}")
         steps.extend(plan_steps)
-    arguments = {
-        "assetPath": asset_path,
-        "ops": steps,
-    }
+    arguments = {"assetPath": asset_path}
     if domain == "blueprint":
         arguments["graphName"] = graph_name
+        arguments["commands"] = steps
+    else:
+        arguments["ops"] = steps
     payload = call_domain_tool(
         client,
         request_id,
@@ -1550,22 +1587,14 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [{"op": "removeNode", "args": {"target": {}}}],
+                "commands": [{"kind": "removeNode", "node": {}}],
             },
             expect_error=True,
         )
         bad_remove_struct = structured_detail_or_payload(bad_remove)
-        bad_remove_results = bad_remove_struct.get("opResults")
-        if not isinstance(bad_remove_results, list) or not bad_remove_results:
-            fail(f"graph.mutate error detail missing opResults: {bad_remove_struct}")
-        first_bad_remove = bad_remove_results[0] if isinstance(bad_remove_results[0], dict) else {}
-        error_code = first_bad_remove.get("errorCode")
-        error_message = first_bad_remove.get("errorMessage")
-        if not isinstance(error_code, str) or not error_code:
-            fail(f"graph.mutate opResults[0] missing errorCode: {bad_remove_struct}")
-        if not isinstance(error_message, str) or not error_message:
-            fail(f"graph.mutate opResults[0] missing errorMessage: {bad_remove_struct}")
-        print("[PASS] blueprint.mutate structured op error fields validated")
+        if bad_remove_struct.get("code") != "INVALID_ARGUMENT":
+            fail(f"blueprint.graph.edit invalid command should return INVALID_ARGUMENT: {bad_remove_struct}")
+        print("[PASS] blueprint.graph.edit command validation error path validated")
 
         add_a = call_domain_tool(
             client,
@@ -1575,15 +1604,7 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {
-                        "op": "addNode.byClass",
-                        "args": {
-                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
-                            "position": {"x": 0, "y": 0},
-                        },
-                    }
-                ],
+                "commands": [bp_branch({"x": 0, "y": 0})],
             },
         )
         node_a = op_ok(add_a).get("nodeId")
@@ -1598,15 +1619,7 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {
-                        "op": "addNode.byClass",
-                        "args": {
-                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
-                            "position": {"x": 320, "y": 0},
-                        },
-                    }
-                ],
+                "commands": [bp_branch({"x": 320, "y": 0})],
             },
         )
         node_b = op_ok(add_b).get("nodeId")
@@ -1637,15 +1650,7 @@ def main() -> int:
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
                 "expectedRevision": blueprint_revision_r0,
-                "ops": [
-                    {
-                        "op": "addNode.byClass",
-                        "args": {
-                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
-                            "position": {"x": 640, "y": 0},
-                        },
-                    }
-                ],
+                "commands": [bp_branch({"x": 640, "y": 0})],
             },
         )
         op_ok(blueprint_revision_apply)
@@ -1678,15 +1683,7 @@ def main() -> int:
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
                 "expectedRevision": blueprint_revision_r0,
-                "ops": [
-                    {
-                        "op": "addNode.byClass",
-                        "args": {
-                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
-                            "position": {"x": 960, "y": 0},
-                        },
-                    }
-                ],
+                "commands": [bp_branch({"x": 960, "y": 0})],
             },
             expect_error=True,
         )
@@ -1721,15 +1718,7 @@ def main() -> int:
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
                 "dryRun": True,
-                "ops": [
-                    {
-                        "op": "addNode.byClass",
-                        "args": {
-                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
-                            "position": {"x": 1120, "y": 0},
-                        },
-                    }
-                ],
+                "commands": [bp_branch({"x": 1120, "y": 0})],
             },
         )
         blueprint_dry_run_first = op_ok(blueprint_dry_run)
@@ -1760,7 +1749,7 @@ def main() -> int:
             )
         print("[PASS] blueprint dryRun revision metadata validated")
 
-        dry_run_run_script_inline = call_domain_tool(
+        bad_graph_command = call_domain_tool(
             client,
             10921,
             "blueprint",
@@ -1769,50 +1758,13 @@ def main() -> int:
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
                 "dryRun": True,
-                "ops": [
-                    {
-                        "op": "runScript",
-                        "args": {
-                            "mode": "inlineCode",
-                            "entry": "run",
-                            "code": "def run(ctx):\n  return {'ok': True, 'dryRun': ctx.get('dryRun', False)}",
-                        },
-                    }
-                ],
+                "commands": [{"kind": "runScript"}],
             },
             expect_error=True,
         )
-        if extract_nested_error_code(dry_run_run_script_inline) != "UNSUPPORTED_OP":
-            fail(f"Blueprint dryRun runScript inlineCode should surface UNSUPPORTED_OP: {dry_run_run_script_inline}")
-
-        dry_run_run_script_missing_module = call_domain_tool(
-            client,
-            10922,
-            "blueprint",
-            "mutate",
-            {
-                "assetPath": temp_asset,
-                "graphName": "EventGraph",
-                "dryRun": True,
-                "ops": [
-                    {
-                        "op": "runScript",
-                        "args": {
-                            "mode": "scriptId",
-                            "scriptId": "no_such_loomle_module",
-                            "entry": "run",
-                        },
-                    }
-                ],
-            },
-            expect_error=True,
-        )
-        if extract_nested_error_code(dry_run_run_script_missing_module) != "UNSUPPORTED_OP":
-            fail(
-                "Blueprint dryRun runScript scriptId should surface UNSUPPORTED_OP even for missing modules: "
-                f"{dry_run_run_script_missing_module}"
-            )
-        print("[PASS] blueprint runScript removal validated")
+        if extract_nested_error_code(bad_graph_command) != "INVALID_ARGUMENT":
+            fail(f"Blueprint unsupported graph.edit command should surface INVALID_ARGUMENT: {bad_graph_command}")
+        print("[PASS] blueprint.graph.edit unsupported command rejected")
 
         partial_apply_node = call_domain_tool(
             client,
@@ -1822,15 +1774,7 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {
-                        "op": "addNode.byClass",
-                        "args": {
-                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
-                            "position": {"x": 1536, "y": 0},
-                        },
-                    }
-                ],
+                "commands": [bp_branch({"x": 1536, "y": 0})],
             },
         )
         partial_apply_node_id = op_ok(partial_apply_node).get("nodeId")
@@ -1852,29 +1796,16 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {"op": "removeNode", "args": {"nodeId": partial_apply_node_id}},
-                    {"op": "addNode", "args": {"nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse"}},
+                "commands": [
+                    bp_remove(partial_apply_node_id),
+                    {"kind": "unknownCommand"},
                 ],
             },
             expect_error=True,
         )
         partial_apply_struct = structured_detail_or_payload(partial_apply_failure)
-        if partial_apply_struct.get("code") != "UNSUPPORTED_OP":
-            fail(f"Blueprint partial-apply batch should surface UNSUPPORTED_OP in structured detail: {partial_apply_failure}")
-        if partial_apply_struct.get("applied") is not False:
-            fail(f"Blueprint partial-apply batch should report applied=false: {partial_apply_struct}")
-        if partial_apply_struct.get("partialApplied") is not True:
-            fail(f"Blueprint partial-apply batch should report partialApplied=true: {partial_apply_struct}")
-        partial_apply_results = partial_apply_struct.get("opResults")
-        if not isinstance(partial_apply_results, list) or len(partial_apply_results) != 2:
-            fail(f"Blueprint partial-apply batch missing opResults: {partial_apply_struct}")
-        partial_apply_first = partial_apply_results[0] if isinstance(partial_apply_results[0], dict) else {}
-        partial_apply_second = partial_apply_results[1] if isinstance(partial_apply_results[1], dict) else {}
-        if partial_apply_first.get("ok") is not True or partial_apply_first.get("changed") is not True:
-            fail(f"Blueprint partial-apply first op should be applied and changed: {partial_apply_struct}")
-        if partial_apply_second.get("errorCode") != "UNSUPPORTED_OP":
-            fail(f"Blueprint partial-apply second op should fail as UNSUPPORTED_OP: {partial_apply_struct}")
+        if partial_apply_struct.get("code") != "INVALID_ARGUMENT":
+            fail(f"Blueprint invalid command batch should fail before apply: {partial_apply_failure}")
         partial_apply_after = query_graph_payload(
             client,
             10926,
@@ -1883,20 +1814,16 @@ def main() -> int:
             limit=200,
         )
         partial_apply_after_nodes = partial_apply_after.get("semanticSnapshot", {}).get("nodes", [])
-        if partial_apply_after.get("revision") == partial_apply_before_revision:
-            fail(
-                "Blueprint partial-apply batch should still advance revision when an earlier op committed: "
-                f"before={partial_apply_before} after={partial_apply_after}"
-            )
+        if partial_apply_after.get("revision") != partial_apply_before_revision:
+            fail(f"Blueprint invalid command batch should not advance revision: before={partial_apply_before} after={partial_apply_after}")
         if any(
             isinstance(node, dict) and node.get("id") == partial_apply_node_id
             for node in partial_apply_after_nodes or []
         ):
-            fail(
-                "Blueprint partial-apply batch should have removed the earlier node despite later failure: "
-                f"{partial_apply_after}"
-            )
-        print("[PASS] blueprint partialApplied mutate metadata validated")
+            pass
+        else:
+            fail(f"Blueprint invalid command batch should not remove earlier node: {partial_apply_after}")
+        print("[PASS] blueprint.graph.edit invalid command batch preflight validated")
 
         blueprint_idem_key = "bp-idem-1"
         blueprint_idem_before = query_graph_payload(
@@ -1917,15 +1844,7 @@ def main() -> int:
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
                 "idempotencyKey": blueprint_idem_key,
-                "ops": [
-                    {
-                        "op": "addNode.byClass",
-                        "args": {
-                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
-                            "position": {"x": 1280, "y": 0},
-                        },
-                    }
-                ],
+                "commands": [bp_branch({"x": 1280, "y": 0})],
             },
         )
         blueprint_idem_first_op = op_ok(blueprint_idem_first)
@@ -1959,15 +1878,7 @@ def main() -> int:
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
                 "idempotencyKey": blueprint_idem_key,
-                "ops": [
-                    {
-                        "op": "addNode.byClass",
-                        "args": {
-                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
-                            "position": {"x": 1280, "y": 0},
-                        },
-                    }
-                ],
+                "commands": [bp_branch({"x": 1280, "y": 0})],
             },
         )
         blueprint_idem_second_op = op_ok(blueprint_idem_second)
@@ -2009,23 +1920,9 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {
-                        "op": "addNode.byClass",
-                        "clientRef": "dup_ref",
-                        "args": {
-                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
-                            "position": {"x": 1440, "y": 0},
-                        },
-                    },
-                    {
-                        "op": "addNode.byClass",
-                        "clientRef": "dup_ref",
-                        "args": {
-                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
-                            "position": {"x": 1600, "y": 0},
-                        },
-                    },
+                "commands": [
+                    bp_branch({"x": 1440, "y": 0}, alias="dup_ref"),
+                    bp_branch({"x": 1600, "y": 0}, alias="dup_ref"),
                 ],
             },
             expect_error=True,
@@ -2079,15 +1976,7 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {
-                        "op": "connectPins",
-                        "args": {
-                            "from": {"nodeId": node_a, "pin": "then"},
-                            "to": {"nodeId": node_b, "pin": "execute"},
-                        },
-                    }
-                ],
+                "commands": [bp_connect(node_a, "then", node_b, "execute")],
             },
         )
         op_ok(connect_payload)
@@ -2100,14 +1989,7 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {
-                        "op": "breakPinLinks",
-                        "args": {
-                            "target": {"nodeId": node_a, "pin": "then"},
-                        },
-                    }
-                ],
+                "commands": [bp_break_links(node_a, "then")],
             },
         )
         op_ok(break_payload)
@@ -2120,15 +2002,7 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {
-                        "op": "connectPins",
-                        "args": {
-                            "from": {"nodeId": node_a, "pin": "then"},
-                            "to": {"nodeId": node_b, "pin": "execute"},
-                        },
-                    }
-                ],
+                "commands": [bp_connect(node_a, "then", node_b, "execute")],
             },
         )
         op_ok(reconnect_payload)
@@ -2141,15 +2015,7 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {
-                        "op": "disconnectPins",
-                        "args": {
-                            "from": {"nodeId": node_a, "pin": "then"},
-                            "to": {"nodeId": node_b, "pin": "execute"},
-                        },
-                    }
-                ],
+                "commands": [bp_disconnect(node_a, "then", node_b, "execute")],
             },
         )
         op_ok(disconnect_payload)
@@ -2162,15 +2028,7 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {
-                        "op": "setPinDefault",
-                        "args": {
-                            "target": {"nodeId": node_b, "pin": "Condition"},
-                            "value": "true",
-                        },
-                    }
-                ],
+                "commands": [bp_set_default(node_b, "Condition", "true")],
             },
         )
         op_ok(set_default_payload)
@@ -2183,15 +2041,7 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {
-                        "op": "setPinDefault",
-                        "args": {
-                            "target": {"nodeId": node_b, "pinName": "DefinitelyMissingPin"},
-                            "value": "true",
-                        },
-                    }
-                ],
+                "commands": [bp_set_default(node_b, "DefinitelyMissingPin", "true")],
             },
             expect_error=True,
         )
@@ -2231,15 +2081,8 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {
-                        "op": "moveNode",
-                        "args": {
-                            "nodeId": node_b,
-                            "x": 640,
-                            "y": 120,
-                        },
-                    }
+                "commands": [
+                    {"kind": "moveNode", "node": bp_node(node_b), "position": {"x": 640, "y": 120}}
                 ],
             },
         )
@@ -2253,21 +2096,14 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {
-                        "op": "moveNodeBy",
-                        "args": {
-                            "nodeId": node_b,
-                            "dx": 16,
-                            "dy": 32,
-                        },
-                    }
+                "commands": [
+                    {"kind": "moveNode", "node": bp_node(node_b), "delta": {"x": 16, "y": 32}}
                 ],
             },
         )
         op_ok(move_by_payload)
 
-        move_nodes_payload = call_domain_tool(
+        move_node_a_payload = call_domain_tool(
             client,
             1802,
             "blueprint",
@@ -2275,132 +2111,37 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {
-                        "op": "moveNodes",
-                        "args": {
-                            "nodeIds": [node_a, node_b],
-                            "dx": 16,
-                            "dy": 0,
-                        },
-                    }
+                "commands": [
+                    {"kind": "moveNode", "node": bp_node(node_a), "delta": {"x": 16, "y": 0}}
                 ],
             },
         )
-        move_nodes_first = op_ok(move_nodes_payload)
-        if move_nodes_first.get("op") != "movenodes":
-            fail(f"graph.mutate moveNodes wrong op echo: {move_nodes_first}")
+        op_ok(move_node_a_payload)
 
         compile_payload = call_domain_tool(
             client,
             19,
             "blueprint",
-            "mutate",
+            "compile",
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {"op": "compile"},
-                ],
             },
         )
-        compile_first = op_ok(compile_payload)
         nodes_after_compile = query_nodes(client, 20, temp_asset, "EventGraph")
-        compile_revision_after = call_domain_tool(
-            client,
-            201,
-            "blueprint",
-            "query",
-            {"assetPath": temp_asset, "graphName": "EventGraph", "limit": 200},
-        )
-        if compile_first.get("changed") is not False:
-            fail(f"Blueprint compile should report changed=false when graph revision is unchanged: {compile_payload}")
-        if compile_payload.get("previousRevision") != compile_payload.get("newRevision"):
-            fail(f"Blueprint compile mutate should keep previousRevision/newRevision aligned when graph is unchanged: {compile_payload}")
-        if compile_revision_after.get("revision") != compile_payload.get("newRevision"):
-            fail(
-                "Blueprint compile mutate revision metadata should match graph.query: "
-                f"mutate={compile_payload} query={compile_revision_after}"
-            )
+        if compile_payload.get("compiled") is not True and compile_payload.get("status") not in {"clean", "compiled"}:
+            fail(f"Blueprint compile should return a successful compile report: {compile_payload}")
 
         nodes_before_remove = nodes_after_compile
         node_a_info = require_node(nodes_before_remove, node_a)
         node_b_info = require_node(nodes_before_remove, node_b)
         node_a_layout = require_layout(node_a_info)
         node_b_layout = require_layout(node_b_info)
-        node_a_path = node_a_info.get("path")
-        node_b_name = node_b_info.get("name")
-        if not isinstance(node_a_path, str) or not node_a_path:
-            fail(f"graph.query did not return path for {node_a}: {node_a_info}")
-        if not isinstance(node_b_name, str) or not node_b_name:
-            fail(f"graph.query did not return name for {node_b}: {node_b_info}")
         if node_a_layout.get("position", {}).get("x") != 16 or node_a_layout.get("position", {}).get("y") != 0:
-            fail(f"graph.mutate moveNodes did not update node_a layout as expected: {node_a_info}")
+            fail(f"blueprint.graph.edit moveNode delta did not update node_a layout as expected: {node_a_info}")
         node_b_pos = node_b_layout.get("position", {})
-        if node_b_pos.get("x") != 672 or node_b_pos.get("y") not in {144, 160}:
-            fail(f"graph.mutate moveNode/moveNodeBy/moveNodes did not update node_b layout as expected: {node_b_info}")
-
-        reconnect_for_layout_payload = call_tool(
-            client,
-            1803,
-            "blueprint.mutate",
-            {
-                "assetPath": temp_asset,
-                "graphName": "EventGraph",
-                "ops": [
-                    {
-                        "op": "connectPins",
-                        "args": {
-                            "from": {"nodeId": node_a, "pin": "then"},
-                            "to": {"nodeId": node_b, "pin": "execute"},
-                        },
-                    },
-                    {"op": "layoutGraph", "args": {"scope": "touched"}},
-                ],
-            },
-            expect_error=True,
-        )
-        reconnect_results = reconnect_for_layout_payload.get("opResults")
-        if not isinstance(reconnect_results, list) or len(reconnect_results) != 2:
-            fail(f"blueprint touched-layout batch opResults mismatch: {reconnect_for_layout_payload}")
-        reconnect_first = reconnect_results[0] if isinstance(reconnect_results[0], dict) else {}
-        if reconnect_first.get("ok") is not True:
-            fail(f"blueprint touched-layout connectPins failed: {reconnect_for_layout_payload}")
-        layout_first = reconnect_results[1] if isinstance(reconnect_results[1], dict) else {}
-        if layout_first.get("op") != "layoutgraph":
-            fail(f"graph.mutate layoutGraph wrong op echo: {layout_first}")
-        touched_layout_skipped = False
-        if layout_first.get("ok") is not True:
-            if (
-                layout_first.get("errorCode") == "INTERNAL_ERROR"
-                and "No touched nodes are pending for layout." in str(layout_first.get("errorMessage", ""))
-            ):
-                touched_layout_skipped = True
-                print("[WARN] blueprint layoutGraph(scope=touched) reported no pending touched nodes; skipping touched-layout position assertion")
-            else:
-                fail(f"blueprint touched-layout layoutGraph failed: {reconnect_for_layout_payload}")
-        if not touched_layout_skipped:
-            moved_node_ids = layout_first.get("movedNodeIds")
-            if not isinstance(moved_node_ids, list):
-                fail(f"graph.mutate layoutGraph missing movedNodeIds: {layout_first}")
-            if not moved_node_ids:
-                fail(f"graph.mutate layoutGraph moved no nodes after touched edits: {layout_first}")
-
-            nodes_after_layout = query_nodes(client, 1805, temp_asset, "EventGraph")
-            node_a_after_layout = require_layout(require_node(nodes_after_layout, node_a))
-            node_b_after_layout = require_layout(require_node(nodes_after_layout, node_b))
-            if (
-                node_a_after_layout.get("position") == node_a_layout.get("position")
-                and node_b_after_layout.get("position") == node_b_layout.get("position")
-            ):
-                fail(
-                    "graph.mutate layoutGraph did not change any tracked node positions: "
-                    f"nodeA={node_a_after_layout} nodeB={node_b_after_layout}"
-                )
-        if touched_layout_skipped:
-            print("[PASS] blueprint layoutGraph(scope=touched) current runtime behavior validated")
-        else:
-            print("[PASS] graph.mutate layoutGraph touched scope validated")
+        if node_b_pos.get("x") != 656 or node_b_pos.get("y") not in {144, 160}:
+            fail(f"blueprint.graph.edit moveNode position/delta did not update node_b layout as expected: {node_b_info}")
 
         add_without_position = call_domain_tool(
             client,
@@ -2410,14 +2151,7 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {
-                        "op": "addNode.byClass",
-                        "args": {
-                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
-                        },
-                    }
-                ],
+                "commands": [bp_branch()],
             },
         )
         node_e = op_ok(add_without_position).get("nodeId")
@@ -2437,7 +2171,7 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [{"op": "removeNode", "args": {"nodeId": node_e}}],
+                "commands": [bp_remove(node_e)],
             },
         )
         op_ok(remove_e)
@@ -2451,12 +2185,7 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {
-                        "op": "removeNode",
-                        "args": {"nodePath": node_a_path},
-                    }
-                ],
+                "commands": [bp_remove(node_a)],
             },
         )
         op_ok(remove_a)
@@ -2471,12 +2200,7 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {
-                        "op": "removeNode",
-                        "args": {"nodeName": node_b_name},
-                    }
-                ],
+                "commands": [bp_remove(node_b)],
             },
         )
         op_ok(remove_b)
@@ -2491,15 +2215,7 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {
-                        "op": "addNode.byClass",
-                        "args": {
-                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
-                            "position": {"x": 960, "y": 0},
-                        },
-                    }
-                ],
+                "commands": [bp_branch({"x": 960, "y": 0})],
             },
         )
         node_c = op_ok(add_c).get("nodeId")
@@ -2514,12 +2230,7 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {
-                        "op": "removeNode",
-                        "args": {"nodeId": node_c},
-                    }
-                ],
+                "commands": [bp_remove(node_c)],
             },
         )
         op_ok(remove_c)
@@ -2533,15 +2244,7 @@ def main() -> int:
             "mutate",
             {
                 "graphRef": {"kind": "asset", "assetPath": temp_asset, "graphName": "EventGraph"},
-                "ops": [
-                    {
-                        "op": "addNode.byClass",
-                        "args": {
-                            "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
-                            "position": {"x": 1280, "y": 0},
-                        },
-                    }
-                ],
+                "commands": [bp_branch({"x": 1280, "y": 0})],
             },
         )
         node_d = op_ok(add_via_graph_ref).get("nodeId")
@@ -2556,32 +2259,24 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": [
-                    {
-                        "op": "removeNode",
-                        "targetGraphRef": {"kind": "asset", "assetPath": temp_asset, "graphName": "EventGraph"},
-                        "args": {"nodeId": node_d},
-                    }
-                ],
+                "commands": [bp_remove(node_d)],
             },
         )
         op_ok(remove_via_target_graph_ref)
         nodes_after_remove_d = query_nodes(client, 30, temp_asset, "EventGraph")
         require_node_absent(nodes_after_remove_d, node_d)
 
-        print("[PASS] graph.mutate removeNode validated for nodeId/nodePath/nodeName")
-        print("[PASS] graph.mutate graphRef(asset) and targetGraphRef(asset) validated")
+        print("[PASS] blueprint.graph.edit removeNode validated for stable node ids")
+        print("[PASS] blueprint.graph.edit graphRef(asset) validated")
 
         bulk_branch_ops = []
         for index in range(60):
             bulk_branch_ops.append(
                 {
-                    "op": "addNode.byClass",
-                    "clientRef": f"bulk_branch_{index}",
-                    "args": {
-                        "nodeClassPath": "/Script/BlueprintGraph.K2Node_IfThenElse",
-                        "position": {"x": 2200 + (index * 48), "y": 1800},
-                    },
+                    "kind": "addNode",
+                    "alias": f"bulk_branch_{index}",
+                    "nodeType": {"kind": "branch"},
+                    "position": {"x": 2200 + (index * 48), "y": 1800},
                 }
             )
         bulk_blueprint_insert = call_domain_tool(
@@ -2592,7 +2287,7 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "ops": bulk_branch_ops,
+                "commands": bulk_branch_ops,
             },
         )
         op_ok(bulk_blueprint_insert)
