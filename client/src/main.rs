@@ -661,6 +661,10 @@ impl LoomleProxyServer {
             .get("functions")
             .and_then(|value| value.as_array())
             .map_or(0, |items| items.len());
+        let interface_functions = payload
+            .get("interfaceFunctions")
+            .and_then(|value| value.as_array())
+            .map_or(0, |items| items.len());
         let components = payload
             .get("components")
             .and_then(|value| value.as_array())
@@ -682,6 +686,7 @@ impl LoomleProxyServer {
             "implementedInterfaces": payload.get("implementedInterfaces").cloned().unwrap_or(serde_json::json!([])),
             "variables": payload.get("variables").cloned().unwrap_or(serde_json::json!([])),
             "functions": payload.get("functions").cloned().unwrap_or(serde_json::json!([])),
+            "interfaceFunctions": payload.get("interfaceFunctions").cloned().unwrap_or(serde_json::json!([])),
             "macros": payload.get("macros").cloned().unwrap_or(serde_json::json!([])),
             "dispatchers": payload.get("dispatchers").cloned().unwrap_or(serde_json::json!([])),
             "eventSignatures": payload.get("eventSignatures").cloned().unwrap_or(serde_json::json!([])),
@@ -690,6 +695,7 @@ impl LoomleProxyServer {
                 "interfaceCount": interfaces,
                 "variableCount": variables,
                 "functionCount": functions,
+                "interfaceFunctionCount": interface_functions,
                 "componentCount": components,
                 "eventSignatureCount": event_signatures
             }

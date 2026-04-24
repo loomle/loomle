@@ -723,6 +723,31 @@ def main() -> int:
         interface_class_path = interface_fixture.get("classPath")
         if not isinstance(interface_class_path, str) or not interface_class_path:
             fail(f"failed to resolve Blueprint Interface class path: {interface_fixture}")
+        dry_run_interface_payload = call_tool(
+            client,
+            606,
+            "blueprint.asset.edit",
+            {
+                "assetPath": temp_asset,
+                "operation": "addInterface",
+                "args": {"interfaceClassPath": interface_class_path},
+                "dryRun": True,
+            },
+        )
+        if dry_run_interface_payload.get("applied") is not False or dry_run_interface_payload.get("dryRun") is not True:
+            fail(f"blueprint.asset.edit addInterface dryRun shape mismatch: {dry_run_interface_payload}")
+        dry_run_list_payload = call_tool(
+            client,
+            607,
+            "blueprint.asset.edit",
+            {"assetPath": temp_asset, "operation": "listInterfaces"},
+        )
+        dry_run_interfaces = dry_run_list_payload.get("interfaces")
+        if not isinstance(dry_run_interfaces, list) or any(
+            isinstance(entry, dict) and entry.get("classPath") == interface_class_path
+            for entry in dry_run_interfaces
+        ):
+            fail(f"blueprint.asset.edit dryRun unexpectedly added interface: {dry_run_list_payload}")
         add_interface_payload = call_tool(
             client,
             601,
@@ -1164,9 +1189,23 @@ def main() -> int:
         component_items = component_inspect_payload.get("items")
         if not isinstance(component_items, list):
             fail(f"blueprint.member.inspect component items missing: {component_inspect_payload}")
-        macro_inspect_payload = call_tool(
+        dry_run_member_payload = call_tool(
             client,
             6529,
+            "blueprint.member.edit",
+            {
+                "assetPath": temp_asset,
+                "memberKind": "variable",
+                "operation": "create",
+                "args": {"variableName": "DryRunVariable", "type": {"category": "bool"}},
+                "dryRun": True,
+            },
+        )
+        if dry_run_member_payload.get("applied") is not False or dry_run_member_payload.get("dryRun") is not True:
+            fail(f"blueprint.member.edit dryRun shape mismatch: {dry_run_member_payload}")
+        macro_inspect_payload = call_tool(
+            client,
+            6531,
             "blueprint.member.inspect",
             {"assetPath": temp_asset, "memberKind": "macro"},
         )
@@ -1178,7 +1217,7 @@ def main() -> int:
             fail(f"blueprint.member.inspect macro items missing renamed macro: {macro_inspect_payload}")
         dispatcher_inspect_payload = call_tool(
             client,
-            6530,
+            6532,
             "blueprint.member.inspect",
             {"assetPath": temp_asset, "memberKind": "dispatcher"},
         )
