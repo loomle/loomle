@@ -4,6 +4,11 @@ This directory contains source-checkout release helpers.
 
 Primary entrypoints:
 
+- `../tools/bump_release_version.py`
+  - update `client/Cargo.toml`
+  - update `client/Cargo.lock`
+  - update `LoomleBridge.uplugin` `VersionName`
+  - increment `LoomleBridge.uplugin` `Version`
 - `build_local_release.py`
   - build the Rust server and client
   - assemble a release bundle

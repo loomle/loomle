@@ -58,6 +58,7 @@
 #include "IMaterialEditor.h"
 #include "MaterialEditorUtilities.h"
 #include "Interfaces/IMainFrameModule.h"
+#include "Interfaces/IPluginManager.h"
 #include "LevelEditor.h"
 #include "Misc/App.h"
 #include "Misc/FileHelper.h"
@@ -157,7 +158,6 @@ namespace LoomleBridgeConstants
     static const TCHAR* MaterialQueryToolName = TEXT("material.query");
     static const TCHAR* PcgQueryToolName = TEXT("pcg.query");
     static const TCHAR* DiagTailToolName = TEXT("diag.tail");
-    static const TCHAR* PluginVersion = TEXT("0.5.4");
     constexpr int32 ProtocolVersion = 1;
     constexpr double MutateIdempotencyTtlSeconds = 1800.0;
     constexpr int32 MaxMutateIdempotencyEntries = 2048;
@@ -165,6 +165,18 @@ namespace LoomleBridgeConstants
 
 namespace
 {
+FString GetLoomleBridgePluginVersion()
+{
+    const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("LoomleBridge"));
+    if (!Plugin.IsValid())
+    {
+        return TEXT("unknown");
+    }
+
+    const FString& VersionName = Plugin->GetDescriptor().VersionName;
+    return VersionName.IsEmpty() ? TEXT("unknown") : VersionName;
+}
+
 #if PLATFORM_WINDOWS
 bool CaptureNativeWindowToColorData(HWND WindowHandle, TArray<FColor>& OutColorData, FIntVector& OutImageSize, FString& OutError)
 {
@@ -3994,7 +4006,7 @@ void FLoomleBridgeModule::WriteRuntimeRegistration()
     Record->SetStringField(TEXT("platform"), TEXT("unknown"));
 #endif
     Record->SetNumberField(TEXT("pid"), static_cast<double>(FPlatformProcess::GetCurrentProcessId()));
-    Record->SetStringField(TEXT("pluginVersion"), LoomleBridgeConstants::PluginVersion);
+    Record->SetStringField(TEXT("pluginVersion"), GetLoomleBridgePluginVersion());
     Record->SetNumberField(TEXT("protocolVersion"), LoomleBridgeConstants::ProtocolVersion);
     const FString Now = FDateTime::UtcNow().ToIso8601();
     Record->SetStringField(TEXT("startedAt"), Now);

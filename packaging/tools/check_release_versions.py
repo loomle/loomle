@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import argparse
 import json
-import re
 import sys
 import tomllib
 from pathlib import Path
@@ -18,23 +17,25 @@ def read_cargo_version(path: Path) -> str:
     return version
 
 
+def read_cargo_lock_package_version(path: Path, package_name: str) -> str:
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    for package in data.get("package", []):
+        if package.get("name") == package_name:
+            version = package.get("version")
+            if not isinstance(version, str) or not version:
+                raise SystemExit(
+                    f"invalid {package_name} package version in {path}: {version!r}"
+                )
+            return version
+    raise SystemExit(f"missing {package_name} package in {path}")
+
+
 def read_uplugin_version_name(path: Path) -> str:
     data = json.loads(path.read_text(encoding="utf-8"))
     version_name = data.get("VersionName")
     if not isinstance(version_name, str) or not version_name:
         raise SystemExit(f"invalid VersionName in {path}: {version_name!r}")
     return version_name
-
-
-def read_bridge_plugin_version(path: Path) -> str:
-    source = path.read_text(encoding="utf-8")
-    match = re.search(r'PluginVersion\s*=\s*TEXT\("([^"]+)"\)', source)
-    if not match:
-        raise SystemExit(f"missing PluginVersion constant in {path}")
-    version = match.group(1)
-    if not version:
-        raise SystemExit(f"invalid PluginVersion in {path}: {version!r}")
-    return version
 
 
 def main() -> int:
@@ -57,12 +58,11 @@ def main() -> int:
     repo_root = args.repo_root.resolve()
     versions = {
         "client": read_cargo_version(repo_root / "client/Cargo.toml"),
+        "client_lock": read_cargo_lock_package_version(
+            repo_root / "client/Cargo.lock", "loomle"
+        ),
         "loomle_bridge_uplugin": read_uplugin_version_name(
             repo_root / "engine/LoomleBridge/LoomleBridge.uplugin"
-        ),
-        "loomle_bridge_runtime": read_bridge_plugin_version(
-            repo_root
-            / "engine/LoomleBridge/Source/LoomleBridge/Private/LoomleBridgeModule.cpp"
         ),
     }
 
