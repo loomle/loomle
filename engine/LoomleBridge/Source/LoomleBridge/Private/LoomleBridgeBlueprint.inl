@@ -1,11 +1,16 @@
 // Blueprint-domain tool adapters.
 namespace
 {
-TSharedPtr<FJsonObject> MakeBlueprintGraphAssetRef(const FString& AssetPath, const FString& GraphName)
+TSharedPtr<FJsonObject> MakeBlueprintGraphAssetRef(const FString& AssetPath, const FString& GraphName, const FString& GraphId = FString())
 {
     TSharedPtr<FJsonObject> Ref = MakeShared<FJsonObject>();
     Ref->SetStringField(TEXT("kind"), TEXT("asset"));
     Ref->SetStringField(TEXT("assetPath"), AssetPath);
+    if (!GraphId.IsEmpty())
+    {
+        Ref->SetStringField(TEXT("graphId"), GraphId);
+        Ref->SetStringField(TEXT("id"), GraphId);
+    }
     if (!GraphName.IsEmpty())
     {
         Ref->SetStringField(TEXT("graphName"), GraphName);
@@ -936,6 +941,26 @@ bool BuildBlueprintQueryAddress(
         Kind = Kind.ToLower();
         if (Kind.Equals(TEXT("asset")))
         {
+            FString GraphId;
+            if ((!(*GraphRefObj)->TryGetStringField(TEXT("graphId"), GraphId) || GraphId.IsEmpty())
+                && (!(*GraphRefObj)->TryGetStringField(TEXT("id"), GraphId) || GraphId.IsEmpty()))
+            {
+                GraphId.Empty();
+            }
+
+            if (!GraphId.IsEmpty())
+            {
+                FString ResolveError;
+                if (!FLoomleBlueprintAdapter::ResolveGraphNameById(OutAssetPath, GraphId, OutGraphName, ResolveError))
+                {
+                    Result->SetBoolField(TEXT("isError"), true);
+                    Result->SetStringField(TEXT("code"), TEXT("GRAPH_NOT_FOUND"));
+                    Result->SetStringField(TEXT("message"), ResolveError.IsEmpty() ? TEXT("Failed to resolve graphRef.graphId.") : ResolveError);
+                    return false;
+                }
+                return true;
+            }
+
             if (!(*GraphRefObj)->TryGetStringField(TEXT("graphName"), OutGraphName) || OutGraphName.IsEmpty())
             {
                 OutGraphName = TEXT("EventGraph");
@@ -997,7 +1022,10 @@ TSharedPtr<FJsonObject> MakeBlueprintEffectiveGraphRef(const FString& AssetPath,
     {
         return MakeBlueprintInlineGraphRef(InlineNodeGuid, AssetPath);
     }
-    return MakeBlueprintGraphAssetRef(AssetPath, GraphName);
+    FString GraphId;
+    FString Error;
+    FLoomleBlueprintAdapter::ResolveGraphIdByName(AssetPath, GraphName, GraphId, Error);
+    return MakeBlueprintGraphAssetRef(AssetPath, GraphName, GraphId);
 }
 
 }
@@ -1047,11 +1075,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintListToolResult(const 
 
         FString GraphName;
         (*GraphObj)->TryGetStringField(TEXT("graphName"), GraphName);
+        FString GraphId;
+        (*GraphObj)->TryGetStringField(TEXT("graphId"), GraphId);
 
         FString GraphKind;
         (*GraphObj)->TryGetStringField(TEXT("graphKind"), GraphKind);
         (*GraphObj)->SetStringField(TEXT("graphKind"), NormalizeBlueprintGraphKindForDomain(GraphKind));
-        (*GraphObj)->SetObjectField(TEXT("graphRef"), MakeBlueprintGraphAssetRef(AssetPath, GraphName));
+        (*GraphObj)->SetObjectField(TEXT("graphRef"), MakeBlueprintGraphAssetRef(AssetPath, GraphName, GraphId));
         (*GraphObj)->SetField(TEXT("parentGraphRef"), MakeShared<FJsonValueNull>());
         (*GraphObj)->SetField(TEXT("ownerNodeId"), MakeShared<FJsonValueNull>());
         (*GraphObj)->SetStringField(TEXT("loadStatus"), TEXT("loaded"));
@@ -3148,7 +3178,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 {
                     FString Error;
                     const bool bOk = FLoomleBlueprintAdapter::SetPinDefaultValue(AssetPath, EffectiveGraphName, TargetNodeId, TargetPinName, Value, Error);
-                    SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, TargetNodeId);
+                    if (!bOk && Error.StartsWith(TEXT("PIN_DEFAULT_REQUIRES_UNLINKED_PIN")))
+                    {
+                        SingleResult = BuildDirectSingleResult(false, false, TEXT("PIN_DEFAULT_REQUIRES_UNLINKED_PIN"), Error, TargetNodeId);
+                    }
+                    else
+                    {
+                        SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, TargetNodeId);
+                    }
                 }
             }
         }

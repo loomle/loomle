@@ -65,6 +65,8 @@ public:
     static bool DescribePinTarget(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeToken, const FString& PinName, FString& OutDetailsJson, FString& OutError);
     static bool ListEventGraphNodes(const FString& BlueprintAssetPath, FString& OutNodesJson, FString& OutError);
     static bool ListBlueprintGraphs(const FString& BlueprintAssetPath, FString& OutGraphsJson, FString& OutError);
+    static bool ResolveGraphIdByName(const FString& BlueprintAssetPath, const FString& GraphName, FString& OutGraphId, FString& OutError);
+    static bool ResolveGraphNameById(const FString& BlueprintAssetPath, const FString& GraphId, FString& OutGraphName, FString& OutError);
     static bool ListGraphNodes(
         const FString& BlueprintAssetPath,
         const FString& GraphName,

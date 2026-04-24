@@ -801,7 +801,16 @@ impl LoomleProxyServer {
 
         let mut result = payload.as_object().cloned().unwrap_or_default();
         if !result.contains_key("graph") {
-            if let Some(graph_name) = result.get("graphName").and_then(|value| value.as_str()) {
+            if let Some(graph_id) = result
+                .get("graphRef")
+                .and_then(|value| value.as_object())
+                .and_then(|graph_ref| graph_ref.get("id").or_else(|| graph_ref.get("graphId")))
+                .and_then(|value| value.as_str())
+            {
+                result.insert("graph".into(), serde_json::json!({ "id": graph_id }));
+            } else if let Some(graph_name) =
+                result.get("graphName").and_then(|value| value.as_str())
+            {
                 result.insert("graph".into(), serde_json::json!({ "name": graph_name }));
             }
         }
@@ -863,7 +872,9 @@ impl LoomleProxyServer {
             Ok(value) => value,
             Err(error) => return Ok(error),
         };
-        let payload = self.runtime_payload("blueprint.verify", legacy_args).await?;
+        let payload = self
+            .runtime_payload("blueprint.verify", legacy_args)
+            .await?;
         if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
             return Ok(CallToolResult::structured_error(payload));
         }
@@ -917,27 +928,27 @@ fn read_required_asset_path(
         .ok_or_else(|| invalid_argument_result(format!("{tool_name} requires assetPath.")))
 }
 
-fn read_optional_graph_name(
+enum BlueprintGraphAddress {
+    Name(String),
+    Ref(serde_json::Map<String, serde_json::Value>),
+}
+
+fn read_optional_graph_address(
     args: &rmcp::model::JsonObject,
+    asset_path: &str,
     require_graph: bool,
     tool_name: &str,
-) -> Result<Option<String>, CallToolResult> {
+) -> Result<Option<BlueprintGraphAddress>, CallToolResult> {
     if let Some(graph_name) = args
         .get("graphName")
         .and_then(|value| value.as_str())
         .filter(|value| !value.is_empty())
     {
-        return Ok(Some(graph_name.to_owned()));
+        return Ok(Some(BlueprintGraphAddress::Name(graph_name.to_owned())));
     }
 
-    if let Some(graph_name) = args
-        .get("graphRef")
-        .and_then(|value| value.as_object())
-        .and_then(|graph_ref| graph_ref.get("graphName"))
-        .and_then(|value| value.as_str())
-        .filter(|value| !value.is_empty())
-    {
-        return Ok(Some(graph_name.to_owned()));
+    if let Some(graph_ref) = args.get("graphRef").and_then(|value| value.as_object()) {
+        return Ok(Some(BlueprintGraphAddress::Ref(graph_ref.clone())));
     }
 
     if let Some(graph_obj) = args.get("graph").and_then(|value| value.as_object()) {
@@ -946,14 +957,18 @@ fn read_optional_graph_name(
             .and_then(|value| value.as_str())
             .filter(|value| !value.is_empty())
         {
-            return Ok(Some(graph_id.to_owned()));
+            let mut graph_ref = serde_json::Map::new();
+            graph_ref.insert("kind".into(), serde_json::json!("asset"));
+            graph_ref.insert("assetPath".into(), serde_json::json!(asset_path));
+            graph_ref.insert("graphId".into(), serde_json::json!(graph_id));
+            return Ok(Some(BlueprintGraphAddress::Ref(graph_ref)));
         }
         if let Some(graph_name) = graph_obj
             .get("name")
             .and_then(|value| value.as_str())
             .filter(|value| !value.is_empty())
         {
-            return Ok(Some(graph_name.to_owned()));
+            return Ok(Some(BlueprintGraphAddress::Name(graph_name.to_owned())));
         }
     }
 
@@ -963,6 +978,21 @@ fn read_optional_graph_name(
         )))
     } else {
         Ok(None)
+    }
+}
+
+fn write_optional_graph_address(
+    target: &mut rmcp::model::JsonObject,
+    address: Option<BlueprintGraphAddress>,
+) {
+    match address {
+        Some(BlueprintGraphAddress::Name(graph_name)) => {
+            target.insert("graphName".into(), serde_json::json!(graph_name));
+        }
+        Some(BlueprintGraphAddress::Ref(graph_ref)) => {
+            target.insert("graphRef".into(), serde_json::Value::Object(graph_ref));
+        }
+        None => {}
     }
 }
 
@@ -992,9 +1022,9 @@ fn translate_blueprint_graph_inspect_args(
     let asset_path = read_required_asset_path(args, "blueprint.graph.inspect")?;
     let mut translated = rmcp::model::JsonObject::new();
     translated.insert("assetPath".into(), serde_json::json!(asset_path));
-    if let Some(graph_name) = read_optional_graph_name(args, true, "blueprint.graph.inspect")? {
-        translated.insert("graphName".into(), serde_json::json!(graph_name));
-    }
+    let graph_address =
+        read_optional_graph_address(args, &asset_path, true, "blueprint.graph.inspect")?;
+    write_optional_graph_address(&mut translated, graph_address);
     for field in [
         "nodeIds",
         "nodeClasses",
@@ -1016,9 +1046,10 @@ fn translate_blueprint_validate_args(
     let asset_path = read_required_asset_path(args, "blueprint.validate")?;
     let mut translated = rmcp::model::JsonObject::new();
     translated.insert("assetPath".into(), serde_json::json!(asset_path));
-    let graph_name = read_optional_graph_name(args, false, "blueprint.validate")?
-        .unwrap_or_else(|| "EventGraph".to_string());
-    translated.insert("graphName".into(), serde_json::json!(graph_name));
+    let graph_address =
+        read_optional_graph_address(args, &asset_path, false, "blueprint.validate")?
+            .unwrap_or_else(|| BlueprintGraphAddress::Name("EventGraph".to_string()));
+    write_optional_graph_address(&mut translated, Some(graph_address));
     for field in ["limit", "cursor", "layoutDetail"] {
         copy_if_present(args, &mut translated, field);
     }
@@ -1497,18 +1528,11 @@ fn translate_blueprint_graph_edit_args(
     args: &rmcp::model::JsonObject,
 ) -> Result<rmcp::model::JsonObject, CallToolResult> {
     let asset_path = read_required_asset_path(args, "blueprint.graph.edit")?;
-    let graph_name = read_optional_graph_name(args, true, "blueprint.graph.edit")?;
-    let has_graph_ref = args
-        .get("graphRef")
-        .and_then(|value| value.as_object())
-        .is_some();
+    let graph_address =
+        read_optional_graph_address(args, &asset_path, true, "blueprint.graph.edit")?;
     let mut translated = rmcp::model::JsonObject::new();
     translated.insert("assetPath".into(), serde_json::json!(asset_path));
-    if has_graph_ref {
-        copy_if_present(args, &mut translated, "graphRef");
-    } else if let Some(graph_name) = graph_name {
-        translated.insert("graphName".into(), serde_json::json!(graph_name));
-    }
+    write_optional_graph_address(&mut translated, graph_address);
     for field in [
         "expectedRevision",
         "idempotencyKey",
@@ -1546,7 +1570,8 @@ fn compile_blueprint_refactor_request(
     args: &rmcp::model::JsonObject,
 ) -> Result<rmcp::model::JsonObject, CallToolResult> {
     let asset_path = read_required_asset_path(args, "blueprint.graph.refactor")?;
-    let graph_name = read_optional_graph_name(args, true, "blueprint.graph.refactor")?;
+    let graph_address =
+        read_optional_graph_address(args, &asset_path, true, "blueprint.graph.refactor")?;
     let transforms = args
         .get("transforms")
         .and_then(|value| value.as_array())
@@ -1731,9 +1756,7 @@ fn compile_blueprint_refactor_request(
     }
     let mut edit_args = rmcp::model::JsonObject::new();
     edit_args.insert("assetPath".into(), serde_json::json!(asset_path));
-    if let Some(graph_name) = graph_name {
-        edit_args.insert("graph".into(), serde_json::json!({ "name": graph_name }));
-    }
+    write_optional_graph_address(&mut edit_args, graph_address);
     edit_args.insert("commands".into(), serde_json::Value::Array(commands));
     for field in [
         "dryRun",
@@ -1898,7 +1921,8 @@ fn compile_blueprint_generate_request(
     args: &rmcp::model::JsonObject,
 ) -> Result<rmcp::model::JsonObject, CallToolResult> {
     let asset_path = read_required_asset_path(args, "blueprint.graph.generate")?;
-    let graph_name = read_optional_graph_name(args, true, "blueprint.graph.generate")?;
+    let graph_address =
+        read_optional_graph_address(args, &asset_path, true, "blueprint.graph.generate")?;
     let recipe_source = args
         .get("recipeSource")
         .and_then(|value| value.as_object())
@@ -1977,9 +2001,7 @@ fn compile_blueprint_generate_request(
 
     let mut edit_args = rmcp::model::JsonObject::new();
     edit_args.insert("assetPath".into(), serde_json::json!(asset_path));
-    if let Some(graph_name) = graph_name {
-        edit_args.insert("graph".into(), serde_json::json!({ "name": graph_name }));
-    }
+    write_optional_graph_address(&mut edit_args, graph_address);
     edit_args.insert("commands".into(), serde_json::Value::Array(commands));
     for field in [
         "dryRun",
@@ -4201,7 +4223,11 @@ fn print_usage() {
 
 #[cfg(test)]
 mod tests {
-    use super::{infer_attached_project_root, Cli, RuntimeProject};
+    use super::{
+        compile_blueprint_refactor_request, infer_attached_project_root,
+        translate_blueprint_graph_edit_args, Cli, RuntimeProject,
+    };
+    use rmcp::model::JsonObject;
     use std::ffi::OsString;
     use std::path::PathBuf;
 
@@ -4339,5 +4365,58 @@ mod tests {
             ],
         );
         assert_eq!(inferred, None);
+    }
+
+    #[test]
+    fn blueprint_graph_edit_translates_graph_id_to_graph_ref() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graph".into(), serde_json::json!({ "id": "graph-guid" }));
+        args.insert(
+            "commands".into(),
+            serde_json::json!([
+                {
+                    "kind": "removeNode",
+                    "node": { "id": "node-guid" }
+                }
+            ]),
+        );
+
+        let translated = translate_blueprint_graph_edit_args(&args).expect("translated args");
+        assert_eq!(translated.get("graphName"), None);
+        assert_eq!(
+            translated
+                .get("graphRef")
+                .and_then(|value| value.get("graphId"))
+                .and_then(|value| value.as_str()),
+            Some("graph-guid")
+        );
+    }
+
+    #[test]
+    fn blueprint_graph_refactor_preserves_graph_id_address() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graph".into(), serde_json::json!({ "id": "graph-guid" }));
+        args.insert(
+            "transforms".into(),
+            serde_json::json!([
+                {
+                    "kind": "replaceNode",
+                    "node": { "id": "node-guid" },
+                    "nodeType": { "kind": "branch" }
+                }
+            ]),
+        );
+
+        let edit_args = compile_blueprint_refactor_request(&args).expect("edit args");
+        assert_eq!(edit_args.get("graph"), None);
+        assert_eq!(
+            edit_args
+                .get("graphRef")
+                .and_then(|value| value.get("graphId"))
+                .and_then(|value| value.as_str()),
+            Some("graph-guid")
+        );
     }
 }

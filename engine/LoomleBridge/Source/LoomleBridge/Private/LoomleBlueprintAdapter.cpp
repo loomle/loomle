@@ -740,6 +740,69 @@ namespace LoomleBlueprintAdapterInternal
         return nullptr;
     }
 
+    static UEdGraph* FindGraphById(UBlueprint* Blueprint, const FString& GraphId)
+    {
+        if (!Blueprint || GraphId.IsEmpty())
+        {
+            return nullptr;
+        }
+
+        FGuid ParsedGuid;
+        const bool bHasParsedGuid = FGuid::Parse(GraphId, ParsedGuid);
+        auto Match = [&GraphId, &ParsedGuid, bHasParsedGuid](UEdGraph* Graph) -> bool
+        {
+            if (!Graph)
+            {
+                return false;
+            }
+            if (bHasParsedGuid && Graph->GraphGuid == ParsedGuid)
+            {
+                return true;
+            }
+            return Graph->GraphGuid.ToString(EGuidFormats::DigitsWithHyphensLower).Equals(GraphId, ESearchCase::IgnoreCase);
+        };
+
+        for (UEdGraph* Graph : Blueprint->UbergraphPages)
+        {
+            if (Match(Graph))
+            {
+                return Graph;
+            }
+        }
+        for (UEdGraph* Graph : Blueprint->FunctionGraphs)
+        {
+            if (Match(Graph))
+            {
+                return Graph;
+            }
+        }
+        for (UEdGraph* Graph : Blueprint->MacroGraphs)
+        {
+            if (Match(Graph))
+            {
+                return Graph;
+            }
+        }
+        for (UEdGraph* Graph : Blueprint->DelegateSignatureGraphs)
+        {
+            if (Match(Graph))
+            {
+                return Graph;
+            }
+        }
+        for (const FBPInterfaceDescription& InterfaceDesc : Blueprint->ImplementedInterfaces)
+        {
+            for (UEdGraph* Graph : InterfaceDesc.Graphs)
+            {
+                if (Match(Graph))
+                {
+                    return Graph;
+                }
+            }
+        }
+        return nullptr;
+    }
+
     static UEdGraph* ResolveTargetGraph(UBlueprint* Blueprint, const FString& GraphName)
     {
         if (!Blueprint)
@@ -1681,6 +1744,9 @@ namespace LoomleBlueprintAdapterInternal
             }
 
             TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+            const FString GraphId = Graph->GraphGuid.ToString(EGuidFormats::DigitsWithHyphensLower);
+            Entry->SetStringField(TEXT("id"), GraphId);
+            Entry->SetStringField(TEXT("graphId"), GraphId);
             Entry->SetStringField(TEXT("graphName"), Graph->GetName());
             Entry->SetStringField(TEXT("graphKind"), GraphKind);
             Entry->SetStringField(TEXT("graphClassPath"), Graph->GetClass() ? Graph->GetClass()->GetPathName() : TEXT(""));
@@ -4724,8 +4790,18 @@ bool FLoomleBlueprintAdapter::SetPinDefaultValue(const FString& BlueprintAssetPa
         OutError = FString::Printf(TEXT("Pin not found on node %s: %s"), *Node->GetName(), *PinName);
         return false;
     }
+    if (Pin->LinkedTo.Num() > 0)
+    {
+        OutError = FString::Printf(TEXT("PIN_DEFAULT_REQUIRES_UNLINKED_PIN: Pin %s on node %s has existing links. Break links before setting a default value."), *PinName, *Node->GetName());
+        return false;
+    }
 
+    EventGraph->Modify();
+    Node->Modify();
     Pin->DefaultValue = Value;
+    EventGraph->NotifyGraphChanged();
+    FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+    Blueprint->MarkPackageDirty();
     return true;
 }
 
@@ -5052,6 +5128,52 @@ bool FLoomleBlueprintAdapter::ListBlueprintGraphs(const FString& BlueprintAssetP
     return true;
 }
 
+bool FLoomleBlueprintAdapter::ResolveGraphIdByName(const FString& BlueprintAssetPath, const FString& GraphName, FString& OutGraphId, FString& OutError)
+{
+    OutGraphId.Empty();
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    if (!Blueprint)
+    {
+        OutError = FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintAssetPath);
+        return false;
+    }
+
+    UEdGraph* Graph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
+    if (!Graph)
+    {
+        OutError = FString::Printf(TEXT("Graph not found: %s"), *GraphName);
+        return false;
+    }
+
+    OutGraphId = Graph->GraphGuid.ToString(EGuidFormats::DigitsWithHyphensLower);
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::ResolveGraphNameById(const FString& BlueprintAssetPath, const FString& GraphId, FString& OutGraphName, FString& OutError)
+{
+    OutGraphName.Empty();
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    if (!Blueprint)
+    {
+        OutError = FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintAssetPath);
+        return false;
+    }
+
+    UEdGraph* Graph = LoomleBlueprintAdapterInternal::FindGraphById(Blueprint, GraphId);
+    if (!Graph)
+    {
+        OutError = FString::Printf(TEXT("Graph not found by id: %s"), *GraphId);
+        return false;
+    }
+
+    OutGraphName = Graph->GetName();
+    return true;
+}
+
 bool FLoomleBlueprintAdapter::ListGraphNodes(
     const FString& BlueprintAssetPath,
     const FString& GraphName,
@@ -5192,6 +5314,9 @@ bool FLoomleBlueprintAdapter::ListCompositeSubgraphs(
             }
 
             TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+            const FString GraphId = SubGraph->GraphGuid.ToString(EGuidFormats::DigitsWithHyphensLower);
+            Entry->SetStringField(TEXT("id"), GraphId);
+            Entry->SetStringField(TEXT("graphId"), GraphId);
             Entry->SetStringField(TEXT("graphName"), SubGraph->GetName());
             Entry->SetStringField(TEXT("graphKind"), TEXT("subgraph"));
             Entry->SetStringField(TEXT("graphClassPath"), SubGraph->GetClass() ? SubGraph->GetClass()->GetPathName() : TEXT(""));
