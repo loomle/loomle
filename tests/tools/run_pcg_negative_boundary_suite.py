@@ -21,7 +21,6 @@ from test_bridge_smoke import (  # noqa: E402
 )
 
 sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
-from domain_test_helpers import flatten_graph_mutate_ops  # noqa: E402
 from run_pcg_graph_test_plan import (  # noqa: E402
     blank_surface_matrix,
     cleanup_pcg_fixture,
@@ -44,7 +43,7 @@ NEGATIVE_CASES = [
         "fixture": "pcg_graph",
         "operation": "setPinDefault",
         "families": ["meta"],
-        "summary": "setPinDefault should reject legacy args without target during normal apply",
+        "summary": "setPinDefault should reject missing target during normal apply",
     },
     {
         "id": "set_pin_default_requires_target_dry_run",
@@ -150,7 +149,7 @@ def call_tool_allow_error(client: McpStdioClient, req_id: int, name: str, argume
 
 
 def pcg_mutate_args(payload: dict[str, Any]) -> dict[str, Any]:
-    return flatten_graph_mutate_ops(payload)
+    return {key: value for key, value in payload.items() if key != "tool"}
 
 
 def call_pcg_mutate(client: McpStdioClient, req_id: int, payload: dict[str, Any], *, expect_error: bool = False) -> dict[str, Any]:
@@ -167,7 +166,7 @@ def add_node_by_class(client: McpStdioClient, request_id: int, *, asset_path: st
         request_id,
         {
             "assetPath": asset_path,
-            "ops": [{"op": "addNode.byClass", "args": {"nodeClassPath": node_class_path}}],
+            "ops": [{"op": "addNode.byClass", "nodeClassPath": node_class_path}],
         },
     )
     op_results = payload.get("opResults")
@@ -209,18 +208,16 @@ def run_set_pin_default_requires_target_apply(
             "ops": [
                 {
                     "op": "setPinDefault",
-                    "args": {
-                        "nodeId": node_id,
-                        "pinName": "Radius",
-                        "value": 250.5,
-                    },
+                    "nodeId": node_id,
+                    "pinName": "Radius",
+                    "value": 250.5,
                 }
             ],
         },
         expect_error=True,
     )
     surface_matrix["mutate"] = "pass"
-    expect_error_contains(payload, "setPinDefault requires args.target.", kind="contract_surface_gap")
+    expect_error_contains(payload, "setPinDefault requires target.", kind="contract_surface_gap")
     return {
         "surfaceMatrix": surface_matrix,
         "errorPayload": payload,
@@ -246,11 +243,9 @@ def run_set_pin_default_requires_target_dry_run(
             "ops": [
                 {
                     "op": "setPinDefault",
-                    "args": {
-                        "nodeId": node_id,
-                        "pinName": "Radius",
-                        "value": 250.5,
-                    },
+                    "nodeId": node_id,
+                    "pinName": "Radius",
+                    "value": 250.5,
                 }
             ],
         },
@@ -260,10 +255,10 @@ def run_set_pin_default_requires_target_dry_run(
         surface_matrix["mutate"] = "fail"
         raise NegativeSuiteError(
             "contract_surface_gap",
-            f"dryRun accepted legacy setPinDefault args: {compact_json(payload)}",
+            f"dryRun accepted missing-target setPinDefault payload: {compact_json(payload)}",
             details={"surfaceMatrix": surface_matrix, "unexpectedPayload": payload},
         )
-    expect_error_contains(payload, "setPinDefault requires args.target.", kind="contract_surface_gap")
+    expect_error_contains(payload, "setPinDefault requires target.", kind="contract_surface_gap")
     return {
         "surfaceMatrix": surface_matrix,
         "errorPayload": payload,
@@ -288,10 +283,8 @@ def run_set_pin_default_bad_pin_diagnostics(
             "ops": [
                 {
                     "op": "setPinDefault",
-                    "args": {
-                        "target": {"nodeId": node_id, "pin": "DefinitelyMissingPin"},
-                        "value": True,
-                    },
+                    "target": {"nodeId": node_id, "pin": "DefinitelyMissingPin"},
+                    "value": True,
                 }
             ],
         },
@@ -359,11 +352,11 @@ def run_remove_node_requires_stable_target(
         {
             "assetPath": asset_path,
             "ops": [
-                {"op": "addNode.byClass", "clientRef": "remove_create", "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"}},
-                {"op": "addNode.byClass", "clientRef": "remove_tag", "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"}},
-                {"op": "addNode.byClass", "clientRef": "remove_filter", "args": {"nodeClassPath": "/Script/PCG.PCGFilterByTagSettings"}},
-                {"op": "connectPins", "args": {"from": {"nodeRef": "remove_create", "pin": "Out"}, "to": {"nodeRef": "remove_tag", "pin": "In"}}},
-                {"op": "connectPins", "args": {"from": {"nodeRef": "remove_tag", "pin": "Out"}, "to": {"nodeRef": "remove_filter", "pin": "In"}}},
+                {"op": "addNode.byClass", "clientRef": "remove_create", "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"},
+                {"op": "addNode.byClass", "clientRef": "remove_tag", "nodeClassPath": "/Script/PCG.PCGAddTagSettings"},
+                {"op": "addNode.byClass", "clientRef": "remove_filter", "nodeClassPath": "/Script/PCG.PCGFilterByTagSettings"},
+                {"op": "connectPins", "from": {"nodeRef": "remove_create", "pin": "Out"}, "to": {"nodeRef": "remove_tag", "pin": "In"}},
+                {"op": "connectPins", "from": {"nodeRef": "remove_tag", "pin": "Out"}, "to": {"nodeRef": "remove_filter", "pin": "In"}},
             ],
         },
     )
@@ -372,7 +365,7 @@ def run_remove_node_requires_stable_target(
         request_id_base + 2,
         {
             "assetPath": asset_path,
-            "ops": [{"op": "removeNode", "args": {"target": {"name": "Add Tag"}}}],
+            "ops": [{"op": "removeNode", "target": {"name": "Add Tag"}}],
         },
         expect_error=True,
     )
@@ -402,10 +395,8 @@ def run_set_pin_default_bad_nested_filter_path(
             "ops": [
                 {
                     "op": "setPinDefault",
-                    "args": {
-                        "target": {"nodeId": node_id, "pin": "MinThreshold/DefinitelyMissing"},
-                        "value": True,
-                    },
+                    "target": {"nodeId": node_id, "pin": "MinThreshold/DefinitelyMissing"},
+                    "value": True,
                 }
             ],
         },
@@ -432,14 +423,12 @@ def run_set_pin_default_missing_subgraph_asset(
                 {
                     "op": "addNode.byClass",
                     "clientRef": "subgraph_node",
-                    "args": {"nodeClassPath": "/Script/PCG.PCGSubgraphSettings"},
+                    "nodeClassPath": "/Script/PCG.PCGSubgraphSettings",
                 },
                 {
                     "op": "setPinDefault",
-                    "args": {
-                        "target": {"nodeRef": "subgraph_node", "pin": "SubgraphOverride"},
-                        "value": "/Game/Definitely/Missing",
-                    },
+                    "target": {"nodeRef": "subgraph_node", "pin": "SubgraphOverride"},
+                    "value": "/Game/Definitely/Missing",
                 },
             ],
         },
@@ -469,8 +458,8 @@ def run_connect_pins_bad_output_pin(
         {
             "assetPath": asset_path,
             "ops": [
-                {"op": "addNode.byClass", "clientRef": "create_points", "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"}},
-                {"op": "addNode.byClass", "clientRef": "branch_node", "args": {"nodeClassPath": "/Script/PCG.PCGBranchSettings"}},
+                {"op": "addNode.byClass", "clientRef": "create_points", "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"},
+                {"op": "addNode.byClass", "clientRef": "branch_node", "nodeClassPath": "/Script/PCG.PCGBranchSettings"},
             ],
         },
     )
@@ -489,10 +478,8 @@ def run_connect_pins_bad_output_pin(
             "ops": [
                 {
                     "op": "connectPins",
-                    "args": {
-                        "from": {"nodeId": create_id, "pin": "DefinitelyMissingOutput"},
-                        "to": {"nodeId": branch_id, "pin": "In"},
-                    },
+                    "from": {"nodeId": create_id, "pin": "DefinitelyMissingOutput"},
+                    "to": {"nodeId": branch_id, "pin": "In"},
                 }
             ],
         },
@@ -516,14 +503,12 @@ def run_disconnect_pins_bad_output_pin(
         {
             "assetPath": asset_path,
             "ops": [
-                {"op": "addNode.byClass", "clientRef": "create_points", "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"}},
-                {"op": "addNode.byClass", "clientRef": "branch_node", "args": {"nodeClassPath": "/Script/PCG.PCGBranchSettings"}},
+                {"op": "addNode.byClass", "clientRef": "create_points", "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"},
+                {"op": "addNode.byClass", "clientRef": "branch_node", "nodeClassPath": "/Script/PCG.PCGBranchSettings"},
                 {
                     "op": "connectPins",
-                    "args": {
-                        "from": {"nodeRef": "create_points", "pin": "Out"},
-                        "to": {"nodeRef": "branch_node", "pin": "In"},
-                    },
+                    "from": {"nodeRef": "create_points", "pin": "Out"},
+                    "to": {"nodeRef": "branch_node", "pin": "In"},
                 },
             ],
         },
@@ -543,10 +528,8 @@ def run_disconnect_pins_bad_output_pin(
             "ops": [
                 {
                     "op": "disconnectPins",
-                    "args": {
-                        "from": {"nodeId": create_id, "pin": "DefinitelyMissingOutput"},
-                        "to": {"nodeId": branch_id, "pin": "In"},
-                    },
+                    "from": {"nodeId": create_id, "pin": "DefinitelyMissingOutput"},
+                    "to": {"nodeId": branch_id, "pin": "In"},
                 }
             ],
         },

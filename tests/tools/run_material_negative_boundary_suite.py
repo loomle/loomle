@@ -21,7 +21,7 @@ from test_bridge_smoke import (  # noqa: E402
 )
 
 sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
-from domain_test_helpers import blank_surface_matrix, compact_json, flatten_graph_mutate_ops, wait_for_bridge_ready  # noqa: E402
+from domain_test_helpers import blank_surface_matrix, compact_json, wait_for_bridge_ready  # noqa: E402
 from run_material_workflow_truth_suite import cleanup_material_fixture, create_material_fixture  # noqa: E402
 
 
@@ -125,7 +125,7 @@ def call_tool_allow_error(
 
 
 def material_mutate_args(payload: dict[str, Any]) -> dict[str, Any]:
-    return flatten_graph_mutate_ops(payload)
+    return {key: value for key, value in payload.items() if key != "tool"}
 
 
 def call_material_mutate(client: McpStdioClient, req_id: int, payload: dict[str, Any]) -> dict[str, Any]:
@@ -142,7 +142,7 @@ def add_node_by_class(client: McpStdioClient, request_id: int, *, asset_path: st
         request_id,
         {
             "assetPath": asset_path,
-            "ops": [{"op": "addNode.byClass", "args": {"nodeClassPath": node_class_path}}],
+            "ops": [{"op": "addNode.byClass", "nodeClassPath": node_class_path}],
         },
     )
     op_results = payload.get("opResults")
@@ -189,7 +189,7 @@ def run_stale_expected_revision_conflict(
         {
             "assetPath": asset_path,
             "expectedRevision": revision_r0,
-            "ops": [{"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}}],
+            "ops": [{"op": "addNode.byClass", "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}],
         },
     )
     first_results = apply_payload.get("opResults")
@@ -208,7 +208,7 @@ def run_stale_expected_revision_conflict(
         {
             "assetPath": asset_path,
             "expectedRevision": revision_r0,
-            "ops": [{"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}}],
+            "ops": [{"op": "addNode.byClass", "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}],
         },
     )
     surface_matrix["mutate"] = "pass"
@@ -244,12 +244,12 @@ def run_duplicate_client_ref_rejected(client: McpStdioClient, request_id_base: i
                 {
                     "op": "addNode.byClass",
                     "clientRef": "dup_material",
-                    "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"},
+                    "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter",
                 },
                 {
                     "op": "addNode.byClass",
                     "clientRef": "dup_material",
-                    "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionConstant"},
+                    "nodeClassPath": "/Script/Engine.MaterialExpressionConstant",
                 },
             ],
         },
@@ -306,7 +306,8 @@ def run_set_pin_default_unsupported(client: McpStdioClient, request_id_base: int
             "ops": [
                 {
                     "op": "setPinDefault",
-                    "args": {"target": {"nodeId": node_id, "pin": "DefaultValue"}, "value": 0.5},
+                    "target": {"nodeId": node_id, "pin": "DefaultValue"},
+                    "value": 0.5,
                 }
             ],
         },
@@ -355,8 +356,8 @@ def run_connect_pins_bad_output_pin(client: McpStdioClient, request_id_base: int
         {
             "assetPath": asset_path,
             "ops": [
-                {"op": "addNode.byClass", "clientRef": "scalar_a", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}},
-                {"op": "addNode.byClass", "clientRef": "multiply_ab", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionMultiply"}},
+                {"op": "addNode.byClass", "clientRef": "scalar_a", "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"},
+                {"op": "addNode.byClass", "clientRef": "multiply_ab", "nodeClassPath": "/Script/Engine.MaterialExpressionMultiply"},
             ],
         },
     )
@@ -375,10 +376,8 @@ def run_connect_pins_bad_output_pin(client: McpStdioClient, request_id_base: int
             "ops": [
                 {
                     "op": "connectPins",
-                    "args": {
-                        "from": {"nodeId": source_id, "pin": "DefinitelyMissingOutput"},
-                        "to": {"nodeId": target_id, "pin": "A"},
-                    },
+                    "from": {"nodeId": source_id, "pin": "DefinitelyMissingOutput"},
+                    "to": {"nodeId": target_id, "pin": "A"},
                 }
             ],
         },
@@ -413,14 +412,12 @@ def run_disconnect_pins_bad_output_pin(client: McpStdioClient, request_id_base: 
         {
             "assetPath": asset_path,
             "ops": [
-                {"op": "addNode.byClass", "clientRef": "scalar_a", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}},
-                {"op": "addNode.byClass", "clientRef": "multiply_ab", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionMultiply"}},
+                {"op": "addNode.byClass", "clientRef": "scalar_a", "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"},
+                {"op": "addNode.byClass", "clientRef": "multiply_ab", "nodeClassPath": "/Script/Engine.MaterialExpressionMultiply"},
                 {
                     "op": "connectPins",
-                    "args": {
-                        "from": {"nodeRef": "scalar_a", "pin": ""},
-                        "to": {"nodeRef": "multiply_ab", "pin": "A"},
-                    },
+                    "from": {"nodeRef": "scalar_a", "pin": ""},
+                    "to": {"nodeRef": "multiply_ab", "pin": "A"},
                 },
             ],
         },
@@ -440,10 +437,8 @@ def run_disconnect_pins_bad_output_pin(client: McpStdioClient, request_id_base: 
             "ops": [
                 {
                     "op": "disconnectPins",
-                    "args": {
-                        "from": {"nodeId": source_id, "pin": "DefinitelyMissingOutput"},
-                        "to": {"nodeId": target_id, "pin": "A"},
-                    },
+                    "from": {"nodeId": source_id, "pin": "DefinitelyMissingOutput"},
+                    "to": {"nodeId": target_id, "pin": "A"},
                 }
             ],
         },

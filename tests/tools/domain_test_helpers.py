@@ -166,29 +166,3 @@ def blueprint_edit_args_from_legacy_payload(payload: dict[str, Any]) -> dict[str
     }
     edit_args["commands"] = blueprint_commands_from_legacy_payload(payload)
     return edit_args
-
-
-def flatten_graph_mutate_ops(payload: dict[str, Any]) -> dict[str, Any]:
-    mutate_args = {
-        key: value
-        for key, value in payload.items()
-        if key not in {"tool", "graphType", "graphName"}
-    }
-    ops = payload.get("ops")
-    if not isinstance(ops, list):
-        raise ValueError(f"Domain mutate payload requires ops[]: {compact_json(payload)}")
-    flattened_ops: list[dict[str, Any]] = []
-    for op in ops:
-        if not isinstance(op, dict):
-            raise ValueError(f"Domain mutate op must be an object: {compact_json(op)}")
-        nested_args = op.get("args")
-        if not isinstance(nested_args, dict):
-            flattened_ops.append(dict(op))
-            continue
-        flattened = dict(op)
-        flattened.pop("args", None)
-        for key, value in nested_args.items():
-            flattened.setdefault(key, value)
-        flattened_ops.append(flattened)
-    mutate_args["ops"] = flattened_ops
-    return mutate_args
