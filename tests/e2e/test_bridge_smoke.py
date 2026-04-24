@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import ast
 import json
 import queue
 import subprocess
@@ -395,6 +396,32 @@ def _json_contains_key(value: Any, key: str) -> bool:
     return False
 
 
+def _find_domain_mutate_args_violations(path: Path) -> list[str]:
+    module = ast.parse(path.read_text(encoding="utf-8"))
+    violations: list[str] = []
+    for node in ast.walk(module):
+        if not isinstance(node, ast.Call):
+            continue
+        if not isinstance(node.func, ast.Name) or node.func.id != "call_domain_tool":
+            continue
+        if len(node.args) < 5:
+            continue
+        domain = node.args[2]
+        action = node.args[3]
+        arguments = node.args[4]
+        if not (isinstance(domain, ast.Constant) and domain.value in {"material", "pcg"}):
+            continue
+        if not (isinstance(action, ast.Constant) and action.value == "mutate"):
+            continue
+        for child in ast.walk(arguments):
+            if not isinstance(child, ast.Dict):
+                continue
+            if any(isinstance(key, ast.Constant) and key.value == "args" for key in child.keys):
+                violations.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno}:{domain.value}")
+                break
+    return violations
+
+
 def validate_active_test_fixtures_are_current_contract() -> None:
     forbidden_archive_refs: list[str] = []
     for root in [TEST_TOOLS_DIR, REPO_ROOT / "tests" / "e2e"]:
@@ -414,6 +441,12 @@ def validate_active_test_fixtures_are_current_contract() -> None:
     _require(
         not inline_workflow_payloads,
         f"workflow truth suites must use tests/fixtures payloadFixture files: {inline_workflow_payloads}",
+    )
+
+    regression_payload_violations = _find_domain_mutate_args_violations(REPO_ROOT / "tests" / "e2e" / "test_bridge_regression.py")
+    _require(
+        not regression_payload_violations,
+        f"Material/PCG regression mutate payloads must use flat ops: {regression_payload_violations}",
     )
 
     workflow_payloads = sorted((TEST_FIXTURES_DIR / "workflows").glob("**/*.json"))

@@ -48,25 +48,6 @@ def call_domain_tool(
             "describe": "blueprint.asset.inspect",
             "compile": "blueprint.compile",
         }.get(action, tool_name)
-    if domain in {"material", "pcg"} and action == "mutate":
-        ops = arguments.get("ops")
-        if isinstance(ops, list):
-            rewritten_ops: list[dict] = []
-            for op in ops:
-                if not isinstance(op, dict):
-                    rewritten_ops.append(op)
-                    continue
-                nested_args = op.get("args")
-                if not isinstance(nested_args, dict):
-                    rewritten_ops.append(op)
-                    continue
-                flattened = dict(op)
-                flattened.pop("args", None)
-                for key, value in nested_args.items():
-                    flattened.setdefault(key, value)
-                rewritten_ops.append(flattened)
-            arguments = dict(arguments)
-            arguments["ops"] = rewritten_ops
     return call_tool(client, request_id, tool_name, arguments, expect_error=expect_error)
 
 
@@ -1546,11 +1527,9 @@ def main() -> int:
                 "ops": [
                     {
                         "op": "runScript",
-                        "args": {
-                            "mode": "inlineCode",
-                            "entry": "run",
-                            "code": "def run(ctx):\n  return {'ok': True}",
-                        },
+                        "mode": "inlineCode",
+                        "entry": "run",
+                        "code": "def run(ctx):\n  return {'ok': True}",
                     }
                 ],
             },
@@ -1929,12 +1908,12 @@ def main() -> int:
         duplicate_client_ref_struct = structured_detail_or_payload(duplicate_client_ref)
         duplicate_client_ref_results = duplicate_client_ref_struct.get("opResults")
         if not isinstance(duplicate_client_ref_results, list) or len(duplicate_client_ref_results) < 2:
-            fail(f"graph.mutate duplicate clientRef missing opResults: {duplicate_client_ref}")
+            fail(f"blueprint.graph.edit duplicate clientRef missing opResults: {duplicate_client_ref}")
         duplicate_client_ref_second = duplicate_client_ref_results[1] if isinstance(duplicate_client_ref_results[1], dict) else {}
         if duplicate_client_ref_second.get("errorCode") != "INVALID_ARGUMENT":
-            fail(f"graph.mutate duplicate clientRef wrong errorCode: {duplicate_client_ref_second}")
+            fail(f"blueprint.graph.edit duplicate clientRef wrong errorCode: {duplicate_client_ref_second}")
         if "Duplicate clientRef" not in str(duplicate_client_ref_second.get("errorMessage", "")):
-            fail(f"graph.mutate duplicate clientRef wrong errorMessage: {duplicate_client_ref_second}")
+            fail(f"blueprint.graph.edit duplicate clientRef wrong errorMessage: {duplicate_client_ref_second}")
         print("[PASS] blueprint duplicate clientRef rejected")
 
         page_one = query_graph_payload(client, 110, asset_path=temp_asset, graph_name="EventGraph", limit=1)
@@ -2051,26 +2030,26 @@ def main() -> int:
                 try:
                     bad_set_default_struct = json.loads(bad_set_default_detail)
                 except Exception as exc:
-                    fail(f"graph.mutate bad setPinDefault detail is not valid JSON: {exc} payload={bad_set_default_payload}")
+                    fail(f"blueprint.graph.edit bad setPinDefault detail is not valid JSON: {exc} payload={bad_set_default_payload}")
                 bad_set_default_results = bad_set_default_struct.get("opResults")
         if not isinstance(bad_set_default_results, list) or not bad_set_default_results:
-            fail(f"graph.mutate bad setPinDefault missing opResults: {bad_set_default_payload}")
+            fail(f"blueprint.graph.edit bad setPinDefault missing opResults: {bad_set_default_payload}")
         bad_set_default_first = bad_set_default_results[0] if isinstance(bad_set_default_results[0], dict) else {}
         if bad_set_default_first.get("errorCode") not in {"TARGET_NOT_FOUND", "INVALID_ARGUMENT", "INTERNAL_ERROR"}:
-            fail(f"graph.mutate bad setPinDefault wrong errorCode: {bad_set_default_first}")
+            fail(f"blueprint.graph.edit bad setPinDefault wrong errorCode: {bad_set_default_first}")
         details = bad_set_default_first.get("details")
         if isinstance(details, dict):
             expected_target_forms = details.get("expectedTargetForms")
             if not isinstance(expected_target_forms, list) or not expected_target_forms:
-                fail(f"graph.mutate bad setPinDefault missing expectedTargetForms: {details}")
+                fail(f"blueprint.graph.edit bad setPinDefault missing expectedTargetForms: {details}")
             candidate_pins = details.get("candidatePins")
             if not isinstance(candidate_pins, list) or not candidate_pins:
-                fail(f"graph.mutate bad setPinDefault missing candidatePins: {details}")
+                fail(f"blueprint.graph.edit bad setPinDefault missing candidatePins: {details}")
             if not any(isinstance(pin, dict) and pin.get("pinName") == "Condition" for pin in candidate_pins):
-                fail(f"graph.mutate bad setPinDefault candidatePins missing Condition: {candidate_pins}")
+                fail(f"blueprint.graph.edit bad setPinDefault candidatePins missing Condition: {candidate_pins}")
         elif "DefinitelyMissingPin" not in str(bad_set_default_first.get("errorMessage", "")):
-            fail(f"graph.mutate bad setPinDefault should surface the missing pin name: {bad_set_default_first}")
-        print("[PASS] graph.mutate setPinDefault diagnostics validated")
+            fail(f"blueprint.graph.edit bad setPinDefault should surface the missing pin name: {bad_set_default_first}")
+        print("[PASS] blueprint.graph.edit setPinDefault diagnostics validated")
 
         move_payload = call_domain_tool(
             client,
@@ -2174,7 +2153,7 @@ def main() -> int:
             },
         )
         op_ok(remove_e)
-        print("[PASS] graph.mutate addNode.byClass auto-placement validated")
+        print("[PASS] blueprint.graph.edit addNode.byClass auto-placement validated")
 
         remove_a = call_domain_tool(
             client,
@@ -2383,9 +2362,9 @@ def main() -> int:
             {
                 "assetPath": material_asset_path,
                 "ops": [
-                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}},
-                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionConstant"}},
-                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionMultiply"}},
+                    {"op": "addNode.byClass", "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"},
+                    {"op": "addNode.byClass", "nodeClassPath": "/Script/Engine.MaterialExpressionConstant"},
+                    {"op": "addNode.byClass", "nodeClassPath": "/Script/Engine.MaterialExpressionMultiply"},
                 ],
             },
         )
@@ -2421,7 +2400,7 @@ def main() -> int:
                 "assetPath": material_asset_path,
                 "expectedRevision": material_revision_r0,
                 "ops": [
-                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}}
+                    {"op": "addNode.byClass", "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}
                 ],
             },
         )
@@ -2455,7 +2434,7 @@ def main() -> int:
                 "assetPath": material_asset_path,
                 "expectedRevision": material_revision_r0,
                 "ops": [
-                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}}
+                    {"op": "addNode.byClass", "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}
                 ],
             },
             expect_error=True,
@@ -2491,7 +2470,7 @@ def main() -> int:
                 "assetPath": material_asset_path,
                 "dryRun": True,
                 "ops": [
-                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}}
+                    {"op": "addNode.byClass", "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}
                 ],
             },
         )
@@ -2542,7 +2521,7 @@ def main() -> int:
                 "assetPath": material_asset_path,
                 "idempotencyKey": material_idem_key,
                 "ops": [
-                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}}
+                    {"op": "addNode.byClass", "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}
                 ],
             },
         )
@@ -2577,7 +2556,7 @@ def main() -> int:
                 "assetPath": material_asset_path,
                 "idempotencyKey": material_idem_key,
                 "ops": [
-                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}}
+                    {"op": "addNode.byClass", "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"}
                 ],
             },
         )
@@ -2623,12 +2602,12 @@ def main() -> int:
                     {
                         "op": "addNode.byClass",
                         "clientRef": "dup_material",
-                        "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"},
+                        "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter",
                     },
                     {
                         "op": "addNode.byClass",
                         "clientRef": "dup_material",
-                        "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionConstant"},
+                        "nodeClassPath": "/Script/Engine.MaterialExpressionConstant",
                     },
                 ],
             },
@@ -2638,12 +2617,12 @@ def main() -> int:
         material_duplicate_struct = structured_detail_or_payload(material_duplicate_client_ref)
         material_duplicate_results = material_duplicate_struct.get("opResults")
         if not isinstance(material_duplicate_results, list) or len(material_duplicate_results) < 2:
-            fail(f"graph.mutate material duplicate clientRef missing opResults: {material_duplicate_client_ref}")
+            fail(f"material.mutate duplicate clientRef missing opResults: {material_duplicate_client_ref}")
         material_duplicate_second = material_duplicate_results[1] if isinstance(material_duplicate_results[1], dict) else {}
         if material_duplicate_second.get("errorCode") != "INVALID_ARGUMENT":
-            fail(f"graph.mutate material duplicate clientRef wrong errorCode: {material_duplicate_second}")
+            fail(f"material.mutate duplicate clientRef wrong errorCode: {material_duplicate_second}")
         if "Duplicate clientRef" not in str(material_duplicate_second.get("errorMessage", "")):
-            fail(f"graph.mutate material duplicate clientRef wrong errorMessage: {material_duplicate_second}")
+            fail(f"material.mutate duplicate clientRef wrong errorMessage: {material_duplicate_second}")
         print("[PASS] material duplicate clientRef rejected")
 
         material_compile = call_domain_tool(
@@ -2705,20 +2684,18 @@ def main() -> int:
                 "ops": [
                     {
                         "op": "connectPins",
-                        "args": {"from": {"nodeId": material_param_id}, "to": {"nodeId": material_multiply_id, "pin": "A"}},
+                        "from": {"nodeId": material_param_id}, "to": {"nodeId": material_multiply_id, "pin": "A"},
                     },
                     {
                         "op": "connectPins",
-                        "args": {"from": {"nodeId": material_constant_id}, "to": {"nodeId": material_multiply_id, "pin": "B"}},
+                        "from": {"nodeId": material_constant_id}, "to": {"nodeId": material_multiply_id, "pin": "B"},
                     },
                     {
                         "op": "connectPins",
-                        "args": {
-                            "from": {"nodeId": material_multiply_id},
-                            "to": {"nodeId": "__material_root__", "pin": "Base Color"},
-                        },
+                        "from": {"nodeId": material_multiply_id},
+                        "to": {"nodeId": "__material_root__", "pin": "Base Color"},
                     },
-                    {"op": "layoutGraph", "args": {"scope": "touched"}},
+                    {"op": "layoutGraph", "scope": "touched"},
                     {"op": "compile"},
                 ],
             },
@@ -2837,12 +2814,11 @@ def main() -> int:
                 "ops": [
                     {
                         "op": "breakPinLinks",
-                        "args": {
-                            "target": {
-                                "nodeId": material_root_edge.get("fromNodeId"),
-                                "pinName": material_root_edge.get("fromPin"),
-                            }
-                        },
+                        "target": {
+                            "nodeId": material_root_edge.get("fromNodeId"),
+                            "pinName": material_root_edge.get("fromPin"),
+                        }
+
                     }
                 ],
             },
@@ -2877,13 +2853,11 @@ def main() -> int:
                 "ops": [
                     {
                         "op": "connectPins",
-                        "args": {
-                            "from": {
-                                "nodeId": material_root_edge.get("fromNodeId"),
-                                "pin": material_root_edge.get("fromPin"),
-                            },
-                            "to": {"nodeId": "__material_root__", "pin": "Base Color"},
+                        "from": {
+                            "nodeId": material_root_edge.get("fromNodeId"),
+                            "pin": material_root_edge.get("fromPin"),
                         },
+                        "to": {"nodeId": "__material_root__", "pin": "Base Color"},
                     }
                 ],
             },
@@ -2912,12 +2886,11 @@ def main() -> int:
                 "ops": [
                     {
                         "op": "breakPinLinks",
-                        "args": {
-                            "target": {
-                                "nodeId": material_internal_edge.get("fromNodeId"),
-                                "pinName": material_internal_edge.get("fromPin"),
-                            }
-                        },
+                        "target": {
+                            "nodeId": material_internal_edge.get("fromNodeId"),
+                            "pinName": material_internal_edge.get("fromPin"),
+                        }
+
                     }
                 ],
             },
@@ -2952,15 +2925,13 @@ def main() -> int:
                 "ops": [
                     {
                         "op": "connectPins",
-                        "args": {
-                            "from": {
-                                "nodeId": material_internal_edge.get("fromNodeId"),
-                                "pin": material_internal_edge.get("fromPin"),
-                            },
-                            "to": {
-                                "nodeId": material_internal_edge.get("toNodeId"),
-                                "pin": material_internal_edge.get("toPin"),
-                            },
+                        "from": {
+                            "nodeId": material_internal_edge.get("fromNodeId"),
+                            "pin": material_internal_edge.get("fromPin"),
+                        },
+                        "to": {
+                            "nodeId": material_internal_edge.get("toNodeId"),
+                            "pin": material_internal_edge.get("toPin"),
                         },
                     }
                 ],
@@ -2976,7 +2947,7 @@ def main() -> int:
             {
                 "assetPath": material_asset_path,
                 "ops": [
-                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/Engine.MaterialExpressionSaturate"}}
+                    {"op": "addNode.byClass", "nodeClassPath": "/Script/Engine.MaterialExpressionSaturate"}
                 ],
             },
         )
@@ -3008,10 +2979,8 @@ def main() -> int:
                 "ops": [
                     {
                         "op": "connectPins",
-                        "args": {
-                            "from": {"nodeId": material_param_id, "pin": material_internal_edge.get("fromPin")},
-                            "to": {"nodeId": material_saturate_id, "pin": material_saturate_input_name},
-                        },
+                        "from": {"nodeId": material_param_id, "pin": material_internal_edge.get("fromPin")},
+                        "to": {"nodeId": material_saturate_id, "pin": material_saturate_input_name},
                     }
                 ],
             },
@@ -3047,13 +3016,11 @@ def main() -> int:
                 "ops": [
                     {
                         "op": "moveNodeBy",
-                        "args": {
-                            "nodeId": material_multiply_id,
-                            "dx": 900,
-                            "dy": 600,
-                        },
+                        "nodeId": material_multiply_id,
+                        "dx": 900,
+                        "dy": 600,
                     },
-                    {"op": "layoutGraph", "args": {"scope": "all"}},
+                    {"op": "layoutGraph", "scope": "all"},
                 ],
             },
         )
@@ -3115,13 +3082,11 @@ def main() -> int:
                     "ops": [
                         {
                             "op": "moveNodeBy",
-                            "args": {
-                                "nodeId": material_multiply_id,
-                                "dx": 640,
-                                "dy": -320,
-                            },
+                            "nodeId": material_multiply_id,
+                            "dx": 640,
+                            "dy": -320,
                         },
-                        {"op": "layoutGraph", "args": {"scope": "all"}},
+                        {"op": "layoutGraph", "scope": "all"},
                     ],
                 },
             )
@@ -3151,12 +3116,12 @@ def main() -> int:
             {
                 "assetPath": temp_pcg_asset,
                 "ops": [
-                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"}},
-                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"}},
-                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGFilterByTagSettings"}},
-                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"}},
-                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGSurfaceSamplerSettings"}},
-                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"}},
+                    {"op": "addNode.byClass", "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"},
+                    {"op": "addNode.byClass", "nodeClassPath": "/Script/PCG.PCGAddTagSettings"},
+                    {"op": "addNode.byClass", "nodeClassPath": "/Script/PCG.PCGFilterByTagSettings"},
+                    {"op": "addNode.byClass", "nodeClassPath": "/Script/PCG.PCGAddTagSettings"},
+                    {"op": "addNode.byClass", "nodeClassPath": "/Script/PCG.PCGSurfaceSamplerSettings"},
+                    {"op": "addNode.byClass", "nodeClassPath": "/Script/PCG.PCGAddTagSettings"},
                 ],
             },
         )
@@ -3193,11 +3158,11 @@ def main() -> int:
             {
                 "assetPath": temp_pcg_asset,
                 "ops": [
-                    {"op": "connectPins", "args": {"from": {"nodeId": pcg_create_id, "pin": "Out"}, "to": {"nodeId": pcg_tag_a_id, "pin": "In"}}},
-                    {"op": "connectPins", "args": {"from": {"nodeId": pcg_tag_a_id, "pin": "Out"}, "to": {"nodeId": pcg_filter_id, "pin": "In"}}},
-                    {"op": "connectPins", "args": {"from": {"nodeId": pcg_filter_id, "pin": "InsideFilter"}, "to": {"nodeId": pcg_tag_b_id, "pin": "In"}}},
-                    {"op": "connectPins", "args": {"from": {"nodeId": pcg_sampler_id, "pin": "Out"}, "to": {"nodeId": pcg_tag_c_id, "pin": "In"}}},
-                    {"op": "layoutGraph", "args": {"scope": "touched"}},
+                    {"op": "connectPins", "from": {"nodeId": pcg_create_id, "pin": "Out"}, "to": {"nodeId": pcg_tag_a_id, "pin": "In"}},
+                    {"op": "connectPins", "from": {"nodeId": pcg_tag_a_id, "pin": "Out"}, "to": {"nodeId": pcg_filter_id, "pin": "In"}},
+                    {"op": "connectPins", "from": {"nodeId": pcg_filter_id, "pin": "InsideFilter"}, "to": {"nodeId": pcg_tag_b_id, "pin": "In"}},
+                    {"op": "connectPins", "from": {"nodeId": pcg_sampler_id, "pin": "Out"}, "to": {"nodeId": pcg_tag_c_id, "pin": "In"}},
+                    {"op": "layoutGraph", "scope": "touched"},
                 ],
             },
         )
@@ -3235,10 +3200,8 @@ def main() -> int:
                 "ops": [
                     {
                         "op": "connectPins",
-                        "args": {
-                            "from": {"nodeId": pcg_filter_id, "pin": "Out"},
-                            "to": {"nodeId": pcg_tag_b_id, "pin": "In"},
-                        },
+                        "from": {"nodeId": pcg_filter_id, "pin": "Out"},
+                        "to": {"nodeId": pcg_tag_b_id, "pin": "In"},
                     }
                 ],
             },
@@ -3248,14 +3211,14 @@ def main() -> int:
         bad_pcg_connect_struct = structured_detail_or_payload(bad_pcg_connect)
         bad_pcg_connect_results = bad_pcg_connect_struct.get("opResults")
         if not isinstance(bad_pcg_connect_results, list) or not bad_pcg_connect_results:
-            fail(f"graph.mutate bad PCG connect missing opResults: {bad_pcg_connect}")
+            fail(f"pcg.mutate bad connect missing opResults: {bad_pcg_connect}")
         bad_pcg_connect_first = bad_pcg_connect_results[0] if isinstance(bad_pcg_connect_results[0], dict) else {}
         if bad_pcg_connect_first.get("errorCode") not in {"TARGET_NOT_FOUND", "PIN_NOT_FOUND"}:
-            fail(f"graph.mutate bad PCG connect wrong errorCode: {bad_pcg_connect_first}")
+            fail(f"pcg.mutate bad connect wrong errorCode: {bad_pcg_connect_first}")
         if bad_pcg_connect_first.get("ok") is not False:
-            fail(f"graph.mutate bad PCG connect should fail explicitly: {bad_pcg_connect_first}")
+            fail(f"pcg.mutate bad connect should fail explicitly: {bad_pcg_connect_first}")
         if bad_pcg_connect_first.get("changed") is not False:
-            fail(f"graph.mutate bad PCG connect should not report changed=true: {bad_pcg_connect_first}")
+            fail(f"pcg.mutate bad connect should not report changed=true: {bad_pcg_connect_first}")
         pcg_snapshot_after_bad_connect = query_snapshot(client, 101022, temp_pcg_asset, "pcg", "PCGGraph")
         pcg_edges_after_bad_connect = pcg_snapshot_after_bad_connect.get("edges")
         if not isinstance(pcg_edges_after_bad_connect, list):
@@ -3269,7 +3232,7 @@ def main() -> int:
             for edge in pcg_edges_after_bad_connect
         ):
             fail(f"PCG graph.query should not contain invalid Out->In edge after failed connect: {pcg_edges_after_bad_connect}")
-        print("[PASS] graph.mutate invalid PCG connectPins target is rejected")
+        print("[PASS] pcg.mutate invalid connectPins target is rejected")
         pcg_snapshot_without_graph_name = query_snapshot(client, 10103, temp_pcg_asset, "pcg", None)
         if pcg_snapshot_without_graph_name.get("signature") != pcg_snapshot.get("signature"):
             fail(
@@ -3363,13 +3326,11 @@ def main() -> int:
                 "ops": [
                     {
                         "op": "moveNodeBy",
-                        "args": {
-                            "nodeId": pcg_create_id,
-                            "dx": 900,
-                            "dy": 600,
-                        },
+                        "nodeId": pcg_create_id,
+                        "dx": 900,
+                        "dy": 600,
                     },
-                    {"op": "layoutGraph", "args": {"scope": "all"}},
+                    {"op": "layoutGraph", "scope": "all"},
                 ],
             },
         )
@@ -3439,13 +3400,11 @@ def main() -> int:
                     "ops": [
                         {
                             "op": "moveNodeBy",
-                            "args": {
-                                "nodeId": pcg_create_id,
-                                "dx": 640,
-                                "dy": -320,
-                            },
+                            "nodeId": pcg_create_id,
+                            "dx": 640,
+                            "dy": -320,
                         },
-                        {"op": "layoutGraph", "args": {"scope": "all"}},
+                        {"op": "layoutGraph", "scope": "all"},
                     ],
                 },
             )
@@ -3475,9 +3434,9 @@ def main() -> int:
             {
                 "assetPath": temp_pcg_asset,
                 "ops": [
-                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGGetActorPropertySettings"}},
-                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGGetSplineSettings"}},
-                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGStaticMeshSpawnerSettings"}},
+                    {"op": "addNode.byClass", "nodeClassPath": "/Script/PCG.PCGGetActorPropertySettings"},
+                    {"op": "addNode.byClass", "nodeClassPath": "/Script/PCG.PCGGetSplineSettings"},
+                    {"op": "addNode.byClass", "nodeClassPath": "/Script/PCG.PCGStaticMeshSpawnerSettings"},
                 ],
             },
         )
@@ -3666,11 +3625,11 @@ def main() -> int:
             {
                 "assetPath": temp_pcg_health_asset,
                 "ops": [
-                    {"op": "addNode.byClass", "clientRef": "health_create", "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"}},
-                    {"op": "addNode.byClass", "clientRef": "health_tag", "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"}},
-                    {"op": "addNode.byClass", "clientRef": "health_spawner", "args": {"nodeClassPath": "/Script/PCG.PCGStaticMeshSpawnerSettings"}},
-                    {"op": "connectPins", "args": {"from": {"nodeRef": "health_create", "pin": "Out"}, "to": {"nodeRef": "health_tag", "pin": "In"}}},
-                    {"op": "connectPins", "args": {"from": {"nodeRef": "health_tag", "pin": "Out"}, "to": {"nodeRef": "health_spawner", "pin": "In"}}},
+                    {"op": "addNode.byClass", "clientRef": "health_create", "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"},
+                    {"op": "addNode.byClass", "clientRef": "health_tag", "nodeClassPath": "/Script/PCG.PCGAddTagSettings"},
+                    {"op": "addNode.byClass", "clientRef": "health_spawner", "nodeClassPath": "/Script/PCG.PCGStaticMeshSpawnerSettings"},
+                    {"op": "connectPins", "from": {"nodeRef": "health_create", "pin": "Out"}, "to": {"nodeRef": "health_tag", "pin": "In"}},
+                    {"op": "connectPins", "from": {"nodeRef": "health_tag", "pin": "Out"}, "to": {"nodeRef": "health_spawner", "pin": "In"}},
                 ],
             },
         )
@@ -3747,11 +3706,11 @@ def main() -> int:
             {
                 "assetPath": temp_pcg_remove_asset,
                 "ops": [
-                    {"op": "addNode.byClass", "clientRef": "remove_create", "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"}},
-                    {"op": "addNode.byClass", "clientRef": "remove_tag", "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"}},
-                    {"op": "addNode.byClass", "clientRef": "remove_filter", "args": {"nodeClassPath": "/Script/PCG.PCGFilterByTagSettings"}},
-                    {"op": "connectPins", "args": {"from": {"nodeRef": "remove_create", "pin": "Out"}, "to": {"nodeRef": "remove_tag", "pin": "In"}}},
-                    {"op": "connectPins", "args": {"from": {"nodeRef": "remove_tag", "pin": "Out"}, "to": {"nodeRef": "remove_filter", "pin": "In"}}},
+                    {"op": "addNode.byClass", "clientRef": "remove_create", "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"},
+                    {"op": "addNode.byClass", "clientRef": "remove_tag", "nodeClassPath": "/Script/PCG.PCGAddTagSettings"},
+                    {"op": "addNode.byClass", "clientRef": "remove_filter", "nodeClassPath": "/Script/PCG.PCGFilterByTagSettings"},
+                    {"op": "connectPins", "from": {"nodeRef": "remove_create", "pin": "Out"}, "to": {"nodeRef": "remove_tag", "pin": "In"}},
+                    {"op": "connectPins", "from": {"nodeRef": "remove_tag", "pin": "Out"}, "to": {"nodeRef": "remove_filter", "pin": "In"}},
                 ],
             },
         )
@@ -3769,7 +3728,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_pcg_remove_asset,
-                "ops": [{"op": "removeNode", "args": {"name": "Add Tag"}}],
+                "ops": [{"op": "removeNode", "name": "Add Tag"}],
             },
             expect_error=True,
         )
@@ -3783,7 +3742,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_pcg_remove_asset,
-                "ops": [{"op": "removeNode", "args": {"nodeId": pcg_remove_tag_id}}],
+                "ops": [{"op": "removeNode", "nodeId": pcg_remove_tag_id}],
             },
         )
         op_ok(pcg_remove_by_id)
@@ -3807,7 +3766,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_pcg_remove_asset,
-                "ops": [{"op": "layoutGraph", "args": {"scope": "touched"}}],
+                "ops": [{"op": "layoutGraph", "scope": "touched"}],
             },
             expect_error=True,
         )
@@ -3833,7 +3792,7 @@ def main() -> int:
             {
                 "assetPath": temp_pcg_asset,
                 "ops": [
-                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSphereSettings"}},
+                    {"op": "addNode.byClass", "nodeClassPath": "/Script/PCG.PCGCreatePointsSphereSettings"},
                 ],
             },
         )
@@ -3854,17 +3813,13 @@ def main() -> int:
                 "ops": [
                     {
                         "op": "setPinDefault",
-                        "args": {
-                            "target": {"nodeId": pcg_set_default_node_id, "pin": "Radius"},
-                            "value": 250.5,
-                        },
+                        "target": {"nodeId": pcg_set_default_node_id, "pin": "Radius"},
+                        "value": 250.5,
                     },
                     {
                         "op": "setPinDefault",
-                        "args": {
-                            "target": {"nodeId": pcg_set_default_node_id, "pin": "LongitudinalSegments"},
-                            "value": 8,
-                        },
+                        "target": {"nodeId": pcg_set_default_node_id, "pin": "LongitudinalSegments"},
+                        "value": 8,
                     },
                 ],
             },
@@ -3898,7 +3853,7 @@ def main() -> int:
             fail(f"PCG setPinDefault did not update Radius: {pcg_set_default_verify}")
         if pcg_set_default_verify.get("longitudinalSegments") != 8:
             fail(f"PCG setPinDefault did not update LongitudinalSegments: {pcg_set_default_verify}")
-        print("[PASS] graph.mutate setPinDefault supports PCG overridable inputs")
+        print("[PASS] pcg.mutate setPinDefault supports overridable inputs")
 
         pcg_filter_add = call_domain_tool(
             client,
@@ -3908,7 +3863,7 @@ def main() -> int:
             {
                 "assetPath": temp_pcg_asset,
                 "ops": [
-                    {"op": "addNode.byClass", "args": {"nodeClassPath": "/Script/PCG.PCGFilterByAttributeSettings"}},
+                    {"op": "addNode.byClass", "nodeClassPath": "/Script/PCG.PCGFilterByAttributeSettings"},
                 ],
             },
         )
@@ -3966,45 +3921,33 @@ def main() -> int:
                 "ops": [
                     {
                         "op": "setPinDefault",
-                        "args": {
-                            "target": {"nodeId": pcg_filter_node_id, "pin": "FilterMode"},
-                            "value": "FilterByValue",
-                        },
+                        "target": {"nodeId": pcg_filter_node_id, "pin": "FilterMode"},
+                        "value": "FilterByValue",
                     },
                     {
                         "op": "setPinDefault",
-                        "args": {
-                            "target": {"nodeId": pcg_filter_node_id, "pin": "TargetAttribute"},
-                            "value": "Desert_Cactus",
-                        },
+                        "target": {"nodeId": pcg_filter_node_id, "pin": "TargetAttribute"},
+                        "value": "Desert_Cactus",
                     },
                     {
                         "op": "setPinDefault",
-                        "args": {
-                            "target": {"nodeId": pcg_filter_node_id, "pin": "FilterOperator"},
-                            "value": "GreaterOrEqual",
-                        },
+                        "target": {"nodeId": pcg_filter_node_id, "pin": "FilterOperator"},
+                        "value": "GreaterOrEqual",
                     },
                     {
                         "op": "setPinDefault",
-                        "args": {
-                            "target": {"nodeId": pcg_filter_node_id, "pin": "Threshold/bUseConstantThreshold"},
-                            "value": True,
-                        },
+                        "target": {"nodeId": pcg_filter_node_id, "pin": "Threshold/bUseConstantThreshold"},
+                        "value": True,
                     },
                     {
                         "op": "setPinDefault",
-                        "args": {
-                            "target": {"nodeId": pcg_filter_node_id, "pin": "Threshold/AttributeTypes/type"},
-                            "value": "Double",
-                        },
+                        "target": {"nodeId": pcg_filter_node_id, "pin": "Threshold/AttributeTypes/type"},
+                        "value": "Double",
                     },
                     {
                         "op": "setPinDefault",
-                        "args": {
-                            "target": {"nodeId": pcg_filter_node_id, "pin": "Threshold/AttributeTypes/double_value"},
-                            "value": 0.5,
-                        },
+                        "target": {"nodeId": pcg_filter_node_id, "pin": "Threshold/AttributeTypes/double_value"},
+                        "value": 0.5,
                     },
                 ],
             },
@@ -4054,7 +3997,7 @@ def main() -> int:
             fail(f"PCG FilterByAttribute threshold type did not update to Double: {pcg_filter_verify}")
         if abs(float(pcg_filter_verify.get("thresholdDoubleValue", 0.0)) - 0.5) > 1e-6:
             fail(f"PCG FilterByAttribute threshold constant did not update: {pcg_filter_verify}")
-        print("[PASS] graph.mutate setPinDefault supports PCG selector and constant threshold paths")
+        print("[PASS] pcg.mutate setPinDefault supports selector and constant threshold paths")
 
         if skip_editor_visual_regression:
             print("[WARN] editor.open/editor.focus/editor.screenshot regression skipped by LOOMLE_SKIP_EDITOR_VISUAL_REGRESSION=1")
@@ -4088,7 +4031,7 @@ def main() -> int:
             )
             print("[PASS] editor.open, editor.focus, and editor.screenshot validated")
 
-        print("[PASS] graph.mutate core ops validated")
+        print("[PASS] domain mutate core ops validated")
 
         # -----------------------------------------------------------------------
         # widget.* regression
