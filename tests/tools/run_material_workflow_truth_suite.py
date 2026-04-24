@@ -20,7 +20,7 @@ from test_bridge_smoke import (  # noqa: E402
 )
 
 sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
-from domain_test_helpers import blank_surface_matrix, compact_json, flatten_graph_mutate_ops, wait_for_bridge_ready  # noqa: E402
+from domain_test_helpers import blank_surface_matrix, compact_json, wait_for_bridge_ready  # noqa: E402
 
 
 class MaterialWorkflowSuiteError(RuntimeError):
@@ -128,7 +128,10 @@ WORKFLOW_CASES = [
 
 
 def load_case_payload(case: dict[str, Any]) -> dict[str, Any]:
-    path = REPO_ROOT / str(case["payloadFixture"])
+    fixture_ref = case.get("payloadFixture")
+    if not isinstance(fixture_ref, str) or not fixture_ref:
+        raise MaterialWorkflowSuiteError("case_definition_gap", f"workflow case {case.get('id')} is missing payloadFixture")
+    path = REPO_ROOT / fixture_ref
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise MaterialWorkflowSuiteError("case_definition_gap", f"workflow payload is not an object: {path}")
@@ -398,7 +401,7 @@ def run_workflow_case(client: McpStdioClient, *, request_id_base: int, case_inde
         create_material_fixture(client, request_id_base, asset_path=asset_path)
         payload = load_case_payload(case)
         payload["assetPath"] = asset_path
-        mutate_args = flatten_graph_mutate_ops(payload)
+        mutate_args = {key: value for key, value in payload.items() if key != "tool"}
         mutate_result = call_tool(client, request_id_base + 10, "material.mutate", mutate_args)
         surface_matrix["mutate"] = "pass"
         ref_map = build_client_ref_map(mutate_args, mutate_result)
