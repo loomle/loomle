@@ -20,6 +20,7 @@
 #include "K2Node_CallFunction.h"
 #include "K2Node_Composite.h"
 #include "K2Node_DynamicCast.h"
+#include "K2Node_EditablePinBase.h"
 #include "K2Node_Event.h"
 #include "K2Node_ExecutionSequence.h"
 #include "K2Node_FunctionEntry.h"
@@ -533,6 +534,7 @@ namespace LoomleBlueprintAdapterInternal
 
         if (const UK2Node_FunctionEntry* FunctionEntryNode = Cast<UK2Node_FunctionEntry>(Node))
         {
+            const int32 FunctionFlags = FunctionEntryNode->GetFunctionFlags();
             Summary->SetStringField(TEXT("structureRole"), TEXT("graph_boundary"));
             Summary->SetStringField(TEXT("boundaryKind"), TEXT("function_entry"));
             Summary->SetStringField(TEXT("entryExitSemantics"), TEXT("entry"));
@@ -540,6 +542,9 @@ namespace LoomleBlueprintAdapterInternal
             Summary->SetStringField(TEXT("customGeneratedFunctionName"), FunctionEntryNode->CustomGeneratedFunctionName.ToString());
             Summary->SetNumberField(TEXT("localVariableCount"), FunctionEntryNode->LocalVariables.Num());
             Summary->SetBoolField(TEXT("enforceConstCorrectness"), FunctionEntryNode->bEnforceConstCorrectness);
+            Summary->SetBoolField(TEXT("isPure"), (FunctionFlags & FUNC_BlueprintPure) != 0);
+            Summary->SetBoolField(TEXT("isConst"), (FunctionFlags & FUNC_Const) != 0);
+            Summary->SetNumberField(TEXT("functionFlags"), FunctionFlags);
             Summary->SetBoolField(TEXT("isEditable"), true);
             return Summary;
         }
@@ -707,6 +712,13 @@ namespace LoomleBlueprintAdapterInternal
             }
         }
         for (UEdGraph* Graph : Blueprint->MacroGraphs)
+        {
+            if (Match(Graph))
+            {
+                return Graph;
+            }
+        }
+        for (UEdGraph* Graph : Blueprint->DelegateSignatureGraphs)
         {
             if (Match(Graph))
             {
@@ -960,6 +972,701 @@ namespace LoomleBlueprintAdapterInternal
 
         TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(PayloadJson);
         return FJsonSerializer::Deserialize(Reader, OutPayload) && OutPayload.IsValid();
+    }
+
+    static bool TryGetStringFieldAny(const TSharedPtr<FJsonObject>& Object, std::initializer_list<const TCHAR*> FieldNames, FString& OutValue)
+    {
+        OutValue.Empty();
+        if (!Object.IsValid())
+        {
+            return false;
+        }
+
+        for (const TCHAR* FieldName : FieldNames)
+        {
+            FString Value;
+            if (Object->TryGetStringField(FieldName, Value) && !Value.IsEmpty())
+            {
+                OutValue = Value;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool TryGetBoolFieldAny(const TSharedPtr<FJsonObject>& Object, std::initializer_list<const TCHAR*> FieldNames, bool& OutValue)
+    {
+        if (!Object.IsValid())
+        {
+            return false;
+        }
+
+        for (const TCHAR* FieldName : FieldNames)
+        {
+            bool Value = false;
+            if (Object->TryGetBoolField(FieldName, Value))
+            {
+                OutValue = Value;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool TryGetNumberFieldAny(const TSharedPtr<FJsonObject>& Object, std::initializer_list<const TCHAR*> FieldNames, double& OutValue)
+    {
+        if (!Object.IsValid())
+        {
+            return false;
+        }
+
+        for (const TCHAR* FieldName : FieldNames)
+        {
+            double Value = 0.0;
+            if (Object->TryGetNumberField(FieldName, Value))
+            {
+                OutValue = Value;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static TSharedPtr<FJsonObject> TryGetObjectFieldAny(const TSharedPtr<FJsonObject>& Object, std::initializer_list<const TCHAR*> FieldNames)
+    {
+        if (!Object.IsValid())
+        {
+            return nullptr;
+        }
+
+        for (const TCHAR* FieldName : FieldNames)
+        {
+            const TSharedPtr<FJsonObject>* Nested = nullptr;
+            if (Object->TryGetObjectField(FieldName, Nested) && Nested != nullptr && (*Nested).IsValid())
+            {
+                return *Nested;
+            }
+        }
+
+        return nullptr;
+    }
+
+    static TArray<TSharedPtr<FJsonValue>> TryGetArrayFieldAny(const TSharedPtr<FJsonObject>& Object, std::initializer_list<const TCHAR*> FieldNames)
+    {
+        if (!Object.IsValid())
+        {
+            return {};
+        }
+
+        for (const TCHAR* FieldName : FieldNames)
+        {
+            const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+            if (Object->TryGetArrayField(FieldName, Values) && Values != nullptr)
+            {
+                return *Values;
+            }
+        }
+
+        return {};
+    }
+
+    static UEnum* ResolveEnum(const FString& EnumPathOrName)
+    {
+        if (EnumPathOrName.IsEmpty())
+        {
+            return nullptr;
+        }
+
+        if (UEnum* EnumByPath = FindObject<UEnum>(nullptr, *EnumPathOrName))
+        {
+            return EnumByPath;
+        }
+        if (UEnum* LoadedEnum = LoadObject<UEnum>(nullptr, *EnumPathOrName))
+        {
+            return LoadedEnum;
+        }
+        return FindFirstObject<UEnum>(*EnumPathOrName);
+    }
+
+    static UScriptStruct* ResolveStruct(const FString& StructPathOrName)
+    {
+        if (StructPathOrName.IsEmpty())
+        {
+            return nullptr;
+        }
+
+        if (UScriptStruct* StructByPath = FindObject<UScriptStruct>(nullptr, *StructPathOrName))
+        {
+            return StructByPath;
+        }
+        if (UScriptStruct* LoadedStruct = LoadObject<UScriptStruct>(nullptr, *StructPathOrName))
+        {
+            return LoadedStruct;
+        }
+        return FindFirstObject<UScriptStruct>(*StructPathOrName);
+    }
+
+    static bool ParseVectorObject(const TSharedPtr<FJsonObject>& Object, FVector& OutValue)
+    {
+        if (!Object.IsValid())
+        {
+            return false;
+        }
+
+        double X = 0.0;
+        double Y = 0.0;
+        double Z = 0.0;
+        if (!TryGetNumberFieldAny(Object, {TEXT("x")}, X)
+            || !TryGetNumberFieldAny(Object, {TEXT("y")}, Y)
+            || !TryGetNumberFieldAny(Object, {TEXT("z")}, Z))
+        {
+            return false;
+        }
+
+        OutValue = FVector(X, Y, Z);
+        return true;
+    }
+
+    static bool TryReadVectorFieldAny(const TSharedPtr<FJsonObject>& Object, std::initializer_list<const TCHAR*> FieldNames, FVector& OutValue)
+    {
+        if (!Object.IsValid())
+        {
+            return false;
+        }
+
+        for (const TCHAR* FieldName : FieldNames)
+        {
+            if (TSharedPtr<FJsonObject> Nested = TryGetObjectFieldAny(Object, {FieldName}))
+            {
+                if (ParseVectorObject(Nested, OutValue))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return ParseVectorObject(Object, OutValue);
+    }
+
+    static bool ParsePinTypeObject(const TSharedPtr<FJsonObject>& Object, FEdGraphPinType& OutPinType, FString& OutError)
+    {
+        OutError.Empty();
+        if (!Object.IsValid())
+        {
+            OutError = TEXT("Pin type object is required.");
+            return false;
+        }
+
+        FString Category;
+        if (!TryGetStringFieldAny(Object, {TEXT("category"), TEXT("type")}, Category))
+        {
+            OutError = TEXT("Pin type requires category.");
+            return false;
+        }
+
+        const FString CategoryLower = Category.ToLower();
+        OutPinType = FEdGraphPinType();
+        OutPinType.ContainerType = EPinContainerType::None;
+
+        FString ObjectPath;
+        TryGetStringFieldAny(Object, {TEXT("objectPath"), TEXT("object"), TEXT("classPath"), TEXT("structPath"), TEXT("enumPath")}, ObjectPath);
+
+        if (CategoryLower.Equals(TEXT("exec")))
+        {
+            OutPinType.PinCategory = UEdGraphSchema_K2::PC_Exec;
+        }
+        else if (CategoryLower.Equals(TEXT("bool")))
+        {
+            OutPinType.PinCategory = UEdGraphSchema_K2::PC_Boolean;
+        }
+        else if (CategoryLower.Equals(TEXT("byte")))
+        {
+            OutPinType.PinCategory = UEdGraphSchema_K2::PC_Byte;
+        }
+        else if (CategoryLower.Equals(TEXT("int")))
+        {
+            OutPinType.PinCategory = UEdGraphSchema_K2::PC_Int;
+        }
+        else if (CategoryLower.Equals(TEXT("int64")))
+        {
+            OutPinType.PinCategory = UEdGraphSchema_K2::PC_Int64;
+        }
+        else if (CategoryLower.Equals(TEXT("float")) || CategoryLower.Equals(TEXT("real")))
+        {
+            OutPinType.PinCategory = UEdGraphSchema_K2::PC_Real;
+            OutPinType.PinSubCategory = UEdGraphSchema_K2::PC_Float;
+        }
+        else if (CategoryLower.Equals(TEXT("double")))
+        {
+            OutPinType.PinCategory = UEdGraphSchema_K2::PC_Real;
+            OutPinType.PinSubCategory = UEdGraphSchema_K2::PC_Double;
+        }
+        else if (CategoryLower.Equals(TEXT("name")))
+        {
+            OutPinType.PinCategory = UEdGraphSchema_K2::PC_Name;
+        }
+        else if (CategoryLower.Equals(TEXT("string")))
+        {
+            OutPinType.PinCategory = UEdGraphSchema_K2::PC_String;
+        }
+        else if (CategoryLower.Equals(TEXT("text")))
+        {
+            OutPinType.PinCategory = UEdGraphSchema_K2::PC_Text;
+        }
+        else if (CategoryLower.Equals(TEXT("object")))
+        {
+            OutPinType.PinCategory = UEdGraphSchema_K2::PC_Object;
+            OutPinType.PinSubCategoryObject = ResolveClass(ObjectPath);
+        }
+        else if (CategoryLower.Equals(TEXT("class")))
+        {
+            OutPinType.PinCategory = UEdGraphSchema_K2::PC_Class;
+            OutPinType.PinSubCategoryObject = ResolveClass(ObjectPath);
+        }
+        else if (CategoryLower.Equals(TEXT("softobject")))
+        {
+            OutPinType.PinCategory = UEdGraphSchema_K2::PC_SoftObject;
+            OutPinType.PinSubCategoryObject = ResolveClass(ObjectPath);
+        }
+        else if (CategoryLower.Equals(TEXT("softclass")))
+        {
+            OutPinType.PinCategory = UEdGraphSchema_K2::PC_SoftClass;
+            OutPinType.PinSubCategoryObject = ResolveClass(ObjectPath);
+        }
+        else if (CategoryLower.Equals(TEXT("struct")))
+        {
+            OutPinType.PinCategory = UEdGraphSchema_K2::PC_Struct;
+            OutPinType.PinSubCategoryObject = ResolveStruct(ObjectPath);
+        }
+        else if (CategoryLower.Equals(TEXT("enum")))
+        {
+            OutPinType.PinCategory = UEdGraphSchema_K2::PC_Byte;
+            OutPinType.PinSubCategoryObject = ResolveEnum(ObjectPath);
+        }
+        else if (CategoryLower.Equals(TEXT("wildcard")))
+        {
+            OutPinType.PinCategory = UEdGraphSchema_K2::PC_Wildcard;
+        }
+        else
+        {
+            OutError = FString::Printf(TEXT("Unsupported pin type category: %s"), *Category);
+            return false;
+        }
+
+        FString Container;
+        if (TryGetStringFieldAny(Object, {TEXT("container")}, Container))
+        {
+            const FString ContainerLower = Container.ToLower();
+            if (ContainerLower.Equals(TEXT("array")))
+            {
+                OutPinType.ContainerType = EPinContainerType::Array;
+            }
+            else if (ContainerLower.Equals(TEXT("set")))
+            {
+                OutPinType.ContainerType = EPinContainerType::Set;
+            }
+            else if (ContainerLower.Equals(TEXT("map")))
+            {
+                OutPinType.ContainerType = EPinContainerType::Map;
+            }
+        }
+
+        bool bReference = false;
+        if (TryGetBoolFieldAny(Object, {TEXT("reference"), TEXT("isReference")}, bReference))
+        {
+            OutPinType.bIsReference = bReference;
+        }
+        bool bConst = false;
+        if (TryGetBoolFieldAny(Object, {TEXT("const"), TEXT("isConst")}, bConst))
+        {
+            OutPinType.bIsConst = bConst;
+        }
+
+        const bool bNeedsObject =
+            OutPinType.PinCategory == UEdGraphSchema_K2::PC_Object
+            || OutPinType.PinCategory == UEdGraphSchema_K2::PC_Class
+            || OutPinType.PinCategory == UEdGraphSchema_K2::PC_SoftObject
+            || OutPinType.PinCategory == UEdGraphSchema_K2::PC_SoftClass
+            || OutPinType.PinCategory == UEdGraphSchema_K2::PC_Struct
+            || CategoryLower.Equals(TEXT("enum"));
+        if (bNeedsObject && !ObjectPath.IsEmpty() && !OutPinType.PinSubCategoryObject.IsValid())
+        {
+            OutError = FString::Printf(TEXT("Failed to resolve type object: %s"), *ObjectPath);
+            return false;
+        }
+
+        return true;
+    }
+
+    static bool ParsePinTypeFromPayload(const TSharedPtr<FJsonObject>& Payload, FEdGraphPinType& OutPinType, FString& OutError)
+    {
+        if (TSharedPtr<FJsonObject> TypeObject = TryGetObjectFieldAny(Payload, {TEXT("type"), TEXT("pinType"), TEXT("varType")}))
+        {
+            return ParsePinTypeObject(TypeObject, OutPinType, OutError);
+        }
+
+        return ParsePinTypeObject(Payload, OutPinType, OutError);
+    }
+
+    static FBPVariableDescription* FindVariableDescription(UBlueprint* Blueprint, const FName VariableName)
+    {
+        if (Blueprint == nullptr || VariableName.IsNone())
+        {
+            return nullptr;
+        }
+
+        const int32 Index = FBlueprintEditorUtils::FindNewVariableIndex(Blueprint, VariableName);
+        if (Index == INDEX_NONE || !Blueprint->NewVariables.IsValidIndex(Index))
+        {
+            return nullptr;
+        }
+
+        return &Blueprint->NewVariables[Index];
+    }
+
+    static UStruct* ResolveBlueprintMemberVariableScope(UBlueprint* Blueprint)
+    {
+        if (Blueprint == nullptr)
+        {
+            return nullptr;
+        }
+
+        if (Blueprint->SkeletonGeneratedClass != nullptr)
+        {
+            return Blueprint->SkeletonGeneratedClass;
+        }
+
+        return Blueprint->GeneratedClass;
+    }
+
+    static UEdGraph* FindFunctionLikeGraph(UBlueprint* Blueprint, const FString& GraphName)
+    {
+        return FindGraphByName(Blueprint, GraphName);
+    }
+
+    static void RemoveAllUserDefinedPins(UK2Node_EditablePinBase* Node)
+    {
+        if (Node == nullptr)
+        {
+            return;
+        }
+
+        for (int32 Index = Node->UserDefinedPins.Num() - 1; Index >= 0; --Index)
+        {
+            if (Node->UserDefinedPins[Index].IsValid())
+            {
+                Node->RemoveUserDefinedPinByName(Node->UserDefinedPins[Index]->PinName);
+            }
+        }
+    }
+
+    static bool ApplyPinSpecsToNode(
+        UK2Node_EditablePinBase* Node,
+        const TArray<TSharedPtr<FJsonValue>>& Specs,
+        const EEdGraphPinDirection DesiredDirection,
+        FString& OutError)
+    {
+        OutError.Empty();
+        if (Node == nullptr)
+        {
+            OutError = TEXT("Editable graph node is missing.");
+            return false;
+        }
+
+        RemoveAllUserDefinedPins(Node);
+
+        for (const TSharedPtr<FJsonValue>& Value : Specs)
+        {
+            const TSharedPtr<FJsonObject> Spec = Value.IsValid() ? Value->AsObject() : nullptr;
+            if (!Spec.IsValid())
+            {
+                OutError = TEXT("Pin specification entries must be objects.");
+                return false;
+            }
+
+            FString PinNameText;
+            if (!TryGetStringFieldAny(Spec, {TEXT("name"), TEXT("pinName")}, PinNameText))
+            {
+                OutError = TEXT("Pin specification requires name.");
+                return false;
+            }
+
+            FEdGraphPinType PinType;
+            if (!ParsePinTypeFromPayload(Spec, PinType, OutError))
+            {
+                return false;
+            }
+
+            const FName PinName(*PinNameText);
+            if (Node->CreateUserDefinedPin(PinName, PinType, DesiredDirection, false) == nullptr)
+            {
+                OutError = FString::Printf(TEXT("Failed to create user pin: %s"), *PinNameText);
+                return false;
+            }
+
+            FString DefaultValue;
+            if (TryGetStringFieldAny(Spec, {TEXT("defaultValue"), TEXT("default")}, DefaultValue))
+            {
+                TSharedPtr<FUserPinInfo>* PinInfo = Node->UserDefinedPins.FindByPredicate(
+                    [&PinName](const TSharedPtr<FUserPinInfo>& UserPin)
+                    {
+                        return UserPin.IsValid() && UserPin->PinName == PinName;
+                    });
+                if (PinInfo != nullptr && PinInfo->IsValid())
+                {
+                    (*PinInfo)->PinDefaultValue = DefaultValue;
+                    Node->ModifyUserDefinedPinDefaultValue(*PinInfo, DefaultValue);
+                }
+            }
+        }
+
+        Node->ReconstructNode();
+        return true;
+    }
+
+    static bool ApplySignatureToGraph(
+        UBlueprint* Blueprint,
+        UEdGraph* Graph,
+        const TArray<TSharedPtr<FJsonValue>>& Inputs,
+        const TArray<TSharedPtr<FJsonValue>>& Outputs,
+        FString& OutError)
+    {
+        OutError.Empty();
+        if (Blueprint == nullptr || Graph == nullptr)
+        {
+            OutError = TEXT("Failed to resolve blueprint/function graph.");
+            return false;
+        }
+
+        TWeakObjectPtr<UK2Node_EditablePinBase> EntryNodeWeak;
+        TWeakObjectPtr<UK2Node_EditablePinBase> ResultNodeWeak;
+        FBlueprintEditorUtils::GetEntryAndResultNodes(Graph, EntryNodeWeak, ResultNodeWeak);
+
+        UK2Node_EditablePinBase* EntryNode = EntryNodeWeak.Get();
+        UK2Node_EditablePinBase* ResultNode = ResultNodeWeak.Get();
+        if (EntryNode == nullptr)
+        {
+            OutError = TEXT("Editable entry node was not found.");
+            return false;
+        }
+
+        if (Outputs.Num() > 0 && ResultNode == nullptr)
+        {
+            ResultNode = FBlueprintEditorUtils::FindOrCreateFunctionResultNode(EntryNode);
+        }
+
+        EntryNode->Modify();
+        if (ResultNode != nullptr)
+        {
+            ResultNode->Modify();
+        }
+
+        if (!ApplyPinSpecsToNode(EntryNode, Inputs, EGPD_Output, OutError))
+        {
+            return false;
+        }
+
+        if (ResultNode != nullptr)
+        {
+            if (!ApplyPinSpecsToNode(ResultNode, Outputs, EGPD_Input, OutError))
+            {
+                return false;
+            }
+        }
+
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        Blueprint->MarkPackageDirty();
+        return true;
+    }
+
+    static bool ReorderUserDefinedPins(
+        UK2Node_EditablePinBase* Node,
+        const FString& PinNameToMove,
+        const FString& TargetPinName,
+        const bool bMoveBefore,
+        FString& OutError)
+    {
+        OutError.Empty();
+        if (Node == nullptr)
+        {
+            OutError = TEXT("Editable graph node is missing.");
+            return false;
+        }
+
+        const FName MoveName(*PinNameToMove);
+        const FName TargetName(*TargetPinName);
+        const int32 MoveIndex = Node->UserDefinedPins.IndexOfByPredicate(
+            [&MoveName](const TSharedPtr<FUserPinInfo>& Pin) { return Pin.IsValid() && Pin->PinName == MoveName; });
+        const int32 TargetIndex = Node->UserDefinedPins.IndexOfByPredicate(
+            [&TargetName](const TSharedPtr<FUserPinInfo>& Pin) { return Pin.IsValid() && Pin->PinName == TargetName; });
+        if (MoveIndex == INDEX_NONE || TargetIndex == INDEX_NONE)
+        {
+            OutError = TEXT("Pin reorder requires both movePinName and targetPinName to exist.");
+            return false;
+        }
+
+        int32 NewIndex = TargetIndex;
+        if (!bMoveBefore)
+        {
+            ++NewIndex;
+        }
+        if (MoveIndex < NewIndex)
+        {
+            --NewIndex;
+        }
+        if (MoveIndex == NewIndex)
+        {
+            return true;
+        }
+
+        Node->Modify();
+        TSharedPtr<FUserPinInfo> PinInfo = Node->UserDefinedPins[MoveIndex];
+        Node->UserDefinedPins.RemoveAt(MoveIndex);
+        Node->UserDefinedPins.Insert(PinInfo, NewIndex);
+        Node->ReconstructNode();
+        return true;
+    }
+
+    static void AppendSCSNodeTree(USCS_Node* Node, TArray<USCS_Node*>& OutNodes)
+    {
+        if (Node == nullptr)
+        {
+            return;
+        }
+
+        OutNodes.Add(Node);
+        for (USCS_Node* ChildNode : Node->GetChildNodes())
+        {
+            AppendSCSNodeTree(ChildNode, OutNodes);
+        }
+    }
+
+    static void RefreshSCSAllNodes(USimpleConstructionScript* SCS)
+    {
+        if (SCS == nullptr)
+        {
+            return;
+        }
+
+        TArray<USCS_Node*>& AllNodes = const_cast<TArray<USCS_Node*>&>(SCS->GetAllNodes());
+        AllNodes.Reset();
+        for (USCS_Node* RootNode : SCS->GetRootNodes())
+        {
+            if (RootNode != nullptr)
+            {
+                AppendSCSNodeTree(RootNode, AllNodes);
+            }
+        }
+    }
+
+    static bool ReorderSCSChildren(USCS_Node* ParentNode, USCS_Node* NodeToMove, USCS_Node* TargetNode, const bool bMoveBefore, FString& OutError)
+    {
+        OutError.Empty();
+        if (ParentNode == nullptr)
+        {
+            OutError = TEXT("Component reorder requires a parent node.");
+            return false;
+        }
+
+        TArray<USCS_Node*>& Children = const_cast<TArray<USCS_Node*>&>(ParentNode->GetChildNodes());
+        const int32 MoveIndex = Children.IndexOfByKey(NodeToMove);
+        const int32 TargetIndex = Children.IndexOfByKey(TargetNode);
+        if (MoveIndex == INDEX_NONE || TargetIndex == INDEX_NONE)
+        {
+            OutError = TEXT("Component reorder requires both nodes to share the same parent.");
+            return false;
+        }
+        if (MoveIndex == TargetIndex)
+        {
+            return true;
+        }
+
+        int32 TargetIndexAfterRemoval = TargetIndex;
+        if (MoveIndex < TargetIndex)
+        {
+            --TargetIndexAfterRemoval;
+        }
+        const int32 InsertIndex = FMath::Clamp(
+            bMoveBefore ? TargetIndexAfterRemoval : TargetIndexAfterRemoval + 1,
+            0,
+            Children.Num() - 1);
+
+        ParentNode->Modify();
+        Children.RemoveAt(MoveIndex);
+        Children.Insert(NodeToMove, InsertIndex);
+        RefreshSCSAllNodes(ParentNode->GetSCS());
+        return true;
+    }
+
+    static bool ReorderSCSRoots(USimpleConstructionScript* SCS, USCS_Node* NodeToMove, USCS_Node* TargetNode, const bool bMoveBefore, FString& OutError)
+    {
+        OutError.Empty();
+        if (SCS == nullptr)
+        {
+            OutError = TEXT("Component reorder requires SCS.");
+            return false;
+        }
+
+        TArray<USCS_Node*>& Roots = const_cast<TArray<USCS_Node*>&>(SCS->GetRootNodes());
+        const int32 MoveIndex = Roots.IndexOfByKey(NodeToMove);
+        const int32 TargetIndex = Roots.IndexOfByKey(TargetNode);
+        if (MoveIndex == INDEX_NONE || TargetIndex == INDEX_NONE)
+        {
+            OutError = TEXT("Component reorder requires both root nodes to exist.");
+            return false;
+        }
+        if (MoveIndex == TargetIndex)
+        {
+            return true;
+        }
+
+        int32 TargetIndexAfterRemoval = TargetIndex;
+        if (MoveIndex < TargetIndex)
+        {
+            --TargetIndexAfterRemoval;
+        }
+        const int32 InsertIndex = FMath::Clamp(
+            bMoveBefore ? TargetIndexAfterRemoval : TargetIndexAfterRemoval + 1,
+            0,
+            Roots.Num() - 1);
+
+        SCS->Modify();
+        Roots.RemoveAt(MoveIndex);
+        Roots.Insert(NodeToMove, InsertIndex);
+        RefreshSCSAllNodes(SCS);
+        SCS->ValidateSceneRootNodes();
+        return true;
+    }
+
+    static bool IsSameOrDescendantNode(USCS_Node* CandidateParent, USCS_Node* Node)
+    {
+        if (CandidateParent == nullptr || Node == nullptr)
+        {
+            return false;
+        }
+
+        if (CandidateParent == Node)
+        {
+            return true;
+        }
+
+        return CandidateParent->IsChildOf(Node);
+    }
+
+    static void ClearSCSNodeParent(USCS_Node* Node)
+    {
+        if (Node == nullptr)
+        {
+            return;
+        }
+
+        Node->Modify();
+        Node->bIsParentComponentNative = false;
+        Node->ParentComponentOrVariableName = NAME_None;
+        Node->ParentComponentOwnerClassName = NAME_None;
     }
 
     static void AppendGraphListEntries(const TArray<UEdGraph*>& Graphs, const FString& GraphKind, TArray<TSharedPtr<FJsonValue>>& OutGraphs)
@@ -2339,6 +3046,808 @@ bool FLoomleBlueprintAdapter::SetPrimitiveComponentGenerateOverlapEvents(const F
     }
 
     Comp->SetGenerateOverlapEvents(bGenerate);
+    Blueprint->MarkPackageDirty();
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::EditComponentMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError)
+{
+    OutError.Empty();
+
+    TSharedPtr<FJsonObject> Payload;
+    if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Payload))
+    {
+        OutError = TEXT("Failed to parse component payload JSON.");
+        return false;
+    }
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    USimpleConstructionScript* SCS = Blueprint ? Blueprint->SimpleConstructionScript : nullptr;
+    if (Blueprint == nullptr || SCS == nullptr)
+    {
+        OutError = TEXT("Blueprint not found or SimpleConstructionScript is unavailable.");
+        return false;
+    }
+
+    const FString OperationLower = Operation.ToLower();
+    if (OperationLower.Equals(TEXT("create")))
+    {
+        FString ComponentClassPath;
+        FString ComponentName;
+        FString ParentComponentName;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("componentClassPath"), TEXT("classPath")}, ComponentClassPath);
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("componentName"), TEXT("name")}, ComponentName);
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("parentComponentName"), TEXT("parentName")}, ParentComponentName);
+        return AddComponent(BlueprintAssetPath, ComponentClassPath, ComponentName, ParentComponentName, OutError);
+    }
+
+    FString ComponentName;
+    LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("componentName"), TEXT("name")}, ComponentName);
+    USCS_Node* Node = LoomleBlueprintAdapterInternal::FindComponentNode(Blueprint, ComponentName);
+    if (Node == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Failed to resolve component node: %s"), *ComponentName);
+        return false;
+    }
+
+    if (OperationLower.Equals(TEXT("rename")))
+    {
+        FString NewName;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("newName"), TEXT("name")}, NewName);
+        if (NewName.IsEmpty())
+        {
+            OutError = TEXT("component rename requires newName.");
+            return false;
+        }
+        FBlueprintEditorUtils::RenameComponentMemberVariable(Blueprint, Node, FName(*NewName));
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        Blueprint->MarkPackageDirty();
+        return true;
+    }
+
+    if (OperationLower.Equals(TEXT("delete")))
+    {
+        const bool bPromoteChildren = Payload.IsValid() && Payload->HasTypedField<EJson::Boolean>(TEXT("promoteChildren"))
+            ? Payload->GetBoolField(TEXT("promoteChildren"))
+            : false;
+        if (bPromoteChildren)
+        {
+            SCS->RemoveNodeAndPromoteChildren(Node);
+        }
+        else
+        {
+            SCS->RemoveNode(Node);
+        }
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        Blueprint->MarkPackageDirty();
+        return true;
+    }
+
+    if (OperationLower.Equals(TEXT("reparent")))
+    {
+        FString ParentComponentName;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("parentComponentName"), TEXT("parentName")}, ParentComponentName);
+        if (ParentComponentName.IsEmpty())
+        {
+            if (USCS_Node* ExistingParent = SCS->FindParentNode(Node))
+            {
+                ExistingParent->RemoveChildNode(Node, false);
+            }
+            else
+            {
+                SCS->RemoveNode(Node, false);
+            }
+            LoomleBlueprintAdapterInternal::ClearSCSNodeParent(Node);
+            SCS->AddNode(Node);
+        }
+        else
+        {
+            USCS_Node* ParentNode = LoomleBlueprintAdapterInternal::FindComponentNode(Blueprint, ParentComponentName);
+            if (ParentNode == nullptr)
+            {
+                OutError = FString::Printf(TEXT("Failed to resolve parent component: %s"), *ParentComponentName);
+                return false;
+            }
+
+            if (LoomleBlueprintAdapterInternal::IsSameOrDescendantNode(ParentNode, Node))
+            {
+                OutError = TEXT("Cannot reparent a component to itself or one of its descendants.");
+                return false;
+            }
+
+            const bool bWasRootNode = SCS->GetRootNodes().Contains(Node);
+            if (USCS_Node* ExistingParent = SCS->FindParentNode(Node))
+            {
+                ExistingParent->RemoveChildNode(Node, false);
+            }
+            else
+            {
+                SCS->RemoveNode(Node, false);
+            }
+            Node->SetParent(ParentNode);
+            ParentNode->AddChildNode(Node, bWasRootNode);
+        }
+
+        SCS->ValidateSceneRootNodes();
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        Blueprint->MarkPackageDirty();
+        return true;
+    }
+
+    if (OperationLower.Equals(TEXT("reorder")))
+    {
+        FString TargetComponentName;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("targetComponentName"), TEXT("targetName")}, TargetComponentName);
+        if (TargetComponentName.IsEmpty())
+        {
+            OutError = TEXT("component reorder requires targetComponentName.");
+            return false;
+        }
+
+        USCS_Node* TargetNode = LoomleBlueprintAdapterInternal::FindComponentNode(Blueprint, TargetComponentName);
+        if (TargetNode == nullptr)
+        {
+            OutError = FString::Printf(TEXT("Failed to resolve reorder target component: %s"), *TargetComponentName);
+            return false;
+        }
+
+        FString Placement = TEXT("after");
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("placement"), TEXT("position")}, Placement);
+        const bool bMoveBefore = Placement.Equals(TEXT("before"), ESearchCase::IgnoreCase);
+
+        USCS_Node* ParentNode = SCS->FindParentNode(Node);
+        USCS_Node* TargetParentNode = SCS->FindParentNode(TargetNode);
+        if (ParentNode != TargetParentNode)
+        {
+            OutError = TEXT("Component reorder requires the component and target to share the same parent.");
+            return false;
+        }
+
+        const bool bOk = ParentNode != nullptr
+            ? LoomleBlueprintAdapterInternal::ReorderSCSChildren(ParentNode, Node, TargetNode, bMoveBefore, OutError)
+            : LoomleBlueprintAdapterInternal::ReorderSCSRoots(SCS, Node, TargetNode, bMoveBefore, OutError);
+        if (!bOk)
+        {
+            return false;
+        }
+
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        Blueprint->MarkPackageDirty();
+        return true;
+    }
+
+    if (OperationLower.Equals(TEXT("update"))
+        || OperationLower.Equals(TEXT("setstaticmeshasset"))
+        || OperationLower.Equals(TEXT("setrelativelocation"))
+        || OperationLower.Equals(TEXT("setrelativescale3d"))
+        || OperationLower.Equals(TEXT("setcollisionenabled"))
+        || OperationLower.Equals(TEXT("setboxextent"))
+        || OperationLower.Equals(TEXT("setgenerateoverlapevents")))
+    {
+        FString MeshAssetPath;
+        if (OperationLower.Equals(TEXT("setstaticmeshasset"))
+            || LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("meshAssetPath"), TEXT("staticMeshAssetPath")}, MeshAssetPath))
+        {
+            if (!MeshAssetPath.IsEmpty())
+            {
+                if (!SetStaticMeshComponentAsset(BlueprintAssetPath, Node->GetVariableName().ToString(), MeshAssetPath, OutError))
+                {
+                    return false;
+                }
+            }
+        }
+
+        FVector VectorValue;
+        if (OperationLower.Equals(TEXT("setrelativelocation")) || LoomleBlueprintAdapterInternal::TryReadVectorFieldAny(Payload, {TEXT("relativeLocation"), TEXT("location")}, VectorValue))
+        {
+            if (!SetSceneComponentRelativeLocation(BlueprintAssetPath, Node->GetVariableName().ToString(), VectorValue, OutError))
+            {
+                return false;
+            }
+        }
+
+        if (OperationLower.Equals(TEXT("setrelativescale3d")) || LoomleBlueprintAdapterInternal::TryReadVectorFieldAny(Payload, {TEXT("relativeScale3D"), TEXT("scale3D"), TEXT("scale")}, VectorValue))
+        {
+            if (!SetSceneComponentRelativeScale3D(BlueprintAssetPath, Node->GetVariableName().ToString(), VectorValue, OutError))
+            {
+                return false;
+            }
+        }
+
+        FString CollisionMode;
+        if (OperationLower.Equals(TEXT("setcollisionenabled")) || LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("collisionMode"), TEXT("collisionEnabled")}, CollisionMode))
+        {
+            if (!CollisionMode.IsEmpty()
+                && !SetPrimitiveComponentCollisionEnabled(BlueprintAssetPath, Node->GetVariableName().ToString(), CollisionMode, OutError))
+            {
+                return false;
+            }
+        }
+
+        if (OperationLower.Equals(TEXT("setboxextent")) || LoomleBlueprintAdapterInternal::TryReadVectorFieldAny(Payload, {TEXT("boxExtent"), TEXT("extent")}, VectorValue))
+        {
+            UBoxComponent* BoxComponent = Cast<UBoxComponent>(Node->ComponentTemplate);
+            if (BoxComponent != nullptr)
+            {
+                if (!SetBoxComponentExtent(BlueprintAssetPath, Node->GetVariableName().ToString(), VectorValue, OutError))
+                {
+                    return false;
+                }
+            }
+        }
+
+        bool bGenerateOverlap = false;
+        if (OperationLower.Equals(TEXT("setgenerateoverlapevents")) || LoomleBlueprintAdapterInternal::TryGetBoolFieldAny(Payload, {TEXT("generateOverlapEvents")}, bGenerateOverlap))
+        {
+            if (!SetPrimitiveComponentGenerateOverlapEvents(BlueprintAssetPath, Node->GetVariableName().ToString(), bGenerateOverlap, OutError))
+            {
+                return false;
+            }
+        }
+
+        Blueprint->MarkPackageDirty();
+        return true;
+    }
+
+    OutError = FString::Printf(TEXT("Unsupported component operation: %s"), *Operation);
+    return false;
+}
+
+bool FLoomleBlueprintAdapter::EditVariableMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError)
+{
+    OutError.Empty();
+
+    TSharedPtr<FJsonObject> Payload;
+    if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Payload))
+    {
+        OutError = TEXT("Failed to parse variable payload JSON.");
+        return false;
+    }
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    if (Blueprint == nullptr)
+    {
+        OutError = TEXT("Failed to resolve blueprint.");
+        return false;
+    }
+
+    const FString OperationLower = Operation.ToLower();
+    if (OperationLower.Equals(TEXT("create")))
+    {
+        FString VariableNameText;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("variableName"), TEXT("name")}, VariableNameText);
+        if (VariableNameText.IsEmpty())
+        {
+            OutError = TEXT("variable create requires variableName.");
+            return false;
+        }
+
+        FEdGraphPinType PinType;
+        if (!LoomleBlueprintAdapterInternal::ParsePinTypeFromPayload(Payload, PinType, OutError))
+        {
+            return false;
+        }
+
+        FString DefaultValue;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("defaultValue"), TEXT("default")}, DefaultValue);
+        if (!FBlueprintEditorUtils::AddMemberVariable(Blueprint, FName(*VariableNameText), PinType, DefaultValue))
+        {
+            OutError = FString::Printf(TEXT("Failed to add Blueprint member variable: %s"), *VariableNameText);
+            return false;
+        }
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        Blueprint->MarkPackageDirty();
+        return true;
+    }
+
+    FString VariableNameText;
+    LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("variableName"), TEXT("name")}, VariableNameText);
+    const FName VariableName(*VariableNameText);
+    FBPVariableDescription* VariableDescription = LoomleBlueprintAdapterInternal::FindVariableDescription(Blueprint, VariableName);
+    if (VariableDescription == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Failed to resolve Blueprint member variable: %s"), *VariableNameText);
+        return false;
+    }
+
+    if (OperationLower.Equals(TEXT("rename")))
+    {
+        FString NewNameText;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("newName"), TEXT("name")}, NewNameText);
+        if (NewNameText.IsEmpty())
+        {
+            OutError = TEXT("variable rename requires newName.");
+            return false;
+        }
+        FBlueprintEditorUtils::RenameMemberVariable(Blueprint, VariableName, FName(*NewNameText));
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        Blueprint->MarkPackageDirty();
+        return true;
+    }
+
+    if (OperationLower.Equals(TEXT("delete")))
+    {
+        FBlueprintEditorUtils::RemoveMemberVariable(Blueprint, VariableName);
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        Blueprint->MarkPackageDirty();
+        return true;
+    }
+
+    if (OperationLower.Equals(TEXT("reorder")))
+    {
+        FString TargetVariableName;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("targetVariableName"), TEXT("targetName")}, TargetVariableName);
+        if (TargetVariableName.IsEmpty())
+        {
+            OutError = TEXT("variable reorder requires targetVariableName.");
+            return false;
+        }
+
+        FString Placement = TEXT("after");
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("placement"), TEXT("position")}, Placement);
+        UStruct* VariableScope = LoomleBlueprintAdapterInternal::ResolveBlueprintMemberVariableScope(Blueprint);
+        if (VariableScope == nullptr)
+        {
+            OutError = TEXT("Failed to resolve Blueprint member variable scope.");
+            return false;
+        }
+        const bool bOk = Placement.Equals(TEXT("before"), ESearchCase::IgnoreCase)
+            ? FBlueprintEditorUtils::MoveVariableBeforeVariable(Blueprint, VariableScope, VariableName, FName(*TargetVariableName), false)
+            : FBlueprintEditorUtils::MoveVariableAfterVariable(Blueprint, VariableScope, VariableName, FName(*TargetVariableName), false);
+        if (!bOk)
+        {
+            OutError = TEXT("Variable reorder failed.");
+            return false;
+        }
+
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        Blueprint->MarkPackageDirty();
+        return true;
+    }
+
+    if (OperationLower.Equals(TEXT("setdefault")) || OperationLower.Equals(TEXT("update")))
+    {
+        if (OperationLower.Equals(TEXT("update")) && (Payload->HasField(TEXT("type")) || Payload->HasField(TEXT("pinType")) || Payload->HasField(TEXT("varType"))))
+        {
+            FEdGraphPinType PinType;
+            if (!LoomleBlueprintAdapterInternal::ParsePinTypeFromPayload(Payload, PinType, OutError))
+            {
+                return false;
+            }
+            FBlueprintEditorUtils::ChangeMemberVariableType(Blueprint, VariableName, PinType);
+        }
+
+        FString DefaultValue;
+        if (LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("defaultValue"), TEXT("default")}, DefaultValue))
+        {
+            VariableDescription = LoomleBlueprintAdapterInternal::FindVariableDescription(Blueprint, VariableName);
+            if (VariableDescription == nullptr)
+            {
+                OutError = TEXT("Variable disappeared while applying default value.");
+                return false;
+            }
+            VariableDescription->DefaultValue = DefaultValue;
+        }
+
+        FString Category;
+        if (LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("category")}, Category))
+        {
+            FBlueprintEditorUtils::SetBlueprintVariableCategory(Blueprint, VariableName, nullptr, FText::FromString(Category), false);
+        }
+
+        FString Tooltip;
+        if (LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("tooltip")}, Tooltip))
+        {
+            FBlueprintEditorUtils::SetBlueprintVariableMetaData(Blueprint, VariableName, nullptr, FBlueprintMetadata::MD_Tooltip, Tooltip);
+        }
+
+        bool bBoolValue = false;
+        if (LoomleBlueprintAdapterInternal::TryGetBoolFieldAny(Payload, {TEXT("blueprintReadWrite"), TEXT("editable")}, bBoolValue))
+        {
+            FBlueprintEditorUtils::SetBlueprintOnlyEditableFlag(Blueprint, VariableName, bBoolValue);
+        }
+        if (LoomleBlueprintAdapterInternal::TryGetBoolFieldAny(Payload, {TEXT("readOnly")}, bBoolValue))
+        {
+            FBlueprintEditorUtils::SetBlueprintPropertyReadOnlyFlag(Blueprint, VariableName, bBoolValue);
+        }
+        if (LoomleBlueprintAdapterInternal::TryGetBoolFieldAny(Payload, {TEXT("transient")}, bBoolValue))
+        {
+            FBlueprintEditorUtils::SetVariableTransientFlag(Blueprint, VariableName, bBoolValue);
+        }
+        if (LoomleBlueprintAdapterInternal::TryGetBoolFieldAny(Payload, {TEXT("saveGame")}, bBoolValue))
+        {
+            FBlueprintEditorUtils::SetVariableSaveGameFlag(Blueprint, VariableName, bBoolValue);
+        }
+        if (LoomleBlueprintAdapterInternal::TryGetBoolFieldAny(Payload, {TEXT("advancedDisplay")}, bBoolValue))
+        {
+            FBlueprintEditorUtils::SetVariableAdvancedDisplayFlag(Blueprint, VariableName, bBoolValue);
+        }
+        if (LoomleBlueprintAdapterInternal::TryGetBoolFieldAny(Payload, {TEXT("deprecated")}, bBoolValue))
+        {
+            FBlueprintEditorUtils::SetVariableDeprecatedFlag(Blueprint, VariableName, bBoolValue);
+        }
+        if (LoomleBlueprintAdapterInternal::TryGetBoolFieldAny(Payload, {TEXT("exposeOnSpawn")}, bBoolValue))
+        {
+            if (bBoolValue)
+            {
+                FBlueprintEditorUtils::SetBlueprintVariableMetaData(Blueprint, VariableName, nullptr, FBlueprintMetadata::MD_ExposeOnSpawn, TEXT("true"));
+            }
+            else
+            {
+                FBlueprintEditorUtils::RemoveBlueprintVariableMetaData(Blueprint, VariableName, nullptr, FBlueprintMetadata::MD_ExposeOnSpawn);
+            }
+        }
+        if (LoomleBlueprintAdapterInternal::TryGetBoolFieldAny(Payload, {TEXT("private")}, bBoolValue))
+        {
+            if (bBoolValue)
+            {
+                FBlueprintEditorUtils::SetBlueprintVariableMetaData(Blueprint, VariableName, nullptr, FBlueprintMetadata::MD_Private, TEXT("true"));
+            }
+            else
+            {
+                FBlueprintEditorUtils::RemoveBlueprintVariableMetaData(Blueprint, VariableName, nullptr, FBlueprintMetadata::MD_Private);
+            }
+        }
+
+        Blueprint->MarkPackageDirty();
+        return true;
+    }
+
+    OutError = FString::Printf(TEXT("Unsupported variable operation: %s"), *Operation);
+    return false;
+}
+
+bool FLoomleBlueprintAdapter::EditFunctionMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError)
+{
+    OutError.Empty();
+
+    TSharedPtr<FJsonObject> Payload;
+    if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Payload))
+    {
+        OutError = TEXT("Failed to parse function payload JSON.");
+        return false;
+    }
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    if (Blueprint == nullptr)
+    {
+        OutError = TEXT("Failed to resolve blueprint.");
+        return false;
+    }
+
+    const FString OperationLower = Operation.ToLower();
+    if (OperationLower.Equals(TEXT("create")))
+    {
+        FString FunctionName;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("functionName"), TEXT("name")}, FunctionName);
+        if (FunctionName.IsEmpty())
+        {
+            OutError = TEXT("function create requires functionName.");
+            return false;
+        }
+        if (!AddFunctionGraph(BlueprintAssetPath, FunctionName, OutError))
+        {
+            return false;
+        }
+        Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    }
+
+    FString FunctionName;
+    LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("functionName"), TEXT("name")}, FunctionName);
+    UEdGraph* FunctionGraph = LoomleBlueprintAdapterInternal::FindFunctionLikeGraph(Blueprint, FunctionName);
+    if (FunctionGraph == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Failed to resolve function graph: %s"), *FunctionName);
+        return false;
+    }
+
+    if (OperationLower.Equals(TEXT("rename")))
+    {
+        FString NewName;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("newName"), TEXT("name")}, NewName);
+        if (NewName.IsEmpty())
+        {
+            OutError = TEXT("function rename requires newName.");
+            return false;
+        }
+        return RenameGraph(BlueprintAssetPath, FunctionName, NewName, OutError);
+    }
+
+    if (OperationLower.Equals(TEXT("delete")))
+    {
+        return DeleteGraph(BlueprintAssetPath, FunctionName, OutError);
+    }
+
+    if (OperationLower.Equals(TEXT("updatesignature")) || OperationLower.Equals(TEXT("create")))
+    {
+        const TArray<TSharedPtr<FJsonValue>> Inputs = LoomleBlueprintAdapterInternal::TryGetArrayFieldAny(Payload, {TEXT("inputs"), TEXT("parameters")});
+        const TArray<TSharedPtr<FJsonValue>> Outputs = LoomleBlueprintAdapterInternal::TryGetArrayFieldAny(Payload, {TEXT("outputs"), TEXT("returns")});
+        if (!LoomleBlueprintAdapterInternal::ApplySignatureToGraph(Blueprint, FunctionGraph, Inputs, Outputs, OutError))
+        {
+            return false;
+        }
+    }
+
+    if (OperationLower.Equals(TEXT("setflags")) || OperationLower.Equals(TEXT("create")))
+    {
+        TWeakObjectPtr<UK2Node_EditablePinBase> EntryNodeWeak;
+        TWeakObjectPtr<UK2Node_EditablePinBase> ResultNodeWeak;
+        FBlueprintEditorUtils::GetEntryAndResultNodes(FunctionGraph, EntryNodeWeak, ResultNodeWeak);
+        UK2Node_FunctionEntry* EntryNode = Cast<UK2Node_FunctionEntry>(EntryNodeWeak.Get());
+        if (EntryNode == nullptr)
+        {
+            OutError = TEXT("Function entry node is missing.");
+            return false;
+        }
+
+        EntryNode->Modify();
+        UFunction* SkeletonFunction = nullptr;
+        if (Blueprint->SkeletonGeneratedClass != nullptr)
+        {
+            SkeletonFunction = Blueprint->SkeletonGeneratedClass->FindFunctionByName(FName(*FunctionGraph->GetName()));
+        }
+        if (SkeletonFunction != nullptr)
+        {
+            SkeletonFunction->Modify();
+        }
+        int32 Flags = EntryNode->GetExtraFlags();
+        auto SetFlag = [&Flags, SkeletonFunction, Payload](const TCHAR* FieldName, int32 Flag)
+        {
+            bool bValue = false;
+            if (Payload.IsValid() && Payload->TryGetBoolField(FieldName, bValue))
+            {
+                const EFunctionFlags FunctionFlag = static_cast<EFunctionFlags>(Flag);
+                if (bValue)
+                {
+                    Flags |= Flag;
+                    if (SkeletonFunction != nullptr)
+                    {
+                        SkeletonFunction->FunctionFlags |= FunctionFlag;
+                    }
+                }
+                else
+                {
+                    Flags &= ~Flag;
+                    if (SkeletonFunction != nullptr)
+                    {
+                        SkeletonFunction->FunctionFlags &= ~FunctionFlag;
+                    }
+                }
+            }
+        };
+        SetFlag(TEXT("pure"), FUNC_BlueprintPure);
+        SetFlag(TEXT("const"), FUNC_Const);
+        SetFlag(TEXT("public"), FUNC_Public);
+        SetFlag(TEXT("protected"), FUNC_Protected);
+        SetFlag(TEXT("private"), FUNC_Private);
+        EntryNode->SetExtraFlags(Flags);
+
+        const bool bDisableOrphanSaving = EntryNode->bDisableOrphanPinSaving;
+        EntryNode->bDisableOrphanPinSaving = true;
+        EntryNode->ReconstructNode();
+        EntryNode->bDisableOrphanPinSaving = bDisableOrphanSaving;
+        if (UK2Node_EditablePinBase* ResultNode = ResultNodeWeak.Get())
+        {
+            const bool bResultDisableOrphanSaving = ResultNode->bDisableOrphanPinSaving;
+            ResultNode->bDisableOrphanPinSaving = true;
+            ResultNode->ReconstructNode();
+            ResultNode->bDisableOrphanPinSaving = bResultDisableOrphanSaving;
+        }
+        GetDefault<UEdGraphSchema_K2>()->HandleParameterDefaultValueChanged(EntryNode);
+
+        bool bCallInEditor = false;
+        if (LoomleBlueprintAdapterInternal::TryGetBoolFieldAny(Payload, {TEXT("callInEditor")}, bCallInEditor))
+        {
+            EntryNode->MetaData.bCallInEditor = bCallInEditor;
+        }
+        bool bDeprecated = false;
+        if (LoomleBlueprintAdapterInternal::TryGetBoolFieldAny(Payload, {TEXT("deprecated")}, bDeprecated))
+        {
+            EntryNode->MetaData.bIsDeprecated = bDeprecated;
+        }
+        FString DeprecationMessage;
+        if (LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("deprecationMessage")}, DeprecationMessage))
+        {
+            EntryNode->MetaData.DeprecationMessage = DeprecationMessage;
+        }
+        FString Category;
+        if (LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("category")}, Category))
+        {
+            FBlueprintEditorUtils::SetBlueprintFunctionOrMacroCategory(FunctionGraph, FText::FromString(Category), false);
+        }
+        FString Tooltip;
+        if (LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("tooltip")}, Tooltip))
+        {
+            EntryNode->MetaData.ToolTip = FText::FromString(Tooltip);
+        }
+
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        Blueprint->MarkPackageDirty();
+    }
+
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::EditMacroMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError)
+{
+    OutError.Empty();
+
+    TSharedPtr<FJsonObject> Payload;
+    if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Payload))
+    {
+        OutError = TEXT("Failed to parse macro payload JSON.");
+        return false;
+    }
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    if (Blueprint == nullptr)
+    {
+        OutError = TEXT("Failed to resolve blueprint.");
+        return false;
+    }
+
+    const FString OperationLower = Operation.ToLower();
+    if (OperationLower.Equals(TEXT("create")))
+    {
+        FString MacroName;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("macroName"), TEXT("name")}, MacroName);
+        if (MacroName.IsEmpty())
+        {
+            OutError = TEXT("macro create requires macroName.");
+            return false;
+        }
+        if (!AddMacroGraph(BlueprintAssetPath, MacroName, OutError))
+        {
+            return false;
+        }
+        Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    }
+
+    FString MacroName;
+    LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("macroName"), TEXT("name")}, MacroName);
+    UEdGraph* MacroGraph = LoomleBlueprintAdapterInternal::FindFunctionLikeGraph(Blueprint, MacroName);
+    if (MacroGraph == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Failed to resolve macro graph: %s"), *MacroName);
+        return false;
+    }
+
+    if (OperationLower.Equals(TEXT("rename")))
+    {
+        FString NewName;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("newName"), TEXT("name")}, NewName);
+        if (NewName.IsEmpty())
+        {
+            OutError = TEXT("macro rename requires newName.");
+            return false;
+        }
+        return RenameGraph(BlueprintAssetPath, MacroName, NewName, OutError);
+    }
+
+    if (OperationLower.Equals(TEXT("delete")))
+    {
+        return DeleteGraph(BlueprintAssetPath, MacroName, OutError);
+    }
+
+    if (OperationLower.Equals(TEXT("updatesignature")) || OperationLower.Equals(TEXT("create")))
+    {
+        const TArray<TSharedPtr<FJsonValue>> Inputs = LoomleBlueprintAdapterInternal::TryGetArrayFieldAny(Payload, {TEXT("inputs"), TEXT("parameters")});
+        const TArray<TSharedPtr<FJsonValue>> Outputs = LoomleBlueprintAdapterInternal::TryGetArrayFieldAny(Payload, {TEXT("outputs"), TEXT("returns")});
+        if (!LoomleBlueprintAdapterInternal::ApplySignatureToGraph(Blueprint, MacroGraph, Inputs, Outputs, OutError))
+        {
+            return false;
+        }
+    }
+
+    FString Category;
+    if (LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("category")}, Category))
+    {
+        FBlueprintEditorUtils::SetBlueprintFunctionOrMacroCategory(MacroGraph, FText::FromString(Category), false);
+    }
+
+    Blueprint->MarkPackageDirty();
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::EditDispatcherMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError)
+{
+    OutError.Empty();
+
+    TSharedPtr<FJsonObject> Payload;
+    if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Payload))
+    {
+        OutError = TEXT("Failed to parse dispatcher payload JSON.");
+        return false;
+    }
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    if (Blueprint == nullptr)
+    {
+        OutError = TEXT("Failed to resolve blueprint.");
+        return false;
+    }
+
+    const FString OperationLower = Operation.ToLower();
+    if (OperationLower.Equals(TEXT("create")))
+    {
+        FString DispatcherName;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("dispatcherName"), TEXT("name")}, DispatcherName);
+        if (DispatcherName.IsEmpty())
+        {
+            OutError = TEXT("dispatcher create requires dispatcherName.");
+            return false;
+        }
+
+        FEdGraphPinType DelegateType;
+        DelegateType.PinCategory = UEdGraphSchema_K2::PC_MCDelegate;
+        if (!FBlueprintEditorUtils::AddMemberVariable(Blueprint, FName(*DispatcherName), DelegateType))
+        {
+            OutError = FString::Printf(TEXT("Failed to create dispatcher variable: %s"), *DispatcherName);
+            return false;
+        }
+
+        const UEdGraphSchema_K2* K2Schema = GetDefault<UEdGraphSchema_K2>();
+        UEdGraph* NewGraph = FBlueprintEditorUtils::CreateNewGraph(Blueprint, FName(*DispatcherName), UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
+        if (NewGraph == nullptr || K2Schema == nullptr)
+        {
+            OutError = TEXT("Failed to create dispatcher graph.");
+            return false;
+        }
+
+        K2Schema->CreateDefaultNodesForGraph(*NewGraph);
+        K2Schema->CreateFunctionGraphTerminators(*NewGraph, static_cast<UClass*>(nullptr));
+        K2Schema->AddExtraFunctionFlags(NewGraph, FUNC_BlueprintCallable | FUNC_BlueprintEvent | FUNC_Public);
+        K2Schema->MarkFunctionEntryAsEditable(NewGraph, true);
+        Blueprint->DelegateSignatureGraphs.Add(NewGraph);
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        Blueprint->MarkPackageDirty();
+    }
+
+    FString DispatcherName;
+    LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("dispatcherName"), TEXT("name")}, DispatcherName);
+    UEdGraph* DispatcherGraph = LoomleBlueprintAdapterInternal::FindFunctionLikeGraph(Blueprint, DispatcherName);
+    if (DispatcherGraph == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Failed to resolve dispatcher graph: %s"), *DispatcherName);
+        return false;
+    }
+
+    if (OperationLower.Equals(TEXT("rename")))
+    {
+        FString NewName;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("newName"), TEXT("name")}, NewName);
+        if (NewName.IsEmpty())
+        {
+            OutError = TEXT("dispatcher rename requires newName.");
+            return false;
+        }
+        FBlueprintEditorUtils::RenameMemberVariable(Blueprint, FName(*DispatcherName), FName(*NewName));
+        Blueprint->MarkPackageDirty();
+        return true;
+    }
+
+    if (OperationLower.Equals(TEXT("delete")))
+    {
+        FBlueprintEditorUtils::RemoveMemberVariable(Blueprint, FName(*DispatcherName));
+        return DeleteGraph(BlueprintAssetPath, DispatcherName, OutError);
+    }
+
+    if (OperationLower.Equals(TEXT("updatesignature")) || OperationLower.Equals(TEXT("create")))
+    {
+        const TArray<TSharedPtr<FJsonValue>> Inputs = LoomleBlueprintAdapterInternal::TryGetArrayFieldAny(Payload, {TEXT("inputs"), TEXT("parameters")});
+        const TArray<TSharedPtr<FJsonValue>> Outputs = LoomleBlueprintAdapterInternal::TryGetArrayFieldAny(Payload, {TEXT("outputs"), TEXT("returns")});
+        if (!LoomleBlueprintAdapterInternal::ApplySignatureToGraph(Blueprint, DispatcherGraph, Inputs, Outputs, OutError))
+        {
+            return false;
+        }
+    }
+
+    FString Category;
+    if (LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("category")}, Category))
+    {
+        FBlueprintEditorUtils::SetBlueprintFunctionOrMacroCategory(DispatcherGraph, FText::FromString(Category), false);
+    }
+
     Blueprint->MarkPackageDirty();
     return true;
 }

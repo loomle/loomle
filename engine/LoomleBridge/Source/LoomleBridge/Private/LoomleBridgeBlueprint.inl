@@ -1151,91 +1151,29 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMemberEditToolResult(
             ? *ArgsObject
             : EmptyArgs;
 
-    if (!MemberKind.Equals(TEXT("component"), ESearchCase::IgnoreCase))
-    {
-        Result->SetBoolField(TEXT("isError"), true);
-        Result->SetStringField(TEXT("code"), TEXT("NOT_IMPLEMENTED"));
-        Result->SetStringField(
-            TEXT("message"),
-            FString::Printf(TEXT("blueprint.member.edit does not support memberKind yet: %s"), *MemberKind));
-        return Result;
-    }
-
+    const FString PayloadJson = SerializeBlueprintJsonObjectCondensed(EffectiveArgs);
     FString Error;
     bool bOk = false;
 
-    if (Operation.Equals(TEXT("create"), ESearchCase::IgnoreCase))
+    if (MemberKind.Equals(TEXT("component"), ESearchCase::IgnoreCase))
     {
-        FString ComponentClassPath;
-        FString ComponentName;
-        FString ParentComponentName;
-        EffectiveArgs->TryGetStringField(TEXT("componentClassPath"), ComponentClassPath);
-        EffectiveArgs->TryGetStringField(TEXT("componentName"), ComponentName);
-        EffectiveArgs->TryGetStringField(TEXT("parentComponentName"), ParentComponentName);
-        bOk = FLoomleBlueprintAdapter::AddComponent(AssetPath, ComponentClassPath, ComponentName, ParentComponentName, Error);
+        bOk = FLoomleBlueprintAdapter::EditComponentMember(AssetPath, Operation, PayloadJson, Error);
     }
-    else if (Operation.Equals(TEXT("setStaticMeshAsset"), ESearchCase::IgnoreCase))
+    else if (MemberKind.Equals(TEXT("variable"), ESearchCase::IgnoreCase))
     {
-        FString ComponentName;
-        FString MeshAssetPath;
-        EffectiveArgs->TryGetStringField(TEXT("componentName"), ComponentName);
-        EffectiveArgs->TryGetStringField(TEXT("meshAssetPath"), MeshAssetPath);
-        bOk = FLoomleBlueprintAdapter::SetStaticMeshComponentAsset(AssetPath, ComponentName, MeshAssetPath, Error);
+        bOk = FLoomleBlueprintAdapter::EditVariableMember(AssetPath, Operation, PayloadJson, Error);
     }
-    else if (Operation.Equals(TEXT("setRelativeLocation"), ESearchCase::IgnoreCase))
+    else if (MemberKind.Equals(TEXT("function"), ESearchCase::IgnoreCase))
     {
-        FString ComponentName;
-        EffectiveArgs->TryGetStringField(TEXT("componentName"), ComponentName);
-        double X = 0.0;
-        double Y = 0.0;
-        double Z = 0.0;
-        EffectiveArgs->TryGetNumberField(TEXT("x"), X);
-        EffectiveArgs->TryGetNumberField(TEXT("y"), Y);
-        EffectiveArgs->TryGetNumberField(TEXT("z"), Z);
-        const FVector Value(X, Y, Z);
-        bOk = FLoomleBlueprintAdapter::SetSceneComponentRelativeLocation(AssetPath, ComponentName, Value, Error);
+        bOk = FLoomleBlueprintAdapter::EditFunctionMember(AssetPath, Operation, PayloadJson, Error);
     }
-    else if (Operation.Equals(TEXT("setRelativeScale3D"), ESearchCase::IgnoreCase))
+    else if (MemberKind.Equals(TEXT("macro"), ESearchCase::IgnoreCase))
     {
-        FString ComponentName;
-        EffectiveArgs->TryGetStringField(TEXT("componentName"), ComponentName);
-        double X = 0.0;
-        double Y = 0.0;
-        double Z = 0.0;
-        EffectiveArgs->TryGetNumberField(TEXT("x"), X);
-        EffectiveArgs->TryGetNumberField(TEXT("y"), Y);
-        EffectiveArgs->TryGetNumberField(TEXT("z"), Z);
-        const FVector Value(X, Y, Z);
-        bOk = FLoomleBlueprintAdapter::SetSceneComponentRelativeScale3D(AssetPath, ComponentName, Value, Error);
+        bOk = FLoomleBlueprintAdapter::EditMacroMember(AssetPath, Operation, PayloadJson, Error);
     }
-    else if (Operation.Equals(TEXT("setCollisionEnabled"), ESearchCase::IgnoreCase))
+    else if (MemberKind.Equals(TEXT("dispatcher"), ESearchCase::IgnoreCase))
     {
-        FString ComponentName;
-        FString CollisionMode;
-        EffectiveArgs->TryGetStringField(TEXT("componentName"), ComponentName);
-        EffectiveArgs->TryGetStringField(TEXT("collisionMode"), CollisionMode);
-        bOk = FLoomleBlueprintAdapter::SetPrimitiveComponentCollisionEnabled(AssetPath, ComponentName, CollisionMode, Error);
-    }
-    else if (Operation.Equals(TEXT("setBoxExtent"), ESearchCase::IgnoreCase))
-    {
-        FString ComponentName;
-        EffectiveArgs->TryGetStringField(TEXT("componentName"), ComponentName);
-        double X = 0.0;
-        double Y = 0.0;
-        double Z = 0.0;
-        EffectiveArgs->TryGetNumberField(TEXT("x"), X);
-        EffectiveArgs->TryGetNumberField(TEXT("y"), Y);
-        EffectiveArgs->TryGetNumberField(TEXT("z"), Z);
-        const FVector Value(X, Y, Z);
-        bOk = FLoomleBlueprintAdapter::SetBoxComponentExtent(AssetPath, ComponentName, Value, Error);
-    }
-    else if (Operation.Equals(TEXT("setGenerateOverlapEvents"), ESearchCase::IgnoreCase))
-    {
-        FString ComponentName;
-        bool bGenerate = false;
-        EffectiveArgs->TryGetStringField(TEXT("componentName"), ComponentName);
-        EffectiveArgs->TryGetBoolField(TEXT("generateOverlapEvents"), bGenerate);
-        bOk = FLoomleBlueprintAdapter::SetPrimitiveComponentGenerateOverlapEvents(AssetPath, ComponentName, bGenerate, Error);
+        bOk = FLoomleBlueprintAdapter::EditDispatcherMember(AssetPath, Operation, PayloadJson, Error);
     }
     else
     {
@@ -1243,14 +1181,18 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMemberEditToolResult(
         Result->SetStringField(TEXT("code"), TEXT("NOT_IMPLEMENTED"));
         Result->SetStringField(
             TEXT("message"),
-            FString::Printf(TEXT("blueprint.member.edit does not support component operation yet: %s"), *Operation));
+            FString::Printf(TEXT("blueprint.member.edit does not support memberKind: %s"), *MemberKind));
         return Result;
     }
 
     if (!bOk)
     {
         Result->SetBoolField(TEXT("isError"), true);
-        Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+        Result->SetStringField(
+            TEXT("code"),
+            Error.Contains(TEXT("requires")) || Error.Contains(TEXT("Unsupported")) || Error.Contains(TEXT("Failed to resolve"))
+                ? TEXT("INVALID_ARGUMENT")
+                : TEXT("INTERNAL_ERROR"));
         Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.member.edit failed") : Error);
         return Result;
     }

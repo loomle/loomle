@@ -842,17 +842,34 @@ impl LoomleProxyServer {
         &self,
         args: rmcp::model::JsonObject,
     ) -> Result<CallToolResult, McpError> {
-        let mut legacy_args = match translate_blueprint_validate_args(&args) {
+        let legacy_args = match translate_blueprint_validate_args(&args) {
             Ok(value) => value,
             Err(error) => return Ok(error),
         };
-        let mut compile_op = serde_json::Map::new();
-        compile_op.insert("op".into(), serde_json::json!("compile"));
-        legacy_args.insert(
-            "ops".into(),
-            serde_json::json!([serde_json::Value::Object(compile_op)]),
-        );
-        Ok(self.runtime_call("blueprint.mutate", legacy_args).await?)
+        let payload = self.runtime_payload("blueprint.verify", legacy_args).await?;
+        if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
+            return Ok(CallToolResult::structured_error(payload));
+        }
+
+        let mut result = payload
+            .get("compileReport")
+            .and_then(|value| value.as_object())
+            .cloned()
+            .unwrap_or_default();
+        if let Some(asset_path) = payload.get("assetPath").cloned() {
+            result.insert("assetPath".into(), asset_path);
+        }
+        if let Some(status) = payload.get("status").cloned() {
+            result.insert("status".into(), status);
+        }
+        if let Some(diagnostics) = payload.get("diagnostics").cloned() {
+            result.insert("diagnostics".into(), diagnostics);
+        }
+        if !result.contains_key("compiled") {
+            result.insert("compiled".into(), serde_json::json!(false));
+        }
+
+        Ok(structured_result(serde_json::Value::Object(result)))
     }
 }
 
@@ -982,9 +999,9 @@ fn translate_blueprint_validate_args(
     let asset_path = read_required_asset_path(args, "blueprint.validate")?;
     let mut translated = rmcp::model::JsonObject::new();
     translated.insert("assetPath".into(), serde_json::json!(asset_path));
-    if let Some(graph_name) = read_optional_graph_name(args, false, "blueprint.validate")? {
-        translated.insert("graphName".into(), serde_json::json!(graph_name));
-    }
+    let graph_name = read_optional_graph_name(args, false, "blueprint.validate")?
+        .unwrap_or_else(|| "EventGraph".to_string());
+    translated.insert("graphName".into(), serde_json::json!(graph_name));
     for field in ["limit", "cursor", "layoutDetail"] {
         copy_if_present(args, &mut translated, field);
     }

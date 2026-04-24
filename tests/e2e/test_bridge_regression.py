@@ -752,6 +752,521 @@ def main() -> int:
             fail(f"blueprint.verify missing diagnostics[]: {blueprint_verify}")
         print("[PASS] blueprint.verify unified summary validated")
 
+        member_ops = [
+            ("component create root", {
+                "assetPath": temp_asset,
+                "memberKind": "component",
+                "operation": "create",
+                "args": {
+                    "componentClassPath": "/Script/Engine.SceneComponent",
+                    "componentName": "RootScene",
+                },
+            }),
+            ("component create mesh", {
+                "assetPath": temp_asset,
+                "memberKind": "component",
+                "operation": "create",
+                "args": {
+                    "componentClassPath": "/Script/Engine.StaticMeshComponent",
+                    "componentName": "VisualMesh",
+                    "parentComponentName": "RootScene",
+                },
+            }),
+            ("component update mesh", {
+                "assetPath": temp_asset,
+                "memberKind": "component",
+                "operation": "update",
+                "args": {
+                    "componentName": "VisualMesh",
+                    "meshAssetPath": "/Engine/BasicShapes/Cube.Cube",
+                    "relativeLocation": {"x": 10, "y": 20, "z": 30},
+                    "relativeScale3D": {"x": 2, "y": 2, "z": 2},
+                },
+            }),
+            ("component rename mesh", {
+                "assetPath": temp_asset,
+                "memberKind": "component",
+                "operation": "rename",
+                "args": {
+                    "componentName": "VisualMesh",
+                    "newName": "VisualMeshRenamed",
+                },
+            }),
+            ("component create box", {
+                "assetPath": temp_asset,
+                "memberKind": "component",
+                "operation": "create",
+                "args": {
+                    "componentClassPath": "/Script/Engine.BoxComponent",
+                    "componentName": "BoxVolume",
+                },
+            }),
+            ("component update box", {
+                "assetPath": temp_asset,
+                "memberKind": "component",
+                "operation": "update",
+                "args": {
+                    "componentName": "BoxVolume",
+                    "boxExtent": {"x": 50, "y": 60, "z": 70},
+                    "collisionMode": "QueryOnly",
+                    "generateOverlapEvents": True,
+                },
+            }),
+            ("component reparent box", {
+                "assetPath": temp_asset,
+                "memberKind": "component",
+                "operation": "reparent",
+                "args": {
+                    "componentName": "BoxVolume",
+                    "parentComponentName": "RootScene",
+                },
+            }),
+            ("component reorder box", {
+                "assetPath": temp_asset,
+                "memberKind": "component",
+                "operation": "reorder",
+                "args": {
+                    "componentName": "BoxVolume",
+                    "targetComponentName": "VisualMeshRenamed",
+                    "placement": "before",
+                },
+            }),
+            ("component create temp delete", {
+                "assetPath": temp_asset,
+                "memberKind": "component",
+                "operation": "create",
+                "args": {
+                    "componentClassPath": "/Script/Engine.SceneComponent",
+                    "componentName": "TempDeleteComponent",
+                },
+            }),
+            ("component delete temp", {
+                "assetPath": temp_asset,
+                "memberKind": "component",
+                "operation": "delete",
+                "args": {
+                    "componentName": "TempDeleteComponent",
+                },
+            }),
+            ("variable create ready", {
+                "assetPath": temp_asset,
+                "memberKind": "variable",
+                "operation": "create",
+                "args": {
+                    "variableName": "bIsReady",
+                    "type": {"category": "bool"},
+                    "defaultValue": "false",
+                },
+            }),
+            ("variable update ready", {
+                "assetPath": temp_asset,
+                "memberKind": "variable",
+                "operation": "update",
+                "args": {
+                    "variableName": "bIsReady",
+                    "defaultValue": "true",
+                    "category": "State",
+                    "tooltip": "Ready flag",
+                    "exposeOnSpawn": True,
+                },
+            }),
+            ("variable create count", {
+                "assetPath": temp_asset,
+                "memberKind": "variable",
+                "operation": "create",
+                "args": {
+                    "variableName": "Count",
+                    "type": {"category": "int"},
+                    "defaultValue": "0",
+                },
+            }),
+            ("variable reorder count", {
+                "assetPath": temp_asset,
+                "memberKind": "variable",
+                "operation": "reorder",
+                "args": {
+                    "variableName": "Count",
+                    "targetVariableName": "bIsReady",
+                    "placement": "before",
+                },
+            }),
+            ("variable rename count", {
+                "assetPath": temp_asset,
+                "memberKind": "variable",
+                "operation": "rename",
+                "args": {
+                    "variableName": "Count",
+                    "newName": "ItemCount",
+                },
+            }),
+            ("variable setdefault count", {
+                "assetPath": temp_asset,
+                "memberKind": "variable",
+                "operation": "setDefault",
+                "args": {
+                    "variableName": "ItemCount",
+                    "defaultValue": "5",
+                },
+            }),
+            ("variable create temp delete", {
+                "assetPath": temp_asset,
+                "memberKind": "variable",
+                "operation": "create",
+                "args": {
+                    "variableName": "TempDeleteVariable",
+                    "type": {"category": "bool"},
+                    "defaultValue": "false",
+                },
+            }),
+            ("variable delete temp", {
+                "assetPath": temp_asset,
+                "memberKind": "variable",
+                "operation": "delete",
+                "args": {
+                    "variableName": "TempDeleteVariable",
+                },
+            }),
+            ("function create", {
+                "assetPath": temp_asset,
+                "memberKind": "function",
+                "operation": "create",
+                "args": {
+                    "functionName": "ComputeValue",
+                    "inputs": [{"name": "bInput", "type": {"category": "bool"}}],
+                    "outputs": [{"name": "Value", "type": {"category": "int"}}],
+                    "pure": True,
+                    "const": True,
+                    "category": "Logic",
+                    "tooltip": "Compute a test value",
+                },
+            }),
+            ("function rename", {
+                "assetPath": temp_asset,
+                "memberKind": "function",
+                "operation": "rename",
+                "args": {
+                    "functionName": "ComputeValue",
+                    "newName": "ComputeValueRenamed",
+                },
+            }),
+            ("function setFlags", {
+                "assetPath": temp_asset,
+                "memberKind": "function",
+                "operation": "setFlags",
+                "args": {
+                    "functionName": "ComputeValueRenamed",
+                    "pure": True,
+                    "const": True,
+                    "category": "Logic",
+                    "tooltip": "Compute a test value",
+                },
+            }),
+            ("function create temp delete", {
+                "assetPath": temp_asset,
+                "memberKind": "function",
+                "operation": "create",
+                "args": {
+                    "functionName": "TempDeleteFunction",
+                },
+            }),
+            ("function delete temp", {
+                "assetPath": temp_asset,
+                "memberKind": "function",
+                "operation": "delete",
+                "args": {
+                    "functionName": "TempDeleteFunction",
+                },
+            }),
+            ("macro create", {
+                "assetPath": temp_asset,
+                "memberKind": "macro",
+                "operation": "create",
+                "args": {
+                    "macroName": "GuardMacro",
+                    "inputs": [{"name": "bGate", "type": {"category": "bool"}}],
+                    "outputs": [{"name": "bPassed", "type": {"category": "bool"}}],
+                    "category": "Logic",
+                },
+            }),
+            ("macro rename", {
+                "assetPath": temp_asset,
+                "memberKind": "macro",
+                "operation": "rename",
+                "args": {
+                    "macroName": "GuardMacro",
+                    "newName": "GuardMacroRenamed",
+                },
+            }),
+            ("macro create temp delete", {
+                "assetPath": temp_asset,
+                "memberKind": "macro",
+                "operation": "create",
+                "args": {
+                    "macroName": "TempDeleteMacro",
+                },
+            }),
+            ("macro delete temp", {
+                "assetPath": temp_asset,
+                "memberKind": "macro",
+                "operation": "delete",
+                "args": {
+                    "macroName": "TempDeleteMacro",
+                },
+            }),
+            ("dispatcher create", {
+                "assetPath": temp_asset,
+                "memberKind": "dispatcher",
+                "operation": "create",
+                "args": {
+                    "dispatcherName": "OnReady",
+                    "inputs": [{"name": "bReady", "type": {"category": "bool"}}],
+                    "category": "Events",
+                },
+            }),
+            ("dispatcher rename", {
+                "assetPath": temp_asset,
+                "memberKind": "dispatcher",
+                "operation": "rename",
+                "args": {
+                    "dispatcherName": "OnReady",
+                    "newName": "OnReadyChanged",
+                },
+            }),
+            ("dispatcher create temp delete", {
+                "assetPath": temp_asset,
+                "memberKind": "dispatcher",
+                "operation": "create",
+                "args": {
+                    "dispatcherName": "TempDeleteDispatcher",
+                },
+            }),
+            ("dispatcher delete temp", {
+                "assetPath": temp_asset,
+                "memberKind": "dispatcher",
+                "operation": "delete",
+                "args": {
+                    "dispatcherName": "TempDeleteDispatcher",
+                },
+            }),
+        ]
+        for index, (label, request) in enumerate(member_ops, start=1):
+            payload = call_tool(client, 6460 + index, "blueprint.member.edit", request)
+            if payload.get("applied") is not True:
+                fail(f"blueprint.member.edit {label} did not apply: {payload}")
+
+        compiled_member_bp = call_tool(client, 6520, "blueprint.compile", {"assetPath": temp_asset})
+        if compiled_member_bp.get("compiled") is not True:
+            fail(f"blueprint.compile after member.edit failed: {compiled_member_bp}")
+        validated_member_bp = call_tool(client, 6521, "blueprint.validate", {"assetPath": temp_asset})
+        if validated_member_bp.get("status") not in {"ok", "warn"}:
+            fail(f"blueprint.validate after member.edit returned unexpected status: {validated_member_bp}")
+        variable_inspect_payload = call_tool(
+            client,
+            6522,
+            "blueprint.member.inspect",
+            {"assetPath": temp_asset, "memberKind": "variable"},
+        )
+        variable_items = variable_inspect_payload.get("items")
+        if not isinstance(variable_items, list):
+            fail(f"blueprint.member.inspect variable items missing: {variable_inspect_payload}")
+        component_inspect_payload = call_tool(
+            client,
+            6523,
+            "blueprint.member.inspect",
+            {"assetPath": temp_asset, "memberKind": "component"},
+        )
+        component_items = component_inspect_payload.get("items")
+        if not isinstance(component_items, list):
+            fail(f"blueprint.member.inspect component items missing: {component_inspect_payload}")
+        graph_list_payload = call_tool(client, 6524, "blueprint.graph.list", {"assetPath": temp_asset})
+        listed_graphs = graph_list_payload.get("graphs")
+        if not isinstance(listed_graphs, list):
+            fail(f"blueprint.graph.list missing graphs[]: {graph_list_payload}")
+        compute_graph_payload = call_tool(
+            client,
+            6525,
+            "blueprint.graph.inspect",
+            {"assetPath": temp_asset, "graph": {"name": "ComputeValueRenamed"}},
+        )
+        guard_graph_payload = call_tool(
+            client,
+            6526,
+            "blueprint.graph.inspect",
+            {"assetPath": temp_asset, "graph": {"name": "GuardMacroRenamed"}},
+        )
+        dispatcher_graph_payload = call_tool(
+            client,
+            6527,
+            "blueprint.graph.inspect",
+            {"assetPath": temp_asset, "graph": {"name": "OnReadyChanged"}},
+        )
+        deleted_dispatcher_graph = call_tool(
+            client,
+            6528,
+            "blueprint.graph.inspect",
+            {"assetPath": temp_asset, "graph": {"name": "TempDeleteDispatcher"}},
+            expect_error=True,
+        )
+        if deleted_dispatcher_graph.get("isError") is not True:
+            fail(f"deleted dispatcher graph should not resolve: {deleted_dispatcher_graph}")
+
+        member_state_payload = call_execute_exec_with_retry(
+            client=client,
+            req_id_base=6530,
+            code=(
+                "import json, unreal\n"
+                f"asset={json.dumps(temp_asset, ensure_ascii=False)}\n"
+                "bp = unreal.EditorAssetLibrary.load_asset(asset)\n"
+                "if bp is None:\n"
+                "    raise RuntimeError('failed to load regression blueprint')\n"
+                "subsys = unreal.get_engine_subsystem(unreal.SubobjectDataSubsystem)\n"
+                "handles = subsys.k2_gather_subobject_data_for_blueprint(bp) if subsys else []\n"
+                "components = []\n"
+                "seen_component_names = set()\n"
+                "for handle in handles:\n"
+                "    data = unreal.SubobjectDataBlueprintFunctionLibrary.get_data(handle)\n"
+                "    if not unreal.SubobjectDataBlueprintFunctionLibrary.is_component(data):\n"
+                "        continue\n"
+                "    name = str(unreal.SubobjectDataBlueprintFunctionLibrary.get_variable_name(data))\n"
+                "    if not name or name in seen_component_names:\n"
+                "        continue\n"
+                "    seen_component_names.add(name)\n"
+                "    parent_handle = unreal.SubobjectDataBlueprintFunctionLibrary.get_parent_handle(data)\n"
+                "    parent_name = None\n"
+                "    if unreal.SubobjectDataBlueprintFunctionLibrary.is_handle_valid(parent_handle):\n"
+                "        parent_data = unreal.SubobjectDataBlueprintFunctionLibrary.get_data(parent_handle)\n"
+                "        parent_name = str(unreal.SubobjectDataBlueprintFunctionLibrary.get_variable_name(parent_data))\n"
+                "    template = unreal.SubobjectDataBlueprintFunctionLibrary.get_associated_object(data)\n"
+                "    entry = {\n"
+                "        'name': name,\n"
+                "        'parent': parent_name if parent_name != 'None' else None,\n"
+                "        'classPath': template.get_class().get_path_name() if template else '',\n"
+                "    }\n"
+                "    if isinstance(template, unreal.SceneComponent):\n"
+                "        loc = template.get_editor_property('relative_location')\n"
+                "        scale = template.get_editor_property('relative_scale3d')\n"
+                "        entry['relativeLocation'] = [loc.x, loc.y, loc.z]\n"
+                "        entry['relativeScale3D'] = [scale.x, scale.y, scale.z]\n"
+                "    if isinstance(template, unreal.StaticMeshComponent):\n"
+                "        mesh = template.get_editor_property('static_mesh')\n"
+                "        entry['staticMesh'] = mesh.get_path_name() if mesh else ''\n"
+                "    if isinstance(template, unreal.BoxComponent):\n"
+                "        extent = template.get_editor_property('box_extent')\n"
+                "        entry['boxExtent'] = [extent.x, extent.y, extent.z]\n"
+                "        entry['generateOverlapEvents'] = bool(template.get_editor_property('generate_overlap_events'))\n"
+                "    components.append(entry)\n"
+                "gc = bp.generated_class() if hasattr(bp, 'generated_class') and callable(bp.generated_class) else None\n"
+                "cdo = unreal.get_default_object(gc) if gc else None\n"
+                "result = {\n"
+                "    'components': components,\n"
+                "    'rootComponents': [entry['name'] for entry in components if entry.get('parent') is None],\n"
+                "    'rootSceneChildren': [entry['name'] for entry in components if entry.get('parent') == 'RootScene'],\n"
+                "    'itemCountDefault': cdo.get_editor_property('ItemCount') if cdo else None,\n"
+                "    'isReadyDefault': cdo.get_editor_property('bIsReady') if cdo else None,\n"
+                "}\n"
+                "print(json.dumps(result, ensure_ascii=False))\n"
+            ),
+        )
+        member_state = parse_execute_json(member_state_payload)
+        variable_names = [
+            entry.get("name")
+            for entry in variable_items
+            if isinstance(entry, dict) and entry.get("name") in {"ItemCount", "bIsReady", "TempDeleteVariable"}
+        ]
+        if variable_names[:2] != ["ItemCount", "bIsReady"]:
+            fail(f"member.edit variable order mismatch: inspect={variable_inspect_payload} state={member_state}")
+        if "TempDeleteVariable" in variable_names:
+            fail(f"member.edit temp variable should have been deleted: inspect={variable_inspect_payload} state={member_state}")
+        if member_state.get("itemCountDefault") != 5 or member_state.get("isReadyDefault") is not True:
+            fail(f"member.edit variable defaults mismatch: {member_state}")
+        graph_names = [entry.get("graphName") for entry in listed_graphs if isinstance(entry, dict)]
+        if "ComputeValueRenamed" not in graph_names or "TempDeleteFunction" in graph_names:
+            fail(f"member.edit function graph state mismatch: {graph_list_payload}")
+        if "GuardMacroRenamed" not in graph_names or "TempDeleteMacro" in graph_names:
+            fail(f"member.edit macro graph state mismatch: {graph_list_payload}")
+        compute_nodes = compute_graph_payload.get("semanticSnapshot", {}).get("nodes", [])
+        compute_entry = next((node for node in compute_nodes if node.get("className") == "K2Node_FunctionEntry"), None)
+        compute_result = next((node for node in compute_nodes if node.get("className") == "K2Node_FunctionResult"), None)
+        if not isinstance(compute_entry, dict) or not isinstance(compute_result, dict):
+            fail(f"member.edit function graph inspect missing entry/result nodes: {compute_graph_payload}")
+        compute_input_pins = [
+            pin.get("name")
+            for pin in compute_entry.get("pins", [])
+            if isinstance(pin, dict) and pin.get("direction") == "output" and pin.get("category") != "exec"
+        ]
+        compute_output_pins = [
+            pin.get("name")
+            for pin in compute_result.get("pins", [])
+            if isinstance(pin, dict) and pin.get("direction") == "input" and pin.get("category") != "exec"
+        ]
+        if compute_input_pins != ["bInput"] or compute_output_pins != ["Value"]:
+            fail(f"member.edit function signature mismatch: {compute_graph_payload}")
+        compute_boundary = compute_entry.get("graphBoundarySummary", {})
+        if not isinstance(compute_boundary, dict) or compute_boundary.get("isPure") is not True:
+            fail(f"member.edit pure function flag mismatch: {compute_graph_payload}")
+        if compute_boundary.get("isConst") is not True:
+            fail(f"member.edit const function flag mismatch: {compute_graph_payload}")
+        guard_nodes = guard_graph_payload.get("semanticSnapshot", {}).get("nodes", [])
+        guard_entry = next(
+            (
+                node
+                for node in guard_nodes
+                if node.get("className") == "K2Node_Tunnel" and node.get("nodeTitle") == "Inputs"
+            ),
+            None,
+        )
+        if not isinstance(guard_entry, dict):
+            fail(f"member.edit macro graph inspect missing input tunnel: {guard_graph_payload}")
+        guard_pins = [
+            pin.get("name")
+            for pin in guard_entry.get("pins", [])
+            if isinstance(pin, dict) and pin.get("category") != "exec"
+        ]
+        if guard_pins != ["bGate"]:
+            fail(f"member.edit macro signature mismatch: {guard_graph_payload}")
+        dispatcher_nodes = dispatcher_graph_payload.get("semanticSnapshot", {}).get("nodes", [])
+        dispatcher_entry = next(
+            (node for node in dispatcher_nodes if node.get("className") == "K2Node_FunctionEntry"),
+            None,
+        )
+        if not isinstance(dispatcher_entry, dict):
+            fail(f"member.edit dispatcher graph inspect missing entry node: {dispatcher_graph_payload}")
+        dispatcher_pins = [
+            pin.get("name")
+            for pin in dispatcher_entry.get("pins", [])
+            if isinstance(pin, dict) and pin.get("category") != "exec"
+        ]
+        if dispatcher_pins != ["bReady"]:
+            fail(f"member.edit dispatcher signature mismatch: {dispatcher_graph_payload}")
+        component_by_name = {
+            entry.get("name"): entry
+            for entry in member_state.get("components", [])
+            if isinstance(entry, dict)
+        }
+        if "TempDeleteComponent" in component_by_name:
+            fail(f"member.edit temp component should have been deleted: {member_state}")
+        root_scene = component_by_name.get("RootScene")
+        mesh_component = component_by_name.get("VisualMeshRenamed")
+        box_component = component_by_name.get("BoxVolume")
+        if not isinstance(root_scene, dict) or not isinstance(mesh_component, dict) or not isinstance(box_component, dict):
+            fail(f"member.edit components missing expected entries: {member_state}")
+        if mesh_component.get("parent") != "RootScene" or box_component.get("parent") != "RootScene":
+            fail(f"member.edit component reparent mismatch: {member_state}")
+        if mesh_component.get("relativeLocation") != [10.0, 20.0, 30.0] or mesh_component.get("relativeScale3D") != [2.0, 2.0, 2.0]:
+            fail(f"member.edit component transform mismatch: {member_state}")
+        if "Cube.Cube" not in str(mesh_component.get("staticMesh", "")):
+            fail(f"member.edit static mesh assignment mismatch: {member_state}")
+        if box_component.get("boxExtent") != [50.0, 60.0, 70.0] or box_component.get("generateOverlapEvents") is not True:
+            fail(f"member.edit box component update mismatch: {member_state}")
+        component_names = [
+            entry.get("name")
+            for entry in component_items
+            if isinstance(entry, dict) and entry.get("name") in {"RootScene", "BoxVolume", "VisualMeshRenamed", "TempDeleteComponent"}
+        ]
+        if component_names != ["RootScene", "BoxVolume", "VisualMeshRenamed"]:
+            fail(f"member.edit component reorder mismatch: inspect={component_inspect_payload} state={member_state}")
+        print("[PASS] blueprint.member.edit full member workflow validated")
+
         pcg_fixture_payload = call_execute_exec_with_retry(
             client=client,
             req_id_base=7050,

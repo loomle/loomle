@@ -22,6 +22,11 @@ class LOOMLEBRIDGE_API FLoomleBlueprintAdapter
 
 public:
     static bool CreateBlueprint(const FString& AssetPath, const FString& ParentClassPath, FString& OutBlueprintObjectPath, FString& OutError);
+    static bool EditComponentMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError);
+    static bool EditVariableMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError);
+    static bool EditFunctionMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError);
+    static bool EditMacroMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError);
+    static bool EditDispatcherMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError);
     static bool AddComponent(const FString& BlueprintAssetPath, const FString& ComponentClassPath, const FString& ComponentName, const FString& ParentComponentName, FString& OutError);
     static bool SetStaticMeshComponentAsset(const FString& BlueprintAssetPath, const FString& ComponentName, const FString& MeshAssetPath, FString& OutError);
     static bool SetSceneComponentRelativeLocation(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Location, FString& OutError);

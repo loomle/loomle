@@ -3327,25 +3327,10 @@ def main() -> int:
         print("[PASS] Bridge verification complete")
         return 0
     finally:
-        try:
-            _ = client.request(
-                99,
-                "tools/call",
-                {
-                    "name": "execute",
-                    "arguments": {
-                        "mode": "exec",
-                        "code": (
-                            "import unreal\n"
-                            f"for a in ['{temp_asset}', '{temp_wbp_asset}']:\n"
-                            "  if unreal.EditorAssetLibrary.does_asset_exist(a):\n"
-                            "    unreal.EditorAssetLibrary.delete_asset(a)\n"
-                        ),
-                    },
-                },
-            )
-        except Exception:
-            pass
+        if temp_asset:
+            print(f"[WARN] cleanup skipped for temporary smoke blueprint asset: {temp_asset}")
+        if temp_wbp_asset:
+            print(f"[WARN] cleanup skipped for temporary smoke widget asset: {temp_wbp_asset}")
         client.close()
 
 
