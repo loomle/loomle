@@ -19,7 +19,7 @@ from test_bridge_smoke import (  # noqa: E402
 )
 
 sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
-from domain_test_helpers import blank_surface_matrix, compact_json, flatten_graph_mutate_ops, wait_for_bridge_ready  # noqa: E402
+from domain_test_helpers import blank_surface_matrix, compact_json, wait_for_bridge_ready  # noqa: E402
 from run_material_workflow_truth_suite import (  # noqa: E402
     WORKFLOW_CASES,
     assert_workflow_structure,
@@ -142,7 +142,7 @@ def execute_query_snapshot_repeatability_roundtrip(
     if not isinstance(payload, dict):
         raise MaterialStabilitySuiteError("case_definition_gap", "material stability example payload is not an object")
     payload["assetPath"] = asset_path
-    mutate_args = flatten_graph_mutate_ops(payload)
+    mutate_args = {key: value for key, value in payload.items() if key != "tool"}
     mutate_result = call_tool(client, request_id_base + 1, "material.mutate", mutate_args)
     op_results = mutate_result.get("opResults")
     if not isinstance(op_results, list) or len(op_results) < 2:
@@ -183,7 +183,7 @@ def execute_verify_repeatability_workflow(
     surface_matrix = blank_surface_matrix()
     payload = load_case_payload(workflow_case)
     payload["assetPath"] = asset_path
-    mutate_args = flatten_graph_mutate_ops(payload)
+    mutate_args = {key: value for key, value in payload.items() if key != "tool"}
     mutate_result = call_tool(client, request_id_base + 1, "material.mutate", mutate_args)
     surface_matrix["mutate"] = "pass"
 

@@ -19,7 +19,6 @@ from test_bridge_smoke import (  # noqa: E402
 )
 
 sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
-from domain_test_helpers import flatten_graph_mutate_ops  # noqa: E402
 from run_pcg_graph_test_plan import (  # noqa: E402
     blank_surface_matrix,
     cleanup_pcg_fixture,
@@ -219,7 +218,7 @@ def execute_verify_repeatability_workflow(
     surface_matrix = blank_surface_matrix()
     payload = load_case_payload(workflow_case)
     payload["assetPath"] = asset_path
-    mutate_args = flatten_graph_mutate_ops(payload)
+    mutate_args = {key: value for key, value in payload.items() if key != "tool"}
     mutate_result = call_tool(client, request_id_base + 1, "pcg.mutate", mutate_args)
     surface_matrix["mutate"] = "pass"
 
