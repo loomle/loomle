@@ -147,15 +147,15 @@ def query_pcg_snapshot(client: McpStdioClient, request_id: int, asset_path: str)
     payload = call_tool(
         client,
         request_id,
-        "graph.query",
-        {"assetPath": asset_path, "graphType": "pcg", "graphName": GRAPH_NAME, "limit": 400},
+        "pcg.query",
+        {"assetPath": asset_path, "includeConnections": True},
     )
     snapshot = payload.get("semanticSnapshot")
     if not isinstance(snapshot, dict):
-        raise RuntimeError(f"graph.query missing semanticSnapshot: {compact_json(payload)}")
+        raise RuntimeError(f"pcg.query missing semanticSnapshot: {compact_json(payload)}")
     nodes = snapshot.get("nodes")
     if not isinstance(nodes, list):
-        raise RuntimeError(f"graph.query missing nodes[]: {compact_json(payload)}")
+        raise RuntimeError(f"pcg.query missing nodes[]: {compact_json(payload)}")
     return snapshot
 
 
@@ -170,13 +170,8 @@ def add_node(client: McpStdioClient, request_id: int, *, asset_path: str, node_c
     payload = call_tool(
         client,
         request_id,
-        "graph.mutate",
-        {
-            "assetPath": asset_path,
-            "graphType": "pcg",
-            "graphName": GRAPH_NAME,
-            "ops": [{"op": "addNode.byClass", "args": {"nodeClassPath": node_class_path}}],
-        },
+        "pcg.mutate",
+        {"assetPath": asset_path, "ops": [{"op": "addNode.byClass", "nodeClassPath": node_class_path}]},
     )
     op_results = payload.get("opResults")
     if not isinstance(op_results, list) or not op_results:
@@ -194,12 +189,10 @@ def set_pin_default(client: McpStdioClient, request_id: int, *, asset_path: str,
     payload = call_tool(
         client,
         request_id,
-        "graph.mutate",
+        "pcg.mutate",
         {
             "assetPath": asset_path,
-            "graphType": "pcg",
-            "graphName": GRAPH_NAME,
-            "ops": [{"op": "setPinDefault", "args": {"target": {"nodeId": node_id, "pin": pin}, "value": value}}],
+            "ops": [{"op": "setPinDefault", "target": {"nodeId": node_id, "pin": pin}, "value": value}],
         },
     )
     op_results = payload.get("opResults")
@@ -374,7 +367,7 @@ def execute_construct_case(client: McpStdioClient, request_id: int, *, asset_pat
     snapshot = query_pcg_snapshot(client, request_id + 1, asset_path)
     node = find_node(snapshot, node_id)
     if not isinstance(node, dict):
-        raise RuntimeError(f"graph.query did not return added node {node_id}")
+        raise RuntimeError(f"pcg.query did not return added node {node_id}")
     surface_matrix = blank_surface_matrix()
     surface_matrix["mutate"] = "pass"
     surface_matrix["queryStructure"] = "pass"
@@ -538,7 +531,7 @@ def execute_dynamic_case(
     before_node = find_node(before_snapshot, node_id)
     if not isinstance(before_node, dict):
         surface_matrix["queryStructure"] = "fail"
-        raise RuntimeError(f"graph.query did not return dynamic node before mutation {node_id}")
+        raise RuntimeError(f"pcg.query did not return dynamic node before mutation {node_id}")
     before_pins = before_node.get("pins")
     before_count = len(before_pins) if isinstance(before_pins, list) else 0
 
@@ -555,7 +548,7 @@ def execute_dynamic_case(
     after_node = find_node(after_snapshot, node_id)
     if not isinstance(after_node, dict):
         surface_matrix["queryStructure"] = "fail"
-        raise RuntimeError(f"graph.query did not return dynamic node after mutation {node_id}")
+        raise RuntimeError(f"pcg.query did not return dynamic node after mutation {node_id}")
     after_pins = after_node.get("pins")
     after_count = len(after_pins) if isinstance(after_pins, list) else 0
     if after_count == before_count:

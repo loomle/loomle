@@ -87,50 +87,29 @@ def list_cases_payload() -> dict[str, Any]:
     }
 
 
-def _list_graphs(client: McpStdioClient, request_id: int, *, asset_path: str) -> dict[str, Any]:
-    return call_tool(
-        client,
-        request_id,
-        "graph.list",
-        {"assetPath": asset_path, "graphType": "pcg", "includeSubgraphs": True},
-    )
-
-
-def _find_owned_subgraph(graph_list_payload: dict[str, Any], owner_node_id: str) -> dict[str, Any] | None:
-    graphs = graph_list_payload.get("graphs")
-    if not isinstance(graphs, list):
-        return None
-    for graph in graphs:
-        if not isinstance(graph, dict):
-            continue
-        if graph.get("ownerNodeId") == owner_node_id:
-            return graph
-    return None
-
-
-def _query_graph_by_ref(client: McpStdioClient, request_id: int, *, graph_ref: dict[str, Any]) -> dict[str, Any]:
+def _query_pcg_by_ref(client: McpStdioClient, request_id: int, *, graph_ref: dict[str, Any]) -> dict[str, Any]:
     payload = call_tool(
         client,
         request_id,
-        "graph.query",
-        {"graphType": "pcg", "graphRef": graph_ref, "limit": 200},
+        "pcg.query",
+        {"graph": graph_ref, "includeConnections": True},
     )
     snapshot = payload.get("semanticSnapshot")
     if not isinstance(snapshot, dict):
-        raise ChildGraphRefSuiteError("child_graph_ref_unqueryable", f"graph.query(graphRef) missing semanticSnapshot: {compact_json(payload)}")
+        raise ChildGraphRefSuiteError("child_graph_ref_unqueryable", f"pcg.query(graph) missing semanticSnapshot: {compact_json(payload)}")
     return snapshot
 
 
-def _query_graph_by_name(client: McpStdioClient, request_id: int, *, asset_path: str, graph_name: str) -> dict[str, Any]:
+def _query_pcg_asset(client: McpStdioClient, request_id: int, *, asset_path: str) -> dict[str, Any]:
     payload = call_tool(
         client,
         request_id,
-        "graph.query",
-        {"graphType": "pcg", "assetPath": asset_path, "graphName": graph_name, "limit": 200},
+        "pcg.query",
+        {"assetPath": asset_path, "includeConnections": True},
     )
     snapshot = payload.get("semanticSnapshot")
     if not isinstance(snapshot, dict):
-        raise ChildGraphRefSuiteError("child_graph_ref_unqueryable", f"graph.query(graphName) missing semanticSnapshot: {compact_json(payload)}")
+        raise ChildGraphRefSuiteError("child_graph_ref_unqueryable", f"pcg.query(assetPath) missing semanticSnapshot: {compact_json(payload)}")
     return snapshot
 
 
@@ -207,49 +186,33 @@ def execute_case_with_fresh_client(
 
         child_graph_ref = node.get("childGraphRef")
         if not isinstance(child_graph_ref, dict):
-            raise ChildGraphRefSuiteError("child_graph_ref_unsurfaced", f"graph.query missing childGraphRef: {compact_json(node)}")
+            raise ChildGraphRefSuiteError("child_graph_ref_unsurfaced", f"pcg.query missing childGraphRef: {compact_json(node)}")
 
-        graph_list_payload = _list_graphs(client, request_id_base + 70, asset_path=parent_asset_path)
-        owned_subgraph = _find_owned_subgraph(graph_list_payload, node_id)
-        if not isinstance(owned_subgraph, dict):
+        child_ref_asset_path = child_graph_ref.get("assetPath")
+        if child_ref_asset_path != child_asset_path:
             raise ChildGraphRefSuiteError(
-                "child_graph_ref_second_hop_missing",
-                f"graph.list(includeSubgraphs) missing owned child graph for {node_id}: {compact_json(graph_list_payload)}",
+                "child_graph_ref_second_hop_mismatch",
+                f"childGraphRef should point at the configured child asset: expected={child_asset_path} actual={compact_json(child_graph_ref)}",
             )
 
-        graph_name = owned_subgraph.get("graphName")
-        if not isinstance(graph_name, str) or not graph_name:
-            raise ChildGraphRefSuiteError("child_graph_ref_second_hop_missing", f"owned child graph missing graphName: {compact_json(owned_subgraph)}")
-
-        by_ref_snapshot = _query_graph_by_ref(client, request_id_base + 80, graph_ref=child_graph_ref)
-        by_name_snapshot = _query_graph_by_name(client, request_id_base + 90, asset_path=parent_asset_path, graph_name=graph_name)
+        by_ref_snapshot = _query_pcg_by_ref(client, request_id_base + 70, graph_ref=child_graph_ref)
+        by_asset_snapshot = _query_pcg_asset(client, request_id_base + 80, asset_path=child_asset_path)
 
         by_ref_signature = by_ref_snapshot.get("signature")
-        by_name_signature = by_name_snapshot.get("signature")
+        by_asset_signature = by_asset_snapshot.get("signature")
         if not isinstance(by_ref_signature, str) or not by_ref_signature:
             raise ChildGraphRefSuiteError("child_graph_ref_unqueryable", f"child graph query-by-ref missing signature: {compact_json(by_ref_snapshot)}")
-        if not isinstance(by_name_signature, str) or not by_name_signature:
-            raise ChildGraphRefSuiteError("child_graph_ref_unqueryable", f"child graph query-by-name missing signature: {compact_json(by_name_snapshot)}")
-        if by_ref_signature != by_name_signature:
+        if not isinstance(by_asset_signature, str) or not by_asset_signature:
+            raise ChildGraphRefSuiteError("child_graph_ref_unqueryable", f"child graph query-by-asset missing signature: {compact_json(by_asset_snapshot)}")
+        if by_ref_signature != by_asset_signature:
             raise ChildGraphRefSuiteError(
                 "child_graph_ref_second_hop_mismatch",
-                f"child graph query surfaces disagree: byRef={compact_json(by_ref_snapshot)} byName={compact_json(by_name_snapshot)}",
-            )
-        if node_id not in by_ref_signature:
-            raise ChildGraphRefSuiteError(
-                "child_graph_ref_second_hop_mismatch",
-                f"child graph signature does not stay anchored to owner node {node_id}: {compact_json(by_ref_snapshot)}",
+                f"child graph query surfaces disagree: byRef={compact_json(by_ref_snapshot)} byAsset={compact_json(by_asset_snapshot)}",
             )
 
         result["details"]["surfaceMatrix"]["queryTruth"] = "pass"
         result["details"]["query"] = {
             "childGraphRef": child_graph_ref,
-            "graphEntry": {
-                "graphKind": owned_subgraph.get("graphKind"),
-                "graphName": graph_name,
-                "ownerNodeId": owned_subgraph.get("ownerNodeId"),
-                "parentGraphRef": owned_subgraph.get("parentGraphRef"),
-            },
             "secondHop": {
                 "signature": by_ref_signature,
                 "nodeCount": len(by_ref_snapshot.get("nodes", [])) if isinstance(by_ref_snapshot.get("nodes"), list) else 0,

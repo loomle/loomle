@@ -462,6 +462,15 @@ impl ServerHandler for LoomleProxyServer {
         {
             return Ok(result);
         }
+        if let Some(result) = self
+            .call_public_pcg_tool(
+                request.name.as_ref(),
+                request.arguments.clone().unwrap_or_default(),
+            )
+            .await?
+        {
+            return Ok(result);
+        }
         self.runtime_call(request.name.as_ref(), request.arguments.unwrap_or_default())
             .await
     }
@@ -665,6 +674,23 @@ impl LoomleProxyServer {
                     Err(error) => return Ok(Some(error)),
                 };
                 Ok(Some(self.runtime_call("material.query", query_args).await?))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    async fn call_public_pcg_tool(
+        &self,
+        tool_name: &str,
+        args: rmcp::model::JsonObject,
+    ) -> Result<Option<CallToolResult>, McpError> {
+        match tool_name {
+            "pcg.query" => {
+                let query_args = match translate_pcg_query_args(&args) {
+                    Ok(value) => value,
+                    Err(error) => return Ok(Some(error)),
+                };
+                Ok(Some(self.runtime_call("pcg.query", query_args).await?))
             }
             _ => Ok(None),
         }
@@ -1032,8 +1058,9 @@ fn copy_if_present(
     }
 }
 
-fn extract_material_graph_asset_path(
+fn extract_query_graph_asset_path(
     args: &rmcp::model::JsonObject,
+    tool_name: &str,
 ) -> Result<Option<String>, CallToolResult> {
     let graph_obj = args
         .get("graph")
@@ -1045,9 +1072,9 @@ fn extract_material_graph_asset_path(
 
     if let Some(kind) = graph_obj.get("kind").and_then(|value| value.as_str()) {
         if kind != "asset" {
-            return Err(invalid_argument_result(
-                "material.query supports only asset graph references.",
-            ));
+            return Err(invalid_argument_result(&format!(
+                "{tool_name} supports only asset graph references."
+            )));
         }
     }
 
@@ -1056,15 +1083,16 @@ fn extract_material_graph_asset_path(
         .and_then(|value| value.as_str())
         .filter(|value| !value.is_empty())
         .ok_or_else(|| {
-            invalid_argument_result("material.query graph references require assetPath.")
+            invalid_argument_result(&format!("{tool_name} graph references require assetPath."))
         })?;
     Ok(Some(asset_path.to_owned()))
 }
 
-fn translate_material_query_args(
+fn translate_asset_query_args(
     args: &rmcp::model::JsonObject,
+    tool_name: &str,
 ) -> Result<rmcp::model::JsonObject, CallToolResult> {
-    let graph_asset_path = extract_material_graph_asset_path(args)?;
+    let graph_asset_path = extract_query_graph_asset_path(args, tool_name)?;
     let direct_asset_path = args
         .get("assetPath")
         .and_then(|value| value.as_str())
@@ -1072,7 +1100,9 @@ fn translate_material_query_args(
     let asset_path = graph_asset_path
         .as_deref()
         .or(direct_asset_path)
-        .ok_or_else(|| invalid_argument_result("material.query requires assetPath or graph."))?;
+        .ok_or_else(|| {
+            invalid_argument_result(&format!("{tool_name} requires assetPath or graph."))
+        })?;
 
     let mut translated = rmcp::model::JsonObject::new();
     translated.insert("assetPath".into(), serde_json::json!(asset_path));
@@ -1080,6 +1110,18 @@ fn translate_material_query_args(
         copy_if_present(args, &mut translated, field);
     }
     Ok(translated)
+}
+
+fn translate_material_query_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    translate_asset_query_args(args, "material.query")
+}
+
+fn translate_pcg_query_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    translate_asset_query_args(args, "pcg.query")
 }
 
 fn translate_blueprint_graph_list_args(
@@ -2796,20 +2838,6 @@ fn asset_path_only_schema(description: &str) -> rmcp::model::JsonObject {
     }))
 }
 
-fn node_filter_query_schema(asset_description: &str) -> rmcp::model::JsonObject {
-    schema_from_value(serde_json::json!({
-        "type": "object",
-        "properties": {
-            "assetPath": { "type": "string", "minLength": 1, "description": asset_description },
-            "nodeIds": { "type": "array", "items": { "type": "string" } },
-            "nodeClasses": { "type": "array", "items": { "type": "string" } },
-            "includeConnections": { "type": "boolean", "default": false }
-        },
-        "required": ["assetPath"],
-        "additionalProperties": false
-    }))
-}
-
 fn graph_mutate_schema(op_names: &[&str], include_graph_name: bool) -> rmcp::model::JsonObject {
     let mut properties = serde_json::Map::new();
     properties.insert(
@@ -3395,7 +3423,36 @@ fn material_describe_schema() -> rmcp::model::JsonObject {
 }
 
 fn pcg_query_schema() -> rmcp::model::JsonObject {
-    node_filter_query_schema("PCG graph asset path.")
+    schema_from_value(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "assetPath": { "type": "string", "minLength": 1, "description": "PCG graph asset path." },
+            "graphName": { "type": "string", "minLength": 1 },
+            "graph": { "$ref": "#/$defs/pcgGraphRef" },
+            "graphRef": { "$ref": "#/$defs/pcgGraphRef" },
+            "nodeIds": { "type": "array", "items": { "type": "string" } },
+            "nodeClasses": { "type": "array", "items": { "type": "string" } },
+            "includeConnections": { "type": "boolean", "default": false }
+        },
+        "anyOf": [
+            { "required": ["assetPath"] },
+            { "required": ["graph"] },
+            { "required": ["graphRef"] }
+        ],
+        "$defs": {
+            "pcgGraphRef": {
+                "type": "object",
+                "properties": {
+                    "kind": { "type": "string", "enum": ["asset"] },
+                    "assetPath": { "type": "string", "minLength": 1 },
+                    "graphName": { "type": "string" }
+                },
+                "required": ["assetPath"],
+                "additionalProperties": true
+            }
+        },
+        "additionalProperties": false
+    }))
 }
 
 fn pcg_mutate_schema() -> rmcp::model::JsonObject {
@@ -4332,7 +4389,8 @@ fn print_usage() {
 mod tests {
     use super::{
         compile_blueprint_refactor_request, infer_attached_project_root,
-        translate_blueprint_graph_edit_args, translate_material_query_args, Cli, RuntimeProject,
+        translate_blueprint_graph_edit_args, translate_material_query_args,
+        translate_pcg_query_args, Cli, RuntimeProject,
     };
     use rmcp::model::JsonObject;
     use std::ffi::OsString;
@@ -4583,5 +4641,45 @@ mod tests {
         );
 
         assert!(translate_material_query_args(&args).is_err());
+    }
+
+    #[test]
+    fn pcg_query_accepts_child_graph_ref_as_graph() {
+        let mut args = JsonObject::new();
+        args.insert(
+            "graph".into(),
+            serde_json::json!({
+                "kind": "asset",
+                "assetPath": "/Game/PCG_Child"
+            }),
+        );
+        args.insert("includeConnections".into(), serde_json::json!(true));
+
+        let translated = translate_pcg_query_args(&args).expect("translated args");
+        assert_eq!(
+            translated.get("assetPath").and_then(|value| value.as_str()),
+            Some("/Game/PCG_Child")
+        );
+        assert_eq!(
+            translated
+                .get("includeConnections")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn pcg_query_rejects_inline_graph_ref() {
+        let mut args = JsonObject::new();
+        args.insert(
+            "graph".into(),
+            serde_json::json!({
+                "kind": "inline",
+                "assetPath": "/Game/PCG_Parent",
+                "nodeGuid": "node-guid"
+            }),
+        );
+
+        assert!(translate_pcg_query_args(&args).is_err());
     }
 }

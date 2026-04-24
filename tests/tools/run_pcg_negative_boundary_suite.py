@@ -21,6 +21,7 @@ from test_bridge_smoke import (  # noqa: E402
 )
 
 sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
+from domain_test_helpers import flatten_graph_mutate_ops  # noqa: E402
 from run_pcg_graph_test_plan import (  # noqa: E402
     blank_surface_matrix,
     cleanup_pcg_fixture,
@@ -148,15 +149,24 @@ def call_tool_allow_error(client: McpStdioClient, req_id: int, name: str, argume
     return payload, is_tool_error_payload(payload)
 
 
+def pcg_mutate_args(payload: dict[str, Any]) -> dict[str, Any]:
+    return flatten_graph_mutate_ops(payload)
+
+
+def call_pcg_mutate(client: McpStdioClient, req_id: int, payload: dict[str, Any], *, expect_error: bool = False) -> dict[str, Any]:
+    return call_tool(client, req_id, "pcg.mutate", pcg_mutate_args(payload), expect_error=expect_error)
+
+
+def call_pcg_mutate_allow_error(client: McpStdioClient, req_id: int, payload: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    return call_tool_allow_error(client, req_id, "pcg.mutate", pcg_mutate_args(payload))
+
+
 def add_node_by_class(client: McpStdioClient, request_id: int, *, asset_path: str, node_class_path: str) -> str:
-    payload = call_tool(
+    payload = call_pcg_mutate(
         client,
         request_id,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "PCGGraph",
-            "graphType": "pcg",
             "ops": [{"op": "addNode.byClass", "args": {"nodeClassPath": node_class_path}}],
         },
     )
@@ -191,14 +201,11 @@ def run_set_pin_default_requires_target_apply(
         asset_path=asset_path,
         node_class_path="/Script/PCG.PCGCreatePointsSphereSettings",
     )
-    payload = call_tool(
+    payload = call_pcg_mutate(
         client,
         request_id_base + 2,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "PCGGraph",
-            "graphType": "pcg",
             "ops": [
                 {
                     "op": "setPinDefault",
@@ -230,14 +237,11 @@ def run_set_pin_default_requires_target_dry_run(
         asset_path=asset_path,
         node_class_path="/Script/PCG.PCGCreatePointsSphereSettings",
     )
-    payload, has_error = call_tool_allow_error(
+    payload, has_error = call_pcg_mutate_allow_error(
         client,
         request_id_base + 2,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "PCGGraph",
-            "graphType": "pcg",
             "dryRun": True,
             "ops": [
                 {
@@ -276,14 +280,11 @@ def run_set_pin_default_bad_pin_diagnostics(
         asset_path=asset_path,
         node_class_path="/Script/PCG.PCGCreatePointsSphereSettings",
     )
-    payload = call_tool(
+    payload = call_pcg_mutate(
         client,
         request_id_base + 2,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "PCGGraph",
-            "graphType": "pcg",
             "ops": [
                 {
                     "op": "setPinDefault",
@@ -352,14 +353,11 @@ def run_remove_node_requires_stable_target(
     client: McpStdioClient, request_id_base: int, asset_path: str
 ) -> dict[str, Any]:
     surface_matrix = blank_surface_matrix()
-    _ = call_tool(
+    _ = call_pcg_mutate(
         client,
         request_id_base + 1,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "PCGGraph",
-            "graphType": "pcg",
             "ops": [
                 {"op": "addNode.byClass", "clientRef": "remove_create", "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"}},
                 {"op": "addNode.byClass", "clientRef": "remove_tag", "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"}},
@@ -369,14 +367,11 @@ def run_remove_node_requires_stable_target(
             ],
         },
     )
-    payload = call_tool(
+    payload = call_pcg_mutate(
         client,
         request_id_base + 2,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "PCGGraph",
-            "graphType": "pcg",
             "ops": [{"op": "removeNode", "args": {"target": {"name": "Add Tag"}}}],
         },
         expect_error=True,
@@ -399,14 +394,11 @@ def run_set_pin_default_bad_nested_filter_path(
         asset_path=asset_path,
         node_class_path="/Script/PCG.PCGAttributeFilteringRangeSettings",
     )
-    payload = call_tool(
+    payload = call_pcg_mutate(
         client,
         request_id_base + 2,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "PCGGraph",
-            "graphType": "pcg",
             "ops": [
                 {
                     "op": "setPinDefault",
@@ -431,14 +423,11 @@ def run_set_pin_default_missing_subgraph_asset(
     client: McpStdioClient, request_id_base: int, asset_path: str
 ) -> dict[str, Any]:
     surface_matrix = blank_surface_matrix()
-    payload, has_error = call_tool_allow_error(
+    payload, has_error = call_pcg_mutate_allow_error(
         client,
         request_id_base + 1,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "PCGGraph",
-            "graphType": "pcg",
             "ops": [
                 {
                     "op": "addNode.byClass",
@@ -474,14 +463,11 @@ def run_connect_pins_bad_output_pin(
     client: McpStdioClient, request_id_base: int, asset_path: str
 ) -> dict[str, Any]:
     surface_matrix = blank_surface_matrix()
-    setup = call_tool(
+    setup = call_pcg_mutate(
         client,
         request_id_base + 1,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "PCGGraph",
-            "graphType": "pcg",
             "ops": [
                 {"op": "addNode.byClass", "clientRef": "create_points", "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"}},
                 {"op": "addNode.byClass", "clientRef": "branch_node", "args": {"nodeClassPath": "/Script/PCG.PCGBranchSettings"}},
@@ -495,14 +481,11 @@ def run_connect_pins_bad_output_pin(
     branch_id = op_results[1].get("nodeId") if isinstance(op_results[1], dict) else None
     if not isinstance(create_id, str) or not isinstance(branch_id, str):
         raise NegativeSuiteError("runner_error", f"missing setup node ids: {compact_json(setup)}")
-    payload = call_tool(
+    payload = call_pcg_mutate(
         client,
         request_id_base + 2,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "PCGGraph",
-            "graphType": "pcg",
             "ops": [
                 {
                     "op": "connectPins",
@@ -527,14 +510,11 @@ def run_disconnect_pins_bad_output_pin(
     client: McpStdioClient, request_id_base: int, asset_path: str
 ) -> dict[str, Any]:
     surface_matrix = blank_surface_matrix()
-    setup = call_tool(
+    setup = call_pcg_mutate(
         client,
         request_id_base + 1,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "PCGGraph",
-            "graphType": "pcg",
             "ops": [
                 {"op": "addNode.byClass", "clientRef": "create_points", "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"}},
                 {"op": "addNode.byClass", "clientRef": "branch_node", "args": {"nodeClassPath": "/Script/PCG.PCGBranchSettings"}},
@@ -555,14 +535,11 @@ def run_disconnect_pins_bad_output_pin(
     branch_id = op_results[1].get("nodeId") if isinstance(op_results[1], dict) else None
     if not isinstance(create_id, str) or not isinstance(branch_id, str):
         raise NegativeSuiteError("runner_error", f"missing setup node ids: {compact_json(setup)}")
-    payload = call_tool(
+    payload = call_pcg_mutate(
         client,
         request_id_base + 2,
-        "graph.mutate",
         {
             "assetPath": asset_path,
-            "graphName": "PCGGraph",
-            "graphType": "pcg",
             "ops": [
                 {
                     "op": "disconnectPins",

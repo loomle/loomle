@@ -19,6 +19,7 @@ from test_bridge_smoke import (  # noqa: E402
 )
 
 sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
+from domain_test_helpers import flatten_graph_mutate_ops  # noqa: E402
 from run_pcg_graph_test_plan import (  # noqa: E402
     blank_surface_matrix,
     cleanup_pcg_fixture,
@@ -120,8 +121,7 @@ WORKFLOW_CASES = [
         "fixture": "pcg_graph",
         "families": ["create", "transform", "meta"],
         "payload": {
-            "tool": "graph.mutate",
-            "graphType": "pcg",
+            "tool": "pcg.mutate",
             "ops": [
                 {
                     "op": "addNode.byClass",
@@ -184,8 +184,7 @@ WORKFLOW_CASES = [
         "fixture": "pcg_graph",
         "families": ["branch", "create", "meta"],
         "payload": {
-            "tool": "graph.mutate",
-            "graphType": "pcg",
+            "tool": "pcg.mutate",
             "ops": [
                 {
                     "op": "addNode.byClass",
@@ -261,8 +260,7 @@ WORKFLOW_CASES = [
         "fixture": "pcg_graph",
         "families": ["create", "meta", "select"],
         "payload": {
-            "tool": "graph.mutate",
-            "graphType": "pcg",
+            "tool": "pcg.mutate",
             "ops": [
                 {
                     "op": "addNode.byClass",
@@ -338,8 +336,7 @@ WORKFLOW_CASES = [
         "fixture": "pcg_graph",
         "families": ["create", "meta", "predicate"],
         "payload": {
-            "tool": "graph.mutate",
-            "graphType": "pcg",
+            "tool": "pcg.mutate",
             "ops": [
                 {
                     "op": "addNode.byClass",
@@ -402,8 +399,7 @@ WORKFLOW_CASES = [
         "fixture": "pcg_graph",
         "families": ["create", "meta", "struct"],
         "payload": {
-            "tool": "graph.mutate",
-            "graphType": "pcg",
+            "tool": "pcg.mutate",
             "ops": [
                 {
                     "op": "addNode.byClass",
@@ -677,17 +673,17 @@ def verify_graph(client: McpStdioClient, request_id: int, asset_path: str) -> di
     payload = call_tool(
         client,
         request_id,
-        "graph.verify",
-        {"assetPath": asset_path, "graphName": "PCGGraph", "graphType": "pcg"},
+        "pcg.verify",
+        {"assetPath": asset_path},
     )
     if payload.get("status") == "error":
-        raise WorkflowSuiteError("verify_gap", f"workflow graph.verify returned error: {compact_json(payload)}")
+        raise WorkflowSuiteError("verify_gap", f"workflow pcg.verify returned error: {compact_json(payload)}")
     compile_report = payload.get("compileReport")
     if not isinstance(compile_report, dict) or compile_report.get("compiled") is not True:
-        raise WorkflowSuiteError("verify_gap", f"workflow graph.verify missing compiled=true: {compact_json(payload)}")
+        raise WorkflowSuiteError("verify_gap", f"workflow pcg.verify missing compiled=true: {compact_json(payload)}")
     diagnostics = payload.get("diagnostics")
     if not isinstance(diagnostics, list):
-        raise WorkflowSuiteError("verify_gap", f"workflow graph.verify missing diagnostics[]: {compact_json(payload)}")
+        raise WorkflowSuiteError("verify_gap", f"workflow pcg.verify missing diagnostics[]: {compact_json(payload)}")
     return {
         "status": payload.get("status"),
         "compiled": True,
@@ -724,10 +720,10 @@ def run_workflow_case(
 
         payload = load_case_payload(case)
         payload["assetPath"] = asset_path
-        payload["graphName"] = "PCGGraph"
-        mutate_result = call_tool(client, request_id_base + 10, "graph.mutate", payload)
+        mutate_args = flatten_graph_mutate_ops(payload)
+        mutate_result = call_tool(client, request_id_base + 10, "pcg.mutate", mutate_args)
         surface_matrix["mutate"] = "pass"
-        ref_map = build_client_ref_map(payload, mutate_result)
+        ref_map = build_client_ref_map(mutate_args, mutate_result)
         snapshot = query_pcg_snapshot(client, request_id_base + 20, asset_path)
         structure_details = assert_workflow_structure(case, snapshot, ref_map)
         surface_matrix["queryStructure"] = "pass"

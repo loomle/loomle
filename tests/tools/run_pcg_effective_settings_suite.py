@@ -250,7 +250,7 @@ def _query_effective_settings(node: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(effective_settings, dict):
         raise EffectiveSettingsSuiteError(
             "effective_settings_unsurfaced",
-            f"graph.query missing effectiveSettings: {compact_json(node)}",
+            f"pcg.query missing effectiveSettings: {compact_json(node)}",
         )
     return effective_settings
 
@@ -516,7 +516,7 @@ def _run_case(
         snapshot = query_pcg_snapshot(client, request_id_base + 100, asset_path)
         node = find_node(snapshot, node_id)
         if not isinstance(node, dict):
-            raise EffectiveSettingsSuiteError("query_structure_gap", f"graph.query missing node {node_id}")
+            raise EffectiveSettingsSuiteError("query_structure_gap", f"pcg.query missing node {node_id}")
         surface_matrix["queryStructure"] = "pass"
 
         verify_details = verify_graph(client, request_id_base + 110, asset_path)
