@@ -4253,7 +4253,7 @@ mod tests {
             status: "online".to_string(),
             attachable: true,
             plugin_installed: true,
-            plugin_version: Some("0.5.2".to_string()),
+            plugin_version: Some("0.5.3".to_string()),
             protocol_version: Some(1),
             last_seen_at: None,
             reason: None,

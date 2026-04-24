@@ -157,7 +157,7 @@ namespace LoomleBridgeConstants
     static const TCHAR* MaterialQueryToolName = TEXT("material.query");
     static const TCHAR* PcgQueryToolName = TEXT("pcg.query");
     static const TCHAR* DiagTailToolName = TEXT("diag.tail");
-    static const TCHAR* PluginVersion = TEXT("0.5.2");
+    static const TCHAR* PluginVersion = TEXT("0.5.3");
     constexpr int32 ProtocolVersion = 1;
     constexpr double MutateIdempotencyTtlSeconds = 1800.0;
     constexpr int32 MaxMutateIdempotencyEntries = 2048;
