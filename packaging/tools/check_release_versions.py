@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import re
 import sys
 import tomllib
 from pathlib import Path
@@ -25,6 +26,17 @@ def read_uplugin_version_name(path: Path) -> str:
     return version_name
 
 
+def read_bridge_plugin_version(path: Path) -> str:
+    source = path.read_text(encoding="utf-8")
+    match = re.search(r'PluginVersion\s*=\s*TEXT\("([^"]+)"\)', source)
+    if not match:
+        raise SystemExit(f"missing PluginVersion constant in {path}")
+    version = match.group(1)
+    if not version:
+        raise SystemExit(f"invalid PluginVersion in {path}: {version!r}")
+    return version
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Verify LOOMLE release version strings stay in sync."
@@ -47,6 +59,10 @@ def main() -> int:
         "client": read_cargo_version(repo_root / "client/Cargo.toml"),
         "loomle_bridge_uplugin": read_uplugin_version_name(
             repo_root / "engine/LoomleBridge/LoomleBridge.uplugin"
+        ),
+        "loomle_bridge_runtime": read_bridge_plugin_version(
+            repo_root
+            / "engine/LoomleBridge/Source/LoomleBridge/Private/LoomleBridgeModule.cpp"
         ),
     }
 
