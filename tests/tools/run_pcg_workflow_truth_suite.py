@@ -19,7 +19,6 @@ from test_bridge_smoke import (  # noqa: E402
 )
 
 sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
-from domain_test_helpers import flatten_graph_mutate_ops  # noqa: E402
 from run_pcg_graph_test_plan import (  # noqa: E402
     blank_surface_matrix,
     cleanup_pcg_fixture,
@@ -120,55 +119,7 @@ WORKFLOW_CASES = [
         "id": "transform_points_then_tag",
         "fixture": "pcg_graph",
         "families": ["create", "transform", "meta"],
-        "payload": {
-            "tool": "pcg.mutate",
-            "ops": [
-                {
-                    "op": "addNode.byClass",
-                    "clientRef": "create_points",
-                    "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"},
-                },
-                {
-                    "op": "addNode.byClass",
-                    "clientRef": "transform_points",
-                    "args": {"nodeClassPath": "/Script/PCG.PCGTransformPointsSettings"},
-                },
-                {
-                    "op": "addNode.byClass",
-                    "clientRef": "tag_transformed",
-                    "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"},
-                },
-                {
-                    "op": "connectPins",
-                    "args": {
-                        "from": {"nodeRef": "create_points", "pin": "Out"},
-                        "to": {"nodeRef": "transform_points", "pin": "In"},
-                    },
-                },
-                {
-                    "op": "connectPins",
-                    "args": {
-                        "from": {"nodeRef": "transform_points", "pin": "Out"},
-                        "to": {"nodeRef": "tag_transformed", "pin": "In"},
-                    },
-                },
-                {
-                    "op": "setPinDefault",
-                    "args": {
-                        "target": {"nodeRef": "transform_points", "pin": "bAbsoluteRotation"},
-                        "value": True,
-                    },
-                },
-                {
-                    "op": "setPinDefault",
-                    "args": {
-                        "target": {"nodeRef": "tag_transformed", "pin": "TagsToAdd"},
-                        "value": "Gameplay.Transformed",
-                    },
-                },
-                {"op": "layoutGraph", "args": {"scope": "touched"}},
-            ],
-        },
+        "payloadFixture": "tests/fixtures/workflows/pcg/transform-points-then-tag.json",
         "expectedNodes": ["create_points", "transform_points", "tag_transformed"],
         "expectedEdges": [
             ("create_points", "Out", "transform_points", "In"),
@@ -183,67 +134,7 @@ WORKFLOW_CASES = [
         "id": "branch_to_dual_tags",
         "fixture": "pcg_graph",
         "families": ["branch", "create", "meta"],
-        "payload": {
-            "tool": "pcg.mutate",
-            "ops": [
-                {
-                    "op": "addNode.byClass",
-                    "clientRef": "create_points",
-                    "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"},
-                },
-                {
-                    "op": "addNode.byClass",
-                    "clientRef": "branch_node",
-                    "args": {"nodeClassPath": "/Script/PCG.PCGBranchSettings"},
-                },
-                {
-                    "op": "addNode.byClass",
-                    "clientRef": "tag_output_a",
-                    "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"},
-                },
-                {
-                    "op": "addNode.byClass",
-                    "clientRef": "tag_output_b",
-                    "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"},
-                },
-                {
-                    "op": "connectPins",
-                    "args": {
-                        "from": {"nodeRef": "create_points", "pin": "Out"},
-                        "to": {"nodeRef": "branch_node", "pin": "In"},
-                    },
-                },
-                {
-                    "op": "connectPins",
-                    "args": {
-                        "from": {"nodeRef": "branch_node", "pin": "Output A"},
-                        "to": {"nodeRef": "tag_output_a", "pin": "In"},
-                    },
-                },
-                {
-                    "op": "connectPins",
-                    "args": {
-                        "from": {"nodeRef": "branch_node", "pin": "Output B"},
-                        "to": {"nodeRef": "tag_output_b", "pin": "In"},
-                    },
-                },
-                {
-                    "op": "setPinDefault",
-                    "args": {
-                        "target": {"nodeRef": "branch_node", "pin": "bOutputToB"},
-                        "value": True,
-                    },
-                },
-                {
-                    "op": "setPinDefault",
-                    "args": {
-                        "target": {"nodeRef": "tag_output_b", "pin": "TagsToAdd"},
-                        "value": "Gameplay.BranchB",
-                    },
-                },
-                {"op": "layoutGraph", "args": {"scope": "touched"}},
-            ],
-        },
+        "payloadFixture": "tests/fixtures/workflows/pcg/branch-to-dual-tags.json",
         "expectedNodes": ["create_points", "branch_node", "tag_output_a", "tag_output_b"],
         "expectedEdges": [
             ("create_points", "Out", "branch_node", "In"),
@@ -259,67 +150,7 @@ WORKFLOW_CASES = [
         "id": "boolean_select_between_two_sources",
         "fixture": "pcg_graph",
         "families": ["create", "meta", "select"],
-        "payload": {
-            "tool": "pcg.mutate",
-            "ops": [
-                {
-                    "op": "addNode.byClass",
-                    "clientRef": "create_points_a",
-                    "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"},
-                },
-                {
-                    "op": "addNode.byClass",
-                    "clientRef": "create_points_b",
-                    "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"},
-                },
-                {
-                    "op": "addNode.byClass",
-                    "clientRef": "select_node",
-                    "args": {"nodeClassPath": "/Script/PCG.PCGBooleanSelectSettings"},
-                },
-                {
-                    "op": "addNode.byClass",
-                    "clientRef": "tag_selected",
-                    "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"},
-                },
-                {
-                    "op": "connectPins",
-                    "args": {
-                        "from": {"nodeRef": "create_points_a", "pin": "Out"},
-                        "to": {"nodeRef": "select_node", "pin": "Input A"},
-                    },
-                },
-                {
-                    "op": "connectPins",
-                    "args": {
-                        "from": {"nodeRef": "create_points_b", "pin": "Out"},
-                        "to": {"nodeRef": "select_node", "pin": "Input B"},
-                    },
-                },
-                {
-                    "op": "connectPins",
-                    "args": {
-                        "from": {"nodeRef": "select_node", "pin": "Out"},
-                        "to": {"nodeRef": "tag_selected", "pin": "In"},
-                    },
-                },
-                {
-                    "op": "setPinDefault",
-                    "args": {
-                        "target": {"nodeRef": "select_node", "pin": "bUseInputB"},
-                        "value": True,
-                    },
-                },
-                {
-                    "op": "setPinDefault",
-                    "args": {
-                        "target": {"nodeRef": "tag_selected", "pin": "TagsToAdd"},
-                        "value": "Gameplay.Selected",
-                    },
-                },
-                {"op": "layoutGraph", "args": {"scope": "touched"}},
-            ],
-        },
+        "payloadFixture": "tests/fixtures/workflows/pcg/boolean-select-between-two-sources.json",
         "expectedNodes": ["create_points_a", "create_points_b", "select_node", "tag_selected"],
         "expectedEdges": [
             ("create_points_a", "Out", "select_node", "Input A"),
@@ -335,55 +166,7 @@ WORKFLOW_CASES = [
         "id": "predicate_get_index_then_tag",
         "fixture": "pcg_graph",
         "families": ["create", "meta", "predicate"],
-        "payload": {
-            "tool": "pcg.mutate",
-            "ops": [
-                {
-                    "op": "addNode.byClass",
-                    "clientRef": "create_points",
-                    "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"},
-                },
-                {
-                    "op": "addNode.byClass",
-                    "clientRef": "get_index",
-                    "args": {"nodeClassPath": "/Script/PCG.PCGAttributeGetFromIndexSettings"},
-                },
-                {
-                    "op": "addNode.byClass",
-                    "clientRef": "tag_indexed",
-                    "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"},
-                },
-                {
-                    "op": "connectPins",
-                    "args": {
-                        "from": {"nodeRef": "create_points", "pin": "Out"},
-                        "to": {"nodeRef": "get_index", "pin": "In"},
-                    },
-                },
-                {
-                    "op": "connectPins",
-                    "args": {
-                        "from": {"nodeRef": "get_index", "pin": "Out"},
-                        "to": {"nodeRef": "tag_indexed", "pin": "In"},
-                    },
-                },
-                {
-                    "op": "setPinDefault",
-                    "args": {
-                        "target": {"nodeRef": "get_index", "pin": "Index"},
-                        "value": 2,
-                    },
-                },
-                {
-                    "op": "setPinDefault",
-                    "args": {
-                        "target": {"nodeRef": "tag_indexed", "pin": "TagsToAdd"},
-                        "value": "Gameplay.Predicate",
-                    },
-                },
-                {"op": "layoutGraph", "args": {"scope": "touched"}},
-            ],
-        },
+        "payloadFixture": "tests/fixtures/workflows/pcg/predicate-get-index-then-tag.json",
         "expectedNodes": ["create_points", "get_index", "tag_indexed"],
         "expectedEdges": [
             ("create_points", "Out", "get_index", "In"),
@@ -398,60 +181,7 @@ WORKFLOW_CASES = [
         "id": "subgraph_depth_after_subgraph",
         "fixture": "pcg_graph",
         "families": ["create", "meta", "struct"],
-        "payload": {
-            "tool": "pcg.mutate",
-            "ops": [
-                {
-                    "op": "addNode.byClass",
-                    "clientRef": "create_points",
-                    "args": {"nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"},
-                },
-                {
-                    "op": "addNode.byClass",
-                    "clientRef": "subgraph_node",
-                    "args": {"nodeClassPath": "/Script/PCG.PCGSubgraphSettings"},
-                },
-                {
-                    "op": "addNode.byClass",
-                    "clientRef": "depth_node",
-                    "args": {"nodeClassPath": "/Script/PCG.PCGGetSubgraphDepthSettings"},
-                },
-                {
-                    "op": "addNode.byClass",
-                    "clientRef": "tag_depth",
-                    "args": {"nodeClassPath": "/Script/PCG.PCGAddTagSettings"},
-                },
-                {
-                    "op": "connectPins",
-                    "args": {
-                        "from": {"nodeRef": "create_points", "pin": "Out"},
-                        "to": {"nodeRef": "subgraph_node", "pin": "In"},
-                    },
-                },
-                {
-                    "op": "connectPins",
-                    "args": {
-                        "from": {"nodeRef": "subgraph_node", "pin": "Out"},
-                        "to": {"nodeRef": "tag_depth", "pin": "In"},
-                    },
-                },
-                {
-                    "op": "setPinDefault",
-                    "args": {
-                        "target": {"nodeRef": "depth_node", "pin": "DistanceRelativeToUpstreamGraph"},
-                        "value": 2,
-                    },
-                },
-                {
-                    "op": "setPinDefault",
-                    "args": {
-                        "target": {"nodeRef": "tag_depth", "pin": "TagsToAdd"},
-                        "value": "Gameplay.StructDepth",
-                    },
-                },
-                {"op": "layoutGraph", "args": {"scope": "touched"}},
-            ],
-        },
+        "payloadFixture": "tests/fixtures/workflows/pcg/subgraph-depth-after-subgraph.json",
         "expectedNodes": ["create_points", "subgraph_node", "depth_node", "tag_depth"],
         "expectedEdges": [
             ("create_points", "Out", "subgraph_node", "In"),
@@ -466,10 +196,10 @@ WORKFLOW_CASES = [
 
 
 def load_case_payload(case: dict[str, Any]) -> dict[str, Any]:
-    inline_payload = case.get("payload")
-    if isinstance(inline_payload, dict):
-        return json.loads(json.dumps(inline_payload))
-    fixture_path = REPO_ROOT / case["payloadFixture"]
+    fixture_ref = case.get("payloadFixture")
+    if not isinstance(fixture_ref, str) or not fixture_ref:
+        raise WorkflowSuiteError("runner_error", f"workflow case {case.get('id')} is missing payloadFixture")
+    fixture_path = REPO_ROOT / fixture_ref
     return json.loads(fixture_path.read_text(encoding="utf-8"))
 
 
@@ -721,7 +451,7 @@ def run_workflow_case(
 
         payload = load_case_payload(case)
         payload["assetPath"] = asset_path
-        mutate_args = flatten_graph_mutate_ops(payload)
+        mutate_args = {key: value for key, value in payload.items() if key != "tool"}
         mutate_result = call_tool(client, request_id_base + 10, "pcg.mutate", mutate_args)
         surface_matrix["mutate"] = "pass"
         ref_map = build_client_ref_map(mutate_args, mutate_result)

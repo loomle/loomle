@@ -406,6 +406,16 @@ def validate_active_test_fixtures_are_current_contract() -> None:
                 forbidden_archive_refs.append(str(path.relative_to(REPO_ROOT)))
     _require(not forbidden_archive_refs, f"active tests must not read archived workspace fixtures: {forbidden_archive_refs}")
 
+    inline_workflow_payloads: list[str] = []
+    for path in TEST_TOOLS_DIR.glob("run_*workflow_truth_suite.py"):
+        text = path.read_text(encoding="utf-8")
+        if '"payload": {' in text:
+            inline_workflow_payloads.append(str(path.relative_to(REPO_ROOT)))
+    _require(
+        not inline_workflow_payloads,
+        f"workflow truth suites must use tests/fixtures payloadFixture files: {inline_workflow_payloads}",
+    )
+
     workflow_payloads = sorted((TEST_FIXTURES_DIR / "workflows").glob("**/*.json"))
     _require(workflow_payloads, "active workflow fixtures are missing")
     for path in workflow_payloads:

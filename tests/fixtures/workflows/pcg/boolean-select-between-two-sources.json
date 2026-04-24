@@ -1,0 +1,78 @@
+{
+  "tool": "pcg.mutate",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "create_points_a",
+      "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "create_points_b",
+      "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "select_node",
+      "nodeClassPath": "/Script/PCG.PCGBooleanSelectSettings"
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "tag_selected",
+      "nodeClassPath": "/Script/PCG.PCGAddTagSettings"
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "create_points_a",
+        "pin": "Out"
+      },
+      "to": {
+        "nodeRef": "select_node",
+        "pin": "Input A"
+      }
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "create_points_b",
+        "pin": "Out"
+      },
+      "to": {
+        "nodeRef": "select_node",
+        "pin": "Input B"
+      }
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "select_node",
+        "pin": "Out"
+      },
+      "to": {
+        "nodeRef": "tag_selected",
+        "pin": "In"
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "target": {
+        "nodeRef": "select_node",
+        "pin": "bUseInputB"
+      },
+      "value": true
+    },
+    {
+      "op": "setPinDefault",
+      "target": {
+        "nodeRef": "tag_selected",
+        "pin": "TagsToAdd"
+      },
+      "value": "Gameplay.Selected"
+    },
+    {
+      "op": "layoutGraph",
+      "scope": "touched"
+    }
+  ]
+}

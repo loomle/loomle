@@ -1,0 +1,62 @@
+{
+  "tool": "pcg.mutate",
+  "ops": [
+    {
+      "op": "addNode.byClass",
+      "clientRef": "create_points",
+      "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "transform_points",
+      "nodeClassPath": "/Script/PCG.PCGTransformPointsSettings"
+    },
+    {
+      "op": "addNode.byClass",
+      "clientRef": "tag_transformed",
+      "nodeClassPath": "/Script/PCG.PCGAddTagSettings"
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "create_points",
+        "pin": "Out"
+      },
+      "to": {
+        "nodeRef": "transform_points",
+        "pin": "In"
+      }
+    },
+    {
+      "op": "connectPins",
+      "from": {
+        "nodeRef": "transform_points",
+        "pin": "Out"
+      },
+      "to": {
+        "nodeRef": "tag_transformed",
+        "pin": "In"
+      }
+    },
+    {
+      "op": "setPinDefault",
+      "target": {
+        "nodeRef": "transform_points",
+        "pin": "bAbsoluteRotation"
+      },
+      "value": true
+    },
+    {
+      "op": "setPinDefault",
+      "target": {
+        "nodeRef": "tag_transformed",
+        "pin": "TagsToAdd"
+      },
+      "value": "Gameplay.Transformed"
+    },
+    {
+      "op": "layoutGraph",
+      "scope": "touched"
+    }
+  ]
+}
