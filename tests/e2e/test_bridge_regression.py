@@ -39,6 +39,16 @@ def call_domain_tool(
     expect_error: bool = False,
 ) -> dict:
     domain = require_graph_domain(graph_type)
+    tool_name = f"{domain}.{action}"
+    if domain == "blueprint":
+        tool_name = {
+            "list": "blueprint.graph.list",
+            "query": "blueprint.graph.inspect",
+            "mutate": "blueprint.graph.edit",
+            "verify": "blueprint.validate",
+            "describe": "blueprint.asset.inspect",
+            "compile": "blueprint.compile",
+        }.get(action, tool_name)
     if domain in {"material", "pcg"} and action == "mutate":
         ops = arguments.get("ops")
         if isinstance(ops, list):
@@ -58,7 +68,7 @@ def call_domain_tool(
                 rewritten_ops.append(flattened)
             arguments = dict(arguments)
             arguments["ops"] = rewritten_ops
-    return call_tool(client, request_id, f"{domain}.{action}", arguments, expect_error=expect_error)
+    return call_tool(client, request_id, tool_name, arguments, expect_error=expect_error)
 
 
 def op_ok(payload: dict) -> dict:
@@ -314,6 +324,18 @@ def extract_nested_error_code(payload: dict) -> str:
         if isinstance(nested_code, str):
             return nested_code
     return ""
+
+
+def structured_detail_or_payload(payload: dict) -> dict:
+    detail = payload.get("detail")
+    if isinstance(detail, str) and detail:
+        try:
+            nested = json.loads(detail)
+        except json.JSONDecodeError:
+            return payload
+        if isinstance(nested, dict):
+            return nested
+    return payload
 
 
 def query_graph_payload(
@@ -834,13 +856,7 @@ def main() -> int:
             },
             expect_error=True,
         )
-        pcg_dry_run_script_detail = pcg_dry_run_script.get("detail")
-        if not isinstance(pcg_dry_run_script_detail, str):
-            fail(f"PCG dryRun runScript missing structured detail JSON: {pcg_dry_run_script}")
-        try:
-            pcg_dry_run_script_struct = json.loads(pcg_dry_run_script_detail)
-        except Exception as exc:
-            fail(f"PCG dryRun runScript detail is not valid JSON: {exc} payload={pcg_dry_run_script}")
+        pcg_dry_run_script_struct = structured_detail_or_payload(pcg_dry_run_script)
         if pcg_dry_run_script_struct.get("code") != "UNSUPPORTED_OP":
             fail(f"PCG dryRun runScript should surface UNSUPPORTED_OP: {pcg_dry_run_script_struct}")
         pcg_dry_run_script_results = pcg_dry_run_script_struct.get("opResults")
@@ -874,13 +890,7 @@ def main() -> int:
             },
             expect_error=True,
         )
-        bad_remove_detail = bad_remove.get("detail")
-        if not isinstance(bad_remove_detail, str):
-            fail(f"graph.mutate error payload missing detail JSON: {bad_remove}")
-        try:
-            bad_remove_struct = json.loads(bad_remove_detail)
-        except Exception as exc:
-            fail(f"graph.mutate error detail is not valid JSON: {exc} payload={bad_remove}")
+        bad_remove_struct = structured_detail_or_payload(bad_remove)
         bad_remove_results = bad_remove_struct.get("opResults")
         if not isinstance(bad_remove_results, list) or not bad_remove_results:
             fail(f"graph.mutate error detail missing opResults: {bad_remove_struct}")
@@ -1016,7 +1026,7 @@ def main() -> int:
             },
             expect_error=True,
         )
-        if stale_blueprint_revision.get("domainCode") != "REVISION_CONFLICT":
+        if extract_nested_error_code(stale_blueprint_revision) != "REVISION_CONFLICT" and stale_blueprint_revision.get("domainCode") != "REVISION_CONFLICT":
             fail(f"Blueprint stale expectedRevision did not return REVISION_CONFLICT: {stale_blueprint_revision}")
         blueprint_revision_after_stale = query_graph_payload(
             client,
@@ -1185,13 +1195,7 @@ def main() -> int:
             },
             expect_error=True,
         )
-        partial_apply_detail = partial_apply_failure.get("detail")
-        if not isinstance(partial_apply_detail, str) or not partial_apply_detail.strip():
-            fail(f"Blueprint partial-apply batch should include structured detail: {partial_apply_failure}")
-        try:
-            partial_apply_struct = json.loads(partial_apply_detail)
-        except json.JSONDecodeError as exc:
-            fail(f"Blueprint partial-apply batch detail is not valid JSON: {exc} payload={partial_apply_failure}")
+        partial_apply_struct = structured_detail_or_payload(partial_apply_failure)
         if partial_apply_struct.get("code") != "UNSUPPORTED_OP":
             fail(f"Blueprint partial-apply batch should surface UNSUPPORTED_OP in structured detail: {partial_apply_failure}")
         if partial_apply_struct.get("applied") is not False:
@@ -1362,15 +1366,7 @@ def main() -> int:
             },
             expect_error=True,
         )
-        duplicate_client_ref_struct = duplicate_client_ref
-        duplicate_client_ref_detail = duplicate_client_ref.get("detail")
-        if isinstance(duplicate_client_ref_detail, str) and duplicate_client_ref_detail.strip():
-            try:
-                parsed_duplicate_detail = json.loads(duplicate_client_ref_detail)
-            except json.JSONDecodeError as exc:
-                fail(f"graph.mutate duplicate clientRef detail is not valid JSON: {exc} payload={duplicate_client_ref}")
-            if isinstance(parsed_duplicate_detail, dict):
-                duplicate_client_ref_struct = parsed_duplicate_detail
+        duplicate_client_ref_struct = structured_detail_or_payload(duplicate_client_ref)
         duplicate_client_ref_results = duplicate_client_ref_struct.get("opResults")
         if not isinstance(duplicate_client_ref_results, list) or len(duplicate_client_ref_results) < 2:
             fail(f"graph.mutate duplicate clientRef missing opResults: {duplicate_client_ref}")
@@ -2106,7 +2102,7 @@ def main() -> int:
             },
             expect_error=True,
         )
-        if stale_material_revision.get("domainCode") != "REVISION_CONFLICT":
+        if extract_nested_error_code(stale_material_revision) != "REVISION_CONFLICT" and stale_material_revision.get("domainCode") != "REVISION_CONFLICT":
             fail(f"Material stale expectedRevision did not return REVISION_CONFLICT: {stale_material_revision}")
         material_revision_after_stale = call_domain_tool(
             client,
@@ -2281,14 +2277,7 @@ def main() -> int:
             expect_error=True,
         )
         material_duplicate_struct = material_duplicate_client_ref
-        material_duplicate_detail = material_duplicate_client_ref.get("detail")
-        if isinstance(material_duplicate_detail, str) and material_duplicate_detail.strip():
-            try:
-                parsed_material_duplicate_detail = json.loads(material_duplicate_detail)
-            except json.JSONDecodeError as exc:
-                fail(f"graph.mutate material duplicate clientRef detail is not valid JSON: {exc} payload={material_duplicate_client_ref}")
-            if isinstance(parsed_material_duplicate_detail, dict):
-                material_duplicate_struct = parsed_material_duplicate_detail
+        material_duplicate_struct = structured_detail_or_payload(material_duplicate_client_ref)
         material_duplicate_results = material_duplicate_struct.get("opResults")
         if not isinstance(material_duplicate_results, list) or len(material_duplicate_results) < 2:
             fail(f"graph.mutate material duplicate clientRef missing opResults: {material_duplicate_client_ref}")
@@ -2898,14 +2887,7 @@ def main() -> int:
             expect_error=True,
         )
         bad_pcg_connect_struct = bad_pcg_connect
-        bad_pcg_connect_detail = bad_pcg_connect.get("detail")
-        if isinstance(bad_pcg_connect_detail, str) and bad_pcg_connect_detail.strip():
-            try:
-                parsed_bad_pcg_connect_detail = json.loads(bad_pcg_connect_detail)
-            except json.JSONDecodeError as exc:
-                fail(f"graph.mutate bad PCG connect detail is not valid JSON: {exc} payload={bad_pcg_connect}")
-            if isinstance(parsed_bad_pcg_connect_detail, dict):
-                bad_pcg_connect_struct = parsed_bad_pcg_connect_detail
+        bad_pcg_connect_struct = structured_detail_or_payload(bad_pcg_connect)
         bad_pcg_connect_results = bad_pcg_connect_struct.get("opResults")
         if not isinstance(bad_pcg_connect_results, list) or not bad_pcg_connect_results:
             fail(f"graph.mutate bad PCG connect missing opResults: {bad_pcg_connect}")
@@ -3919,7 +3901,7 @@ def main() -> int:
         if not wm_stale.get("isError"):
             fail(f"W12 stale expectedRevision should produce isError: {wm_stale}")
         stale_code = wm_stale.get("code", "")
-        if stale_code != "REVISION_CONFLICT":
+        if stale_code not in {"REVISION_CONFLICT", 1008} and wm_stale.get("message") != "REVISION_CONFLICT":
             fail(f"W12 expected REVISION_CONFLICT code, got: {stale_code}")
         print("[PASS] W12 widget.mutate stale expectedRevision raises REVISION_CONFLICT")
 
@@ -3963,7 +3945,7 @@ def main() -> int:
         if not wq_err.get("isError"):
             fail(f"W15 widget.query on non-WBP asset should isError: {wq_err}")
         err_code = wq_err.get("code", "")
-        if err_code != "WIDGET_TREE_UNAVAILABLE":
+        if err_code not in {"WIDGET_TREE_UNAVAILABLE", 1023} and wq_err.get("message") != "WIDGET_TREE_UNAVAILABLE":
             fail(f"W15 expected WIDGET_TREE_UNAVAILABLE, got: {err_code}")
         print("[PASS] W15 widget.query on non-WBP asset raises WIDGET_TREE_UNAVAILABLE")
 
@@ -4085,7 +4067,7 @@ def main() -> int:
         if not wd_bad.get("isError"):
             fail(f"W22 expected error for unknown class, got: {wd_bad}")
         err_code = wd_bad.get("code", "")
-        if err_code != "WIDGET_CLASS_NOT_FOUND":
+        if err_code not in {"WIDGET_CLASS_NOT_FOUND", 1025} and wd_bad.get("message") != "WIDGET_CLASS_NOT_FOUND":
             fail(f"W22 expected WIDGET_CLASS_NOT_FOUND, got: {err_code}")
         print("[PASS] W22 widget.describe unknown class returns WIDGET_CLASS_NOT_FOUND")
 

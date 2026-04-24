@@ -1053,6 +1053,212 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintListToolResult(const 
     return Result;
 }
 
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintAssetEditToolResult(const TSharedPtr<FJsonObject>& Arguments)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+
+    FString AssetPath;
+    FString Operation;
+    if (!Arguments.IsValid()
+        || !Arguments->TryGetStringField(TEXT("assetPath"), AssetPath)
+        || AssetPath.IsEmpty()
+        || !Arguments->TryGetStringField(TEXT("operation"), Operation)
+        || Operation.IsEmpty())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("blueprint.asset.edit requires assetPath and operation."));
+        return Result;
+    }
+
+    AssetPath = NormalizeAssetPath(AssetPath);
+    Result->SetStringField(TEXT("assetPath"), AssetPath);
+    Result->SetStringField(TEXT("operation"), Operation);
+
+    const TSharedPtr<FJsonObject>* ArgsObject = nullptr;
+    const TSharedPtr<FJsonObject> EmptyArgs = MakeShared<FJsonObject>();
+    const TSharedPtr<FJsonObject> EffectiveArgs =
+        (Arguments->TryGetObjectField(TEXT("args"), ArgsObject) && ArgsObject != nullptr && (*ArgsObject).IsValid())
+            ? *ArgsObject
+            : EmptyArgs;
+
+    if (Operation.Equals(TEXT("create"), ESearchCase::IgnoreCase))
+    {
+        FString ParentClassPath;
+        EffectiveArgs->TryGetStringField(TEXT("parentClassPath"), ParentClassPath);
+        if (ParentClassPath.IsEmpty())
+        {
+            ParentClassPath = TEXT("/Script/Engine.Actor");
+        }
+
+        FString BlueprintObjectPath;
+        FString Error;
+        const bool bOk = FLoomleBlueprintAdapter::CreateBlueprint(AssetPath, ParentClassPath, BlueprintObjectPath, Error);
+        if (!bOk)
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+            Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.asset.edit create failed") : Error);
+            return Result;
+        }
+
+        Result->SetBoolField(TEXT("applied"), true);
+        Result->SetStringField(TEXT("blueprintObjectPath"), BlueprintObjectPath);
+        Result->SetStringField(TEXT("parentClassPath"), ParentClassPath);
+        return Result;
+    }
+
+    Result->SetBoolField(TEXT("isError"), true);
+    Result->SetStringField(TEXT("code"), TEXT("NOT_IMPLEMENTED"));
+    Result->SetStringField(
+        TEXT("message"),
+        FString::Printf(TEXT("blueprint.asset.edit does not support operation yet: %s"), *Operation));
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMemberEditToolResult(const TSharedPtr<FJsonObject>& Arguments)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+
+    FString AssetPath;
+    FString MemberKind;
+    FString Operation;
+    if (!Arguments.IsValid()
+        || !Arguments->TryGetStringField(TEXT("assetPath"), AssetPath)
+        || AssetPath.IsEmpty()
+        || !Arguments->TryGetStringField(TEXT("memberKind"), MemberKind)
+        || MemberKind.IsEmpty()
+        || !Arguments->TryGetStringField(TEXT("operation"), Operation)
+        || Operation.IsEmpty())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("blueprint.member.edit requires assetPath, memberKind, and operation."));
+        return Result;
+    }
+
+    AssetPath = NormalizeAssetPath(AssetPath);
+    Result->SetStringField(TEXT("assetPath"), AssetPath);
+    Result->SetStringField(TEXT("memberKind"), MemberKind);
+    Result->SetStringField(TEXT("operation"), Operation);
+
+    const TSharedPtr<FJsonObject>* ArgsObject = nullptr;
+    const TSharedPtr<FJsonObject> EmptyArgs = MakeShared<FJsonObject>();
+    const TSharedPtr<FJsonObject> EffectiveArgs =
+        (Arguments->TryGetObjectField(TEXT("args"), ArgsObject) && ArgsObject != nullptr && (*ArgsObject).IsValid())
+            ? *ArgsObject
+            : EmptyArgs;
+
+    if (!MemberKind.Equals(TEXT("component"), ESearchCase::IgnoreCase))
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("NOT_IMPLEMENTED"));
+        Result->SetStringField(
+            TEXT("message"),
+            FString::Printf(TEXT("blueprint.member.edit does not support memberKind yet: %s"), *MemberKind));
+        return Result;
+    }
+
+    FString Error;
+    bool bOk = false;
+
+    if (Operation.Equals(TEXT("create"), ESearchCase::IgnoreCase))
+    {
+        FString ComponentClassPath;
+        FString ComponentName;
+        FString ParentComponentName;
+        EffectiveArgs->TryGetStringField(TEXT("componentClassPath"), ComponentClassPath);
+        EffectiveArgs->TryGetStringField(TEXT("componentName"), ComponentName);
+        EffectiveArgs->TryGetStringField(TEXT("parentComponentName"), ParentComponentName);
+        bOk = FLoomleBlueprintAdapter::AddComponent(AssetPath, ComponentClassPath, ComponentName, ParentComponentName, Error);
+    }
+    else if (Operation.Equals(TEXT("setStaticMeshAsset"), ESearchCase::IgnoreCase))
+    {
+        FString ComponentName;
+        FString MeshAssetPath;
+        EffectiveArgs->TryGetStringField(TEXT("componentName"), ComponentName);
+        EffectiveArgs->TryGetStringField(TEXT("meshAssetPath"), MeshAssetPath);
+        bOk = FLoomleBlueprintAdapter::SetStaticMeshComponentAsset(AssetPath, ComponentName, MeshAssetPath, Error);
+    }
+    else if (Operation.Equals(TEXT("setRelativeLocation"), ESearchCase::IgnoreCase))
+    {
+        FString ComponentName;
+        EffectiveArgs->TryGetStringField(TEXT("componentName"), ComponentName);
+        double X = 0.0;
+        double Y = 0.0;
+        double Z = 0.0;
+        EffectiveArgs->TryGetNumberField(TEXT("x"), X);
+        EffectiveArgs->TryGetNumberField(TEXT("y"), Y);
+        EffectiveArgs->TryGetNumberField(TEXT("z"), Z);
+        const FVector Value(X, Y, Z);
+        bOk = FLoomleBlueprintAdapter::SetSceneComponentRelativeLocation(AssetPath, ComponentName, Value, Error);
+    }
+    else if (Operation.Equals(TEXT("setRelativeScale3D"), ESearchCase::IgnoreCase))
+    {
+        FString ComponentName;
+        EffectiveArgs->TryGetStringField(TEXT("componentName"), ComponentName);
+        double X = 0.0;
+        double Y = 0.0;
+        double Z = 0.0;
+        EffectiveArgs->TryGetNumberField(TEXT("x"), X);
+        EffectiveArgs->TryGetNumberField(TEXT("y"), Y);
+        EffectiveArgs->TryGetNumberField(TEXT("z"), Z);
+        const FVector Value(X, Y, Z);
+        bOk = FLoomleBlueprintAdapter::SetSceneComponentRelativeScale3D(AssetPath, ComponentName, Value, Error);
+    }
+    else if (Operation.Equals(TEXT("setCollisionEnabled"), ESearchCase::IgnoreCase))
+    {
+        FString ComponentName;
+        FString CollisionMode;
+        EffectiveArgs->TryGetStringField(TEXT("componentName"), ComponentName);
+        EffectiveArgs->TryGetStringField(TEXT("collisionMode"), CollisionMode);
+        bOk = FLoomleBlueprintAdapter::SetPrimitiveComponentCollisionEnabled(AssetPath, ComponentName, CollisionMode, Error);
+    }
+    else if (Operation.Equals(TEXT("setBoxExtent"), ESearchCase::IgnoreCase))
+    {
+        FString ComponentName;
+        EffectiveArgs->TryGetStringField(TEXT("componentName"), ComponentName);
+        double X = 0.0;
+        double Y = 0.0;
+        double Z = 0.0;
+        EffectiveArgs->TryGetNumberField(TEXT("x"), X);
+        EffectiveArgs->TryGetNumberField(TEXT("y"), Y);
+        EffectiveArgs->TryGetNumberField(TEXT("z"), Z);
+        const FVector Value(X, Y, Z);
+        bOk = FLoomleBlueprintAdapter::SetBoxComponentExtent(AssetPath, ComponentName, Value, Error);
+    }
+    else if (Operation.Equals(TEXT("setGenerateOverlapEvents"), ESearchCase::IgnoreCase))
+    {
+        FString ComponentName;
+        bool bGenerate = false;
+        EffectiveArgs->TryGetStringField(TEXT("componentName"), ComponentName);
+        EffectiveArgs->TryGetBoolField(TEXT("generateOverlapEvents"), bGenerate);
+        bOk = FLoomleBlueprintAdapter::SetPrimitiveComponentGenerateOverlapEvents(AssetPath, ComponentName, bGenerate, Error);
+    }
+    else
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("NOT_IMPLEMENTED"));
+        Result->SetStringField(
+            TEXT("message"),
+            FString::Printf(TEXT("blueprint.member.edit does not support component operation yet: %s"), *Operation));
+        return Result;
+    }
+
+    if (!bOk)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+        Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.member.edit failed") : Error);
+        return Result;
+    }
+
+    Result->SetBoolField(TEXT("applied"), true);
+    return Result;
+}
+
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintQueryToolResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
     auto BuildBlueprintQueryBaseResult = [](const TSharedPtr<FJsonObject>& BaseArguments) -> TSharedPtr<FJsonObject>

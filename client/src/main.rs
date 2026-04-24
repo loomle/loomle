@@ -341,6 +341,48 @@ impl LoomleProxyServer {
         }
     }
 
+    async fn runtime_payload(
+        &self,
+        tool_name: &str,
+        args: rmcp::model::JsonObject,
+    ) -> Result<serde_json::Value, McpError> {
+        let env_info = match self.ensure_runtime_ready().await {
+            Ok(env_info) => env_info,
+            Err(reason) => {
+                return Ok(serde_json::json!({
+                    "isError": true,
+                    "code": "BRIDGE_UNAVAILABLE",
+                    "message": reason
+                }))
+            }
+        };
+
+        match rpc_invoke(&env_info, tool_name, args).await {
+            Ok(payload) => Ok(payload),
+            Err(RpcClientError::Startup(err)) => Ok(serde_json::json!({
+                "isError": true,
+                "code": "BRIDGE_UNAVAILABLE",
+                "message": format!(
+                    "Unreal Engine is not running or LoomleBridge is not loaded. Start Unreal Editor and wait for the Bridge to initialise. ({})",
+                    err.message
+                )
+            })),
+            Err(RpcClientError::Invoke(error)) => Ok(error.payload.unwrap_or_else(|| {
+                serde_json::json!({
+                    "isError": true,
+                    "code": error.code,
+                    "message": error.message,
+                    "detail": error.detail,
+                    "retryable": error.retryable,
+                })
+            })),
+            Err(RpcClientError::Protocol(message)) => Err(McpError::internal_error(
+                format!("runtime RPC failed: {message}"),
+                None,
+            )),
+        }
+    }
+
     async fn attach_project(&self, project: RuntimeProject) {
         let env_info = Environment::for_project_root(project.project_root);
         *self.env_info.lock().await = Some(Arc::new(env_info));
@@ -401,6 +443,15 @@ impl ServerHandler for LoomleProxyServer {
     ) -> Result<CallToolResult, McpError> {
         if is_local_tool(request.name.as_ref()) {
             return Ok(self.call_pre_attach_tool(request).await);
+        }
+        if let Some(result) = self
+            .call_public_blueprint_tool(
+                request.name.as_ref(),
+                request.arguments.clone().unwrap_or_default(),
+            )
+            .await?
+        {
+            return Ok(result);
         }
         self.runtime_call(request.name.as_ref(), request.arguments.unwrap_or_default())
             .await
@@ -560,6 +611,1351 @@ impl LoomleProxyServer {
         self.attach_project(project).await;
         structured_result(payload)
     }
+
+    async fn call_public_blueprint_tool(
+        &self,
+        tool_name: &str,
+        args: rmcp::model::JsonObject,
+    ) -> Result<Option<CallToolResult>, McpError> {
+        match tool_name {
+            "blueprint.graph.list" => Ok(Some(self.call_blueprint_graph_list(args).await?)),
+            "blueprint.graph.inspect" => Ok(Some(self.call_blueprint_graph_inspect(args).await?)),
+            "blueprint.graph.edit" => Ok(Some(self.call_blueprint_graph_edit(args).await?)),
+            "blueprint.validate" => Ok(Some(self.call_blueprint_validate(args).await?)),
+            "blueprint.compile" => Ok(Some(self.call_blueprint_compile(args).await?)),
+            "blueprint.asset.inspect" => Ok(Some(self.call_blueprint_asset_inspect(args).await?)),
+            "blueprint.asset.edit" => {
+                Ok(Some(self.runtime_call("blueprint.asset.edit", args).await?))
+            }
+            "blueprint.member.inspect" => Ok(Some(self.call_blueprint_member_inspect(args).await?)),
+            "blueprint.member.edit" => Ok(Some(
+                self.runtime_call("blueprint.member.edit", args).await?,
+            )),
+            "blueprint.graph.refactor" => Ok(Some(self.call_blueprint_graph_refactor(args).await?)),
+            "blueprint.graph.generate" => Ok(Some(self.call_blueprint_graph_generate(args).await?)),
+            "blueprint.graph.recipe.list" => Ok(Some(call_blueprint_graph_recipe_list(&args))),
+            "blueprint.graph.recipe.inspect" => {
+                Ok(Some(call_blueprint_graph_recipe_inspect(&args)))
+            }
+            "blueprint.graph.recipe.validate" => {
+                Ok(Some(call_blueprint_graph_recipe_validate(&args)))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    async fn call_blueprint_asset_inspect(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let payload = self.runtime_payload("blueprint.describe", args).await?;
+        if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
+            return Ok(CallToolResult::structured_error(payload));
+        }
+
+        let variables = payload
+            .get("variables")
+            .and_then(|value| value.as_array())
+            .map_or(0, |items| items.len());
+        let functions = payload
+            .get("functions")
+            .and_then(|value| value.as_array())
+            .map_or(0, |items| items.len());
+        let components = payload
+            .get("components")
+            .and_then(|value| value.as_array())
+            .map_or(0, |items| items.len());
+        let event_signatures = payload
+            .get("eventSignatures")
+            .and_then(|value| value.as_array())
+            .map_or(0, |items| items.len());
+
+        Ok(structured_result(serde_json::json!({
+            "assetPath": payload.get("assetPath").cloned().unwrap_or(serde_json::Value::Null),
+            "blueprintClass": payload.get("blueprintClass").cloned().unwrap_or(serde_json::Value::Null),
+            "parentClass": payload.get("parentClass").cloned().unwrap_or(serde_json::Value::Null),
+            "variables": payload.get("variables").cloned().unwrap_or(serde_json::json!([])),
+            "functions": payload.get("functions").cloned().unwrap_or(serde_json::json!([])),
+            "eventSignatures": payload.get("eventSignatures").cloned().unwrap_or(serde_json::json!([])),
+            "components": payload.get("components").cloned().unwrap_or(serde_json::json!([])),
+            "summary": {
+                "variableCount": variables,
+                "functionCount": functions,
+                "componentCount": components,
+                "eventSignatureCount": event_signatures
+            }
+        })))
+    }
+
+    async fn call_blueprint_member_inspect(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let Some(member_kind) = args
+            .get("memberKind")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned)
+        else {
+            return Ok(CallToolResult::structured_error(serde_json::json!({
+                "code": "INVALID_ARGUMENT",
+                "message": "blueprint.member.inspect requires memberKind.",
+                "retryable": false,
+            })));
+        };
+        let name_filter = args
+            .get("name")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned);
+        let payload = self.runtime_payload("blueprint.describe", args).await?;
+        if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
+            return Ok(CallToolResult::structured_error(payload));
+        }
+
+        let items = match member_kind.as_str() {
+            "variable" => payload
+                .get("variables")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+            "function" => payload
+                .get("functions")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+            "component" => payload
+                .get("components")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+            "macro" | "dispatcher" => {
+                return Ok(not_implemented_result(
+                    "blueprint.member.inspect",
+                    "Macro and dispatcher inspection are not exposed by the legacy runtime describe surface yet.",
+                ));
+            }
+            other => {
+                return Ok(CallToolResult::structured_error(serde_json::json!({
+                    "code": "INVALID_ARGUMENT",
+                    "message": format!("Unsupported memberKind: {other}"),
+                    "retryable": false,
+                })));
+            }
+        };
+
+        let filtered_items = items
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|item| {
+                name_filter.as_deref().is_none_or(|needle| {
+                    item.get("name").and_then(|value| value.as_str()) == Some(needle)
+                })
+            })
+            .collect::<Vec<_>>();
+
+        Ok(structured_result(serde_json::json!({
+            "assetPath": payload.get("assetPath").cloned().unwrap_or(serde_json::Value::Null),
+            "memberKind": member_kind,
+            "items": filtered_items
+        })))
+    }
+
+    async fn call_blueprint_graph_list(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let legacy_args = match translate_blueprint_graph_list_args(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        Ok(self.runtime_call("blueprint.list", legacy_args).await?)
+    }
+
+    async fn call_blueprint_graph_inspect(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let legacy_args = match translate_blueprint_graph_inspect_args(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        let payload = self.runtime_payload("blueprint.query", legacy_args).await?;
+        if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
+            return Ok(CallToolResult::structured_error(payload));
+        }
+
+        let mut result = payload.as_object().cloned().unwrap_or_default();
+        if !result.contains_key("graph") {
+            if let Some(graph_name) = result.get("graphName").and_then(|value| value.as_str()) {
+                result.insert("graph".into(), serde_json::json!({ "name": graph_name }));
+            }
+        }
+        Ok(structured_result(serde_json::Value::Object(result)))
+    }
+
+    async fn call_blueprint_graph_edit(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let legacy_args = match translate_blueprint_graph_edit_args(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        let payload = self
+            .runtime_payload("blueprint.mutate", legacy_args)
+            .await?;
+        Ok(structured_result(augment_blueprint_mutate_result(payload)))
+    }
+
+    async fn call_blueprint_graph_refactor(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let edit_args = match compile_blueprint_refactor_request(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        self.call_blueprint_graph_edit(edit_args).await
+    }
+
+    async fn call_blueprint_graph_generate(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let edit_args = match compile_blueprint_generate_request(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        self.call_blueprint_graph_edit(edit_args).await
+    }
+
+    async fn call_blueprint_validate(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let legacy_args = match translate_blueprint_validate_args(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        Ok(self.runtime_call("blueprint.verify", legacy_args).await?)
+    }
+
+    async fn call_blueprint_compile(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let mut legacy_args = match translate_blueprint_validate_args(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        let mut compile_op = serde_json::Map::new();
+        compile_op.insert("op".into(), serde_json::json!("compile"));
+        legacy_args.insert(
+            "ops".into(),
+            serde_json::json!([serde_json::Value::Object(compile_op)]),
+        );
+        Ok(self.runtime_call("blueprint.mutate", legacy_args).await?)
+    }
+}
+
+fn invalid_argument_result(message: impl Into<String>) -> CallToolResult {
+    CallToolResult::structured_error(serde_json::json!({
+        "isError": true,
+        "code": "INVALID_ARGUMENT",
+        "message": message.into(),
+        "retryable": false,
+    }))
+}
+
+fn read_required_asset_path(
+    args: &rmcp::model::JsonObject,
+    tool_name: &str,
+) -> Result<String, CallToolResult> {
+    args.get("assetPath")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            args.get("graphRef")
+                .and_then(|value| value.as_object())
+                .and_then(|graph_ref| graph_ref.get("assetPath"))
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty())
+        })
+        .map(str::to_owned)
+        .ok_or_else(|| invalid_argument_result(format!("{tool_name} requires assetPath.")))
+}
+
+fn read_optional_graph_name(
+    args: &rmcp::model::JsonObject,
+    require_graph: bool,
+    tool_name: &str,
+) -> Result<Option<String>, CallToolResult> {
+    if let Some(graph_name) = args
+        .get("graphName")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(Some(graph_name.to_owned()));
+    }
+
+    if let Some(graph_name) = args
+        .get("graphRef")
+        .and_then(|value| value.as_object())
+        .and_then(|graph_ref| graph_ref.get("graphName"))
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(Some(graph_name.to_owned()));
+    }
+
+    if let Some(graph_obj) = args.get("graph").and_then(|value| value.as_object()) {
+        if let Some(graph_id) = graph_obj
+            .get("id")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+        {
+            return Ok(Some(graph_id.to_owned()));
+        }
+        if let Some(graph_name) = graph_obj
+            .get("name")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+        {
+            return Ok(Some(graph_name.to_owned()));
+        }
+    }
+
+    if require_graph {
+        Err(invalid_argument_result(format!(
+            "{tool_name} requires graph or graphName."
+        )))
+    } else {
+        Ok(None)
+    }
+}
+
+fn copy_if_present(
+    source: &rmcp::model::JsonObject,
+    target: &mut rmcp::model::JsonObject,
+    field: &str,
+) {
+    if let Some(value) = source.get(field) {
+        target.insert(field.to_owned(), value.clone());
+    }
+}
+
+fn translate_blueprint_graph_list_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let asset_path = read_required_asset_path(args, "blueprint.graph.list")?;
+    let mut translated = rmcp::model::JsonObject::new();
+    translated.insert("assetPath".into(), serde_json::json!(asset_path));
+    copy_if_present(args, &mut translated, "includeCompositeSubgraphs");
+    Ok(translated)
+}
+
+fn translate_blueprint_graph_inspect_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let asset_path = read_required_asset_path(args, "blueprint.graph.inspect")?;
+    let mut translated = rmcp::model::JsonObject::new();
+    translated.insert("assetPath".into(), serde_json::json!(asset_path));
+    if let Some(graph_name) = read_optional_graph_name(args, true, "blueprint.graph.inspect")? {
+        translated.insert("graphName".into(), serde_json::json!(graph_name));
+    }
+    for field in [
+        "nodeIds",
+        "nodeClasses",
+        "includeComments",
+        "includePinDefaults",
+        "includeConnections",
+        "limit",
+        "cursor",
+        "layoutDetail",
+    ] {
+        copy_if_present(args, &mut translated, field);
+    }
+    Ok(translated)
+}
+
+fn translate_blueprint_validate_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let asset_path = read_required_asset_path(args, "blueprint.validate")?;
+    let mut translated = rmcp::model::JsonObject::new();
+    translated.insert("assetPath".into(), serde_json::json!(asset_path));
+    if let Some(graph_name) = read_optional_graph_name(args, false, "blueprint.validate")? {
+        translated.insert("graphName".into(), serde_json::json!(graph_name));
+    }
+    for field in ["limit", "cursor", "layoutDetail"] {
+        copy_if_present(args, &mut translated, field);
+    }
+    Ok(translated)
+}
+
+fn json_string_value(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Null => String::new(),
+        serde_json::Value::Bool(value) => value.to_string(),
+        serde_json::Value::Number(value) => value.to_string(),
+        serde_json::Value::String(value) => value.clone(),
+        other => serde_json::to_string(other).unwrap_or_default(),
+    }
+}
+
+fn extract_node_token(node: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let Some(node_obj) = node.as_object() else {
+        return Err("Node reference must be an object.".into());
+    };
+    if let Some(id) = node_obj.get("id").and_then(|value| value.as_str()) {
+        return Ok(serde_json::json!({ "nodeId": id }));
+    }
+    if let Some(alias) = node_obj.get("alias").and_then(|value| value.as_str()) {
+        return Ok(serde_json::json!({ "nodeRef": alias }));
+    }
+    Err("Node reference requires id or alias.".into())
+}
+
+fn extract_pin_endpoint(endpoint: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let Some(endpoint_obj) = endpoint.as_object() else {
+        return Err("Pin endpoint must be an object.".into());
+    };
+    let node = endpoint_obj
+        .get("node")
+        .ok_or_else(|| "Pin endpoint requires node.".to_owned())?;
+    let mut result = match extract_node_token(node)? {
+        serde_json::Value::Object(object) => object,
+        _ => serde_json::Map::new(),
+    };
+    let pin_name = endpoint_obj
+        .get("pin")
+        .and_then(|value| value.as_str())
+        .or_else(|| endpoint_obj.get("pinName").and_then(|value| value.as_str()))
+        .ok_or_else(|| "Pin endpoint requires pin.".to_owned())?;
+    result.insert("pin".into(), serde_json::json!(pin_name));
+    Ok(serde_json::Value::Object(result))
+}
+
+fn infer_add_node_op(
+    command: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(String, serde_json::Map<String, serde_json::Value>), String> {
+    let mut args = serde_json::Map::new();
+    if let Some(position) = command.get("position") {
+        args.insert("position".into(), position.clone());
+    }
+    if let Some(anchor) = command.get("anchor") {
+        args.insert("anchor".into(), anchor.clone());
+    }
+    if let Some(from) = command.get("from") {
+        args.insert("from".into(), from.clone());
+    }
+
+    let node_type = command
+        .get("nodeType")
+        .or_else(|| command.get("wrapper"))
+        .or_else(|| command.get("call"))
+        .ok_or_else(|| "addNode requires nodeType.".to_owned())?;
+    let node_type_obj = node_type
+        .as_object()
+        .ok_or_else(|| "nodeType must be an object.".to_owned())?;
+    let node_type_id = node_type_obj
+        .get("id")
+        .and_then(|value| value.as_str())
+        .or_else(|| command.get("nodeTypeId").and_then(|value| value.as_str()));
+    let node_kind = node_type_obj
+        .get("kind")
+        .and_then(|value| value.as_str())
+        .or_else(|| command.get("nodeKind").and_then(|value| value.as_str()));
+
+    if matches!(node_kind, Some("branch")) {
+        return Ok(("addNode.branch".into(), args));
+    }
+    if matches!(node_kind, Some("sequence")) {
+        return Ok(("addNode.sequence".into(), args));
+    }
+    if matches!(node_kind, Some("knot" | "reroute")) {
+        return Ok(("addNode.knot".into(), args));
+    }
+    if matches!(node_kind, Some("comment")) {
+        if let Some(text) = command.get("text").or_else(|| command.get("comment")) {
+            args.insert("text".into(), text.clone());
+        }
+        return Ok(("addNode.comment".into(), args));
+    }
+    if matches!(node_kind, Some("cast")) {
+        let target_class = node_type_obj
+            .get("targetClassPath")
+            .and_then(|value| value.as_str())
+            .or_else(|| {
+                command
+                    .get("targetClassPath")
+                    .and_then(|value| value.as_str())
+            })
+            .or_else(|| command.get("targetType").and_then(|value| value.as_str()))
+            .ok_or_else(|| "Cast nodes require targetClassPath or targetType.".to_owned())?;
+        args.insert("targetClassPath".into(), serde_json::json!(target_class));
+        return Ok(("addNode.cast".into(), args));
+    }
+
+    if let Some(node_type_id) = node_type_id {
+        if let Some(function_descriptor) = node_type_id.strip_prefix("ufunction:") {
+            let Some((class_path, function_name)) = function_descriptor.rsplit_once(':') else {
+                return Err(
+                    "ufunction nodeType ids must use ufunction:<classPath>:<functionName>.".into(),
+                );
+            };
+            args.insert("functionClassPath".into(), serde_json::json!(class_path));
+            args.insert("functionName".into(), serde_json::json!(function_name));
+            return Ok(("addNode.byFunction".into(), args));
+        }
+        if let Some(class_path) = node_type_id.strip_prefix("class:") {
+            args.insert("nodeClassPath".into(), serde_json::json!(class_path));
+            return Ok(("addNode.byClass".into(), args));
+        }
+        if let Some(class_path) = node_type_id.strip_prefix("event:") {
+            let Some((event_class_path, event_name)) = class_path.rsplit_once(':') else {
+                return Err("event nodeType ids must use event:<classPath>:<eventName>.".into());
+            };
+            args.insert("eventClassPath".into(), serde_json::json!(event_class_path));
+            args.insert("eventName".into(), serde_json::json!(event_name));
+            return Ok(("addNode.byEvent".into(), args));
+        }
+        if node_type_id.starts_with("/Script/") {
+            args.insert("nodeClassPath".into(), serde_json::json!(node_type_id));
+            return Ok(("addNode.byClass".into(), args));
+        }
+    }
+
+    if let Some(node_class_path) = node_type_obj
+        .get("nodeClassPath")
+        .and_then(|value| value.as_str())
+        .or_else(|| {
+            command
+                .get("nodeClassPath")
+                .and_then(|value| value.as_str())
+        })
+    {
+        args.insert("nodeClassPath".into(), serde_json::json!(node_class_path));
+        return Ok(("addNode.byClass".into(), args));
+    }
+
+    if let Some(function_name) = node_type_obj
+        .get("functionName")
+        .and_then(|value| value.as_str())
+        .or_else(|| command.get("functionName").and_then(|value| value.as_str()))
+    {
+        args.insert("functionName".into(), serde_json::json!(function_name));
+        if let Some(function_class_path) = node_type_obj
+            .get("functionClassPath")
+            .and_then(|value| value.as_str())
+            .or_else(|| {
+                command
+                    .get("functionClassPath")
+                    .and_then(|value| value.as_str())
+            })
+        {
+            args.insert(
+                "functionClassPath".into(),
+                serde_json::json!(function_class_path),
+            );
+        }
+        return Ok(("addNode.byFunction".into(), args));
+    }
+
+    if let Some(variable_name) = node_type_obj
+        .get("variableName")
+        .and_then(|value| value.as_str())
+        .or_else(|| command.get("variableName").and_then(|value| value.as_str()))
+    {
+        args.insert("variableName".into(), serde_json::json!(variable_name));
+        if let Some(mode) = node_type_obj
+            .get("mode")
+            .and_then(|value| value.as_str())
+            .or_else(|| command.get("mode").and_then(|value| value.as_str()))
+        {
+            args.insert("mode".into(), serde_json::json!(mode));
+        }
+        if let Some(variable_class_path) = node_type_obj
+            .get("variableClassPath")
+            .and_then(|value| value.as_str())
+            .or_else(|| {
+                command
+                    .get("variableClassPath")
+                    .and_then(|value| value.as_str())
+            })
+        {
+            args.insert(
+                "variableClassPath".into(),
+                serde_json::json!(variable_class_path),
+            );
+        }
+        return Ok(("addNode.byVariable".into(), args));
+    }
+
+    Err("Unable to infer addNode op from nodeType.".into())
+}
+
+fn compile_add_node_command(
+    command: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let (op_name, args) = infer_add_node_op(command)?;
+    let mut op = serde_json::Map::new();
+    op.insert("op".into(), serde_json::json!(op_name));
+    if let Some(alias) = command.get("alias").and_then(|value| value.as_str()) {
+        op.insert("clientRef".into(), serde_json::json!(alias));
+    }
+    op.insert("args".into(), serde_json::Value::Object(args));
+
+    let mut ops = vec![serde_json::Value::Object(op)];
+    if let Some(defaults) = command.get("defaults").and_then(|value| value.as_array()) {
+        if let Some(alias) = command.get("alias").and_then(|value| value.as_str()) {
+            for default in defaults {
+                let Some(default_obj) = default.as_object() else {
+                    continue;
+                };
+                let Some(pin_name) = default_obj
+                    .get("pin")
+                    .and_then(|value| value.as_str())
+                    .or_else(|| default_obj.get("pinName").and_then(|value| value.as_str()))
+                else {
+                    continue;
+                };
+                let mut set_default_args = serde_json::Map::new();
+                set_default_args.insert(
+                    "target".into(),
+                    serde_json::json!({
+                        "nodeRef": alias,
+                        "pin": pin_name
+                    }),
+                );
+                set_default_args.insert(
+                    "value".into(),
+                    serde_json::json!(json_string_value(
+                        default_obj.get("value").unwrap_or(&serde_json::Value::Null)
+                    )),
+                );
+                ops.push(serde_json::json!({
+                    "op": "setPinDefault",
+                    "args": set_default_args
+                }));
+            }
+        }
+    }
+    Ok(ops)
+}
+
+fn compile_blueprint_graph_commands(
+    commands: &[serde_json::Value],
+) -> Result<Vec<serde_json::Value>, CallToolResult> {
+    let mut ops = Vec::new();
+    for (index, command) in commands.iter().enumerate() {
+        let Some(command_obj) = command.as_object() else {
+            return Err(invalid_argument_result(format!(
+                "graph command at index {index} must be an object."
+            )));
+        };
+        let Some(kind) = command_obj.get("kind").and_then(|value| value.as_str()) else {
+            return Err(invalid_argument_result(format!(
+                "graph command at index {index} requires kind."
+            )));
+        };
+
+        let compiled = match kind {
+            "addNode" => compile_add_node_command(command_obj),
+            "removeNode" => {
+                let node = command_obj
+                    .get("node")
+                    .ok_or_else(|| "removeNode requires node.".to_owned())
+                    .and_then(extract_node_token)
+                    .map_err(invalid_argument_result)?;
+                Ok(vec![serde_json::json!({"op":"removeNode","args": node})])
+            }
+            "duplicateNode" => {
+                let node = command_obj
+                    .get("node")
+                    .ok_or_else(|| "duplicateNode requires node.".to_owned())
+                    .and_then(extract_node_token)
+                    .map_err(invalid_argument_result)?;
+                let mut args = node.as_object().cloned().unwrap_or_default();
+                if let Some(offset) = command_obj
+                    .get("offset")
+                    .and_then(|value| value.as_object())
+                {
+                    if let Some(dx) = offset.get("x") {
+                        args.insert("dx".into(), dx.clone());
+                    }
+                    if let Some(dy) = offset.get("y") {
+                        args.insert("dy".into(), dy.clone());
+                    }
+                }
+                let mut op = serde_json::Map::new();
+                op.insert("op".into(), serde_json::json!("duplicateNode"));
+                if let Some(alias) = command_obj.get("alias").and_then(|value| value.as_str()) {
+                    op.insert("clientRef".into(), serde_json::json!(alias));
+                }
+                op.insert("args".into(), serde_json::Value::Object(args));
+                Ok(vec![serde_json::Value::Object(op)])
+            }
+            "moveNode" => {
+                let node = command_obj
+                    .get("node")
+                    .ok_or_else(|| "moveNode requires node.".to_owned())
+                    .and_then(extract_node_token)
+                    .map_err(invalid_argument_result)?;
+                let mut args = node.as_object().cloned().unwrap_or_default();
+                let op_name = if let Some(position) = command_obj
+                    .get("position")
+                    .and_then(|value| value.as_object())
+                {
+                    if let Some(x) = position.get("x") {
+                        args.insert("x".into(), x.clone());
+                    }
+                    if let Some(y) = position.get("y") {
+                        args.insert("y".into(), y.clone());
+                    }
+                    "moveNode"
+                } else if let Some(delta) =
+                    command_obj.get("delta").and_then(|value| value.as_object())
+                {
+                    if let Some(dx) = delta.get("x") {
+                        args.insert("dx".into(), dx.clone());
+                    }
+                    if let Some(dy) = delta.get("y") {
+                        args.insert("dy".into(), dy.clone());
+                    }
+                    "moveNodeBy"
+                } else {
+                    return Err(invalid_argument_result(
+                        "moveNode requires position or delta.",
+                    ));
+                };
+                Ok(vec![serde_json::json!({"op": op_name, "args": args})])
+            }
+            "connect" | "disconnect" => {
+                let from = command_obj
+                    .get("from")
+                    .ok_or_else(|| format!("{kind} requires from."))
+                    .and_then(extract_pin_endpoint)
+                    .map_err(invalid_argument_result)?;
+                let to = command_obj
+                    .get("to")
+                    .ok_or_else(|| format!("{kind} requires to."))
+                    .and_then(extract_pin_endpoint)
+                    .map_err(invalid_argument_result)?;
+                Ok(vec![serde_json::json!({
+                    "op": if kind == "connect" { "connectPins" } else { "disconnectPins" },
+                    "args": {
+                        "from": from,
+                        "to": to
+                    }
+                })])
+            }
+            "breakLinks" => {
+                let target = command_obj
+                    .get("target")
+                    .ok_or_else(|| "breakLinks requires target.".to_owned())
+                    .and_then(extract_pin_endpoint)
+                    .map_err(invalid_argument_result)?;
+                Ok(vec![
+                    serde_json::json!({"op":"breakPinLinks","args":{"target": target}}),
+                ])
+            }
+            "setPinDefault" => {
+                let target = command_obj
+                    .get("target")
+                    .ok_or_else(|| "setPinDefault requires target.".to_owned())
+                    .and_then(extract_pin_endpoint)
+                    .map_err(invalid_argument_result)?;
+                let value = command_obj
+                    .get("value")
+                    .ok_or_else(|| invalid_argument_result("setPinDefault requires value."))?;
+                Ok(vec![serde_json::json!({
+                    "op":"setPinDefault",
+                    "args":{
+                        "target": target,
+                        "value": json_string_value(value)
+                    }
+                })])
+            }
+            "setNodeComment" => {
+                let node = command_obj
+                    .get("node")
+                    .ok_or_else(|| "setNodeComment requires node.".to_owned())
+                    .and_then(extract_node_token)
+                    .map_err(invalid_argument_result)?;
+                let comment = command_obj
+                    .get("comment")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default();
+                let mut args = node.as_object().cloned().unwrap_or_default();
+                args.insert("comment".into(), serde_json::json!(comment));
+                Ok(vec![
+                    serde_json::json!({"op":"setNodeComment","args": args}),
+                ])
+            }
+            "setNodeEnabled" => {
+                let node = command_obj
+                    .get("node")
+                    .ok_or_else(|| "setNodeEnabled requires node.".to_owned())
+                    .and_then(extract_node_token)
+                    .map_err(invalid_argument_result)?;
+                let enabled = command_obj
+                    .get("enabled")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(true);
+                let mut args = node.as_object().cloned().unwrap_or_default();
+                args.insert("enabled".into(), serde_json::json!(enabled));
+                Ok(vec![
+                    serde_json::json!({"op":"setNodeEnabled","args": args}),
+                ])
+            }
+            "addReroute" => {
+                let mut args = serde_json::Map::new();
+                if let Some(position) = command_obj.get("position") {
+                    args.insert("position".into(), position.clone());
+                }
+                let mut op = serde_json::Map::new();
+                op.insert("op".into(), serde_json::json!("addNode.knot"));
+                if let Some(alias) = command_obj.get("alias").and_then(|value| value.as_str()) {
+                    op.insert("clientRef".into(), serde_json::json!(alias));
+                }
+                op.insert("args".into(), serde_json::Value::Object(args));
+                Ok(vec![serde_json::Value::Object(op)])
+            }
+            "addCommentBox" => {
+                let mut args = serde_json::Map::new();
+                if let Some(bounds) = command_obj
+                    .get("bounds")
+                    .and_then(|value| value.as_object())
+                {
+                    args.insert(
+                        "position".into(),
+                        serde_json::json!({
+                            "x": bounds.get("x").cloned().unwrap_or(serde_json::json!(0)),
+                            "y": bounds.get("y").cloned().unwrap_or(serde_json::json!(0))
+                        }),
+                    );
+                    if let Some(width) = bounds.get("w") {
+                        args.insert("width".into(), width.clone());
+                    }
+                    if let Some(height) = bounds.get("h") {
+                        args.insert("height".into(), height.clone());
+                    }
+                }
+                if let Some(text) = command_obj.get("text").and_then(|value| value.as_str()) {
+                    args.insert("text".into(), serde_json::json!(text));
+                }
+                let mut op = serde_json::Map::new();
+                op.insert("op".into(), serde_json::json!("addNode.comment"));
+                if let Some(alias) = command_obj.get("alias").and_then(|value| value.as_str()) {
+                    op.insert("clientRef".into(), serde_json::json!(alias));
+                }
+                op.insert("args".into(), serde_json::Value::Object(args));
+                Ok(vec![serde_json::Value::Object(op)])
+            }
+            other => Err(format!("Unsupported graph.edit command kind: {other}")),
+        }
+        .map_err(invalid_argument_result)?;
+        ops.extend(compiled);
+    }
+    Ok(ops)
+}
+
+fn translate_blueprint_graph_edit_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let asset_path = read_required_asset_path(args, "blueprint.graph.edit")?;
+    let graph_name = read_optional_graph_name(args, true, "blueprint.graph.edit")?;
+    let has_graph_ref = args
+        .get("graphRef")
+        .and_then(|value| value.as_object())
+        .is_some();
+    let mut translated = rmcp::model::JsonObject::new();
+    translated.insert("assetPath".into(), serde_json::json!(asset_path));
+    if has_graph_ref {
+        copy_if_present(args, &mut translated, "graphRef");
+    } else if let Some(graph_name) = graph_name {
+        translated.insert("graphName".into(), serde_json::json!(graph_name));
+    }
+    for field in [
+        "expectedRevision",
+        "idempotencyKey",
+        "dryRun",
+        "continueOnError",
+    ] {
+        copy_if_present(args, &mut translated, field);
+    }
+    if let Some(ops) = args.get("ops") {
+        translated.insert("ops".into(), ops.clone());
+        return Ok(translated);
+    }
+    let commands = args
+        .get("commands")
+        .and_then(|value| value.as_array())
+        .ok_or_else(|| invalid_argument_result("blueprint.graph.edit requires commands or ops."))?;
+    translated.insert(
+        "ops".into(),
+        serde_json::Value::Array(compile_blueprint_graph_commands(commands)?),
+    );
+    Ok(translated)
+}
+
+fn augment_blueprint_mutate_result(payload: serde_json::Value) -> serde_json::Value {
+    let Some(mut object) = payload.as_object().cloned() else {
+        return payload;
+    };
+    if let Some(op_results) = object.get("opResults").cloned() {
+        object.entry("commandResults").or_insert(op_results);
+    }
+    serde_json::Value::Object(object)
+}
+
+fn compile_blueprint_refactor_request(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let asset_path = read_required_asset_path(args, "blueprint.graph.refactor")?;
+    let graph_name = read_optional_graph_name(args, true, "blueprint.graph.refactor")?;
+    let transforms = args
+        .get("transforms")
+        .and_then(|value| value.as_array())
+        .ok_or_else(|| invalid_argument_result("blueprint.graph.refactor requires transforms."))?;
+    let mut commands = Vec::new();
+    for (index, transform) in transforms.iter().enumerate() {
+        let Some(transform_obj) = transform.as_object() else {
+            return Err(invalid_argument_result(format!(
+                "transform at index {index} must be an object."
+            )));
+        };
+        let Some(kind) = transform_obj.get("kind").and_then(|value| value.as_str()) else {
+            return Err(invalid_argument_result(format!(
+                "transform at index {index} requires kind."
+            )));
+        };
+        match kind {
+            "insertBetween" => {
+                let alias = transform_obj
+                    .get("alias")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("insertedNode");
+                let add_node = serde_json::json!({
+                    "kind": "addNode",
+                    "alias": alias,
+                    "nodeType": transform_obj.get("nodeType").cloned().unwrap_or(serde_json::Value::Null),
+                    "from": transform_obj.get("link").and_then(|value| value.get("from")).cloned().unwrap_or(serde_json::Value::Null)
+                });
+                let input_pin = transform_obj
+                    .get("inputPin")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("execute");
+                let output_pin = transform_obj
+                    .get("outputPin")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("then");
+                let link = transform_obj
+                    .get("link")
+                    .and_then(|value| value.as_object())
+                    .ok_or_else(|| invalid_argument_result("insertBetween requires link."))?;
+                let from = link
+                    .get("from")
+                    .cloned()
+                    .ok_or_else(|| invalid_argument_result("insertBetween link requires from."))?;
+                let to = link
+                    .get("to")
+                    .cloned()
+                    .ok_or_else(|| invalid_argument_result("insertBetween link requires to."))?;
+                commands.push(add_node);
+                commands.push(serde_json::json!({"kind":"disconnect","from":from,"to":to}));
+                commands.push(serde_json::json!({
+                    "kind":"connect",
+                    "from": from,
+                    "to": { "node": { "alias": alias }, "pin": input_pin }
+                }));
+                commands.push(serde_json::json!({
+                    "kind":"connect",
+                    "from": { "node": { "alias": alias }, "pin": output_pin },
+                    "to": to
+                }));
+            }
+            "replaceNode" => {
+                let alias = transform_obj
+                    .get("alias")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("replacementNode");
+                let rebind_policy = transform_obj
+                    .get("rebindPolicy")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("none");
+                if rebind_policy != "none" {
+                    return Err(not_implemented_result(
+                        "blueprint.graph.refactor",
+                        "replaceNode currently supports only rebindPolicy=none. Rebinding existing links has not been implemented yet.",
+                    ));
+                }
+                let node = transform_obj
+                    .get("node")
+                    .cloned()
+                    .ok_or_else(|| invalid_argument_result("replaceNode requires node."))?;
+                commands.push(serde_json::json!({
+                    "kind": "addNode",
+                    "alias": alias,
+                    "nodeType": transform_obj.get("nodeType").cloned().unwrap_or(serde_json::Value::Null),
+                    "anchor": node
+                }));
+                if transform_obj
+                    .get("removeOriginal")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false)
+                {
+                    commands.push(serde_json::json!({"kind":"removeNode","node": node}));
+                }
+            }
+            "wrapWith" => {
+                let alias = transform_obj
+                    .get("alias")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("wrapperNode");
+                let wrapper = transform_obj
+                    .get("wrapper")
+                    .cloned()
+                    .ok_or_else(|| invalid_argument_result("wrapWith requires wrapper."))?;
+                let link = transform_obj
+                    .get("link")
+                    .and_then(|value| value.as_object())
+                    .ok_or_else(|| invalid_argument_result("wrapWith requires link."))?;
+                let from = link
+                    .get("from")
+                    .cloned()
+                    .ok_or_else(|| invalid_argument_result("wrapWith link requires from."))?;
+                let to = link
+                    .get("to")
+                    .cloned()
+                    .ok_or_else(|| invalid_argument_result("wrapWith link requires to."))?;
+                let entry_pin = transform_obj
+                    .get("entryPin")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("execute");
+                let exit_pin = transform_obj
+                    .get("exitPin")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("Then");
+                commands.push(serde_json::json!({
+                    "kind":"addNode",
+                    "alias": alias,
+                    "nodeType": wrapper,
+                    "from": from
+                }));
+                commands.push(serde_json::json!({"kind":"disconnect","from":from,"to":to}));
+                commands.push(serde_json::json!({
+                    "kind":"connect",
+                    "from": from,
+                    "to": { "node": { "alias": alias }, "pin": entry_pin }
+                }));
+                commands.push(serde_json::json!({
+                    "kind":"connect",
+                    "from": { "node": { "alias": alias }, "pin": exit_pin },
+                    "to": to
+                }));
+            }
+            "fanoutExec" => {
+                let alias = transform_obj
+                    .get("alias")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("sequenceNode");
+                let source = transform_obj
+                    .get("source")
+                    .cloned()
+                    .ok_or_else(|| invalid_argument_result("fanoutExec requires source."))?;
+                let targets = transform_obj
+                    .get("targets")
+                    .and_then(|value| value.as_array())
+                    .ok_or_else(|| invalid_argument_result("fanoutExec requires targets."))?;
+                commands.push(serde_json::json!({
+                    "kind":"addNode",
+                    "alias": alias,
+                    "nodeType": { "kind": "sequence" },
+                    "from": source
+                }));
+                commands.push(serde_json::json!({
+                    "kind":"connect",
+                    "from": source,
+                    "to": { "node": { "alias": alias }, "pin": "execute" }
+                }));
+                for (target_index, target) in targets.iter().enumerate() {
+                    commands.push(serde_json::json!({
+                        "kind":"connect",
+                        "from": { "node": { "alias": alias }, "pin": format!("Then {}", target_index) },
+                        "to": target
+                    }));
+                }
+            }
+            "cleanupReroutes" => {}
+            other => {
+                return Err(not_implemented_result(
+                    "blueprint.graph.refactor",
+                    &format!("Unsupported transform kind: {other}"),
+                ));
+            }
+        }
+    }
+    let mut edit_args = rmcp::model::JsonObject::new();
+    edit_args.insert("assetPath".into(), serde_json::json!(asset_path));
+    if let Some(graph_name) = graph_name {
+        edit_args.insert("graph".into(), serde_json::json!({ "name": graph_name }));
+    }
+    edit_args.insert("commands".into(), serde_json::Value::Array(commands));
+    for field in [
+        "dryRun",
+        "returnDiff",
+        "returnDiagnostics",
+        "expectedRevision",
+    ] {
+        copy_if_present(args, &mut edit_args, field);
+    }
+    Ok(edit_args)
+}
+
+fn file_recipe_from_source(
+    recipe_source: &serde_json::Map<String, serde_json::Value>,
+) -> Result<serde_json::Value, CallToolResult> {
+    let path = recipe_source
+        .get("path")
+        .and_then(|value| value.as_str())
+        .or_else(|| recipe_source.get("id").and_then(|value| value.as_str()))
+        .ok_or_else(|| invalid_argument_result("File recipe sources require path or id."))?;
+    let data = fs::read_to_string(path).map_err(|error| {
+        CallToolResult::structured_error(serde_json::json!({
+            "code": "INVALID_ARGUMENT",
+            "message": format!("Failed to read recipe file: {error}"),
+            "suggestion": "Verify that the recipe file exists and is readable.",
+            "retryable": false,
+        }))
+    })?;
+    serde_json::from_str::<serde_json::Value>(&data).map_err(|error| {
+        CallToolResult::structured_error(serde_json::json!({
+            "code": "INVALID_ARGUMENT",
+            "message": format!("Failed to parse recipe JSON: {error}"),
+            "retryable": false,
+        }))
+    })
+}
+
+fn compile_builtin_recipe(
+    recipe_id: &str,
+    inputs: &serde_json::Map<String, serde_json::Value>,
+    attach: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> Result<Vec<serde_json::Value>, CallToolResult> {
+    let mut commands = Vec::new();
+    let attach_mode = attach
+        .and_then(|value| value.get("mode"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("append_exec");
+    if attach_mode != "append_exec" {
+        return Err(not_implemented_result(
+            "blueprint.graph.generate",
+            "Only attach.mode=append_exec is implemented for built-in Blueprint recipes right now.",
+        ));
+    }
+    let attach_from = attach.and_then(|value| value.get("from")).cloned();
+    match recipe_id {
+        "branch_then_call" => {
+            let call_node_type = inputs
+                .get("callNodeType")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({ "id": "ufunction:/Script/Engine.KismetSystemLibrary:PrintString" }));
+            commands.push(serde_json::json!({"kind":"addNode","alias":"branchNode","nodeType":{"kind":"branch"}}));
+            commands.push(
+                serde_json::json!({"kind":"addNode","alias":"callNode","nodeType":call_node_type}),
+            );
+            commands.push(serde_json::json!({"kind":"connect","from":{"node":{"alias":"branchNode"},"pin":"True"},"to":{"node":{"alias":"callNode"},"pin":"execute"}}));
+            if let Some(condition) = inputs.get("condition") {
+                commands.push(serde_json::json!({"kind":"setPinDefault","target":{"node":{"alias":"branchNode"},"pin":"Condition"},"value":condition}));
+            }
+            if let Some(from) = attach_from {
+                commands.push(serde_json::json!({"kind":"connect","from":from,"to":{"node":{"alias":"branchNode"},"pin":"execute"}}));
+            }
+        }
+        "delay_then_call" => {
+            let call_node_type = inputs
+                .get("callNodeType")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({ "id": "ufunction:/Script/Engine.KismetSystemLibrary:PrintString" }));
+            commands.push(serde_json::json!({"kind":"addNode","alias":"delayNode","nodeType":{"id":"class:/Script/BlueprintGraph.K2Node_Delay"}}));
+            if let Some(duration) = inputs.get("duration") {
+                commands.push(serde_json::json!({"kind":"setPinDefault","target":{"node":{"alias":"delayNode"},"pin":"Duration"},"value":duration}));
+            }
+            commands.push(
+                serde_json::json!({"kind":"addNode","alias":"callNode","nodeType":call_node_type}),
+            );
+            commands.push(serde_json::json!({"kind":"connect","from":{"node":{"alias":"delayNode"},"pin":"Completed"},"to":{"node":{"alias":"callNode"},"pin":"execute"}}));
+            if let Some(from) = attach_from {
+                commands.push(serde_json::json!({"kind":"connect","from":from,"to":{"node":{"alias":"delayNode"},"pin":"execute"}}));
+            }
+        }
+        "sequence_fanout" => {
+            commands.push(serde_json::json!({"kind":"addNode","alias":"sequenceNode","nodeType":{"kind":"sequence"}}));
+            if let Some(from) = attach_from {
+                commands.push(serde_json::json!({"kind":"connect","from":from,"to":{"node":{"alias":"sequenceNode"},"pin":"execute"}}));
+            }
+        }
+        "set_variable_then_call" => {
+            let variable_name = inputs
+                .get("variableName")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| {
+                    invalid_argument_result("set_variable_then_call requires inputs.variableName.")
+                })?;
+            let value = inputs.get("value").cloned().ok_or_else(|| {
+                invalid_argument_result("set_variable_then_call requires inputs.value.")
+            })?;
+            let call_node_type = inputs
+                .get("callNodeType")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({ "id": "ufunction:/Script/Engine.KismetSystemLibrary:PrintString" }));
+            commands.push(serde_json::json!({"kind":"addNode","alias":"setNode","nodeType":{"variableName":variable_name,"mode":"set"}}));
+            commands.push(serde_json::json!({"kind":"setPinDefault","target":{"node":{"alias":"setNode"},"pin":variable_name},"value":value}));
+            commands.push(
+                serde_json::json!({"kind":"addNode","alias":"callNode","nodeType":call_node_type}),
+            );
+            commands.push(serde_json::json!({"kind":"connect","from":{"node":{"alias":"setNode"},"pin":"then"},"to":{"node":{"alias":"callNode"},"pin":"execute"}}));
+            if let Some(from) = attach_from {
+                commands.push(serde_json::json!({"kind":"connect","from":from,"to":{"node":{"alias":"setNode"},"pin":"execute"}}));
+            }
+        }
+        "guard_clause" => {
+            commands.push(serde_json::json!({"kind":"addNode","alias":"guardNode","nodeType":{"kind":"branch"}}));
+            if let Some(condition) = inputs.get("condition") {
+                commands.push(serde_json::json!({"kind":"setPinDefault","target":{"node":{"alias":"guardNode"},"pin":"Condition"},"value":condition}));
+            }
+            if let Some(from) = attach_from {
+                commands.push(serde_json::json!({"kind":"connect","from":from,"to":{"node":{"alias":"guardNode"},"pin":"execute"}}));
+            }
+        }
+        "cast_then_call" => {
+            let target_type = inputs
+                .get("targetType")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| {
+                    invalid_argument_result("cast_then_call requires inputs.targetType.")
+                })?;
+            let call_node_type = inputs
+                .get("callNodeType")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({ "id": "ufunction:/Script/Engine.KismetSystemLibrary:PrintString" }));
+            commands.push(serde_json::json!({"kind":"addNode","alias":"castNode","nodeType":{"kind":"cast","targetClassPath":target_type}}));
+            commands.push(
+                serde_json::json!({"kind":"addNode","alias":"callNode","nodeType":call_node_type}),
+            );
+            commands.push(serde_json::json!({"kind":"connect","from":{"node":{"alias":"castNode"},"pin":"Cast Succeeded"},"to":{"node":{"alias":"callNode"},"pin":"execute"}}));
+            if let Some(from) = attach_from {
+                commands.push(serde_json::json!({"kind":"connect","from":from,"to":{"node":{"alias":"castNode"},"pin":"execute"}}));
+            }
+        }
+        other => {
+            return Err(CallToolResult::structured_error(serde_json::json!({
+                "code":"INVALID_ARGUMENT",
+                "message": format!("Unsupported built-in recipe id: {other}"),
+                "suggestion":"Use blueprint.graph.recipe.list to discover valid built-in recipes.",
+                "retryable": false,
+            })));
+        }
+    }
+    Ok(commands)
+}
+
+fn compile_blueprint_generate_request(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let asset_path = read_required_asset_path(args, "blueprint.graph.generate")?;
+    let graph_name = read_optional_graph_name(args, true, "blueprint.graph.generate")?;
+    let recipe_source = args
+        .get("recipeSource")
+        .and_then(|value| value.as_object())
+        .ok_or_else(|| {
+            invalid_argument_result("blueprint.graph.generate requires recipeSource.")
+        })?;
+    let kind = recipe_source
+        .get("kind")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| invalid_argument_result("recipeSource.kind is required."))?;
+    let inputs = args
+        .get("inputs")
+        .and_then(|value| value.as_object())
+        .cloned()
+        .unwrap_or_default();
+    let attach = args.get("attach").and_then(|value| value.as_object());
+
+    let commands = match kind {
+        "builtIn" => {
+            let recipe_id = recipe_source
+                .get("id")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| {
+                    invalid_argument_result("Built-in recipe generation requires recipeSource.id.")
+                })?;
+            compile_builtin_recipe(recipe_id, &inputs, attach)?
+        }
+        "inline" => {
+            let recipe = recipe_source
+                .get("recipe")
+                .and_then(|value| value.as_object())
+                .ok_or_else(|| {
+                    invalid_argument_result(
+                        "Inline recipe generation requires recipeSource.recipe.",
+                    )
+                })?;
+            recipe
+                .get("commands")
+                .and_then(|value| value.as_array())
+                .cloned()
+                .or_else(|| {
+                    recipe
+                        .get("steps")
+                        .and_then(|value| value.as_array())
+                        .cloned()
+                })
+                .ok_or_else(|| {
+                    invalid_argument_result("Inline recipes must provide commands or steps arrays.")
+                })?
+        }
+        "file" => {
+            let recipe = file_recipe_from_source(recipe_source)?;
+            let recipe_obj = recipe.as_object().ok_or_else(|| {
+                invalid_argument_result("File recipe contents must be an object.")
+            })?;
+            recipe_obj
+                .get("commands")
+                .and_then(|value| value.as_array())
+                .cloned()
+                .or_else(|| {
+                    recipe_obj
+                        .get("steps")
+                        .and_then(|value| value.as_array())
+                        .cloned()
+                })
+                .ok_or_else(|| {
+                    invalid_argument_result("File recipes must provide commands or steps arrays.")
+                })?
+        }
+        other => {
+            return Err(invalid_argument_result(format!(
+                "Unsupported recipeSource.kind: {other}"
+            )));
+        }
+    };
+
+    let mut edit_args = rmcp::model::JsonObject::new();
+    edit_args.insert("assetPath".into(), serde_json::json!(asset_path));
+    if let Some(graph_name) = graph_name {
+        edit_args.insert("graph".into(), serde_json::json!({ "name": graph_name }));
+    }
+    edit_args.insert("commands".into(), serde_json::Value::Array(commands));
+    for field in [
+        "dryRun",
+        "returnDiff",
+        "returnDiagnostics",
+        "expectedRevision",
+    ] {
+        copy_if_present(args, &mut edit_args, field);
+    }
+    Ok(edit_args)
 }
 
 fn pre_attach_tools() -> Vec<Tool> {
@@ -605,11 +2001,20 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("editor.open", "Open or focus the editor for a specific Unreal asset path.", Arc::new(editor_open_schema())),
         Tool::new("editor.focus", "Focus a semantic panel inside an asset editor, such as graph, viewport, details, palette, or find.", Arc::new(editor_focus_schema())),
         Tool::new("editor.screenshot", "Capture a PNG of the active editor window and return the written file path.", Arc::new(editor_screenshot_schema())),
-        Tool::new("blueprint.list", "List Blueprint graphs in an asset.", Arc::new(blueprint_list_schema())),
-        Tool::new("blueprint.query", "Read node and pin data from a Blueprint graph.", Arc::new(blueprint_query_schema())),
-        Tool::new("blueprint.mutate", "Apply a batch of write operations to a Blueprint graph.", Arc::new(blueprint_mutate_schema())),
-        Tool::new("blueprint.verify", "Run read-only structural validation for a Blueprint graph.", Arc::new(blueprint_verify_schema())),
-        Tool::new("blueprint.describe", "Describe a Blueprint class or a specific Blueprint graph node.", Arc::new(blueprint_describe_schema())),
+        Tool::new("blueprint.asset.inspect", "Inspect a Blueprint asset and its asset-level contract.", Arc::new(blueprint_asset_inspect_schema())),
+        Tool::new("blueprint.asset.edit", "Edit Blueprint asset-level properties and relationships.", Arc::new(blueprint_asset_edit_schema())),
+        Tool::new("blueprint.member.inspect", "Inspect Blueprint members such as variables, functions, macros, dispatchers, and components.", Arc::new(blueprint_member_inspect_schema())),
+        Tool::new("blueprint.member.edit", "Edit Blueprint members such as variables, functions, macros, dispatchers, and components.", Arc::new(blueprint_member_edit_schema())),
+        Tool::new("blueprint.graph.list", "List Blueprint graphs in an asset.", Arc::new(blueprint_graph_list_schema())),
+        Tool::new("blueprint.graph.inspect", "Read graph, node, pin, and link data from a Blueprint graph.", Arc::new(blueprint_graph_inspect_schema())),
+        Tool::new("blueprint.graph.edit", "Apply explicit local graph edit commands to a Blueprint graph.", Arc::new(blueprint_graph_edit_schema())),
+        Tool::new("blueprint.graph.refactor", "Apply structural graph refactors to a Blueprint graph.", Arc::new(blueprint_graph_refactor_schema())),
+        Tool::new("blueprint.graph.generate", "Generate a Blueprint graph snippet from a recipe source.", Arc::new(blueprint_graph_generate_schema())),
+        Tool::new("blueprint.graph.recipe.list", "List discoverable Blueprint graph recipes.", Arc::new(blueprint_graph_recipe_list_schema())),
+        Tool::new("blueprint.graph.recipe.inspect", "Inspect the contract of a Blueprint graph recipe.", Arc::new(blueprint_graph_recipe_inspect_schema())),
+        Tool::new("blueprint.graph.recipe.validate", "Validate a Blueprint graph recipe definition.", Arc::new(blueprint_graph_recipe_validate_schema())),
+        Tool::new("blueprint.compile", "Compile a Blueprint asset.", Arc::new(blueprint_compile_schema())),
+        Tool::new("blueprint.validate", "Run read-only structural validation for a Blueprint graph or asset.", Arc::new(blueprint_validate_schema())),
         Tool::new("material.list", "List material expressions in a material asset.", Arc::new(asset_path_only_schema("Material asset path."))),
         Tool::new("material.query", "Read expression nodes and pin data from a material.", Arc::new(material_query_schema())),
         Tool::new("material.mutate", "Apply a batch of write operations to a material asset.", Arc::new(material_mutate_schema())),
@@ -651,6 +2056,534 @@ fn runtime_invoke_failure_result(error: loomle::RpcInvokeFailure) -> CallToolRes
             "retryable": error.retryable,
             "detail": error.detail,
         }))
+    }
+}
+
+fn not_implemented_result(tool_name: &str, detail: &str) -> CallToolResult {
+    CallToolResult::structured_error(serde_json::json!({
+        "isError": true,
+        "code": "NOT_IMPLEMENTED",
+        "message": format!("{tool_name} is not implemented yet."),
+        "detail": detail,
+        "retryable": false,
+    }))
+}
+
+fn builtin_blueprint_recipe_ids() -> &'static [&'static str] {
+    &[
+        "branch_then_call",
+        "delay_then_call",
+        "sequence_fanout",
+        "set_variable_then_call",
+        "guard_clause",
+        "cast_then_call",
+    ]
+}
+
+fn builtin_blueprint_recipe(id: &str) -> Option<serde_json::Value> {
+    let recipe = match id {
+        "branch_then_call" => serde_json::json!({
+            "kind": "builtIn",
+            "id": "branch_then_call",
+            "title": "Branch Then Call",
+            "summary": "Create a Branch and route the true path into a call node.",
+            "description": "Builds a control-flow snippet that evaluates a boolean condition and routes the true branch into a single call node.",
+            "version": "1",
+            "inputs": [
+                {"name":"condition","type":"bool","required":false,"default":null,"description":"Optional bool source for Branch.Condition."},
+                {"name":"callNodeType","type":"nodeType","required":true,"default":null,"description":"The call node type placed on the true branch."}
+            ],
+            "attach": {
+                "modes": ["append_exec", "insert_between_exec"],
+                "entryPoints": ["exec_in"],
+                "exitPoints": ["then_true", "then_false"],
+                "constraints": []
+            },
+            "outputs": [
+                {"name":"branchNode","kind":"node","description":"Created Branch node."},
+                {"name":"callNode","kind":"node","description":"Created call node on the true branch."}
+            ],
+            "structureSummary": {
+                "nodeCount": 2,
+                "linkCount": 2,
+                "containsExecFlow": true,
+                "containsLatentFlow": false,
+                "primaryNodeKinds": ["branch", "call"]
+            },
+            "steps": [
+                "Create a Branch node.",
+                "Create the requested call node.",
+                "Connect Branch.True to the call execute pin."
+            ],
+            "constraints": [],
+            "example": {
+                "inputs": {"callNodeType":"ufunction:/Script/Engine.KismetSystemLibrary:PrintString"},
+                "attach": {"mode":"append_exec"},
+                "expectedOutputs": ["branchNode", "callNode"]
+            },
+            "tags": ["flow", "branch", "call"],
+            "mutable": false
+        }),
+        "delay_then_call" => serde_json::json!({
+            "kind": "builtIn",
+            "id": "delay_then_call",
+            "title": "Delay Then Call",
+            "summary": "Create a Delay node followed by a call node.",
+            "description": "Builds a latent execution snippet that waits for a duration and then executes a call node.",
+            "version": "1",
+            "inputs": [
+                {"name":"duration","type":"float","required":false,"default":0.2,"description":"Delay duration in seconds."},
+                {"name":"callNodeType","type":"nodeType","required":true,"default":null,"description":"The call node type placed after the delay."}
+            ],
+            "attach": {
+                "modes": ["append_exec", "insert_between_exec"],
+                "entryPoints": ["exec_in"],
+                "exitPoints": ["then"],
+                "constraints": []
+            },
+            "outputs": [
+                {"name":"delayNode","kind":"node","description":"Created Delay node."},
+                {"name":"callNode","kind":"node","description":"Created call node after the delay."}
+            ],
+            "structureSummary": {
+                "nodeCount": 2,
+                "linkCount": 2,
+                "containsExecFlow": true,
+                "containsLatentFlow": true,
+                "primaryNodeKinds": ["call"]
+            },
+            "steps": [
+                "Create a Delay node.",
+                "Create the requested call node.",
+                "Connect Delay.Completed to the call execute pin."
+            ],
+            "constraints": [],
+            "example": {
+                "inputs": {"duration":0.2,"callNodeType":"ufunction:/Script/Engine.KismetSystemLibrary:PrintString"},
+                "attach": {"mode":"append_exec"},
+                "expectedOutputs": ["delayNode", "callNode"]
+            },
+            "tags": ["flow", "latent", "call"],
+            "mutable": false
+        }),
+        "sequence_fanout" => serde_json::json!({
+            "kind": "builtIn",
+            "id": "sequence_fanout",
+            "title": "Sequence Fanout",
+            "summary": "Create a Sequence node with configurable execution branches.",
+            "description": "Builds a Sequence node that fans one execution input into multiple deterministic branches.",
+            "version": "1",
+            "inputs": [
+                {"name":"branches","type":"int","required":false,"default":2,"description":"Number of sequence outputs to create."}
+            ],
+            "attach": {
+                "modes": ["append_exec", "insert_between_exec"],
+                "entryPoints": ["exec_in"],
+                "exitPoints": ["then"],
+                "constraints": []
+            },
+            "outputs": [
+                {"name":"sequenceNode","kind":"node","description":"Created Sequence node."}
+            ],
+            "structureSummary": {
+                "nodeCount": 1,
+                "linkCount": 0,
+                "containsExecFlow": true,
+                "containsLatentFlow": false,
+                "primaryNodeKinds": ["sequence"]
+            },
+            "steps": [
+                "Create a Sequence node.",
+                "Resize execution outputs to the requested branch count."
+            ],
+            "constraints": [],
+            "example": {
+                "inputs": {"branches":3},
+                "attach": {"mode":"append_exec"},
+                "expectedOutputs": ["sequenceNode"]
+            },
+            "tags": ["flow", "sequence", "fanout"],
+            "mutable": false
+        }),
+        "set_variable_then_call" => serde_json::json!({
+            "kind": "builtIn",
+            "id": "set_variable_then_call",
+            "title": "Set Variable Then Call",
+            "summary": "Set a variable and then invoke a call node.",
+            "description": "Builds a small execution snippet that writes one Blueprint variable and then executes a call node.",
+            "version": "1",
+            "inputs": [
+                {"name":"variableName","type":"string","required":true,"default":null,"description":"Blueprint variable to set."},
+                {"name":"value","type":"wildcard","required":true,"default":null,"description":"Value assigned to the variable set pin."},
+                {"name":"callNodeType","type":"nodeType","required":true,"default":null,"description":"The call node type executed after the variable set."}
+            ],
+            "attach": {
+                "modes": ["append_exec", "insert_between_exec"],
+                "entryPoints": ["exec_in"],
+                "exitPoints": ["then"],
+                "constraints": []
+            },
+            "outputs": [
+                {"name":"setNode","kind":"node","description":"Created variable set node."},
+                {"name":"callNode","kind":"node","description":"Created call node."}
+            ],
+            "structureSummary": {
+                "nodeCount": 2,
+                "linkCount": 2,
+                "containsExecFlow": true,
+                "containsLatentFlow": false,
+                "primaryNodeKinds": ["variable_set", "call"]
+            },
+            "steps": [
+                "Create a variable set node.",
+                "Bind the requested value to the variable input.",
+                "Create the requested call node and connect execution."
+            ],
+            "constraints": [],
+            "example": {
+                "inputs": {"variableName":"bIsReady","value":true,"callNodeType":"ufunction:/Script/Engine.KismetSystemLibrary:PrintString"},
+                "attach": {"mode":"append_exec"},
+                "expectedOutputs": ["setNode", "callNode"]
+            },
+            "tags": ["variable", "call", "flow"],
+            "mutable": false
+        }),
+        "guard_clause" => serde_json::json!({
+            "kind": "builtIn",
+            "id": "guard_clause",
+            "title": "Guard Clause",
+            "summary": "Wrap execution with a boolean guard.",
+            "description": "Builds a Branch-based guard clause that only allows downstream execution when the provided condition is true.",
+            "version": "1",
+            "inputs": [
+                {"name":"condition","type":"bool","required":true,"default":null,"description":"Condition evaluated by the guard."}
+            ],
+            "attach": {
+                "modes": ["append_exec", "insert_between_exec"],
+                "entryPoints": ["exec_in"],
+                "exitPoints": ["then_true"],
+                "constraints": []
+            },
+            "outputs": [
+                {"name":"guardNode","kind":"node","description":"Created Branch node implementing the guard."}
+            ],
+            "structureSummary": {
+                "nodeCount": 1,
+                "linkCount": 0,
+                "containsExecFlow": true,
+                "containsLatentFlow": false,
+                "primaryNodeKinds": ["branch"]
+            },
+            "steps": [
+                "Create a Branch node.",
+                "Bind the requested condition to Branch.Condition."
+            ],
+            "constraints": [],
+            "example": {
+                "inputs": {"condition":true},
+                "attach": {"mode":"insert_between_exec"},
+                "expectedOutputs": ["guardNode"]
+            },
+            "tags": ["flow", "branch", "guard"],
+            "mutable": false
+        }),
+        "cast_then_call" => serde_json::json!({
+            "kind": "builtIn",
+            "id": "cast_then_call",
+            "title": "Cast Then Call",
+            "summary": "Cast an object to a target type and then invoke a call node.",
+            "description": "Builds a cast node followed by a call node on the success path.",
+            "version": "1",
+            "inputs": [
+                {"name":"targetType","type":"class","required":true,"default":null,"description":"Target class for the cast."},
+                {"name":"callNodeType","type":"nodeType","required":true,"default":null,"description":"The call node type placed after a successful cast."}
+            ],
+            "attach": {
+                "modes": ["append_exec", "insert_between_exec", "attach_data_input"],
+                "entryPoints": ["exec_in", "object_in"],
+                "exitPoints": ["then_true", "cast_result"],
+                "constraints": []
+            },
+            "outputs": [
+                {"name":"castNode","kind":"node","description":"Created cast node."},
+                {"name":"callNode","kind":"node","description":"Created call node on cast success."}
+            ],
+            "structureSummary": {
+                "nodeCount": 2,
+                "linkCount": 2,
+                "containsExecFlow": true,
+                "containsLatentFlow": false,
+                "primaryNodeKinds": ["cast", "call"]
+            },
+            "steps": [
+                "Create a cast node for the requested target class.",
+                "Create the requested call node.",
+                "Connect cast success to the call execute pin."
+            ],
+            "constraints": [],
+            "example": {
+                "inputs": {"targetType":"/Script/Engine.Actor","callNodeType":"ufunction:/Script/Engine.KismetSystemLibrary:PrintString"},
+                "attach": {"mode":"append_exec"},
+                "expectedOutputs": ["castNode", "callNode"]
+            },
+            "tags": ["cast", "call", "flow"],
+            "mutable": false
+        }),
+        _ => return None,
+    };
+    Some(recipe)
+}
+
+fn builtin_blueprint_recipe_summaries() -> Vec<serde_json::Value> {
+    builtin_blueprint_recipe_ids()
+        .iter()
+        .filter_map(|id| builtin_blueprint_recipe(id))
+        .map(|recipe| {
+            serde_json::json!({
+                "kind": recipe.get("kind").cloned().unwrap_or(serde_json::Value::Null),
+                "id": recipe.get("id").cloned().unwrap_or(serde_json::Value::Null),
+                "title": recipe.get("title").cloned().unwrap_or(serde_json::Value::Null),
+                "summary": recipe.get("summary").cloned().unwrap_or(serde_json::Value::Null),
+                "inputs": recipe.get("inputs").cloned().unwrap_or(serde_json::json!([])),
+                "attachModes": recipe
+                    .get("attach")
+                    .and_then(|attach| attach.get("modes"))
+                    .cloned()
+                    .unwrap_or(serde_json::json!([])),
+                "outputs": recipe.get("outputs").cloned().unwrap_or(serde_json::json!([])),
+                "tags": recipe.get("tags").cloned().unwrap_or(serde_json::json!([])),
+                "mutable": recipe.get("mutable").cloned().unwrap_or(serde_json::json!(false))
+            })
+        })
+        .collect()
+}
+
+fn call_blueprint_graph_recipe_list(args: &rmcp::model::JsonObject) -> CallToolResult {
+    let kind = args.get("kind").and_then(|value| value.as_str());
+    let tag = args.get("tag").and_then(|value| value.as_str());
+    let recipes = if matches!(kind, Some("file")) {
+        Vec::new()
+    } else {
+        builtin_blueprint_recipe_summaries()
+            .into_iter()
+            .filter(|recipe| {
+                tag.is_none_or(|needle| {
+                    recipe
+                        .get("tags")
+                        .and_then(|value| value.as_array())
+                        .is_some_and(|tags| tags.iter().any(|tag| tag.as_str() == Some(needle)))
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+    structured_result(serde_json::json!({
+        "recipes": recipes
+    }))
+}
+
+fn call_blueprint_graph_recipe_inspect(args: &rmcp::model::JsonObject) -> CallToolResult {
+    let Some(kind) = args.get("kind").and_then(|value| value.as_str()) else {
+        return CallToolResult::structured_error(serde_json::json!({
+            "code": "INVALID_ARGUMENT",
+            "message": "blueprint.graph.recipe.inspect requires kind.",
+            "retryable": false
+        }));
+    };
+    let Some(id) = args.get("id").and_then(|value| value.as_str()) else {
+        return CallToolResult::structured_error(serde_json::json!({
+            "code": "INVALID_ARGUMENT",
+            "message": "blueprint.graph.recipe.inspect requires id.",
+            "retryable": false
+        }));
+    };
+    match kind {
+        "builtIn" => match builtin_blueprint_recipe(id) {
+            Some(recipe) => structured_result(recipe),
+            None => CallToolResult::structured_error(serde_json::json!({
+                "code": "RECIPE_NOT_FOUND",
+                "message": format!("Built-in Blueprint recipe not found: {id}"),
+                "suggestion": "Use blueprint.graph.recipe.list to discover valid built-in recipe ids.",
+                "retryable": false
+            })),
+        },
+        "file" => {
+            let recipe = match file_recipe_from_source(&serde_json::Map::from_iter([
+                ("kind".into(), serde_json::json!("file")),
+                ("id".into(), serde_json::json!(id)),
+            ])) {
+                Ok(value) => value,
+                Err(error) => return error,
+            };
+            structured_result(recipe)
+        }
+        other => CallToolResult::structured_error(serde_json::json!({
+            "code": "INVALID_ARGUMENT",
+            "message": format!("Unsupported recipe kind: {other}"),
+            "retryable": false
+        })),
+    }
+}
+
+fn validate_recipe_shape(
+    recipe: &serde_json::Value,
+    kind: &str,
+    source: serde_json::Value,
+) -> CallToolResult {
+    let mut diagnostics = Vec::new();
+
+    let title_ok = recipe
+        .get("title")
+        .and_then(|value| value.as_str())
+        .is_some_and(|value| !value.trim().is_empty());
+    if !title_ok {
+        diagnostics.push(serde_json::json!({
+            "level": "error",
+            "code": "RECIPE_TITLE_REQUIRED",
+            "message": "Recipe title is required.",
+            "reason": "The recipe object must contain a non-empty title string.",
+            "suggestion": "Add a non-empty title field to the recipe definition."
+        }));
+    }
+
+    if let Some(inputs) = recipe.get("inputs") {
+        if !inputs.is_array() {
+            diagnostics.push(serde_json::json!({
+                "level": "error",
+                "code": "RECIPE_INPUTS_MUST_BE_ARRAY",
+                "message": "Recipe inputs must be an array.",
+                "reason": "The recipe input contract is defined as an array of input definitions.",
+                "suggestion": "Replace the inputs field with an array of input definition objects."
+            }));
+        }
+    }
+
+    if let Some(attach) = recipe.get("attach") {
+        if !attach.is_object() {
+            diagnostics.push(serde_json::json!({
+                "level": "error",
+                "code": "RECIPE_ATTACH_MUST_BE_OBJECT",
+                "message": "Recipe attach contract must be an object.",
+                "reason": "Attach metadata is expected to be a structured object.",
+                "suggestion": "Replace the attach field with an object describing modes, entry points, and constraints."
+            }));
+        }
+    }
+
+    if let Some(outputs) = recipe.get("outputs") {
+        if !outputs.is_array() {
+            diagnostics.push(serde_json::json!({
+                "level": "error",
+                "code": "RECIPE_OUTPUTS_MUST_BE_ARRAY",
+                "message": "Recipe outputs must be an array.",
+                "reason": "Recipe outputs are declared as an array of named output definitions.",
+                "suggestion": "Replace the outputs field with an array of output definition objects."
+            }));
+        }
+    }
+
+    if let Some(steps) = recipe.get("steps") {
+        if !steps.is_array() {
+            diagnostics.push(serde_json::json!({
+                "level": "error",
+                "code": "RECIPE_STEPS_MUST_BE_ARRAY",
+                "message": "Recipe steps must be an array.",
+                "reason": "Recipe steps are represented as an ordered list of semantic steps.",
+                "suggestion": "Replace the steps field with an array of strings or structured step objects."
+            }));
+        }
+    }
+
+    structured_result(serde_json::json!({
+        "kind": kind,
+        "source": source,
+        "valid": diagnostics.iter().all(|diagnostic| diagnostic.get("level").and_then(|v| v.as_str()) != Some("error")),
+        "diagnostics": diagnostics
+    }))
+}
+
+fn call_blueprint_graph_recipe_validate(args: &rmcp::model::JsonObject) -> CallToolResult {
+    let Some(recipe_source) = args.get("recipeSource").and_then(|value| value.as_object()) else {
+        return CallToolResult::structured_error(serde_json::json!({
+            "code": "INVALID_ARGUMENT",
+            "message": "blueprint.graph.recipe.validate requires recipeSource.",
+            "retryable": false
+        }));
+    };
+    let Some(kind) = recipe_source.get("kind").and_then(|value| value.as_str()) else {
+        return CallToolResult::structured_error(serde_json::json!({
+            "code": "INVALID_ARGUMENT",
+            "message": "recipeSource.kind is required.",
+            "retryable": false
+        }));
+    };
+    match kind {
+        "inline" => {
+            let Some(recipe) = recipe_source.get("recipe") else {
+                return CallToolResult::structured_error(serde_json::json!({
+                    "code": "INVALID_ARGUMENT",
+                    "message": "Inline recipe validation requires recipeSource.recipe.",
+                    "retryable": false
+                }));
+            };
+            validate_recipe_shape(recipe, "inline", serde_json::json!({"kind":"inline"}))
+        }
+        "file" => {
+            if let Some(path) = recipe_source.get("path").and_then(|value| value.as_str()) {
+                match fs::read_to_string(path) {
+                    Ok(raw) => match serde_json::from_str::<serde_json::Value>(&raw) {
+                        Ok(recipe) => validate_recipe_shape(
+                            &recipe,
+                            "file",
+                            serde_json::json!({"kind":"file","path":path}),
+                        ),
+                        Err(error) => CallToolResult::structured_error(serde_json::json!({
+                            "code": "RECIPE_PARSE_FAILED",
+                            "message": format!("Failed to parse recipe JSON: {error}"),
+                            "suggestion": "Ensure the file contains valid JSON.",
+                            "retryable": false
+                        })),
+                    },
+                    Err(error) => CallToolResult::structured_error(serde_json::json!({
+                        "code": "RECIPE_READ_FAILED",
+                        "message": format!("Failed to read recipe file: {error}"),
+                        "suggestion": "Verify that the recipe file exists and is readable.",
+                        "retryable": false
+                    })),
+                }
+            } else {
+                not_implemented_result(
+                    "blueprint.graph.recipe.validate",
+                    "File recipe validation currently requires recipeSource.path.",
+                )
+            }
+        }
+        "builtIn" => {
+            let Some(id) = recipe_source.get("id").and_then(|value| value.as_str()) else {
+                return CallToolResult::structured_error(serde_json::json!({
+                    "code": "INVALID_ARGUMENT",
+                    "message": "Built-in recipe validation requires recipeSource.id.",
+                    "retryable": false
+                }));
+            };
+            match builtin_blueprint_recipe(id) {
+                Some(recipe) => validate_recipe_shape(
+                    &recipe,
+                    "builtIn",
+                    serde_json::json!({"kind":"builtIn","id":id}),
+                ),
+                None => CallToolResult::structured_error(serde_json::json!({
+                    "code": "RECIPE_NOT_FOUND",
+                    "message": format!("Built-in Blueprint recipe not found: {id}"),
+                    "suggestion": "Use blueprint.graph.recipe.list to discover valid built-in recipe ids.",
+                    "retryable": false
+                })),
+            }
+        }
+        other => CallToolResult::structured_error(serde_json::json!({
+            "code": "INVALID_ARGUMENT",
+            "message": format!("Unsupported recipeSource.kind: {other}"),
+            "retryable": false
+        })),
     }
 }
 
@@ -936,77 +2869,329 @@ fn blueprint_list_schema() -> rmcp::model::JsonObject {
     }))
 }
 
-fn blueprint_query_schema() -> rmcp::model::JsonObject {
+fn graph_ref_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type":"object",
+        "properties":{
+            "id":{"type":"string","minLength":1},
+            "name":{"type":"string","minLength":1}
+        },
+        "additionalProperties": false,
+        "anyOf":[
+            {"required":["id"]},
+            {"required":["name"]}
+        ]
+    })
+}
+
+fn mutation_control_fields(properties: &mut serde_json::Map<String, serde_json::Value>) {
+    properties.insert(
+        "dryRun".into(),
+        serde_json::json!({"type":"boolean","default":false}),
+    );
+    properties.insert(
+        "returnDiff".into(),
+        serde_json::json!({"type":"boolean","default":false}),
+    );
+    properties.insert(
+        "returnDiagnostics".into(),
+        serde_json::json!({"type":"boolean","default":true}),
+    );
+    properties.insert(
+        "expectedRevision".into(),
+        serde_json::json!({"type":"string"}),
+    );
+}
+
+fn blueprint_asset_inspect_schema() -> rmcp::model::JsonObject {
+    asset_path_only_schema("Blueprint asset path.")
+}
+
+fn blueprint_asset_edit_schema() -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert(
+        "operation".into(),
+        serde_json::json!({"type":"string","enum":["create","duplicate","rename","delete","reparent","setMetadata","getDefaults","setDefaults","setParent","listInterfaces","addInterface","removeInterface"]}),
+    );
+    properties.insert("args".into(), serde_json::json!({"type":"object"}));
+    mutation_control_fields(&mut properties);
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":["assetPath","operation"],
+        "additionalProperties": false
+    }))
+}
+
+fn blueprint_member_inspect_schema() -> rmcp::model::JsonObject {
     schema_from_value(serde_json::json!({
         "type":"object",
         "properties":{
             "assetPath":{"type":"string","minLength":1},
-            "graphName":{"type":"string","minLength":1,"default":"EventGraph"},
+            "memberKind":{"type":"string","enum":["variable","function","macro","dispatcher","component"]},
+            "name":{"type":"string","minLength":1}
+        },
+        "required":["assetPath","memberKind"],
+        "additionalProperties": false
+    }))
+}
+
+fn blueprint_member_edit_schema() -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert(
+        "memberKind".into(),
+        serde_json::json!({"type":"string","enum":["variable","function","macro","dispatcher","component"]}),
+    );
+    properties.insert(
+        "operation".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert("args".into(), serde_json::json!({"type":"object"}));
+    mutation_control_fields(&mut properties);
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":["assetPath","memberKind","operation"],
+        "additionalProperties": false
+    }))
+}
+
+fn blueprint_graph_list_schema() -> rmcp::model::JsonObject {
+    blueprint_list_schema()
+}
+
+fn blueprint_graph_inspect_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "assetPath":{"type":"string","minLength":1},
+            "graph": graph_ref_schema(),
+            "graphName":{"type":"string","minLength":1},
             "nodeIds":{"type":"array","items":{"type":"string"}},
             "nodeClasses":{"type":"array","items":{"type":"string"}},
             "includeComments":{"type":"boolean","default":false},
             "includePinDefaults":{"type":"boolean","default":false},
-            "includeConnections":{"type":"boolean","default":false}
+            "includeConnections":{"type":"boolean","default":false},
+            "limit":{"type":"integer"},
+            "cursor":{"type":"string"},
+            "layoutDetail":{"type":"string","enum":["basic","measured"]}
         },
         "required":["assetPath"],
         "additionalProperties": false
     }))
 }
 
-fn blueprint_mutate_schema() -> rmcp::model::JsonObject {
-    graph_mutate_schema(
-        &[
-            "addNode.byClass",
-            "addNode.byFunction",
-            "addNode.byEvent",
-            "addNode.byVariable",
-            "addNode.byMacro",
-            "addNode.branch",
-            "addNode.sequence",
-            "addNode.cast",
-            "addNode.comment",
-            "addNode.knot",
-            "duplicateNode",
-            "removeNode",
-            "moveNode",
-            "moveNodeBy",
-            "moveNodes",
-            "connectPins",
-            "disconnectPins",
-            "breakPinLinks",
-            "setPinDefault",
-            "setNodeComment",
-            "setNodeEnabled",
-            "addGraph",
-            "renameGraph",
-            "deleteGraph",
-            "layoutGraph",
-            "compile",
-        ],
-        true,
-    )
-}
-
-fn blueprint_verify_schema() -> rmcp::model::JsonObject {
+fn blueprint_graph_edit_schema() -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert("graph".into(), graph_ref_schema());
+    properties.insert(
+        "graphName".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert(
+        "commands".into(),
+        serde_json::json!({
+            "type":"array",
+            "items":{
+                "type":"object",
+                "properties":{"kind":{"type":"string","minLength":1}},
+                "required":["kind"],
+                "additionalProperties": true
+            }
+        }),
+    );
+    properties.insert(
+        "ops".into(),
+        serde_json::json!({
+            "type":"array",
+            "items":{
+                "type":"object",
+                "properties":{"op":{"type":"string","minLength":1}},
+                "required":["op"],
+                "additionalProperties": true
+            }
+        }),
+    );
+    mutation_control_fields(&mut properties);
     schema_from_value(serde_json::json!({
         "type":"object",
-        "properties":{
-            "assetPath":{"type":"string","minLength":1},
-            "graphName":{"type":"string","minLength":1}
-        },
+        "properties": properties,
         "required":["assetPath"],
         "additionalProperties": false
     }))
 }
 
-fn blueprint_describe_schema() -> rmcp::model::JsonObject {
+fn blueprint_graph_refactor_schema() -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert("graph".into(), graph_ref_schema());
+    properties.insert(
+        "graphName".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert(
+        "transforms".into(),
+        serde_json::json!({
+            "type":"array",
+            "items":{
+                "type":"object",
+                "properties":{"kind":{"type":"string","minLength":1}},
+                "required":["kind"],
+                "additionalProperties": true
+            }
+        }),
+    );
+    mutation_control_fields(&mut properties);
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":["assetPath","transforms"],
+        "additionalProperties": false
+    }))
+}
+
+fn blueprint_graph_generate_schema() -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert("graph".into(), graph_ref_schema());
+    properties.insert(
+        "graphName".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert(
+        "recipeSource".into(),
+        serde_json::json!({
+            "type":"object",
+            "properties":{
+                "kind":{"type":"string","enum":["builtIn","file","inline"]},
+                "id":{"type":"string","minLength":1},
+                "path":{"type":"string","minLength":1},
+                "recipe":{"type":"object"}
+            },
+            "required":["kind"],
+            "additionalProperties": false
+        }),
+    );
+    properties.insert("inputs".into(), serde_json::json!({"type":"object"}));
+    properties.insert("attach".into(), serde_json::json!({"type":"object"}));
+    properties.insert(
+        "outputBindings".into(),
+        serde_json::json!({"type":"object"}),
+    );
+    mutation_control_fields(&mut properties);
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":["assetPath","recipeSource"],
+        "additionalProperties": false
+    }))
+}
+
+fn blueprint_graph_recipe_list_schema() -> rmcp::model::JsonObject {
     schema_from_value(serde_json::json!({
         "type":"object",
         "properties":{
-            "assetPath":{"type":"string","minLength":1},
-            "graphName":{"type":"string","minLength":1},
-            "nodeId":{"type":"string","minLength":1}
+            "kind":{"type":"string","enum":["builtIn","file"]},
+            "tag":{"type":"string","minLength":1}
         },
+        "additionalProperties": false
+    }))
+}
+
+fn blueprint_graph_recipe_inspect_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "kind":{"type":"string","enum":["builtIn","file"]},
+            "id":{"type":"string","minLength":1},
+            "path":{"type":"string","minLength":1}
+        },
+        "required":["kind"],
+        "additionalProperties": false
+    }))
+}
+
+fn blueprint_graph_recipe_validate_schema() -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "recipeSource".into(),
+        serde_json::json!({
+            "type":"object",
+            "properties":{
+                "kind":{"type":"string","enum":["builtIn","file","inline"]},
+                "id":{"type":"string","minLength":1},
+                "path":{"type":"string","minLength":1},
+                "recipe":{"type":"object"}
+            },
+            "required":["kind"],
+            "additionalProperties": false
+        }),
+    );
+    mutation_control_fields(&mut properties);
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":["recipeSource"],
+        "additionalProperties": false
+    }))
+}
+
+fn blueprint_compile_schema() -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert("graph".into(), graph_ref_schema());
+    properties.insert(
+        "graphName".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    mutation_control_fields(&mut properties);
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":["assetPath"],
+        "additionalProperties": false
+    }))
+}
+
+fn blueprint_validate_schema() -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert("graph".into(), graph_ref_schema());
+    properties.insert(
+        "graphName".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert(
+        "returnDiagnostics".into(),
+        serde_json::json!({"type":"boolean","default":true}),
+    );
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties": properties,
         "required":["assetPath"],
         "additionalProperties": false
     }))

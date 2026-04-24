@@ -17,11 +17,20 @@ TEST_TOOLS_DIR = REPO_ROOT / "tests" / "tools"
 
 REQUIRED_TOOLS = {
     "loomle",
-    "blueprint.list",
-    "blueprint.query",
-    "blueprint.mutate",
-    "blueprint.verify",
-    "blueprint.describe",
+    "blueprint.asset.inspect",
+    "blueprint.asset.edit",
+    "blueprint.member.inspect",
+    "blueprint.member.edit",
+    "blueprint.graph.list",
+    "blueprint.graph.inspect",
+    "blueprint.graph.edit",
+    "blueprint.graph.refactor",
+    "blueprint.graph.generate",
+    "blueprint.graph.recipe.list",
+    "blueprint.graph.recipe.inspect",
+    "blueprint.graph.recipe.validate",
+    "blueprint.compile",
+    "blueprint.validate",
     "material.list",
     "material.query",
     "material.mutate",
@@ -2856,7 +2865,10 @@ def parse_tool_payload(response: dict[str, Any], method: str) -> dict[str, Any]:
 
     structured = result.get("structuredContent")
     if isinstance(structured, dict):
-        return structured
+        payload = dict(structured)
+        if "isError" not in payload and isinstance(result.get("isError"), bool):
+            payload["isError"] = result["isError"]
+        return payload
 
     content = result.get("content")
     if not isinstance(content, list) or not content:
@@ -3192,15 +3204,15 @@ def main() -> int:
         )
         print(f"[PASS] temporary blueprint created: {temp_asset}")
 
-        blueprint_describe = call_tool(client, 6, "blueprint.describe", {"assetPath": temp_asset})
-        if blueprint_describe.get("mode") != "class":
-            fail(f"blueprint.describe class mode mismatch: {blueprint_describe}")
+        blueprint_describe = call_tool(client, 6, "blueprint.asset.inspect", {"assetPath": temp_asset})
+        if blueprint_describe.get("assetPath") != temp_asset:
+            fail(f"blueprint.asset.inspect assetPath mismatch: {blueprint_describe}")
         if not isinstance(blueprint_describe.get("variables"), list):
-            fail(f"blueprint.describe missing variables[]: {blueprint_describe}")
+            fail(f"blueprint.asset.inspect missing variables[]: {blueprint_describe}")
         if not isinstance(blueprint_describe.get("functions"), list):
-            fail(f"blueprint.describe missing functions[]: {blueprint_describe}")
+            fail(f"blueprint.asset.inspect missing functions[]: {blueprint_describe}")
         if not isinstance(blueprint_describe.get("components"), list):
-            fail(f"blueprint.describe missing components[]: {blueprint_describe}")
+            fail(f"blueprint.asset.inspect missing components[]: {blueprint_describe}")
 
         material_describe = call_tool(
             client,
