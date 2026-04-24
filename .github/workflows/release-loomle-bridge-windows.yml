@@ -173,8 +173,13 @@ jobs:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -command ". '{0}'"
         run: |
           $tag = "${{ github.ref_name }}"
+          $oldErrorActionPreference = $ErrorActionPreference
+          $ErrorActionPreference = "Continue"
           gh release view $tag --repo "${{ github.repository }}" *> $null
-          if ($LASTEXITCODE -ne 0) {
+          $releaseViewExitCode = $LASTEXITCODE
+          $ErrorActionPreference = $oldErrorActionPreference
+
+          if ($releaseViewExitCode -ne 0) {
             gh release create $tag `
               --repo "${{ github.repository }}" `
               --title $tag `

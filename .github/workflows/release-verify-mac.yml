@@ -105,7 +105,7 @@ jobs:
           sleep 2
 
       - name: Build Plugin From Current Commit And Sync To Test Project
-        timeout-minutes: 15
+        timeout-minutes: 30
         shell: bash
         run: |
           set -euo pipefail
