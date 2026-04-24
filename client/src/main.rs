@@ -1,6 +1,9 @@
+#![recursion_limit = "512"]
+
 use loomle::{
-    connect_client, resolve_project_root, should_handoff_to_active_client, validate_project_root,
-    Environment, LoomleClient, StartupAction, StartupError, StartupErrorKind,
+    resolve_project_root, rpc_capabilities, rpc_health, rpc_invoke,
+    should_handoff_to_active_client, validate_project_root, Environment, RpcClientError,
+    StartupAction, StartupError, StartupErrorKind,
 };
 use rmcp::{
     model::{
@@ -9,7 +12,7 @@ use rmcp::{
     },
     service::RequestContext,
     transport::stdio,
-    ErrorData as McpError, RoleServer, ServerHandler, ServiceError, ServiceExt,
+    ErrorData as McpError, RoleServer, ServerHandler, ServiceExt,
 };
 use std::env;
 use std::ffi::OsString;
@@ -272,7 +275,6 @@ fn exit_code_from_status(status: ExitStatus) -> ExitCode {
 struct LoomleProxyServer {
     session_cwd: Option<PathBuf>,
     env_info: Mutex<Option<Arc<Environment>>>,
-    client: Mutex<Option<LoomleClient>>,
 }
 
 impl LoomleProxyServer {
@@ -280,54 +282,68 @@ impl LoomleProxyServer {
         Self {
             session_cwd: env::current_dir().ok(),
             env_info: Mutex::new(env_info.map(Arc::new)),
-            client: Mutex::new(None),
         }
     }
 
-    /// Returns a connected client, attempting to connect if not already connected.
-    /// Returns None (with a human-readable reason) when the Bridge is unavailable.
-    async fn get_or_connect(&self) -> Result<(), String> {
+    async fn attached_env_info(&self) -> Result<Arc<Environment>, String> {
         self.try_auto_attach().await;
         let env_info = self.env_info.lock().await.clone();
-        let Some(env_info) = env_info else {
-            return Err(
-                "No Unreal project is attached. Use project.list to find online projects, \
-                 then project.attach to select one for this MCP session."
-                    .into(),
-            );
-        };
+        env_info.ok_or_else(|| {
+            "No Unreal project is attached. Use project.list to find online projects, \
+             then project.attach to select one for this MCP session."
+                .into()
+        })
+    }
 
-        let mut guard = self.client.lock().await;
-
-        // Already connected.
-        if guard.is_some() {
-            return Ok(());
-        }
-
-        // Try to connect.
-        match connect_client(&env_info).await {
-            Ok(client) => {
-                *guard = Some(client);
-                Ok(())
-            }
-            Err(err) => Err(format!(
+    async fn ensure_runtime_ready(&self) -> Result<Arc<Environment>, String> {
+        let env_info = self.attached_env_info().await?;
+        match rpc_health(&env_info).await {
+            Ok(_) => Ok(env_info),
+            Err(RpcClientError::Startup(err)) => Err(format!(
                 "Unreal Engine is not running or LoomleBridge is not loaded. \
                  Start Unreal Editor and wait for the Bridge to initialise. \
                  ({})",
                 err.message
             )),
+            Err(RpcClientError::Protocol(message)) => Err(format!(
+                "LOOMLE runtime RPC protocol error. Verify that Unreal Editor is running and LoomleBridge is healthy. ({message})"
+            )),
+            Err(RpcClientError::Invoke(error)) => Err(format!(
+                "LOOMLE runtime health check failed: {}",
+                error.message
+            )),
         }
     }
 
-    /// Drop a stale client so the next call retries the connection.
-    async fn invalidate(&self) {
-        *self.client.lock().await = None;
+    async fn runtime_call(
+        &self,
+        tool_name: &str,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let env_info = match self.ensure_runtime_ready().await {
+            Ok(env_info) => env_info,
+            Err(reason) => return Ok(bridge_unavailable_result(&reason)),
+        };
+
+        match rpc_invoke(&env_info, tool_name, args).await {
+            Ok(payload) => Ok(CallToolResult::structured(payload)),
+            Err(RpcClientError::Startup(err)) => Ok(bridge_unavailable_result(&format!(
+                "Unreal Engine is not running or LoomleBridge is not loaded. \
+                 Start Unreal Editor and wait for the Bridge to initialise. \
+                 ({})",
+                err.message
+            ))),
+            Err(RpcClientError::Invoke(error)) => Ok(runtime_invoke_failure_result(error)),
+            Err(RpcClientError::Protocol(message)) => Err(McpError::internal_error(
+                format!("runtime RPC failed: {message}"),
+                None,
+            )),
+        }
     }
 
     async fn attach_project(&self, project: RuntimeProject) {
         let env_info = Environment::for_project_root(project.project_root);
         *self.env_info.lock().await = Some(Arc::new(env_info));
-        self.invalidate().await;
     }
 
     async fn attached_project_root(&self) -> Option<PathBuf> {
@@ -383,25 +399,11 @@ impl ServerHandler for LoomleProxyServer {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        if is_pre_attach_tool(request.name.as_ref()) {
+        if is_local_tool(request.name.as_ref()) {
             return Ok(self.call_pre_attach_tool(request).await);
         }
-
-        match self.get_or_connect().await {
-            Ok(()) => {
-                let guard = self.client.lock().await;
-                let client = guard.as_ref().expect("connected above");
-                match client.peer().call_tool(request).await {
-                    Ok(result) => Ok(result),
-                    Err(err) => {
-                        drop(guard);
-                        self.invalidate().await;
-                        Err(map_service_error(err))
-                    }
-                }
-            }
-            Err(reason) => Ok(bridge_unavailable_result(&reason)),
-        }
+        self.runtime_call(request.name.as_ref(), request.arguments.unwrap_or_default())
+            .await
     }
 }
 
@@ -409,6 +411,7 @@ impl LoomleProxyServer {
     async fn call_pre_attach_tool(&self, request: CallToolRequestParams) -> CallToolResult {
         let args = request.arguments.unwrap_or_default();
         match request.name.as_ref() {
+            "loomle" => self.call_loomle_runtime_status().await,
             "loomle.status" => self.call_loomle_status().await,
             "project.list" => call_project_list(&args),
             "project.attach" => self.call_project_attach(&args).await,
@@ -429,6 +432,81 @@ impl LoomleProxyServer {
             "projectCount": projects.len(),
         });
         structured_result(payload)
+    }
+
+    async fn call_loomle_runtime_status(&self) -> CallToolResult {
+        self.try_auto_attach().await;
+        let Some(env_info) = self.env_info.lock().await.clone() else {
+            return structured_result(serde_json::json!({
+                "status": "error",
+                "domainCode": "",
+                "message": "No project attached",
+                "runtime": {
+                    "rpcConnected": false,
+                    "listenerReady": false,
+                    "isPIE": false,
+                    "editorBusyReason": "NO_PROJECT_ATTACHED"
+                }
+            }));
+        };
+
+        let health = match rpc_health(&env_info).await {
+            Ok(value) => value,
+            Err(RpcClientError::Startup(err)) => {
+                return structured_result(serde_json::json!({
+                    "status": "error",
+                    "domainCode": "",
+                    "message": err.message,
+                    "runtime": {
+                        "rpcConnected": false,
+                        "listenerReady": false,
+                        "isPIE": false,
+                        "editorBusyReason": "RUNTIME_UNAVAILABLE"
+                    }
+                }));
+            }
+            Err(RpcClientError::Invoke(error)) => {
+                return CallToolResult::structured_error(serde_json::json!({
+                    "code": error.code,
+                    "message": error.message,
+                    "retryable": error.retryable,
+                    "detail": error.detail,
+                    "payload": error.payload
+                }));
+            }
+            Err(RpcClientError::Protocol(message)) => {
+                return CallToolResult::structured_error(serde_json::json!({
+                    "message": message
+                }));
+            }
+        };
+        let capabilities = rpc_capabilities(&env_info).await.ok();
+        let status = health
+            .get("status")
+            .and_then(|value| value.as_str())
+            .unwrap_or("error");
+        let is_pie = health
+            .get("isPIE")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        let editor_busy_reason = health
+            .get("editorBusyReason")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+
+        structured_result(serde_json::json!({
+            "status": status,
+            "domainCode": "",
+            "message": "",
+            "runtime": {
+                "rpcConnected": true,
+                "listenerReady": true,
+                "isPIE": is_pie,
+                "editorBusyReason": editor_busy_reason,
+                "rpcHealth": health,
+                "capabilities": capabilities
+            }
+        }))
     }
 
     async fn call_project_attach(&self, args: &rmcp::model::JsonObject) -> CallToolResult {
@@ -484,10 +562,6 @@ impl LoomleProxyServer {
     }
 }
 
-fn map_service_error(error: ServiceError) -> McpError {
-    McpError::internal_error(format!("runtime proxy failed: {error}"), None)
-}
-
 fn pre_attach_tools() -> Vec<Tool> {
     use std::sync::Arc;
     vec![
@@ -522,70 +596,36 @@ fn all_declared_tools() -> Vec<Tool> {
 
 fn runtime_declared_tools() -> Vec<Tool> {
     use std::sync::Arc;
-
-    const RUNTIME_TOOLS: [(&str, &str); 22] = [
-        ("loomle", "Bridge health and runtime status."),
-        ("context", "Read active editor context and selection."),
-        ("execute", "Execute Unreal-side Python inside the editor process."),
-        ("jobs", "Inspect or retrieve long-running job state, results, and logs."),
-        (
-            "profiling",
-            "Bridge official Unreal profiling data families such as stat unit, stat groups, ticks, memory reports, and capture workflows.",
-        ),
-        ("editor.open", "Open or focus the editor for a specific Unreal asset path."),
-        (
-            "editor.focus",
-            "Focus a semantic panel inside an asset editor, such as graph, viewport, details, palette, or find.",
-        ),
-        (
-            "editor.screenshot",
-            "Capture a PNG of the active editor window and return the written file path.",
-        ),
-        ("graph", "Read graph capability descriptor and runtime status."),
-        ("blueprint.list", "List Blueprint graphs in an asset."),
-        ("blueprint.query", "Read node and pin data from a Blueprint graph."),
-        ("blueprint.mutate", "Apply a batch of write operations to a Blueprint graph."),
-        ("blueprint.verify", "Run read-only structural validation for a Blueprint graph."),
-        ("blueprint.describe", "Describe a Blueprint class or a specific Blueprint graph node."),
-        ("material.list", "List material expressions in a material asset."),
-        ("material.query", "Read expression nodes and pin data from a material."),
-        ("material.mutate", "Apply a batch of write operations to a material asset."),
-        ("material.verify", "Compile a material and return diagnostics."),
-        ("material.describe", "Describe a material expression class or instance."),
-        ("pcg.list", "List nodes in a PCG graph asset."),
-        ("pcg.query", "Read node and pin data from a PCG graph."),
-        ("pcg.mutate", "Apply a batch of write operations to a PCG graph."),
-    ];
-    const RUNTIME_TOOLS_TAIL: [(&str, &str); 6] = [
-        ("pcg.verify", "Run read-only validation for a PCG graph."),
-        ("pcg.describe", "Describe a PCG settings class or instance."),
-        ("diag.tail", "Read persisted diagnostics incrementally by sequence cursor."),
-        ("widget.query", "Read the UMG WidgetTree of a WidgetBlueprint asset."),
-        (
-            "widget.mutate",
-            "Apply structural write operations to the UMG WidgetTree of a WidgetBlueprint asset.",
-        ),
-        (
-            "widget.verify",
-            "Compile a WidgetBlueprint and return diagnostics.",
-        ),
-    ];
-
-    let mut tools: Vec<Tool> = RUNTIME_TOOLS
-        .into_iter()
-        .map(|(name, description)| Tool::new(name, description, Arc::new(loose_object_schema())))
-        .collect();
-    tools.extend(
-        RUNTIME_TOOLS_TAIL.into_iter().map(|(name, description)| {
-            Tool::new(name, description, Arc::new(loose_object_schema()))
-        }),
-    );
-    tools.push(Tool::new(
-        "widget.describe",
-        "Enumerate the editable properties of a UMG widget class, with optional current values from a live instance.",
-        Arc::new(loose_object_schema()),
-    ));
-    tools
+    vec![
+        Tool::new("loomle", "Bridge health and runtime status.", Arc::new(empty_schema())),
+        Tool::new("context", "Read active editor context and selection.", Arc::new(context_schema())),
+        Tool::new("execute", "Execute Unreal-side Python inside the editor process.", Arc::new(execute_schema())),
+        Tool::new("jobs", "Inspect or retrieve long-running job state, results, and logs.", Arc::new(jobs_schema())),
+        Tool::new("profiling", "Bridge official Unreal profiling data families such as stat unit, stat groups, ticks, memory reports, and capture workflows.", Arc::new(profiling_schema())),
+        Tool::new("editor.open", "Open or focus the editor for a specific Unreal asset path.", Arc::new(editor_open_schema())),
+        Tool::new("editor.focus", "Focus a semantic panel inside an asset editor, such as graph, viewport, details, palette, or find.", Arc::new(editor_focus_schema())),
+        Tool::new("editor.screenshot", "Capture a PNG of the active editor window and return the written file path.", Arc::new(editor_screenshot_schema())),
+        Tool::new("blueprint.list", "List Blueprint graphs in an asset.", Arc::new(blueprint_list_schema())),
+        Tool::new("blueprint.query", "Read node and pin data from a Blueprint graph.", Arc::new(blueprint_query_schema())),
+        Tool::new("blueprint.mutate", "Apply a batch of write operations to a Blueprint graph.", Arc::new(blueprint_mutate_schema())),
+        Tool::new("blueprint.verify", "Run read-only structural validation for a Blueprint graph.", Arc::new(blueprint_verify_schema())),
+        Tool::new("blueprint.describe", "Describe a Blueprint class or a specific Blueprint graph node.", Arc::new(blueprint_describe_schema())),
+        Tool::new("material.list", "List material expressions in a material asset.", Arc::new(asset_path_only_schema("Material asset path."))),
+        Tool::new("material.query", "Read expression nodes and pin data from a material.", Arc::new(material_query_schema())),
+        Tool::new("material.mutate", "Apply a batch of write operations to a material asset.", Arc::new(material_mutate_schema())),
+        Tool::new("material.verify", "Compile a material and return diagnostics.", Arc::new(asset_path_only_schema("Material asset path."))),
+        Tool::new("material.describe", "Describe a material expression class or instance.", Arc::new(material_describe_schema())),
+        Tool::new("pcg.list", "List nodes in a PCG graph asset.", Arc::new(asset_path_only_schema("PCG graph asset path."))),
+        Tool::new("pcg.query", "Read node and pin data from a PCG graph.", Arc::new(pcg_query_schema())),
+        Tool::new("pcg.mutate", "Apply a batch of write operations to a PCG graph.", Arc::new(pcg_mutate_schema())),
+        Tool::new("pcg.verify", "Run read-only validation for a PCG graph.", Arc::new(asset_path_only_schema("PCG graph asset path."))),
+        Tool::new("pcg.describe", "Describe a PCG settings class or instance.", Arc::new(pcg_describe_schema())),
+        Tool::new("diag.tail", "Read persisted diagnostics incrementally by sequence cursor.", Arc::new(diag_tail_schema())),
+        Tool::new("widget.query", "Read the UMG WidgetTree of a WidgetBlueprint asset.", Arc::new(widget_query_schema())),
+        Tool::new("widget.mutate", "Apply structural write operations to the UMG WidgetTree of a WidgetBlueprint asset.", Arc::new(widget_mutate_schema())),
+        Tool::new("widget.verify", "Compile a WidgetBlueprint and return diagnostics.", Arc::new(asset_path_only_schema("WidgetBlueprint asset path."))),
+        Tool::new("widget.describe", "Enumerate the editable properties of a UMG widget class, with optional current values from a live instance.", Arc::new(widget_describe_schema())),
+    ]
 }
 
 fn bridge_unavailable_result(reason: &str) -> CallToolResult {
@@ -594,20 +634,28 @@ fn bridge_unavailable_result(reason: &str) -> CallToolResult {
     ))])
 }
 
-fn is_pre_attach_tool(name: &str) -> bool {
+fn is_local_tool(name: &str) -> bool {
     matches!(
         name,
-        "loomle.status" | "project.list" | "project.attach" | "project.install"
+        "loomle" | "loomle.status" | "project.list" | "project.attach" | "project.install"
     )
+}
+
+fn runtime_invoke_failure_result(error: loomle::RpcInvokeFailure) -> CallToolResult {
+    if let Some(payload) = error.payload {
+        CallToolResult::structured_error(payload)
+    } else {
+        CallToolResult::structured_error(serde_json::json!({
+            "code": error.code,
+            "message": error.message,
+            "retryable": error.retryable,
+            "detail": error.detail,
+        }))
+    }
 }
 
 fn empty_schema() -> rmcp::model::JsonObject {
     serde_json::from_str(r#"{"type":"object","properties":{},"additionalProperties":false}"#)
-        .expect("valid schema")
-}
-
-fn loose_object_schema() -> rmcp::model::JsonObject {
-    serde_json::from_str(r#"{"type":"object","properties":{},"additionalProperties":true}"#)
         .expect("valid schema")
 }
 
@@ -652,6 +700,458 @@ fn project_install_schema() -> rmcp::model::JsonObject {
         }"#,
     )
     .expect("valid schema")
+}
+
+fn schema_from_value(value: serde_json::Value) -> rmcp::model::JsonObject {
+    serde_json::from_value(value).expect("valid schema")
+}
+
+fn asset_path_only_schema(description: &str) -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "assetPath": { "type": "string", "minLength": 1, "description": description }
+        },
+        "required": ["assetPath"],
+        "additionalProperties": false
+    }))
+}
+
+fn node_filter_query_schema(asset_description: &str) -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "assetPath": { "type": "string", "minLength": 1, "description": asset_description },
+            "nodeIds": { "type": "array", "items": { "type": "string" } },
+            "nodeClasses": { "type": "array", "items": { "type": "string" } },
+            "includeConnections": { "type": "boolean", "default": false }
+        },
+        "required": ["assetPath"],
+        "additionalProperties": false
+    }))
+}
+
+fn graph_mutate_schema(op_names: &[&str], include_graph_name: bool) -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    if include_graph_name {
+        properties.insert(
+            "graphName".into(),
+            serde_json::json!({"type":"string","minLength":1,"default":"EventGraph"}),
+        );
+    }
+    properties.insert(
+        "expectedRevision".into(),
+        serde_json::json!({"type":"string"}),
+    );
+    properties.insert(
+        "idempotencyKey".into(),
+        serde_json::json!({"type":"string"}),
+    );
+    properties.insert(
+        "dryRun".into(),
+        serde_json::json!({"type":"boolean","default":false}),
+    );
+    properties.insert(
+        "continueOnError".into(),
+        serde_json::json!({"type":"boolean","default":false}),
+    );
+    properties.insert(
+        "ops".into(),
+        serde_json::json!({
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 200,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "op": { "type": "string", "enum": op_names },
+                    "clientRef": { "type": "string" },
+                    "graphName": { "type": "string" },
+                    "newName": { "type": "string" },
+                    "nodeId": { "type": "string" },
+                    "nodeRef": { "type": "string" },
+                    "nodePath": { "type": "string" },
+                    "nodeName": { "type": "string" },
+                    "name": { "type": "string" },
+                    "nodeClass": { "type": "string" },
+                    "functionClass": { "type": "string" },
+                    "functionName": { "type": "string" },
+                    "eventName": { "type": "string" },
+                    "eventClass": { "type": "string" },
+                    "variableName": { "type": "string" },
+                    "variableClass": { "type": "string" },
+                    "mode": { "type": "string", "enum": ["get","set","exec","eval","sync","job"] },
+                    "macroLibrary": { "type": "string" },
+                    "macroName": { "type": "string" },
+                    "targetClass": { "type": "string" },
+                    "text": { "type": "string" },
+                    "comment": { "type": "string" },
+                    "enabled": { "type": "boolean" },
+                    "width": { "type": "integer" },
+                    "height": { "type": "integer" },
+                    "x": { "type": "integer" },
+                    "y": { "type": "integer" },
+                    "dx": { "type": "integer" },
+                    "dy": { "type": "integer" },
+                    "pinName": { "type": "string" },
+                    "fromPin": { "type": "string" },
+                    "toPin": { "type": "string" },
+                    "fromNodeId": { "type": "string" },
+                    "fromNodeRef": { "type": "string" },
+                    "toNodeId": { "type": "string" },
+                    "toNodeRef": { "type": "string" },
+                    "value": { "type": "string" },
+                    "property": { "type": "string" },
+                    "algorithm": { "type": "string" },
+                    "scope": { "type": "string", "enum": ["touched","all"] },
+                    "nodeIds": { "type": "array", "items": { "type": "string" } },
+                    "nodes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "nodeId": { "type": "string" },
+                                "dx": { "type": "integer" },
+                                "dy": { "type": "integer" }
+                            },
+                            "additionalProperties": false
+                        }
+                    },
+                    "from": { "type": "object", "additionalProperties": true },
+                    "to": { "type": "object", "additionalProperties": true },
+                    "target": { "type": "object", "additionalProperties": true }
+                },
+                "required": ["op"],
+                "additionalProperties": false
+            }
+        }),
+    );
+    schema_from_value(serde_json::Value::Object(serde_json::Map::from_iter([
+        ("type".into(), serde_json::json!("object")),
+        ("properties".into(), serde_json::Value::Object(properties)),
+        ("required".into(), serde_json::json!(["assetPath", "ops"])),
+        ("additionalProperties".into(), serde_json::json!(false)),
+    ])))
+}
+
+fn context_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "resolveIds":{"type":"array","items":{"type":"string"}},
+            "resolveFields":{"type":"array","items":{"type":"string"}}
+        },
+        "additionalProperties": false
+    }))
+}
+
+fn execute_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "language":{"type":"string","enum":["python"]},
+            "mode":{"type":"string","enum":["exec","eval"]},
+            "code":{"type":"string","minLength":1},
+            "execution":{
+                "type":"object",
+                "properties":{
+                    "mode":{"type":"string","enum":["sync","job"]},
+                    "idempotencyKey":{"type":"string"},
+                    "label":{"type":"string"},
+                    "waitMs":{"type":"integer"}
+                },
+                "additionalProperties": false
+            }
+        },
+        "required":["language","mode","code"],
+        "additionalProperties": false
+    }))
+}
+
+fn jobs_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "jobId":{"type":"string"},
+            "tool":{"type":"string"},
+            "status":{"type":"string"},
+            "limit":{"type":"integer"}
+        },
+        "additionalProperties": false
+    }))
+}
+
+fn profiling_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "action":{"type":"string"},
+            "world":{"type":"string"},
+            "group":{"type":"string"},
+            "capturePath":{"type":"string"}
+        },
+        "additionalProperties": true
+    }))
+}
+
+fn editor_open_schema() -> rmcp::model::JsonObject {
+    asset_path_only_schema("Asset path to open in the Unreal Editor.")
+}
+
+fn editor_focus_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "assetPath":{"type":"string","minLength":1},
+            "panel":{"type":"string","minLength":1}
+        },
+        "required":["assetPath","panel"],
+        "additionalProperties": false
+    }))
+}
+
+fn editor_screenshot_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "path":{"type":"string"}
+        },
+        "additionalProperties": false
+    }))
+}
+
+fn blueprint_list_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "assetPath":{"type":"string","minLength":1},
+            "includeCompositeSubgraphs":{"type":"boolean","default":false}
+        },
+        "required":["assetPath"],
+        "additionalProperties": false
+    }))
+}
+
+fn blueprint_query_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "assetPath":{"type":"string","minLength":1},
+            "graphName":{"type":"string","minLength":1,"default":"EventGraph"},
+            "nodeIds":{"type":"array","items":{"type":"string"}},
+            "nodeClasses":{"type":"array","items":{"type":"string"}},
+            "includeComments":{"type":"boolean","default":false},
+            "includePinDefaults":{"type":"boolean","default":false},
+            "includeConnections":{"type":"boolean","default":false}
+        },
+        "required":["assetPath"],
+        "additionalProperties": false
+    }))
+}
+
+fn blueprint_mutate_schema() -> rmcp::model::JsonObject {
+    graph_mutate_schema(
+        &[
+            "addNode.byClass",
+            "addNode.byFunction",
+            "addNode.byEvent",
+            "addNode.byVariable",
+            "addNode.byMacro",
+            "addNode.branch",
+            "addNode.sequence",
+            "addNode.cast",
+            "addNode.comment",
+            "addNode.knot",
+            "duplicateNode",
+            "removeNode",
+            "moveNode",
+            "moveNodeBy",
+            "moveNodes",
+            "connectPins",
+            "disconnectPins",
+            "breakPinLinks",
+            "setPinDefault",
+            "setNodeComment",
+            "setNodeEnabled",
+            "addGraph",
+            "renameGraph",
+            "deleteGraph",
+            "layoutGraph",
+            "compile",
+        ],
+        true,
+    )
+}
+
+fn blueprint_verify_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "assetPath":{"type":"string","minLength":1},
+            "graphName":{"type":"string","minLength":1}
+        },
+        "required":["assetPath"],
+        "additionalProperties": false
+    }))
+}
+
+fn blueprint_describe_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "assetPath":{"type":"string","minLength":1},
+            "graphName":{"type":"string","minLength":1},
+            "nodeId":{"type":"string","minLength":1}
+        },
+        "required":["assetPath"],
+        "additionalProperties": false
+    }))
+}
+
+fn material_query_schema() -> rmcp::model::JsonObject {
+    node_filter_query_schema("Material asset path.")
+}
+
+fn material_mutate_schema() -> rmcp::model::JsonObject {
+    graph_mutate_schema(
+        &[
+            "addNode.byClass",
+            "removeNode",
+            "moveNode",
+            "moveNodeBy",
+            "moveNodes",
+            "connectPins",
+            "disconnectPins",
+            "setProperty",
+            "layoutGraph",
+            "compile",
+        ],
+        false,
+    )
+}
+
+fn material_describe_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "assetPath":{"type":"string","minLength":1},
+            "nodeId":{"type":"string","minLength":1},
+            "nodeClass":{"type":"string","minLength":1}
+        },
+        "additionalProperties": false
+    }))
+}
+
+fn pcg_query_schema() -> rmcp::model::JsonObject {
+    node_filter_query_schema("PCG graph asset path.")
+}
+
+fn pcg_mutate_schema() -> rmcp::model::JsonObject {
+    graph_mutate_schema(
+        &[
+            "addNode.byClass",
+            "removeNode",
+            "moveNode",
+            "moveNodeBy",
+            "moveNodes",
+            "connectPins",
+            "disconnectPins",
+            "setProperty",
+            "layoutGraph",
+            "compile",
+        ],
+        false,
+    )
+}
+
+fn pcg_describe_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "assetPath":{"type":"string","minLength":1},
+            "nodeId":{"type":"string","minLength":1},
+            "nodeClass":{"type":"string","minLength":1}
+        },
+        "additionalProperties": false
+    }))
+}
+
+fn diag_tail_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "cursor":{"type":"integer"}
+        },
+        "additionalProperties": false
+    }))
+}
+
+fn widget_query_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "assetPath":{"type":"string","minLength":1},
+            "includeSlotProperties":{"type":"boolean","default":false}
+        },
+        "required":["assetPath"],
+        "additionalProperties": false
+    }))
+}
+
+fn widget_mutate_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "assetPath":{"type":"string","minLength":1},
+            "expectedRevision":{"type":"string"},
+            "dryRun":{"type":"boolean","default":false},
+            "continueOnError":{"type":"boolean","default":false},
+            "ops":{
+                "type":"array",
+                "minItems":1,
+                "items":{
+                    "type":"object",
+                    "properties":{
+                        "op":{"type":"string","enum":["addWidget","removeWidget","setProperty","reparentWidget"]},
+                        "args":{
+                            "type":"object",
+                            "properties":{
+                                "widgetClass":{"type":"string"},
+                                "name":{"type":"string"},
+                                "parentName":{"type":"string"},
+                                "parent":{"type":"string"},
+                                "newParent":{"type":"string"},
+                                "property":{"type":"string"},
+                                "value":{"type":"string"},
+                                "slot":{"type":"object","additionalProperties":true}
+                            },
+                            "additionalProperties": false
+                        }
+                    },
+                    "required":["op","args"],
+                    "additionalProperties": false
+                }
+            }
+        },
+        "required":["assetPath","ops"],
+        "additionalProperties": false
+    }))
+}
+
+fn widget_describe_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "widgetClass":{"type":"string","minLength":1},
+            "assetPath":{"type":"string","minLength":1},
+            "widgetName":{"type":"string","minLength":1}
+        },
+        "additionalProperties": false
+    }))
 }
 
 fn structured_result(value: serde_json::Value) -> CallToolResult {

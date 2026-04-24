@@ -1,4 +1,62 @@
 // RPC entrypoints and tool dispatch for Loomle Bridge.
+FString FLoomleBridgeModule::HandleRequest(int32 ConnectionSerial, const FString& RequestLine)
+{
+    TSharedPtr<FJsonObject> RequestObject;
+    const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(RequestLine);
+
+    if (!FJsonSerializer::Deserialize(Reader, RequestObject) || !RequestObject.IsValid())
+    {
+        return MakeJsonError(MakeShared<FJsonValueNull>(), -32700, TEXT("Parse error"));
+    }
+
+    TSharedPtr<FJsonValue> IdValue = RequestObject->TryGetField(TEXT("id"));
+    if (!IdValue.IsValid())
+    {
+        IdValue = MakeShared<FJsonValueNull>();
+    }
+
+    FString Method;
+    if (!RequestObject->TryGetStringField(TEXT("method"), Method))
+    {
+        return MakeJsonError(IdValue, -32600, TEXT("Invalid Request: method is required"));
+    }
+
+    const TSharedPtr<FJsonObject>* ParamsPtr = nullptr;
+    RequestObject->TryGetObjectField(TEXT("params"), ParamsPtr);
+    const TSharedPtr<FJsonObject> Params = ParamsPtr ? *ParamsPtr : MakeShared<FJsonObject>();
+
+    if (Method.Equals(TEXT("ping")))
+    {
+        return MakeJsonResponse(IdValue, MakeShared<FJsonObject>());
+    }
+
+    if (Method.Equals(TEXT("rpc.health")))
+    {
+        return MakeJsonResponse(IdValue, BuildRpcHealthResult());
+    }
+
+    if (Method.Equals(TEXT("rpc.capabilities")))
+    {
+        return MakeJsonResponse(IdValue, BuildRpcCapabilitiesResult());
+    }
+
+    if (Method.Equals(TEXT("rpc.invoke")))
+    {
+        bool bHasError = false;
+        int32 ErrorCode = 1000;
+        FString ErrorMessage = TEXT("INVALID_ARGUMENT");
+        TSharedPtr<FJsonObject> ErrorData;
+        TSharedPtr<FJsonObject> Result = BuildRpcInvokeResult(Params, bHasError, ErrorCode, ErrorMessage, ErrorData);
+        if (bHasError)
+        {
+            return MakeJsonErrorEx(IdValue, ErrorCode, ErrorMessage, ErrorData);
+        }
+        return MakeJsonResponse(IdValue, Result);
+    }
+
+    return MakeJsonError(IdValue, -32601, FString::Printf(TEXT("Method not found: %s"), *Method));
+}
+
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcHealthResult() const
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();

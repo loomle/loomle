@@ -1,11 +1,9 @@
-use rmcp::{
-    model::{CallToolResult, JsonObject},
-    ServiceExt,
-};
+use rmcp::model::{CallToolResult, JsonObject};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::env;
 use std::path::{Path, PathBuf};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[cfg(target_os = "windows")]
 use tokio::net::windows::named_pipe::ClientOptions;
 #[cfg(unix)]
@@ -14,8 +12,6 @@ use tokio::net::UnixStream;
 use tokio::time::{sleep, Duration};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_PIPE_BUSY};
-
-pub type LoomleClient = rmcp::service::RunningService<rmcp::service::RoleClient, ()>;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -115,22 +111,58 @@ pub fn runtime_endpoint_path<'a>(env_info: &'a Environment) -> &'a Path {
     &env_info.runtime_endpoint_path
 }
 
-pub async fn connect_client(env_info: &Environment) -> Result<LoomleClient, StartupError> {
+#[derive(Debug, Clone)]
+pub struct RpcInvokeFailure {
+    pub code: i64,
+    pub message: String,
+    pub retryable: bool,
+    pub detail: Option<String>,
+    pub payload: Option<Value>,
+}
+
+#[derive(Debug, Clone)]
+pub enum RpcClientError {
+    Startup(StartupError),
+    Protocol(String),
+    Invoke(RpcInvokeFailure),
+}
+
+trait RpcIo: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+impl<T> RpcIo for T where T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+
+#[derive(Debug, Deserialize)]
+struct RpcErrorData {
+    #[serde(default)]
+    retryable: bool,
+    #[serde(default)]
+    detail: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RpcErrorObject {
+    code: i64,
+    message: String,
+    #[serde(default)]
+    data: Option<RpcErrorData>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RpcEnvelope {
+    #[serde(default)]
+    result: Option<Value>,
+    #[serde(default)]
+    error: Option<RpcErrorObject>,
+}
+
+async fn connect_rpc_stream(
+    env_info: &Environment,
+) -> Result<BufReader<Box<dyn RpcIo>>, StartupError> {
     #[cfg(unix)]
     {
         let stream = UnixStream::connect(&env_info.runtime_endpoint_path)
             .await
             .map_err(|error| classify_unix_connect_error(env_info, &error))?;
-        return ().serve(stream).await.map_err(|error| {
-            StartupError::new(
-                StartupErrorKind::ConnectFailed,
-                StartupAction::VerifyRuntimeHealth,
-                12,
-                true,
-                "failed to establish MCP session with the LOOMLE runtime.",
-            )
-            .with_detail(error.to_string())
-        });
+        return Ok(BufReader::new(Box::new(stream)));
     }
 
     #[cfg(target_os = "windows")]
@@ -142,29 +174,163 @@ pub async fn connect_client(env_info: &Environment) -> Result<LoomleClient, Star
                 Err(error) if error.raw_os_error() == Some(ERROR_PIPE_BUSY as i32) => {
                     sleep(Duration::from_millis(50)).await;
                 }
-                Err(error) => {
-                    return Err(classify_windows_connect_error(env_info, &error));
-                }
+                Err(error) => return Err(classify_windows_connect_error(env_info, &error)),
             }
         };
-        return ().serve(client).await.map_err(|error| {
+        return Ok(BufReader::new(Box::new(client)));
+    }
+
+    #[cfg(not(any(unix, target_os = "windows")))]
+    {
+        Err(StartupError::new(
+            StartupErrorKind::ConnectFailed,
+            StartupAction::VerifyRuntimeHealth,
+            12,
+            false,
+            "unsupported platform: no runtime RPC transport configured",
+        ))
+    }
+}
+
+async fn rpc_request(
+    env_info: &Environment,
+    method: &str,
+    params: Value,
+) -> Result<Value, RpcClientError> {
+    let mut stream = connect_rpc_stream(env_info)
+        .await
+        .map_err(RpcClientError::Startup)?;
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "loomle-client",
+        "method": method,
+        "params": params,
+    });
+    let mut request_line = serde_json::to_string(&request).map_err(|error| {
+        RpcClientError::Protocol(format!("failed to encode RPC request: {error}"))
+    })?;
+    request_line.push('\n');
+    stream
+        .get_mut()
+        .write_all(request_line.as_bytes())
+        .await
+        .map_err(|error| {
+            RpcClientError::Startup(
+                StartupError::new(
+                    StartupErrorKind::ConnectFailed,
+                    StartupAction::VerifyRuntimeHealth,
+                    12,
+                    true,
+                    "failed to write LOOMLE runtime RPC request.",
+                )
+                .with_detail(error.to_string()),
+            )
+        })?;
+    stream.get_mut().flush().await.map_err(|error| {
+        RpcClientError::Startup(
             StartupError::new(
                 StartupErrorKind::ConnectFailed,
                 StartupAction::VerifyRuntimeHealth,
                 12,
                 true,
-                "failed to establish MCP session with the LOOMLE runtime.",
+                "failed to flush LOOMLE runtime RPC request.",
             )
-            .with_detail(error.to_string())
-        });
+            .with_detail(error.to_string()),
+        )
+    })?;
+
+    let mut response_line = String::new();
+    let read = stream
+        .read_line(&mut response_line)
+        .await
+        .map_err(|error| {
+            RpcClientError::Startup(
+                StartupError::new(
+                    StartupErrorKind::ConnectFailed,
+                    StartupAction::VerifyRuntimeHealth,
+                    12,
+                    true,
+                    "failed to read LOOMLE runtime RPC response.",
+                )
+                .with_detail(error.to_string()),
+            )
+        })?;
+    if read == 0 {
+        return Err(RpcClientError::Protocol(String::from(
+            "runtime RPC connection closed without a response",
+        )));
     }
 
-    #[cfg(not(any(unix, target_os = "windows")))]
-    {
-        Err(String::from(
-            "unsupported platform: no MCP runtime transport configured",
-        ))
+    let envelope: RpcEnvelope = serde_json::from_str(response_line.trim()).map_err(|error| {
+        RpcClientError::Protocol(format!("runtime RPC response is not valid JSON: {error}"))
+    })?;
+    if let Some(error) = envelope.error {
+        let detail = error.data.as_ref().and_then(|data| data.detail.clone());
+        let payload = detail
+            .as_deref()
+            .and_then(|raw| serde_json::from_str::<Value>(raw).ok());
+        return Err(RpcClientError::Invoke(RpcInvokeFailure {
+            code: error.code,
+            message: error.message,
+            retryable: error
+                .data
+                .as_ref()
+                .map(|data| data.retryable)
+                .unwrap_or(false),
+            detail,
+            payload,
+        }));
     }
+
+    envelope.result.ok_or_else(|| {
+        RpcClientError::Protocol(String::from(
+            "runtime RPC response missing both result and error",
+        ))
+    })
+}
+
+pub async fn rpc_health(env_info: &Environment) -> Result<Value, RpcClientError> {
+    rpc_request(env_info, "rpc.health", Value::Object(JsonObject::new())).await
+}
+
+pub async fn rpc_capabilities(env_info: &Environment) -> Result<Value, RpcClientError> {
+    rpc_request(
+        env_info,
+        "rpc.capabilities",
+        Value::Object(JsonObject::new()),
+    )
+    .await
+}
+
+pub async fn rpc_invoke(
+    env_info: &Environment,
+    tool: &str,
+    args: JsonObject,
+) -> Result<Value, RpcClientError> {
+    let result = rpc_request(
+        env_info,
+        "rpc.invoke",
+        serde_json::json!({
+            "tool": tool,
+            "args": args,
+        }),
+    )
+    .await?;
+
+    let ok = result
+        .get("ok")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    if !ok {
+        return Err(RpcClientError::Protocol(format!(
+            "rpc.invoke for tool '{tool}' returned a non-ok result envelope"
+        )));
+    }
+
+    Ok(result
+        .get("payload")
+        .cloned()
+        .unwrap_or(Value::Object(JsonObject::new())))
 }
 
 #[cfg(unix)]

@@ -36,7 +36,8 @@
 #include "HAL/MemoryMisc.h"
 #include "IPythonScriptPlugin.h"
 #include "Input/HittestGrid.h"
-#include "Json.h"
+#include "Dom/JsonObject.h"
+#include "Dom/JsonValue.h"
 #include "HAL/PlatformMisc.h"
 #include "HAL/PlatformProcess.h"
 #include "HAL/FileManager.h"
@@ -96,8 +97,6 @@
 #include "MeshSelectors/PCGSkinnedMeshSelector.h"
 #include "LoomleBlueprintAdapter.h"
 #include "LoomlePipeServer.h"
-#include "mcp_core/McpCoreTransportHost.h"
-#include "mcp_core/McpCoreTools.h"
 #include "ScopedTransaction.h"
 #include "Misc/App.h"
 #include "Misc/Base64.h"
@@ -120,6 +119,11 @@
 #include "Slate/WidgetRenderer.h"
 #include "DynamicRHI.h"
 #include "GPUProfiler.h"
+#include "Policies/CondensedJsonPrintPolicy.h"
+#include "Policies/PrettyJsonPrintPolicy.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 #include "RHIStats.h"
 #include "ToolMenus.h"
 #include "Widgets/SWidget.h"
@@ -4029,7 +4033,6 @@ void FLoomleBridgeModule::StartupModule()
 #if PLATFORM_WINDOWS
     const FString PipeName = GetRpcPipeNameForCurrentProject();
 #endif
-    McpTransportHost = MakeUnique<FMcpCoreTransportHost>(*this);
     PipeServer = MakeShared<FLoomlePipeServer, ESPMode::ThreadSafe>(
 #if PLATFORM_WINDOWS
         PipeName,
@@ -4038,16 +4041,7 @@ void FLoomleBridgeModule::StartupModule()
 #endif
         [this](int32 ConnectionSerial, const FString& RequestLine)
         {
-            return McpTransportHost.IsValid()
-                ? McpTransportHost->HandleConnectionMessage(ConnectionSerial, RequestLine)
-                : MakeJsonError(MakeShared<FJsonValueNull>(), -32603, TEXT("MCP transport host unavailable"));
-        },
-        [this](int32 ConnectionSerial)
-        {
-            if (McpTransportHost.IsValid())
-            {
-                McpTransportHost->HandleConnectionClosed(ConnectionSerial);
-            }
+            return HandleRequest(ConnectionSerial, RequestLine);
         });
 
     if (!PipeServer->Start())
@@ -4135,16 +4129,11 @@ void FLoomleBridgeModule::ShutdownModule()
         PipeServer->StopServer();
         PipeServer.Reset();
     }
-    McpTransportHost.Reset();
 
     bBridgeRunningSnapshot.Store(false);
     bPythonReadySnapshot.Store(false);
     bIsPIESnapshot.Store(false);
 }
-
-#include "mcp_core/McpCoreSession.inl"
-
-#include "mcp_core/McpCoreToolBridge.inl"
 
 #include "LoomleBridgeRpc.inl"
 #include "LoomleBridgeBlueprint.inl"
