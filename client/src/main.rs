@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 
 #[tokio::main(flavor = "multi_thread")]
@@ -34,12 +35,17 @@ async fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(message) => {
             eprintln!("{message}");
-            print_usage();
+            eprintln!();
+            print_usage_stderr();
             return ExitCode::from(2);
         }
     };
 
     match command {
+        Cli::Help => {
+            print_usage_stdout();
+            ExitCode::SUCCESS
+        }
         Cli::Mcp { project_root } => run_mcp(project_root).await,
         Cli::Doctor => run_doctor(),
         Cli::Update(update) => run_update(update),
@@ -493,12 +499,14 @@ impl LoomleProxyServer {
         self.try_auto_attach().await;
         let projects = discover_runtime_projects(ProjectStatusFilter::All);
         let attached_project_root = self.attached_project_root().await;
+        let update_check = check_for_updates();
         let payload = serde_json::json!({
             "loomleVersion": env!("CARGO_PKG_VERSION"),
             "attached": attached_project_root.is_some(),
             "attachedProject": attached_project_root.map(|path| path.display().to_string()),
             "onlineProjectCount": projects.iter().filter(|project| project.status == "online").count(),
             "projectCount": projects.len(),
+            "update": update_check,
         });
         structured_result(payload)
     }
@@ -3910,6 +3918,116 @@ fn read_global_active_install_state() -> Result<Option<loomle::ActiveInstallStat
     }))
 }
 
+fn check_for_updates() -> serde_json::Value {
+    let current = env!("CARGO_PKG_VERSION");
+    match read_or_fetch_latest_version() {
+        Ok(latest) => {
+            let update_available = compare_semver(&latest, current)
+                .map(|ordering| ordering == std::cmp::Ordering::Greater)
+                .unwrap_or(latest != current);
+            serde_json::json!({
+                "status": "ok",
+                "latestVersion": latest,
+                "updateAvailable": update_available,
+                "updateCommand": if update_available { Some("loomle update".to_string()) } else { None::<String> },
+            })
+        }
+        Err(error) => serde_json::json!({
+            "status": "unavailable",
+            "message": error,
+            "updateAvailable": false,
+        }),
+    }
+}
+
+fn read_or_fetch_latest_version() -> Result<String, String> {
+    let cache_path = loomle_root().join("state").join("update-check.json");
+    if let Some(cached) = read_cached_latest_version(&cache_path, Duration::from_secs(6 * 60 * 60))
+    {
+        return Ok(cached);
+    }
+
+    let latest = fetch_latest_version()?;
+    write_latest_version_cache(&cache_path, &latest);
+    Ok(latest)
+}
+
+fn read_cached_latest_version(path: &Path, ttl: Duration) -> Option<String> {
+    let raw = fs::read_to_string(path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let checked_at = value.get("checkedAt").and_then(|value| value.as_u64())?;
+    let now = unix_timestamp_secs();
+    if now.saturating_sub(checked_at) > ttl.as_secs() {
+        return None;
+    }
+    value
+        .get("latestVersion")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
+fn write_latest_version_cache(path: &Path, latest: &str) {
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let value = serde_json::json!({
+        "checkedAt": unix_timestamp_secs(),
+        "latestVersion": latest,
+    });
+    if let Ok(raw) = serde_json::to_string_pretty(&value) {
+        let _ = fs::write(path, raw + "\n");
+    }
+}
+
+fn fetch_latest_version() -> Result<String, String> {
+    let platform = current_platform_name();
+    let url = format!(
+        "https://github.com/loomle/loomle/releases/latest/download/loomle-manifest-{platform}.json"
+    );
+    let output = Command::new("curl")
+        .args(["-fsSL", "--connect-timeout", "2", "--max-time", "3", &url])
+        .output()
+        .map_err(|error| format!("failed to start update check: {error}"))?;
+    if !output.status.success() {
+        return Err(format!("update check failed with status {}", output.status));
+    }
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("update manifest is not valid JSON: {error}"))?;
+    value
+        .get("latest")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| "update manifest is missing latest version".to_string())
+}
+
+fn unix_timestamp_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+fn compare_semver(left: &str, right: &str) -> Option<std::cmp::Ordering> {
+    let left_parts = parse_semver_core(left)?;
+    let right_parts = parse_semver_core(right)?;
+    Some(left_parts.cmp(&right_parts))
+}
+
+fn parse_semver_core(version: &str) -> Option<(u64, u64, u64)> {
+    let core = version
+        .strip_prefix('v')
+        .unwrap_or(version)
+        .split(['-', '+'])
+        .next()?;
+    let mut parts = core.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch = parts.next()?.parse().ok()?;
+    Some((major, minor, patch))
+}
+
 fn read_plugin_version(plugin_root: &Path) -> Option<String> {
     let raw = fs::read_to_string(plugin_root.join("LoomleBridge.uplugin")).ok()?;
     let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
@@ -3941,6 +4059,39 @@ fn copy_tree_replace(source: &Path, destination: &Path) -> Result<(), String> {
     )
     .map_err(|error| format!("failed to create {}: {error}", destination.display()))?;
     copy_dir_recursive(source, destination)
+}
+
+fn copy_file_replace(source: &Path, destination: &Path) -> Result<(), String> {
+    if !source.is_file() {
+        return Err(format!("install file not found: {}", source.display()));
+    }
+    if destination.exists() || destination.is_symlink() {
+        fs::remove_file(destination)
+            .map_err(|error| format!("failed to remove {}: {error}", destination.display()))?;
+    }
+    fs::create_dir_all(
+        destination
+            .parent()
+            .ok_or_else(|| format!("invalid destination: {}", destination.display()))?,
+    )
+    .map_err(|error| {
+        format!(
+            "failed to create {}: {error}",
+            destination
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .display()
+        )
+    })?;
+    fs::copy(source, destination).map_err(|error| {
+        format!(
+            "failed to copy {} to {}: {error}",
+            source.display(),
+            destination.display()
+        )
+    })?;
+    make_executable_if_unix(destination)?;
+    Ok(())
 }
 
 fn copy_dir_recursive(source: &Path, destination: &Path) -> Result<(), String> {
@@ -4053,6 +4204,14 @@ fn update_global_install(options: UpdateOptions) -> Result<(), String> {
     let lock_path = install_root.join("locks").join("update.lock");
     let _lock = acquire_file_lock(&lock_path, "another loomle update is already running")?;
 
+    if let Some(version) = options.version.as_deref() {
+        if switch_to_installed_version(&install_root, version)? {
+            eprintln!("[loomle-update] switched to locally installed version {version}");
+            return Ok(());
+        }
+        eprintln!("[loomle-update] version {version} is not installed locally; downloading");
+    }
+
     let tmp_dir = make_temp_update_dir()?;
     let installer_path = if cfg!(windows) {
         tmp_dir.join("install.ps1")
@@ -4073,6 +4232,88 @@ fn update_global_install(options: UpdateOptions) -> Result<(), String> {
         return Err(format!("installer failed with status {status}"));
     }
     Ok(())
+}
+
+fn switch_to_installed_version(install_root: &Path, version: &str) -> Result<bool, String> {
+    let normalized_version = normalize_version(version);
+    let client_name = current_platform_client_binary_name();
+    let version_root = install_root.join("versions").join(&normalized_version);
+    let version_client = version_root.join(&client_name);
+    let plugin_cache = version_root.join("plugin-cache").join("LoomleBridge");
+    if !version_client.is_file() {
+        return Ok(false);
+    }
+    if !plugin_cache.is_dir() {
+        return Err(format!(
+            "installed version {normalized_version} is incomplete: missing {}",
+            plugin_cache.display()
+        ));
+    }
+
+    let launcher_path = install_root.join("bin").join(&client_name);
+    copy_file_replace(&version_client, &launcher_path)?;
+    write_active_install_state(
+        install_root,
+        &normalized_version,
+        &current_platform_name(),
+        &launcher_path,
+        &version_client,
+    )?;
+    Ok(true)
+}
+
+fn normalize_version(version: &str) -> String {
+    version.strip_prefix('v').unwrap_or(version).to_string()
+}
+
+fn current_platform_name() -> String {
+    if cfg!(windows) {
+        "windows".to_string()
+    } else if cfg!(target_os = "macos") {
+        "darwin".to_string()
+    } else {
+        "linux".to_string()
+    }
+}
+
+fn current_platform_client_binary_name() -> String {
+    if cfg!(windows) {
+        "loomle.exe".to_string()
+    } else {
+        "loomle".to_string()
+    }
+}
+
+fn write_active_install_state(
+    install_root: &Path,
+    version: &str,
+    platform: &str,
+    launcher_path: &Path,
+    active_client_path: &Path,
+) -> Result<(), String> {
+    let active_state_path = install_root.join("install").join("active.json");
+    if let Some(parent) = active_state_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
+    }
+    let value = serde_json::json!({
+        "schemaVersion": 2,
+        "installedVersion": version,
+        "activeVersion": version,
+        "platform": platform,
+        "installRoot": install_root.display().to_string(),
+        "launcherPath": launcher_path.display().to_string(),
+        "activeClientPath": active_client_path.display().to_string(),
+        "versionsRoot": install_root.join("versions").display().to_string(),
+        "pluginCacheRoot": install_root.join("versions").join(version).join("plugin-cache").display().to_string(),
+    });
+    fs::write(
+        &active_state_path,
+        serde_json::to_string_pretty(&value)
+            .map_err(|error| format!("failed to encode active install state: {error}"))?
+            + "\n",
+    )
+    .map_err(|error| format!("failed to write {}: {error}", active_state_path.display()))
 }
 
 fn installer_url_for_update() -> String {
@@ -4239,6 +4480,7 @@ fn stable_fnv1a64(bytes: &[u8]) -> u64 {
 
 #[derive(Debug, Clone)]
 enum Cli {
+    Help,
     Mcp { project_root: Option<PathBuf> },
     Doctor,
     Update(UpdateOptions),
@@ -4262,7 +4504,7 @@ impl Cli {
 
         let mut command = iter.next();
         if command.is_none() {
-            return Err(String::from("missing command"));
+            return Ok(Self::Help);
         }
 
         let command_text = command
@@ -4284,7 +4526,7 @@ impl Cli {
         }
 
         if command_text == "--help" || command_text == "-h" {
-            return Err(String::from("help requested"));
+            return Ok(Self::Help);
         }
         if command_text == "--version" {
             println!("{}", env!("CARGO_PKG_VERSION"));
@@ -4364,31 +4606,66 @@ where
     Ok(options)
 }
 
-fn print_usage() {
-    eprintln!("Usage:");
-    eprintln!("  loomle mcp");
-    eprintln!("  loomle doctor");
-    eprintln!("  loomle update");
-    eprintln!();
-    eprintln!("This binary is the global LOOMLE entrypoint.");
-    eprintln!();
-    eprintln!("Agent hosts should run `loomle mcp` as a stdio MCP server.");
+fn usage_text() -> &'static str {
+    "LOOMLE global command\n\
+\n\
+Usage:\n\
+  loomle mcp [--project-root <ProjectRoot>]\n\
+  loomle doctor\n\
+  loomle update [--version <Version>]\n\
+  loomle --version\n\
+  loomle --help\n\
+\n\
+Commands:\n\
+  mcp       Start the stdio MCP server for Codex, Claude, or another host.\n\
+  doctor    Print install paths and MCP host configuration hints.\n\
+  update    Update to the latest release. With --version, switch to an installed\n\
+            local version first; if it is not installed, download that version.\n\
+\n\
+Examples:\n\
+  loomle update\n\
+  loomle update --version 0.5.7\n\
+  loomle mcp --project-root /path/to/UnrealProject\n"
+}
+
+fn print_usage_stdout() {
+    print!("{}", usage_text());
+}
+
+fn print_usage_stderr() {
+    eprint!("{}", usage_text());
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        compile_blueprint_refactor_request, infer_attached_project_root, material_query_schema,
-        pcg_query_schema, translate_blueprint_graph_edit_args, translate_material_query_args,
-        translate_pcg_query_args, Cli, RuntimeProject,
+        compare_semver, compile_blueprint_refactor_request, current_platform_client_binary_name,
+        infer_attached_project_root, material_query_schema, pcg_query_schema,
+        switch_to_installed_version, translate_blueprint_graph_edit_args,
+        translate_material_query_args, translate_pcg_query_args, Cli, RuntimeProject,
     };
     use rmcp::model::JsonObject;
     use std::ffi::OsString;
+    use std::fs;
     use std::path::PathBuf;
 
     #[test]
-    fn parse_default_requires_command() {
-        assert!(Cli::parse(vec![OsString::from("loomle")]).is_err());
+    fn parse_default_shows_help() {
+        let cli = Cli::parse(vec![OsString::from("loomle")]).expect("cli");
+        match cli {
+            Cli::Help => {}
+            _ => panic!("expected help"),
+        }
+    }
+
+    #[test]
+    fn parse_help() {
+        let cli =
+            Cli::parse(vec![OsString::from("loomle"), OsString::from("--help")]).expect("cli");
+        match cli {
+            Cli::Help => {}
+            _ => panic!("expected help"),
+        }
     }
 
     #[test]
@@ -4451,6 +4728,59 @@ mod tests {
             Cli::Update(_) => {}
             _ => panic!("expected update"),
         }
+    }
+
+    #[test]
+    fn parse_update_version() {
+        let cli = Cli::parse(vec![
+            OsString::from("loomle"),
+            OsString::from("update"),
+            OsString::from("--version"),
+            OsString::from("0.5.7"),
+        ])
+        .expect("cli");
+        match cli {
+            Cli::Update(options) => assert_eq!(options.version.as_deref(), Some("0.5.7")),
+            _ => panic!("expected update"),
+        }
+    }
+
+    #[test]
+    fn semver_compare_handles_v_prefix() {
+        assert_eq!(
+            compare_semver("v0.5.8", "0.5.7"),
+            Some(std::cmp::Ordering::Greater)
+        );
+        assert_eq!(
+            compare_semver("0.5.7", "0.5.8"),
+            Some(std::cmp::Ordering::Less)
+        );
+    }
+
+    #[test]
+    fn update_version_switches_to_local_install_when_present() {
+        let root = std::env::temp_dir().join(format!(
+            "loomle-test-switch-{}-{}",
+            std::process::id(),
+            super::unix_timestamp_secs()
+        ));
+        let client_name = current_platform_client_binary_name();
+        let version_root = root.join("versions").join("0.5.7");
+        let version_client = version_root.join(&client_name);
+        let plugin_cache = version_root.join("plugin-cache").join("LoomleBridge");
+        fs::create_dir_all(&plugin_cache).expect("plugin cache");
+        fs::write(plugin_cache.join("LoomleBridge.uplugin"), "{}\n").expect("uplugin");
+        fs::write(&version_client, "test-binary\n").expect("version client");
+
+        let switched = switch_to_installed_version(&root, "v0.5.7").expect("switch");
+        assert!(switched);
+        assert_eq!(
+            fs::read_to_string(root.join("bin").join(&client_name)).expect("launcher"),
+            "test-binary\n"
+        );
+        let active = fs::read_to_string(root.join("install").join("active.json")).expect("active");
+        assert!(active.contains("\"activeVersion\": \"0.5.7\""));
+        let _ = fs::remove_dir_all(root);
     }
 
     fn online_project(project_root: &str) -> RuntimeProject {
@@ -4636,7 +4966,10 @@ mod tests {
     #[test]
     fn material_query_schema_has_openai_compatible_top_level() {
         let schema = material_query_schema();
-        assert_eq!(schema.get("type").and_then(|value| value.as_str()), Some("object"));
+        assert_eq!(
+            schema.get("type").and_then(|value| value.as_str()),
+            Some("object")
+        );
         for keyword in ["oneOf", "anyOf", "allOf", "enum", "not"] {
             assert!(
                 !schema.contains_key(keyword),
@@ -4688,7 +5021,10 @@ mod tests {
     #[test]
     fn pcg_query_schema_has_openai_compatible_top_level() {
         let schema = pcg_query_schema();
-        assert_eq!(schema.get("type").and_then(|value| value.as_str()), Some("object"));
+        assert_eq!(
+            schema.get("type").and_then(|value| value.as_str()),
+            Some("object")
+        );
         for keyword in ["oneOf", "anyOf", "allOf", "enum", "not"] {
             assert!(
                 !schema.contains_key(keyword),
