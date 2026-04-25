@@ -105,7 +105,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
         TEXT("blueprint.list"), TEXT("blueprint.query"), TEXT("blueprint.mutate"), TEXT("blueprint.verify"), TEXT("blueprint.describe"),
         TEXT("material.list"), TEXT("material.query"), TEXT("material.mutate"), TEXT("material.verify"), TEXT("material.describe"),
         TEXT("pcg.list"), TEXT("pcg.query"), TEXT("pcg.mutate"), TEXT("pcg.verify"), TEXT("pcg.describe"),
-        TEXT("diag.tail"),
+        TEXT("diagnostic.tail"), TEXT("log.tail"),
         TEXT("widget.query"), TEXT("widget.mutate"), TEXT("widget.verify"), TEXT("widget.describe")
     }));
 
@@ -172,7 +172,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcInvokeResult(
         {
             DiagContext->SetStringField(TEXT("domainCode"), DomainCode);
         }
-        AppendDiagEvent(TEXT("error"), TEXT("runtime"), ToolName, Message, DiagContext);
+        AppendDiagnosticEvent(TEXT("error"), TEXT("runtime"), ToolName, Message, DiagContext);
 
         bOutHasError = true;
         OutErrorCode = MapToolErrorCode(DomainCode);
@@ -242,7 +242,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
 
         bOutIsError = true;
         const TSharedPtr<FJsonObject> TimeoutContext = BuildGameThreadTimeoutContext(TEXT("tool"), Name, static_cast<int32>(GameThreadTimeoutMs));
-        AppendDiagEvent(TEXT("error"), TEXT("runtime"), Name, TEXT("Tool execution timed out on the game thread."), TimeoutContext);
+        AppendDiagnosticEvent(TEXT("error"), TEXT("runtime"), Name, TEXT("Tool execution timed out on the game thread."), TimeoutContext);
         Payload = MakeShared<FJsonObject>();
         Payload->SetStringField(TEXT("code"), TEXT("EXECUTION_TIMEOUT"));
         Payload->SetStringField(TEXT("message"), TEXT("EXECUTION_TIMEOUT"));
@@ -346,9 +346,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     {
         Payload = BuildProfilingToolResult(Arguments);
     }
-    else if (Name.Equals(LoomleBridgeConstants::DiagTailToolName))
+    else if (Name.Equals(LoomleBridgeConstants::DiagnosticTailToolName))
     {
-        Payload = BuildDiagTailToolResult(Arguments);
+        Payload = BuildDiagnosticTailToolResult(Arguments);
+    }
+    else if (Name.Equals(LoomleBridgeConstants::LogTailToolName))
+    {
+        Payload = BuildLogTailToolResult(Arguments);
     }
     else if (Name.Equals(TEXT("widget.query")))
     {

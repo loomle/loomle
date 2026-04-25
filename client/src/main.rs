@@ -7,13 +7,14 @@ use loomle::{
 };
 use rmcp::{
     model::{
-        CallToolRequestParams, CallToolResult, Implementation, ListToolsResult,
-        PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
+        CallToolRequestParams, CallToolResult, CustomNotification, Implementation, ListToolsResult,
+        PaginatedRequestParams, ServerCapabilities, ServerInfo, ServerNotification, Tool,
     },
     service::RequestContext,
     transport::stdio,
     ErrorData as McpError, RoleServer, ServerHandler, ServiceExt,
 };
+use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
 use std::fs;
@@ -21,7 +22,10 @@ use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::process::{Command, ExitStatus, Stdio};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Arc,
+};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 
@@ -281,6 +285,9 @@ fn exit_code_from_status(status: ExitStatus) -> ExitCode {
 struct LoomleProxyServer {
     session_cwd: Option<PathBuf>,
     env_info: Mutex<Option<Arc<Environment>>>,
+    next_subscription_id: AtomicU64,
+    log_subscriptions: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    diagnostic_watcher_cancelled: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 impl LoomleProxyServer {
@@ -288,6 +295,9 @@ impl LoomleProxyServer {
         Self {
             session_cwd: env::current_dir().ok(),
             env_info: Mutex::new(env_info.map(Arc::new)),
+            next_subscription_id: AtomicU64::new(1),
+            log_subscriptions: Mutex::new(HashMap::new()),
+            diagnostic_watcher_cancelled: Mutex::new(None),
         }
     }
 
@@ -389,8 +399,143 @@ impl LoomleProxyServer {
         }
     }
 
+    async fn ensure_diagnostic_watcher(&self, peer: rmcp::service::Peer<RoleServer>) {
+        {
+            let guard = self.diagnostic_watcher_cancelled.lock().await;
+            if guard.is_some() {
+                return;
+            }
+        }
+
+        let Ok(env_info) = self.attached_env_info().await else {
+            return;
+        };
+
+        let mut guard = self.diagnostic_watcher_cancelled.lock().await;
+        if guard.is_some() {
+            return;
+        }
+
+        let cancelled = Arc::new(AtomicBool::new(false));
+        *guard = Some(cancelled.clone());
+        tokio::spawn(run_tail_notification_watcher(
+            env_info,
+            peer,
+            "diagnostic.tail".to_string(),
+            "notifications/loomle/diagnostic".to_string(),
+            None,
+            serde_json::Map::new(),
+            cancelled,
+        ));
+    }
+
+    async fn call_log_subscribe(
+        &self,
+        args: rmcp::model::JsonObject,
+        peer: rmcp::service::Peer<RoleServer>,
+    ) -> CallToolResult {
+        let action = args
+            .get("action")
+            .and_then(|value| value.as_str())
+            .unwrap_or("subscribe")
+            .to_ascii_lowercase();
+        let subscription_id = args
+            .get("subscriptionId")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+
+        if action == "unsubscribe" {
+            let Some(subscription_id) = subscription_id else {
+                return invalid_argument_result("subscriptionId is required for unsubscribe");
+            };
+            let mut subscriptions = self.log_subscriptions.lock().await;
+            if let Some(cancelled) = subscriptions.remove(&subscription_id) {
+                cancelled.store(true, Ordering::Relaxed);
+            }
+            return structured_result(serde_json::json!({
+                "subscriptionId": subscription_id,
+                "active": false
+            }));
+        }
+
+        if action != "subscribe" && action != "update" {
+            return invalid_argument_result("action must be subscribe, update, or unsubscribe");
+        }
+
+        let env_info = match self.ensure_runtime_ready().await {
+            Ok(env_info) => env_info,
+            Err(reason) => return bridge_unavailable_result(&reason),
+        };
+
+        let subscription_id = subscription_id.unwrap_or_else(|| {
+            format!(
+                "log_{}",
+                self.next_subscription_id.fetch_add(1, Ordering::Relaxed)
+            )
+        });
+        let filters = args
+            .get("filters")
+            .and_then(|value| value.as_object())
+            .cloned()
+            .unwrap_or_default();
+        let max_per_second = args
+            .get("maxPerSecond")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(20)
+            .clamp(1, 100);
+
+        let mut subscriptions = self.log_subscriptions.lock().await;
+        if let Some(previous) = subscriptions.remove(&subscription_id) {
+            previous.store(true, Ordering::Relaxed);
+        }
+
+        let cancelled = Arc::new(AtomicBool::new(false));
+        subscriptions.insert(subscription_id.clone(), cancelled.clone());
+        drop(subscriptions);
+
+        let mut base_args = serde_json::Map::new();
+        if !filters.is_empty() {
+            base_args.insert(
+                "filters".to_string(),
+                serde_json::Value::Object(filters.clone()),
+            );
+        }
+        base_args.insert("limit".to_string(), serde_json::json!(max_per_second));
+
+        let from_seq = current_tail_high_watermark(&env_info, "log.tail", &base_args)
+            .await
+            .unwrap_or(0);
+
+        tokio::spawn(run_tail_notification_watcher(
+            env_info,
+            peer,
+            "log.tail".to_string(),
+            "notifications/loomle/log".to_string(),
+            Some(subscription_id.clone()),
+            base_args,
+            cancelled,
+        ));
+
+        structured_result(serde_json::json!({
+            "subscriptionId": subscription_id,
+            "active": true,
+            "fromSeq": from_seq,
+            "filters": filters,
+            "maxPerSecond": max_per_second
+        }))
+    }
+
     async fn attach_project(&self, project: RuntimeProject) {
         let env_info = Environment::for_project_root(project.project_root);
+        if let Some(cancelled) = self.diagnostic_watcher_cancelled.lock().await.take() {
+            cancelled.store(true, Ordering::Relaxed);
+        }
+        let mut log_subscriptions = self.log_subscriptions.lock().await;
+        for (_, cancelled) in log_subscriptions.drain() {
+            cancelled.store(true, Ordering::Relaxed);
+        }
+        drop(log_subscriptions);
         *self.env_info.lock().await = Some(Arc::new(env_info));
     }
 
@@ -445,10 +590,16 @@ impl ServerHandler for LoomleProxyServer {
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         if is_local_tool(request.name.as_ref()) {
             return Ok(self.call_pre_attach_tool(request).await);
+        }
+        self.ensure_diagnostic_watcher(context.peer.clone()).await;
+        if request.name.as_ref() == "log.subscribe" {
+            return Ok(self
+                .call_log_subscribe(request.arguments.unwrap_or_default(), context.peer)
+                .await);
         }
         if let Some(result) = self
             .call_public_blueprint_tool(
@@ -968,6 +1119,85 @@ fn invalid_argument_result(message: impl Into<String>) -> CallToolResult {
         "message": message.into(),
         "retryable": false,
     }))
+}
+
+async fn current_tail_high_watermark(
+    env_info: &Environment,
+    tool_name: &str,
+    base_args: &serde_json::Map<String, serde_json::Value>,
+) -> Option<u64> {
+    let mut args = base_args.clone();
+    args.insert("fromSeq".to_string(), serde_json::json!(0));
+    args.insert("limit".to_string(), serde_json::json!(1));
+    let payload = rpc_invoke(env_info, tool_name, args).await.ok()?;
+    payload
+        .get("highWatermark")
+        .and_then(|value| value.as_u64())
+}
+
+async fn run_tail_notification_watcher(
+    env_info: Arc<Environment>,
+    peer: rmcp::service::Peer<RoleServer>,
+    tool_name: String,
+    notification_method: String,
+    subscription_id: Option<String>,
+    base_args: serde_json::Map<String, serde_json::Value>,
+    cancelled: Arc<AtomicBool>,
+) {
+    let mut from_seq = current_tail_high_watermark(&env_info, &tool_name, &base_args)
+        .await
+        .unwrap_or(0);
+
+    while !cancelled.load(Ordering::Relaxed) {
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        if cancelled.load(Ordering::Relaxed) {
+            break;
+        }
+
+        let mut args = base_args.clone();
+        args.insert("fromSeq".to_string(), serde_json::json!(from_seq));
+        let payload = match rpc_invoke(&env_info, &tool_name, args).await {
+            Ok(payload) => payload,
+            Err(_) => continue,
+        };
+
+        if let Some(next_seq) = payload.get("nextSeq").and_then(|value| value.as_u64()) {
+            from_seq = next_seq;
+        }
+
+        let Some(items) = payload.get("items").and_then(|value| value.as_array()) else {
+            continue;
+        };
+
+        for item in items {
+            if cancelled.load(Ordering::Relaxed) {
+                break;
+            }
+
+            let mut params = item.as_object().cloned().unwrap_or_default();
+            if let Some(subscription_id) = &subscription_id {
+                params.insert(
+                    "subscriptionId".to_string(),
+                    serde_json::Value::String(subscription_id.clone()),
+                );
+                params.insert(
+                    "store".to_string(),
+                    serde_json::Value::String("log".to_string()),
+                );
+            } else {
+                params.insert(
+                    "store".to_string(),
+                    serde_json::Value::String("diagnostic".to_string()),
+                );
+            }
+
+            let notification = ServerNotification::CustomNotification(CustomNotification::new(
+                notification_method.clone(),
+                Some(serde_json::Value::Object(params)),
+            ));
+            let _ = peer.send_notification(notification).await;
+        }
+    }
 }
 
 fn read_required_asset_path(
@@ -2221,7 +2451,9 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("pcg.mutate", "Apply a batch of write operations to a PCG graph.", Arc::new(pcg_mutate_schema())),
         Tool::new("pcg.verify", "Run read-only validation for a PCG graph.", Arc::new(asset_path_only_schema("PCG graph asset path."))),
         Tool::new("pcg.describe", "Describe a PCG settings class or instance.", Arc::new(pcg_describe_schema())),
-        Tool::new("diag.tail", "Read persisted diagnostics incrementally by sequence cursor.", Arc::new(diag_tail_schema())),
+        Tool::new("diagnostic.tail", "Read persisted structured diagnostics incrementally by sequence cursor.", Arc::new(diagnostic_tail_schema())),
+        Tool::new("log.tail", "Read persisted Unreal output log events incrementally by sequence cursor.", Arc::new(log_tail_schema())),
+        Tool::new("log.subscribe", "Subscribe, update, or unsubscribe filtered Unreal output log notifications.", Arc::new(log_subscribe_schema())),
         Tool::new("widget.query", "Read the UMG WidgetTree of a WidgetBlueprint asset.", Arc::new(widget_query_schema())),
         Tool::new("widget.mutate", "Apply structural write operations to the UMG WidgetTree of a WidgetBlueprint asset.", Arc::new(widget_mutate_schema())),
         Tool::new("widget.verify", "Compile a WidgetBlueprint and return diagnostics.", Arc::new(asset_path_only_schema("WidgetBlueprint asset path."))),
@@ -3483,11 +3715,73 @@ fn pcg_describe_schema() -> rmcp::model::JsonObject {
     }))
 }
 
-fn diag_tail_schema() -> rmcp::model::JsonObject {
+fn diagnostic_tail_schema() -> rmcp::model::JsonObject {
     schema_from_value(serde_json::json!({
         "type":"object",
         "properties":{
-            "cursor":{"type":"integer"}
+            "fromSeq":{"type":"integer","minimum":0,"default":0},
+            "limit":{"type":"integer","minimum":1,"maximum":1000,"default":200},
+            "filters":{
+                "type":"object",
+                "properties":{
+                    "severity":{"type":"string"},
+                    "category":{"type":"string"},
+                    "source":{"type":"string"},
+                    "assetPathPrefix":{"type":"string"}
+                },
+                "additionalProperties": false
+            }
+        },
+        "additionalProperties": false
+    }))
+}
+
+fn log_tail_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "fromSeq":{"type":"integer","minimum":0,"default":0},
+            "limit":{"type":"integer","minimum":1,"maximum":1000,"default":200},
+            "filters":{
+                "type":"object",
+                "properties":{
+                    "minVerbosity":{"type":"string"},
+                    "category":{"type":"string"},
+                    "categories":{
+                        "type":"array",
+                        "items":{"type":"string"}
+                    },
+                    "source":{"type":"string"},
+                    "contains":{"type":"string"}
+                },
+                "additionalProperties": false
+            }
+        },
+        "additionalProperties": false
+    }))
+}
+
+fn log_subscribe_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "action":{"type":"string","default":"subscribe"},
+            "subscriptionId":{"type":"string"},
+            "filters":{
+                "type":"object",
+                "properties":{
+                    "minVerbosity":{"type":"string"},
+                    "category":{"type":"string"},
+                    "categories":{
+                        "type":"array",
+                        "items":{"type":"string"}
+                    },
+                    "source":{"type":"string"},
+                    "contains":{"type":"string"}
+                },
+                "additionalProperties": false
+            },
+            "maxPerSecond":{"type":"integer","minimum":1,"maximum":100,"default":20}
         },
         "additionalProperties": false
     }))
@@ -4641,7 +4935,7 @@ mod tests {
     use super::{
         compare_semver, compile_blueprint_refactor_request, current_platform_client_binary_name,
         infer_attached_project_root, material_query_schema, pcg_query_schema,
-        switch_to_installed_version, translate_blueprint_graph_edit_args,
+        runtime_declared_tools, switch_to_installed_version, translate_blueprint_graph_edit_args,
         translate_material_query_args, translate_pcg_query_args, Cli, RuntimeProject,
     };
     use rmcp::model::JsonObject;
@@ -5031,5 +5325,18 @@ mod tests {
                 "pcg.query schema should not expose top-level {keyword}"
             );
         }
+    }
+
+    #[test]
+    fn diagnostic_and_log_tools_are_declared() {
+        let tool_names = runtime_declared_tools()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        assert!(tool_names.contains("diagnostic.tail"));
+        assert!(tool_names.contains("log.tail"));
+        assert!(tool_names.contains("log.subscribe"));
+        assert!(!tool_names.contains("diag.tail"));
     }
 }

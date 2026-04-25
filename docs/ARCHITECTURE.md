@@ -58,7 +58,9 @@ MCP tools:
 - `graph.query`
 - `graph.mutate`
 - `graph.verify`
-- `diag.tail`
+- `diagnostic.tail`
+- `log.tail`
+- `log.subscribe`
 
 Execution route:
 
@@ -80,7 +82,9 @@ Execution route:
 - `graph.query`: native MCP `tools/call`.
 - `graph.mutate`: native MCP `tools/call`.
 - `graph.verify`: native MCP `tools/call`.
-- `diag.tail`: native MCP `tools/call`.
+- `diagnostic.tail`: native MCP `tools/call`.
+- `log.tail`: native MCP `tools/call`.
+- `log.subscribe`: native MCP `tools/call`; manages filtered `notifications/loomle/log` streams without adding a separate unsubscribe tool.
 
 Windows transport contention handling:
 

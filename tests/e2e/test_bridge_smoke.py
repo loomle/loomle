@@ -43,7 +43,9 @@ REQUIRED_TOOLS = {
     "pcg.mutate",
     "pcg.verify",
     "pcg.describe",
-    "diag.tail",
+    "diagnostic.tail",
+    "log.tail",
+    "log.subscribe",
     "context",
     "jobs",
     "editor.open",
@@ -3221,23 +3223,62 @@ def main() -> int:
             fail(f"loomle rpc health not ready: {loomle_payload}")
         print("[PASS] loomle status query succeeded")
 
-        diag_payload = call_tool(client, 31, "diag.tail", {"fromSeq": 0, "limit": 10})
-        items = diag_payload.get("items")
+        diagnostic_payload = call_tool(client, 31, "diagnostic.tail", {"fromSeq": 0, "limit": 10})
+        items = diagnostic_payload.get("items")
         if not isinstance(items, list):
-            fail(f"diag.tail missing items[]: {diag_payload}")
-        next_seq = diag_payload.get("nextSeq")
-        high_watermark = diag_payload.get("highWatermark")
+            fail(f"diagnostic.tail missing items[]: {diagnostic_payload}")
+        next_seq = diagnostic_payload.get("nextSeq")
+        high_watermark = diagnostic_payload.get("highWatermark")
         if not isinstance(next_seq, int) or next_seq < 0:
-            fail(f"diag.tail invalid nextSeq: {diag_payload}")
+            fail(f"diagnostic.tail invalid nextSeq: {diagnostic_payload}")
         if not isinstance(high_watermark, int) or high_watermark < 0:
-            fail(f"diag.tail invalid highWatermark: {diag_payload}")
-        if not isinstance(diag_payload.get("hasMore"), bool):
-            fail(f"diag.tail invalid hasMore: {diag_payload}")
-        print("[PASS] diag.tail is available")
+            fail(f"diagnostic.tail invalid highWatermark: {diagnostic_payload}")
+        if not isinstance(diagnostic_payload.get("hasMore"), bool):
+            fail(f"diagnostic.tail invalid hasMore: {diagnostic_payload}")
+        print("[PASS] diagnostic.tail is available")
+
+        log_payload = call_tool(client, 32, "log.tail", {"fromSeq": 0, "limit": 10})
+        log_items = log_payload.get("items")
+        if not isinstance(log_items, list):
+            fail(f"log.tail missing items[]: {log_payload}")
+        log_next_seq = log_payload.get("nextSeq")
+        log_high_watermark = log_payload.get("highWatermark")
+        if not isinstance(log_next_seq, int) or log_next_seq < 0:
+            fail(f"log.tail invalid nextSeq: {log_payload}")
+        if not isinstance(log_high_watermark, int) or log_high_watermark < 0:
+            fail(f"log.tail invalid highWatermark: {log_payload}")
+        if not isinstance(log_payload.get("hasMore"), bool):
+            fail(f"log.tail invalid hasMore: {log_payload}")
+        print("[PASS] log.tail is available")
+
+        log_subscribe_payload = call_tool(
+            client,
+            33,
+            "log.subscribe",
+            {
+                "action": "subscribe",
+                "filters": {"minVerbosity": "Warning", "categories": ["LogBlueprint", "LogPython"]},
+                "maxPerSecond": 5,
+            },
+        )
+        subscription_id = log_subscribe_payload.get("subscriptionId")
+        if not isinstance(subscription_id, str) or not subscription_id:
+            fail(f"log.subscribe missing subscriptionId: {log_subscribe_payload}")
+        if log_subscribe_payload.get("active") is not True:
+            fail(f"log.subscribe did not return active subscription: {log_subscribe_payload}")
+        log_unsubscribe_payload = call_tool(
+            client,
+            34,
+            "log.subscribe",
+            {"action": "unsubscribe", "subscriptionId": subscription_id},
+        )
+        if log_unsubscribe_payload.get("active") is not False:
+            fail(f"log.subscribe unsubscribe did not deactivate subscription: {log_unsubscribe_payload}")
+        print("[PASS] log.subscribe subscribe/unsubscribe is available")
 
         _ = call_execute_exec_with_retry(
             client=client,
-            req_id_base=4,
+            req_id_base=50,
             code="import unreal\nunreal.log('loomle execute verify')",
         )
         print("[PASS] execute channel is available")

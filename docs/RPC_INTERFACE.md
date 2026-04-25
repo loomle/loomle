@@ -119,7 +119,7 @@ Result:
 {
   "rpcVersion": "1.0",
   "methods": ["rpc.health", "rpc.capabilities", "rpc.invoke"],
-  "tools": ["context", "execute", "jobs", "profiling", "editor.open", "editor.focus", "editor.screenshot", "graph.list", "graph.resolve", "graph.query", "graph.verify", "graph.mutate", "diag.tail"],
+  "tools": ["context", "execute", "jobs", "profiling", "editor.open", "editor.focus", "editor.screenshot", "graph.list", "graph.resolve", "graph.query", "graph.verify", "graph.mutate", "diagnostic.tail", "log.tail"],
   "graphTypes": ["blueprint", "material", "pcg"],
   "features": {
     "revision": true,
@@ -138,7 +138,7 @@ Request params:
 
 ```json
 {
-  "tool": "context|execute|jobs|profiling|editor.open|editor.focus|editor.screenshot|graph.list|graph.resolve|graph.query|graph.verify|graph.mutate|diag.tail",
+  "tool": "context|execute|jobs|profiling|editor.open|editor.focus|editor.screenshot|graph.list|graph.resolve|graph.query|graph.verify|graph.mutate|diagnostic.tail|log.tail",
   "args": {},
   "meta": {
     "requestId": "external-id",
@@ -713,7 +713,7 @@ Field notes:
 ```
 
 
-## 5.11 tool=`diag.tail`
+## 5.11 tool=`diagnostic.tail`
 
 `args`:
 
@@ -744,8 +744,9 @@ Field notes:
 Storage note:
 
 - Events are persisted under the Unreal project saved directory, currently
-  `Saved/Loomle/diag/diag.jsonl`.
-- Current v1 sources include UE log warnings/errors and Blueprint compile failures.
+  `Saved/Loomle/diagnostics/diagnostics.jsonl`.
+- Diagnostics are stable, low-volume events such as tool failures, validation errors,
+  and compile failures. Raw Unreal Output Log events belong to `log.tail`.
 
 Cursor semantics:
 
@@ -755,6 +756,43 @@ Cursor semantics:
 - `nextSeq` equals the last returned event `seq`, or echoes `fromSeq` when `items` is empty.
 - `hasMore=true` means more matching events are available after the returned page.
 - `highWatermark` is the latest observed sequence at read time.
+
+## 5.12 tool=`log.tail`
+
+`args`:
+
+```json
+{
+  "fromSeq": 0,
+  "limit": 200,
+  "filters": {
+    "minVerbosity": "Warning",
+    "categories": ["LogBlueprint", "LogPython"],
+    "source": "unreal_output_log",
+    "contains": "Compiler"
+  }
+}
+```
+
+`payload`:
+
+```json
+{
+  "items": [],
+  "nextSeq": 0,
+  "hasMore": false,
+  "highWatermark": 0
+}
+```
+
+Storage note:
+
+- Events are persisted under the Unreal project saved directory, currently
+  `Saved/Loomle/logs/logs.jsonl`.
+- Logs are a high-volume evidence stream. Tools should prefer `diagnostic.tail`
+  for default agent context and call `log.tail` only when detailed evidence is needed.
+
+Cursor semantics match `diagnostic.tail`.
 
 ## 6. Error Codes
 

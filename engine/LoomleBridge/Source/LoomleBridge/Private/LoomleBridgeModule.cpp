@@ -157,7 +157,8 @@ namespace LoomleBridgeConstants
     static const TCHAR* BlueprintQueryToolName = TEXT("blueprint.query");
     static const TCHAR* MaterialQueryToolName = TEXT("material.query");
     static const TCHAR* PcgQueryToolName = TEXT("pcg.query");
-    static const TCHAR* DiagTailToolName = TEXT("diag.tail");
+    static const TCHAR* DiagnosticTailToolName = TEXT("diagnostic.tail");
+    static const TCHAR* LogTailToolName = TEXT("log.tail");
     constexpr int32 ProtocolVersion = 1;
     constexpr double MutateIdempotencyTtlSeconds = 1800.0;
     constexpr int32 MaxMutateIdempotencyEntries = 2048;
@@ -396,10 +397,10 @@ TSharedPtr<FJsonObject> BuildGameThreadTimeoutContext(const FString& Scope, cons
     return Context;
 }
 
-class FLoomleDiagLogCaptureOutputDevice final : public FOutputDevice
+class FLoomleLogCaptureOutputDevice final : public FOutputDevice
 {
 public:
-    explicit FLoomleDiagLogCaptureOutputDevice(TFunction<void(const FString&, ELogVerbosity::Type, const FName&)>&& InOnLine)
+    explicit FLoomleLogCaptureOutputDevice(TFunction<void(const FString&, ELogVerbosity::Type, const FName&)>&& InOnLine)
         : OnLine(MoveTemp(InOnLine))
     {
     }
@@ -416,15 +417,7 @@ public:
             return;
         }
 
-        const ELogVerbosity::Type VerbosityMask = static_cast<ELogVerbosity::Type>(Verbosity & ELogVerbosity::VerbosityMask);
-        if (VerbosityMask != ELogVerbosity::Warning
-            && VerbosityMask != ELogVerbosity::Error
-            && VerbosityMask != ELogVerbosity::Fatal)
-        {
-            return;
-        }
-
-        OnLine(FString(V).TrimStartAndEnd(), VerbosityMask, Category);
+        OnLine(FString(V).TrimStartAndEnd(), static_cast<ELogVerbosity::Type>(Verbosity & ELogVerbosity::VerbosityMask), Category);
     }
 
 private:
@@ -4067,15 +4060,16 @@ void FLoomleBridgeModule::StartupModule()
     }
 
     UpdateHealthSnapshot();
-    InitializeDiagStore();
-    if (GLog != nullptr && DiagLogOutputDevice == nullptr)
+    InitializeDiagnosticStore();
+    InitializeLogStore();
+    if (GLog != nullptr && LogCaptureOutputDevice == nullptr)
     {
-        DiagLogOutputDevice = new FLoomleDiagLogCaptureOutputDevice(
+        LogCaptureOutputDevice = new FLoomleLogCaptureOutputDevice(
             [this](const FString& Message, ELogVerbosity::Type Verbosity, const FName& Category)
             {
                 HandleLogLine(Message, Verbosity, Category);
             });
-        GLog->AddOutputDevice(DiagLogOutputDevice);
+        GLog->AddOutputDevice(LogCaptureOutputDevice);
     }
     if (GEditor != nullptr && !BlueprintCompiledHandle.IsValid())
     {
@@ -4120,14 +4114,14 @@ void FLoomleBridgeModule::ShutdownModule()
         }
         BlueprintCompiledHandle.Reset();
     }
-    if (DiagLogOutputDevice != nullptr)
+    if (LogCaptureOutputDevice != nullptr)
     {
         if (GLog != nullptr)
         {
-            GLog->RemoveOutputDevice(DiagLogOutputDevice);
+            GLog->RemoveOutputDevice(LogCaptureOutputDevice);
         }
-        delete DiagLogOutputDevice;
-        DiagLogOutputDevice = nullptr;
+        delete LogCaptureOutputDevice;
+        LogCaptureOutputDevice = nullptr;
     }
 
     if (HealthSnapshotTickerHandle.IsValid())

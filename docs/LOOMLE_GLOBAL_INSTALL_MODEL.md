@@ -269,7 +269,8 @@ material.*
 pcg.*
 editor.*
 jobs
-diag.*
+diagnostic.*
+log.*
 ```
 
 These tools execute against the session-attached project only.

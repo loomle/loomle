@@ -214,7 +214,7 @@ FString DetermineBlueprintVerifyStatus(const TArray<TSharedPtr<FJsonValue>>& Dia
     return bHasWarning ? TEXT("warn") : TEXT("ok");
 }
 
-TSharedPtr<FJsonObject> MakeBlueprintRecentDiagEventDiagnostic(const TSharedPtr<FJsonObject>& Event)
+TSharedPtr<FJsonObject> MakeBlueprintRecentDiagnosticEvent(const TSharedPtr<FJsonObject>& Event)
 {
     if (!Event.IsValid())
     {
@@ -234,10 +234,15 @@ TSharedPtr<FJsonObject> MakeBlueprintRecentDiagEventDiagnostic(const TSharedPtr<
     Event->TryGetStringField(TEXT("ts"), Timestamp);
 
     TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
-    Diagnostic->SetStringField(TEXT("code"), TEXT("RECENT_LOG_EVENT"));
+    Diagnostic->SetStringField(TEXT("code"), TEXT("RECENT_DIAGNOSTIC_EVENT"));
     Diagnostic->SetStringField(TEXT("severity"), Severity.IsEmpty() ? TEXT("error") : Severity.ToLower());
     Diagnostic->SetStringField(TEXT("message"), Message);
-    Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("log"));
+    Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("diagnostic"));
+    FString Source;
+    if (Event->TryGetStringField(TEXT("source"), Source) && !Source.IsEmpty())
+    {
+        Diagnostic->SetStringField(TEXT("source"), Source);
+    }
     if (!Timestamp.IsEmpty())
     {
         Diagnostic->SetStringField(TEXT("timestamp"), Timestamp);
@@ -3665,15 +3670,15 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintVerifyToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
-    if (!bDiagStoreInitialized)
+    if (!bDiagnosticStoreInitialized)
     {
-        InitializeDiagStore();
+        InitializeDiagnosticStore();
     }
 
-    uint64 DiagSeqBeforeVerify = 0;
+    uint64 DiagnosticSeqBeforeVerify = 0;
     {
-        FScopeLock Lock(&DiagStoreMutex);
-        DiagSeqBeforeVerify = NextDiagSeq > 0 ? (NextDiagSeq - 1) : 0;
+        FScopeLock Lock(&DiagnosticStoreMutex);
+        DiagnosticSeqBeforeVerify = NextDiagnosticSeq > 0 ? (NextDiagnosticSeq - 1) : 0;
     }
 
     FString RequestedAssetPath;
@@ -3683,18 +3688,18 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintVerifyToolResult(cons
         RequestedAssetPath = NormalizeAssetPath(RequestedAssetPath);
     }
 
-    auto ReadRecentBlueprintVerifyDiagEvents = [&](const uint64 FromSeq, const FString& AssetPath) -> TArray<TSharedPtr<FJsonValue>>
+    auto ReadRecentBlueprintVerifyDiagnosticEvents = [&](const uint64 FromSeq, const FString& AssetPath) -> TArray<TSharedPtr<FJsonValue>>
     {
         TArray<TSharedPtr<FJsonValue>> Items;
 
-        FScopeLock Lock(&DiagStoreMutex);
+        FScopeLock Lock(&DiagnosticStoreMutex);
         TArray<FString> Lines;
-        if (DiagStoreFilePath.IsEmpty() || !FPaths::FileExists(DiagStoreFilePath))
+        if (DiagnosticStoreFilePath.IsEmpty() || !FPaths::FileExists(DiagnosticStoreFilePath))
         {
             return Items;
         }
 
-        FFileHelper::LoadFileToStringArray(Lines, *DiagStoreFilePath);
+        FFileHelper::LoadFileToStringArray(Lines, *DiagnosticStoreFilePath);
         for (const FString& Line : Lines)
         {
             if (Line.TrimStartAndEnd().IsEmpty())
@@ -3840,8 +3845,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintVerifyToolResult(cons
         AppendUniqueBlueprintDiagnostic(Diagnostics, SeenDiagnosticKeys, CompileFailureDiagnostic);
     }
 
-    const TArray<TSharedPtr<FJsonValue>> RecentDiagEvents = ReadRecentBlueprintVerifyDiagEvents(DiagSeqBeforeVerify, AssetPath.IsEmpty() ? RequestedAssetPath : AssetPath);
-    for (const TSharedPtr<FJsonValue>& EventValue : RecentDiagEvents)
+    const TArray<TSharedPtr<FJsonValue>> RecentDiagnosticEvents = ReadRecentBlueprintVerifyDiagnosticEvents(DiagnosticSeqBeforeVerify, AssetPath.IsEmpty() ? RequestedAssetPath : AssetPath);
+    for (const TSharedPtr<FJsonValue>& EventValue : RecentDiagnosticEvents)
     {
         const TSharedPtr<FJsonObject>* Event = nullptr;
         if (!EventValue.IsValid() || !EventValue->TryGetObject(Event) || Event == nullptr || !(*Event).IsValid())
@@ -3849,7 +3854,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintVerifyToolResult(cons
             continue;
         }
 
-        const TSharedPtr<FJsonObject> Diagnostic = MakeBlueprintRecentDiagEventDiagnostic(*Event);
+        const TSharedPtr<FJsonObject> Diagnostic = MakeBlueprintRecentDiagnosticEvent(*Event);
         AppendUniqueBlueprintDiagnostic(CompileDiagnostics, SeenCompileDiagnosticKeys, Diagnostic);
         AppendUniqueBlueprintDiagnostic(Diagnostics, SeenDiagnosticKeys, Diagnostic);
     }
@@ -3862,7 +3867,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintVerifyToolResult(cons
             ? (Diagnostics.Num() > 0
                 ? TEXT("Blueprint verification completed with compile-backed confirmation and surfaced diagnostics.")
                 : TEXT("Blueprint verification succeeded with compile-backed confirmation."))
-            : (RecentDiagEvents.Num() > 0
+            : (RecentDiagnosticEvents.Num() > 0
                 ? TEXT("Blueprint verification failed during compile-backed confirmation and captured recent Unreal diagnostic events.")
                 : (Diagnostics.Num() > 0
                     ? TEXT("Blueprint verification failed during compile-backed confirmation but did surface follow-up diagnostics.")
@@ -3879,7 +3884,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintVerifyToolResult(cons
     CompileReport->SetBoolField(TEXT("partialApplied"), bPartialApplied);
     CompileReport->SetArrayField(TEXT("opResults"), OpResults);
     CompileReport->SetArrayField(TEXT("diagnostics"), CompileDiagnostics);
-    CompileReport->SetArrayField(TEXT("recentEvents"), RecentDiagEvents);
+    CompileReport->SetArrayField(TEXT("recentEvents"), RecentDiagnosticEvents);
     if (!MutateCode.IsEmpty())
     {
         CompileReport->SetStringField(TEXT("code"), MutateCode);

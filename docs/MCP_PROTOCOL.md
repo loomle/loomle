@@ -53,7 +53,9 @@ Graph mutate note:
 - `widget.mutate`
 - `widget.verify`
 - `widget.describe`
-- `diag.tail`
+- `diagnostic.tail`
+- `log.tail`
+- `log.subscribe`
 
 ## 4. MCP Tool Contracts
 
@@ -480,7 +482,7 @@ Execution rule:
 
 ## 4.7 Runtime Tools
 
-For `jobs`, `profiling`, `editor.open`, `editor.focus`, `editor.screenshot`, `graph.list`, `graph.resolve`, `graph.query`, `graph.verify`, `graph.mutate`, `widget.query`, `widget.mutate`, `widget.verify`, `widget.describe`, `diag.tail`:
+For `jobs`, `profiling`, `editor.open`, `editor.focus`, `editor.screenshot`, `graph.list`, `graph.resolve`, `graph.query`, `graph.verify`, `graph.mutate`, `widget.query`, `widget.mutate`, `widget.verify`, `widget.describe`, `diagnostic.tail`, `log.tail`:
 
 - Input/output schemas are exposed directly through MCP `tools/list` and should be treated as the live contract.
 - `RPC_INTERFACE.md` section 5 documents the same tool payloads at the Unreal RPC boundary.
@@ -590,7 +592,7 @@ Execution rule:
 - Only editor-visible (`CPF_Edit`) or Blueprint-accessible (`CPF_BlueprintVisible`) properties with a non-empty `Category` metadata are included. Internal C++ properties are excluded.
 - Property names returned here map directly to the `property` field in `widget.mutate setProperty` ops.
 
-## 4.9 `diag.tail`
+## 4.9 `diagnostic.tail`
 
 Input schema:
 
@@ -635,12 +637,81 @@ Output schema:
 
 Execution rule:
 
-- Forward via `rpc.invoke` with `tool=diag.tail`.
+- Forward via `rpc.invoke` with `tool=diagnostic.tail`.
 - `fromSeq` is exclusive: returned events satisfy `seq > fromSeq`.
 - `fromSeq` must be a non-negative integer, otherwise returns `INVALID_ARGUMENT`.
 - `limit` must be `>= 1`; values larger than `1000` are capped to `1000`.
 - `nextSeq` is the largest returned `seq` (or echoes `fromSeq` when no items returned).
 - `highWatermark` is the current latest known `seq` at read time.
+
+## 4.10 `log.tail`
+
+Input schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "fromSeq": { "type": "integer", "minimum": 0 },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 200 },
+    "filters": {
+      "type": "object",
+      "properties": {
+        "minVerbosity": { "type": "string" },
+        "category": { "type": "string", "minLength": 1 },
+        "categories": { "type": "array", "items": { "type": "string" } },
+        "source": { "type": "string", "minLength": 1 },
+        "contains": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+Output and cursor semantics match `diagnostic.tail`.
+
+Execution rule:
+
+- Forward via `rpc.invoke` with `tool=log.tail`.
+- Use this for high-volume Unreal Output Log evidence; default agent context should prefer `diagnostic.tail`.
+
+## 4.11 `log.subscribe`
+
+Input schema:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": { "type": "string", "default": "subscribe" },
+    "subscriptionId": { "type": "string" },
+    "filters": {
+      "type": "object",
+      "properties": {
+        "minVerbosity": { "type": "string" },
+        "category": { "type": "string" },
+        "categories": { "type": "array", "items": { "type": "string" } },
+        "source": { "type": "string" },
+        "contains": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "maxPerSecond": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 }
+  },
+  "additionalProperties": false
+}
+```
+
+Execution rule:
+
+- This is an MCP proxy tool, not an Unreal RPC tool.
+- `action=subscribe` creates a filtered stream and emits `notifications/loomle/log`.
+- `action=update` replaces an existing `subscriptionId` stream with new filters.
+- `action=unsubscribe` cancels the stream for `subscriptionId`.
+- `diagnostic.tail` also has a default low-volume notification stream through `notifications/loomle/diagnostic`; `diagnostic.tail` remains the recovery source of truth.
 
 ## 5. MCP <-> RPC Error Mapping
 

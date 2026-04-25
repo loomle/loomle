@@ -64,18 +64,26 @@ private:
     TSharedPtr<FJsonObject> BuildExecutePythonToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildJobsToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildProfilingToolResult(const TSharedPtr<FJsonObject>& Arguments);
-    TSharedPtr<FJsonObject> BuildDiagTailToolResult(const TSharedPtr<FJsonObject>& Arguments);
+    TSharedPtr<FJsonObject> BuildDiagnosticTailToolResult(const TSharedPtr<FJsonObject>& Arguments);
+    TSharedPtr<FJsonObject> BuildLogTailToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildWidgetQueryToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildWidgetMutateToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildWidgetVerifyToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildWidgetDescribeToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> DispatchTool(const FString& Name, const TSharedPtr<FJsonObject>& Arguments, bool& bOutIsError);
     int32 MapToolErrorCode(const FString& DomainCode) const;
-    void InitializeDiagStore();
+    void InitializeDiagnosticStore();
+    void InitializeLogStore();
     void HandleLogLine(const FString& Message, ELogVerbosity::Type Verbosity, const FName& Category);
     void HandleBlueprintCompiled();
-    void AppendDiagEvent(
+    void AppendDiagnosticEvent(
         const FString& Severity,
+        const FString& Category,
+        const FString& Source,
+        const FString& Message,
+        const TSharedPtr<FJsonObject>& Context = nullptr);
+    void AppendLogEvent(
+        const FString& Verbosity,
         const FString& Category,
         const FString& Source,
         const FString& Message,
@@ -175,12 +183,17 @@ private:
     FCriticalSection JobRegistryMutex;
     bool bJobRunnerActive = false;
 
-    FCriticalSection DiagStoreMutex;
-    FString DiagStoreDirPath;
-    FString DiagStoreFilePath;
-    uint64 NextDiagSeq = 1;
-    bool bDiagStoreInitialized = false;
-    FOutputDevice* DiagLogOutputDevice = nullptr;
+    FCriticalSection DiagnosticStoreMutex;
+    FString DiagnosticStoreDirPath;
+    FString DiagnosticStoreFilePath;
+    uint64 NextDiagnosticSeq = 1;
+    bool bDiagnosticStoreInitialized = false;
+    FCriticalSection LogStoreMutex;
+    FString LogStoreDirPath;
+    FString LogStoreFilePath;
+    uint64 NextLogSeq = 1;
+    bool bLogStoreInitialized = false;
+    FOutputDevice* LogCaptureOutputDevice = nullptr;
     FDelegateHandle BlueprintCompiledHandle;
     FString RuntimeRegistrationPath;
     TSet<FString> BlueprintCompileErrorAssets;
