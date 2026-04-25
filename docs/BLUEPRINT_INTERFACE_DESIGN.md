@@ -270,7 +270,42 @@ Recommended member-level operations for this domain:
 
 - Dispatcher signature editing is modeled like function signature editing, but remains a separate domain.
 
-## Domain 7: Component
+## Domain 7: Custom Event
+
+Custom Event is a conceptual member domain. Public MCP tools should expose custom event operations through `blueprint.member.inspect` and `blueprint.member.edit`; graph edit may create the visible event node, but deeper signature and RPC metadata belongs to the member surface.
+
+### Tools
+
+- `blueprint.member.inspect`
+- `blueprint.member.edit`
+
+### Member Edit Operations
+
+Recommended member-level operations for this domain:
+
+- `event.create`
+- `event.updateSignature`
+- `event.addInput`
+- `event.setFlags`
+- `event.rename`
+- `event.delete`
+
+### Scope
+
+- event identity
+- event parameter contract
+- RPC replication flags
+- reliable/unreliable flags
+- graph node pin refresh and inspectability
+
+### Notes
+
+- `updateSignature` replaces the Custom Event parameter list.
+- `addInput` adds one parameter without replacing existing inputs.
+- Business-level Custom Event inputs appear as output pins on the `UK2Node_CustomEvent` node; callers should connect from the event parameter pin to downstream consumers.
+- Failed input edits should return structured diagnostics with `reason`, `eventName`, `graphName`, `requestedInput`, `actualInputs`, `actualPins`, `stage`, and `suggestion`.
+
+## Domain 8: Component
 
 Component is a conceptual member domain. Public MCP tools should expose component operations through `blueprint.member.inspect` and `blueprint.member.edit`.
 
@@ -305,7 +340,7 @@ Recommended member-level operations for this domain:
 - `reparent` here means changing attachment parent within the component tree.
 - Component management is explicitly separated from graph logic.
 
-## Domain 8: Graph
+## Domain 9: Graph
 
 Graph is a conceptual domain. Public MCP tools should keep high-frequency graph inspection and graph mutation explicit, while lower-frequency graph management can remain folded into broader edit surfaces if schema pressure requires it.
 

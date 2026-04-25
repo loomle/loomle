@@ -1251,6 +1251,20 @@ def main() -> int:
                 },
             ),
             (
+                "event add input",
+                {
+                    "assetPath": temp_asset,
+                    "memberKind": "event",
+                    "operation": "addInput",
+                    "args": {
+                        "name": "OnGraphCustomEvent",
+                        "inputName": "CoinId",
+                        "inputType": "String",
+                        "type": {"category": "string"},
+                    },
+                },
+            ),
+            (
                 "event set flags",
                 {
                     "assetPath": temp_asset,
@@ -1286,6 +1300,32 @@ def main() -> int:
             payload = call_tool(client, 6510 + index, "blueprint.member.edit", request)
             if payload.get("applied") is not True:
                 fail(f"blueprint.member.edit {label} did not apply: {payload}")
+
+        duplicate_event_input = call_tool(
+            client,
+            6519,
+            "blueprint.member.edit",
+            {
+                "assetPath": temp_asset,
+                "memberKind": "event",
+                "operation": "addInput",
+                "args": {
+                    "name": "OnGraphCustomEventRenamed",
+                    "inputName": "CoinId",
+                    "type": {"category": "string"},
+                },
+            },
+            expect_error=True,
+        )
+        duplicate_details = duplicate_event_input.get("details")
+        if duplicate_event_input.get("reason") != "pinNameConflict" or not isinstance(duplicate_details, dict):
+            fail(f"blueprint.member.edit event addInput duplicate missing structured diagnostics: {duplicate_event_input}")
+        requested_input = duplicate_details.get("requestedInput")
+        actual_inputs = duplicate_details.get("actualInputs")
+        if not isinstance(requested_input, dict) or requested_input.get("inputName") != "CoinId":
+            fail(f"event addInput duplicate missing requestedInput: {duplicate_event_input}")
+        if not isinstance(actual_inputs, list) or not any(isinstance(pin, dict) and pin.get("name") == "CoinId" for pin in actual_inputs):
+            fail(f"event addInput duplicate missing actualInputs: {duplicate_event_input}")
 
         compiled_member_bp = call_tool(client, 6520, "blueprint.compile", {"assetPath": temp_asset})
         if compiled_member_bp.get("compiled") is not True:
@@ -1376,6 +1416,11 @@ def main() -> int:
             for pin in renamed_event_pins
         ):
             fail(f"blueprint.member.inspect event missing updated input pin: {event_inspect_payload}")
+        if not any(
+            isinstance(pin, dict) and pin.get("name") == "CoinId"
+            for pin in renamed_event_pins
+        ):
+            fail(f"blueprint.member.inspect event missing addInput pin: {event_inspect_payload}")
         client_event = next(
             (
                 entry

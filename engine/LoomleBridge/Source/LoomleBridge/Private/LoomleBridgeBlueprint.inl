@@ -1473,13 +1473,36 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMemberEditToolResult(
 
     if (!bOk)
     {
+        TSharedPtr<FJsonObject> StructuredError;
+        const TSharedRef<TJsonReader<>> ErrorReader = TJsonReaderFactory<>::Create(Error);
+        const bool bHasStructuredError = FJsonSerializer::Deserialize(ErrorReader, StructuredError) && StructuredError.IsValid();
+        FString StructuredCode;
+        FString StructuredMessage;
+        FString StructuredReason;
+        if (bHasStructuredError)
+        {
+            StructuredError->TryGetStringField(TEXT("code"), StructuredCode);
+            StructuredError->TryGetStringField(TEXT("message"), StructuredMessage);
+            StructuredError->TryGetStringField(TEXT("reason"), StructuredReason);
+        }
+
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(
             TEXT("code"),
-            Error.Contains(TEXT("requires")) || Error.Contains(TEXT("Unsupported")) || Error.Contains(TEXT("Failed to resolve"))
+            !StructuredCode.IsEmpty()
+                ? StructuredCode
+                : Error.Contains(TEXT("requires")) || Error.Contains(TEXT("Unsupported")) || Error.Contains(TEXT("Failed to resolve"))
                 ? TEXT("INVALID_ARGUMENT")
                 : TEXT("INTERNAL_ERROR"));
-        Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.member.edit failed") : Error);
+        Result->SetStringField(TEXT("message"), !StructuredMessage.IsEmpty() ? StructuredMessage : (Error.IsEmpty() ? TEXT("blueprint.member.edit failed") : Error));
+        if (!StructuredReason.IsEmpty())
+        {
+            Result->SetStringField(TEXT("reason"), StructuredReason);
+        }
+        if (bHasStructuredError)
+        {
+            Result->SetObjectField(TEXT("details"), StructuredError);
+        }
         return Result;
     }
 

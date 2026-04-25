@@ -1823,6 +1823,207 @@ namespace LoomleBlueprintAdapterInternal
         return true;
     }
 
+    static TSharedPtr<FJsonObject> MakeSimplePinSummary(const UEdGraphPin* Pin)
+    {
+        TSharedPtr<FJsonObject> Summary = MakeShared<FJsonObject>();
+        if (Pin == nullptr)
+        {
+            return Summary;
+        }
+
+        Summary->SetStringField(TEXT("name"), Pin->PinName.ToString());
+        Summary->SetStringField(TEXT("direction"), Pin->Direction == EGPD_Output ? TEXT("output") : TEXT("input"));
+        Summary->SetStringField(TEXT("category"), Pin->PinType.PinCategory.ToString());
+        Summary->SetStringField(TEXT("subCategory"), Pin->PinType.PinSubCategory.ToString());
+        Summary->SetStringField(TEXT("object"), Pin->PinType.PinSubCategoryObject.IsValid() ? Pin->PinType.PinSubCategoryObject->GetPathName() : TEXT(""));
+        return Summary;
+    }
+
+    static TArray<TSharedPtr<FJsonValue>> MakeCustomEventActualPins(const UK2Node_CustomEvent* CustomEvent)
+    {
+        TArray<TSharedPtr<FJsonValue>> Pins;
+        if (CustomEvent == nullptr)
+        {
+            return Pins;
+        }
+
+        for (const UEdGraphPin* Pin : CustomEvent->Pins)
+        {
+            if (Pin != nullptr)
+            {
+                Pins.Add(MakeShared<FJsonValueObject>(MakeSimplePinSummary(Pin)));
+            }
+        }
+        return Pins;
+    }
+
+    static TArray<TSharedPtr<FJsonValue>> MakeCustomEventActualInputs(const UK2Node_CustomEvent* CustomEvent)
+    {
+        TArray<TSharedPtr<FJsonValue>> Inputs;
+        if (CustomEvent == nullptr)
+        {
+            return Inputs;
+        }
+
+        for (const UEdGraphPin* Pin : CustomEvent->Pins)
+        {
+            if (Pin == nullptr || Pin->Direction != EGPD_Output || Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec)
+            {
+                continue;
+            }
+            Inputs.Add(MakeShared<FJsonValueObject>(MakeSimplePinSummary(Pin)));
+        }
+        return Inputs;
+    }
+
+    static FString JsonObjectToCondensedString(const TSharedPtr<FJsonObject>& Object)
+    {
+        FString Output;
+        if (!Object.IsValid())
+        {
+            return Output;
+        }
+        TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+            TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Output);
+        FJsonSerializer::Serialize(Object.ToSharedRef(), Writer);
+        return Output;
+    }
+
+    static FString MakeCustomEventInputError(
+        const FString& Code,
+        const FString& Reason,
+        const FString& Message,
+        const FString& Stage,
+        const FString& EventName,
+        const UK2Node_CustomEvent* CustomEvent,
+        const TSharedPtr<FJsonObject>& RequestedInput,
+        const FString& Suggestion)
+    {
+        TSharedPtr<FJsonObject> Error = MakeShared<FJsonObject>();
+        Error->SetStringField(TEXT("code"), Code);
+        Error->SetStringField(TEXT("reason"), Reason);
+        Error->SetStringField(TEXT("message"), Message);
+        Error->SetStringField(TEXT("stage"), Stage);
+        Error->SetStringField(TEXT("eventName"), EventName);
+        Error->SetStringField(TEXT("graphName"), CustomEvent && CustomEvent->GetGraph() ? CustomEvent->GetGraph()->GetName() : TEXT(""));
+        Error->SetStringField(TEXT("suggestion"), Suggestion);
+        Error->SetArrayField(TEXT("actualInputs"), MakeCustomEventActualInputs(CustomEvent));
+        Error->SetArrayField(TEXT("actualPins"), MakeCustomEventActualPins(CustomEvent));
+        if (RequestedInput.IsValid())
+        {
+            Error->SetObjectField(TEXT("requestedInput"), RequestedInput);
+        }
+        return JsonObjectToCondensedString(Error);
+    }
+
+    static bool AddInputToCustomEvent(
+        UBlueprint* Blueprint,
+        UK2Node_CustomEvent* CustomEvent,
+        const TSharedPtr<FJsonObject>& Payload,
+        FString& OutError)
+    {
+        OutError.Empty();
+        if (Blueprint == nullptr || CustomEvent == nullptr)
+        {
+            OutError = MakeCustomEventInputError(
+                TEXT("CUSTOM_EVENT_NODE_NOT_EDITABLE"),
+                TEXT("nodeNotEditable"),
+                TEXT("Failed to resolve editable custom event node."),
+                TEXT("resolveTarget"),
+                TEXT(""),
+                CustomEvent,
+                Payload,
+                TEXT("Verify memberKind=event targets an existing UK2Node_CustomEvent."));
+            return false;
+        }
+
+        TSharedPtr<FJsonObject> InputSpec = Payload;
+        if (TSharedPtr<FJsonObject> NestedInput = TryGetObjectFieldAny(Payload, {TEXT("input"), TEXT("parameter")}))
+        {
+            InputSpec = NestedInput;
+        }
+
+        FString InputName;
+        if (!TryGetStringFieldAny(InputSpec, {TEXT("inputName"), TEXT("name"), TEXT("pinName")}, InputName))
+        {
+            OutError = MakeCustomEventInputError(
+                TEXT("CUSTOM_EVENT_INPUT_REQUIRES_NAME"),
+                TEXT("inputNameRequired"),
+                TEXT("Custom event addInput requires inputName."),
+                TEXT("validateInput"),
+                CustomEvent->CustomFunctionName.ToString(),
+                CustomEvent,
+                InputSpec,
+                TEXT("Pass inputName, name, or input.name."));
+            return false;
+        }
+
+        const FName PinName(*InputName);
+        if (CustomEvent->FindPin(PinName) != nullptr)
+        {
+            OutError = MakeCustomEventInputError(
+                TEXT("CUSTOM_EVENT_PIN_NAME_CONFLICT"),
+                TEXT("pinNameConflict"),
+                FString::Printf(TEXT("Custom event input already exists: %s"), *InputName),
+                TEXT("validateInput"),
+                CustomEvent->CustomFunctionName.ToString(),
+                CustomEvent,
+                InputSpec,
+                TEXT("Choose a unique inputName or inspect the event's actualInputs before adding."));
+            return false;
+        }
+
+        FEdGraphPinType PinType;
+        FString TypeError;
+        if (!ParsePinTypeFromPayload(InputSpec, PinType, TypeError))
+        {
+            OutError = MakeCustomEventInputError(
+                TEXT("CUSTOM_EVENT_INPUT_TYPE_NOT_SUPPORTED"),
+                TEXT("typeNotSupported"),
+                TypeError.IsEmpty() ? TEXT("Custom event input type is not supported.") : TypeError,
+                TEXT("parseType"),
+                CustomEvent->CustomFunctionName.ToString(),
+                CustomEvent,
+                InputSpec,
+                TEXT("Use a supported Blueprint pin type shape, for example {\"category\":\"string\"} or {\"category\":\"object\",\"object\":\"/Script/Engine.Actor\"}."));
+            return false;
+        }
+
+        CustomEvent->Modify();
+        if (CustomEvent->CreateUserDefinedPin(PinName, PinType, EGPD_Output, false) == nullptr)
+        {
+            OutError = MakeCustomEventInputError(
+                TEXT("CUSTOM_EVENT_INPUT_CREATE_FAILED"),
+                TEXT("nodeNotEditable"),
+                FString::Printf(TEXT("Failed to create custom event input pin: %s"), *InputName),
+                TEXT("createPin"),
+                CustomEvent->CustomFunctionName.ToString(),
+                CustomEvent,
+                InputSpec,
+                TEXT("Inspect actualPins and retry with a valid editable custom event node."));
+            return false;
+        }
+
+        CustomEvent->ReconstructNode();
+        if (CustomEvent->FindPin(PinName) == nullptr)
+        {
+            OutError = MakeCustomEventInputError(
+                TEXT("CUSTOM_EVENT_PIN_REFRESH_REQUIRED"),
+                TEXT("pinRefreshRequired"),
+                FString::Printf(TEXT("Custom event input was created but pin did not appear after reconstruction: %s"), *InputName),
+                TEXT("refreshPins"),
+                CustomEvent->CustomFunctionName.ToString(),
+                CustomEvent,
+                InputSpec,
+                TEXT("Compile or refresh the Blueprint, then inspect the event pins before connecting."));
+            return false;
+        }
+
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        Blueprint->MarkPackageDirty();
+        return true;
+    }
+
     static bool ReorderUserDefinedPins(
         UK2Node_EditablePinBase* Node,
         const FString& PinNameToMove,
@@ -4499,12 +4700,25 @@ bool FLoomleBlueprintAdapter::EditEventMember(const FString& BlueprintAssetPath,
         const TArray<TSharedPtr<FJsonValue>> Outputs = LoomleBlueprintAdapterInternal::TryGetArrayFieldAny(Payload, {TEXT("outputs"), TEXT("returns")});
         if (Outputs.Num() > 0)
         {
-            OutError = TEXT("Custom event signatures only support input parameters.");
+            OutError = LoomleBlueprintAdapterInternal::MakeCustomEventInputError(
+                TEXT("CUSTOM_EVENT_OUTPUTS_UNSUPPORTED"),
+                TEXT("customEventOutputsUnsupported"),
+                TEXT("Custom event signatures only support input parameters."),
+                TEXT("validateSignature"),
+                EventName,
+                CustomEvent,
+                Payload,
+                TEXT("Use inputs/parameters for Custom Event payload data; events do not support return values."));
             return false;
         }
 
         const TArray<TSharedPtr<FJsonValue>> Inputs = LoomleBlueprintAdapterInternal::TryGetArrayFieldAny(Payload, {TEXT("inputs"), TEXT("parameters")});
         return LoomleBlueprintAdapterInternal::ApplySignatureToCustomEvent(Blueprint, CustomEvent, Inputs, OutError);
+    }
+
+    if (OperationLower.Equals(TEXT("addinput")))
+    {
+        return LoomleBlueprintAdapterInternal::AddInputToCustomEvent(Blueprint, CustomEvent, Payload, OutError);
     }
 
     if (OperationLower.Equals(TEXT("setflags")))
@@ -4611,7 +4825,15 @@ bool FLoomleBlueprintAdapter::AddCustomEventNode(const FString& BlueprintAssetPa
     if (Outputs.Num() > 0)
     {
         EventGraph->RemoveNode(Node);
-        OutError = TEXT("Custom event signatures only support input parameters.");
+        OutError = LoomleBlueprintAdapterInternal::MakeCustomEventInputError(
+            TEXT("CUSTOM_EVENT_OUTPUTS_UNSUPPORTED"),
+            TEXT("customEventOutputsUnsupported"),
+            TEXT("Custom event signatures only support input parameters."),
+            TEXT("validateSignature"),
+            EventName,
+            Node,
+            Payload,
+            TEXT("Use inputs/parameters for Custom Event payload data; events do not support return values."));
         return false;
     }
 
