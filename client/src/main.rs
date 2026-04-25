@@ -1021,6 +1021,10 @@ impl LoomleProxyServer {
                 .get("dispatchers")
                 .cloned()
                 .unwrap_or(serde_json::json!([])),
+            "event" | "customEvent" => payload
+                .get("eventSignatures")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
             other => {
                 return Ok(CallToolResult::structured_error(serde_json::json!({
                     "code": "INVALID_ARGUMENT",
@@ -1525,7 +1529,11 @@ fn copy_add_node_type_payload_fields(
     for (key, value) in node_type_obj {
         if matches!(
             key.as_str(),
-            "id" | "kind" | "nodeClassPath" | "functionClassPath" | "functionName"
+            "id" | "kind"
+                | "nodeClassPath"
+                | "functionClassPath"
+                | "functionName"
+                | "customEventName"
         ) {
             continue;
         }
@@ -1578,6 +1586,33 @@ fn infer_add_node_op(
             args.insert("text".into(), text.clone());
         }
         return Ok(("addNode.comment".into(), args));
+    }
+    if matches!(node_kind, Some("customEvent" | "custom_event")) {
+        let event_name = node_type_obj
+            .get("name")
+            .and_then(|value| value.as_str())
+            .or_else(|| {
+                node_type_obj
+                    .get("eventName")
+                    .and_then(|value| value.as_str())
+            })
+            .or_else(|| {
+                node_type_obj
+                    .get("customEventName")
+                    .and_then(|value| value.as_str())
+            })
+            .or_else(|| command.get("name").and_then(|value| value.as_str()))
+            .or_else(|| command.get("eventName").and_then(|value| value.as_str()))
+            .ok_or_else(|| "Custom event nodes require name.".to_owned())?;
+        args.insert("name".into(), serde_json::json!(event_name));
+        copy_add_node_type_payload_fields(node_type_obj, &mut args);
+        if let Some(inputs) = command.get("inputs").or_else(|| command.get("parameters")) {
+            args.insert("inputs".into(), inputs.clone());
+        }
+        for field in ["replication", "rpc", "netMode", "reliable", "isReliable"] {
+            copy_if_present(command, &mut args, field);
+        }
+        return Ok(("addNode.customEvent".into(), args));
     }
     if matches!(node_kind, Some("cast")) {
         let target_class = node_type_obj
@@ -1762,6 +1797,39 @@ fn compile_blueprint_graph_commands(
 
         let compiled = match kind {
             "addNode" => compile_add_node_command(command_obj),
+            "addNode.customEvent" => {
+                let event_name = command_obj
+                    .get("name")
+                    .and_then(|value| value.as_str())
+                    .or_else(|| {
+                        command_obj
+                            .get("eventName")
+                            .and_then(|value| value.as_str())
+                    })
+                    .ok_or_else(|| invalid_argument_result("addNode.customEvent requires name."))?;
+                let mut args = serde_json::Map::new();
+                args.insert("name".into(), serde_json::json!(event_name));
+                for field in [
+                    "position",
+                    "anchor",
+                    "inputs",
+                    "parameters",
+                    "replication",
+                    "rpc",
+                    "netMode",
+                    "reliable",
+                    "isReliable",
+                ] {
+                    copy_if_present(command_obj, &mut args, field);
+                }
+                let mut op = serde_json::Map::new();
+                op.insert("op".into(), serde_json::json!("addNode.customEvent"));
+                if let Some(alias) = command_obj.get("alias").and_then(|value| value.as_str()) {
+                    op.insert("clientRef".into(), serde_json::json!(alias));
+                }
+                op.insert("args".into(), serde_json::Value::Object(args));
+                Ok(vec![serde_json::Value::Object(op)])
+            }
             "removeNode" => {
                 let node = command_obj
                     .get("node")
@@ -2492,8 +2560,8 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("editor.screenshot", "Capture a PNG of the active editor window and return the written file path.", Arc::new(editor_screenshot_schema())),
         Tool::new("blueprint.asset.inspect", "Inspect a Blueprint asset and its asset-level contract.", Arc::new(blueprint_asset_inspect_schema())),
         Tool::new("blueprint.asset.edit", "Edit Blueprint asset-level properties and relationships.", Arc::new(blueprint_asset_edit_schema())),
-        Tool::new("blueprint.member.inspect", "Inspect Blueprint members such as variables, functions, macros, dispatchers, and components.", Arc::new(blueprint_member_inspect_schema())),
-        Tool::new("blueprint.member.edit", "Edit Blueprint members such as variables, functions, macros, dispatchers, and components.", Arc::new(blueprint_member_edit_schema())),
+        Tool::new("blueprint.member.inspect", "Inspect Blueprint members such as variables, functions, macros, dispatchers, events, and components.", Arc::new(blueprint_member_inspect_schema())),
+        Tool::new("blueprint.member.edit", "Edit Blueprint members such as variables, functions, macros, dispatchers, events, and components.", Arc::new(blueprint_member_edit_schema())),
         Tool::new("blueprint.graph.list", "List Blueprint graphs in an asset.", Arc::new(blueprint_graph_list_schema())),
         Tool::new("blueprint.graph.inspect", "Read graph, node, pin, and link data from a Blueprint graph.", Arc::new(blueprint_graph_inspect_schema())),
         Tool::new("blueprint.graph.edit", "Apply explicit local graph edit commands to a Blueprint graph.", Arc::new(blueprint_graph_edit_schema())),
@@ -3409,7 +3477,7 @@ fn blueprint_member_inspect_schema() -> rmcp::model::JsonObject {
         "type":"object",
         "properties":{
             "assetPath":{"type":"string","minLength":1},
-            "memberKind":{"type":"string","enum":["variable","function","macro","dispatcher","component"]},
+            "memberKind":{"type":"string","enum":["variable","function","macro","dispatcher","event","customEvent","component"]},
             "name":{"type":"string","minLength":1}
         },
         "required":["assetPath","memberKind"],
@@ -3425,7 +3493,7 @@ fn blueprint_member_edit_schema() -> rmcp::model::JsonObject {
     );
     properties.insert(
         "memberKind".into(),
-        serde_json::json!({"type":"string","enum":["variable","function","macro","dispatcher","component"]}),
+        serde_json::json!({"type":"string","enum":["variable","function","macro","dispatcher","event","customEvent","component"]}),
     );
     properties.insert(
         "operation".into(),
@@ -5251,6 +5319,58 @@ mod tests {
         );
 
         assert!(translate_blueprint_graph_edit_args(&args).is_err());
+    }
+
+    #[test]
+    fn blueprint_graph_edit_translates_custom_event_command() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graph".into(), serde_json::json!({ "name": "EventGraph" }));
+        args.insert(
+            "commands".into(),
+            serde_json::json!([
+                {
+                    "kind": "addNode.customEvent",
+                    "alias": "collected",
+                    "name": "OnCollected",
+                    "position": { "x": 320, "y": 160 },
+                    "replication": "netMulticast",
+                    "reliable": false,
+                    "inputs": [
+                        { "name": "Collector", "type": { "category": "object", "object": "/Script/Engine.Actor" } }
+                    ]
+                }
+            ]),
+        );
+
+        let translated = translate_blueprint_graph_edit_args(&args).expect("translated args");
+        let ops = translated
+            .get("ops")
+            .and_then(|value| value.as_array())
+            .expect("ops");
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            ops[0].get("op").and_then(|value| value.as_str()),
+            Some("addNode.customEvent")
+        );
+        assert_eq!(
+            ops[0].get("clientRef").and_then(|value| value.as_str()),
+            Some("collected")
+        );
+        assert_eq!(
+            ops[0]
+                .get("args")
+                .and_then(|value| value.get("name"))
+                .and_then(|value| value.as_str()),
+            Some("OnCollected")
+        );
+        assert_eq!(
+            ops[0]
+                .get("args")
+                .and_then(|value| value.get("replication"))
+                .and_then(|value| value.as_str()),
+            Some("netMulticast")
+        );
     }
 
     #[test]

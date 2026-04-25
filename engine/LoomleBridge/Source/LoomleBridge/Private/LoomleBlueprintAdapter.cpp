@@ -19,6 +19,7 @@
 #include "K2Node_AddComponentByClass.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_Composite.h"
+#include "K2Node_CustomEvent.h"
 #include "K2Node_DynamicCast.h"
 #include "K2Node_EditablePinBase.h"
 #include "K2Node_Event.h"
@@ -63,6 +64,7 @@ namespace LoomleBlueprintAdapterInternal
     };
 
     static FBlueprintMacroDescriptor DescribeMacroNode(const UK2Node_MacroInstance* MacroNode);
+    static FString DescribeCustomEventReplication(const uint32 FunctionFlags);
     static FString JsonArrayToString(const TArray<TSharedPtr<FJsonValue>>& ArrayValues);
 
     static FString BoolToJsonString(bool bValue)
@@ -559,6 +561,25 @@ namespace LoomleBlueprintAdapterInternal
             Summary->SetStringField(TEXT("functionName"), FunctionResultNode->FunctionReference.GetMemberName().ToString());
             Summary->SetNumberField(TEXT("resultNodeCount"), FunctionResultNode->GetAllResultNodes().Num());
             Summary->SetBoolField(TEXT("isEditable"), true);
+            return Summary;
+        }
+
+        if (const UK2Node_CustomEvent* CustomEventNode = Cast<UK2Node_CustomEvent>(Node))
+        {
+            Summary->SetStringField(TEXT("structureRole"), TEXT("graph_boundary"));
+            Summary->SetStringField(TEXT("boundaryKind"), TEXT("custom_event"));
+            Summary->SetStringField(TEXT("entryExitSemantics"), TEXT("entry"));
+            Summary->SetStringField(TEXT("eventKind"), TEXT("custom"));
+            Summary->SetStringField(TEXT("eventName"), CustomEventNode->CustomFunctionName.ToString());
+            Summary->SetNumberField(TEXT("functionFlags"), static_cast<int32>(CustomEventNode->FunctionFlags));
+            Summary->SetBoolField(TEXT("isReplicated"), (CustomEventNode->FunctionFlags & FUNC_Net) != 0);
+            Summary->SetStringField(TEXT("replication"), DescribeCustomEventReplication(CustomEventNode->FunctionFlags));
+            Summary->SetBoolField(TEXT("reliable"), (CustomEventNode->FunctionFlags & FUNC_NetReliable) != 0);
+            Summary->SetBoolField(TEXT("isOverride"), CustomEventNode->bOverrideFunction);
+            Summary->SetBoolField(TEXT("isEditable"), CustomEventNode->IsEditable());
+            Summary->SetBoolField(TEXT("callInEditor"), CustomEventNode->bCallInEditor);
+            Summary->SetBoolField(TEXT("deprecated"), CustomEventNode->bIsDeprecated);
+            Summary->SetStringField(TEXT("deprecationMessage"), CustomEventNode->DeprecationMessage);
             return Summary;
         }
 
@@ -1412,6 +1433,177 @@ namespace LoomleBlueprintAdapterInternal
         return FindGraphByName(Blueprint, GraphName);
     }
 
+    static void GetAllUberGraphs(UBlueprint* Blueprint, TArray<UEdGraph*>& OutGraphs)
+    {
+        if (Blueprint == nullptr)
+        {
+            return;
+        }
+
+        for (UEdGraph* Graph : Blueprint->UbergraphPages)
+        {
+            if (Graph != nullptr)
+            {
+                OutGraphs.Add(Graph);
+            }
+        }
+    }
+
+    static UK2Node_CustomEvent* FindCustomEventNode(UBlueprint* Blueprint, const FString& EventName)
+    {
+        if (Blueprint == nullptr || EventName.IsEmpty())
+        {
+            return nullptr;
+        }
+
+        TArray<UEdGraph*> UberGraphs;
+        GetAllUberGraphs(Blueprint, UberGraphs);
+        for (UEdGraph* Graph : UberGraphs)
+        {
+            TArray<UK2Node_CustomEvent*> CustomEvents;
+            Graph->GetNodesOfClass(CustomEvents);
+            for (UK2Node_CustomEvent* CustomEvent : CustomEvents)
+            {
+                if (CustomEvent != nullptr && CustomEvent->CustomFunctionName.ToString().Equals(EventName, ESearchCase::IgnoreCase))
+                {
+                    return CustomEvent;
+                }
+            }
+        }
+
+        return nullptr;
+    }
+
+    static FString NormalizeBlueprintToken(FString Value)
+    {
+        Value = Value.TrimStartAndEnd().ToLower();
+        Value.ReplaceInline(TEXT("_"), TEXT(""));
+        Value.ReplaceInline(TEXT("-"), TEXT(""));
+        Value.ReplaceInline(TEXT(" "), TEXT(""));
+        return Value;
+    }
+
+    static FString DescribeCustomEventReplication(const uint32 FunctionFlags)
+    {
+        const uint32 NetFlags = FunctionFlags & (FUNC_NetMulticast | FUNC_NetServer | FUNC_NetClient);
+        if ((NetFlags & FUNC_NetMulticast) != 0)
+        {
+            return TEXT("netMulticast");
+        }
+        if ((NetFlags & FUNC_NetServer) != 0)
+        {
+            return TEXT("server");
+        }
+        if ((NetFlags & FUNC_NetClient) != 0)
+        {
+            return TEXT("owningClient");
+        }
+        return TEXT("none");
+    }
+
+    static bool TryParseCustomEventReplication(const FString& Value, uint32& OutReplicationFlag, FString& OutError)
+    {
+        OutError.Empty();
+        const FString Normalized = NormalizeBlueprintToken(Value);
+        if (Normalized.IsEmpty()
+            || Normalized.Equals(TEXT("none"))
+            || Normalized.Equals(TEXT("notreplicated"))
+            || Normalized.Equals(TEXT("local")))
+        {
+            OutReplicationFlag = 0;
+            return true;
+        }
+        if (Normalized.Equals(TEXT("server")) || Normalized.Equals(TEXT("runonserver")))
+        {
+            OutReplicationFlag = FUNC_NetServer;
+            return true;
+        }
+        if (Normalized.Equals(TEXT("client"))
+            || Normalized.Equals(TEXT("owningclient"))
+            || Normalized.Equals(TEXT("runonowningclient"))
+            || Normalized.Equals(TEXT("runonclient")))
+        {
+            OutReplicationFlag = FUNC_NetClient;
+            return true;
+        }
+        if (Normalized.Equals(TEXT("multicast")) || Normalized.Equals(TEXT("netmulticast")))
+        {
+            OutReplicationFlag = FUNC_NetMulticast;
+            return true;
+        }
+
+        OutError = FString::Printf(TEXT("Unsupported custom event replication mode: %s"), *Value);
+        return false;
+    }
+
+    static bool ApplyCustomEventNetworkSettings(
+        UBlueprint* Blueprint,
+        UK2Node_CustomEvent* CustomEvent,
+        const TSharedPtr<FJsonObject>& Payload,
+        FString& OutError)
+    {
+        OutError.Empty();
+        if (Blueprint == nullptr || CustomEvent == nullptr || !Payload.IsValid())
+        {
+            return true;
+        }
+
+        FString Replication;
+        const bool bHasReplication = TryGetStringFieldAny(Payload, {TEXT("replication"), TEXT("rpc"), TEXT("netMode")}, Replication);
+        bool bReliable = false;
+        const bool bHasReliable = TryGetBoolFieldAny(Payload, {TEXT("reliable"), TEXT("isReliable")}, bReliable);
+        if (!bHasReplication && !bHasReliable)
+        {
+            return true;
+        }
+
+        CustomEvent->Modify();
+
+        if (bHasReplication)
+        {
+            uint32 ReplicationFlag = 0;
+            if (!TryParseCustomEventReplication(Replication, ReplicationFlag, OutError))
+            {
+                return false;
+            }
+
+            const uint32 FlagsToClear = FUNC_Net | FUNC_NetMulticast | FUNC_NetServer | FUNC_NetClient;
+            CustomEvent->FunctionFlags &= ~FlagsToClear;
+            if (ReplicationFlag != 0)
+            {
+                CustomEvent->FunctionFlags |= FUNC_Net | ReplicationFlag;
+            }
+            else
+            {
+                CustomEvent->FunctionFlags &= ~FUNC_NetReliable;
+            }
+        }
+
+        if (bHasReliable)
+        {
+            const bool bHasNetReplication = (CustomEvent->FunctionFlags & FUNC_Net) != 0;
+            if (bReliable && !bHasNetReplication)
+            {
+                OutError = TEXT("Reliable custom events require a replicated event mode.");
+                return false;
+            }
+
+            if (bReliable)
+            {
+                CustomEvent->FunctionFlags |= FUNC_NetReliable;
+            }
+            else
+            {
+                CustomEvent->FunctionFlags &= ~FUNC_NetReliable;
+            }
+        }
+
+        CustomEvent->ReconstructNode();
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        Blueprint->MarkPackageDirty();
+        return true;
+    }
+
     static void RemoveAllUserDefinedPins(UK2Node_EditablePinBase* Node)
     {
         if (Node == nullptr)
@@ -1540,6 +1732,30 @@ namespace LoomleBlueprintAdapterInternal
             {
                 return false;
             }
+        }
+
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        Blueprint->MarkPackageDirty();
+        return true;
+    }
+
+    static bool ApplySignatureToCustomEvent(
+        UBlueprint* Blueprint,
+        UK2Node_CustomEvent* CustomEvent,
+        const TArray<TSharedPtr<FJsonValue>>& Inputs,
+        FString& OutError)
+    {
+        OutError.Empty();
+        if (Blueprint == nullptr || CustomEvent == nullptr)
+        {
+            OutError = TEXT("Failed to resolve blueprint/custom event.");
+            return false;
+        }
+
+        CustomEvent->Modify();
+        if (!ApplyPinSpecsToNode(CustomEvent, Inputs, EGPD_Output, OutError))
+        {
+            return false;
         }
 
         FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
@@ -4092,6 +4308,154 @@ bool FLoomleBlueprintAdapter::EditDispatcherMember(const FString& BlueprintAsset
     return true;
 }
 
+bool FLoomleBlueprintAdapter::EditEventMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError)
+{
+    OutError.Empty();
+
+    TSharedPtr<FJsonObject> Payload;
+    if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Payload))
+    {
+        OutError = TEXT("Failed to parse event payload JSON.");
+        return false;
+    }
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    if (Blueprint == nullptr)
+    {
+        OutError = TEXT("Failed to resolve blueprint.");
+        return false;
+    }
+
+    const FString OperationLower = Operation.ToLower();
+    FString EventName;
+    LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("eventName"), TEXT("customEventName"), TEXT("name")}, EventName);
+
+    if (OperationLower.Equals(TEXT("create")))
+    {
+        if (EventName.IsEmpty())
+        {
+            OutError = TEXT("event create requires name.");
+            return false;
+        }
+
+        FString GraphName;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("graphName")}, GraphName);
+        if (GraphName.IsEmpty())
+        {
+            if (const TSharedPtr<FJsonObject> GraphObject = LoomleBlueprintAdapterInternal::TryGetObjectFieldAny(Payload, {TEXT("graph")}))
+            {
+                LoomleBlueprintAdapterInternal::TryGetStringFieldAny(GraphObject, {TEXT("name"), TEXT("graphName")}, GraphName);
+            }
+        }
+
+        int32 NodePosX = 0;
+        int32 NodePosY = 0;
+        double X = 0.0;
+        double Y = 0.0;
+        if (LoomleBlueprintAdapterInternal::TryGetNumberFieldAny(Payload, {TEXT("x")}, X))
+        {
+            NodePosX = static_cast<int32>(X);
+        }
+        if (LoomleBlueprintAdapterInternal::TryGetNumberFieldAny(Payload, {TEXT("y")}, Y))
+        {
+            NodePosY = static_cast<int32>(Y);
+        }
+        if (const TSharedPtr<FJsonObject> PositionObject = LoomleBlueprintAdapterInternal::TryGetObjectFieldAny(Payload, {TEXT("position")}))
+        {
+            if (LoomleBlueprintAdapterInternal::TryGetNumberFieldAny(PositionObject, {TEXT("x")}, X))
+            {
+                NodePosX = static_cast<int32>(X);
+            }
+            if (LoomleBlueprintAdapterInternal::TryGetNumberFieldAny(PositionObject, {TEXT("y")}, Y))
+            {
+                NodePosY = static_cast<int32>(Y);
+            }
+        }
+
+        FString NodeGuid;
+        return AddCustomEventNode(BlueprintAssetPath, GraphName, EventName, PayloadJson, NodePosX, NodePosY, NodeGuid, OutError);
+    }
+
+    if (EventName.IsEmpty())
+    {
+        OutError = TEXT("event operation requires name.");
+        return false;
+    }
+
+    UK2Node_CustomEvent* CustomEvent = LoomleBlueprintAdapterInternal::FindCustomEventNode(Blueprint, EventName);
+    if (CustomEvent == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Failed to resolve custom event: %s"), *EventName);
+        return false;
+    }
+
+    if (OperationLower.Equals(TEXT("rename")))
+    {
+        FString NewName;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("newName")}, NewName);
+        if (NewName.IsEmpty())
+        {
+            OutError = TEXT("event rename requires newName.");
+            return false;
+        }
+        if (LoomleBlueprintAdapterInternal::FindCustomEventNode(Blueprint, NewName) != nullptr)
+        {
+            OutError = FString::Printf(TEXT("Custom event already exists: %s"), *NewName);
+            return false;
+        }
+        const FName UniqueName = FBlueprintEditorUtils::FindUniqueKismetName(Blueprint, NewName);
+        if (!UniqueName.ToString().Equals(NewName, ESearchCase::CaseSensitive))
+        {
+            OutError = FString::Printf(TEXT("Blueprint member name is already in use: %s"), *NewName);
+            return false;
+        }
+
+        CustomEvent->Modify();
+        CustomEvent->OnRenameNode(NewName);
+        CustomEvent->ReconstructNode();
+        FBlueprintEditorUtils::ValidateBlueprintChildVariables(Blueprint, CustomEvent->CustomFunctionName);
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        Blueprint->MarkPackageDirty();
+        return true;
+    }
+
+    if (OperationLower.Equals(TEXT("delete")))
+    {
+        if (UEdGraph* Graph = CustomEvent->GetGraph())
+        {
+            Graph->Modify();
+            Graph->RemoveNode(CustomEvent);
+            FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+            Blueprint->MarkPackageDirty();
+            return true;
+        }
+
+        OutError = TEXT("Custom event graph is missing.");
+        return false;
+    }
+
+    if (OperationLower.Equals(TEXT("updatesignature")))
+    {
+        const TArray<TSharedPtr<FJsonValue>> Outputs = LoomleBlueprintAdapterInternal::TryGetArrayFieldAny(Payload, {TEXT("outputs"), TEXT("returns")});
+        if (Outputs.Num() > 0)
+        {
+            OutError = TEXT("Custom event signatures only support input parameters.");
+            return false;
+        }
+
+        const TArray<TSharedPtr<FJsonValue>> Inputs = LoomleBlueprintAdapterInternal::TryGetArrayFieldAny(Payload, {TEXT("inputs"), TEXT("parameters")});
+        return LoomleBlueprintAdapterInternal::ApplySignatureToCustomEvent(Blueprint, CustomEvent, Inputs, OutError);
+    }
+
+    if (OperationLower.Equals(TEXT("setflags")))
+    {
+        return LoomleBlueprintAdapterInternal::ApplyCustomEventNetworkSettings(Blueprint, CustomEvent, Payload, OutError);
+    }
+
+    OutError = FString::Printf(TEXT("Unsupported event operation: %s"), *Operation);
+    return false;
+}
+
 bool FLoomleBlueprintAdapter::AddEventNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& EventName, const FString& EventClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
 {
     OutNodeGuid.Empty();
@@ -4116,6 +4480,97 @@ bool FLoomleBlueprintAdapter::AddEventNode(const FString& BlueprintAssetPath, co
 
     Node->NodePosX = NodePosX;
     Node->NodePosY = NodePosY;
+    OutNodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::AddCustomEventNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& EventName, const FString& PayloadJson, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+{
+    OutNodeGuid.Empty();
+    OutError.Empty();
+
+    if (EventName.IsEmpty())
+    {
+        OutError = TEXT("Custom event name is required.");
+        return false;
+    }
+
+    TSharedPtr<FJsonObject> Payload;
+    if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Payload))
+    {
+        OutError = TEXT("Invalid custom event payload JSON.");
+        return false;
+    }
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
+    if (!Blueprint || !EventGraph)
+    {
+        OutError = TEXT("Failed to resolve blueprint/target graph.");
+        return false;
+    }
+    if (!Blueprint->UbergraphPages.Contains(EventGraph))
+    {
+        OutError = TEXT("Custom events can only be created in an event graph.");
+        return false;
+    }
+
+    if (LoomleBlueprintAdapterInternal::FindCustomEventNode(Blueprint, EventName) != nullptr)
+    {
+        OutError = FString::Printf(TEXT("Custom event already exists: %s"), *EventName);
+        return false;
+    }
+
+    const FName UniqueName = FBlueprintEditorUtils::FindUniqueKismetName(Blueprint, EventName);
+    if (!UniqueName.ToString().Equals(EventName, ESearchCase::CaseSensitive))
+    {
+        OutError = FString::Printf(TEXT("Blueprint member name is already in use: %s"), *EventName);
+        return false;
+    }
+
+    UK2Node_CustomEvent* Node = NewObject<UK2Node_CustomEvent>(EventGraph);
+    if (Node == nullptr)
+    {
+        OutError = TEXT("Failed to create custom event node.");
+        return false;
+    }
+
+    EventGraph->Modify();
+    Node->SetFlags(RF_Transactional);
+    Node->CustomFunctionName = FName(*EventName);
+    Node->bOverrideFunction = false;
+    Node->bIsEditable = true;
+    Node->CreateNewGuid();
+    Node->NodePosX = NodePosX;
+    Node->NodePosY = NodePosY;
+    Node->PostPlacedNewNode();
+    Node->AllocateDefaultPins();
+    EventGraph->AddNode(Node, false, false);
+
+    const TArray<TSharedPtr<FJsonValue>> Outputs = LoomleBlueprintAdapterInternal::TryGetArrayFieldAny(Payload, {TEXT("outputs"), TEXT("returns")});
+    if (Outputs.Num() > 0)
+    {
+        EventGraph->RemoveNode(Node);
+        OutError = TEXT("Custom event signatures only support input parameters.");
+        return false;
+    }
+
+    const TArray<TSharedPtr<FJsonValue>> Inputs = LoomleBlueprintAdapterInternal::TryGetArrayFieldAny(Payload, {TEXT("inputs"), TEXT("parameters")});
+    if (!LoomleBlueprintAdapterInternal::ApplySignatureToCustomEvent(Blueprint, Node, Inputs, OutError))
+    {
+        EventGraph->RemoveNode(Node);
+        return false;
+    }
+    if (!LoomleBlueprintAdapterInternal::ApplyCustomEventNetworkSettings(Blueprint, Node, Payload, OutError))
+    {
+        EventGraph->RemoveNode(Node);
+        return false;
+    }
+
+    FBlueprintEditorUtils::ValidateBlueprintChildVariables(Blueprint, Node->CustomFunctionName);
+    FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+    Blueprint->MarkPackageDirty();
+
     OutNodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
     return true;
 }
@@ -4369,6 +4824,12 @@ bool FLoomleBlueprintAdapter::AddNodeByClass(const FString& BlueprintAssetPath, 
     }
 
     const FString NormalizedClass = NodeClassPath.ToLower();
+    if (NormalizedClass.Contains(TEXT("k2node_customevent")))
+    {
+        FString EventName;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("eventName"), TEXT("customEventName"), TEXT("name")}, EventName);
+        return AddCustomEventNode(BlueprintAssetPath, GraphName, EventName, PayloadJson, NodePosX, NodePosY, OutNodeGuid, OutError);
+    }
     if (NormalizedClass.Contains(TEXT("k2node_event")))
     {
         FString EventName;

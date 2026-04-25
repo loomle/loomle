@@ -31,6 +31,7 @@ public:
     static bool EditFunctionMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError);
     static bool EditMacroMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError);
     static bool EditDispatcherMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError);
+    static bool EditEventMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError);
     static bool AddComponent(const FString& BlueprintAssetPath, const FString& ComponentClassPath, const FString& ComponentName, const FString& ParentComponentName, FString& OutError);
     static bool SetStaticMeshComponentAsset(const FString& BlueprintAssetPath, const FString& ComponentName, const FString& MeshAssetPath, FString& OutError);
     static bool SetSceneComponentRelativeLocation(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Location, FString& OutError);
@@ -39,6 +40,7 @@ public:
     static bool SetBoxComponentExtent(const FString& BlueprintAssetPath, const FString& ComponentName, FVector Extent, FString& OutError);
     static bool SetPrimitiveComponentGenerateOverlapEvents(const FString& BlueprintAssetPath, const FString& ComponentName, bool bGenerate, FString& OutError);
     static bool AddEventNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& EventName, const FString& EventClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);
+    static bool AddCustomEventNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& EventName, const FString& PayloadJson, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);
     static bool AddCastNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& TargetClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);
     static bool AddCallFunctionNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& FunctionClassPath, const FString& FunctionName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);
     static bool AddBranchNode(const FString& BlueprintAssetPath, const FString& GraphName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);

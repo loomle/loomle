@@ -27,6 +27,24 @@ TSharedPtr<FJsonObject> MakeBlueprintInlineGraphRef(const FString& NodeGuid, con
     return Ref;
 }
 
+FString DescribeBlueprintCustomEventReplication(const uint32 FunctionFlags)
+{
+    const uint32 NetFlags = FunctionFlags & (FUNC_NetMulticast | FUNC_NetServer | FUNC_NetClient);
+    if ((NetFlags & FUNC_NetMulticast) != 0)
+    {
+        return TEXT("netMulticast");
+    }
+    if ((NetFlags & FUNC_NetServer) != 0)
+    {
+        return TEXT("server");
+    }
+    if ((NetFlags & FUNC_NetClient) != 0)
+    {
+        return TEXT("owningClient");
+    }
+    return TEXT("none");
+}
+
 FString NormalizeBlueprintGraphKindForDomain(FString GraphKind)
 {
     if (GraphKind.Equals(TEXT("Event"), ESearchCase::IgnoreCase))
@@ -572,8 +590,13 @@ TSharedPtr<FJsonObject> BuildBlueprintClassDescribeResult(const FString& AssetPa
     Result->SetArrayField(TEXT("dispatchers"), Dispatchers);
 
     TArray<TSharedPtr<FJsonValue>> EventSignatures;
-    if (UEdGraph* EventGraph = ResolveBlueprintGraph(Blueprint, TEXT("EventGraph")))
+    for (UEdGraph* EventGraph : Blueprint->UbergraphPages)
     {
+        if (EventGraph == nullptr)
+        {
+            continue;
+        }
+
         for (const UEdGraphNode* Node : EventGraph->Nodes)
         {
             if (Node == nullptr || Node->GetClass() == nullptr)
@@ -592,6 +615,28 @@ TSharedPtr<FJsonObject> BuildBlueprintClassDescribeResult(const FString& AssetPa
             EventEntry->SetStringField(TEXT("displayName"), Node->GetNodeTitle(ENodeTitleType::FullTitle).ToString());
             EventEntry->SetStringField(TEXT("nodeClassPath"), Node->GetClass()->GetPathName());
             EventEntry->SetStringField(TEXT("nodeId"), Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
+            EventEntry->SetStringField(TEXT("graphName"), EventGraph->GetName());
+            EventEntry->SetStringField(TEXT("graphId"), EventGraph->GraphGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
+            EventEntry->SetStringField(TEXT("eventKind"), TEXT("engine"));
+            if (const UK2Node_CustomEvent* CustomEvent = Cast<UK2Node_CustomEvent>(Node))
+            {
+                EventEntry->SetStringField(TEXT("name"), CustomEvent->CustomFunctionName.ToString());
+                EventEntry->SetStringField(TEXT("eventKind"), TEXT("custom"));
+                EventEntry->SetBoolField(TEXT("isCustomEvent"), true);
+                EventEntry->SetNumberField(TEXT("functionFlags"), static_cast<int32>(CustomEvent->FunctionFlags));
+                EventEntry->SetBoolField(TEXT("isReplicated"), (CustomEvent->FunctionFlags & FUNC_Net) != 0);
+                EventEntry->SetStringField(TEXT("replication"), DescribeBlueprintCustomEventReplication(CustomEvent->FunctionFlags));
+                EventEntry->SetBoolField(TEXT("reliable"), (CustomEvent->FunctionFlags & FUNC_NetReliable) != 0);
+                EventEntry->SetBoolField(TEXT("isOverride"), CustomEvent->bOverrideFunction);
+                EventEntry->SetBoolField(TEXT("isEditable"), CustomEvent->IsEditable());
+                EventEntry->SetBoolField(TEXT("callInEditor"), CustomEvent->bCallInEditor);
+                EventEntry->SetBoolField(TEXT("deprecated"), CustomEvent->bIsDeprecated);
+                EventEntry->SetStringField(TEXT("deprecationMessage"), CustomEvent->DeprecationMessage);
+            }
+            else
+            {
+                EventEntry->SetBoolField(TEXT("isCustomEvent"), false);
+            }
 
             TArray<TSharedPtr<FJsonValue>> Pins;
             for (const UEdGraphPin* Pin : Node->Pins)
@@ -1382,7 +1427,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMemberEditToolResult(
         || MemberKind.Equals(TEXT("variable"), ESearchCase::IgnoreCase)
         || MemberKind.Equals(TEXT("function"), ESearchCase::IgnoreCase)
         || MemberKind.Equals(TEXT("macro"), ESearchCase::IgnoreCase)
-        || MemberKind.Equals(TEXT("dispatcher"), ESearchCase::IgnoreCase);
+        || MemberKind.Equals(TEXT("dispatcher"), ESearchCase::IgnoreCase)
+        || MemberKind.Equals(TEXT("event"), ESearchCase::IgnoreCase)
+        || MemberKind.Equals(TEXT("customEvent"), ESearchCase::IgnoreCase);
     if (!bSupportedMemberKind)
     {
         Result->SetBoolField(TEXT("isError"), true);
@@ -1418,6 +1465,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMemberEditToolResult(
     else if (MemberKind.Equals(TEXT("dispatcher"), ESearchCase::IgnoreCase))
     {
         bOk = FLoomleBlueprintAdapter::EditDispatcherMember(AssetPath, Operation, PayloadJson, Error);
+    }
+    else if (MemberKind.Equals(TEXT("event"), ESearchCase::IgnoreCase) || MemberKind.Equals(TEXT("customEvent"), ESearchCase::IgnoreCase))
+    {
+        bOk = FLoomleBlueprintAdapter::EditEventMember(AssetPath, Operation, PayloadJson, Error);
     }
 
     if (!bOk)
@@ -2867,6 +2918,38 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                     EffectiveGraphName,
                     EventName,
                     EventClassPath,
+                    X,
+                    Y,
+                    NewNodeId,
+                    Error);
+                SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
+            }
+        }
+        else if (OpName.Equals(TEXT("addnode.customevent")))
+        {
+            FString EventName;
+            ReadStringAlias({TEXT("eventName"), TEXT("customEventName"), TEXT("name")}, EventName);
+            if (EventName.IsEmpty())
+            {
+                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("addNode.customEvent requires name."));
+            }
+            else if (bDryRun)
+            {
+                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""));
+            }
+            else
+            {
+                int32 X = 0;
+                int32 Y = 0;
+                ResolveInsertionPoint(SingleArgsObject, X, Y);
+                FString NewNodeId;
+                FString Error;
+                const FString PayloadJson = SerializeBlueprintJsonObjectCondensed(SingleArgsObject);
+                const bool bOk = FLoomleBlueprintAdapter::AddCustomEventNode(
+                    AssetPath,
+                    EffectiveGraphName,
+                    EventName,
+                    PayloadJson,
                     X,
                     Y,
                     NewNodeId,

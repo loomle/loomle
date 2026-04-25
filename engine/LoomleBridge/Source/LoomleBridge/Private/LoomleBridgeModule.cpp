@@ -44,6 +44,7 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "EdGraphSchema_K2.h"
+#include "K2Node_CustomEvent.h"
 #include "BlueprintActionFilter.h"
 #include "BlueprintActionMenuBuilder.h"
 #include "BlueprintActionMenuUtils.h"

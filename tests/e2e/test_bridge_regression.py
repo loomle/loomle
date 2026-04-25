@@ -1182,6 +1182,111 @@ def main() -> int:
             if payload.get("applied") is not True:
                 fail(f"blueprint.member.edit {label} did not apply: {payload}")
 
+        custom_event_graph_payload = call_tool(
+            client,
+            6510,
+            "blueprint.graph.edit",
+            {
+                "assetPath": temp_asset,
+                "graph": {"name": "EventGraph"},
+                "commands": [
+                    {
+                        "kind": "addNode.customEvent",
+                        "alias": "customEvent",
+                        "name": "OnGraphCustomEvent",
+                        "position": {"x": 480, "y": 120},
+                        "replication": "server",
+                        "reliable": True,
+                        "inputs": [
+                            {"name": "Count", "type": {"category": "int"}},
+                        ],
+                    }
+                ],
+            },
+        )
+        if custom_event_graph_payload.get("applied") is not True:
+            fail(f"blueprint.graph.edit addNode.customEvent did not apply: {custom_event_graph_payload}")
+
+        event_member_ops = [
+            (
+                "event create temp",
+                {
+                    "assetPath": temp_asset,
+                    "memberKind": "event",
+                    "operation": "create",
+                    "args": {"name": "TempDeleteCustomEvent", "graphName": "EventGraph", "x": 480, "y": 260},
+                },
+            ),
+            (
+                "event create owning client",
+                {
+                    "assetPath": temp_asset,
+                    "memberKind": "event",
+                    "operation": "create",
+                    "args": {
+                        "name": "ClientRejectCollect",
+                        "graphName": "EventGraph",
+                        "x": 760,
+                        "y": 260,
+                        "replication": "owningClient",
+                        "reliable": True,
+                        "inputs": [
+                            {"name": "CoinId", "type": {"category": "string"}},
+                        ],
+                    },
+                },
+            ),
+            (
+                "event update signature",
+                {
+                    "assetPath": temp_asset,
+                    "memberKind": "event",
+                    "operation": "updateSignature",
+                    "args": {
+                        "name": "OnGraphCustomEvent",
+                        "inputs": [
+                            {"name": "bReady", "type": {"category": "bool"}},
+                        ],
+                    },
+                },
+            ),
+            (
+                "event set flags",
+                {
+                    "assetPath": temp_asset,
+                    "memberKind": "event",
+                    "operation": "setFlags",
+                    "args": {
+                        "name": "OnGraphCustomEvent",
+                        "replication": "netMulticast",
+                        "reliable": False,
+                    },
+                },
+            ),
+            (
+                "event rename",
+                {
+                    "assetPath": temp_asset,
+                    "memberKind": "event",
+                    "operation": "rename",
+                    "args": {"name": "OnGraphCustomEvent", "newName": "OnGraphCustomEventRenamed"},
+                },
+            ),
+            (
+                "event delete temp",
+                {
+                    "assetPath": temp_asset,
+                    "memberKind": "event",
+                    "operation": "delete",
+                    "args": {"name": "TempDeleteCustomEvent"},
+                },
+            ),
+        ]
+        for index, (label, request) in enumerate(event_member_ops, start=1):
+            payload = call_tool(client, 6510 + index, "blueprint.member.edit", request)
+            if payload.get("applied") is not True:
+                fail(f"blueprint.member.edit {label} did not apply: {payload}")
+
         compiled_member_bp = call_tool(client, 6520, "blueprint.compile", {"assetPath": temp_asset})
         if compiled_member_bp.get("compiled") is not True:
             fail(f"blueprint.compile after member.edit failed: {compiled_member_bp}")
@@ -1244,6 +1349,43 @@ def main() -> int:
             for entry in dispatcher_items
         ):
             fail(f"blueprint.member.inspect dispatcher items missing renamed dispatcher: {dispatcher_inspect_payload}")
+        event_inspect_payload = call_tool(
+            client,
+            6533,
+            "blueprint.member.inspect",
+            {"assetPath": temp_asset, "memberKind": "event"},
+        )
+        event_items = event_inspect_payload.get("items")
+        if not isinstance(event_items, list):
+            fail(f"blueprint.member.inspect event items missing: {event_inspect_payload}")
+        renamed_event = next(
+            (
+                entry
+                for entry in event_items
+                if isinstance(entry, dict) and entry.get("name") == "OnGraphCustomEventRenamed"
+            ),
+            None,
+        )
+        if not isinstance(renamed_event, dict) or renamed_event.get("eventKind") != "custom":
+            fail(f"blueprint.member.inspect event missing renamed custom event: {event_inspect_payload}")
+        if renamed_event.get("replication") != "netMulticast" or renamed_event.get("reliable") is not False:
+            fail(f"blueprint.member.inspect event missing multicast flags: {event_inspect_payload}")
+        renamed_event_pins = renamed_event.get("pins")
+        if not isinstance(renamed_event_pins, list) or not any(
+            isinstance(pin, dict) and pin.get("name") == "bReady"
+            for pin in renamed_event_pins
+        ):
+            fail(f"blueprint.member.inspect event missing updated input pin: {event_inspect_payload}")
+        client_event = next(
+            (
+                entry
+                for entry in event_items
+                if isinstance(entry, dict) and entry.get("name") == "ClientRejectCollect"
+            ),
+            None,
+        )
+        if not isinstance(client_event, dict) or client_event.get("replication") != "owningClient" or client_event.get("reliable") is not True:
+            fail(f"blueprint.member.inspect event missing owning-client reliable flags: {event_inspect_payload}")
         graph_list_payload = call_tool(client, 6524, "blueprint.graph.list", {"assetPath": temp_asset})
         listed_graphs = graph_list_payload.get("graphs")
         if not isinstance(listed_graphs, list):
