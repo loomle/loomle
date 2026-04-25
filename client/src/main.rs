@@ -342,14 +342,21 @@ impl LoomleProxyServer {
         };
 
         match rpc_invoke(&env_info, tool_name, args).await {
-            Ok(payload) => Ok(CallToolResult::structured(payload)),
+            Ok(payload) => Ok(CallToolResult::structured(
+                self.add_observability_hint(&env_info, payload).await,
+            )),
             Err(RpcClientError::Startup(err)) => Ok(bridge_unavailable_result(&format!(
                 "Unreal Engine is not running or LoomleBridge is not loaded. \
                  Start Unreal Editor and wait for the Bridge to initialise. \
                  ({})",
                 err.message
             ))),
-            Err(RpcClientError::Invoke(error)) => Ok(runtime_invoke_failure_result(error)),
+            Err(RpcClientError::Invoke(error)) => {
+                let payload = runtime_invoke_failure_payload(error);
+                Ok(CallToolResult::structured_error(
+                    self.add_observability_hint(&env_info, payload).await,
+                ))
+            }
             Err(RpcClientError::Protocol(message)) => Err(McpError::internal_error(
                 format!("runtime RPC failed: {message}"),
                 None,
@@ -397,6 +404,61 @@ impl LoomleProxyServer {
                 None,
             )),
         }
+    }
+
+    async fn observability_state_for_env(
+        &self,
+        env_info: &Environment,
+    ) -> Option<serde_json::Value> {
+        let empty_args = serde_json::Map::new();
+        let diagnostics_high_watermark =
+            current_tail_high_watermark(env_info, "diagnostic.tail", &empty_args).await;
+        let logs_high_watermark =
+            current_tail_high_watermark(env_info, "log.tail", &empty_args).await;
+
+        if diagnostics_high_watermark.is_none() && logs_high_watermark.is_none() {
+            return None;
+        }
+
+        Some(serde_json::json!({
+            "diagnostics": {
+                "tool": "diagnostic.tail",
+                "highWatermark": diagnostics_high_watermark.unwrap_or(0)
+            },
+            "logs": {
+                "tool": "log.tail",
+                "highWatermark": logs_high_watermark.unwrap_or(0)
+            }
+        }))
+    }
+
+    async fn add_observability_hint(
+        &self,
+        env_info: &Environment,
+        mut payload: serde_json::Value,
+    ) -> serde_json::Value {
+        if !payload.is_object() {
+            return payload;
+        }
+
+        let should_hint = payload.get("isError").and_then(|value| value.as_bool()) == Some(true)
+            || payload
+                .get("status")
+                .and_then(|value| value.as_str())
+                .is_some_and(|status| {
+                    status.eq_ignore_ascii_case("error") || status.eq_ignore_ascii_case("warn")
+                });
+
+        if !should_hint || payload.get("observability").is_some() {
+            return payload;
+        }
+
+        if let Some(observability) = self.observability_state_for_env(env_info).await {
+            if let Some(object) = payload.as_object_mut() {
+                object.insert("observability".to_string(), observability);
+            }
+        }
+        payload
     }
 
     async fn ensure_diagnostic_watcher(&self, peer: rmcp::service::Peer<RoleServer>) {
@@ -539,14 +601,6 @@ impl LoomleProxyServer {
         *self.env_info.lock().await = Some(Arc::new(env_info));
     }
 
-    async fn attached_project_root(&self) -> Option<PathBuf> {
-        self.env_info
-            .lock()
-            .await
-            .as_ref()
-            .map(|env_info| env_info.project_root.clone())
-    }
-
     async fn try_auto_attach(&self) {
         let mut guard = self.env_info.lock().await;
         if guard.is_some() {
@@ -649,15 +703,24 @@ impl LoomleProxyServer {
     async fn call_loomle_status(&self) -> CallToolResult {
         self.try_auto_attach().await;
         let projects = discover_runtime_projects(ProjectStatusFilter::All);
-        let attached_project_root = self.attached_project_root().await;
+        let env_info = self.env_info.lock().await.clone();
+        let attached_project_root = env_info
+            .as_ref()
+            .map(|env_info| env_info.project_root.display().to_string());
         let update_check = check_for_updates();
+        let observability = if let Some(env_info) = env_info.as_ref() {
+            self.observability_state_for_env(env_info).await
+        } else {
+            None
+        };
         let payload = serde_json::json!({
             "loomleVersion": env!("CARGO_PKG_VERSION"),
             "attached": attached_project_root.is_some(),
-            "attachedProject": attached_project_root.map(|path| path.display().to_string()),
+            "attachedProject": attached_project_root,
             "onlineProjectCount": projects.iter().filter(|project| project.status == "online").count(),
             "projectCount": projects.len(),
             "update": update_check,
+            "observability": observability,
         });
         structured_result(payload)
     }
@@ -2474,16 +2537,16 @@ fn is_local_tool(name: &str) -> bool {
     )
 }
 
-fn runtime_invoke_failure_result(error: loomle::RpcInvokeFailure) -> CallToolResult {
+fn runtime_invoke_failure_payload(error: loomle::RpcInvokeFailure) -> serde_json::Value {
     if let Some(payload) = error.payload {
-        CallToolResult::structured_error(payload)
+        payload
     } else {
-        CallToolResult::structured_error(serde_json::json!({
+        serde_json::json!({
             "code": error.code,
             "message": error.message,
             "retryable": error.retryable,
             "detail": error.detail,
-        }))
+        })
     }
 }
 
