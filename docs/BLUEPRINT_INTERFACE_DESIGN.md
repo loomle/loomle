@@ -836,6 +836,8 @@ Rules:
 - `alias` is strongly recommended
 - `defaults` only initializes pin defaults on the new node
 - `addNode` does not implicitly attach the node to existing structure
+- Self references use the normal by-class path: `nodeType.id = "class:/Script/BlueprintGraph.K2Node_Self"`
+- `K2Node_Self` exposes an output pin named `self`, which may be connected with the standard `connect` command to compatible UObject/Actor input pins
 
 #### removeNode
 

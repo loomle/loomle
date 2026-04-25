@@ -614,6 +614,7 @@ Notes:
 - `moveNodeBy` accepts a single target plus either `dx`/`dy` or `delta.{x,y}`.
 - `moveNodes` accepts `nodeIds` or `nodes` plus either `dx`/`dy` or `delta.{x,y}` and applies the same delta to every resolved node.
 - `layoutGraph` supports Blueprint, Material, and PCG mutate flows with `args.scope="touched"| "all"`.
+- Blueprint `addNode.byClass` supports Self reference nodes with `nodeClassPath="/Script/BlueprintGraph.K2Node_Self"`. Inspect exposes the output pin as `self`; connect may reference it as `Self`/`self`.
 - `runScript` is currently a Blueprint-only graph-scoped fallback after the caller has resolved the exact target graph.
 - Prefer `runScript` only for graph-local gaps that are not yet productized in `graph.*`.
 - Do not use `runScript` for non-graph automation, for Material or PCG graphs, or for graph types not yet covered by `graph.*`; use `execute` for those cases.

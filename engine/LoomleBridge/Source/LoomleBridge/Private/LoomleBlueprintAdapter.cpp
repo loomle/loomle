@@ -29,6 +29,7 @@
 #include "K2Node_IfThenElse.h"
 #include "K2Node_MacroInstance.h"
 #include "K2Node_Knot.h"
+#include "K2Node_Self.h"
 #include "K2Node_Timeline.h"
 #include "K2Node_Tunnel.h"
 #include "K2Node_TunnelBoundary.h"
@@ -1075,6 +1076,36 @@ namespace LoomleBlueprintAdapterInternal
         }
 
         return Descriptor;
+    }
+
+    static bool AddSelfNode(
+        const FString& BlueprintAssetPath,
+        const FString& GraphName,
+        const int32 NodePosX,
+        const int32 NodePosY,
+        FString& OutNodeGuid,
+        FString& OutError)
+    {
+        OutNodeGuid.Empty();
+        OutError.Empty();
+
+        UBlueprint* Blueprint = LoadBlueprintByAssetPath(BlueprintAssetPath);
+        UEdGraph* TargetGraph = ResolveTargetGraph(Blueprint, GraphName);
+        if (!Blueprint || !TargetGraph)
+        {
+            OutError = TEXT("Failed to resolve blueprint/target graph.");
+            return false;
+        }
+
+        FGraphNodeCreator<UK2Node_Self> Creator(*TargetGraph);
+        UK2Node_Self* Node = Creator.CreateNode();
+        Node->NodePosX = NodePosX;
+        Node->NodePosY = NodePosY;
+        Node->AllocateDefaultPins();
+        Creator.Finalize();
+
+        OutNodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+        return true;
     }
 
     static bool ParsePayloadJson(const FString& PayloadJson, TSharedPtr<FJsonObject>& OutPayload)
@@ -4922,6 +4953,16 @@ bool FLoomleBlueprintAdapter::AddNodeByClass(const FString& BlueprintAssetPath, 
             BlueprintAssetPath,
             GraphName,
             Payload,
+            NodePosX,
+            NodePosY,
+            OutNodeGuid,
+            OutError);
+    }
+    if (NormalizedClass.Contains(TEXT("k2node_self")))
+    {
+        return LoomleBlueprintAdapterInternal::AddSelfNode(
+            BlueprintAssetPath,
+            GraphName,
             NodePosX,
             NodePosY,
             OutNodeGuid,

@@ -1747,6 +1747,72 @@ def main() -> int:
             fail(f"addNode.byClass did not return nodeId for second node: {add_b}")
         print("[PASS] blueprint.mutate addNode.byClass validated")
 
+        self_graph_edit = call_domain_tool(
+            client,
+            12,
+            "blueprint",
+            "mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "commands": [
+                    {
+                        "kind": "addNode",
+                        "alias": "self",
+                        "nodeType": {"id": "class:/Script/BlueprintGraph.K2Node_Self"},
+                        "position": {"x": 0, "y": 220},
+                    },
+                    {
+                        "kind": "addNode",
+                        "alias": "cast_actor",
+                        "nodeType": {"kind": "cast", "targetClassPath": "/Script/Engine.Actor"},
+                        "position": {"x": 280, "y": 220},
+                    },
+                    {
+                        "kind": "connect",
+                        "from": {"node": {"alias": "self"}, "pin": "Self"},
+                        "to": {"node": {"alias": "cast_actor"}, "pin": "Object"},
+                    },
+                ],
+            },
+        )
+        self_results = self_graph_edit.get("opResults")
+        if not isinstance(self_results, list) or len(self_results) != 3:
+            fail(f"blueprint.graph.edit self node opResults mismatch: {self_graph_edit}")
+        self_node_id = self_results[0].get("nodeId") if isinstance(self_results[0], dict) else None
+        if not isinstance(self_node_id, str) or not self_node_id:
+            fail(f"blueprint.graph.edit K2Node_Self did not return nodeId: {self_graph_edit}")
+        if not all(isinstance(entry, dict) and entry.get("ok") for entry in self_results):
+            fail(f"blueprint.graph.edit K2Node_Self/connect op failed: {self_graph_edit}")
+
+        self_query = query_graph_payload(
+            client,
+            13,
+            asset_path=temp_asset,
+            graph_name="EventGraph",
+            limit=200,
+        )
+        self_nodes = self_query.get("semanticSnapshot", {}).get("nodes", [])
+        if not isinstance(self_nodes, list):
+            fail(f"blueprint.graph.inspect self node missing nodes[]: {self_query}")
+        self_node = require_node([node for node in self_nodes if isinstance(node, dict)], self_node_id)
+        if self_node.get("className") != "K2Node_Self":
+            fail(f"blueprint.graph.inspect self node class mismatch: {self_node}")
+        self_pins = self_node.get("pins")
+        if not isinstance(self_pins, list) or not any(
+            isinstance(pin, dict) and pin.get("name") == "self" and pin.get("direction") == "output"
+            for pin in self_pins
+        ):
+            fail(f"blueprint.graph.inspect self node output pin missing: {self_node}")
+        if not any(
+            isinstance(pin, dict)
+            and pin.get("name") == "self"
+            and any(isinstance(link, dict) and link.get("toPin") == "Object" for link in pin.get("links", []))
+            for pin in self_pins
+        ):
+            fail(f"blueprint.graph.inspect self node link to UObject/Actor input missing: {self_node}")
+        print("[PASS] blueprint.graph.edit K2Node_Self creation/connect/inspect validated")
+
         blueprint_revision_before = query_graph_payload(
             client,
             105,

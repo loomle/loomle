@@ -5483,6 +5483,41 @@ mod tests {
     }
 
     #[test]
+    fn blueprint_graph_edit_translates_self_node_by_class() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graph".into(), serde_json::json!({ "name": "EventGraph" }));
+        args.insert(
+            "commands".into(),
+            serde_json::json!([
+                {
+                    "kind": "addNode",
+                    "alias": "self",
+                    "nodeType": { "id": "class:/Script/BlueprintGraph.K2Node_Self" }
+                }
+            ]),
+        );
+
+        let translated = translate_blueprint_graph_edit_args(&args).expect("translated args");
+        let ops = translated
+            .get("ops")
+            .and_then(|value| value.as_array())
+            .expect("ops");
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            ops[0].get("op").and_then(|value| value.as_str()),
+            Some("addNode.byClass")
+        );
+        assert_eq!(
+            ops[0]
+                .get("args")
+                .and_then(|value| value.get("nodeClassPath"))
+                .and_then(|value| value.as_str()),
+            Some("/Script/BlueprintGraph.K2Node_Self")
+        );
+    }
+
+    #[test]
     fn blueprint_graph_edit_preserves_structured_pin_default_object() {
         let mut args = JsonObject::new();
         args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
