@@ -517,7 +517,12 @@ impl LoomleProxyServer {
             }
             return structured_result(serde_json::json!({
                 "subscriptionId": subscription_id,
-                "active": false
+                "active": false,
+                "delivery": {
+                    "context": "manual_tail_required",
+                    "tailTool": "log.tail",
+                    "message": "The subscription updates LOOMLE's server-side filtered log stream. Agent hosts may ignore MCP notifications, so call log.tail with fromSeq/nextFromSeq to consume logs in model context."
+                }
             }));
         }
 
@@ -583,8 +588,15 @@ impl LoomleProxyServer {
             "subscriptionId": subscription_id,
             "active": true,
             "fromSeq": from_seq,
+            "nextFromSeq": from_seq,
             "filters": filters,
-            "maxPerSecond": max_per_second
+            "maxPerSecond": max_per_second,
+            "delivery": {
+                "notificationMethod": "notifications/loomle/log",
+                "context": "manual_tail_required",
+                "tailTool": "log.tail",
+                "message": "The subscription starts a filtered server-side log stream and best-effort MCP notifications. Agent hosts may not place notifications in model context; call log.tail to consume entries."
+            }
         }))
     }
 

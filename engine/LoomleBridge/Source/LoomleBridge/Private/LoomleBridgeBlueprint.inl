@@ -2781,6 +2781,95 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             return DirectResult;
         };
 
+        auto MakeGraphDiff = []() -> TSharedPtr<FJsonObject>
+        {
+            TSharedPtr<FJsonObject> Diff = MakeShared<FJsonObject>();
+            Diff->SetArrayField(TEXT("nodesAdded"), {});
+            Diff->SetArrayField(TEXT("nodesRemoved"), {});
+            Diff->SetArrayField(TEXT("nodesMoved"), {});
+            Diff->SetArrayField(TEXT("pinDefaultsChanged"), {});
+            Diff->SetArrayField(TEXT("linksAdded"), {});
+            Diff->SetArrayField(TEXT("linksRemoved"), {});
+            Diff->SetArrayField(TEXT("eventReplicationChanged"), {});
+            return Diff;
+        };
+
+        auto AppendDiffObject = [](const TSharedPtr<FJsonObject>& Diff, const TCHAR* FieldName, const TSharedPtr<FJsonObject>& Entry)
+        {
+            if (!Diff.IsValid() || !Entry.IsValid())
+            {
+                return;
+            }
+            TArray<TSharedPtr<FJsonValue>> Values = CloneBlueprintJsonArrayField(Diff, FieldName);
+            Values.Add(MakeShared<FJsonValueObject>(Entry));
+            Diff->SetArrayField(FieldName, Values);
+        };
+
+        auto MakeNodeDiffEntry = [](const FString& NodeId, const FString& NodeClassPath = TEXT(""), const FString& Title = TEXT("")) -> TSharedPtr<FJsonObject>
+        {
+            TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+            Entry->SetStringField(TEXT("nodeId"), NodeId);
+            if (!NodeClassPath.IsEmpty())
+            {
+                Entry->SetStringField(TEXT("nodeClassPath"), NodeClassPath);
+            }
+            if (!Title.IsEmpty())
+            {
+                Entry->SetStringField(TEXT("title"), Title);
+            }
+            return Entry;
+        };
+
+        auto AttachDiffToSingleResult = [](const TSharedPtr<FJsonObject>& Result, const TSharedPtr<FJsonObject>& Diff)
+        {
+            if (!Result.IsValid() || !Diff.IsValid())
+            {
+                return;
+            }
+            const TArray<TSharedPtr<FJsonValue>>* OpResultsArray = nullptr;
+            if (Result->TryGetArrayField(TEXT("opResults"), OpResultsArray) && OpResultsArray != nullptr && OpResultsArray->Num() > 0)
+            {
+                const TSharedPtr<FJsonObject>* OpResultObject = nullptr;
+                if ((*OpResultsArray)[0].IsValid() && (*OpResultsArray)[0]->TryGetObject(OpResultObject) && OpResultObject != nullptr && (*OpResultObject).IsValid())
+                {
+                    (*OpResultObject)->SetObjectField(TEXT("diff"), Diff);
+                }
+            }
+        };
+
+        auto MakePinDefaultSummary = [&](const FString& NodeId, const FString& PinName) -> TSharedPtr<FJsonObject>
+        {
+            TSharedPtr<FJsonObject> Summary = MakeShared<FJsonObject>();
+            Summary->SetStringField(TEXT("value"), TEXT(""));
+            Summary->SetStringField(TEXT("object"), TEXT(""));
+            Summary->SetStringField(TEXT("text"), TEXT(""));
+
+            UBlueprint* Blueprint = LoadBlueprintByAssetPath(AssetPath);
+            UEdGraph* TargetGraph = ResolveBlueprintGraph(Blueprint, EffectiveGraphName);
+            UEdGraphNode* TargetNode = ResolveBlueprintGraphNodeByToken(TargetGraph, NodeId);
+            UEdGraphPin* Pin = TargetNode != nullptr ? TargetNode->FindPin(*PinName) : nullptr;
+            if (Pin == nullptr)
+            {
+                return Summary;
+            }
+
+            Summary->SetStringField(TEXT("value"), Pin->DefaultValue);
+            Summary->SetStringField(TEXT("object"), Pin->DefaultObject ? Pin->DefaultObject->GetPathName() : TEXT(""));
+            Summary->SetStringField(TEXT("text"), Pin->DefaultTextValue.ToString());
+            return Summary;
+        };
+
+        auto AttachNodeAddedDiff = [&](const TSharedPtr<FJsonObject>& Result, const FString& NodeId, const FString& NodeClassPath)
+        {
+            if (!Result.IsValid() || NodeId.IsEmpty())
+            {
+                return;
+            }
+            TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
+            AppendDiffObject(Diff, TEXT("nodesAdded"), MakeNodeDiffEntry(NodeId, NodeClassPath));
+            AttachDiffToSingleResult(Result, Diff);
+        };
+
         auto ErrorCodeFromPrefixedMessage = [](const FString& ErrorMessage) -> FString
         {
             if (ErrorMessage.StartsWith(TEXT("CONNECT_REQUIRES_OUTPUT_TO_INPUT")))
@@ -2905,6 +2994,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
                 if (bOk)
                 {
+                    AttachNodeAddedDiff(SingleResult, NewNodeId, NodeClassPath);
                     const FString NormalizedClassPath = NodeClassPath.ToLower();
                     if (NormalizedClassPath.Contains(TEXT("k2node_timeline")))
                     {
@@ -2959,6 +3049,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                     NewNodeId,
                     Error);
                 SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
+                if (bOk)
+                {
+                    AttachNodeAddedDiff(SingleResult, NewNodeId, FunctionClassPath.IsEmpty() ? FString(TEXT("K2Node_CallFunction")) : FunctionClassPath);
+                }
             }
         }
         else if (OpName.Equals(TEXT("addnode.byevent")))
@@ -2992,6 +3086,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                     NewNodeId,
                     Error);
                 SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
+                if (bOk)
+                {
+                    AttachNodeAddedDiff(SingleResult, NewNodeId, EventClassPath.IsEmpty() ? FString(TEXT("K2Node_Event")) : EventClassPath);
+                }
             }
         }
         else if (OpName.Equals(TEXT("addnode.customevent")))
@@ -3026,6 +3124,22 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
                 if (bOk)
                 {
+                    TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
+                    AppendDiffObject(Diff, TEXT("nodesAdded"), MakeNodeDiffEntry(NewNodeId, TEXT("/Script/BlueprintGraph.K2Node_CustomEvent"), EventName));
+                    FString Replication;
+                    ReadStringAlias({TEXT("replication"), TEXT("rpc"), TEXT("netMode")}, Replication);
+                    bool bReliable = false;
+                    if (!SingleArgsObject->TryGetBoolField(TEXT("reliable"), bReliable))
+                    {
+                        SingleArgsObject->TryGetBoolField(TEXT("isReliable"), bReliable);
+                    }
+                    TSharedPtr<FJsonObject> ReplicationEntry = MakeShared<FJsonObject>();
+                    ReplicationEntry->SetStringField(TEXT("nodeId"), NewNodeId);
+                    ReplicationEntry->SetStringField(TEXT("eventName"), EventName);
+                    ReplicationEntry->SetStringField(TEXT("replication"), Replication);
+                    ReplicationEntry->SetBoolField(TEXT("reliable"), bReliable);
+                    AppendDiffObject(Diff, TEXT("eventReplicationChanged"), ReplicationEntry);
+                    AttachDiffToSingleResult(SingleResult, Diff);
                     AppendSecondarySurfaceHint(
                         SingleResult,
                         MakeBlueprintMemberSurface(TEXT("event"), EventName, TEXT("event_signature"), {TEXT("updateSignature"), TEXT("setFlags"), TEXT("rename")}),
@@ -3061,6 +3175,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                     ? FLoomleBlueprintAdapter::AddVariableSetNode(AssetPath, EffectiveGraphName, VariableName, VariableClassPath, X, Y, NewNodeId, Error)
                     : FLoomleBlueprintAdapter::AddVariableGetNode(AssetPath, EffectiveGraphName, VariableName, VariableClassPath, X, Y, NewNodeId, Error);
                 SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
+                if (bOk)
+                {
+                    AttachNodeAddedDiff(SingleResult, NewNodeId, Mode.Equals(TEXT("set"), ESearchCase::IgnoreCase) ? TEXT("/Script/BlueprintGraph.K2Node_VariableSet") : TEXT("/Script/BlueprintGraph.K2Node_VariableGet"));
+                }
             }
         }
         else if (OpName.Equals(TEXT("addnode.bymacro")))
@@ -3094,6 +3212,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                     NewNodeId,
                     Error);
                 SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
+                if (bOk)
+                {
+                    AttachNodeAddedDiff(SingleResult, NewNodeId, TEXT("/Script/BlueprintGraph.K2Node_MacroInstance"));
+                }
             }
         }
         else if (OpName.Equals(TEXT("addnode.branch")))
@@ -3111,6 +3233,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 FString Error;
                 const bool bOk = FLoomleBlueprintAdapter::AddBranchNode(AssetPath, EffectiveGraphName, X, Y, NewNodeId, Error);
                 SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
+                if (bOk)
+                {
+                    AttachNodeAddedDiff(SingleResult, NewNodeId, TEXT("/Script/BlueprintGraph.K2Node_IfThenElse"));
+                }
             }
         }
         else if (OpName.Equals(TEXT("addnode.sequence")))
@@ -3128,6 +3254,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 FString Error;
                 const bool bOk = FLoomleBlueprintAdapter::AddExecutionSequenceNode(AssetPath, EffectiveGraphName, X, Y, NewNodeId, Error);
                 SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
+                if (bOk)
+                {
+                    AttachNodeAddedDiff(SingleResult, NewNodeId, TEXT("/Script/BlueprintGraph.K2Node_ExecutionSequence"));
+                }
             }
         }
         else if (OpName.Equals(TEXT("addnode.cast")))
@@ -3151,6 +3281,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 FString Error;
                 const bool bOk = FLoomleBlueprintAdapter::AddCastNode(AssetPath, EffectiveGraphName, TargetClassPath, X, Y, NewNodeId, Error);
                 SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
+                if (bOk)
+                {
+                    AttachNodeAddedDiff(SingleResult, NewNodeId, TEXT("/Script/BlueprintGraph.K2Node_DynamicCast"));
+                }
             }
         }
         else if (OpName.Equals(TEXT("addnode.comment")))
@@ -3181,6 +3315,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                     NewNodeId,
                     Error);
                 SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
+                if (bOk)
+                {
+                    AttachNodeAddedDiff(SingleResult, NewNodeId, TEXT("/Script/UnrealEd.EdGraphNode_Comment"));
+                }
             }
         }
         else if (OpName.Equals(TEXT("addnode.knot")))
@@ -3198,6 +3336,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 FString Error;
                 const bool bOk = FLoomleBlueprintAdapter::AddKnotNode(AssetPath, EffectiveGraphName, X, Y, NewNodeId, Error);
                 SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
+                if (bOk)
+                {
+                    AttachNodeAddedDiff(SingleResult, NewNodeId, TEXT("/Script/BlueprintGraph.K2Node_Knot"));
+                }
             }
         }
         else if (OpName.Equals(TEXT("duplicatenode")))
@@ -3219,6 +3361,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 FString Error;
                 const bool bOk = FLoomleBlueprintAdapter::DuplicateNode(AssetPath, EffectiveGraphName, SourceNodeId, Dx, Dy, NewNodeId, Error);
                 SingleResult = BuildDirectSingleResult(bOk, bOk && !bDryRun, TEXT(""), Error, NewNodeId);
+                if (bOk)
+                {
+                    AttachNodeAddedDiff(SingleResult, NewNodeId, TEXT(""));
+                }
             }
         }
         else if (OpName.Equals(TEXT("layoutgraph")))
@@ -3307,6 +3453,17 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 const FString ErrorCode = ErrorCodeFromPrefixedMessage(Error);
                 const bool bChanged = bOk && !ErrorCode.Equals(TEXT("LINK_NOT_FOUND"));
                 SingleResult = BuildDirectSingleResult(bOk, bChanged, ErrorCode, Error);
+                if (bChanged)
+                {
+                    TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
+                    TSharedPtr<FJsonObject> LinkEntry = MakeShared<FJsonObject>();
+                    LinkEntry->SetStringField(TEXT("fromNodeId"), FromNodeId);
+                    LinkEntry->SetStringField(TEXT("fromPin"), FromPinName);
+                    LinkEntry->SetStringField(TEXT("toNodeId"), ToNodeId);
+                    LinkEntry->SetStringField(TEXT("toPin"), ToPinName);
+                    AppendDiffObject(Diff, OpName.Equals(TEXT("connectpins")) ? TEXT("linksAdded") : TEXT("linksRemoved"), LinkEntry);
+                    AttachDiffToSingleResult(SingleResult, Diff);
+                }
             }
         }
         else if (OpName.Equals(TEXT("breakpinlinks")))
@@ -3374,6 +3531,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 }
                 else
                 {
+                    const TSharedPtr<FJsonObject> BeforeDefault = MakePinDefaultSummary(TargetNodeId, TargetPinName);
                     FString Error;
                     const bool bOk = FLoomleBlueprintAdapter::SetPinDefaultValue(AssetPath, EffectiveGraphName, TargetNodeId, TargetPinName, Value, ObjectPath, TextValue, Error);
                     if (!bOk && Error.StartsWith(TEXT("PIN_DEFAULT_REQUIRES_UNLINKED_PIN")))
@@ -3392,6 +3550,17 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                     {
                         SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, TargetNodeId);
                     }
+                    if (bOk)
+                    {
+                        TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
+                        TSharedPtr<FJsonObject> PinDefaultEntry = MakeShared<FJsonObject>();
+                        PinDefaultEntry->SetStringField(TEXT("nodeId"), TargetNodeId);
+                        PinDefaultEntry->SetStringField(TEXT("pin"), TargetPinName);
+                        PinDefaultEntry->SetObjectField(TEXT("before"), BeforeDefault);
+                        PinDefaultEntry->SetObjectField(TEXT("after"), MakePinDefaultSummary(TargetNodeId, TargetPinName));
+                        AppendDiffObject(Diff, TEXT("pinDefaultsChanged"), PinDefaultEntry);
+                        AttachDiffToSingleResult(SingleResult, Diff);
+                    }
                 }
             }
         }
@@ -3408,9 +3577,28 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             }
             else
             {
+                FString RemovedNodeClassPath;
+                FString RemovedNodeTitle;
+                if (UBlueprint* Blueprint = LoadBlueprintByAssetPath(AssetPath))
+                {
+                    if (UEdGraph* TargetGraph = ResolveBlueprintGraph(Blueprint, EffectiveGraphName))
+                    {
+                        if (UEdGraphNode* TargetNode = ResolveBlueprintGraphNodeByToken(TargetGraph, TargetNodeId))
+                        {
+                            RemovedNodeClassPath = TargetNode->GetClass() ? TargetNode->GetClass()->GetPathName() : TEXT("");
+                            RemovedNodeTitle = TargetNode->GetNodeTitle(ENodeTitleType::ListView).ToString();
+                        }
+                    }
+                }
                 FString Error;
                 const bool bOk = FLoomleBlueprintAdapter::RemoveNode(AssetPath, EffectiveGraphName, TargetNodeId, Error);
                 SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, TargetNodeId);
+                if (bOk)
+                {
+                    TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
+                    AppendDiffObject(Diff, TEXT("nodesRemoved"), MakeNodeDiffEntry(TargetNodeId, RemovedNodeClassPath, RemovedNodeTitle));
+                    AttachDiffToSingleResult(SingleResult, Diff);
+                }
             }
         }
         else if (OpName.Equals(TEXT("movenode")) || OpName.Equals(TEXT("movenodeby")))
@@ -3450,9 +3638,38 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                     }
                     else
                     {
+                        int32 BeforeX = 0;
+                        int32 BeforeY = 0;
+                        if (UBlueprint* Blueprint = LoadBlueprintByAssetPath(AssetPath))
+                        {
+                            if (UEdGraph* TargetGraph = ResolveBlueprintGraph(Blueprint, EffectiveGraphName))
+                            {
+                                if (UEdGraphNode* TargetNode = ResolveBlueprintGraphNodeByToken(TargetGraph, TargetNodeId))
+                                {
+                                    BeforeX = TargetNode->NodePosX;
+                                    BeforeY = TargetNode->NodePosY;
+                                }
+                            }
+                        }
                         FString Error;
                         const bool bOk = FLoomleBlueprintAdapter::MoveNode(AssetPath, EffectiveGraphName, TargetNodeId, X, Y, Error);
                         SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, TargetNodeId);
+                        if (bOk)
+                        {
+                            TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
+                            TSharedPtr<FJsonObject> MoveEntry = MakeShared<FJsonObject>();
+                            MoveEntry->SetStringField(TEXT("nodeId"), TargetNodeId);
+                            TSharedPtr<FJsonObject> BeforePosition = MakeShared<FJsonObject>();
+                            BeforePosition->SetNumberField(TEXT("x"), BeforeX);
+                            BeforePosition->SetNumberField(TEXT("y"), BeforeY);
+                            TSharedPtr<FJsonObject> AfterPosition = MakeShared<FJsonObject>();
+                            AfterPosition->SetNumberField(TEXT("x"), X);
+                            AfterPosition->SetNumberField(TEXT("y"), Y);
+                            MoveEntry->SetObjectField(TEXT("before"), BeforePosition);
+                            MoveEntry->SetObjectField(TEXT("after"), AfterPosition);
+                            AppendDiffObject(Diff, TEXT("nodesMoved"), MoveEntry);
+                            AttachDiffToSingleResult(SingleResult, Diff);
+                        }
                     }
                 }
             }
@@ -3776,6 +3993,48 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
         }
     }
 
+    TSharedPtr<FJsonObject> AggregateDiff = MakeShared<FJsonObject>();
+    static const TCHAR* DiffFields[] = {
+        TEXT("nodesAdded"),
+        TEXT("nodesRemoved"),
+        TEXT("nodesMoved"),
+        TEXT("pinDefaultsChanged"),
+        TEXT("linksAdded"),
+        TEXT("linksRemoved"),
+        TEXT("eventReplicationChanged"),
+    };
+    for (const TCHAR* DiffField : DiffFields)
+    {
+        AggregateDiff->SetArrayField(DiffField, {});
+    }
+    for (const TSharedPtr<FJsonValue>& OpResultValue : OpResults)
+    {
+        const TSharedPtr<FJsonObject>* OpResultObject = nullptr;
+        if (!OpResultValue.IsValid()
+            || !OpResultValue->TryGetObject(OpResultObject)
+            || OpResultObject == nullptr
+            || !(*OpResultObject).IsValid())
+        {
+            continue;
+        }
+
+        const TSharedPtr<FJsonObject>* OpDiff = nullptr;
+        if (!(*OpResultObject)->TryGetObjectField(TEXT("diff"), OpDiff)
+            || OpDiff == nullptr
+            || !(*OpDiff).IsValid())
+        {
+            continue;
+        }
+
+        for (const TCHAR* DiffField : DiffFields)
+        {
+            TArray<TSharedPtr<FJsonValue>> AggregateValues = CloneBlueprintJsonArrayField(AggregateDiff, DiffField);
+            const TArray<TSharedPtr<FJsonValue>> OpValues = CloneBlueprintJsonArrayField(*OpDiff, DiffField);
+            AggregateValues.Append(OpValues);
+            AggregateDiff->SetArrayField(DiffField, AggregateValues);
+        }
+    }
+
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), bAnyError);
     if (bAnyError)
@@ -3811,6 +4070,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
     }
 
     Result->SetArrayField(TEXT("opResults"), OpResults);
+    Result->SetObjectField(TEXT("diff"), AggregateDiff);
     Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
     if (!IdempotencyRegistryKey.IsEmpty() && !bAnyError)
     {

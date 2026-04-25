@@ -885,10 +885,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildDiagnosticTailToolResult(const
     }
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    const uint64 NextFromSeq = bHasMore ? NextSeq : HighWatermark;
     Result->SetBoolField(TEXT("isError"), false);
     Result->SetArrayField(TEXT("items"), Items);
+    Result->SetNumberField(TEXT("fromSeq"), static_cast<double>(FromSeq));
     Result->SetNumberField(TEXT("nextSeq"), static_cast<double>(NextSeq));
+    Result->SetNumberField(TEXT("nextFromSeq"), static_cast<double>(NextFromSeq));
     Result->SetBoolField(TEXT("hasMore"), bHasMore);
+    Result->SetNumberField(TEXT("latestSeq"), static_cast<double>(HighWatermark));
     Result->SetNumberField(TEXT("highWatermark"), static_cast<double>(HighWatermark));
     return Result;
 }
@@ -985,10 +989,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildLogTailToolResult(const TShare
     }
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    const uint64 NextFromSeq = bHasMore ? NextSeq : HighWatermark;
     Result->SetBoolField(TEXT("isError"), false);
     Result->SetArrayField(TEXT("items"), Items);
+    Result->SetNumberField(TEXT("fromSeq"), static_cast<double>(FromSeq));
     Result->SetNumberField(TEXT("nextSeq"), static_cast<double>(NextSeq));
+    Result->SetNumberField(TEXT("nextFromSeq"), static_cast<double>(NextFromSeq));
     Result->SetBoolField(TEXT("hasMore"), bHasMore);
+    Result->SetNumberField(TEXT("latestSeq"), static_cast<double>(HighWatermark));
     Result->SetNumberField(TEXT("highWatermark"), static_cast<double>(HighWatermark));
     return Result;
 }

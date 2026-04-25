@@ -615,6 +615,7 @@ Notes:
 - `moveNodes` accepts `nodeIds` or `nodes` plus either `dx`/`dy` or `delta.{x,y}` and applies the same delta to every resolved node.
 - `layoutGraph` supports Blueprint, Material, and PCG mutate flows with `args.scope="touched"| "all"`.
 - Blueprint `addNode.byClass` supports Self reference nodes with `nodeClassPath="/Script/BlueprintGraph.K2Node_Self"`. Inspect exposes the output pin as `self`; connect may reference it as `Self`/`self`.
+- Blueprint writes return a human-readable structured diff at `opResults[*].diff` and an aggregate `diff` at the response root. The first supported families are node add/remove/move, pin default changes, link add/remove, and custom event replication metadata.
 - `runScript` is currently a Blueprint-only graph-scoped fallback after the caller has resolved the exact target graph.
 - Prefer `runScript` only for graph-local gaps that are not yet productized in `graph.*`.
 - Do not use `runScript` for non-graph automation, for Material or PCG graphs, or for graph types not yet covered by `graph.*`; use `execute` for those cases.
@@ -643,9 +644,27 @@ Notes:
       "errorCode": "",
       "errorMessage": "",
       "movedNodeIds": ["optional-node-id"],
+      "diff": {
+        "nodesAdded": [],
+        "nodesRemoved": [],
+        "nodesMoved": [],
+        "pinDefaultsChanged": [],
+        "linksAdded": [],
+        "linksRemoved": [],
+        "eventReplicationChanged": []
+      },
       "details": {}
     }
   ],
+  "diff": {
+    "nodesAdded": [],
+    "nodesRemoved": [],
+    "nodesMoved": [],
+    "pinDefaultsChanged": [],
+    "linksAdded": [],
+    "linksRemoved": [],
+    "eventReplicationChanged": []
+  },
   "diagnostics": []
 }
 ```
@@ -741,8 +760,11 @@ Field notes:
 ```json
 {
   "items": [],
+  "fromSeq": 0,
   "nextSeq": 0,
+  "nextFromSeq": 0,
   "hasMore": false,
+  "latestSeq": 0,
   "highWatermark": 0
 }
 ```
@@ -759,9 +781,11 @@ Cursor semantics:
 - `fromSeq` is exclusive (`seq > fromSeq`).
 - `fromSeq` must be a non-negative integer, otherwise returns `1000 INVALID_ARGUMENT`.
 - `limit` must be `>= 1`; values above `1000` are capped to `1000`.
-- `nextSeq` equals the last returned event `seq`, or echoes `fromSeq` when `items` is empty.
+- `nextSeq` equals the last returned event `seq`, or echoes `fromSeq` when `items` is empty. This field is retained for compatibility.
+- `latestSeq` is the latest observed sequence at read time.
+- `highWatermark` is retained as an alias of `latestSeq`.
+- `nextFromSeq` is the recommended `fromSeq` for the next polling call. It equals `nextSeq` when `hasMore=true`, otherwise it advances to `latestSeq`.
 - `hasMore=true` means more matching events are available after the returned page.
-- `highWatermark` is the latest observed sequence at read time.
 
 ## 5.12 tool=`log.tail`
 
@@ -785,8 +809,11 @@ Cursor semantics:
 ```json
 {
   "items": [],
+  "fromSeq": 0,
   "nextSeq": 0,
+  "nextFromSeq": 0,
   "hasMore": false,
+  "latestSeq": 0,
   "highWatermark": 0
 }
 ```
@@ -799,6 +826,29 @@ Storage note:
   for default agent context and call `log.tail` only when detailed evidence is needed.
 
 Cursor semantics match `diagnostic.tail`.
+
+## 5.13 tool=`log.subscribe`
+
+`log.subscribe` manages a filtered server-side log stream and best-effort MCP
+notifications. Agent hosts may not place notifications in model context, so callers
+must use `log.tail` with `fromSeq` / `nextFromSeq` when logs need to be consumed by
+the agent.
+
+The subscribe and unsubscribe responses include delivery guidance:
+
+```json
+{
+  "subscriptionId": "log_1",
+  "active": true,
+  "fromSeq": 120,
+  "nextFromSeq": 120,
+  "delivery": {
+    "notificationMethod": "notifications/loomle/log",
+    "context": "manual_tail_required",
+    "tailTool": "log.tail"
+  }
+}
+```
 
 ## 6. Error Codes
 

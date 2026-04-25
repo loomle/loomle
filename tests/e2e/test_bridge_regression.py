@@ -1784,6 +1784,26 @@ def main() -> int:
             fail(f"blueprint.graph.edit K2Node_Self did not return nodeId: {self_graph_edit}")
         if not all(isinstance(entry, dict) and entry.get("ok") for entry in self_results):
             fail(f"blueprint.graph.edit K2Node_Self/connect op failed: {self_graph_edit}")
+        self_diff = self_graph_edit.get("diff")
+        if not isinstance(self_diff, dict):
+            fail(f"blueprint.graph.edit missing structured diff: {self_graph_edit}")
+        self_nodes_added = self_diff.get("nodesAdded")
+        if not isinstance(self_nodes_added, list) or not any(
+            isinstance(entry, dict) and entry.get("nodeId") == self_node_id for entry in self_nodes_added
+        ):
+            fail(f"blueprint.graph.edit diff missing Self node addition: {self_graph_edit}")
+        self_links_added = self_diff.get("linksAdded")
+        if not isinstance(self_links_added, list) or not any(
+            isinstance(entry, dict)
+            and entry.get("fromNodeId") == self_node_id
+            and entry.get("fromPin") == "Self"
+            and entry.get("toPin") == "Object"
+            for entry in self_links_added
+        ):
+            fail(f"blueprint.graph.edit diff missing Self link addition: {self_graph_edit}")
+        first_op_diff = self_results[0].get("diff") if isinstance(self_results[0], dict) else None
+        if not isinstance(first_op_diff, dict) or not isinstance(first_op_diff.get("nodesAdded"), list):
+            fail(f"blueprint.graph.edit opResults diff missing node addition: {self_graph_edit}")
 
         self_query = query_graph_payload(
             client,

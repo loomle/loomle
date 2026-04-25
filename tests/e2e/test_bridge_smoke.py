@@ -3228,11 +3228,19 @@ def main() -> int:
         if not isinstance(items, list):
             fail(f"diagnostic.tail missing items[]: {diagnostic_payload}")
         next_seq = diagnostic_payload.get("nextSeq")
+        next_from_seq = diagnostic_payload.get("nextFromSeq")
+        latest_seq = diagnostic_payload.get("latestSeq")
         high_watermark = diagnostic_payload.get("highWatermark")
         if not isinstance(next_seq, int) or next_seq < 0:
             fail(f"diagnostic.tail invalid nextSeq: {diagnostic_payload}")
+        if not isinstance(next_from_seq, int) or next_from_seq < 0:
+            fail(f"diagnostic.tail invalid nextFromSeq: {diagnostic_payload}")
+        if not isinstance(latest_seq, int) or latest_seq < 0:
+            fail(f"diagnostic.tail invalid latestSeq: {diagnostic_payload}")
         if not isinstance(high_watermark, int) or high_watermark < 0:
             fail(f"diagnostic.tail invalid highWatermark: {diagnostic_payload}")
+        if latest_seq != high_watermark:
+            fail(f"diagnostic.tail latestSeq/highWatermark mismatch: {diagnostic_payload}")
         if not isinstance(diagnostic_payload.get("hasMore"), bool):
             fail(f"diagnostic.tail invalid hasMore: {diagnostic_payload}")
         print("[PASS] diagnostic.tail is available")
@@ -3242,11 +3250,19 @@ def main() -> int:
         if not isinstance(log_items, list):
             fail(f"log.tail missing items[]: {log_payload}")
         log_next_seq = log_payload.get("nextSeq")
+        log_next_from_seq = log_payload.get("nextFromSeq")
+        log_latest_seq = log_payload.get("latestSeq")
         log_high_watermark = log_payload.get("highWatermark")
         if not isinstance(log_next_seq, int) or log_next_seq < 0:
             fail(f"log.tail invalid nextSeq: {log_payload}")
+        if not isinstance(log_next_from_seq, int) or log_next_from_seq < 0:
+            fail(f"log.tail invalid nextFromSeq: {log_payload}")
+        if not isinstance(log_latest_seq, int) or log_latest_seq < 0:
+            fail(f"log.tail invalid latestSeq: {log_payload}")
         if not isinstance(log_high_watermark, int) or log_high_watermark < 0:
             fail(f"log.tail invalid highWatermark: {log_payload}")
+        if log_latest_seq != log_high_watermark:
+            fail(f"log.tail latestSeq/highWatermark mismatch: {log_payload}")
         if not isinstance(log_payload.get("hasMore"), bool):
             fail(f"log.tail invalid hasMore: {log_payload}")
         print("[PASS] log.tail is available")
@@ -3266,6 +3282,9 @@ def main() -> int:
             fail(f"log.subscribe missing subscriptionId: {log_subscribe_payload}")
         if log_subscribe_payload.get("active") is not True:
             fail(f"log.subscribe did not return active subscription: {log_subscribe_payload}")
+        delivery = log_subscribe_payload.get("delivery")
+        if not isinstance(delivery, dict) or delivery.get("tailTool") != "log.tail":
+            fail(f"log.subscribe missing manual-tail delivery guidance: {log_subscribe_payload}")
         log_unsubscribe_payload = call_tool(
             client,
             34,
@@ -3274,6 +3293,9 @@ def main() -> int:
         )
         if log_unsubscribe_payload.get("active") is not False:
             fail(f"log.subscribe unsubscribe did not deactivate subscription: {log_unsubscribe_payload}")
+        unsubscribe_delivery = log_unsubscribe_payload.get("delivery")
+        if not isinstance(unsubscribe_delivery, dict) or unsubscribe_delivery.get("tailTool") != "log.tail":
+            fail(f"log.subscribe unsubscribe missing manual-tail delivery guidance: {log_unsubscribe_payload}")
         print("[PASS] log.subscribe subscribe/unsubscribe is available")
 
         _ = call_execute_exec_with_retry(

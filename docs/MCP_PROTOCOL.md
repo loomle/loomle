@@ -624,11 +624,14 @@ Output schema:
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "required": ["items", "nextSeq", "hasMore", "highWatermark"],
+  "required": ["items", "nextSeq", "nextFromSeq", "hasMore", "latestSeq", "highWatermark"],
   "properties": {
     "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "fromSeq": { "type": "integer", "minimum": 0 },
     "nextSeq": { "type": "integer", "minimum": 0 },
+    "nextFromSeq": { "type": "integer", "minimum": 0 },
     "hasMore": { "type": "boolean" },
+    "latestSeq": { "type": "integer", "minimum": 0 },
     "highWatermark": { "type": "integer", "minimum": 0 }
   },
   "additionalProperties": false
@@ -641,8 +644,10 @@ Execution rule:
 - `fromSeq` is exclusive: returned events satisfy `seq > fromSeq`.
 - `fromSeq` must be a non-negative integer, otherwise returns `INVALID_ARGUMENT`.
 - `limit` must be `>= 1`; values larger than `1000` are capped to `1000`.
-- `nextSeq` is the largest returned `seq` (or echoes `fromSeq` when no items returned).
-- `highWatermark` is the current latest known `seq` at read time.
+- `nextSeq` is the largest returned `seq` (or echoes `fromSeq` when no items returned). This field is retained for compatibility.
+- `latestSeq` is the current latest known `seq` at read time.
+- `highWatermark` is retained as an alias of `latestSeq`.
+- `nextFromSeq` is the recommended cursor for the next polling call; it equals `nextSeq` when `hasMore=true`, otherwise it advances to `latestSeq`.
 
 ## 4.10 `log.tail`
 
@@ -708,9 +713,10 @@ Input schema:
 Execution rule:
 
 - This is an MCP proxy tool, not an Unreal RPC tool.
-- `action=subscribe` creates a filtered stream and emits `notifications/loomle/log`.
+- `action=subscribe` creates a filtered server-side stream and emits best-effort `notifications/loomle/log`.
 - `action=update` replaces an existing `subscriptionId` stream with new filters.
 - `action=unsubscribe` cancels the stream for `subscriptionId`.
+- Agent hosts may ignore notifications or keep them out of model context. Treat `log.tail` with `fromSeq` / `nextFromSeq` as the source of truth for consuming logs.
 - `diagnostic.tail` also has a default low-volume notification stream through `notifications/loomle/diagnostic`; `diagnostic.tail` remains the recovery source of truth.
 
 ## 5. MCP <-> RPC Error Mapping
