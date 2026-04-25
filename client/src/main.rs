@@ -3371,11 +3371,6 @@ fn material_query_schema() -> rmcp::model::JsonObject {
             "nodeClasses": { "type": "array", "items": { "type": "string" } },
             "includeConnections": { "type": "boolean", "default": false }
         },
-        "anyOf": [
-            { "required": ["assetPath"] },
-            { "required": ["graph"] },
-            { "required": ["graphRef"] }
-        ],
         "$defs": {
             "materialGraphRef": {
                 "type": "object",
@@ -3434,11 +3429,6 @@ fn pcg_query_schema() -> rmcp::model::JsonObject {
             "nodeClasses": { "type": "array", "items": { "type": "string" } },
             "includeConnections": { "type": "boolean", "default": false }
         },
-        "anyOf": [
-            { "required": ["assetPath"] },
-            { "required": ["graph"] },
-            { "required": ["graphRef"] }
-        ],
         "$defs": {
             "pcgGraphRef": {
                 "type": "object",
@@ -4388,8 +4378,8 @@ fn print_usage() {
 #[cfg(test)]
 mod tests {
     use super::{
-        compile_blueprint_refactor_request, infer_attached_project_root,
-        translate_blueprint_graph_edit_args, translate_material_query_args,
+        compile_blueprint_refactor_request, infer_attached_project_root, material_query_schema,
+        pcg_query_schema, translate_blueprint_graph_edit_args, translate_material_query_args,
         translate_pcg_query_args, Cli, RuntimeProject,
     };
     use rmcp::model::JsonObject;
@@ -4644,6 +4634,18 @@ mod tests {
     }
 
     #[test]
+    fn material_query_schema_has_openai_compatible_top_level() {
+        let schema = material_query_schema();
+        assert_eq!(schema.get("type").and_then(|value| value.as_str()), Some("object"));
+        for keyword in ["oneOf", "anyOf", "allOf", "enum", "not"] {
+            assert!(
+                !schema.contains_key(keyword),
+                "material.query schema should not expose top-level {keyword}"
+            );
+        }
+    }
+
+    #[test]
     fn pcg_query_accepts_child_graph_ref_as_graph() {
         let mut args = JsonObject::new();
         args.insert(
@@ -4681,5 +4683,17 @@ mod tests {
         );
 
         assert!(translate_pcg_query_args(&args).is_err());
+    }
+
+    #[test]
+    fn pcg_query_schema_has_openai_compatible_top_level() {
+        let schema = pcg_query_schema();
+        assert_eq!(schema.get("type").and_then(|value| value.as_str()), Some("object"));
+        for keyword in ["oneOf", "anyOf", "allOf", "enum", "not"] {
+            assert!(
+                !schema.contains_key(keyword),
+                "pcg.query schema should not expose top-level {keyword}"
+            );
+        }
     }
 }
