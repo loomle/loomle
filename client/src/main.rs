@@ -1830,6 +1830,33 @@ fn compile_blueprint_graph_commands(
                 op.insert("args".into(), serde_json::Value::Object(args));
                 Ok(vec![serde_json::Value::Object(op)])
             }
+            "addNode.timeline" => {
+                if command_obj.contains_key("settings") || command_obj.contains_key("tracks") {
+                    return Err(invalid_argument_result(
+                        "addNode.timeline currently creates the timeline node/template only; use the returned secondarySurface guidance for deeper timeline settings and tracks.",
+                    ));
+                }
+                let mut args = serde_json::Map::new();
+                args.insert(
+                    "nodeClassPath".into(),
+                    serde_json::json!("/Script/BlueprintGraph.K2Node_Timeline"),
+                );
+                for field in ["position", "anchor", "timelineName", "name"] {
+                    copy_if_present(command_obj, &mut args, field);
+                }
+                if !args.contains_key("timelineName") {
+                    if let Some(name) = command_obj.get("name") {
+                        args.insert("timelineName".into(), name.clone());
+                    }
+                }
+                let mut op = serde_json::Map::new();
+                op.insert("op".into(), serde_json::json!("addNode.byClass"));
+                if let Some(alias) = command_obj.get("alias").and_then(|value| value.as_str()) {
+                    op.insert("clientRef".into(), serde_json::json!(alias));
+                }
+                op.insert("args".into(), serde_json::Value::Object(args));
+                Ok(vec![serde_json::Value::Object(op)])
+            }
             "removeNode" => {
                 let node = command_obj
                     .get("node")
@@ -1937,12 +1964,48 @@ fn compile_blueprint_graph_commands(
                 let value = command_obj
                     .get("value")
                     .ok_or_else(|| invalid_argument_result("setPinDefault requires value."))?;
+                let mut args = serde_json::Map::new();
+                args.insert("target".into(), target);
+                match value {
+                    serde_json::Value::Object(value_obj) => {
+                        if let Some(default_value) = value_obj.get("value") {
+                            args.insert(
+                                "value".into(),
+                                serde_json::json!(json_string_value(default_value)),
+                            );
+                        }
+                        if let Some(object) = value_obj
+                            .get("object")
+                            .or_else(|| value_obj.get("defaultObject"))
+                            .or_else(|| value_obj.get("defaultObjectPath"))
+                            .or_else(|| value_obj.get("assetPath"))
+                            .or_else(|| value_obj.get("classPath"))
+                        {
+                            args.insert(
+                                "object".into(),
+                                serde_json::json!(json_string_value(object)),
+                            );
+                        }
+                        if let Some(text) = value_obj.get("text") {
+                            args.insert("text".into(), serde_json::json!(json_string_value(text)));
+                        }
+                        if !args.contains_key("value")
+                            && !args.contains_key("object")
+                            && !args.contains_key("text")
+                        {
+                            args.insert(
+                                "value".into(),
+                                serde_json::json!(json_string_value(value)),
+                            );
+                        }
+                    }
+                    _ => {
+                        args.insert("value".into(), serde_json::json!(json_string_value(value)));
+                    }
+                }
                 Ok(vec![serde_json::json!({
                     "op":"setPinDefault",
-                    "args":{
-                        "target": target,
-                        "value": json_string_value(value)
-                    }
+                    "args": args
                 })])
             }
             "setNodeComment" => {
@@ -5371,6 +5434,87 @@ mod tests {
                 .and_then(|value| value.as_str()),
             Some("netMulticast")
         );
+    }
+
+    #[test]
+    fn blueprint_graph_edit_translates_timeline_command() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graph".into(), serde_json::json!({ "name": "EventGraph" }));
+        args.insert(
+            "commands".into(),
+            serde_json::json!([
+                {
+                    "kind": "addNode.timeline",
+                    "alias": "fade",
+                    "name": "FadeTimeline"
+                }
+            ]),
+        );
+
+        let translated = translate_blueprint_graph_edit_args(&args).expect("translated args");
+        let ops = translated
+            .get("ops")
+            .and_then(|value| value.as_array())
+            .expect("ops");
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            ops[0].get("op").and_then(|value| value.as_str()),
+            Some("addNode.byClass")
+        );
+        assert_eq!(
+            ops[0].get("clientRef").and_then(|value| value.as_str()),
+            Some("fade")
+        );
+        assert_eq!(
+            ops[0]
+                .get("args")
+                .and_then(|value| value.get("nodeClassPath"))
+                .and_then(|value| value.as_str()),
+            Some("/Script/BlueprintGraph.K2Node_Timeline")
+        );
+        assert_eq!(
+            ops[0]
+                .get("args")
+                .and_then(|value| value.get("timelineName"))
+                .and_then(|value| value.as_str()),
+            Some("FadeTimeline")
+        );
+    }
+
+    #[test]
+    fn blueprint_graph_edit_preserves_structured_pin_default_object() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graph".into(), serde_json::json!({ "name": "EventGraph" }));
+        args.insert(
+            "commands".into(),
+            serde_json::json!([
+                {
+                    "kind": "setPinDefault",
+                    "target": {
+                        "node": { "alias": "spawn" },
+                        "pin": "Class"
+                    },
+                    "value": {
+                        "object": "/Game/BP_Coin.BP_Coin_C"
+                    }
+                }
+            ]),
+        );
+
+        let translated = translate_blueprint_graph_edit_args(&args).expect("translated args");
+        let op_args = translated
+            .get("ops")
+            .and_then(|value| value.as_array())
+            .and_then(|ops| ops.first())
+            .and_then(|op| op.get("args"))
+            .expect("op args");
+        assert_eq!(
+            op_args.get("object").and_then(|value| value.as_str()),
+            Some("/Game/BP_Coin.BP_Coin_C")
+        );
+        assert!(op_args.get("value").is_none());
     }
 
     #[test]

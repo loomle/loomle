@@ -970,16 +970,24 @@ FBlueprintMutateOpExecution ExecuteBlueprintMutateOp(
     {
         FMutateResolvedPinEndpoint TargetEndpoint;
         FString Value;
+        FString ObjectPath;
+        FString TextValue;
         Execution.bOk = TryResolveMutatePinEndpointField(ArgsObj, TEXT("target"), NodeRefs, TargetEndpoint);
         if (Execution.bOk)
         {
             ArgsObj->TryGetStringField(TEXT("value"), Value);
+            ArgsObj->TryGetStringField(TEXT("object"), ObjectPath);
+            ArgsObj->TryGetStringField(TEXT("defaultObject"), ObjectPath);
+            ArgsObj->TryGetStringField(TEXT("defaultObjectPath"), ObjectPath);
+            ArgsObj->TryGetStringField(TEXT("text"), TextValue);
             Execution.bOk = FLoomleBlueprintAdapter::SetPinDefaultValue(
                 AssetPath,
                 GraphName,
                 TargetEndpoint.NodeId,
                 TargetEndpoint.PinName,
                 Value,
+                ObjectPath,
+                TextValue,
                 Execution.Error);
         }
         if (!Execution.bOk && Execution.Error.IsEmpty())

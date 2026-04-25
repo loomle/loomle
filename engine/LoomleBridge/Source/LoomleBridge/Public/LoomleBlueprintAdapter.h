@@ -58,6 +58,7 @@ public:
     static bool RemoveNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, FString& OutError);
     static bool MoveNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, int32 NodePosX, int32 NodePosY, FString& OutError);
     static bool SetPinDefaultValue(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, const FString& PinName, const FString& Value, FString& OutError);
+    static bool SetPinDefaultValue(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, const FString& PinName, const FString& Value, const FString& ObjectPath, const FString& TextValue, FString& OutError);
     static bool SetNodeComment(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, const FString& Comment, FString& OutError);
     static bool SetNodeEnabled(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, bool bEnabled, FString& OutError);
     static bool AddFunctionGraph(const FString& AssetPath, const FString& GraphName, FString& OutError);

@@ -1040,12 +1040,41 @@ Recommended shape:
 }
 ```
 
+Resource/class pin defaults may use a structured object default instead of stringifying the
+object reference:
+
+```json
+{
+  "kind": "setPinDefault",
+  "target": {
+    "node": { "id": "spawn1" },
+    "pin": "Class"
+  },
+  "value": {
+    "object": "/Game/BP_Coin.BP_Coin_C"
+  }
+}
+```
+
 Rules:
 
 - only valid on pins that support editable defaults
 - the target pin must be unlinked
 - if the target pin is linked, `setPinDefault` should fail with a constructive error
 - `setPinDefault` must not implicitly break links
+- object defaults must resolve to an Unreal object/class compatible with the target pin
+
+#### Secondary Surface Hints
+
+Some nodes are only the visible entry point for deeper Blueprint-owned state.
+When creating one of these nodes succeeds, `opResults[*].secondarySurface` may point to the
+follow-up editing surface and the result diagnostics may include an informational hint.
+
+Examples:
+
+- `UK2Node_Timeline` -> `blueprint.member.edit` with `memberKind="timeline"`
+- `UK2Node_CustomEvent` -> `blueprint.member.edit` with `memberKind="event"`
+- `UK2Node_AddComponent` -> `blueprint.member.edit` with `memberKind="component"`
 
 #### setNodeComment
 

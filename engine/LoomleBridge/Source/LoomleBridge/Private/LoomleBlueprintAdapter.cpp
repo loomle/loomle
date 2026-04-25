@@ -703,6 +703,35 @@ namespace LoomleBlueprintAdapterInternal
         return LoadObject<UClass>(nullptr, *Normalized);
     }
 
+    static FString NormalizeAssetObjectPath(const FString& PathOrPackage)
+    {
+        if (PathOrPackage.IsEmpty() || PathOrPackage.Contains(TEXT(".")) || PathOrPackage.StartsWith(TEXT("/Script/")))
+        {
+            return PathOrPackage;
+        }
+        if (FPackageName::IsValidLongPackageName(PathOrPackage))
+        {
+            const FString AssetName = FPackageName::GetLongPackageAssetName(PathOrPackage);
+            return FString::Printf(TEXT("%s.%s"), *PathOrPackage, *AssetName);
+        }
+        return PathOrPackage;
+    }
+
+    static UObject* ResolveDefaultObject(const FString& ObjectPath)
+    {
+        if (ObjectPath.IsEmpty())
+        {
+            return nullptr;
+        }
+
+        const FString NormalizedPath = NormalizeAssetObjectPath(ObjectPath);
+        if (UObject* Loaded = StaticLoadObject(UObject::StaticClass(), nullptr, *NormalizedPath))
+        {
+            return Loaded;
+        }
+        return ResolveClass(ObjectPath);
+    }
+
     static UEdGraph* GetEventGraph(UBlueprint* Blueprint)
     {
         return Blueprint ? FBlueprintEditorUtils::FindEventGraph(Blueprint) : nullptr;
@@ -5314,6 +5343,19 @@ bool FLoomleBlueprintAdapter::MoveNode(const FString& BlueprintAssetPath, const 
 
 bool FLoomleBlueprintAdapter::SetPinDefaultValue(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, const FString& PinName, const FString& Value, FString& OutError)
 {
+    return SetPinDefaultValue(BlueprintAssetPath, GraphName, NodeGuid, PinName, Value, TEXT(""), TEXT(""), OutError);
+}
+
+bool FLoomleBlueprintAdapter::SetPinDefaultValue(
+    const FString& BlueprintAssetPath,
+    const FString& GraphName,
+    const FString& NodeGuid,
+    const FString& PinName,
+    const FString& Value,
+    const FString& ObjectPath,
+    const FString& TextValue,
+    FString& OutError)
+{
     OutError.Empty();
 
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
@@ -5344,7 +5386,41 @@ bool FLoomleBlueprintAdapter::SetPinDefaultValue(const FString& BlueprintAssetPa
 
     EventGraph->Modify();
     Node->Modify();
-    Pin->DefaultValue = Value;
+    if (!ObjectPath.IsEmpty())
+    {
+        UObject* DefaultObject = LoomleBlueprintAdapterInternal::ResolveDefaultObject(ObjectPath);
+        if (DefaultObject == nullptr)
+        {
+            OutError = FString::Printf(TEXT("PIN_DEFAULT_OBJECT_NOT_FOUND: Failed to resolve default object path for pin %s: %s"), *PinName, *ObjectPath);
+            return false;
+        }
+        const UEdGraphSchema_K2* Schema = GetDefault<UEdGraphSchema_K2>();
+        if (Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_SoftObject
+            && Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_SoftClass)
+        {
+            const FString ValidationError = Schema->IsPinDefaultValid(Pin, FString(), DefaultObject, FText::GetEmpty());
+            if (!ValidationError.IsEmpty())
+            {
+                OutError = FString::Printf(TEXT("PIN_DEFAULT_OBJECT_INVALID_FOR_PIN: %s"), *ValidationError);
+                return false;
+            }
+        }
+        Schema->TrySetDefaultObject(*Pin, DefaultObject, false);
+    }
+    else if (!TextValue.IsEmpty())
+    {
+        Pin->DefaultValue.Empty();
+        Pin->DefaultObject = nullptr;
+        Pin->DefaultTextValue = FText::FromString(TextValue);
+        Node->PinDefaultValueChanged(Pin);
+    }
+    else
+    {
+        Pin->DefaultValue = Value;
+        Pin->DefaultObject = nullptr;
+        Pin->DefaultTextValue = FText::GetEmpty();
+        Node->PinDefaultValueChanged(Pin);
+    }
     EventGraph->NotifyGraphChanged();
     FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
     Blueprint->MarkPackageDirty();

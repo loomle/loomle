@@ -653,7 +653,12 @@ Notes:
 
 - `args.target` accepts the same node token forms used elsewhere in Blueprint mutate flows: `nodeId`, `nodeRef`, `nodePath`, `path`, `nodeName`, or `name`.
 - Pin name may be supplied as either `pin` or `pinName`.
+- Blueprint `setPinDefault` accepts primitive `value` defaults and structured object defaults. For resource/class pins, prefer `args.object` or command `value.object`, for example `{ "object": "/Game/BP_Coin.BP_Coin_C" }`.
 - When `setPinDefault` fails with `TARGET_NOT_FOUND`, `opResults[*].details` may include `expectedTargetForms`, `requestedTarget`, `matchedNode`, and `candidatePins` to help callers repair the request automatically.
+
+Some successful Blueprint node creation operations may include `opResults[*].secondarySurface`
+and an informational diagnostic. This means the node was created, but deeper editable truth lives
+on another surface, such as `blueprint.member.edit` with `memberKind="timeline"`.
 
 `layoutGraph` notes:
 

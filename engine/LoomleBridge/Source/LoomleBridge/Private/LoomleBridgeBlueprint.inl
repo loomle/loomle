@@ -2819,6 +2819,52 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             return false;
         };
 
+        auto AppendSecondarySurfaceHint = [](const TSharedPtr<FJsonObject>& Result, const TSharedPtr<FJsonObject>& Surface, const FString& Code, const FString& Message)
+        {
+            if (!Result.IsValid() || !Surface.IsValid())
+            {
+                return;
+            }
+
+            const TArray<TSharedPtr<FJsonValue>>* OpResultsArray = nullptr;
+            if (Result->TryGetArrayField(TEXT("opResults"), OpResultsArray) && OpResultsArray != nullptr && OpResultsArray->Num() > 0)
+            {
+                const TSharedPtr<FJsonObject>* OpResultObject = nullptr;
+                if ((*OpResultsArray)[0].IsValid() && (*OpResultsArray)[0]->TryGetObject(OpResultObject) && OpResultObject != nullptr && (*OpResultObject).IsValid())
+                {
+                    (*OpResultObject)->SetObjectField(TEXT("secondarySurface"), Surface);
+                }
+            }
+
+            TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
+            Diagnostic->SetStringField(TEXT("code"), Code);
+            Diagnostic->SetStringField(TEXT("severity"), TEXT("info"));
+            Diagnostic->SetStringField(TEXT("message"), Message);
+            Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("mutate"));
+            Diagnostic->SetObjectField(TEXT("secondarySurface"), Surface);
+            TArray<TSharedPtr<FJsonValue>> Diagnostics = CloneBlueprintJsonArrayField(Result, TEXT("diagnostics"));
+            Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
+            Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
+        };
+
+        auto MakeBlueprintMemberSurface = [](const FString& MemberKind, const FString& Name, const FString& Reason, std::initializer_list<const TCHAR*> Operations) -> TSharedPtr<FJsonObject>
+        {
+            TSharedPtr<FJsonObject> Surface = MakeShared<FJsonObject>();
+            Surface->SetStringField(TEXT("kind"), TEXT("blueprintMember"));
+            Surface->SetStringField(TEXT("tool"), TEXT("blueprint.member.edit"));
+            Surface->SetStringField(TEXT("memberKind"), MemberKind);
+            Surface->SetStringField(TEXT("name"), Name);
+            Surface->SetStringField(TEXT("reason"), Reason);
+            Surface->SetBoolField(TEXT("editable"), true);
+            TArray<TSharedPtr<FJsonValue>> OperationValues;
+            for (const TCHAR* Operation : Operations)
+            {
+                OperationValues.Add(MakeShared<FJsonValueString>(FString(Operation)));
+            }
+            Surface->SetArrayField(TEXT("operations"), OperationValues);
+            return Surface;
+        };
+
         TSharedPtr<FJsonObject> SingleResult;
         if (!ClientRef.IsEmpty() && NodeRefs.Contains(ClientRef))
         {
@@ -2857,6 +2903,29 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                     NewNodeId,
                     Error);
                 SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
+                if (bOk)
+                {
+                    const FString NormalizedClassPath = NodeClassPath.ToLower();
+                    if (NormalizedClassPath.Contains(TEXT("k2node_timeline")))
+                    {
+                        FString TimelineName;
+                        ReadStringAlias({TEXT("timelineName"), TEXT("name")}, TimelineName);
+                        AppendSecondarySurfaceHint(
+                            SingleResult,
+                            MakeBlueprintMemberSurface(TEXT("timeline"), TimelineName, TEXT("embedded_template"), {TEXT("setSettings"), TEXT("addTrack"), TEXT("removeTrack")}),
+                            TEXT("BLUEPRINT_TIMELINE_EMBEDDED_TEMPLATE"),
+                            TEXT("Timeline nodes are backed by a Blueprint timeline template. Use blueprint.member.edit with memberKind=\"timeline\" to configure length, playback flags, and tracks."));
+                    }
+                    else if (NormalizedClassPath.Contains(TEXT("k2node_addcomponent"))
+                        && !NormalizedClassPath.Contains(TEXT("k2node_addcomponentbyclass")))
+                    {
+                        AppendSecondarySurfaceHint(
+                            SingleResult,
+                            MakeBlueprintMemberSurface(TEXT("component"), TEXT(""), TEXT("embedded_template"), {TEXT("setDefaults"), TEXT("setParent"), TEXT("rename")}),
+                            TEXT("BLUEPRINT_ADD_COMPONENT_EMBEDDED_TEMPLATE"),
+                            TEXT("AddComponent nodes are backed by a Blueprint component template. Use blueprint.member.edit with memberKind=\"component\" for deeper component editing."));
+                    }
+                }
             }
         }
         else if (OpName.Equals(TEXT("addnode.byfunction")))
@@ -2955,6 +3024,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                     NewNodeId,
                     Error);
                 SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
+                if (bOk)
+                {
+                    AppendSecondarySurfaceHint(
+                        SingleResult,
+                        MakeBlueprintMemberSurface(TEXT("event"), EventName, TEXT("event_signature"), {TEXT("updateSignature"), TEXT("setFlags"), TEXT("rename")}),
+                        TEXT("BLUEPRINT_CUSTOM_EVENT_MEMBER_SURFACE"),
+                        TEXT("Custom Event nodes also define Blueprint event metadata. Use blueprint.member.edit with memberKind=\"event\" to edit parameters and RPC flags."));
+                }
             }
         }
         else if (OpName.Equals(TEXT("addnode.byvariable")))
@@ -3284,7 +3361,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             else
             {
                 FString Value;
+                FString ObjectPath;
+                FString TextValue;
                 SingleArgsObject->TryGetStringField(TEXT("value"), Value);
+                SingleArgsObject->TryGetStringField(TEXT("object"), ObjectPath);
+                SingleArgsObject->TryGetStringField(TEXT("defaultObject"), ObjectPath);
+                SingleArgsObject->TryGetStringField(TEXT("defaultObjectPath"), ObjectPath);
+                SingleArgsObject->TryGetStringField(TEXT("text"), TextValue);
                 if (bDryRun)
                 {
                     SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""), TargetNodeId);
@@ -3292,10 +3375,18 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 else
                 {
                     FString Error;
-                    const bool bOk = FLoomleBlueprintAdapter::SetPinDefaultValue(AssetPath, EffectiveGraphName, TargetNodeId, TargetPinName, Value, Error);
+                    const bool bOk = FLoomleBlueprintAdapter::SetPinDefaultValue(AssetPath, EffectiveGraphName, TargetNodeId, TargetPinName, Value, ObjectPath, TextValue, Error);
                     if (!bOk && Error.StartsWith(TEXT("PIN_DEFAULT_REQUIRES_UNLINKED_PIN")))
                     {
                         SingleResult = BuildDirectSingleResult(false, false, TEXT("PIN_DEFAULT_REQUIRES_UNLINKED_PIN"), Error, TargetNodeId);
+                    }
+                    else if (!bOk && Error.StartsWith(TEXT("PIN_DEFAULT_OBJECT_NOT_FOUND")))
+                    {
+                        SingleResult = BuildDirectSingleResult(false, false, TEXT("PIN_DEFAULT_OBJECT_NOT_FOUND"), Error, TargetNodeId);
+                    }
+                    else if (!bOk && Error.StartsWith(TEXT("PIN_DEFAULT_OBJECT_INVALID_FOR_PIN")))
+                    {
+                        SingleResult = BuildDirectSingleResult(false, false, TEXT("PIN_DEFAULT_OBJECT_INVALID_FOR_PIN"), Error, TargetNodeId);
                     }
                     else
                     {
