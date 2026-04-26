@@ -924,6 +924,23 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgMutateToolResult(const TSha
         return false;
     };
 
+    auto ReadStringFieldAny = [](const TSharedPtr<FJsonObject>& Obj, std::initializer_list<const TCHAR*> FieldNames, FString& OutValue) -> bool
+    {
+        OutValue.Empty();
+        if (!Obj.IsValid())
+        {
+            return false;
+        }
+        for (const TCHAR* FieldName : FieldNames)
+        {
+            if (Obj->TryGetStringField(FieldName, OutValue) && !OutValue.IsEmpty())
+            {
+                return true;
+            }
+        }
+        return false;
+    };
+
     auto ResolvePlacement = [&AssetPath, &ResolveSingleNodeToken, &ReadIntField](const TSharedPtr<FJsonObject>& Obj, int32& OutX, int32& OutY) -> bool
     {
         OutX = ReadIntField(Obj, TEXT("x"), 0);
@@ -1358,6 +1375,69 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgMutateToolResult(const TSha
                             Error.IsEmpty() ? TEXT("Failed to set PCG pin default value.") : Error,
                             TargetNodeId);
                     }
+                }
+            }
+        }
+        else if (OpName.Equals(TEXT("setproperty")))
+        {
+            FString TargetNodeId;
+            FString PropertyName;
+            FString Value;
+
+            ResolveSingleNodeToken(SingleOp, TargetNodeId);
+            ReadStringFieldAny(SingleOp, {TEXT("property"), TEXT("propertyName")}, PropertyName);
+
+            const TSharedPtr<FJsonObject>* TargetObj = nullptr;
+            if (PropertyName.IsEmpty()
+                && SingleOp->TryGetObjectField(TEXT("target"), TargetObj)
+                && TargetObj != nullptr
+                && (*TargetObj).IsValid())
+            {
+                ReadStringFieldAny(*TargetObj, {TEXT("property"), TEXT("propertyName"), TEXT("pin"), TEXT("pinName")}, PropertyName);
+            }
+
+            if (TargetNodeId.IsEmpty())
+            {
+                SingleResult = BuildDirectSingleResult(false, false, TEXT("TARGET_NOT_FOUND"), TEXT("setProperty requires a stable target node reference."));
+            }
+            else if (PropertyName.IsEmpty())
+            {
+                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("setProperty requires property."), TargetNodeId);
+            }
+            else if (!ReadJsonFieldAsString(SingleOp, TEXT("value"), Value))
+            {
+                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("setProperty requires value."), TargetNodeId);
+            }
+            else
+            {
+                UPCGGraph* PcgGraph = LoadPcgGraphByAssetPath(AssetPath);
+                UPCGNode* Node = PcgGraph ? FindPcgNodeById(PcgGraph, TargetNodeId) : nullptr;
+                if (PcgGraph == nullptr)
+                {
+                    SingleResult = BuildDirectSingleResult(false, false, TEXT("ASSET_NOT_FOUND"), TEXT("PCG asset not found."));
+                }
+                else if (Node == nullptr)
+                {
+                    SingleResult = BuildDirectSingleResult(false, false, TEXT("NODE_NOT_FOUND"), TEXT("PCG node not found."), TargetNodeId);
+                }
+                else if (Node->GetSettings() == nullptr)
+                {
+                    SingleResult = BuildDirectSingleResult(false, false, TEXT("SETTINGS_NOT_FOUND"), TEXT("PCG node settings are unavailable."), TargetNodeId);
+                }
+                else
+                {
+                    FString Error;
+                    const bool bOk = SetPcgPinDefaultValue(Node, PropertyName, Value, Error, !bDryRun);
+                    if (bOk && !bDryRun)
+                    {
+                        PendingLayoutNodeIds.AddUnique(TargetNodeId);
+                    }
+                    SingleResult = BuildDirectSingleResult(
+                        bOk,
+                        bOk && !bDryRun,
+                        bOk ? TEXT("") : TEXT("PROPERTY_NOT_FOUND"),
+                        Error.IsEmpty() ? TEXT("Failed to set PCG node settings property.") : Error,
+                        TargetNodeId);
                 }
             }
         }

@@ -2493,18 +2493,41 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
         SingleArgsObject->RemoveField(TEXT("graphRef"));
         SingleOp->SetObjectField(TEXT("args"), SingleArgsObject);
 
-        auto ResolveSingleNodeToken = [](const TSharedPtr<FJsonObject>& Object, FString& OutNodeToken) -> bool
+        TFunction<bool(const TSharedPtr<FJsonObject>&, FString&)> ResolveSingleNodeToken;
+        ResolveSingleNodeToken = [&](const TSharedPtr<FJsonObject>& Object, FString& OutNodeToken) -> bool
         {
             OutNodeToken.Empty();
             if (!Object.IsValid())
             {
                 return false;
             }
-            return (Object->TryGetStringField(TEXT("nodeId"), OutNodeToken) && !OutNodeToken.IsEmpty())
-                || (Object->TryGetStringField(TEXT("nodePath"), OutNodeToken) && !OutNodeToken.IsEmpty())
-                || (Object->TryGetStringField(TEXT("path"), OutNodeToken) && !OutNodeToken.IsEmpty())
-                || (Object->TryGetStringField(TEXT("nodeName"), OutNodeToken) && !OutNodeToken.IsEmpty())
-                || (Object->TryGetStringField(TEXT("name"), OutNodeToken) && !OutNodeToken.IsEmpty());
+            const TSharedPtr<FJsonObject>* NestedNode = nullptr;
+            if (Object->TryGetObjectField(TEXT("node"), NestedNode) && NestedNode != nullptr && (*NestedNode).IsValid())
+            {
+                return ResolveSingleNodeToken(*NestedNode, OutNodeToken);
+            }
+
+            FString Candidate;
+            const bool bHasToken = (Object->TryGetStringField(TEXT("nodeId"), Candidate) && !Candidate.IsEmpty())
+                || (Object->TryGetStringField(TEXT("nodeRef"), Candidate) && !Candidate.IsEmpty())
+                || (Object->TryGetStringField(TEXT("alias"), Candidate) && !Candidate.IsEmpty())
+                || (Object->TryGetStringField(TEXT("nodePath"), Candidate) && !Candidate.IsEmpty())
+                || (Object->TryGetStringField(TEXT("path"), Candidate) && !Candidate.IsEmpty())
+                || (Object->TryGetStringField(TEXT("nodeName"), Candidate) && !Candidate.IsEmpty())
+                || (Object->TryGetStringField(TEXT("name"), Candidate) && !Candidate.IsEmpty());
+            if (!bHasToken)
+            {
+                return false;
+            }
+            if (const FString* ResolvedNodeId = NodeRefs.Find(Candidate))
+            {
+                OutNodeToken = *ResolvedNodeId;
+            }
+            else
+            {
+                OutNodeToken = Candidate;
+            }
+            return true;
         };
 
         auto ReadIntField = [](const TSharedPtr<FJsonObject>& Object, const TCHAR* FieldName, int32 DefaultValue) -> int32

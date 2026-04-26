@@ -2107,6 +2107,41 @@ def main() -> int:
         ):
             fail(f"blueprint.graph.inspect self node link to UObject/Actor input missing: {self_node}")
 
+        alias_dry_run = call_domain_tool(
+            client,
+            1299,
+            "blueprint",
+            "mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "dryRun": True,
+                "commands": [
+                    {
+                        "kind": "addNode",
+                        "alias": "dry_alias_source",
+                        "nodeType": {"kind": "branch"},
+                    },
+                    {
+                        "kind": "addNode",
+                        "alias": "dry_alias_target",
+                        "nodeType": {"kind": "branch"},
+                    },
+                    {
+                        "kind": "connect",
+                        "from": {"node": {"alias": "dry_alias_source"}, "pin": "then"},
+                        "to": {"node": {"alias": "dry_alias_target"}, "pin": "execute"},
+                    },
+                ],
+            },
+        )
+        alias_dry_run_results = alias_dry_run.get("opResults")
+        if not isinstance(alias_dry_run_results, list) or len(alias_dry_run_results) != 3:
+            fail(f"blueprint.graph.edit alias dryRun opResults mismatch: {alias_dry_run}")
+        if not all(isinstance(entry, dict) and entry.get("ok") for entry in alias_dry_run_results):
+            fail(f"blueprint.graph.edit alias dryRun should accept request-local aliases: {alias_dry_run}")
+        print("[PASS] blueprint.graph.edit dryRun request-local aliases validated")
+
         reconstruct_payload = call_domain_tool(
             client,
             1301,
@@ -3678,6 +3713,50 @@ def main() -> int:
         if not isinstance(pcg_list_nodes, list) or len(pcg_list_nodes) < 6:
             fail(f"pcg.list missing nodes[]: {pcg_graph_list_without_type}")
         print("[PASS] pcg.list validated")
+
+        pcg_spawn_property = call_domain_tool(
+            client,
+            101006,
+            "pcg",
+            "mutate",
+            {
+                "assetPath": temp_pcg_asset,
+                "ops": [
+                    {
+                        "op": "addNode.byClass",
+                        "clientRef": "spawn_actor_property",
+                        "nodeClassPath": "/Script/PCG.PCGSpawnActorSettings",
+                    },
+                    {
+                        "op": "setProperty",
+                        "nodeRef": "spawn_actor_property",
+                        "property": "bDeleteActorsBeforeGeneration",
+                        "value": "true",
+                    },
+                ],
+            },
+        )
+        pcg_spawn_property_results = pcg_spawn_property.get("opResults")
+        if not isinstance(pcg_spawn_property_results, list) or len(pcg_spawn_property_results) != 2:
+            fail(f"PCG setProperty opResults mismatch: {pcg_spawn_property}")
+        if not all(isinstance(entry, dict) and entry.get("ok") for entry in pcg_spawn_property_results):
+            fail(f"PCG setProperty failed: {pcg_spawn_property}")
+        pcg_spawn_property_id = pcg_spawn_property_results[0].get("nodeId")
+        if not isinstance(pcg_spawn_property_id, str) or not pcg_spawn_property_id:
+            fail(f"PCG setProperty setup missing nodeId: {pcg_spawn_property}")
+        pcg_spawn_property_snapshot = query_snapshot(client, 101007, temp_pcg_asset, "pcg", "PCGGraph")
+        pcg_spawn_property_node = require_node(
+            [node for node in pcg_spawn_property_snapshot.get("nodes", []) if isinstance(node, dict)],
+            pcg_spawn_property_id,
+        )
+        pcg_spawn_behavior = (
+            pcg_spawn_property_node.get("effectiveSettings", {}).get("spawnBehavior")
+            if isinstance(pcg_spawn_property_node.get("effectiveSettings"), dict)
+            else None
+        )
+        if not isinstance(pcg_spawn_behavior, dict) or pcg_spawn_behavior.get("deleteActorsBeforeGeneration") is not True:
+            fail(f"PCG setProperty did not update SpawnActor behavior: {pcg_spawn_property_node}")
+        print("[PASS] pcg.mutate setProperty updates node settings")
 
         pcg_connect = call_domain_tool(
             client,
