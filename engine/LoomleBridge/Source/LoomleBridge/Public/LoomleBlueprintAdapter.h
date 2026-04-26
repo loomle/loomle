@@ -46,6 +46,7 @@ public:
     static bool AddBranchNode(const FString& BlueprintAssetPath, const FString& GraphName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);
     static bool AddExecutionSequenceNode(const FString& BlueprintAssetPath, const FString& GraphName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);
     static bool AddMacroNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& MacroLibraryAssetPath, const FString& MacroGraphName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);
+    static bool ListMacroGraphs(const FString& MacroLibraryAssetPath, FString& OutGraphsJson, FString& OutError);
     static bool AddCommentNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& CommentText, int32 NodePosX, int32 NodePosY, int32 Width, int32 Height, FString& OutNodeGuid, FString& OutError);
     static bool AddKnotNode(const FString& BlueprintAssetPath, const FString& GraphName, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);
     static bool AddVariableGetNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& VariableName, const FString& VariableClassPath, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError);

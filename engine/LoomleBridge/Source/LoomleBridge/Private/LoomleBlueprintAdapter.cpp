@@ -66,6 +66,7 @@ namespace LoomleBlueprintAdapterInternal
 
     static FBlueprintMacroDescriptor DescribeMacroNode(const UK2Node_MacroInstance* MacroNode);
     static FString DescribeCustomEventReplication(const uint32 FunctionFlags);
+    static FString JsonObjectToCondensedString(const TSharedPtr<FJsonObject>& Object);
     static FString JsonArrayToString(const TArray<TSharedPtr<FJsonValue>>& ArrayValues);
 
     static FString BoolToJsonString(bool bValue)
@@ -892,6 +893,68 @@ namespace LoomleBlueprintAdapterInternal
 
         UBlueprint* MacroLibrary = LoadBlueprintByAssetPath(EffectiveMacroLibraryAssetPath);
         return FindGraphByName(MacroLibrary, MacroGraphName);
+    }
+
+    static FString ResolveMacroLibraryAssetPathOrDefault(const FString& MacroLibraryAssetPath)
+    {
+        return MacroLibraryAssetPath.IsEmpty()
+            ? FString(DefaultBlueprintMacroLibraryAssetPath)
+            : MacroLibraryAssetPath;
+    }
+
+    static TArray<TSharedPtr<FJsonValue>> MakeMacroGraphNameArray(UBlueprint* MacroLibrary)
+    {
+        TArray<TSharedPtr<FJsonValue>> Names;
+        if (MacroLibrary == nullptr)
+        {
+            return Names;
+        }
+        for (UEdGraph* MacroGraph : MacroLibrary->MacroGraphs)
+        {
+            if (MacroGraph != nullptr)
+            {
+                Names.Add(MakeShared<FJsonValueString>(MacroGraph->GetName()));
+            }
+        }
+        Names.Sort([](const TSharedPtr<FJsonValue>& A, const TSharedPtr<FJsonValue>& B)
+        {
+            FString Left;
+            FString Right;
+            if (A.IsValid())
+            {
+                A->TryGetString(Left);
+            }
+            if (B.IsValid())
+            {
+                B->TryGetString(Right);
+            }
+            return Left < Right;
+        });
+        return Names;
+    }
+
+    static FString MakeMacroNodeError(
+        const FString& Code,
+        const FString& Message,
+        const FString& MacroLibraryAssetPath,
+        const FString& MacroGraphName,
+        UBlueprint* MacroLibrary = nullptr)
+    {
+        TSharedPtr<FJsonObject> Error = MakeShared<FJsonObject>();
+        Error->SetStringField(TEXT("code"), Code);
+        Error->SetStringField(TEXT("message"), Message);
+
+        TSharedPtr<FJsonObject> Requested = MakeShared<FJsonObject>();
+        Requested->SetStringField(TEXT("macroLibraryAssetPath"), MacroLibraryAssetPath);
+        Requested->SetStringField(TEXT("macroGraphName"), MacroGraphName);
+        Error->SetObjectField(TEXT("requested"), Requested);
+
+        if (MacroLibrary != nullptr)
+        {
+            Error->SetArrayField(TEXT("availableMacroGraphs"), MakeMacroGraphNameArray(MacroLibrary));
+            Error->SetStringField(TEXT("suggestion"), TEXT("Use one of availableMacroGraphs as macroGraphName, or inspect the target macro library asset for the exact graph name."));
+        }
+        return JsonObjectToCondensedString(Error);
     }
 
     static FBlueprintFunctionDescriptor DescribeCallFunctionNode(const UK2Node_CallFunction* CallNode)
@@ -4954,10 +5017,55 @@ bool FLoomleBlueprintAdapter::AddMacroNode(const FString& BlueprintAssetPath, co
 
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
     UEdGraph* EventGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName);
-    UEdGraph* MacroGraph = LoomleBlueprintAdapterInternal::ResolveMacroGraph(MacroLibraryAssetPath, MacroGraphName);
-    if (!Blueprint || !EventGraph || !MacroGraph)
+    const FString EffectiveMacroLibraryAssetPath = LoomleBlueprintAdapterInternal::ResolveMacroLibraryAssetPathOrDefault(MacroLibraryAssetPath);
+    UBlueprint* MacroLibrary = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(EffectiveMacroLibraryAssetPath);
+    UEdGraph* MacroGraph = LoomleBlueprintAdapterInternal::FindGraphByName(MacroLibrary, MacroGraphName);
+    if (MacroGraphName.IsEmpty())
     {
-        OutError = TEXT("Failed to resolve blueprint/target graph/macro graph.");
+        OutError = LoomleBlueprintAdapterInternal::MakeMacroNodeError(
+            TEXT("INVALID_ARGUMENT"),
+            TEXT("addNode.byMacro requires macroGraphName."),
+            EffectiveMacroLibraryAssetPath,
+            MacroGraphName);
+        return false;
+    }
+    if (!Blueprint)
+    {
+        OutError = LoomleBlueprintAdapterInternal::MakeMacroNodeError(
+            TEXT("BLUEPRINT_NOT_FOUND"),
+            FString::Printf(TEXT("Blueprint asset was not found: %s"), *BlueprintAssetPath),
+            EffectiveMacroLibraryAssetPath,
+            MacroGraphName);
+        return false;
+    }
+    if (!EventGraph)
+    {
+        OutError = LoomleBlueprintAdapterInternal::MakeMacroNodeError(
+            TEXT("GRAPH_NOT_FOUND"),
+            GraphName.IsEmpty()
+                ? TEXT("Target event graph was not found.")
+                : FString::Printf(TEXT("Target graph was not found: %s"), *GraphName),
+            EffectiveMacroLibraryAssetPath,
+            MacroGraphName);
+        return false;
+    }
+    if (!MacroLibrary)
+    {
+        OutError = LoomleBlueprintAdapterInternal::MakeMacroNodeError(
+            TEXT("MACRO_LIBRARY_NOT_FOUND"),
+            FString::Printf(TEXT("Macro library asset was not found: %s"), *EffectiveMacroLibraryAssetPath),
+            EffectiveMacroLibraryAssetPath,
+            MacroGraphName);
+        return false;
+    }
+    if (!MacroGraph)
+    {
+        OutError = LoomleBlueprintAdapterInternal::MakeMacroNodeError(
+            TEXT("MACRO_GRAPH_NOT_FOUND"),
+            FString::Printf(TEXT("Macro graph '%s' was not found in macro library '%s'."), *MacroGraphName, *EffectiveMacroLibraryAssetPath),
+            EffectiveMacroLibraryAssetPath,
+            MacroGraphName,
+            MacroLibrary);
         return false;
     }
 
@@ -4970,6 +5078,28 @@ bool FLoomleBlueprintAdapter::AddMacroNode(const FString& BlueprintAssetPath, co
     Creator.Finalize();
 
     OutNodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::ListMacroGraphs(const FString& MacroLibraryAssetPath, FString& OutGraphsJson, FString& OutError)
+{
+    OutGraphsJson.Empty();
+    OutError.Empty();
+
+    const FString EffectiveMacroLibraryAssetPath = LoomleBlueprintAdapterInternal::ResolveMacroLibraryAssetPathOrDefault(MacroLibraryAssetPath);
+    UBlueprint* MacroLibrary = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(EffectiveMacroLibraryAssetPath);
+    if (MacroLibrary == nullptr)
+    {
+        OutError = LoomleBlueprintAdapterInternal::MakeMacroNodeError(
+            TEXT("MACRO_LIBRARY_NOT_FOUND"),
+            FString::Printf(TEXT("Macro library asset was not found: %s"), *EffectiveMacroLibraryAssetPath),
+            EffectiveMacroLibraryAssetPath,
+            TEXT(""));
+        return false;
+    }
+
+    OutGraphsJson = LoomleBlueprintAdapterInternal::JsonArrayToString(
+        LoomleBlueprintAdapterInternal::MakeMacroGraphNameArray(MacroLibrary));
     return true;
 }
 

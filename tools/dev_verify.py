@@ -401,14 +401,9 @@ def main() -> int:
     parser.add_argument("--no-restart", action="store_true", help="Skip Unreal Editor restart after install.")
     parser.add_argument("--install-only", action="store_true", help="Only refresh the dev project plugin, do not run tests.")
     parser.add_argument(
-        "--close-editor-on-success",
-        action="store_true",
-        help="Close the Unreal Editor instance for this project after all requested verification steps pass. This is now the default when dev_verify restarts the editor.",
-    )
-    parser.add_argument(
         "--keep-editor-open",
         action="store_true",
-        help="Leave the Unreal Editor instance open after successful verification.",
+        help="Leave the target Unreal Editor instance open after dev_verify exits.",
     )
     args = parser.parse_args()
 
@@ -418,55 +413,60 @@ def main() -> int:
     if output_dir == REPO_ROOT or output_dir == project_root:
         fail(f"refusing to use repository root or project root as output dir: {output_dir}")
     ue_root = resolve_ue_root(platform, args.ue_root)
+    uproject = next(path for path in project_root.iterdir() if path.is_file() and path.suffix.lower() == ".uproject")
+    should_close_editor = not args.keep_editor_open
 
-    if output_dir.exists():
-        shutil.rmtree(output_dir)
-    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if output_dir.exists():
+            shutil.rmtree(output_dir)
+        output_dir.parent.mkdir(parents=True, exist_ok=True)
 
-    loomle_binary = build_release_loomle_binary(platform)
-    plugin_dst = project_root / "Plugins" / "LoomleBridge"
-    if plugin_dst.exists():
-        shutil.rmtree(plugin_dst)
-    overlay_tree(REPO_ROOT / "engine" / "LoomleBridge", plugin_dst)
-    sync_built_plugin_into_project(project_root, ue_root, platform, output_dir)
+        loomle_binary = build_release_loomle_binary(platform)
+        plugin_dst = project_root / "Plugins" / "LoomleBridge"
+        if plugin_dst.exists():
+            shutil.rmtree(plugin_dst)
+        overlay_tree(REPO_ROOT / "engine" / "LoomleBridge", plugin_dst)
+        sync_built_plugin_into_project(project_root, ue_root, platform, output_dir)
 
-    if args.install_only:
-        print("[PASS] dev plugin sync completed", file=sys.stderr)
+        if args.install_only:
+            print("[PASS] dev plugin sync completed", file=sys.stderr)
+            return 0
+
+        if not args.no_restart:
+            restart_editor(project_root, ue_root, platform)
+
+        step("Wait for bridge runtime readiness")
+        wait_for_bridge_runtime_ready(project_root, loomle_binary, args.wait_timeout)
+
+        step("Run smoke validation")
+        run_smoke_with_retry(project_root, args.wait_timeout)
+
+        if not args.skip_regression:
+            step("Run regression validation")
+            run(
+                [
+                    sys.executable,
+                    str(REGRESSION_SCRIPT),
+                    "--project-root",
+                    str(project_root),
+                    "--loomle-bin",
+                    str(loomle_binary),
+                ]
+            )
+
+        if args.run_latency:
+            step("Run latency validation")
+            run([sys.executable, str(LATENCY_SCRIPT), "--project-root", str(project_root)])
+
+        print("[PASS] dev verify completed", file=sys.stderr)
         return 0
-
-    if not args.no_restart:
-        restart_editor(project_root, ue_root, platform)
-
-    step("Wait for bridge runtime readiness")
-    wait_for_bridge_runtime_ready(project_root, loomle_binary, args.wait_timeout)
-
-    step("Run smoke validation")
-    run_smoke_with_retry(project_root, args.wait_timeout)
-
-    if not args.skip_regression:
-        step("Run regression validation")
-        run(
-            [
-                sys.executable,
-                str(REGRESSION_SCRIPT),
-                "--project-root",
-                str(project_root),
-                "--loomle-bin",
-                str(loomle_binary),
-            ]
-        )
-
-    if args.run_latency:
-        step("Run latency validation")
-        run([sys.executable, str(LATENCY_SCRIPT), "--project-root", str(project_root)])
-
-    print("[PASS] dev verify completed", file=sys.stderr)
-    should_close_editor = args.close_editor_on_success or (not args.keep_editor_open and not args.no_restart)
-    if should_close_editor:
-        step("Close Unreal Editor after successful verification")
-        uproject = next(path for path in project_root.iterdir() if path.is_file() and path.suffix.lower() == ".uproject")
-        stop_editor(uproject, platform)
-    return 0
+    finally:
+        if should_close_editor:
+            step("Close Unreal Editor")
+            try:
+                stop_editor(uproject, platform)
+            except Exception as exc:
+                print(f"[WARN] failed to close Unreal Editor: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":

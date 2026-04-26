@@ -719,6 +719,7 @@ It should be used when:
 Recommended public command set:
 
 - `addNode`
+- `addNode.byMacro`
 - `removeNode`
 - `duplicateNode`
 - `moveNode`
@@ -873,6 +874,42 @@ Rules:
 - `addNode` does not implicitly attach the node to existing structure
 - Self references use the normal by-class path: `nodeType.id = "class:/Script/BlueprintGraph.K2Node_Self"`
 - `K2Node_Self` exposes an output pin named `self`, which may be connected with the standard `connect` command to compatible UObject/Actor input pins
+- UE macro instance nodes use the normal by-class path with explicit macro context: `nodeType.id = "class:/Script/BlueprintGraph.K2Node_MacroInstance"`, `macroLibraryAssetPath`, and `macroGraphName`
+
+#### addNode.byMacro
+
+Creates one `UK2Node_MacroInstance` from a Blueprint macro library graph.
+
+Required fields:
+
+- `kind`
+- `macroLibraryAssetPath`
+- `macroGraphName`
+- `position`
+
+Optional fields:
+
+- `alias`
+
+Recommended shape:
+
+```json
+{
+  "kind": "addNode.byMacro",
+  "macroLibraryAssetPath": "/Engine/EditorBlueprintResources/StandardMacros",
+  "macroGraphName": "Switch Has Authority",
+  "alias": "authority",
+  "position": { "x": 100, "y": 200 }
+}
+```
+
+Rules:
+
+- `addNode.byMacro` is a direct UE macro instance creation path, not a semantic wrapper around specific macros
+- standard macros such as `Switch Has Authority`, `DoOnce`, `Gate`, `ForLoop`, and related Blueprint macro library graphs should all use this shape
+- `macroGraphName` must match the graph name in the macro library exactly
+- when `macroGraphName` is wrong, the tool should return `MACRO_GRAPH_NOT_FOUND` with `availableMacroGraphs` so callers can correct the request without guessing blindly
+- `blueprint.graph.inspect` should expose macro identity through the node's macro extension fields
 
 #### removeNode
 

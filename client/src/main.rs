@@ -1974,6 +1974,42 @@ fn compile_blueprint_graph_commands(
                 op.insert("args".into(), serde_json::Value::Object(args));
                 Ok(vec![serde_json::Value::Object(op)])
             }
+            "addNode.byMacro" => {
+                let macro_library = command_obj
+                    .get("macroLibraryAssetPath")
+                    .and_then(|value| value.as_str())
+                    .or_else(|| command_obj.get("macroLibrary").and_then(|value| value.as_str()))
+                    .ok_or_else(|| {
+                        invalid_argument_result(
+                            "addNode.byMacro requires macroLibraryAssetPath or macroLibrary.",
+                        )
+                    })?;
+                let macro_graph = command_obj
+                    .get("macroGraphName")
+                    .and_then(|value| value.as_str())
+                    .or_else(|| command_obj.get("macroName").and_then(|value| value.as_str()))
+                    .ok_or_else(|| {
+                        invalid_argument_result(
+                            "addNode.byMacro requires macroGraphName or macroName.",
+                        )
+                    })?;
+                let mut args = serde_json::Map::new();
+                args.insert(
+                    "macroLibraryAssetPath".into(),
+                    serde_json::json!(macro_library),
+                );
+                args.insert("macroGraphName".into(), serde_json::json!(macro_graph));
+                for field in ["position", "anchor"] {
+                    copy_if_present(command_obj, &mut args, field);
+                }
+                let mut op = serde_json::Map::new();
+                op.insert("op".into(), serde_json::json!("addNode.byMacro"));
+                if let Some(alias) = command_obj.get("alias").and_then(|value| value.as_str()) {
+                    op.insert("clientRef".into(), serde_json::json!(alias));
+                }
+                op.insert("args".into(), serde_json::Value::Object(args));
+                Ok(vec![serde_json::Value::Object(op)])
+            }
             "removeNode" => {
                 let node = command_obj
                     .get("node")
@@ -5907,6 +5943,101 @@ mod tests {
                 .and_then(|value| value.get("timelineName"))
                 .and_then(|value| value.as_str()),
             Some("FadeTimeline")
+        );
+    }
+
+    #[test]
+    fn blueprint_graph_edit_translates_macro_command() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graph".into(), serde_json::json!({ "name": "EventGraph" }));
+        args.insert(
+            "commands".into(),
+            serde_json::json!([
+                {
+                    "kind": "addNode.byMacro",
+                    "alias": "authority",
+                    "macroLibraryAssetPath": "/Engine/EditorBlueprintResources/StandardMacros",
+                    "macroGraphName": "Switch Has Authority",
+                    "position": { "x": 160, "y": 240 }
+                }
+            ]),
+        );
+
+        let translated = translate_blueprint_graph_edit_args(&args).expect("translated args");
+        let ops = translated
+            .get("ops")
+            .and_then(|value| value.as_array())
+            .expect("ops");
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            ops[0].get("op").and_then(|value| value.as_str()),
+            Some("addNode.byMacro")
+        );
+        assert_eq!(
+            ops[0].get("clientRef").and_then(|value| value.as_str()),
+            Some("authority")
+        );
+        assert_eq!(
+            ops[0]
+                .get("args")
+                .and_then(|value| value.get("macroLibraryAssetPath"))
+                .and_then(|value| value.as_str()),
+            Some("/Engine/EditorBlueprintResources/StandardMacros")
+        );
+        assert_eq!(
+            ops[0]
+                .get("args")
+                .and_then(|value| value.get("macroGraphName"))
+                .and_then(|value| value.as_str()),
+            Some("Switch Has Authority")
+        );
+    }
+
+    #[test]
+    fn blueprint_graph_edit_preserves_macro_instance_context_by_class() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graph".into(), serde_json::json!({ "name": "EventGraph" }));
+        args.insert(
+            "commands".into(),
+            serde_json::json!([
+                {
+                    "kind": "addNode",
+                    "alias": "doOnce",
+                    "nodeType": {
+                        "id": "class:/Script/BlueprintGraph.K2Node_MacroInstance",
+                        "macroLibraryAssetPath": "/Engine/EditorBlueprintResources/StandardMacros",
+                        "macroGraphName": "DoOnce"
+                    }
+                }
+            ]),
+        );
+
+        let translated = translate_blueprint_graph_edit_args(&args).expect("translated args");
+        let op_args = translated
+            .get("ops")
+            .and_then(|value| value.as_array())
+            .and_then(|ops| ops.first())
+            .and_then(|op| op.get("args"))
+            .expect("op args");
+        assert_eq!(
+            op_args
+                .get("nodeClassPath")
+                .and_then(|value| value.as_str()),
+            Some("/Script/BlueprintGraph.K2Node_MacroInstance")
+        );
+        assert_eq!(
+            op_args
+                .get("macroLibraryAssetPath")
+                .and_then(|value| value.as_str()),
+            Some("/Engine/EditorBlueprintResources/StandardMacros")
+        );
+        assert_eq!(
+            op_args
+                .get("macroGraphName")
+                .and_then(|value| value.as_str()),
+            Some("DoOnce")
         );
     }
 

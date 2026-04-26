@@ -2761,12 +2761,39 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
 
         auto BuildDirectSingleResult = [&](bool bOk, bool bChanged, const FString& ErrorCode, const FString& ErrorMessage, const FString& NodeId = TEXT("")) -> TSharedPtr<FJsonObject>
         {
+            TSharedPtr<FJsonObject> StructuredError;
+            FString StructuredCode;
+            FString StructuredMessage;
+            if (!bOk && !ErrorMessage.IsEmpty())
+            {
+                const TSharedRef<TJsonReader<>> ErrorReader = TJsonReaderFactory<>::Create(ErrorMessage);
+                if (FJsonSerializer::Deserialize(ErrorReader, StructuredError) && StructuredError.IsValid())
+                {
+                    StructuredError->TryGetStringField(TEXT("code"), StructuredCode);
+                    StructuredError->TryGetStringField(TEXT("message"), StructuredMessage);
+                }
+            }
+            const FString ActualErrorCode = bOk
+                ? TEXT("")
+                : (!ErrorCode.IsEmpty()
+                    ? ErrorCode
+                    : (!StructuredCode.IsEmpty() ? StructuredCode : TEXT("INTERNAL_ERROR")));
+            const FString ActualErrorMessage = bOk
+                ? TEXT("")
+                : (!StructuredMessage.IsEmpty()
+                    ? StructuredMessage
+                    : (ErrorMessage.IsEmpty() ? TEXT("blueprint.mutate failed") : ErrorMessage));
+
             TSharedPtr<FJsonObject> DirectResult = MakeShared<FJsonObject>();
             DirectResult->SetBoolField(TEXT("isError"), !bOk);
             if (!bOk)
             {
-                DirectResult->SetStringField(TEXT("code"), ErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : ErrorCode);
-                DirectResult->SetStringField(TEXT("message"), ErrorMessage.IsEmpty() ? TEXT("blueprint.mutate failed") : ErrorMessage);
+                DirectResult->SetStringField(TEXT("code"), ActualErrorCode);
+                DirectResult->SetStringField(TEXT("message"), ActualErrorMessage);
+                if (StructuredError.IsValid())
+                {
+                    DirectResult->SetObjectField(TEXT("details"), StructuredError);
+                }
             }
 
             TArray<TSharedPtr<FJsonValue>> DirectOpResults;
@@ -2776,8 +2803,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             DirectOpResult->SetBoolField(TEXT("ok"), bOk);
             DirectOpResult->SetBoolField(TEXT("skipped"), false);
             DirectOpResult->SetBoolField(TEXT("changed"), bChanged);
-            DirectOpResult->SetStringField(TEXT("errorCode"), bOk ? TEXT("") : (ErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : ErrorCode));
-            DirectOpResult->SetStringField(TEXT("errorMessage"), bOk ? TEXT("") : ErrorMessage);
+            DirectOpResult->SetStringField(TEXT("errorCode"), ActualErrorCode);
+            DirectOpResult->SetStringField(TEXT("errorMessage"), ActualErrorMessage);
+            if (!bOk && StructuredError.IsValid())
+            {
+                DirectOpResult->SetObjectField(TEXT("details"), StructuredError);
+            }
             if (!NodeId.IsEmpty())
             {
                 DirectOpResult->SetStringField(TEXT("nodeId"), NodeId);
@@ -2789,11 +2820,15 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             if (!bOk)
             {
                 TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
-                Diagnostic->SetStringField(TEXT("code"), ErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : ErrorCode);
+                Diagnostic->SetStringField(TEXT("code"), ActualErrorCode);
                 Diagnostic->SetStringField(TEXT("severity"), TEXT("error"));
-                Diagnostic->SetStringField(TEXT("message"), ErrorMessage);
+                Diagnostic->SetStringField(TEXT("message"), ActualErrorMessage);
                 Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("mutate"));
                 Diagnostic->SetStringField(TEXT("op"), OpName);
+                if (StructuredError.IsValid())
+                {
+                    Diagnostic->SetObjectField(TEXT("details"), StructuredError);
+                }
                 if (!NodeId.IsEmpty())
                 {
                     Diagnostic->SetStringField(TEXT("nodeId"), NodeId);
@@ -3212,7 +3247,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             ReadStringAlias({TEXT("macroGraphName"), TEXT("macroName")}, MacroGraphName);
             if (MacroLibraryAssetPath.IsEmpty() || MacroGraphName.IsEmpty())
             {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("addNode.byMacro requires macroLibrary and macroName."));
+                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("addNode.byMacro requires macroLibraryAssetPath and macroGraphName."));
             }
             else if (bDryRun)
             {
