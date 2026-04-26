@@ -1092,7 +1092,9 @@ namespace LoomleBlueprintAdapterInternal
             Descriptor.MacroGraphName = MacroGraph->GetName();
             if (UBlueprint* MacroLibrary = FBlueprintEditorUtils::FindBlueprintForGraph(MacroGraph))
             {
-                Descriptor.MacroLibraryAssetPath = MacroLibrary->GetPathName();
+                Descriptor.MacroLibraryAssetPath = MacroLibrary->GetOutermost()
+                    ? MacroLibrary->GetOutermost()->GetName()
+                    : MacroLibrary->GetPathName();
             }
         }
 

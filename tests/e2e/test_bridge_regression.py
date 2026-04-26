@@ -1805,7 +1805,7 @@ def main() -> int:
                         "kind": "addNode.byMacro",
                         "alias": "authority_macro",
                         "macroLibraryAssetPath": "/Engine/EditorBlueprintResources/StandardMacros",
-                        "macroGraphName": "Switch Has Authority",
+                        "macroGraphName": "Gate",
                         "position": {"x": 0, "y": 520},
                     }
                 ],
@@ -1822,7 +1822,7 @@ def main() -> int:
         if macro_node.get("className") != "K2Node_MacroInstance":
             fail(f"addNode.byMacro did not create K2Node_MacroInstance: {macro_node}")
         macro_ext = macro_node.get("k2Extensions", {}).get("macro") if isinstance(macro_node.get("k2Extensions"), dict) else None
-        if not isinstance(macro_ext, dict) or macro_ext.get("macroGraphName") != "Switch Has Authority":
+        if not isinstance(macro_ext, dict) or macro_ext.get("macroGraphName") != "Gate":
             fail(f"blueprint.graph.inspect missing macro identity for addNode.byMacro: {macro_node}")
         if macro_ext.get("macroLibraryAssetPath") != "/Engine/EditorBlueprintResources/StandardMacros":
             fail(f"blueprint.graph.inspect macro library mismatch: {macro_node}")
@@ -1840,7 +1840,7 @@ def main() -> int:
                         "kind": "addNode.byMacro",
                         "alias": "bad_authority_macro",
                         "macroLibraryAssetPath": "/Engine/EditorBlueprintResources/StandardMacros",
-                        "macroGraphName": "SwitchHasAuthority",
+                        "macroGraphName": "MissingMacroForDiagnostics",
                     }
                 ],
             },
@@ -1849,10 +1849,14 @@ def main() -> int:
         macro_bad_struct = structured_detail_or_payload(macro_bad)
         if macro_bad_struct.get("code") != "MACRO_GRAPH_NOT_FOUND":
             fail(f"bad addNode.byMacro should return MACRO_GRAPH_NOT_FOUND: {macro_bad_struct}")
-        macro_bad_details = macro_bad_struct.get("details") if isinstance(macro_bad_struct.get("details"), dict) else macro_bad_struct
+        macro_bad_details = macro_bad_struct.get("details") if isinstance(macro_bad_struct.get("details"), dict) else None
+        if not isinstance(macro_bad_details, dict):
+            macro_bad_results = macro_bad_struct.get("opResults")
+            macro_bad_first = macro_bad_results[0] if isinstance(macro_bad_results, list) and macro_bad_results and isinstance(macro_bad_results[0], dict) else {}
+            macro_bad_details = macro_bad_first.get("details") if isinstance(macro_bad_first.get("details"), dict) else macro_bad_struct
         available_macros = macro_bad_details.get("availableMacroGraphs") if isinstance(macro_bad_details, dict) else None
-        if not isinstance(available_macros, list) or "Switch Has Authority" not in available_macros:
-            fail(f"bad addNode.byMacro should return availableMacroGraphs with Switch Has Authority: {macro_bad_struct}")
+        if not isinstance(available_macros, list) or "Gate" not in available_macros:
+            fail(f"bad addNode.byMacro should return availableMacroGraphs with Gate: {macro_bad_struct}")
         print("[PASS] blueprint.graph.edit MacroInstance creation and learning diagnostics validated")
 
         replace_setup = call_domain_tool(

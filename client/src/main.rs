@@ -5958,7 +5958,7 @@ mod tests {
                     "kind": "addNode.byMacro",
                     "alias": "authority",
                     "macroLibraryAssetPath": "/Engine/EditorBlueprintResources/StandardMacros",
-                    "macroGraphName": "Switch Has Authority",
+                    "macroGraphName": "Gate",
                     "position": { "x": 160, "y": 240 }
                 }
             ]),
@@ -5990,7 +5990,7 @@ mod tests {
                 .get("args")
                 .and_then(|value| value.get("macroGraphName"))
                 .and_then(|value| value.as_str()),
-            Some("Switch Has Authority")
+            Some("Gate")
         );
     }
 
