@@ -1054,6 +1054,35 @@ Rules:
 - `breakLinks` removes all links from the target pin
 - `breakLinks` does not modify the pin default value
 
+#### reconstructNode
+
+Reconstructs one node so UE refreshes its pins and node-owned metadata.
+
+Required fields:
+
+- `kind`
+- `node`
+
+Optional fields:
+
+- `preserveLinks`
+
+Recommended shape:
+
+```json
+{
+  "kind": "reconstructNode",
+  "node": { "id": "node-call" },
+  "preserveLinks": true
+}
+```
+
+Rules:
+
+- `reconstructNode` returns `pinsBefore`, `pinsAfter`, `linksPreserved`, and `linksDropped`
+- `preserveLinks: true` attempts same-name pin relinking after reconstruction
+- links that cannot be restored must be reported with a reason
+
 #### setPinDefault
 
 Sets the default value of one pin.
@@ -1441,7 +1470,6 @@ Optional fields:
 
 - `alias`
 - `rebindPolicy`
-- `preserveDefaults`
 
 Recommended shape:
 
@@ -1449,16 +1477,14 @@ Recommended shape:
 {
   "kind": "replaceNode",
   "target": {
-    "node": { "id": "node-old" }
+    "id": "node-old"
   },
   "replacement": {
-    "nodeType": {
-      "id": "ufunction:/Script/Engine.KismetMathLibrary:Lerp"
-    }
+    "id": "ufunction:/Script/Engine.KismetMathLibrary:Lerp"
   },
   "alias": "lerp1",
-  "rebindPolicy": "compatibleOnly",
-  "preserveDefaults": true
+  "rebindPolicy": "matchingPins",
+  "removeOriginal": true
 }
 ```
 
@@ -1467,13 +1493,12 @@ Rules:
 - `replaceNode` removes the target node and creates a replacement node
 - compatible pin rebinding is attempted according to `rebindPolicy`
 - unmapped pins must produce diagnostics
+- legacy `node` / `nodeType` transform fields are not supported
 
 Recommended `rebindPolicy` values:
 
 - `none`
-- `nameOnly`
-- `compatibleOnly`
-- `bestEffort`
+- `matchingPins`
 
 #### wrapWith
 
@@ -1520,7 +1545,7 @@ Required fields:
 
 - `kind`
 - `source`
-- `branches`
+- `targets`
 
 Optional fields:
 
@@ -1535,7 +1560,16 @@ Recommended shape:
     "node": { "id": "node-entry" },
     "pin": "Then"
   },
-  "branches": 3,
+  "targets": [
+    {
+      "node": { "id": "node-a" },
+      "pin": "execute"
+    },
+    {
+      "node": { "id": "node-b" },
+      "pin": "execute"
+    }
+  ],
   "alias": "sequence1"
 }
 ```
@@ -1543,7 +1577,7 @@ Recommended shape:
 Rules:
 
 - `fanoutExec` creates sequence-like flow expansion
-- branch count must be positive
+- target count must be positive
 - output routing must be explicit in the transform result
 
 #### cleanupReroutes
@@ -1575,6 +1609,7 @@ Rules:
 
 - `cleanupReroutes` is graph-structural cleanup, not general layout
 - the transform must report which reroutes were removed or preserved
+- current implementation returns `NOT_IMPLEMENTED`; it must not silently no-op
 
 Recommended `mode` values:
 

@@ -1792,6 +1792,81 @@ def main() -> int:
             fail(f"addNode.byClass did not return nodeId for second node: {add_b}")
         print("[PASS] blueprint.mutate addNode.byClass validated")
 
+        replace_setup = call_domain_tool(
+            client,
+            1101,
+            "blueprint",
+            "mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "commands": [
+                    {"kind": "addNode", "alias": "replace_old", "nodeType": {"kind": "branch"}, "position": {"x": 0, "y": 720}},
+                    {"kind": "addNode", "alias": "replace_next", "nodeType": {"kind": "branch"}, "position": {"x": 360, "y": 720}},
+                    {
+                        "kind": "connect",
+                        "from": {"node": {"alias": "replace_old"}, "pin": "then"},
+                        "to": {"node": {"alias": "replace_next"}, "pin": "execute"},
+                    },
+                ],
+            },
+        )
+        replace_setup_results = replace_setup.get("opResults")
+        if not isinstance(replace_setup_results, list) or len(replace_setup_results) != 3:
+            fail(f"blueprint.graph.edit replace setup opResults mismatch: {replace_setup}")
+        replace_old_id = replace_setup_results[0].get("nodeId") if isinstance(replace_setup_results[0], dict) else None
+        replace_next_id = replace_setup_results[1].get("nodeId") if isinstance(replace_setup_results[1], dict) else None
+        if not isinstance(replace_old_id, str) or not replace_old_id or not isinstance(replace_next_id, str) or not replace_next_id:
+            fail(f"blueprint.graph.edit replace setup missing node ids: {replace_setup}")
+        if not all(isinstance(entry, dict) and entry.get("ok") for entry in replace_setup_results):
+            fail(f"blueprint.graph.edit replace setup failed: {replace_setup}")
+
+        replace_payload = call_tool(
+            client,
+            1102,
+            "blueprint.graph.refactor",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "transforms": [
+                    {
+                        "kind": "replaceNode",
+                        "target": {"id": replace_old_id},
+                        "replacement": {"kind": "branch"},
+                        "alias": "replace_new",
+                        "rebindPolicy": "matchingPins",
+                        "removeOriginal": True,
+                    }
+                ],
+            },
+        )
+        replace_results = replace_payload.get("opResults")
+        if not isinstance(replace_results, list) or len(replace_results) != 3:
+            fail(f"blueprint.graph.refactor replaceNode opResults mismatch: {replace_payload}")
+        replacement_id = replace_results[0].get("nodeId") if isinstance(replace_results[0], dict) else None
+        if not isinstance(replacement_id, str) or not replacement_id:
+            fail(f"blueprint.graph.refactor replaceNode missing replacement nodeId: {replace_payload}")
+        if replace_results[1].get("linksRebound") != 1:
+            fail(f"blueprint.graph.refactor replaceNode should rebind one matching pin link: {replace_payload}")
+        if not all(isinstance(entry, dict) and entry.get("ok") for entry in replace_results):
+            fail(f"blueprint.graph.refactor replaceNode failed: {replace_payload}")
+        replace_snapshot = query_snapshot(client, 1103, temp_asset, "blueprint", "EventGraph")
+        replace_nodes = replace_snapshot.get("nodes")
+        replace_edges = replace_snapshot.get("edges")
+        if not isinstance(replace_nodes, list) or not isinstance(replace_edges, list):
+            fail(f"blueprint.graph.refactor replaceNode query missing nodes/edges: {replace_snapshot}")
+        require_node_absent([node for node in replace_nodes if isinstance(node, dict)], replace_old_id)
+        if not any(
+            isinstance(edge, dict)
+            and edge.get("fromNodeId") == replacement_id
+            and edge.get("fromPin") == "then"
+            and edge.get("toNodeId") == replace_next_id
+            and edge.get("toPin") == "execute"
+            for edge in replace_edges
+        ):
+            fail(f"blueprint.graph.refactor replaceNode did not preserve matching pin link: {replace_snapshot}")
+        print("[PASS] blueprint.graph.refactor replaceNode matchingPins validated")
+
         self_graph_edit = call_domain_tool(
             client,
             12,
@@ -1876,7 +1951,33 @@ def main() -> int:
             for pin in self_pins
         ):
             fail(f"blueprint.graph.inspect self node link to UObject/Actor input missing: {self_node}")
+
+        reconstruct_payload = call_domain_tool(
+            client,
+            1301,
+            "blueprint",
+            "mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "commands": [{"kind": "reconstructNode", "node": {"id": self_node_id}, "preserveLinks": True}],
+            },
+        )
+        reconstruct_results = reconstruct_payload.get("opResults")
+        if not isinstance(reconstruct_results, list) or len(reconstruct_results) != 1:
+            fail(f"blueprint.graph.edit reconstructNode opResults mismatch: {reconstruct_payload}")
+        reconstruct_first = reconstruct_results[0] if isinstance(reconstruct_results[0], dict) else {}
+        if reconstruct_first.get("ok") is not True:
+            fail(f"blueprint.graph.edit reconstructNode failed: {reconstruct_payload}")
+        if not isinstance(reconstruct_first.get("pinsBefore"), list) or not isinstance(reconstruct_first.get("pinsAfter"), list):
+            fail(f"blueprint.graph.edit reconstructNode missing pin summaries: {reconstruct_payload}")
+        if reconstruct_first.get("linksPreserved") != 1:
+            fail(f"blueprint.graph.edit reconstructNode should preserve Self link: {reconstruct_payload}")
+        reconstruct_dropped = reconstruct_first.get("linksDropped")
+        if not isinstance(reconstruct_dropped, list) or reconstruct_dropped:
+            fail(f"blueprint.graph.edit reconstructNode unexpectedly dropped links: {reconstruct_payload}")
         print("[PASS] blueprint.graph.edit K2Node_Self creation/connect/inspect validated")
+        print("[PASS] blueprint.graph.edit reconstructNode preserveLinks validated")
 
         blueprint_revision_before = query_graph_payload(
             client,

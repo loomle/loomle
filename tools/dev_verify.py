@@ -400,6 +400,11 @@ def main() -> int:
     parser.add_argument("--run-latency", action="store_true", help="Run latency validation after smoke/regression.")
     parser.add_argument("--no-restart", action="store_true", help="Skip Unreal Editor restart after install.")
     parser.add_argument("--install-only", action="store_true", help="Only refresh the dev project plugin, do not run tests.")
+    parser.add_argument(
+        "--close-editor-on-success",
+        action="store_true",
+        help="Close the Unreal Editor instance for this project after all requested verification steps pass.",
+    )
     args = parser.parse_args()
 
     platform = detect_platform()
@@ -451,6 +456,10 @@ def main() -> int:
         run([sys.executable, str(LATENCY_SCRIPT), "--project-root", str(project_root)])
 
     print("[PASS] dev verify completed", file=sys.stderr)
+    if args.close_editor_on_success:
+        step("Close Unreal Editor after successful verification")
+        uproject = next(path for path in project_root.iterdir() if path.is_file() and path.suffix.lower() == ".uproject")
+        stop_editor(uproject, platform)
     return 0
 
 

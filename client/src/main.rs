@@ -1982,6 +1982,43 @@ fn compile_blueprint_graph_commands(
                     .map_err(invalid_argument_result)?;
                 Ok(vec![serde_json::json!({"op":"removeNode","args": node})])
             }
+            "reconstructNode" => {
+                let node = command_obj
+                    .get("node")
+                    .ok_or_else(|| "reconstructNode requires node.".to_owned())
+                    .and_then(extract_node_token)
+                    .map_err(invalid_argument_result)?;
+                let mut args = node.as_object().cloned().unwrap_or_default();
+                args.insert(
+                    "preserveLinks".into(),
+                    serde_json::json!(command_obj
+                        .get("preserveLinks")
+                        .and_then(|value| value.as_bool())
+                        .unwrap_or(true)),
+                );
+                Ok(vec![serde_json::json!({"op":"reconstructNode","args": args})])
+            }
+            "rebindMatchingPins" => {
+                let from_node = command_obj
+                    .get("fromNode")
+                    .or_else(|| command_obj.get("from"))
+                    .ok_or_else(|| "rebindMatchingPins requires fromNode.".to_owned())
+                    .and_then(extract_node_token)
+                    .map_err(invalid_argument_result)?;
+                let to_node = command_obj
+                    .get("toNode")
+                    .or_else(|| command_obj.get("to"))
+                    .ok_or_else(|| "rebindMatchingPins requires toNode.".to_owned())
+                    .and_then(extract_node_token)
+                    .map_err(invalid_argument_result)?;
+                Ok(vec![serde_json::json!({
+                    "op":"rebindMatchingPins",
+                    "args": {
+                        "fromNode": from_node,
+                        "toNode": to_node
+                    }
+                })])
+            }
             "duplicateNode" => {
                 let node = command_obj
                     .get("node")
@@ -2315,6 +2352,11 @@ fn compile_blueprint_refactor_request(
                 }));
             }
             "replaceNode" => {
+                if transform_obj.contains_key("node") || transform_obj.contains_key("nodeType") {
+                    return Err(invalid_argument_result(
+                        "replaceNode uses target/replacement only; node/nodeType are no longer supported.",
+                    ));
+                }
                 let alias = transform_obj
                     .get("alias")
                     .and_then(|value| value.as_str())
@@ -2323,76 +2365,50 @@ fn compile_blueprint_refactor_request(
                     .get("rebindPolicy")
                     .and_then(|value| value.as_str())
                     .unwrap_or("none");
-                if rebind_policy != "none" {
-                    return Err(not_implemented_result(
-                        "blueprint.graph.refactor",
-                        "replaceNode currently supports only rebindPolicy=none. Rebinding existing links has not been implemented yet.",
+                if rebind_policy != "none" && rebind_policy != "matchingPins" {
+                    return Err(invalid_argument_result(
+                        "replaceNode rebindPolicy must be none or matchingPins.",
                     ));
                 }
-                let node = transform_obj
-                    .get("node")
+                let target = transform_obj
+                    .get("target")
                     .cloned()
-                    .ok_or_else(|| invalid_argument_result("replaceNode requires node."))?;
+                    .ok_or_else(|| invalid_argument_result("replaceNode requires target."))?;
+                let replacement = transform_obj
+                    .get("replacement")
+                    .cloned()
+                    .ok_or_else(|| invalid_argument_result("replaceNode requires replacement."))?;
                 commands.push(serde_json::json!({
                     "kind": "addNode",
                     "alias": alias,
-                    "nodeType": transform_obj.get("nodeType").cloned().unwrap_or(serde_json::Value::Null),
-                    "anchor": node
+                    "nodeType": replacement,
+                    "anchor": target
                 }));
+                if rebind_policy == "matchingPins" {
+                    commands.push(serde_json::json!({
+                        "kind": "rebindMatchingPins",
+                        "fromNode": target,
+                        "toNode": { "alias": alias }
+                    }));
+                }
                 if transform_obj
                     .get("removeOriginal")
                     .and_then(|value| value.as_bool())
                     .unwrap_or(false)
                 {
-                    commands.push(serde_json::json!({"kind":"removeNode","node": node}));
+                    commands.push(serde_json::json!({"kind":"removeNode","node": target}));
                 }
             }
             "wrapWith" => {
-                let alias = transform_obj
-                    .get("alias")
-                    .and_then(|value| value.as_str())
-                    .unwrap_or("wrapperNode");
-                let wrapper = transform_obj
-                    .get("wrapper")
-                    .cloned()
-                    .ok_or_else(|| invalid_argument_result("wrapWith requires wrapper."))?;
-                let link = transform_obj
-                    .get("link")
-                    .and_then(|value| value.as_object())
-                    .ok_or_else(|| invalid_argument_result("wrapWith requires link."))?;
-                let from = link
-                    .get("from")
-                    .cloned()
-                    .ok_or_else(|| invalid_argument_result("wrapWith link requires from."))?;
-                let to = link
-                    .get("to")
-                    .cloned()
-                    .ok_or_else(|| invalid_argument_result("wrapWith link requires to."))?;
-                let entry_pin = transform_obj
-                    .get("entryPin")
-                    .and_then(|value| value.as_str())
-                    .unwrap_or("execute");
-                let exit_pin = transform_obj
-                    .get("exitPin")
-                    .and_then(|value| value.as_str())
-                    .unwrap_or("Then");
-                commands.push(serde_json::json!({
-                    "kind":"addNode",
-                    "alias": alias,
-                    "nodeType": wrapper,
-                    "from": from
-                }));
-                commands.push(serde_json::json!({"kind":"disconnect","from":from,"to":to}));
-                commands.push(serde_json::json!({
-                    "kind":"connect",
-                    "from": from,
-                    "to": { "node": { "alias": alias }, "pin": entry_pin }
-                }));
-                commands.push(serde_json::json!({
-                    "kind":"connect",
-                    "from": { "node": { "alias": alias }, "pin": exit_pin },
-                    "to": to
-                }));
+                if transform_obj.contains_key("link") {
+                    return Err(invalid_argument_result(
+                        "wrapWith wraps a target node; use insertBetween for link insertion.",
+                    ));
+                }
+                return Err(not_implemented_result(
+                    "blueprint.graph.refactor",
+                    "wrapWith target/wrapper semantics are not implemented yet.",
+                ));
             }
             "fanoutExec" => {
                 let alias = transform_obj
@@ -2426,7 +2442,12 @@ fn compile_blueprint_refactor_request(
                     }));
                 }
             }
-            "cleanupReroutes" => {}
+            "cleanupReroutes" => {
+                return Err(not_implemented_result(
+                    "blueprint.graph.refactor",
+                    "cleanupReroutes is not implemented yet.",
+                ));
+            }
             other => {
                 return Err(not_implemented_result(
                     "blueprint.graph.refactor",
@@ -3845,7 +3866,21 @@ fn blueprint_graph_edit_schema() -> rmcp::model::JsonObject {
             "type":"array",
             "items":{
                 "type":"object",
-                "properties":{"kind":{"type":"string","minLength":1}},
+                "properties":{
+                    "kind":{"type":"string","minLength":1},
+                    "alias":{"type":"string","minLength":1},
+                    "node":{"type":"object"},
+                    "nodeType":{"type":"object"},
+                    "from":{"type":"object"},
+                    "to":{"type":"object"},
+                    "fromNode":{"type":"object"},
+                    "toNode":{"type":"object"},
+                    "target":{"type":"object"},
+                    "value":{},
+                    "position":{"type":"object"},
+                    "anchor":{"type":"object"},
+                    "preserveLinks":{"type":"boolean"}
+                },
                 "required":["kind"],
                 "additionalProperties": true
             }
@@ -3877,9 +3912,23 @@ fn blueprint_graph_refactor_schema() -> rmcp::model::JsonObject {
             "type":"array",
             "items":{
                 "type":"object",
-                "properties":{"kind":{"type":"string","minLength":1}},
+                "properties":{
+                    "kind":{"type":"string","enum":["insertBetween","replaceNode","wrapWith","fanoutExec","cleanupReroutes"]},
+                    "alias":{"type":"string","minLength":1},
+                    "link":{"type":"object"},
+                    "nodeType":{"type":"object"},
+                    "inputPin":{"type":"string","minLength":1},
+                    "outputPin":{"type":"string","minLength":1},
+                    "target":{"type":"object"},
+                    "replacement":{"type":"object"},
+                    "wrapper":{"type":"object"},
+                    "source":{"type":"object"},
+                    "targets":{"type":"array","items":{"type":"object"}},
+                    "rebindPolicy":{"type":"string","enum":["none","matchingPins"]},
+                    "removeOriginal":{"type":"boolean"}
+                },
                 "required":["kind"],
-                "additionalProperties": true
+                "additionalProperties": false
             }
         }),
     );
@@ -5883,8 +5932,8 @@ mod tests {
             serde_json::json!([
                 {
                     "kind": "replaceNode",
-                    "node": { "id": "node-guid" },
-                    "nodeType": { "kind": "branch" }
+                    "target": { "id": "node-guid" },
+                    "replacement": { "kind": "branch" }
                 }
             ]),
         );
@@ -5897,6 +5946,97 @@ mod tests {
                 .and_then(|value| value.get("graphId"))
                 .and_then(|value| value.as_str()),
             Some("graph-guid")
+        );
+    }
+
+    #[test]
+    fn blueprint_graph_refactor_rejects_legacy_replace_node_shape() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graphName".into(), serde_json::json!("EventGraph"));
+        args.insert(
+            "transforms".into(),
+            serde_json::json!([
+                {
+                    "kind": "replaceNode",
+                    "node": { "id": "node-guid" },
+                    "nodeType": { "kind": "branch" }
+                }
+            ]),
+        );
+
+        assert!(compile_blueprint_refactor_request(&args).is_err());
+    }
+
+    #[test]
+    fn blueprint_graph_refactor_replace_node_matching_pins_translates_to_rebind() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graphName".into(), serde_json::json!("EventGraph"));
+        args.insert(
+            "transforms".into(),
+            serde_json::json!([
+                {
+                    "kind": "replaceNode",
+                    "target": { "id": "old-node" },
+                    "replacement": { "kind": "branch" },
+                    "rebindPolicy": "matchingPins",
+                    "removeOriginal": true
+                }
+            ]),
+        );
+
+        let edit_args = compile_blueprint_refactor_request(&args).expect("edit args");
+        let commands = edit_args
+            .get("commands")
+            .and_then(|value| value.as_array())
+            .expect("commands");
+        assert_eq!(commands.len(), 3);
+        assert_eq!(
+            commands[0].get("kind").and_then(|value| value.as_str()),
+            Some("addNode")
+        );
+        assert_eq!(
+            commands[1].get("kind").and_then(|value| value.as_str()),
+            Some("rebindMatchingPins")
+        );
+        assert_eq!(
+            commands[2].get("kind").and_then(|value| value.as_str()),
+            Some("removeNode")
+        );
+    }
+
+    #[test]
+    fn blueprint_graph_edit_reconstruct_node_translates_to_op() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graphName".into(), serde_json::json!("EventGraph"));
+        args.insert(
+            "commands".into(),
+            serde_json::json!([
+                {
+                    "kind": "reconstructNode",
+                    "node": { "id": "node-guid" },
+                    "preserveLinks": true
+                }
+            ]),
+        );
+
+        let translated = translate_blueprint_graph_edit_args(&args).expect("translated args");
+        let op = translated
+            .get("ops")
+            .and_then(|value| value.as_array())
+            .and_then(|ops| ops.first())
+            .expect("op");
+        assert_eq!(
+            op.get("op").and_then(|value| value.as_str()),
+            Some("reconstructNode")
+        );
+        assert_eq!(
+            op.get("args")
+                .and_then(|value| value.get("nodeId"))
+                .and_then(|value| value.as_str()),
+            Some("node-guid")
         );
     }
 

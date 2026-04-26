@@ -3530,6 +3530,336 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 }
             }
         }
+        else if (OpName.Equals(TEXT("reconstructnode")))
+        {
+            FString TargetNodeId;
+            if (!ResolveSingleNodeToken(SingleArgsObject, TargetNodeId))
+            {
+                SingleResult = BuildDirectSingleResult(false, false, TEXT("TARGET_NOT_FOUND"), TEXT("reconstructNode requires a target node reference."));
+            }
+            else if (bDryRun)
+            {
+                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""), TargetNodeId);
+            }
+            else
+            {
+                bool bPreserveLinks = true;
+                SingleArgsObject->TryGetBoolField(TEXT("preserveLinks"), bPreserveLinks);
+
+                UBlueprint* Blueprint = LoadBlueprintByAssetPath(AssetPath);
+                UEdGraph* TargetGraph = ResolveBlueprintGraph(Blueprint, EffectiveGraphName);
+                UEdGraphNode* TargetNode = ResolveBlueprintGraphNodeByToken(TargetGraph, TargetNodeId);
+                if (Blueprint == nullptr || TargetGraph == nullptr)
+                {
+                    SingleResult = BuildDirectSingleResult(false, false, TEXT("GRAPH_NOT_FOUND"), TEXT("Failed to resolve target graph."), TargetNodeId);
+                }
+                else if (TargetNode == nullptr)
+                {
+                    SingleResult = BuildDirectSingleResult(false, false, TEXT("TARGET_NOT_FOUND"), TEXT("Failed to resolve reconstructNode target."), TargetNodeId);
+                }
+                else
+                {
+                    struct FBlueprintLinkSnapshot
+                    {
+                        FString PinName;
+                        FString LinkedNodeId;
+                        FString LinkedPinName;
+                    };
+
+                    TArray<TSharedPtr<FJsonValue>> PinsBefore;
+                    TArray<FBlueprintLinkSnapshot> LinksBefore;
+                    for (UEdGraphPin* Pin : TargetNode->Pins)
+                    {
+                        if (Pin == nullptr)
+                        {
+                            continue;
+                        }
+                        PinsBefore.Add(MakeShared<FJsonValueString>(Pin->PinName.ToString()));
+                        for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
+                        {
+                            if (LinkedPin == nullptr || LinkedPin->GetOwningNode() == nullptr)
+                            {
+                                continue;
+                            }
+                            FBlueprintLinkSnapshot Snapshot;
+                            Snapshot.PinName = Pin->PinName.ToString();
+                            Snapshot.LinkedNodeId = LinkedPin->GetOwningNode()->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower);
+                            Snapshot.LinkedPinName = LinkedPin->PinName.ToString();
+                            LinksBefore.Add(Snapshot);
+                        }
+                    }
+
+                    Blueprint->Modify();
+                    TargetGraph->Modify();
+                    TargetNode->Modify();
+                    if (!bPreserveLinks)
+                    {
+                        for (UEdGraphPin* Pin : TargetNode->Pins)
+                        {
+                            if (Pin != nullptr)
+                            {
+                                Pin->BreakAllPinLinks();
+                            }
+                        }
+                    }
+                    TargetNode->ReconstructNode();
+
+                    const UEdGraphSchema* Schema = TargetGraph->GetSchema();
+                    int32 LinksPreserved = 0;
+                    TArray<TSharedPtr<FJsonValue>> LinksDropped;
+                    if (bPreserveLinks && Schema != nullptr)
+                    {
+                        for (const FBlueprintLinkSnapshot& Snapshot : LinksBefore)
+                        {
+                            UEdGraphPin* NewPin = FindPinByName(TargetNode, Snapshot.PinName);
+                            UEdGraphNode* LinkedNode = ResolveBlueprintGraphNodeByToken(TargetGraph, Snapshot.LinkedNodeId);
+                            UEdGraphPin* LinkedPin = LinkedNode != nullptr ? FindPinByName(LinkedNode, Snapshot.LinkedPinName) : nullptr;
+                            FString DropReason;
+                            if (NewPin == nullptr)
+                            {
+                                DropReason = TEXT("targetPinMissing");
+                            }
+                            else if (LinkedPin == nullptr)
+                            {
+                                DropReason = TEXT("linkedPinMissing");
+                            }
+                            else if (NewPin->LinkedTo.Contains(LinkedPin) || LinkedPin->LinkedTo.Contains(NewPin))
+                            {
+                                ++LinksPreserved;
+                                continue;
+                            }
+                            else
+                            {
+                                UEdGraphPin* OutputPin = NewPin->Direction == EGPD_Output ? NewPin : LinkedPin;
+                                UEdGraphPin* InputPin = NewPin->Direction == EGPD_Input ? NewPin : LinkedPin;
+                                if (OutputPin == nullptr || InputPin == nullptr || OutputPin->Direction != EGPD_Output || InputPin->Direction != EGPD_Input)
+                                {
+                                    DropReason = TEXT("directionMismatch");
+                                }
+                                else
+                                {
+                                    const FPinConnectionResponse Response = Schema->CanCreateConnection(OutputPin, InputPin);
+                                    if (Response.Response == CONNECT_RESPONSE_MAKE || Response.Response == CONNECT_RESPONSE_BREAK_OTHERS_A || Response.Response == CONNECT_RESPONSE_BREAK_OTHERS_B || Response.Response == CONNECT_RESPONSE_BREAK_OTHERS_AB)
+                                    {
+                                        if (Schema->TryCreateConnection(OutputPin, InputPin))
+                                        {
+                                            ++LinksPreserved;
+                                            continue;
+                                        }
+                                        DropReason = TEXT("connectionRejected");
+                                    }
+                                    else
+                                    {
+                                        DropReason = Response.Message.ToString();
+                                    }
+                                }
+                            }
+
+                            TSharedPtr<FJsonObject> Drop = MakeShared<FJsonObject>();
+                            Drop->SetStringField(TEXT("pin"), Snapshot.PinName);
+                            Drop->SetStringField(TEXT("linkedNodeId"), Snapshot.LinkedNodeId);
+                            Drop->SetStringField(TEXT("linkedPin"), Snapshot.LinkedPinName);
+                            Drop->SetStringField(TEXT("reason"), DropReason);
+                            LinksDropped.Add(MakeShared<FJsonValueObject>(Drop));
+                        }
+                    }
+
+                    TArray<TSharedPtr<FJsonValue>> PinsAfter;
+                    for (UEdGraphPin* Pin : TargetNode->Pins)
+                    {
+                        if (Pin != nullptr)
+                        {
+                            PinsAfter.Add(MakeShared<FJsonValueString>(Pin->PinName.ToString()));
+                        }
+                    }
+
+                    TargetGraph->NotifyGraphChanged();
+                    FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+                    Blueprint->MarkPackageDirty();
+
+                    SingleResult = BuildDirectSingleResult(true, true, TEXT(""), TEXT(""), TargetNodeId);
+                    const TArray<TSharedPtr<FJsonValue>>* OpResultsArray = nullptr;
+                    if (SingleResult->TryGetArrayField(TEXT("opResults"), OpResultsArray) && OpResultsArray != nullptr && OpResultsArray->Num() > 0)
+                    {
+                        const TSharedPtr<FJsonObject>* OpResultObj = nullptr;
+                        if ((*OpResultsArray)[0].IsValid() && (*OpResultsArray)[0]->TryGetObject(OpResultObj) && OpResultObj != nullptr && (*OpResultObj).IsValid())
+                        {
+                            (*OpResultObj)->SetArrayField(TEXT("pinsBefore"), PinsBefore);
+                            (*OpResultObj)->SetArrayField(TEXT("pinsAfter"), PinsAfter);
+                            (*OpResultObj)->SetNumberField(TEXT("linksPreserved"), LinksPreserved);
+                            (*OpResultObj)->SetArrayField(TEXT("linksDropped"), LinksDropped);
+                        }
+                    }
+                }
+            }
+        }
+        else if (OpName.Equals(TEXT("rebindmatchingpins")))
+        {
+            FString FromNodeId;
+            FString ToNodeId;
+            const TSharedPtr<FJsonObject>* FromNodeObj = nullptr;
+            const TSharedPtr<FJsonObject>* ToNodeObj = nullptr;
+            const bool bHasFrom = SingleArgsObject->TryGetObjectField(TEXT("fromNode"), FromNodeObj) && FromNodeObj != nullptr && (*FromNodeObj).IsValid();
+            const bool bHasTo = SingleArgsObject->TryGetObjectField(TEXT("toNode"), ToNodeObj) && ToNodeObj != nullptr && (*ToNodeObj).IsValid();
+            if (!bHasFrom || !bHasTo || !ResolveSingleNodeToken(*FromNodeObj, FromNodeId) || !ResolveSingleNodeToken(*ToNodeObj, ToNodeId))
+            {
+                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("rebindMatchingPins requires fromNode and toNode references."));
+            }
+            else if (bDryRun)
+            {
+                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""), ToNodeId);
+            }
+            else
+            {
+                UBlueprint* Blueprint = LoadBlueprintByAssetPath(AssetPath);
+                UEdGraph* TargetGraph = ResolveBlueprintGraph(Blueprint, EffectiveGraphName);
+                UEdGraphNode* FromNode = ResolveBlueprintGraphNodeByToken(TargetGraph, FromNodeId);
+                UEdGraphNode* ToNode = ResolveBlueprintGraphNodeByToken(TargetGraph, ToNodeId);
+                const UEdGraphSchema* Schema = TargetGraph != nullptr ? TargetGraph->GetSchema() : nullptr;
+                if (Blueprint == nullptr || TargetGraph == nullptr || Schema == nullptr)
+                {
+                    SingleResult = BuildDirectSingleResult(false, false, TEXT("GRAPH_NOT_FOUND"), TEXT("Failed to resolve target graph."), ToNodeId);
+                }
+                else if (FromNode == nullptr || ToNode == nullptr)
+                {
+                    SingleResult = BuildDirectSingleResult(false, false, TEXT("TARGET_NOT_FOUND"), TEXT("Failed to resolve rebindMatchingPins nodes."), ToNodeId);
+                }
+                else
+                {
+                    int32 LinksRebound = 0;
+                    TArray<TSharedPtr<FJsonValue>> PinsMatched;
+                    TArray<TSharedPtr<FJsonValue>> PinsUnmatched;
+                    TArray<TSharedPtr<FJsonValue>> LinksDropped;
+                    TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
+
+                    Blueprint->Modify();
+                    TargetGraph->Modify();
+                    FromNode->Modify();
+                    ToNode->Modify();
+
+                    for (UEdGraphPin* FromPin : FromNode->Pins)
+                    {
+                        if (FromPin == nullptr || FromPin->LinkedTo.Num() == 0)
+                        {
+                            continue;
+                        }
+                        UEdGraphPin* ToPin = FindPinByName(ToNode, FromPin->PinName.ToString());
+                        if (ToPin == nullptr || ToPin->Direction != FromPin->Direction)
+                        {
+                            PinsUnmatched.Add(MakeShared<FJsonValueString>(FromPin->PinName.ToString()));
+                            for (UEdGraphPin* LinkedPin : FromPin->LinkedTo)
+                            {
+                                TSharedPtr<FJsonObject> Drop = MakeShared<FJsonObject>();
+                                Drop->SetStringField(TEXT("pin"), FromPin->PinName.ToString());
+                                Drop->SetStringField(TEXT("reason"), ToPin == nullptr ? TEXT("targetPinMissing") : TEXT("directionMismatch"));
+                                if (LinkedPin != nullptr && LinkedPin->GetOwningNode() != nullptr)
+                                {
+                                    Drop->SetStringField(TEXT("linkedNodeId"), LinkedPin->GetOwningNode()->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
+                                    Drop->SetStringField(TEXT("linkedPin"), LinkedPin->PinName.ToString());
+                                }
+                                LinksDropped.Add(MakeShared<FJsonValueObject>(Drop));
+                            }
+                            continue;
+                        }
+
+                        PinsMatched.Add(MakeShared<FJsonValueString>(FromPin->PinName.ToString()));
+                        TArray<UEdGraphPin*> LinkedPins = FromPin->LinkedTo;
+                        for (UEdGraphPin* LinkedPin : LinkedPins)
+                        {
+                            if (LinkedPin == nullptr)
+                            {
+                                continue;
+                            }
+
+                            UEdGraphPin* OutputPin = ToPin->Direction == EGPD_Output ? ToPin : LinkedPin;
+                            UEdGraphPin* InputPin = ToPin->Direction == EGPD_Input ? ToPin : LinkedPin;
+                            FString DropReason;
+                            if (OutputPin == nullptr || InputPin == nullptr || OutputPin->Direction != EGPD_Output || InputPin->Direction != EGPD_Input)
+                            {
+                                DropReason = TEXT("directionMismatch");
+                            }
+                            else
+                            {
+                                const FPinConnectionResponse Response = Schema->CanCreateConnection(OutputPin, InputPin);
+                                if (Response.Response == CONNECT_RESPONSE_MAKE || Response.Response == CONNECT_RESPONSE_BREAK_OTHERS_A || Response.Response == CONNECT_RESPONSE_BREAK_OTHERS_B || Response.Response == CONNECT_RESPONSE_BREAK_OTHERS_AB)
+                                {
+                                    if (Schema->TryCreateConnection(OutputPin, InputPin))
+                                    {
+                                        if (FromPin->LinkedTo.Contains(LinkedPin) || LinkedPin->LinkedTo.Contains(FromPin))
+                                        {
+                                            FromPin->BreakLinkTo(LinkedPin);
+                                        }
+                                        ++LinksRebound;
+
+                                        TSharedPtr<FJsonObject> Removed = MakeShared<FJsonObject>();
+                                        TSharedPtr<FJsonObject> Added = MakeShared<FJsonObject>();
+                                        if (FromPin->Direction == EGPD_Output)
+                                        {
+                                            Removed->SetStringField(TEXT("fromNodeId"), FromNodeId);
+                                            Removed->SetStringField(TEXT("fromPin"), FromPin->PinName.ToString());
+                                            Removed->SetStringField(TEXT("toNodeId"), LinkedPin->GetOwningNode() ? LinkedPin->GetOwningNode()->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower) : TEXT(""));
+                                            Removed->SetStringField(TEXT("toPin"), LinkedPin->PinName.ToString());
+                                            Added->SetStringField(TEXT("fromNodeId"), ToNodeId);
+                                            Added->SetStringField(TEXT("fromPin"), ToPin->PinName.ToString());
+                                            Added->SetStringField(TEXT("toNodeId"), Removed->GetStringField(TEXT("toNodeId")));
+                                            Added->SetStringField(TEXT("toPin"), LinkedPin->PinName.ToString());
+                                        }
+                                        else
+                                        {
+                                            Removed->SetStringField(TEXT("fromNodeId"), LinkedPin->GetOwningNode() ? LinkedPin->GetOwningNode()->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower) : TEXT(""));
+                                            Removed->SetStringField(TEXT("fromPin"), LinkedPin->PinName.ToString());
+                                            Removed->SetStringField(TEXT("toNodeId"), FromNodeId);
+                                            Removed->SetStringField(TEXT("toPin"), FromPin->PinName.ToString());
+                                            Added->SetStringField(TEXT("fromNodeId"), Removed->GetStringField(TEXT("fromNodeId")));
+                                            Added->SetStringField(TEXT("fromPin"), LinkedPin->PinName.ToString());
+                                            Added->SetStringField(TEXT("toNodeId"), ToNodeId);
+                                            Added->SetStringField(TEXT("toPin"), ToPin->PinName.ToString());
+                                        }
+                                        AppendDiffObject(Diff, TEXT("linksRemoved"), Removed);
+                                        AppendDiffObject(Diff, TEXT("linksAdded"), Added);
+                                        continue;
+                                    }
+                                    DropReason = TEXT("connectionRejected");
+                                }
+                                else
+                                {
+                                    DropReason = Response.Message.ToString();
+                                }
+                            }
+
+                            TSharedPtr<FJsonObject> Drop = MakeShared<FJsonObject>();
+                            Drop->SetStringField(TEXT("pin"), FromPin->PinName.ToString());
+                            Drop->SetStringField(TEXT("reason"), DropReason);
+                            if (LinkedPin->GetOwningNode() != nullptr)
+                            {
+                                Drop->SetStringField(TEXT("linkedNodeId"), LinkedPin->GetOwningNode()->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
+                                Drop->SetStringField(TEXT("linkedPin"), LinkedPin->PinName.ToString());
+                            }
+                            LinksDropped.Add(MakeShared<FJsonValueObject>(Drop));
+                        }
+                    }
+
+                    TargetGraph->NotifyGraphChanged();
+                    FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+                    Blueprint->MarkPackageDirty();
+
+                    SingleResult = BuildDirectSingleResult(true, LinksRebound > 0, TEXT(""), TEXT(""), ToNodeId);
+                    const TArray<TSharedPtr<FJsonValue>>* OpResultsArray = nullptr;
+                    if (SingleResult->TryGetArrayField(TEXT("opResults"), OpResultsArray) && OpResultsArray != nullptr && OpResultsArray->Num() > 0)
+                    {
+                        const TSharedPtr<FJsonObject>* OpResultObj = nullptr;
+                        if ((*OpResultsArray)[0].IsValid() && (*OpResultsArray)[0]->TryGetObject(OpResultObj) && OpResultObj != nullptr && (*OpResultObj).IsValid())
+                        {
+                            (*OpResultObj)->SetNumberField(TEXT("linksRebound"), LinksRebound);
+                            (*OpResultObj)->SetArrayField(TEXT("pinsMatched"), PinsMatched);
+                            (*OpResultObj)->SetArrayField(TEXT("pinsUnmatched"), PinsUnmatched);
+                            (*OpResultObj)->SetArrayField(TEXT("linksDropped"), LinksDropped);
+                            (*OpResultObj)->SetObjectField(TEXT("diff"), Diff);
+                        }
+                    }
+                }
+            }
+        }
         else if (OpName.Equals(TEXT("setpindefault")))
         {
             FString TargetNodeId;
