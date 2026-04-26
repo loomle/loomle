@@ -202,5 +202,7 @@ private:
     TAtomic<bool> bBridgeRunningSnapshot { false };
     TAtomic<bool> bPythonReadySnapshot { false };
     TAtomic<bool> bIsPIESnapshot { false };
+    TMap<FString, FIntPoint> LastPlayRequestedWindowPositions;
+    FIntPoint LastPlayRequestedWindowSize { 0, 0 };
     FTSTicker::FDelegateHandle HealthSnapshotTickerHandle;
 };

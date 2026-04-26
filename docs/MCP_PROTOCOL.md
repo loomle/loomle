@@ -392,6 +392,9 @@ Execution rule:
   - `ticks`
   - `memory` with `kind="summary"`
 - `profiling` remains callable during `PIE`.
+- `profiling` accepts the shared `target` model from `play.status`, for example
+  `{ "target": { "participant": "server" } }` or
+  `{ "target": { "role": "client", "index": 0 } }`.
 - `unit`, `game`, and `gpu` may return retryable warmup errors before official engine aggregates become valid.
 
 ## 4.6 `play`
@@ -414,9 +417,14 @@ Input schema:
     "map": { "type": "string" },
     "ifActive": { "type": "string", "enum": ["error", "returnStatus"] },
     "timeoutMs": { "type": "integer" },
+    "participant": { "type": "string" },
+    "role": { "type": "string", "enum": ["server", "client", "editor", "standalone"] },
+    "count": { "type": "integer" },
     "until": { "type": "object", "additionalProperties": true },
+    "layout": { "type": "object", "additionalProperties": true },
     "topology": { "type": "object", "additionalProperties": true },
-    "defaultClientWindow": { "type": "object", "additionalProperties": true }
+    "defaultClientWindow": { "type": "object", "additionalProperties": true },
+    "strict": { "type": "object", "additionalProperties": true }
   },
   "additionalProperties": false
 }
@@ -447,6 +455,11 @@ Output shape:
         "worldType": "pie",
         "netMode": "client",
         "pieInstance": 0
+      },
+      "window": {
+        "requested": { "width": 960, "height": 540, "x": 20, "y": 80 },
+        "effective": { "width": 960, "height": 540, "x": 20, "y": 80 },
+        "warnings": []
       }
     }
   ],
@@ -463,8 +476,10 @@ Execution rule:
 - Forward `status`, `start`, and `stop` via `rpc.invoke` with `tool=play`.
 - `play.status` is the source of truth for the current session and participant IDs.
 - `play.start` currently requests an in-process PIE session and returns `state="starting"` until Unreal creates runtime worlds.
+- `play.start` applies window intent in merge order: `layout`, `defaultClientWindow`, then per-client `topology.clients[].window`.
 - `play.stop` ends the active PIE session when one exists and returns the same status shape.
-- `play.wait` is implemented in the MCP client by polling `play.status`, so Unreal's editor thread can continue ticking between polls. It supports session-state waits and participant conditions such as `{ "role": "client", "count": 2, "state": "ready" }`.
+- `play.wait` is implemented in the MCP client by polling `play.status`, so Unreal's editor thread can continue ticking between polls. It supports session-state waits, participant conditions such as `{ "role": "client", "count": 2, "state": "ready" }`, and top-level shorthand like `{ "action": "wait", "role": "client", "count": 2 }`.
+- `strict.window = true` turns window geometry warnings into `PLAY_WINDOW_NOT_APPLIED`.
 - `play` owns lifecycle and topology; it does not replace `profiling`, `execute`, `jobs`, `diagnostic.tail`, or `log.tail`.
 
 ## 4.7 `graph`

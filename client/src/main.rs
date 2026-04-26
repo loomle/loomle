@@ -385,6 +385,7 @@ impl LoomleProxyServer {
             .and_then(|value| value.as_str())
             .unwrap_or("ready")
             .to_string();
+        let participant_conditions = play_wait_participant_conditions_from_args(&args);
         let deadline = Instant::now() + Duration::from_millis(timeout_ms);
 
         loop {
@@ -426,8 +427,11 @@ impl LoomleProxyServer {
                 .and_then(|value| value.as_object())
                 .and_then(|until| until.get("participants"))
                 .and_then(|value| value.as_array())
-                .is_none_or(|conditions| {
-                    play_participant_wait_conditions_met(&payload, conditions)
+                .map(|conditions| play_participant_wait_conditions_met(&payload, conditions))
+                .unwrap_or_else(|| {
+                    participant_conditions.as_ref().is_none_or(|conditions| {
+                        play_participant_wait_conditions_met(&payload, conditions)
+                    })
                 });
             if state == target_session_state && participant_conditions_met {
                 return Ok(CallToolResult::structured(
@@ -3546,6 +3550,16 @@ fn profiling_schema() -> rmcp::model::JsonObject {
         "properties":{
             "action":{"type":"string"},
             "world":{"type":"string"},
+            "target":{
+                "type":"object",
+                "properties":{
+                    "sessionId":{"type":"string"},
+                    "participant":{"type":"string"},
+                    "role":{"type":"string","enum":["server","client","editor","standalone"]},
+                    "index":{"type":"integer"}
+                },
+                "additionalProperties": false
+            },
             "group":{"type":"string"},
             "capturePath":{"type":"string"}
         },
@@ -3563,6 +3577,28 @@ fn play_schema() -> rmcp::model::JsonObject {
             "map":{"type":"string"},
             "ifActive":{"type":"string","enum":["error","returnStatus"]},
             "timeoutMs":{"type":"integer"},
+            "participant":{"type":"string"},
+            "role":{"type":"string","enum":["server","client","editor","standalone"]},
+            "count":{"type":"integer"},
+            "layout":{
+                "type":"object",
+                "properties":{
+                    "preset":{"type":"string","enum":["horizontal","vertical"]},
+                    "originX":{"type":"integer"},
+                    "originY":{"type":"integer"},
+                    "width":{"type":"integer"},
+                    "height":{"type":"integer"},
+                    "gap":{"type":"integer"}
+                },
+                "additionalProperties": false
+            },
+            "strict":{
+                "type":"object",
+                "properties":{
+                    "window":{"type":"boolean"}
+                },
+                "additionalProperties": false
+            },
             "until":{
                 "type":"object",
                 "properties":{
@@ -4280,6 +4316,38 @@ fn play_participant_wait_conditions_met(
             .count() as u64;
         actual_count >= expected_count
     })
+}
+
+fn play_wait_participant_conditions_from_args(
+    args: &rmcp::model::JsonObject,
+) -> Option<Vec<serde_json::Value>> {
+    if args
+        .get("until")
+        .and_then(|value| value.as_object())
+        .and_then(|until| until.get("participants"))
+        .is_some()
+    {
+        return None;
+    }
+
+    let participant = args.get("participant").and_then(|value| value.as_str());
+    let role = args.get("role").and_then(|value| value.as_str());
+    if participant.is_none() && role.is_none() {
+        return None;
+    }
+
+    let mut condition = serde_json::Map::new();
+    if let Some(participant) = participant {
+        condition.insert("participant".into(), serde_json::json!(participant));
+    }
+    if let Some(role) = role {
+        condition.insert("role".into(), serde_json::json!(role));
+    }
+    if let Some(count) = args.get("count").and_then(|value| value.as_u64()) {
+        condition.insert("count".into(), serde_json::json!(count));
+    }
+    condition.insert("state".into(), serde_json::json!("ready"));
+    Some(vec![serde_json::Value::Object(condition)])
 }
 
 fn play_participant_matches_wait_state(
@@ -5380,7 +5448,8 @@ mod tests {
     use super::{
         compare_semver, compile_blueprint_refactor_request, current_platform_client_binary_name,
         infer_attached_project_root, material_query_schema, pcg_query_schema,
-        play_participant_wait_conditions_met, play_schema, runtime_declared_tools,
+        play_participant_wait_conditions_met, play_schema,
+        play_wait_participant_conditions_from_args, runtime_declared_tools,
         switch_to_installed_version, translate_blueprint_graph_edit_args,
         translate_material_query_args, translate_pcg_query_args, Cli, RuntimeProject,
     };
@@ -5999,5 +6068,27 @@ mod tests {
             &payload,
             &server_by_id
         ));
+    }
+
+    #[test]
+    fn play_wait_builds_participant_shorthand_conditions() {
+        let args = serde_json::json!({"action":"wait","role":"client","count":2})
+            .as_object()
+            .cloned()
+            .unwrap();
+        let conditions = play_wait_participant_conditions_from_args(&args).unwrap();
+        assert_eq!(conditions.len(), 1);
+        assert_eq!(
+            conditions[0].get("role").and_then(|value| value.as_str()),
+            Some("client")
+        );
+        assert_eq!(
+            conditions[0].get("count").and_then(|value| value.as_u64()),
+            Some(2)
+        );
+        assert_eq!(
+            conditions[0].get("state").and_then(|value| value.as_str()),
+            Some("ready")
+        );
     }
 }

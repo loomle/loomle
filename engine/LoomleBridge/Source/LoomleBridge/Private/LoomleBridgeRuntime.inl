@@ -1006,6 +1006,139 @@ namespace
 FString LoomleParticipantRoleFromWorld(UWorld* World, const FWorldContext& WorldContext);
 FString LoomleParticipantKindFromWorld(UWorld* World, const FWorldContext& WorldContext);
 TSharedPtr<FJsonObject> BuildPlayWorldJson(UWorld* World, const FWorldContext& WorldContext);
+TSharedPtr<FJsonObject> BuildPlayWindowJson(
+    UGameViewportClient* GameViewport,
+    const FString& ParticipantId,
+    const TMap<FString, FIntPoint>& RequestedPositions,
+    const FIntPoint& RequestedSize,
+    int32* OutWarningCount);
+
+struct FPlayWindowIntent
+{
+    FIntPoint Size { 0, 0 };
+    TMap<int32, FIntPoint> Positions;
+};
+
+int32 ReadPlayClientCount(const TSharedPtr<FJsonObject>& Topology)
+{
+    int32 RequestedClientCount = 1;
+    if (!Topology.IsValid())
+    {
+        return RequestedClientCount;
+    }
+
+    double ClientCountNumber = 0.0;
+    if (Topology->TryGetNumberField(TEXT("clientCount"), ClientCountNumber))
+    {
+        RequestedClientCount = FMath::Clamp(static_cast<int32>(ClientCountNumber), 1, 64);
+    }
+
+    const TArray<TSharedPtr<FJsonValue>>* Clients = nullptr;
+    if (Topology->TryGetArrayField(TEXT("clients"), Clients) && Clients != nullptr && Clients->Num() > 0)
+    {
+        RequestedClientCount = FMath::Max(RequestedClientCount, FMath::Clamp(Clients->Num(), 1, 64));
+    }
+
+    return RequestedClientCount;
+}
+
+void MergePlayWindowObject(const TSharedPtr<FJsonObject>& Window, FPlayWindowIntent& Intent, const int32 ClientIndex, const bool bAllowPosition)
+{
+    if (!Window.IsValid())
+    {
+        return;
+    }
+
+    double Width = 0.0;
+    double Height = 0.0;
+    if (Window->TryGetNumberField(TEXT("width"), Width))
+    {
+        Intent.Size.X = FMath::Max(0, static_cast<int32>(Width));
+    }
+    if (Window->TryGetNumberField(TEXT("height"), Height))
+    {
+        Intent.Size.Y = FMath::Max(0, static_cast<int32>(Height));
+    }
+
+    double X = 0.0;
+    double Y = 0.0;
+    if (bAllowPosition && Window->TryGetNumberField(TEXT("x"), X) && Window->TryGetNumberField(TEXT("y"), Y))
+    {
+        Intent.Positions.Add(ClientIndex, FIntPoint(static_cast<int32>(X), static_cast<int32>(Y)));
+    }
+}
+
+FPlayWindowIntent BuildPlayWindowIntent(const TSharedPtr<FJsonObject>& Arguments, const int32 ClientCount)
+{
+    FPlayWindowIntent Intent;
+
+    const TSharedPtr<FJsonObject>* Layout = nullptr;
+    if (Arguments.IsValid() && Arguments->TryGetObjectField(TEXT("layout"), Layout) && Layout && (*Layout).IsValid())
+    {
+        FString Preset = TEXT("horizontal");
+        (*Layout)->TryGetStringField(TEXT("preset"), Preset);
+        Preset = Preset.TrimStartAndEnd().ToLower();
+
+        double Width = 0.0;
+        double Height = 0.0;
+        double OriginX = 20.0;
+        double OriginY = 80.0;
+        double Gap = 16.0;
+        (*Layout)->TryGetNumberField(TEXT("width"), Width);
+        (*Layout)->TryGetNumberField(TEXT("height"), Height);
+        (*Layout)->TryGetNumberField(TEXT("originX"), OriginX);
+        (*Layout)->TryGetNumberField(TEXT("originY"), OriginY);
+        (*Layout)->TryGetNumberField(TEXT("gap"), Gap);
+        Intent.Size = FIntPoint(FMath::Max(0, static_cast<int32>(Width)), FMath::Max(0, static_cast<int32>(Height)));
+        for (int32 Index = 0; Index < ClientCount; ++Index)
+        {
+            const int32 X = static_cast<int32>(OriginX + (Preset.Equals(TEXT("vertical")) ? 0.0 : Index * (Width + Gap)));
+            const int32 Y = static_cast<int32>(OriginY + (Preset.Equals(TEXT("vertical")) ? Index * (Height + Gap) : 0.0));
+            Intent.Positions.Add(Index, FIntPoint(X, Y));
+        }
+    }
+
+    const TSharedPtr<FJsonObject>* DefaultClientWindow = nullptr;
+    if (Arguments.IsValid() && Arguments->TryGetObjectField(TEXT("defaultClientWindow"), DefaultClientWindow) && DefaultClientWindow && (*DefaultClientWindow).IsValid())
+    {
+        for (int32 Index = 0; Index < ClientCount; ++Index)
+        {
+            MergePlayWindowObject(*DefaultClientWindow, Intent, Index, true);
+        }
+    }
+
+    const TSharedPtr<FJsonObject>* Topology = nullptr;
+    if (Arguments.IsValid() && Arguments->TryGetObjectField(TEXT("topology"), Topology) && Topology && (*Topology).IsValid())
+    {
+        const TArray<TSharedPtr<FJsonValue>>* Clients = nullptr;
+        if ((*Topology)->TryGetArrayField(TEXT("clients"), Clients) && Clients != nullptr)
+        {
+            for (int32 ArrayIndex = 0; ArrayIndex < Clients->Num(); ++ArrayIndex)
+            {
+                const TSharedPtr<FJsonObject>* Client = nullptr;
+                if (!(*Clients)[ArrayIndex].IsValid() || !(*Clients)[ArrayIndex]->TryGetObject(Client) || Client == nullptr || !(*Client).IsValid())
+                {
+                    continue;
+                }
+
+                int32 ClientIndex = ArrayIndex;
+                double ClientIndexNumber = 0.0;
+                if ((*Client)->TryGetNumberField(TEXT("index"), ClientIndexNumber))
+                {
+                    ClientIndex = FMath::Max(0, static_cast<int32>(ClientIndexNumber));
+                }
+
+                const TSharedPtr<FJsonObject>* Window = nullptr;
+                if ((*Client)->TryGetObjectField(TEXT("window"), Window) && Window && (*Window).IsValid())
+                {
+                    MergePlayWindowObject(*Window, Intent, ClientIndex, true);
+                }
+            }
+        }
+    }
+
+    return Intent;
+}
 }
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPlayToolResult(const TSharedPtr<FJsonObject>& Arguments)
@@ -1085,11 +1218,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPlayToolResult(const TSharedPt
                 return Error;
             }
 
-            int32 RequestedClientCount = 1;
             FString ServerKind = TEXT("standalone");
             const TSharedPtr<FJsonObject>* Topology = nullptr;
+            TSharedPtr<FJsonObject> TopologyObject;
             if (Arguments->TryGetObjectField(TEXT("topology"), Topology) && Topology && (*Topology).IsValid())
             {
+                TopologyObject = *Topology;
                 const TSharedPtr<FJsonObject>* Server = nullptr;
                 if ((*Topology)->TryGetObjectField(TEXT("server"), Server) && Server && (*Server).IsValid())
                 {
@@ -1101,38 +1235,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPlayToolResult(const TSharedPt
                         PlaySettings->AdditionalServerLaunchParameters = LaunchArgs;
                     }
                 }
-
-                double ClientCountNumber = 0.0;
-                if ((*Topology)->TryGetNumberField(TEXT("clientCount"), ClientCountNumber))
-                {
-                    RequestedClientCount = FMath::Clamp(static_cast<int32>(ClientCountNumber), 1, 64);
-                }
-
-                const TArray<TSharedPtr<FJsonValue>>* Clients = nullptr;
-                if ((*Topology)->TryGetArrayField(TEXT("clients"), Clients) && Clients != nullptr && Clients->Num() > 0)
-                {
-                    RequestedClientCount = FMath::Clamp(Clients->Num(), 1, 64);
-                    PlaySettings->MultipleInstancePositions.Reset();
-                    for (const TSharedPtr<FJsonValue>& ClientValue : *Clients)
-                    {
-                        const TSharedPtr<FJsonObject>* Client = nullptr;
-                        if (!ClientValue.IsValid() || !ClientValue->TryGetObject(Client) || Client == nullptr || !(*Client).IsValid())
-                        {
-                            continue;
-                        }
-                        const TSharedPtr<FJsonObject>* Window = nullptr;
-                        if ((*Client)->TryGetObjectField(TEXT("window"), Window) && Window && (*Window).IsValid())
-                        {
-                            double X = 0.0;
-                            double Y = 0.0;
-                            if ((*Window)->TryGetNumberField(TEXT("x"), X) && (*Window)->TryGetNumberField(TEXT("y"), Y))
-                            {
-                                PlaySettings->MultipleInstancePositions.Add(FIntPoint(static_cast<int32>(X), static_cast<int32>(Y)));
-                            }
-                        }
-                    }
-                }
             }
+            const int32 RequestedClientCount = ReadPlayClientCount(TopologyObject);
+            const FPlayWindowIntent WindowIntent = BuildPlayWindowIntent(Arguments, RequestedClientCount);
 
             if (ServerKind.Equals(TEXT("dedicated")))
             {
@@ -1151,26 +1256,39 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPlayToolResult(const TSharedPt
             }
             PlaySettings->SetRunUnderOneProcess(true);
             PlaySettings->SetPlayNumberOfClients(RequestedClientCount);
-
-            const TSharedPtr<FJsonObject>* DefaultClientWindow = nullptr;
-            if (Arguments->TryGetObjectField(TEXT("defaultClientWindow"), DefaultClientWindow) && DefaultClientWindow && (*DefaultClientWindow).IsValid())
+            if (WindowIntent.Size.X > 0)
             {
-                double Width = 0.0;
-                double Height = 0.0;
-                if ((*DefaultClientWindow)->TryGetNumberField(TEXT("width"), Width))
+                PlaySettings->NewWindowWidth = WindowIntent.Size.X;
+                PlaySettings->SetClientWindowSize(WindowIntent.Size);
+            }
+            if (WindowIntent.Size.Y > 0)
+            {
+                PlaySettings->NewWindowHeight = WindowIntent.Size.Y;
+                PlaySettings->SetClientWindowSize(WindowIntent.Size);
+            }
+            PlaySettings->MultipleInstancePositions.Reset();
+            LastPlayRequestedWindowPositions.Reset();
+            LastPlayRequestedWindowSize = WindowIntent.Size;
+            for (int32 Index = 0; Index < RequestedClientCount; ++Index)
+            {
+                const FIntPoint* Position = WindowIntent.Positions.Find(Index);
+                if (Position != nullptr)
                 {
-                    PlaySettings->NewWindowWidth = FMath::Max(0, static_cast<int32>(Width));
-                }
-                if ((*DefaultClientWindow)->TryGetNumberField(TEXT("height"), Height))
-                {
-                    PlaySettings->NewWindowHeight = FMath::Max(0, static_cast<int32>(Height));
-                }
-                double X = 0.0;
-                double Y = 0.0;
-                if ((*DefaultClientWindow)->TryGetNumberField(TEXT("x"), X) && (*DefaultClientWindow)->TryGetNumberField(TEXT("y"), Y))
-                {
-                    PlaySettings->NewWindowPosition = FIntPoint(static_cast<int32>(X), static_cast<int32>(Y));
-                    PlaySettings->CenterNewWindow = false;
+                    PlaySettings->MultipleInstancePositions.Add(*Position);
+                    LastPlayRequestedWindowPositions.Add(FString::Printf(TEXT("client:%d"), Index), *Position);
+                    if (Index == 0)
+                    {
+                        if (ServerKind.Equals(TEXT("listen")))
+                        {
+                            LastPlayRequestedWindowPositions.Add(TEXT("server"), *Position);
+                        }
+                        if (ServerKind.Equals(TEXT("standalone")))
+                        {
+                            LastPlayRequestedWindowPositions.Add(TEXT("standalone"), *Position);
+                        }
+                        PlaySettings->NewWindowPosition = *Position;
+                        PlaySettings->CenterNewWindow = false;
+                    }
                 }
             }
 
@@ -1210,6 +1328,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPlayToolResult(const TSharedPt
     const bool bIsPIE = GEditor != nullptr && GEditor->IsPlayingSessionInEditor();
     const bool bIsStarting = GEditor != nullptr && !bIsPIE && GEditor->IsPlaySessionRequestQueued();
     int32 ClientIndex = 0;
+    int32 ServerCount = 0;
+    int32 StandaloneCount = 0;
+    int32 WindowWarningCount = 0;
+    FString FirstServerKind;
     TArray<TSharedPtr<FJsonValue>> Participants;
     FString MapPath;
 
@@ -1232,6 +1354,18 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPlayToolResult(const TSharedPt
                 ParticipantIndex = ClientIndex++;
                 ParticipantId = FString::Printf(TEXT("client:%d"), ParticipantIndex);
             }
+            else if (Role.Equals(TEXT("server")))
+            {
+                ++ServerCount;
+                if (FirstServerKind.IsEmpty())
+                {
+                    FirstServerKind = Kind;
+                }
+            }
+            else if (Role.Equals(TEXT("standalone")))
+            {
+                ++StandaloneCount;
+            }
 
             TSharedPtr<FJsonObject> Participant = MakeShared<FJsonObject>();
             Participant->SetStringField(TEXT("id"), ParticipantId);
@@ -1243,6 +1377,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPlayToolResult(const TSharedPt
             Participant->SetStringField(TEXT("kind"), Kind);
             Participant->SetBoolField(TEXT("ready"), World->WorldType == EWorldType::Editor || World->WorldType == EWorldType::PIE || World->WorldType == EWorldType::Game);
             Participant->SetObjectField(TEXT("world"), BuildPlayWorldJson(World, WorldContext));
+            Participant->SetObjectField(TEXT("window"), BuildPlayWindowJson(WorldContext.GameViewport, ParticipantId, LastPlayRequestedWindowPositions, LastPlayRequestedWindowSize, &WindowWarningCount));
 
             TSharedPtr<FJsonObject> Capabilities = MakeShared<FJsonObject>();
             Capabilities->SetBoolField(TEXT("execute"), true);
@@ -1267,6 +1402,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPlayToolResult(const TSharedPt
 
     TSharedPtr<FJsonObject> Topology = MakeShared<FJsonObject>();
     Topology->SetNumberField(TEXT("clientCount"), static_cast<double>(ClientIndex));
+    Topology->SetNumberField(TEXT("serverCount"), static_cast<double>(ServerCount));
+    Topology->SetNumberField(TEXT("standaloneCount"), static_cast<double>(StandaloneCount));
+    Topology->SetStringField(TEXT("serverKind"), FirstServerKind);
     Session->SetObjectField(TEXT("topology"), Topology);
 
     uint64 DiagnosticHighWatermark = 0;
@@ -1291,6 +1429,27 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPlayToolResult(const TSharedPt
     Observability->SetObjectField(TEXT("logs"), LogsRef);
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    const TSharedPtr<FJsonObject>* Strict = nullptr;
+    bool bStrictWindow = false;
+    if (Arguments.IsValid()
+        && Arguments->TryGetObjectField(TEXT("strict"), Strict)
+        && Strict
+        && (*Strict).IsValid())
+    {
+        (*Strict)->TryGetBoolField(TEXT("window"), bStrictWindow);
+    }
+    if (bStrictWindow && WindowWarningCount > 0)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("PLAY_WINDOW_NOT_APPLIED"));
+        Result->SetStringField(TEXT("message"), TEXT("Requested play window geometry was not fully applied."));
+        Result->SetStringField(TEXT("detail"), TEXT("Inspect participants[].window.warnings for effective geometry mismatches."));
+        Result->SetObjectField(TEXT("session"), Session);
+        Result->SetArrayField(TEXT("participants"), Participants);
+        Result->SetObjectField(TEXT("observability"), Observability);
+        return Result;
+    }
+
     Result->SetBoolField(TEXT("isError"), false);
     Result->SetStringField(TEXT("status"), TEXT("ok"));
     Result->SetStringField(TEXT("action"), Action);
@@ -1428,6 +1587,89 @@ TSharedPtr<FJsonObject> BuildPlayWorldJson(UWorld* World, const FWorldContext& W
     return WorldJson;
 }
 
+TSharedPtr<FJsonObject> BuildPlayWindowJson(
+    UGameViewportClient* GameViewport,
+    const FString& ParticipantId,
+    const TMap<FString, FIntPoint>& RequestedPositions,
+    const FIntPoint& RequestedSize,
+    int32* OutWarningCount)
+{
+    TSharedPtr<FJsonObject> WindowJson = MakeShared<FJsonObject>();
+    TArray<TSharedPtr<FJsonValue>> Warnings;
+
+    TSharedPtr<FJsonObject> Requested = MakeShared<FJsonObject>();
+    const bool bHasRequestedSize = RequestedSize.X > 0 || RequestedSize.Y > 0;
+    if (RequestedSize.X > 0)
+    {
+        Requested->SetNumberField(TEXT("width"), static_cast<double>(RequestedSize.X));
+    }
+    if (RequestedSize.Y > 0)
+    {
+        Requested->SetNumberField(TEXT("height"), static_cast<double>(RequestedSize.Y));
+    }
+    const FIntPoint* RequestedPosition = RequestedPositions.Find(ParticipantId);
+    const bool bHasRequestedPosition = RequestedPosition != nullptr;
+    if (RequestedPosition != nullptr)
+    {
+        Requested->SetNumberField(TEXT("x"), static_cast<double>(RequestedPosition->X));
+        Requested->SetNumberField(TEXT("y"), static_cast<double>(RequestedPosition->Y));
+    }
+    WindowJson->SetObjectField(TEXT("requested"), Requested);
+
+    TSharedPtr<FJsonObject> Effective = MakeShared<FJsonObject>();
+    bool bHasEffective = false;
+    FIntPoint EffectiveSize(0, 0);
+    FIntPoint EffectivePosition(0, 0);
+    if (GameViewport != nullptr)
+    {
+        TSharedPtr<SWindow> Window = GameViewport->GetWindow();
+        if (Window.IsValid())
+        {
+            const FVector2D Size = Window->GetClientSizeInScreen();
+            const FVector2D Position = Window->GetPositionInScreen();
+            EffectiveSize = FIntPoint(FMath::RoundToInt(Size.X), FMath::RoundToInt(Size.Y));
+            EffectivePosition = FIntPoint(FMath::RoundToInt(Position.X), FMath::RoundToInt(Position.Y));
+            Effective->SetNumberField(TEXT("width"), static_cast<double>(EffectiveSize.X));
+            Effective->SetNumberField(TEXT("height"), static_cast<double>(EffectiveSize.Y));
+            Effective->SetNumberField(TEXT("x"), static_cast<double>(EffectivePosition.X));
+            Effective->SetNumberField(TEXT("y"), static_cast<double>(EffectivePosition.Y));
+            bHasEffective = true;
+        }
+    }
+    WindowJson->SetObjectField(TEXT("effective"), Effective);
+
+    auto AddWarning = [&Warnings, OutWarningCount](const TCHAR* Code, const FString& Message)
+    {
+        TSharedPtr<FJsonObject> Warning = MakeShared<FJsonObject>();
+        Warning->SetStringField(TEXT("code"), Code);
+        Warning->SetStringField(TEXT("message"), Message);
+        Warnings.Add(MakeShared<FJsonValueObject>(Warning));
+        if (OutWarningCount != nullptr)
+        {
+            ++(*OutWarningCount);
+        }
+    };
+
+    if ((bHasRequestedSize || bHasRequestedPosition) && !bHasEffective)
+    {
+        AddWarning(TEXT("PLAY_WINDOW_EFFECTIVE_UNAVAILABLE"), TEXT("The runtime window effective geometry is not available yet."));
+    }
+    if (bHasEffective && bHasRequestedSize)
+    {
+        if ((RequestedSize.X > 0 && RequestedSize.X != EffectiveSize.X) || (RequestedSize.Y > 0 && RequestedSize.Y != EffectiveSize.Y))
+        {
+            AddWarning(TEXT("PLAY_WINDOW_SIZE_MISMATCH"), TEXT("The runtime window size does not match the requested size."));
+        }
+    }
+    if (bHasEffective && bHasRequestedPosition && RequestedPosition != nullptr && *RequestedPosition != EffectivePosition)
+    {
+        AddWarning(TEXT("PLAY_WINDOW_POSITION_MISMATCH"), TEXT("The runtime window position does not match the requested position."));
+    }
+
+    WindowJson->SetArrayField(TEXT("warnings"), Warnings);
+    return WindowJson;
+}
+
 TSharedPtr<FJsonObject> BuildExecuteRuntimeContext()
 {
     TSharedPtr<FJsonObject> Runtime = MakeShared<FJsonObject>();
@@ -1448,6 +1690,58 @@ TSharedPtr<FJsonObject> BuildExecuteRuntimeContext()
 
 UWorld* ResolveProfilingWorld(const TSharedPtr<FJsonObject>& Arguments)
 {
+    const TSharedPtr<FJsonObject>* Target = nullptr;
+    if (Arguments.IsValid() && Arguments->TryGetObjectField(TEXT("target"), Target) && Target && (*Target).IsValid())
+    {
+        FString RequestedParticipant;
+        (*Target)->TryGetStringField(TEXT("participant"), RequestedParticipant);
+        FString RequestedRole;
+        (*Target)->TryGetStringField(TEXT("role"), RequestedRole);
+        RequestedRole = RequestedRole.TrimStartAndEnd().ToLower();
+
+        int32 RequestedIndex = INDEX_NONE;
+        double RequestedIndexNumber = 0.0;
+        if ((*Target)->TryGetNumberField(TEXT("index"), RequestedIndexNumber))
+        {
+            RequestedIndex = static_cast<int32>(RequestedIndexNumber);
+        }
+
+        int32 ClientIndex = 0;
+        if (GEngine != nullptr)
+        {
+            for (const FWorldContext& WorldContext : GEngine->GetWorldContexts())
+            {
+                UWorld* World = WorldContext.World();
+                if (World == nullptr)
+                {
+                    continue;
+                }
+
+                const FString Role = LoomleParticipantRoleFromWorld(World, WorldContext);
+                int32 ParticipantIndex = INDEX_NONE;
+                FString ParticipantId = Role;
+                if (Role.Equals(TEXT("client")))
+                {
+                    ParticipantIndex = ClientIndex++;
+                    ParticipantId = FString::Printf(TEXT("client:%d"), ParticipantIndex);
+                }
+
+                if (!RequestedParticipant.IsEmpty() && ParticipantId.Equals(RequestedParticipant, ESearchCase::IgnoreCase))
+                {
+                    return World;
+                }
+
+                if (!RequestedRole.IsEmpty() && Role.Equals(RequestedRole, ESearchCase::IgnoreCase))
+                {
+                    if (RequestedIndex == INDEX_NONE || RequestedIndex == ParticipantIndex)
+                    {
+                        return World;
+                    }
+                }
+            }
+        }
+    }
+
     FString RequestedWorld = TEXT("active");
     if (Arguments.IsValid())
     {

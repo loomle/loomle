@@ -3236,6 +3236,9 @@ def main() -> int:
             fail(f"play.status unexpected session state: {play_payload}")
         if not isinstance(play_payload.get("participants"), list):
             fail(f"play.status missing participants[]: {play_payload}")
+        for participant in play_payload.get("participants", []):
+            if not isinstance(participant, dict) or not isinstance(participant.get("window"), dict):
+                fail(f"play.status participant missing window object: {play_payload}")
         play_observability = play_payload.get("observability")
         if not isinstance(play_observability, dict):
             fail(f"play.status missing observability: {play_payload}")

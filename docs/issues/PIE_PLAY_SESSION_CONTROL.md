@@ -693,13 +693,19 @@ Initial implementation:
     Unreal world contexts
   - reports world name/path/type, net mode, PIE instance, context handle, and
     readiness
+  - reports window `requested`, `effective`, and `warnings` fields when
+    geometry is requested or observable
 - `play.start`
   - supports `backend = "pie"`
   - requests an in-process PIE session through Unreal editor play APIs
   - supports `topology.server.kind = standalone | listen | dedicated`
   - supports `topology.clientCount`, `topology.clients[]`, `map`,
-    `ifActive = error | returnStatus`, `defaultClientWindow`, and per-client
-    window positions on a best-effort basis
+    `ifActive = error | returnStatus`, `layout`, `defaultClientWindow`, and
+    per-client window positions on a best-effort basis
+  - merges window intent in order: `layout`, `defaultClientWindow`, then
+    per-client `topology.clients[].window`
+  - supports `strict.window = true` to turn geometry warnings into
+    `PLAY_WINDOW_NOT_APPLIED`
   - returns `state = "starting"` until Unreal creates runtime worlds
 - `play.stop`
   - idempotently ends the current PIE session when one exists
@@ -708,11 +714,14 @@ Initial implementation:
   - implemented in the MCP client by polling `play.status`
   - waits for session state and participant conditions without blocking the
     Unreal editor thread
+  - supports shorthand waits such as `{ "action": "wait", "role": "client",
+    "count": 2 }`
+- `profiling`
+  - accepts the shared play target model:
+    `{ "target": { "participant": "server" } }` or
+    `{ "target": { "role": "client", "index": 0 } }`
 
 Known remaining gaps:
 
-- window `effective` geometry reporting is not implemented yet
-- strict window mismatch handling is not implemented yet
 - external dedicated server processes are not implemented yet
-- shared `target` support in `profiling` is still separate follow-up work
 - targeted `execute` remains deferred
