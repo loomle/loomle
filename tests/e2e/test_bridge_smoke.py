@@ -48,6 +48,7 @@ REQUIRED_TOOLS = {
     "log.subscribe",
     "context",
     "jobs",
+    "play",
     "editor.open",
     "editor.focus",
     "editor.screenshot",
@@ -3222,6 +3223,23 @@ def main() -> int:
         if rpc_health.get("status") not in {"ok", "degraded"}:
             fail(f"loomle rpc health not ready: {loomle_payload}")
         print("[PASS] loomle status query succeeded")
+
+        play_payload = call_tool(client, 30, "play", {"action": "status"})
+        if play_payload.get("status") != "ok":
+            fail(f"play.status unexpected status: {play_payload}")
+        play_session = play_payload.get("session")
+        if not isinstance(play_session, dict):
+            fail(f"play.status missing session: {play_payload}")
+        if play_session.get("backend") != "pie":
+            fail(f"play.status unexpected backend: {play_payload}")
+        if play_session.get("state") not in {"inactive", "starting", "ready"}:
+            fail(f"play.status unexpected session state: {play_payload}")
+        if not isinstance(play_payload.get("participants"), list):
+            fail(f"play.status missing participants[]: {play_payload}")
+        play_observability = play_payload.get("observability")
+        if not isinstance(play_observability, dict):
+            fail(f"play.status missing observability: {play_payload}")
+        print("[PASS] play.status is available")
 
         diagnostic_payload = call_tool(client, 31, "diagnostic.tail", {"fromSeq": 0, "limit": 10})
         items = diagnostic_payload.get("items")

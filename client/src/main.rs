@@ -26,7 +26,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 
 #[tokio::main(flavor = "multi_thread")]
@@ -364,6 +364,95 @@ impl LoomleProxyServer {
         }
     }
 
+    async fn call_play_wait(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let env_info = match self.ensure_runtime_ready().await {
+            Ok(env_info) => env_info,
+            Err(reason) => return Ok(bridge_unavailable_result(&reason)),
+        };
+
+        let timeout_ms = args
+            .get("timeoutMs")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(30_000)
+            .clamp(1, 300_000);
+        let target_session_state = args
+            .get("until")
+            .and_then(|value| value.as_object())
+            .and_then(|until| until.get("session"))
+            .and_then(|value| value.as_str())
+            .unwrap_or("ready")
+            .to_string();
+        let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+
+        loop {
+            let status_args = serde_json::json!({"action": "status"})
+                .as_object()
+                .cloned()
+                .unwrap_or_default();
+            let payload = match rpc_invoke(&env_info, "play", status_args).await {
+                Ok(payload) => payload,
+                Err(RpcClientError::Startup(err)) => {
+                    return Ok(bridge_unavailable_result(&format!(
+                        "Unreal Engine is not running or LoomleBridge is not loaded. \
+                         Start Unreal Editor and wait for the Bridge to initialise. \
+                         ({})",
+                        err.message
+                    )));
+                }
+                Err(RpcClientError::Invoke(error)) => {
+                    let payload = runtime_invoke_failure_payload(error);
+                    return Ok(CallToolResult::structured_error(
+                        self.add_observability_hint(&env_info, payload).await,
+                    ));
+                }
+                Err(RpcClientError::Protocol(message)) => {
+                    return Err(McpError::internal_error(
+                        format!("runtime RPC failed: {message}"),
+                        None,
+                    ));
+                }
+            };
+
+            let state = payload
+                .get("session")
+                .and_then(|session| session.get("state"))
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let participant_conditions_met = args
+                .get("until")
+                .and_then(|value| value.as_object())
+                .and_then(|until| until.get("participants"))
+                .and_then(|value| value.as_array())
+                .is_none_or(|conditions| {
+                    play_participant_wait_conditions_met(&payload, conditions)
+                });
+            if state == target_session_state && participant_conditions_met {
+                return Ok(CallToolResult::structured(
+                    self.add_observability_hint(&env_info, payload).await,
+                ));
+            }
+
+            if Instant::now() >= deadline {
+                let timeout_payload = serde_json::json!({
+                    "isError": true,
+                    "code": "PLAY_WAIT_TIMEOUT",
+                    "message": format!("Timed out waiting for play session state '{target_session_state}'."),
+                    "retryable": true,
+                    "lastStatus": payload,
+                });
+                return Ok(CallToolResult::structured_error(
+                    self.add_observability_hint(&env_info, timeout_payload)
+                        .await,
+                ));
+            }
+
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }
+
     async fn runtime_payload(
         &self,
         tool_name: &str,
@@ -693,6 +782,18 @@ impl ServerHandler for LoomleProxyServer {
             .await?
         {
             return Ok(result);
+        }
+        if request.name.as_ref() == "play"
+            && request
+                .arguments
+                .as_ref()
+                .and_then(|args| args.get("action"))
+                .and_then(|value| value.as_str())
+                == Some("wait")
+        {
+            return self
+                .call_play_wait(request.arguments.unwrap_or_default())
+                .await;
         }
         self.runtime_call(request.name.as_ref(), request.arguments.unwrap_or_default())
             .await
@@ -2630,6 +2731,7 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("execute", "Execute Unreal-side Python inside the editor process.", Arc::new(execute_schema())),
         Tool::new("jobs", "Inspect or retrieve long-running job state, results, and logs.", Arc::new(jobs_schema())),
         Tool::new("profiling", "Bridge official Unreal profiling data families such as stat unit, stat groups, ticks, memory reports, and capture workflows.", Arc::new(profiling_schema())),
+        Tool::new("play", "Inspect and control Unreal play sessions; supports PIE status, start, stop, and wait.", Arc::new(play_schema())),
         Tool::new("editor.open", "Open or focus the editor for a specific Unreal asset path.", Arc::new(editor_open_schema())),
         Tool::new("editor.focus", "Focus a semantic panel inside an asset editor, such as graph, viewport, details, palette, or find.", Arc::new(editor_focus_schema())),
         Tool::new("editor.screenshot", "Capture a PNG of the active editor window and return the written file path.", Arc::new(editor_screenshot_schema())),
@@ -3451,6 +3553,87 @@ fn profiling_schema() -> rmcp::model::JsonObject {
     }))
 }
 
+fn play_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "action":{"type":"string","enum":["status","start","stop","wait"]},
+            "backend":{"type":"string","enum":["pie"]},
+            "sessionId":{"type":"string"},
+            "map":{"type":"string"},
+            "ifActive":{"type":"string","enum":["error","returnStatus"]},
+            "timeoutMs":{"type":"integer"},
+            "until":{
+                "type":"object",
+                "properties":{
+                    "session":{"type":"string","enum":["inactive","starting","ready"]},
+                    "participants":{
+                        "type":"array",
+                        "items":{
+                            "type":"object",
+                            "properties":{
+                                "participant":{"type":"string"},
+                                "role":{"type":"string","enum":["server","client","editor","standalone"]},
+                                "count":{"type":"integer"},
+                                "state":{"type":"string","enum":["ready"]}
+                            },
+                            "additionalProperties": false
+                        }
+                    }
+                },
+                "additionalProperties": false
+            },
+            "defaultClientWindow":{
+                "type":"object",
+                "properties":{
+                    "width":{"type":"integer"},
+                    "height":{"type":"integer"},
+                    "x":{"type":"integer"},
+                    "y":{"type":"integer"}
+                },
+                "additionalProperties": false
+            },
+            "topology":{
+                "type":"object",
+                "properties":{
+                    "server":{
+                        "type":"object",
+                        "properties":{
+                            "kind":{"type":"string","enum":["standalone","listen","dedicated"]},
+                            "launchArgs":{"type":"string"}
+                        },
+                        "additionalProperties": false
+                    },
+                    "clientCount":{"type":"integer"},
+                    "clients":{
+                        "type":"array",
+                        "items":{
+                            "type":"object",
+                            "properties":{
+                                "index":{"type":"integer"},
+                                "window":{
+                                    "type":"object",
+                                    "properties":{
+                                        "width":{"type":"integer"},
+                                        "height":{"type":"integer"},
+                                        "x":{"type":"integer"},
+                                        "y":{"type":"integer"}
+                                    },
+                                    "additionalProperties": false
+                                }
+                            },
+                            "additionalProperties": false
+                        }
+                    }
+                },
+                "additionalProperties": false
+            }
+        },
+        "required":["action"],
+        "additionalProperties": false
+    }))
+}
+
 fn editor_open_schema() -> rmcp::model::JsonObject {
     asset_path_only_schema("Asset path to open in the Unreal Editor.")
 }
@@ -4055,6 +4238,62 @@ fn widget_describe_schema() -> rmcp::model::JsonObject {
         },
         "additionalProperties": false
     }))
+}
+
+fn play_participant_wait_conditions_met(
+    payload: &serde_json::Value,
+    conditions: &[serde_json::Value],
+) -> bool {
+    let Some(participants) = payload
+        .get("participants")
+        .and_then(|value| value.as_array())
+    else {
+        return false;
+    };
+
+    conditions.iter().all(|condition| {
+        let Some(condition) = condition.as_object() else {
+            return false;
+        };
+        if let Some(participant_id) = condition
+            .get("participant")
+            .and_then(|value| value.as_str())
+        {
+            return participants.iter().any(|participant| {
+                participant.get("id").and_then(|value| value.as_str()) == Some(participant_id)
+                    && play_participant_matches_wait_state(participant, condition)
+            });
+        }
+
+        let role = condition.get("role").and_then(|value| value.as_str());
+        let expected_count = condition
+            .get("count")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(1);
+        let actual_count = participants
+            .iter()
+            .filter(|participant| {
+                role.is_none_or(|role| {
+                    participant.get("role").and_then(|value| value.as_str()) == Some(role)
+                }) && play_participant_matches_wait_state(participant, condition)
+            })
+            .count() as u64;
+        actual_count >= expected_count
+    })
+}
+
+fn play_participant_matches_wait_state(
+    participant: &serde_json::Value,
+    condition: &serde_json::Map<String, serde_json::Value>,
+) -> bool {
+    match condition.get("state").and_then(|value| value.as_str()) {
+        Some("ready") => participant
+            .get("ready")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false),
+        Some(_) => false,
+        None => true,
+    }
 }
 
 fn structured_result(value: serde_json::Value) -> CallToolResult {
@@ -5141,7 +5380,8 @@ mod tests {
     use super::{
         compare_semver, compile_blueprint_refactor_request, current_platform_client_binary_name,
         infer_attached_project_root, material_query_schema, pcg_query_schema,
-        runtime_declared_tools, switch_to_installed_version, translate_blueprint_graph_edit_args,
+        play_participant_wait_conditions_met, play_schema, runtime_declared_tools,
+        switch_to_installed_version, translate_blueprint_graph_edit_args,
         translate_material_query_args, translate_pcg_query_args, Cli, RuntimeProject,
     };
     use rmcp::model::JsonObject;
@@ -5708,9 +5948,56 @@ mod tests {
             .map(|tool| tool.name.to_string())
             .collect::<std::collections::HashSet<_>>();
 
+        assert!(tool_names.contains("play"));
         assert!(tool_names.contains("diagnostic.tail"));
         assert!(tool_names.contains("log.tail"));
         assert!(tool_names.contains("log.subscribe"));
         assert!(!tool_names.contains("diag.tail"));
+    }
+
+    #[test]
+    fn play_schema_has_openai_compatible_top_level() {
+        let schema = play_schema();
+        assert_eq!(
+            schema.get("type").and_then(|value| value.as_str()),
+            Some("object")
+        );
+        for keyword in ["oneOf", "anyOf", "allOf", "enum", "not"] {
+            assert!(
+                !schema.contains_key(keyword),
+                "play schema should not expose top-level {keyword}"
+            );
+        }
+    }
+
+    #[test]
+    fn play_wait_participant_conditions_match_role_count_and_id() {
+        let payload = serde_json::json!({
+            "participants": [
+                {"id": "server", "role": "server", "ready": true},
+                {"id": "client:0", "role": "client", "ready": true},
+                {"id": "client:1", "role": "client", "ready": false}
+            ]
+        });
+
+        let ready_client =
+            vec![serde_json::json!({"role": "client", "count": 1, "state": "ready"})];
+        assert!(play_participant_wait_conditions_met(
+            &payload,
+            &ready_client
+        ));
+
+        let two_ready_clients =
+            vec![serde_json::json!({"role": "client", "count": 2, "state": "ready"})];
+        assert!(!play_participant_wait_conditions_met(
+            &payload,
+            &two_ready_clients
+        ));
+
+        let server_by_id = vec![serde_json::json!({"participant": "server", "state": "ready"})];
+        assert!(play_participant_wait_conditions_met(
+            &payload,
+            &server_by_id
+        ));
     }
 }

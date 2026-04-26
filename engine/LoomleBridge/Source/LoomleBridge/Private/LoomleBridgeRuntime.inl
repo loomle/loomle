@@ -1003,6 +1003,314 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildLogTailToolResult(const TShare
 
 namespace
 {
+FString LoomleParticipantRoleFromWorld(UWorld* World, const FWorldContext& WorldContext);
+FString LoomleParticipantKindFromWorld(UWorld* World, const FWorldContext& WorldContext);
+TSharedPtr<FJsonObject> BuildPlayWorldJson(UWorld* World, const FWorldContext& WorldContext);
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPlayToolResult(const TSharedPtr<FJsonObject>& Arguments)
+{
+    FString Action = TEXT("status");
+    if (Arguments.IsValid() && Arguments->HasField(TEXT("action")))
+    {
+        Arguments->TryGetStringField(TEXT("action"), Action);
+        Action = Action.TrimStartAndEnd().ToLower();
+    }
+
+    if (!Action.Equals(TEXT("status")) && !Action.Equals(TEXT("stop")) && !Action.Equals(TEXT("start")))
+    {
+        TSharedPtr<FJsonObject> Error = MakeShared<FJsonObject>();
+        Error->SetBoolField(TEXT("isError"), true);
+        Error->SetStringField(TEXT("code"), TEXT("PLAY_MODE_UNSUPPORTED"));
+        Error->SetStringField(TEXT("message"), FString::Printf(TEXT("play.action '%s' is not implemented yet."), *Action));
+        Error->SetStringField(TEXT("detail"), TEXT("The current play implementation supports action=status, action=stop, and action=start."));
+        return Error;
+    }
+
+    bool bStartRequested = false;
+    bool bStopRequested = false;
+    bool bStopWasActive = false;
+    if (Action.Equals(TEXT("start")))
+    {
+        if (GEditor == nullptr)
+        {
+            TSharedPtr<FJsonObject> Error = MakeShared<FJsonObject>();
+            Error->SetBoolField(TEXT("isError"), true);
+            Error->SetStringField(TEXT("code"), TEXT("PLAY_START_FAILED"));
+            Error->SetStringField(TEXT("message"), TEXT("Cannot start play because GEditor is unavailable."));
+            return Error;
+        }
+
+        FString IfActive = TEXT("error");
+        Arguments->TryGetStringField(TEXT("ifActive"), IfActive);
+        IfActive = IfActive.TrimStartAndEnd().ToLower();
+        const bool bAlreadyActive = GEditor->IsPlaySessionInProgress();
+        if (bAlreadyActive)
+        {
+            if (IfActive.Equals(TEXT("returnstatus")))
+            {
+                bStartRequested = false;
+            }
+            else
+            {
+                TSharedPtr<FJsonObject> Error = MakeShared<FJsonObject>();
+                Error->SetBoolField(TEXT("isError"), true);
+                Error->SetStringField(TEXT("code"), TEXT("PLAY_SESSION_ALREADY_ACTIVE"));
+                Error->SetStringField(TEXT("message"), TEXT("A play session is already active or queued."));
+                Error->SetStringField(TEXT("detail"), TEXT("Use ifActive=returnStatus to inspect the current session, or stop it before starting a new one."));
+                return Error;
+            }
+        }
+        else
+        {
+            FString Backend = TEXT("pie");
+            Arguments->TryGetStringField(TEXT("backend"), Backend);
+            Backend = Backend.TrimStartAndEnd().ToLower();
+            if (!Backend.IsEmpty() && !Backend.Equals(TEXT("pie")))
+            {
+                TSharedPtr<FJsonObject> Error = MakeShared<FJsonObject>();
+                Error->SetBoolField(TEXT("isError"), true);
+                Error->SetStringField(TEXT("code"), TEXT("PLAY_BACKEND_UNSUPPORTED"));
+                Error->SetStringField(TEXT("message"), FString::Printf(TEXT("play backend '%s' is not supported yet."), *Backend));
+                return Error;
+            }
+
+            ULevelEditorPlaySettings* PlaySettings = DuplicateObject<ULevelEditorPlaySettings>(GetDefault<ULevelEditorPlaySettings>(), GetTransientPackage());
+            if (PlaySettings == nullptr)
+            {
+                TSharedPtr<FJsonObject> Error = MakeShared<FJsonObject>();
+                Error->SetBoolField(TEXT("isError"), true);
+                Error->SetStringField(TEXT("code"), TEXT("PLAY_START_FAILED"));
+                Error->SetStringField(TEXT("message"), TEXT("Failed to create play settings."));
+                return Error;
+            }
+
+            int32 RequestedClientCount = 1;
+            FString ServerKind = TEXT("standalone");
+            const TSharedPtr<FJsonObject>* Topology = nullptr;
+            if (Arguments->TryGetObjectField(TEXT("topology"), Topology) && Topology && (*Topology).IsValid())
+            {
+                const TSharedPtr<FJsonObject>* Server = nullptr;
+                if ((*Topology)->TryGetObjectField(TEXT("server"), Server) && Server && (*Server).IsValid())
+                {
+                    (*Server)->TryGetStringField(TEXT("kind"), ServerKind);
+                    ServerKind = ServerKind.TrimStartAndEnd().ToLower();
+                    FString LaunchArgs;
+                    if ((*Server)->TryGetStringField(TEXT("launchArgs"), LaunchArgs))
+                    {
+                        PlaySettings->AdditionalServerLaunchParameters = LaunchArgs;
+                    }
+                }
+
+                double ClientCountNumber = 0.0;
+                if ((*Topology)->TryGetNumberField(TEXT("clientCount"), ClientCountNumber))
+                {
+                    RequestedClientCount = FMath::Clamp(static_cast<int32>(ClientCountNumber), 1, 64);
+                }
+
+                const TArray<TSharedPtr<FJsonValue>>* Clients = nullptr;
+                if ((*Topology)->TryGetArrayField(TEXT("clients"), Clients) && Clients != nullptr && Clients->Num() > 0)
+                {
+                    RequestedClientCount = FMath::Clamp(Clients->Num(), 1, 64);
+                    PlaySettings->MultipleInstancePositions.Reset();
+                    for (const TSharedPtr<FJsonValue>& ClientValue : *Clients)
+                    {
+                        const TSharedPtr<FJsonObject>* Client = nullptr;
+                        if (!ClientValue.IsValid() || !ClientValue->TryGetObject(Client) || Client == nullptr || !(*Client).IsValid())
+                        {
+                            continue;
+                        }
+                        const TSharedPtr<FJsonObject>* Window = nullptr;
+                        if ((*Client)->TryGetObjectField(TEXT("window"), Window) && Window && (*Window).IsValid())
+                        {
+                            double X = 0.0;
+                            double Y = 0.0;
+                            if ((*Window)->TryGetNumberField(TEXT("x"), X) && (*Window)->TryGetNumberField(TEXT("y"), Y))
+                            {
+                                PlaySettings->MultipleInstancePositions.Add(FIntPoint(static_cast<int32>(X), static_cast<int32>(Y)));
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (ServerKind.Equals(TEXT("dedicated")))
+            {
+                PlaySettings->SetPlayNetMode(EPlayNetMode::PIE_Client);
+                PlaySettings->bLaunchSeparateServer = false;
+            }
+            else if (ServerKind.Equals(TEXT("listen")))
+            {
+                PlaySettings->SetPlayNetMode(EPlayNetMode::PIE_ListenServer);
+                PlaySettings->bLaunchSeparateServer = false;
+            }
+            else
+            {
+                PlaySettings->SetPlayNetMode(EPlayNetMode::PIE_Standalone);
+                PlaySettings->bLaunchSeparateServer = false;
+            }
+            PlaySettings->SetRunUnderOneProcess(true);
+            PlaySettings->SetPlayNumberOfClients(RequestedClientCount);
+
+            const TSharedPtr<FJsonObject>* DefaultClientWindow = nullptr;
+            if (Arguments->TryGetObjectField(TEXT("defaultClientWindow"), DefaultClientWindow) && DefaultClientWindow && (*DefaultClientWindow).IsValid())
+            {
+                double Width = 0.0;
+                double Height = 0.0;
+                if ((*DefaultClientWindow)->TryGetNumberField(TEXT("width"), Width))
+                {
+                    PlaySettings->NewWindowWidth = FMath::Max(0, static_cast<int32>(Width));
+                }
+                if ((*DefaultClientWindow)->TryGetNumberField(TEXT("height"), Height))
+                {
+                    PlaySettings->NewWindowHeight = FMath::Max(0, static_cast<int32>(Height));
+                }
+                double X = 0.0;
+                double Y = 0.0;
+                if ((*DefaultClientWindow)->TryGetNumberField(TEXT("x"), X) && (*DefaultClientWindow)->TryGetNumberField(TEXT("y"), Y))
+                {
+                    PlaySettings->NewWindowPosition = FIntPoint(static_cast<int32>(X), static_cast<int32>(Y));
+                    PlaySettings->CenterNewWindow = false;
+                }
+            }
+
+            FRequestPlaySessionParams SessionParams;
+            SessionParams.SessionDestination = EPlaySessionDestinationType::InProcess;
+            SessionParams.WorldType = EPlaySessionWorldType::PlayInEditor;
+            SessionParams.EditorPlaySettings = PlaySettings;
+            FString Map;
+            if (Arguments->TryGetStringField(TEXT("map"), Map) && !Map.TrimStartAndEnd().IsEmpty())
+            {
+                SessionParams.GlobalMapOverride = Map.TrimStartAndEnd();
+            }
+            GEditor->RequestPlaySession(SessionParams);
+            bStartRequested = true;
+        }
+    }
+
+    if (Action.Equals(TEXT("stop")))
+    {
+        bStopRequested = true;
+        bStopWasActive = GEditor != nullptr && GEditor->IsPlayingSessionInEditor();
+        if (bStopWasActive)
+        {
+            GEditor->EndPlayMap();
+        }
+    }
+
+    if (!bDiagnosticStoreInitialized)
+    {
+        InitializeDiagnosticStore();
+    }
+    if (!bLogStoreInitialized)
+    {
+        InitializeLogStore();
+    }
+
+    const bool bIsPIE = GEditor != nullptr && GEditor->IsPlayingSessionInEditor();
+    const bool bIsStarting = GEditor != nullptr && !bIsPIE && GEditor->IsPlaySessionRequestQueued();
+    int32 ClientIndex = 0;
+    TArray<TSharedPtr<FJsonValue>> Participants;
+    FString MapPath;
+
+    if (GEngine != nullptr)
+    {
+        for (const FWorldContext& WorldContext : GEngine->GetWorldContexts())
+        {
+            UWorld* World = WorldContext.World();
+            if (World == nullptr)
+            {
+                continue;
+            }
+
+            const FString Role = LoomleParticipantRoleFromWorld(World, WorldContext);
+            const FString Kind = LoomleParticipantKindFromWorld(World, WorldContext);
+            int32 ParticipantIndex = INDEX_NONE;
+            FString ParticipantId = Role;
+            if (Role.Equals(TEXT("client")))
+            {
+                ParticipantIndex = ClientIndex++;
+                ParticipantId = FString::Printf(TEXT("client:%d"), ParticipantIndex);
+            }
+
+            TSharedPtr<FJsonObject> Participant = MakeShared<FJsonObject>();
+            Participant->SetStringField(TEXT("id"), ParticipantId);
+            Participant->SetStringField(TEXT("role"), Role);
+            if (ParticipantIndex != INDEX_NONE)
+            {
+                Participant->SetNumberField(TEXT("index"), static_cast<double>(ParticipantIndex));
+            }
+            Participant->SetStringField(TEXT("kind"), Kind);
+            Participant->SetBoolField(TEXT("ready"), World->WorldType == EWorldType::Editor || World->WorldType == EWorldType::PIE || World->WorldType == EWorldType::Game);
+            Participant->SetObjectField(TEXT("world"), BuildPlayWorldJson(World, WorldContext));
+
+            TSharedPtr<FJsonObject> Capabilities = MakeShared<FJsonObject>();
+            Capabilities->SetBoolField(TEXT("execute"), true);
+            Capabilities->SetBoolField(TEXT("profiling"), World->WorldType == EWorldType::PIE || World->WorldType == EWorldType::Game || World->WorldType == EWorldType::Editor);
+            Capabilities->SetBoolField(TEXT("screenshot"), WorldContext.GameViewport != nullptr);
+            Participant->SetObjectField(TEXT("capabilities"), Capabilities);
+
+            Participants.Add(MakeShared<FJsonValueObject>(Participant));
+
+            if (MapPath.IsEmpty() && World->WorldType == EWorldType::PIE && World->PersistentLevel != nullptr && World->PersistentLevel->GetOutermost() != nullptr)
+            {
+                MapPath = World->PersistentLevel->GetOutermost()->GetName();
+            }
+        }
+    }
+
+    TSharedPtr<FJsonObject> Session = MakeShared<FJsonObject>();
+    Session->SetStringField(TEXT("id"), bIsPIE ? TEXT("pie-active") : (bIsStarting ? TEXT("pie-starting") : TEXT("inactive")));
+    Session->SetStringField(TEXT("backend"), TEXT("pie"));
+    Session->SetStringField(TEXT("state"), bIsPIE ? TEXT("ready") : (bIsStarting ? TEXT("starting") : TEXT("inactive")));
+    Session->SetStringField(TEXT("map"), MapPath);
+
+    TSharedPtr<FJsonObject> Topology = MakeShared<FJsonObject>();
+    Topology->SetNumberField(TEXT("clientCount"), static_cast<double>(ClientIndex));
+    Session->SetObjectField(TEXT("topology"), Topology);
+
+    uint64 DiagnosticHighWatermark = 0;
+    {
+        FScopeLock Lock(&DiagnosticStoreMutex);
+        DiagnosticHighWatermark = NextDiagnosticSeq > 0 ? (NextDiagnosticSeq - 1) : 0;
+    }
+    uint64 LogHighWatermark = 0;
+    {
+        FScopeLock Lock(&LogStoreMutex);
+        LogHighWatermark = NextLogSeq > 0 ? (NextLogSeq - 1) : 0;
+    }
+
+    TSharedPtr<FJsonObject> Observability = MakeShared<FJsonObject>();
+    TSharedPtr<FJsonObject> DiagnosticsRef = MakeShared<FJsonObject>();
+    DiagnosticsRef->SetStringField(TEXT("tool"), TEXT("diagnostic.tail"));
+    DiagnosticsRef->SetNumberField(TEXT("fromSeq"), static_cast<double>(DiagnosticHighWatermark));
+    Observability->SetObjectField(TEXT("diagnostics"), DiagnosticsRef);
+    TSharedPtr<FJsonObject> LogsRef = MakeShared<FJsonObject>();
+    LogsRef->SetStringField(TEXT("tool"), TEXT("log.tail"));
+    LogsRef->SetNumberField(TEXT("fromSeq"), static_cast<double>(LogHighWatermark));
+    Observability->SetObjectField(TEXT("logs"), LogsRef);
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+    Result->SetStringField(TEXT("status"), TEXT("ok"));
+    Result->SetStringField(TEXT("action"), Action);
+    if (Action.Equals(TEXT("start")))
+    {
+        Result->SetBoolField(TEXT("startRequested"), bStartRequested);
+    }
+    if (bStopRequested)
+    {
+        Result->SetBoolField(TEXT("stopRequested"), bStopWasActive);
+    }
+    Result->SetObjectField(TEXT("session"), Session);
+    Result->SetArrayField(TEXT("participants"), Participants);
+    Result->SetObjectField(TEXT("observability"), Observability);
+    Result->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
+    return Result;
+}
+
+namespace
+{
 FString LoomleWorldTypeToString(const EWorldType::Type WorldType)
 {
     switch (WorldType)
@@ -1026,6 +1334,98 @@ FString LoomleWorldTypeToString(const EWorldType::Type WorldType)
     default:
         return TEXT("unknown");
     }
+}
+
+FString LoomleNetModeToString(const ENetMode NetMode)
+{
+    switch (NetMode)
+    {
+    case NM_Standalone:
+        return TEXT("standalone");
+    case NM_DedicatedServer:
+        return TEXT("dedicatedServer");
+    case NM_ListenServer:
+        return TEXT("listenServer");
+    case NM_Client:
+        return TEXT("client");
+    case NM_MAX:
+    default:
+        return TEXT("unknown");
+    }
+}
+
+FString LoomleParticipantRoleFromWorld(UWorld* World, const FWorldContext& WorldContext)
+{
+    if (World == nullptr)
+    {
+        return WorldContext.WorldType == EWorldType::Editor ? TEXT("editor") : TEXT("unknown");
+    }
+
+    if (World->WorldType == EWorldType::Editor)
+    {
+        return TEXT("editor");
+    }
+
+    const ENetMode NetMode = World->GetNetMode();
+    if (NetMode == NM_Client)
+    {
+        return TEXT("client");
+    }
+    if (NetMode == NM_DedicatedServer || WorldContext.RunAsDedicated)
+    {
+        return TEXT("server");
+    }
+    if (NetMode == NM_ListenServer)
+    {
+        return TEXT("server");
+    }
+    return TEXT("standalone");
+}
+
+FString LoomleParticipantKindFromWorld(UWorld* World, const FWorldContext& WorldContext)
+{
+    if (World == nullptr)
+    {
+        return WorldContext.WorldType == EWorldType::Editor ? TEXT("editor") : TEXT("unknown");
+    }
+
+    if (World->WorldType == EWorldType::Editor)
+    {
+        return TEXT("editor");
+    }
+
+    const ENetMode NetMode = World->GetNetMode();
+    if (NetMode == NM_Client)
+    {
+        return TEXT("client");
+    }
+    if (NetMode == NM_DedicatedServer || WorldContext.RunAsDedicated)
+    {
+        return TEXT("dedicated");
+    }
+    if (NetMode == NM_ListenServer)
+    {
+        return TEXT("listen");
+    }
+    if (NetMode == NM_Standalone)
+    {
+        return TEXT("standalone");
+    }
+    return TEXT("unknown");
+}
+
+TSharedPtr<FJsonObject> BuildPlayWorldJson(UWorld* World, const FWorldContext& WorldContext)
+{
+    TSharedPtr<FJsonObject> WorldJson = MakeShared<FJsonObject>();
+    const EWorldType::Type WorldType = World ? World->WorldType.GetValue() : WorldContext.WorldType.GetValue();
+    WorldJson->SetStringField(TEXT("name"), World ? World->GetName() : TEXT(""));
+    WorldJson->SetStringField(TEXT("path"), World && World->GetOutermost() ? World->GetOutermost()->GetName() : TEXT(""));
+    WorldJson->SetStringField(TEXT("worldType"), LoomleWorldTypeToString(WorldType));
+    WorldJson->SetStringField(TEXT("netMode"), World ? LoomleNetModeToString(World->GetNetMode()) : TEXT("unknown"));
+    WorldJson->SetNumberField(TEXT("pieInstance"), static_cast<double>(WorldContext.PIEInstance));
+    WorldJson->SetStringField(TEXT("contextHandle"), WorldContext.ContextHandle.ToString());
+    WorldJson->SetBoolField(TEXT("runAsDedicated"), WorldContext.RunAsDedicated);
+    return WorldJson;
 }
 
 TSharedPtr<FJsonObject> BuildExecuteRuntimeContext()

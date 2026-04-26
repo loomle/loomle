@@ -40,6 +40,7 @@ Graph mutate note:
 - `execute`
 - `jobs`
 - `profiling`
+- `play`
 - `editor.open`
 - `editor.focus`
 - `editor.screenshot`
@@ -393,7 +394,80 @@ Execution rule:
 - `profiling` remains callable during `PIE`.
 - `unit`, `game`, and `gpu` may return retryable warmup errors before official engine aggregates become valid.
 
-## 4.6 `graph`
+## 4.6 `play`
+
+Use `play` to inspect and, over time, control Unreal play sessions as a first-class runtime concept.
+
+The first implemented actions are read-only `status`, PIE `start`, idempotent `stop`, and client-side `wait`.
+
+Input schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["action"],
+  "properties": {
+    "action": { "type": "string", "enum": ["status", "start", "stop", "wait"] },
+    "backend": { "type": "string", "enum": ["pie"] },
+    "sessionId": { "type": "string" },
+    "map": { "type": "string" },
+    "ifActive": { "type": "string", "enum": ["error", "returnStatus"] },
+    "timeoutMs": { "type": "integer" },
+    "until": { "type": "object", "additionalProperties": true },
+    "topology": { "type": "object", "additionalProperties": true },
+    "defaultClientWindow": { "type": "object", "additionalProperties": true }
+  },
+  "additionalProperties": false
+}
+```
+
+Output shape:
+
+```json
+{
+  "status": "ok",
+  "session": {
+    "id": "pie-active",
+    "backend": "pie",
+    "state": "ready",
+    "map": "/Game/Maps/TestMap",
+    "topology": { "clientCount": 1 }
+  },
+  "participants": [
+    {
+      "id": "client:0",
+      "role": "client",
+      "index": 0,
+      "kind": "client",
+      "ready": true,
+      "world": {
+        "name": "UEDPIE_0_TestMap",
+        "path": "/Game/Maps/UEDPIE_0_TestMap",
+        "worldType": "pie",
+        "netMode": "client",
+        "pieInstance": 0
+      }
+    }
+  ],
+  "observability": {
+    "diagnostics": { "tool": "diagnostic.tail", "fromSeq": 120 },
+    "logs": { "tool": "log.tail", "fromSeq": 500 }
+  },
+  "diagnostics": []
+}
+```
+
+Execution rule:
+
+- Forward `status`, `start`, and `stop` via `rpc.invoke` with `tool=play`.
+- `play.status` is the source of truth for the current session and participant IDs.
+- `play.start` currently requests an in-process PIE session and returns `state="starting"` until Unreal creates runtime worlds.
+- `play.stop` ends the active PIE session when one exists and returns the same status shape.
+- `play.wait` is implemented in the MCP client by polling `play.status`, so Unreal's editor thread can continue ticking between polls. It supports session-state waits and participant conditions such as `{ "role": "client", "count": 2, "state": "ready" }`.
+- `play` owns lifecycle and topology; it does not replace `profiling`, `execute`, `jobs`, `diagnostic.tail`, or `log.tail`.
+
+## 4.7 `graph`
 
 Input schema:
 
@@ -480,15 +554,15 @@ Execution rule:
 - `rpc.health` probe is mandatory on every `graph` call.
 - Returned payload must include probe data in `runtime.rpcHealth` so callers can see real runtime status.
 
-## 4.7 Runtime Tools
+## 4.8 Runtime Tools
 
-For `jobs`, `profiling`, `editor.open`, `editor.focus`, `editor.screenshot`, `graph.list`, `graph.resolve`, `graph.query`, `graph.verify`, `graph.mutate`, `widget.query`, `widget.mutate`, `widget.verify`, `widget.describe`, `diagnostic.tail`, `log.tail`:
+For `jobs`, `profiling`, `play`, `editor.open`, `editor.focus`, `editor.screenshot`, `graph.list`, `graph.resolve`, `graph.query`, `graph.verify`, `graph.mutate`, `widget.query`, `widget.mutate`, `widget.verify`, `widget.describe`, `diagnostic.tail`, `log.tail`:
 
 - Input/output schemas are exposed directly through MCP `tools/list` and should be treated as the live contract.
 - `RPC_INTERFACE.md` section 5 documents the same tool payloads at the Unreal RPC boundary.
 - Execution uses `rpc.invoke` with `tool` equal to MCP tool name.
 - Current server behavior performs a runtime preflight using `rpc.health` with a short cache TTL (`200ms`) shared across runtime-tool calls.
-- If preflight reports `PIE`, `execute`, `jobs`, and `profiling` remain callable.
+- If preflight reports `PIE`, `execute`, `jobs`, `profiling`, and `play` remain callable.
 - If preflight reports `PIE`, editor-facing and graph-structured runtime tools continue to fail fast with `EDITOR_BUSY` (`retryable=true`) and skip `rpc.invoke`.
 - On Windows named-pipe transport, open failures with OS error `231` (`all pipe instances are busy`) are treated as transient and retried with bounded backoff before returning an error.
 

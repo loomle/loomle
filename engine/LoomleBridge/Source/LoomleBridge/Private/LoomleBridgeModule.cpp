@@ -63,6 +63,8 @@
 #include "LevelEditor.h"
 #include "Misc/App.h"
 #include "Misc/FileHelper.h"
+#include "PlayInEditorDataTypes.h"
+#include "Settings/LevelEditorPlaySettings.h"
 #include "MaterialGraph/MaterialGraph.h"
 #include "MaterialGraph/MaterialGraphNode.h"
 #include "MaterialGraph/MaterialGraphNode_Root.h"
@@ -152,6 +154,7 @@ namespace LoomleBridgeConstants
     static const TCHAR* ExecuteToolName = TEXT("execute");
     static const TCHAR* JobsToolName = TEXT("jobs");
     static const TCHAR* ProfilingToolName = TEXT("profiling");
+    static const TCHAR* PlayToolName = TEXT("play");
     static const TCHAR* EditorOpenToolName = TEXT("editor.open");
     static const TCHAR* EditorFocusToolName = TEXT("editor.focus");
     static const TCHAR* EditorScreenshotToolName = TEXT("editor.screenshot");
