@@ -981,7 +981,7 @@ Recommended shape:
   "kind": "connect",
   "from": {
     "node": { "id": "branch1" },
-    "pin": "True"
+    "pin": "then"
   },
   "to": {
     "node": { "alias": "print1" },
@@ -1014,7 +1014,7 @@ Recommended shape:
   "kind": "disconnect",
   "from": {
     "node": { "id": "branch1" },
-    "pin": "True"
+    "pin": "then"
   },
   "to": {
     "node": { "id": "print1" },
@@ -1513,7 +1513,9 @@ Required fields:
 Optional fields:
 
 - `alias`
-- `inputs`
+- `entryPin`
+- `targetEntryPin`
+- `wrapperExitPin`
 
 Recommended shape:
 
@@ -1521,21 +1523,26 @@ Recommended shape:
 {
   "kind": "wrapWith",
   "target": {
-    "node": { "id": "node-call" }
+    "id": "node-call"
   },
   "wrapper": {
-    "nodeType": {
-      "id": "schema_builtin:Branch"
-    }
+    "kind": "branch"
   },
-  "alias": "branch1"
+  "alias": "branch1",
+  "entryPin": "execute",
+  "targetEntryPin": "execute",
+  "wrapperExitPin": "then"
 }
 ```
 
 Rules:
 
 - `wrapWith` is structure-preserving rather than pure insertion
-- wrapper-specific attach rules must be validated before apply
+- `wrapWith` preserves the target node and inserts the wrapper before the target execution entry pin
+- existing upstream execution links into `targetEntryPin` are moved to `entryPin`
+- `wrapperExitPin` is connected back to the target `targetEntryPin`
+- if the target has no upstream execution links, the wrapper-to-target link is still created and the result reports `upstreamLinksMoved: 0`
+- the first version only rewrites execution pins; data inputs should be wired with explicit graph.edit commands
 
 #### fanoutExec
 

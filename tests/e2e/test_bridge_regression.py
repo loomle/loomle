@@ -1867,6 +1867,98 @@ def main() -> int:
             fail(f"blueprint.graph.refactor replaceNode did not preserve matching pin link: {replace_snapshot}")
         print("[PASS] blueprint.graph.refactor replaceNode matchingPins validated")
 
+        wrap_setup = call_domain_tool(
+            client,
+            1111,
+            "blueprint",
+            "mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "commands": [
+                    {"kind": "addNode", "alias": "wrap_source", "nodeType": {"kind": "branch"}, "position": {"x": 0, "y": 1040}},
+                    {"kind": "addNode", "alias": "wrap_target", "nodeType": {"kind": "branch"}, "position": {"x": 360, "y": 1040}},
+                    {
+                        "kind": "connect",
+                        "from": {"node": {"alias": "wrap_source"}, "pin": "then"},
+                        "to": {"node": {"alias": "wrap_target"}, "pin": "execute"},
+                    },
+                ],
+            },
+        )
+        wrap_setup_results = wrap_setup.get("opResults")
+        if not isinstance(wrap_setup_results, list) or len(wrap_setup_results) != 3:
+            fail(f"blueprint.graph.edit wrap setup opResults mismatch: {wrap_setup}")
+        wrap_source_id = wrap_setup_results[0].get("nodeId") if isinstance(wrap_setup_results[0], dict) else None
+        wrap_target_id = wrap_setup_results[1].get("nodeId") if isinstance(wrap_setup_results[1], dict) else None
+        if not isinstance(wrap_source_id, str) or not wrap_source_id or not isinstance(wrap_target_id, str) or not wrap_target_id:
+            fail(f"blueprint.graph.edit wrap setup missing node ids: {wrap_setup}")
+        if not all(isinstance(entry, dict) and entry.get("ok") for entry in wrap_setup_results):
+            fail(f"blueprint.graph.edit wrap setup failed: {wrap_setup}")
+
+        wrap_payload = call_tool(
+            client,
+            1112,
+            "blueprint.graph.refactor",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "transforms": [
+                    {
+                        "kind": "wrapWith",
+                        "target": {"id": wrap_target_id},
+                        "wrapper": {"kind": "branch"},
+                        "alias": "wrap_guard",
+                        "entryPin": "execute",
+                        "targetEntryPin": "execute",
+                        "wrapperExitPin": "then",
+                    }
+                ],
+            },
+        )
+        wrap_results = wrap_payload.get("opResults")
+        if not isinstance(wrap_results, list) or len(wrap_results) != 3:
+            fail(f"blueprint.graph.refactor wrapWith opResults mismatch: {wrap_payload}")
+        wrapper_id = wrap_results[0].get("nodeId") if isinstance(wrap_results[0], dict) else None
+        if not isinstance(wrapper_id, str) or not wrapper_id:
+            fail(f"blueprint.graph.refactor wrapWith missing wrapper nodeId: {wrap_payload}")
+        if wrap_results[1].get("upstreamLinksMoved") != 1:
+            fail(f"blueprint.graph.refactor wrapWith should move one upstream link: {wrap_payload}")
+        if not all(isinstance(entry, dict) and entry.get("ok") for entry in wrap_results):
+            fail(f"blueprint.graph.refactor wrapWith failed: {wrap_payload}")
+        wrap_snapshot = query_snapshot(client, 1113, temp_asset, "blueprint", "EventGraph")
+        wrap_edges = wrap_snapshot.get("edges")
+        if not isinstance(wrap_edges, list):
+            fail(f"blueprint.graph.refactor wrapWith query missing edges: {wrap_snapshot}")
+        if any(
+            isinstance(edge, dict)
+            and edge.get("fromNodeId") == wrap_source_id
+            and edge.get("fromPin") == "then"
+            and edge.get("toNodeId") == wrap_target_id
+            and edge.get("toPin") == "execute"
+            for edge in wrap_edges
+        ):
+            fail(f"blueprint.graph.refactor wrapWith left original upstream link in place: {wrap_snapshot}")
+        if not any(
+            isinstance(edge, dict)
+            and edge.get("fromNodeId") == wrap_source_id
+            and edge.get("fromPin") == "then"
+            and edge.get("toNodeId") == wrapper_id
+            and edge.get("toPin") == "execute"
+            for edge in wrap_edges
+        ):
+            fail(f"blueprint.graph.refactor wrapWith did not move upstream link to wrapper: {wrap_snapshot}")
+        if not any(
+            isinstance(edge, dict)
+            and edge.get("fromNodeId") == wrapper_id
+            and edge.get("fromPin") == "then"
+            and edge.get("toNodeId") == wrap_target_id
+            and edge.get("toPin") == "execute"
+            for edge in wrap_edges
+        ):
+            fail(f"blueprint.graph.refactor wrapWith did not connect wrapper back to target: {wrap_snapshot}")
+        print("[PASS] blueprint.graph.refactor wrapWith execution wrapper validated")
+
         self_graph_edit = call_domain_tool(
             client,
             12,

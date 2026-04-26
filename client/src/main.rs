@@ -2019,6 +2019,25 @@ fn compile_blueprint_graph_commands(
                     }
                 })])
             }
+            "moveInputLinks" => {
+                let from = command_obj
+                    .get("from")
+                    .ok_or_else(|| "moveInputLinks requires from.".to_owned())
+                    .and_then(extract_pin_endpoint)
+                    .map_err(invalid_argument_result)?;
+                let to = command_obj
+                    .get("to")
+                    .ok_or_else(|| "moveInputLinks requires to.".to_owned())
+                    .and_then(extract_pin_endpoint)
+                    .map_err(invalid_argument_result)?;
+                Ok(vec![serde_json::json!({
+                    "op":"moveInputLinks",
+                    "args": {
+                        "from": from,
+                        "to": to
+                    }
+                })])
+            }
             "duplicateNode" => {
                 let node = command_obj
                     .get("node")
@@ -2405,10 +2424,46 @@ fn compile_blueprint_refactor_request(
                         "wrapWith wraps a target node; use insertBetween for link insertion.",
                     ));
                 }
-                return Err(not_implemented_result(
-                    "blueprint.graph.refactor",
-                    "wrapWith target/wrapper semantics are not implemented yet.",
-                ));
+                let alias = transform_obj
+                    .get("alias")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("wrapperNode");
+                let target = transform_obj
+                    .get("target")
+                    .cloned()
+                    .ok_or_else(|| invalid_argument_result("wrapWith requires target."))?;
+                let wrapper = transform_obj
+                    .get("wrapper")
+                    .cloned()
+                    .ok_or_else(|| invalid_argument_result("wrapWith requires wrapper."))?;
+                let entry_pin = transform_obj
+                    .get("entryPin")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("execute");
+                let target_entry_pin = transform_obj
+                    .get("targetEntryPin")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("execute");
+                let wrapper_exit_pin = transform_obj
+                    .get("wrapperExitPin")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("then");
+                commands.push(serde_json::json!({
+                    "kind":"addNode",
+                    "alias": alias,
+                    "nodeType": wrapper,
+                    "anchor": target
+                }));
+                commands.push(serde_json::json!({
+                    "kind":"moveInputLinks",
+                    "from": { "node": target, "pin": target_entry_pin },
+                    "to": { "node": { "alias": alias }, "pin": entry_pin }
+                }));
+                commands.push(serde_json::json!({
+                    "kind":"connect",
+                    "from": { "node": { "alias": alias }, "pin": wrapper_exit_pin },
+                    "to": { "node": target, "pin": target_entry_pin }
+                }));
             }
             "fanoutExec" => {
                 let alias = transform_obj
@@ -2523,7 +2578,7 @@ fn compile_builtin_recipe(
             commands.push(
                 serde_json::json!({"kind":"addNode","alias":"callNode","nodeType":call_node_type}),
             );
-            commands.push(serde_json::json!({"kind":"connect","from":{"node":{"alias":"branchNode"},"pin":"True"},"to":{"node":{"alias":"callNode"},"pin":"execute"}}));
+            commands.push(serde_json::json!({"kind":"connect","from":{"node":{"alias":"branchNode"},"pin":"then"},"to":{"node":{"alias":"callNode"},"pin":"execute"}}));
             if let Some(condition) = inputs.get("condition") {
                 commands.push(serde_json::json!({"kind":"setPinDefault","target":{"node":{"alias":"branchNode"},"pin":"Condition"},"value":condition}));
             }
@@ -2874,7 +2929,7 @@ fn builtin_blueprint_recipe(id: &str) -> Option<serde_json::Value> {
             "steps": [
                 "Create a Branch node.",
                 "Create the requested call node.",
-                "Connect Branch.True to the call execute pin."
+                "Connect Branch.then to the call execute pin."
             ],
             "constraints": [],
             "example": {
@@ -3925,7 +3980,10 @@ fn blueprint_graph_refactor_schema() -> rmcp::model::JsonObject {
                     "source":{"type":"object"},
                     "targets":{"type":"array","items":{"type":"object"}},
                     "rebindPolicy":{"type":"string","enum":["none","matchingPins"]},
-                    "removeOriginal":{"type":"boolean"}
+                    "removeOriginal":{"type":"boolean"},
+                    "entryPin":{"type":"string","minLength":1},
+                    "targetEntryPin":{"type":"string","minLength":1},
+                    "wrapperExitPin":{"type":"string","minLength":1}
                 },
                 "required":["kind"],
                 "additionalProperties": false
@@ -6003,6 +6061,60 @@ mod tests {
         assert_eq!(
             commands[2].get("kind").and_then(|value| value.as_str()),
             Some("removeNode")
+        );
+    }
+
+    #[test]
+    fn blueprint_graph_refactor_wrap_with_translates_to_move_input_links() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graphName".into(), serde_json::json!("EventGraph"));
+        args.insert(
+            "transforms".into(),
+            serde_json::json!([
+                {
+                    "kind": "wrapWith",
+                    "target": { "id": "target-node" },
+                    "wrapper": { "kind": "branch" },
+                    "alias": "guard",
+                    "entryPin": "execute",
+                    "targetEntryPin": "execute",
+                    "wrapperExitPin": "then"
+                }
+            ]),
+        );
+
+        let edit_args = compile_blueprint_refactor_request(&args).expect("edit args");
+        let commands = edit_args
+            .get("commands")
+            .and_then(|value| value.as_array())
+            .expect("commands");
+        assert_eq!(commands.len(), 3);
+        assert_eq!(
+            commands[0].get("kind").and_then(|value| value.as_str()),
+            Some("addNode")
+        );
+        assert_eq!(
+            commands[1].get("kind").and_then(|value| value.as_str()),
+            Some("moveInputLinks")
+        );
+        assert_eq!(
+            commands[2].get("kind").and_then(|value| value.as_str()),
+            Some("connect")
+        );
+        assert_eq!(
+            commands[1]
+                .get("from")
+                .and_then(|value| value.get("pin"))
+                .and_then(|value| value.as_str()),
+            Some("execute")
+        );
+        assert_eq!(
+            commands[2]
+                .get("from")
+                .and_then(|value| value.get("pin"))
+                .and_then(|value| value.as_str()),
+            Some("then")
         );
     }
 

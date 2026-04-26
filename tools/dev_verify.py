@@ -403,7 +403,12 @@ def main() -> int:
     parser.add_argument(
         "--close-editor-on-success",
         action="store_true",
-        help="Close the Unreal Editor instance for this project after all requested verification steps pass.",
+        help="Close the Unreal Editor instance for this project after all requested verification steps pass. This is now the default when dev_verify restarts the editor.",
+    )
+    parser.add_argument(
+        "--keep-editor-open",
+        action="store_true",
+        help="Leave the Unreal Editor instance open after successful verification.",
     )
     args = parser.parse_args()
 
@@ -456,7 +461,8 @@ def main() -> int:
         run([sys.executable, str(LATENCY_SCRIPT), "--project-root", str(project_root)])
 
     print("[PASS] dev verify completed", file=sys.stderr)
-    if args.close_editor_on_success:
+    should_close_editor = args.close_editor_on_success or (not args.keep_editor_open and not args.no_restart)
+    if should_close_editor:
         step("Close Unreal Editor after successful verification")
         uproject = next(path for path in project_root.iterdir() if path.is_file() and path.suffix.lower() == ".uproject")
         stop_editor(uproject, platform)
