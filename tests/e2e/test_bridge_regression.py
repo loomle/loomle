@@ -1431,6 +1431,14 @@ def main() -> int:
         enum_variable_type = enum_variable.get("type") if isinstance(enum_variable, dict) else None
         if not isinstance(enum_variable_type, dict) or enum_variable_type.get("kind") != "enum" or enum_variable_type.get("objectClassPath") != enum_path:
             fail(f"blueprint.member.inspect enum variable type mismatch: {variable_inspect_payload}")
+        if enum_variable.get("isReplicated") is not False or enum_variable.get("isRepNotify") is not False:
+            fail(f"blueprint.member.inspect enum variable replication flags mismatch: {enum_variable}")
+        if enum_variable.get("replication") != "none":
+            fail(f"blueprint.member.inspect enum variable replication mode mismatch: {enum_variable}")
+        if not isinstance(enum_variable.get("replicationCondition"), str):
+            fail(f"blueprint.member.inspect enum variable missing replicationCondition: {enum_variable}")
+        if not isinstance(enum_variable.get("replicationConditionValue"), int):
+            fail(f"blueprint.member.inspect enum variable missing replicationConditionValue: {enum_variable}")
         component_inspect_payload = call_tool(
             client,
             6523,
@@ -2199,6 +2207,29 @@ def main() -> int:
             for pin in self_pins
         ):
             fail(f"blueprint.graph.inspect self node link to UObject/Actor input missing: {self_node}")
+        self_external_query = call_tool(
+            client,
+            1310,
+            "blueprint.graph.inspect",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "nodeIds": [self_node_id],
+                "includeConnections": True,
+            },
+        )
+        self_external_nodes = self_external_query.get("semanticSnapshot", {}).get("nodes", [])
+        if not isinstance(self_external_nodes, list) or len(self_external_nodes) != 1:
+            fail(f"blueprint.graph.inspect includeConnections nodeIds shape mismatch: {self_external_query}")
+        self_external_node = require_node([node for node in self_external_nodes if isinstance(node, dict)], self_node_id)
+        self_external_pins = self_external_node.get("pins")
+        if not isinstance(self_external_pins, list) or not any(
+            isinstance(pin, dict)
+            and pin.get("name") == "self"
+            and any(isinstance(link, dict) and link.get("toPin") == "Object" for link in pin.get("links", []))
+            for pin in self_external_pins
+        ):
+            fail(f"blueprint.graph.inspect includeConnections pruned external link: {self_external_node}")
 
         alias_dry_run = call_domain_tool(
             client,

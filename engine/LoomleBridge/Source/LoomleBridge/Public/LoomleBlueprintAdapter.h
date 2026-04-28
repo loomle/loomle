@@ -9,6 +9,7 @@ struct LOOMLEBRIDGE_API FLoomleBlueprintNodeListOptions
     FString Text;
     int32 Limit = TNumericLimits<int32>::Max();
     int32 Offset = 0;
+    bool bIncludeConnections = false;
 };
 
 struct LOOMLEBRIDGE_API FLoomleBlueprintNodeListStats

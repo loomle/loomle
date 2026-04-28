@@ -45,6 +45,20 @@ FString DescribeBlueprintCustomEventReplication(const uint32 FunctionFlags)
     return TEXT("none");
 }
 
+FString DescribeBlueprintReplicationCondition(const ELifetimeCondition Condition)
+{
+    if (const UEnum* ConditionEnum = StaticEnum<ELifetimeCondition>())
+    {
+        const FString Name = ConditionEnum->GetNameStringByValue(static_cast<int64>(Condition));
+        if (!Name.IsEmpty())
+        {
+            return Name;
+        }
+    }
+
+    return FString::Printf(TEXT("%d"), static_cast<int32>(Condition));
+}
+
 FString NormalizeBlueprintGraphKindForDomain(FString GraphKind)
 {
     if (GraphKind.Equals(TEXT("Event"), ESearchCase::IgnoreCase))
@@ -391,6 +405,14 @@ TSharedPtr<FJsonObject> MakeBlueprintDescribePropertyEntry(const FProperty* Prop
     Entry->SetStringField(TEXT("ownerClassPath"), OwnerClass ? OwnerClass->GetPathName() : TEXT(""));
     Entry->SetBoolField(TEXT("editable"), Property->HasAnyPropertyFlags(CPF_Edit));
     Entry->SetBoolField(TEXT("blueprintVisible"), Property->HasAnyPropertyFlags(CPF_BlueprintVisible));
+    const bool bReplicated = Property->HasAnyPropertyFlags(CPF_Net);
+    const bool bRepNotify = Property->HasAnyPropertyFlags(CPF_RepNotify) || Property->RepNotifyFunc != NAME_None;
+    Entry->SetBoolField(TEXT("isReplicated"), bReplicated);
+    Entry->SetBoolField(TEXT("isRepNotify"), bRepNotify);
+    Entry->SetStringField(TEXT("replication"), bRepNotify ? TEXT("repNotify") : (bReplicated ? TEXT("replicated") : TEXT("none")));
+    Entry->SetStringField(TEXT("repNotifyFunc"), Property->RepNotifyFunc != NAME_None ? Property->RepNotifyFunc.ToString() : TEXT(""));
+    Entry->SetStringField(TEXT("replicationCondition"), DescribeBlueprintReplicationCondition(Property->GetBlueprintReplicationCondition()));
+    Entry->SetNumberField(TEXT("replicationConditionValue"), static_cast<int32>(Property->GetBlueprintReplicationCondition()));
     Entry->SetObjectField(TEXT("type"), MakeBlueprintDescribePropertyType(Property));
 
     const FString Category = Property->GetMetaData(TEXT("Category"));
@@ -695,6 +717,7 @@ struct FBlueprintGraphQueryShapeOptions
     int32 Limit = 200;
     int32 Offset = 0;
     bool bLimitExplicit = false;
+    bool bIncludeConnections = false;
     bool bCursorValid = true;
     FString CursorError;
 };
@@ -796,6 +819,12 @@ FBlueprintGraphQueryShapeOptions ParseBlueprintGraphQueryShapeOptions(const TSha
                 Options.NodeClasses.Add(NodeClass);
             }
         }
+    }
+
+    bool bIncludeConnections = false;
+    if (Arguments->TryGetBoolField(TEXT("includeConnections"), bIncludeConnections))
+    {
+        Options.bIncludeConnections = bIncludeConnections;
     }
 
     return Options;
@@ -1686,6 +1715,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintQueryToolResult(const
             BlueprintListOptions.NodeIds = QueryShapeOptions.NodeIds.Array();
             BlueprintListOptions.Offset = QueryShapeOptions.Offset;
             BlueprintListOptions.Limit = QueryShapeOptions.bLimitExplicit ? QueryShapeOptions.Limit : 50;
+            BlueprintListOptions.bIncludeConnections = QueryShapeOptions.bIncludeConnections;
         }
 
         FString NodesJson;
@@ -2039,7 +2069,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintQueryToolResult(const
                 continue;
             }
 
-            PruneBlueprintQueryNodeLinks(*NodeObject, IncludedNodeIds);
+            if (!ShapeOptions.bIncludeConnections)
+            {
+                PruneBlueprintQueryNodeLinks(*NodeObject, IncludedNodeIds);
+            }
         }
 
         if (SnapshotEdges != nullptr)
@@ -2058,7 +2091,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintQueryToolResult(const
                 FString ToPin;
                 (*EdgeObject)->TryGetStringField(TEXT("fromNodeId"), FromNodeId);
                 (*EdgeObject)->TryGetStringField(TEXT("toNodeId"), ToNodeId);
-                if (!IncludedNodeIds.Contains(FromNodeId) || !IncludedNodeIds.Contains(ToNodeId))
+                const bool bBothEndpointsIncluded = IncludedNodeIds.Contains(FromNodeId) && IncludedNodeIds.Contains(ToNodeId);
+                const bool bTouchesIncludedNode = IncludedNodeIds.Contains(FromNodeId) || IncludedNodeIds.Contains(ToNodeId);
+                if (!bBothEndpointsIncluded && (!ShapeOptions.bIncludeConnections || !bTouchesIncludedNode))
                 {
                     continue;
                 }

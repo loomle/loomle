@@ -2847,21 +2847,30 @@ namespace LoomleBlueprintAdapterInternal
 
         TArray<TSharedPtr<FJsonValue>> Links;
         TArray<TSharedPtr<FJsonValue>> SemanticLinks;
-        for (const UEdGraphPin* LinkedPin : Pin->LinkedTo)
+        TSet<FString> SeenLinks;
+        auto AddLinkedPin = [&Links, &SemanticLinks, &SeenLinks](const UEdGraphPin* LinkedPin)
         {
             if (!LinkedPin)
             {
-                continue;
+                return;
             }
+
+            const UEdGraphNode* LinkedNode = LinkedPin->GetOwningNodeUnchecked();
+            const FString LinkedNodeGuid = LinkedNode ? LinkedNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens) : TEXT("");
+            const FString LinkKey = LinkedNodeGuid + TEXT("|") + LinkedPin->PinName.ToString();
+            if (SeenLinks.Contains(LinkKey))
+            {
+                return;
+            }
+            SeenLinks.Add(LinkKey);
 
             TSharedPtr<FJsonObject> LinkObject = MakeShared<FJsonObject>();
             LinkObject->SetStringField(TEXT("pin"), LinkedPin->PinName.ToString());
 
-            const UEdGraphNode* LinkedNode = LinkedPin->GetOwningNodeUnchecked();
             if (LinkedNode)
             {
                 LinkObject->SetStringField(TEXT("nodeName"), LinkedNode->GetName());
-                LinkObject->SetStringField(TEXT("nodeGuid"), LinkedNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens));
+                LinkObject->SetStringField(TEXT("nodeGuid"), LinkedNodeGuid);
                 LinkObject->SetStringField(TEXT("nodePath"), LinkedNode->GetPathName());
             }
 
@@ -2869,8 +2878,34 @@ namespace LoomleBlueprintAdapterInternal
 
             TSharedPtr<FJsonObject> SemanticLinkObject = MakeShared<FJsonObject>();
             SemanticLinkObject->SetStringField(TEXT("toPin"), LinkedPin->PinName.ToString());
-            SemanticLinkObject->SetStringField(TEXT("toNodeId"), LinkedNode ? LinkedNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens) : TEXT(""));
+            SemanticLinkObject->SetStringField(TEXT("toNodeId"), LinkedNodeGuid);
             SemanticLinks.Add(MakeShared<FJsonValueObject>(SemanticLinkObject));
+        };
+
+        for (const UEdGraphPin* LinkedPin : Pin->LinkedTo)
+        {
+            AddLinkedPin(LinkedPin);
+        }
+
+        if (const UEdGraphNode* OwningNode = Pin->GetOwningNodeUnchecked())
+        {
+            if (const UEdGraph* Graph = OwningNode->GetGraph())
+            {
+                for (const UEdGraphNode* GraphNode : Graph->Nodes)
+                {
+                    if (GraphNode == nullptr)
+                    {
+                        continue;
+                    }
+                    for (const UEdGraphPin* CandidatePin : GraphNode->Pins)
+                    {
+                        if (CandidatePin != nullptr && CandidatePin != Pin && CandidatePin->LinkedTo.Contains(Pin))
+                        {
+                            AddLinkedPin(CandidatePin);
+                        }
+                    }
+                }
+            }
         }
         PinObject->SetArrayField(TEXT("linkedTo"), Links);
         PinObject->SetArrayField(TEXT("links"), SemanticLinks);
