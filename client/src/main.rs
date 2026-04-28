@@ -7,14 +7,13 @@ use loomle::{
 };
 use rmcp::{
     model::{
-        CallToolRequestParams, CallToolResult, CustomNotification, Implementation, ListToolsResult,
-        PaginatedRequestParams, ServerCapabilities, ServerInfo, ServerNotification, Tool,
+        CallToolRequestParams, CallToolResult, Implementation, ListToolsResult,
+        PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
     },
     service::RequestContext,
     transport::stdio,
     ErrorData as McpError, RoleServer, ServerHandler, ServiceExt,
 };
-use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
 use std::fs;
@@ -22,10 +21,7 @@ use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::process::{Command, ExitStatus, Stdio};
-use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
-    Arc,
-};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 
@@ -285,9 +281,6 @@ fn exit_code_from_status(status: ExitStatus) -> ExitCode {
 struct LoomleProxyServer {
     session_cwd: Option<PathBuf>,
     env_info: Mutex<Option<Arc<Environment>>>,
-    next_subscription_id: AtomicU64,
-    log_subscriptions: Mutex<HashMap<String, Arc<AtomicBool>>>,
-    diagnostic_watcher_cancelled: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 impl LoomleProxyServer {
@@ -295,9 +288,6 @@ impl LoomleProxyServer {
         Self {
             session_cwd: env::current_dir().ok(),
             env_info: Mutex::new(env_info.map(Arc::new)),
-            next_subscription_id: AtomicU64::new(1),
-            log_subscriptions: Mutex::new(HashMap::new()),
-            diagnostic_watcher_cancelled: Mutex::new(None),
         }
     }
 
@@ -554,155 +544,8 @@ impl LoomleProxyServer {
         payload
     }
 
-    async fn ensure_diagnostic_watcher(&self, peer: rmcp::service::Peer<RoleServer>) {
-        {
-            let guard = self.diagnostic_watcher_cancelled.lock().await;
-            if guard.is_some() {
-                return;
-            }
-        }
-
-        let Ok(env_info) = self.attached_env_info().await else {
-            return;
-        };
-
-        let mut guard = self.diagnostic_watcher_cancelled.lock().await;
-        if guard.is_some() {
-            return;
-        }
-
-        let cancelled = Arc::new(AtomicBool::new(false));
-        *guard = Some(cancelled.clone());
-        tokio::spawn(run_tail_notification_watcher(
-            env_info,
-            peer,
-            "diagnostic.tail".to_string(),
-            "notifications/loomle/diagnostic".to_string(),
-            None,
-            serde_json::Map::new(),
-            cancelled,
-        ));
-    }
-
-    async fn call_log_subscribe(
-        &self,
-        args: rmcp::model::JsonObject,
-        peer: rmcp::service::Peer<RoleServer>,
-    ) -> CallToolResult {
-        let action = args
-            .get("action")
-            .and_then(|value| value.as_str())
-            .unwrap_or("subscribe")
-            .to_ascii_lowercase();
-        let subscription_id = args
-            .get("subscriptionId")
-            .and_then(|value| value.as_str())
-            .filter(|value| !value.is_empty())
-            .map(str::to_string);
-
-        if action == "unsubscribe" {
-            let Some(subscription_id) = subscription_id else {
-                return invalid_argument_result("subscriptionId is required for unsubscribe");
-            };
-            let mut subscriptions = self.log_subscriptions.lock().await;
-            if let Some(cancelled) = subscriptions.remove(&subscription_id) {
-                cancelled.store(true, Ordering::Relaxed);
-            }
-            return structured_result(serde_json::json!({
-                "subscriptionId": subscription_id,
-                "active": false,
-                "delivery": {
-                    "context": "manual_tail_required",
-                    "tailTool": "log.tail",
-                    "message": "The subscription updates LOOMLE's server-side filtered log stream. Agent hosts may ignore MCP notifications, so call log.tail with fromSeq/nextFromSeq to consume logs in model context."
-                }
-            }));
-        }
-
-        if action != "subscribe" && action != "update" {
-            return invalid_argument_result("action must be subscribe, update, or unsubscribe");
-        }
-
-        let env_info = match self.ensure_runtime_ready().await {
-            Ok(env_info) => env_info,
-            Err(reason) => return bridge_unavailable_result(&reason),
-        };
-
-        let subscription_id = subscription_id.unwrap_or_else(|| {
-            format!(
-                "log_{}",
-                self.next_subscription_id.fetch_add(1, Ordering::Relaxed)
-            )
-        });
-        let filters = args
-            .get("filters")
-            .and_then(|value| value.as_object())
-            .cloned()
-            .unwrap_or_default();
-        let max_per_second = args
-            .get("maxPerSecond")
-            .and_then(|value| value.as_u64())
-            .unwrap_or(20)
-            .clamp(1, 100);
-
-        let mut subscriptions = self.log_subscriptions.lock().await;
-        if let Some(previous) = subscriptions.remove(&subscription_id) {
-            previous.store(true, Ordering::Relaxed);
-        }
-
-        let cancelled = Arc::new(AtomicBool::new(false));
-        subscriptions.insert(subscription_id.clone(), cancelled.clone());
-        drop(subscriptions);
-
-        let mut base_args = serde_json::Map::new();
-        if !filters.is_empty() {
-            base_args.insert(
-                "filters".to_string(),
-                serde_json::Value::Object(filters.clone()),
-            );
-        }
-        base_args.insert("limit".to_string(), serde_json::json!(max_per_second));
-
-        let from_seq = current_tail_high_watermark(&env_info, "log.tail", &base_args)
-            .await
-            .unwrap_or(0);
-
-        tokio::spawn(run_tail_notification_watcher(
-            env_info,
-            peer,
-            "log.tail".to_string(),
-            "notifications/loomle/log".to_string(),
-            Some(subscription_id.clone()),
-            base_args,
-            cancelled,
-        ));
-
-        structured_result(serde_json::json!({
-            "subscriptionId": subscription_id,
-            "active": true,
-            "fromSeq": from_seq,
-            "nextFromSeq": from_seq,
-            "filters": filters,
-            "maxPerSecond": max_per_second,
-            "delivery": {
-                "notificationMethod": "notifications/loomle/log",
-                "context": "manual_tail_required",
-                "tailTool": "log.tail",
-                "message": "The subscription starts a filtered server-side log stream and best-effort MCP notifications. Agent hosts may not place notifications in model context; call log.tail to consume entries."
-            }
-        }))
-    }
-
     async fn attach_project(&self, project: RuntimeProject) {
         let env_info = Environment::for_project_root(project.project_root);
-        if let Some(cancelled) = self.diagnostic_watcher_cancelled.lock().await.take() {
-            cancelled.store(true, Ordering::Relaxed);
-        }
-        let mut log_subscriptions = self.log_subscriptions.lock().await;
-        for (_, cancelled) in log_subscriptions.drain() {
-            cancelled.store(true, Ordering::Relaxed);
-        }
-        drop(log_subscriptions);
         *self.env_info.lock().await = Some(Arc::new(env_info));
     }
 
@@ -749,16 +592,10 @@ impl ServerHandler for LoomleProxyServer {
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        context: RequestContext<RoleServer>,
+        _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         if is_local_tool(request.name.as_ref()) {
             return Ok(self.call_pre_attach_tool(request).await);
-        }
-        self.ensure_diagnostic_watcher(context.peer.clone()).await;
-        if request.name.as_ref() == "log.subscribe" {
-            return Ok(self
-                .call_log_subscribe(request.arguments.unwrap_or_default(), context.peer)
-                .await);
         }
         if let Some(result) = self
             .call_public_blueprint_tool(
@@ -982,9 +819,9 @@ impl LoomleProxyServer {
             "blueprint.compile" => Ok(Some(self.call_blueprint_compile(args).await?)),
             "blueprint.inspect" => Ok(Some(self.call_blueprint_inspect(args).await?)),
             "blueprint.edit" => Ok(Some(self.runtime_call("blueprint.edit", args).await?)),
-            "blueprint.enum.inspect" => {
-                Ok(Some(self.runtime_call("blueprint.enum.inspect", args).await?))
-            }
+            "blueprint.enum.inspect" => Ok(Some(
+                self.runtime_call("blueprint.enum.inspect", args).await?,
+            )),
             "blueprint.enum.edit" => {
                 Ok(Some(self.runtime_call("blueprint.enum.edit", args).await?))
             }
@@ -1333,71 +1170,6 @@ async fn current_tail_high_watermark(
     payload
         .get("highWatermark")
         .and_then(|value| value.as_u64())
-}
-
-async fn run_tail_notification_watcher(
-    env_info: Arc<Environment>,
-    peer: rmcp::service::Peer<RoleServer>,
-    tool_name: String,
-    notification_method: String,
-    subscription_id: Option<String>,
-    base_args: serde_json::Map<String, serde_json::Value>,
-    cancelled: Arc<AtomicBool>,
-) {
-    let mut from_seq = current_tail_high_watermark(&env_info, &tool_name, &base_args)
-        .await
-        .unwrap_or(0);
-
-    while !cancelled.load(Ordering::Relaxed) {
-        tokio::time::sleep(Duration::from_millis(1000)).await;
-        if cancelled.load(Ordering::Relaxed) {
-            break;
-        }
-
-        let mut args = base_args.clone();
-        args.insert("fromSeq".to_string(), serde_json::json!(from_seq));
-        let payload = match rpc_invoke(&env_info, &tool_name, args).await {
-            Ok(payload) => payload,
-            Err(_) => continue,
-        };
-
-        if let Some(next_seq) = payload.get("nextSeq").and_then(|value| value.as_u64()) {
-            from_seq = next_seq;
-        }
-
-        let Some(items) = payload.get("items").and_then(|value| value.as_array()) else {
-            continue;
-        };
-
-        for item in items {
-            if cancelled.load(Ordering::Relaxed) {
-                break;
-            }
-
-            let mut params = item.as_object().cloned().unwrap_or_default();
-            if let Some(subscription_id) = &subscription_id {
-                params.insert(
-                    "subscriptionId".to_string(),
-                    serde_json::Value::String(subscription_id.clone()),
-                );
-                params.insert(
-                    "store".to_string(),
-                    serde_json::Value::String("log".to_string()),
-                );
-            } else {
-                params.insert(
-                    "store".to_string(),
-                    serde_json::Value::String("diagnostic".to_string()),
-                );
-            }
-
-            let notification = ServerNotification::CustomNotification(CustomNotification::new(
-                notification_method.clone(),
-                Some(serde_json::Value::Object(params)),
-            ));
-            let _ = peer.send_notification(notification).await;
-        }
-    }
 }
 
 fn read_required_asset_path(
@@ -2896,7 +2668,6 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("pcg.describe", "Describe a PCG settings class or instance.", Arc::new(pcg_describe_schema())),
         Tool::new("diagnostic.tail", "Read persisted structured diagnostics incrementally by sequence cursor.", Arc::new(diagnostic_tail_schema())),
         Tool::new("log.tail", "Read persisted Unreal output log events incrementally by sequence cursor.", Arc::new(log_tail_schema())),
-        Tool::new("log.subscribe", "Subscribe, update, or unsubscribe filtered Unreal output log notifications.", Arc::new(log_subscribe_schema())),
         Tool::new("widget.query", "Read the UMG WidgetTree of a WidgetBlueprint asset.", Arc::new(widget_query_schema())),
         Tool::new("widget.mutate", "Apply structural write operations to the UMG WidgetTree of a WidgetBlueprint asset.", Arc::new(widget_mutate_schema())),
         Tool::new("widget.verify", "Compile a WidgetBlueprint and return diagnostics.", Arc::new(asset_path_only_schema("WidgetBlueprint asset path."))),
@@ -4189,11 +3960,20 @@ fn blueprint_compile_schema() -> rmcp::model::JsonObject {
 
 fn blueprint_palette_schema() -> rmcp::model::JsonObject {
     let mut properties = serde_json::Map::new();
-    properties.insert("assetPath".into(), serde_json::json!({"type":"string","minLength":1}));
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
     properties.insert("query".into(), serde_json::json!({"type":"string"}));
     properties.insert("family".into(), serde_json::json!({"type":"string"}));
-    properties.insert("limit".into(), serde_json::json!({"type":"integer","minimum":1,"default":100}));
-    properties.insert("offset".into(), serde_json::json!({"type":"integer","minimum":0,"default":0}));
+    properties.insert(
+        "limit".into(),
+        serde_json::json!({"type":"integer","minimum":1,"default":100}),
+    );
+    properties.insert(
+        "offset".into(),
+        serde_json::json!({"type":"integer","minimum":0,"default":0}),
+    );
     schema_from_value(serde_json::json!({
         "type":"object",
         "properties": properties,
@@ -4382,32 +4162,6 @@ fn log_tail_schema() -> rmcp::model::JsonObject {
                 },
                 "additionalProperties": false
             }
-        },
-        "additionalProperties": false
-    }))
-}
-
-fn log_subscribe_schema() -> rmcp::model::JsonObject {
-    schema_from_value(serde_json::json!({
-        "type":"object",
-        "properties":{
-            "action":{"type":"string","default":"subscribe"},
-            "subscriptionId":{"type":"string"},
-            "filters":{
-                "type":"object",
-                "properties":{
-                    "minVerbosity":{"type":"string"},
-                    "category":{"type":"string"},
-                    "categories":{
-                        "type":"array",
-                        "items":{"type":"string"}
-                    },
-                    "source":{"type":"string"},
-                    "contains":{"type":"string"}
-                },
-                "additionalProperties": false
-            },
-            "maxPerSecond":{"type":"integer","minimum":1,"maximum":100,"default":20}
         },
         "additionalProperties": false
     }))
@@ -6461,7 +6215,7 @@ mod tests {
         assert!(tool_names.contains("play"));
         assert!(tool_names.contains("diagnostic.tail"));
         assert!(tool_names.contains("log.tail"));
-        assert!(tool_names.contains("log.subscribe"));
+        assert!(!tool_names.contains("log.subscribe"));
         assert!(!tool_names.contains("diag.tail"));
     }
 

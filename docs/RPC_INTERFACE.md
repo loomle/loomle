@@ -827,29 +827,6 @@ Storage note:
 
 Cursor semantics match `diagnostic.tail`.
 
-## 5.13 tool=`log.subscribe`
-
-`log.subscribe` manages a filtered server-side log stream and best-effort MCP
-notifications. Agent hosts may not place notifications in model context, so callers
-must use `log.tail` with `fromSeq` / `nextFromSeq` when logs need to be consumed by
-the agent.
-
-The subscribe and unsubscribe responses include delivery guidance:
-
-```json
-{
-  "subscriptionId": "log_1",
-  "active": true,
-  "fromSeq": 120,
-  "nextFromSeq": 120,
-  "delivery": {
-    "notificationMethod": "notifications/loomle/log",
-    "context": "manual_tail_required",
-    "tailTool": "log.tail"
-  }
-}
-```
-
 ## 6. Error Codes
 
 - `1000 INVALID_ARGUMENT`

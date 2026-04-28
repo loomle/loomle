@@ -48,7 +48,6 @@ REQUIRED_TOOLS = {
     "pcg.describe",
     "diagnostic.tail",
     "log.tail",
-    "log.subscribe",
     "context",
     "jobs",
     "play",
@@ -3290,37 +3289,6 @@ def main() -> int:
         if not isinstance(log_payload.get("hasMore"), bool):
             fail(f"log.tail invalid hasMore: {log_payload}")
         print("[PASS] log.tail is available")
-
-        log_subscribe_payload = call_tool(
-            client,
-            33,
-            "log.subscribe",
-            {
-                "action": "subscribe",
-                "filters": {"minVerbosity": "Warning", "categories": ["LogBlueprint", "LogPython"]},
-                "maxPerSecond": 5,
-            },
-        )
-        subscription_id = log_subscribe_payload.get("subscriptionId")
-        if not isinstance(subscription_id, str) or not subscription_id:
-            fail(f"log.subscribe missing subscriptionId: {log_subscribe_payload}")
-        if log_subscribe_payload.get("active") is not True:
-            fail(f"log.subscribe did not return active subscription: {log_subscribe_payload}")
-        delivery = log_subscribe_payload.get("delivery")
-        if not isinstance(delivery, dict) or delivery.get("tailTool") != "log.tail":
-            fail(f"log.subscribe missing manual-tail delivery guidance: {log_subscribe_payload}")
-        log_unsubscribe_payload = call_tool(
-            client,
-            34,
-            "log.subscribe",
-            {"action": "unsubscribe", "subscriptionId": subscription_id},
-        )
-        if log_unsubscribe_payload.get("active") is not False:
-            fail(f"log.subscribe unsubscribe did not deactivate subscription: {log_unsubscribe_payload}")
-        unsubscribe_delivery = log_unsubscribe_payload.get("delivery")
-        if not isinstance(unsubscribe_delivery, dict) or unsubscribe_delivery.get("tailTool") != "log.tail":
-            fail(f"log.subscribe unsubscribe missing manual-tail delivery guidance: {log_unsubscribe_payload}")
-        print("[PASS] log.subscribe subscribe/unsubscribe is available")
 
         _ = call_execute_exec_with_retry(
             client=client,

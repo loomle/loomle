@@ -18,7 +18,6 @@ public:
 
     bool Start();
     void StopServer();
-    bool SendServerNotification(const FString& JsonMessage);
 
     virtual uint32 Run() override;
     virtual void Stop() override;
@@ -29,7 +28,6 @@ private:
     void RegisterConnection(int32 ConnectionSerial, void* NativeHandle);
     void UnregisterConnection(int32 ConnectionSerial);
     void CloseAllConnections();
-    bool WriteMessage(const FString& Message);
     bool WriteMessageForConnection(const FString& Message, int32 ExpectedConnectionSerial);
     void HandleWindowsClient(void* NativeHandle, int32 ConnectionSerial);
     void HandleUnixClient(int32 LocalClientFd, int32 ConnectionSerial);
@@ -44,7 +42,6 @@ private:
     FThreadSafeBool bStopRequested = false;
     FThreadSafeCounter InFlightRequestCount;
     FThreadSafeCounter NextConnectionSerial;
-    FThreadSafeCounter ActiveConnectionSerial;
     FThreadSafeCounter ActiveWorkerCount;
     static constexpr int32 MaxInFlightRequests = 128;
 

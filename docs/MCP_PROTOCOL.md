@@ -56,7 +56,6 @@ Graph mutate note:
 - `widget.describe`
 - `diagnostic.tail`
 - `log.tail`
-- `log.subscribe`
 
 ## 4. MCP Tool Contracts
 
@@ -576,6 +575,7 @@ For `jobs`, `profiling`, `play`, `editor.open`, `editor.focus`, `editor.screensh
 - Input/output schemas are exposed directly through MCP `tools/list` and should be treated as the live contract.
 - `RPC_INTERFACE.md` section 5 documents the same tool payloads at the Unreal RPC boundary.
 - Execution uses `rpc.invoke` with `tool` equal to MCP tool name.
+- The MCP proxy keeps a stable runtime RPC session per attached endpoint. Request ids are unique per session; current Unreal-side execution remains ordered per connection.
 - Current server behavior performs a runtime preflight using `rpc.health` with a short cache TTL (`200ms`) shared across runtime-tool calls.
 - If preflight reports `PIE`, `execute`, `jobs`, `profiling`, and `play` remain callable.
 - If preflight reports `PIE`, editor-facing and graph-structured runtime tools continue to fail fast with `EDITOR_BUSY` (`retryable=true`) and skip `rpc.invoke`.
@@ -771,42 +771,6 @@ Execution rule:
 
 - Forward via `rpc.invoke` with `tool=log.tail`.
 - Use this for high-volume Unreal Output Log evidence; default agent context should prefer `diagnostic.tail`.
-
-## 4.11 `log.subscribe`
-
-Input schema:
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "action": { "type": "string", "default": "subscribe" },
-    "subscriptionId": { "type": "string" },
-    "filters": {
-      "type": "object",
-      "properties": {
-        "minVerbosity": { "type": "string" },
-        "category": { "type": "string" },
-        "categories": { "type": "array", "items": { "type": "string" } },
-        "source": { "type": "string" },
-        "contains": { "type": "string" }
-      },
-      "additionalProperties": false
-    },
-    "maxPerSecond": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 }
-  },
-  "additionalProperties": false
-}
-```
-
-Execution rule:
-
-- This is an MCP proxy tool, not an Unreal RPC tool.
-- `action=subscribe` creates a filtered server-side stream and emits best-effort `notifications/loomle/log`.
-- `action=update` replaces an existing `subscriptionId` stream with new filters.
-- `action=unsubscribe` cancels the stream for `subscriptionId`.
-- Agent hosts may ignore notifications or keep them out of model context. Treat `log.tail` with `fromSeq` / `nextFromSeq` as the source of truth for consuming logs.
-- `diagnostic.tail` also has a default low-volume notification stream through `notifications/loomle/diagnostic`; `diagnostic.tail` remains the recovery source of truth.
 
 ## 5. MCP <-> RPC Error Mapping
 

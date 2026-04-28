@@ -1,13 +1,19 @@
 use rmcp::model::{CallToolResult, JsonObject};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, OnceLock,
+};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[cfg(target_os = "windows")]
 use tokio::net::windows::named_pipe::ClientOptions;
 #[cfg(unix)]
 use tokio::net::UnixStream;
+use tokio::sync::{mpsc, oneshot, Mutex};
 #[cfg(target_os = "windows")]
 use tokio::time::{sleep, Duration};
 #[cfg(target_os = "windows")]
@@ -149,20 +155,45 @@ struct RpcErrorObject {
 #[derive(Debug, Deserialize)]
 struct RpcEnvelope {
     #[serde(default)]
+    id: Option<Value>,
+    #[serde(default)]
     result: Option<Value>,
     #[serde(default)]
     error: Option<RpcErrorObject>,
 }
 
-async fn connect_rpc_stream(
-    env_info: &Environment,
-) -> Result<BufReader<Box<dyn RpcIo>>, StartupError> {
+#[derive(Clone)]
+struct RuntimeRpcSession {
+    tx: mpsc::Sender<RuntimeRpcRequest>,
+    next_id: Arc<AtomicU64>,
+}
+
+struct RuntimeRpcRequest {
+    id: String,
+    method: String,
+    params: Value,
+    response_tx: oneshot::Sender<Result<Value, RpcClientError>>,
+}
+
+#[derive(Debug)]
+enum SessionCallError {
+    Closed,
+    Response(RpcClientError),
+}
+
+static RUNTIME_RPC_SESSIONS: OnceLock<Mutex<HashMap<PathBuf, RuntimeRpcSession>>> = OnceLock::new();
+
+fn runtime_rpc_sessions() -> &'static Mutex<HashMap<PathBuf, RuntimeRpcSession>> {
+    RUNTIME_RPC_SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+async fn connect_rpc_stream(env_info: &Environment) -> Result<Box<dyn RpcIo>, StartupError> {
     #[cfg(unix)]
     {
         let stream = UnixStream::connect(&env_info.runtime_endpoint_path)
             .await
             .map_err(|error| classify_unix_connect_error(env_info, &error))?;
-        return Ok(BufReader::new(Box::new(stream)));
+        return Ok(Box::new(stream));
     }
 
     #[cfg(target_os = "windows")]
@@ -177,7 +208,7 @@ async fn connect_rpc_stream(
                 Err(error) => return Err(classify_windows_connect_error(env_info, &error)),
             }
         };
-        return Ok(BufReader::new(Box::new(client)));
+        return Ok(Box::new(client));
     }
 
     #[cfg(not(any(unix, target_os = "windows")))]
@@ -192,17 +223,113 @@ async fn connect_rpc_stream(
     }
 }
 
-async fn rpc_request(
+async fn get_runtime_rpc_session(
     env_info: &Environment,
-    method: &str,
-    params: Value,
-) -> Result<Value, RpcClientError> {
-    let mut stream = connect_rpc_stream(env_info)
+) -> Result<RuntimeRpcSession, StartupError> {
+    let endpoint = env_info.runtime_endpoint_path.clone();
+    let sessions = runtime_rpc_sessions();
+    let mut guard = sessions.lock().await;
+    if let Some(session) = guard.get(&endpoint) {
+        if !session.tx.is_closed() {
+            return Ok(session.clone());
+        }
+        guard.remove(&endpoint);
+    }
+
+    let stream = connect_rpc_stream(env_info).await?;
+    let (tx, rx) = mpsc::channel(128);
+    let session = RuntimeRpcSession {
+        tx,
+        next_id: Arc::new(AtomicU64::new(1)),
+    };
+    tokio::spawn(run_runtime_rpc_session(stream, rx));
+    guard.insert(endpoint, session.clone());
+    Ok(session)
+}
+
+async fn remove_runtime_rpc_session(env_info: &Environment) {
+    runtime_rpc_sessions()
+        .lock()
         .await
-        .map_err(RpcClientError::Startup)?;
+        .remove(&env_info.runtime_endpoint_path);
+}
+
+async fn run_runtime_rpc_session(
+    stream: Box<dyn RpcIo>,
+    mut rx: mpsc::Receiver<RuntimeRpcRequest>,
+) {
+    let (read_half, mut write_half) = tokio::io::split(stream);
+    let mut reader = BufReader::new(read_half);
+    let mut pending: HashMap<String, oneshot::Sender<Result<Value, RpcClientError>>> =
+        HashMap::new();
+    let mut response_line = String::new();
+
+    loop {
+        tokio::select! {
+            request = rx.recv() => {
+                let Some(request) = request else {
+                    break;
+                };
+
+                let request_line = match encode_rpc_request(&request.id, &request.method, request.params) {
+                    Ok(request_line) => request_line,
+                    Err(error) => {
+                        let _ = request.response_tx.send(Err(error));
+                        continue;
+                    }
+                };
+
+                pending.insert(request.id.clone(), request.response_tx);
+                if let Err(error) = write_half.write_all(request_line.as_bytes()).await {
+                    fail_pending_requests(pending, write_startup_error("failed to write LOOMLE runtime RPC request.", error));
+                    break;
+                }
+                if let Err(error) = write_half.flush().await {
+                    fail_pending_requests(pending, write_startup_error("failed to flush LOOMLE runtime RPC request.", error));
+                    break;
+                }
+            }
+            read = reader.read_line(&mut response_line) => {
+                match read {
+                    Ok(0) => {
+                        fail_pending_requests(
+                            pending,
+                            RpcClientError::Protocol(String::from("runtime RPC connection closed")),
+                        );
+                        break;
+                    }
+                    Ok(_) => {
+                        let line = response_line.trim().to_string();
+                        response_line.clear();
+                        let dispatch = decode_rpc_response(&line);
+                        let (id, result) = match dispatch {
+                            Ok(dispatch) => dispatch,
+                            Err(error) => {
+                                fail_pending_requests(pending, error);
+                                break;
+                            }
+                        };
+                        if let Some(response_tx) = pending.remove(&id) {
+                            let _ = response_tx.send(result);
+                        }
+                    }
+                    Err(error) => {
+                        fail_pending_requests(
+                            pending,
+                            write_startup_error("failed to read LOOMLE runtime RPC response.", error),
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn encode_rpc_request(id: &str, method: &str, params: Value) -> Result<String, RpcClientError> {
     let request = serde_json::json!({
         "jsonrpc": "2.0",
-        "id": "loomle-client",
+        "id": id,
         "method": method,
         "params": params,
     });
@@ -210,83 +337,131 @@ async fn rpc_request(
         RpcClientError::Protocol(format!("failed to encode RPC request: {error}"))
     })?;
     request_line.push('\n');
-    stream
-        .get_mut()
-        .write_all(request_line.as_bytes())
-        .await
-        .map_err(|error| {
-            RpcClientError::Startup(
-                StartupError::new(
-                    StartupErrorKind::ConnectFailed,
-                    StartupAction::VerifyRuntimeHealth,
-                    12,
-                    true,
-                    "failed to write LOOMLE runtime RPC request.",
-                )
-                .with_detail(error.to_string()),
-            )
-        })?;
-    stream.get_mut().flush().await.map_err(|error| {
-        RpcClientError::Startup(
-            StartupError::new(
-                StartupErrorKind::ConnectFailed,
-                StartupAction::VerifyRuntimeHealth,
-                12,
-                true,
-                "failed to flush LOOMLE runtime RPC request.",
-            )
-            .with_detail(error.to_string()),
-        )
-    })?;
+    Ok(request_line)
+}
 
-    let mut response_line = String::new();
-    let read = stream
-        .read_line(&mut response_line)
-        .await
-        .map_err(|error| {
-            RpcClientError::Startup(
-                StartupError::new(
-                    StartupErrorKind::ConnectFailed,
-                    StartupAction::VerifyRuntimeHealth,
-                    12,
-                    true,
-                    "failed to read LOOMLE runtime RPC response.",
-                )
-                .with_detail(error.to_string()),
-            )
-        })?;
-    if read == 0 {
-        return Err(RpcClientError::Protocol(String::from(
-            "runtime RPC connection closed without a response",
-        )));
-    }
-
-    let envelope: RpcEnvelope = serde_json::from_str(response_line.trim()).map_err(|error| {
+fn decode_rpc_response(
+    line: &str,
+) -> Result<(String, Result<Value, RpcClientError>), RpcClientError> {
+    let envelope: RpcEnvelope = serde_json::from_str(line).map_err(|error| {
         RpcClientError::Protocol(format!("runtime RPC response is not valid JSON: {error}"))
     })?;
+    let id = envelope
+        .id
+        .as_ref()
+        .and_then(rpc_id_to_key)
+        .ok_or_else(|| RpcClientError::Protocol(String::from("runtime RPC response missing id")))?;
     if let Some(error) = envelope.error {
         let detail = error.data.as_ref().and_then(|data| data.detail.clone());
         let payload = detail
             .as_deref()
             .and_then(|raw| serde_json::from_str::<Value>(raw).ok());
-        return Err(RpcClientError::Invoke(RpcInvokeFailure {
-            code: error.code,
-            message: error.message,
-            retryable: error
-                .data
-                .as_ref()
-                .map(|data| data.retryable)
-                .unwrap_or(false),
-            detail,
-            payload,
-        }));
+        return Ok((
+            id,
+            Err(RpcClientError::Invoke(RpcInvokeFailure {
+                code: error.code,
+                message: error.message,
+                retryable: error
+                    .data
+                    .as_ref()
+                    .map(|data| data.retryable)
+                    .unwrap_or(false),
+                detail,
+                payload,
+            })),
+        ));
     }
 
-    envelope.result.ok_or_else(|| {
+    let result = envelope.result.ok_or_else(|| {
         RpcClientError::Protocol(String::from(
             "runtime RPC response missing both result and error",
         ))
-    })
+    })?;
+    Ok((id, Ok(result)))
+}
+
+fn rpc_id_to_key(id: &Value) -> Option<String> {
+    match id {
+        Value::String(value) => Some(value.clone()),
+        Value::Number(value) => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+fn fail_pending_requests(
+    pending: HashMap<String, oneshot::Sender<Result<Value, RpcClientError>>>,
+    error: RpcClientError,
+) {
+    for (_, response_tx) in pending {
+        let _ = response_tx.send(Err(error.clone()));
+    }
+}
+
+fn write_startup_error(message: &'static str, error: std::io::Error) -> RpcClientError {
+    RpcClientError::Startup(
+        StartupError::new(
+            StartupErrorKind::ConnectFailed,
+            StartupAction::VerifyRuntimeHealth,
+            12,
+            true,
+            message,
+        )
+        .with_detail(error.to_string()),
+    )
+}
+
+async fn call_runtime_rpc_session(
+    session: RuntimeRpcSession,
+    method: &str,
+    params: Value,
+) -> Result<Value, SessionCallError> {
+    let id = format!(
+        "loomle-client-{}",
+        session.next_id.fetch_add(1, Ordering::Relaxed)
+    );
+    let (response_tx, response_rx) = oneshot::channel();
+    session
+        .tx
+        .send(RuntimeRpcRequest {
+            id,
+            method: method.to_string(),
+            params,
+            response_tx,
+        })
+        .await
+        .map_err(|_| SessionCallError::Closed)?;
+    response_rx
+        .await
+        .map_err(|_| SessionCallError::Closed)?
+        .map_err(SessionCallError::Response)
+}
+
+async fn rpc_request(
+    env_info: &Environment,
+    method: &str,
+    params: Value,
+) -> Result<Value, RpcClientError> {
+    for attempt in 0..2 {
+        let session = get_runtime_rpc_session(env_info)
+            .await
+            .map_err(RpcClientError::Startup)?;
+        match call_runtime_rpc_session(session, method, params.clone()).await {
+            Ok(result) => return Ok(result),
+            Err(SessionCallError::Closed) if attempt == 0 => {
+                remove_runtime_rpc_session(env_info).await;
+            }
+            Err(SessionCallError::Closed) => {
+                return Err(RpcClientError::Protocol(String::from(
+                    "runtime RPC session closed before a response was received",
+                )));
+            }
+            Err(SessionCallError::Response(error)) => return Err(error),
+        }
+    }
+
+    Err(RpcClientError::Protocol(String::from(
+        "runtime RPC session retry failed",
+    )))
 }
 
 pub async fn rpc_health(env_info: &Environment) -> Result<Value, RpcClientError> {
@@ -615,16 +790,21 @@ fn stable_fnv1a64(bytes: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        launcher_binary_name, should_handoff_to_active_client, versioned_client_binary_name,
-        ActiveInstallState,
+        call_runtime_rpc_session, decode_rpc_response, launcher_binary_name,
+        run_runtime_rpc_session, should_handoff_to_active_client, versioned_client_binary_name,
+        ActiveInstallState, RpcClientError, RuntimeRpcSession,
     };
     #[cfg(target_os = "windows")]
     use super::{runtime_pipe_name_for_project_root, strip_windows_verbatim_prefix};
+    use serde_json::json;
     use std::path::PathBuf;
+    use std::sync::{atomic::AtomicU64, Arc};
     use std::{
         fs,
         time::{SystemTime, UNIX_EPOCH},
     };
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::sync::mpsc;
 
     fn temp_dir(label: &str) -> PathBuf {
         let unique = SystemTime::now()
@@ -634,6 +814,91 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("loomle-client-test-{label}-{unique}"));
         fs::create_dir_all(&dir).expect("mkdir");
         dir
+    }
+
+    #[test]
+    fn decodes_rpc_response_by_string_id() {
+        let (id, result) =
+            decode_rpc_response(r#"{"jsonrpc":"2.0","id":"loomle-client-7","result":{"ok":true}}"#)
+                .expect("response");
+        assert_eq!(id, "loomle-client-7");
+        assert_eq!(result.expect("result")["ok"], true);
+    }
+
+    #[test]
+    fn decodes_rpc_error_for_matching_id() {
+        let (id, result) = decode_rpc_response(
+            r#"{"jsonrpc":"2.0","id":"loomle-client-8","error":{"code":1000,"message":"INVALID_ARGUMENT","data":{"retryable":false,"detail":"bad args"}}}"#,
+        )
+        .expect("response");
+        assert_eq!(id, "loomle-client-8");
+        match result.expect_err("invoke error") {
+            RpcClientError::Invoke(error) => {
+                assert_eq!(error.code, 1000);
+                assert_eq!(error.message, "INVALID_ARGUMENT");
+                assert_eq!(error.detail.as_deref(), Some("bad args"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn runtime_rpc_session_dispatches_out_of_order_responses() {
+        let (client_stream, server_stream) = tokio::io::duplex(4096);
+        let (tx, rx) = mpsc::channel(8);
+        let session = RuntimeRpcSession {
+            tx,
+            next_id: Arc::new(AtomicU64::new(1)),
+        };
+        tokio::spawn(run_runtime_rpc_session(Box::new(client_stream), rx));
+
+        let server = tokio::spawn(async move {
+            let mut reader = BufReader::new(server_stream);
+            let mut first_line = String::new();
+            let mut second_line = String::new();
+            reader.read_line(&mut first_line).await.expect("first read");
+            reader
+                .read_line(&mut second_line)
+                .await
+                .expect("second read");
+
+            let first: serde_json::Value =
+                serde_json::from_str(first_line.trim()).expect("first json");
+            let second: serde_json::Value =
+                serde_json::from_str(second_line.trim()).expect("second json");
+            let first_response = json!({
+                "jsonrpc": "2.0",
+                "id": first["id"],
+                "result": {"method": first["method"]}
+            });
+            let second_response = json!({
+                "jsonrpc": "2.0",
+                "id": second["id"],
+                "result": {"method": second["method"]}
+            });
+
+            let write_half = reader.get_mut();
+            write_half
+                .write_all(format!("{second_response}\n").as_bytes())
+                .await
+                .expect("write second");
+            write_half
+                .write_all(format!("{first_response}\n").as_bytes())
+                .await
+                .expect("write first");
+        });
+
+        let first = call_runtime_rpc_session(session.clone(), "rpc.health", json!({}));
+        let second = call_runtime_rpc_session(session, "rpc.capabilities", json!({}));
+        let (first_result, second_result) = tokio::join!(first, second);
+
+        assert_eq!(first_result.expect("first result")["method"], "rpc.health");
+        assert_eq!(
+            second_result.expect("second result")["method"],
+            "rpc.capabilities"
+        );
+
+        server.await.expect("server task");
     }
 
     #[test]

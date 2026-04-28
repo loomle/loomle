@@ -106,11 +106,6 @@ void FLoomlePipeServer::StopServer()
     }
 }
 
-bool FLoomlePipeServer::SendServerNotification(const FString& JsonMessage)
-{
-    return WriteMessage(JsonMessage);
-}
-
 bool FLoomlePipeServer::TryBeginInFlight()
 {
     const int32 NewCount = InFlightRequestCount.Increment();
@@ -131,7 +126,6 @@ void FLoomlePipeServer::EndInFlight()
 void FLoomlePipeServer::RegisterConnection(int32 ConnectionSerial, void* NativeHandle)
 {
     FScopeLock ScopeLock(&WriteMutex);
-    ActiveConnectionSerial.Set(ConnectionSerial);
 #if PLATFORM_WINDOWS
     ActivePipeHandles.Add(ConnectionSerial, NativeHandle);
 #else
@@ -147,10 +141,6 @@ void FLoomlePipeServer::UnregisterConnection(int32 ConnectionSerial)
 #else
     ActiveClientFds.Remove(ConnectionSerial);
 #endif
-    if (ActiveConnectionSerial.GetValue() == ConnectionSerial)
-    {
-        ActiveConnectionSerial.Set(0);
-    }
 }
 
 void FLoomlePipeServer::CloseAllConnections()
@@ -181,7 +171,6 @@ void FLoomlePipeServer::CloseAllConnections()
 void FLoomlePipeServer::Stop()
 {
     bStopRequested = true;
-    ActiveConnectionSerial.Set(0);
 
 #if PLATFORM_WINDOWS
     {
@@ -251,7 +240,7 @@ uint32 FLoomlePipeServer::Run()
         const int32 ConnectionSerial = NextConnectionSerial.Increment();
         RegisterConnection(ConnectionSerial, LocalPipe);
         ActiveWorkerCount.Increment();
-        UE_LOG(LogLoomlePipe, Display, TEXT("Loomle client connected on %s"), *FullPipePath);
+        UE_LOG(LogLoomlePipe, Verbose, TEXT("Loomle client connected on %s"), *FullPipePath);
         Async(EAsyncExecution::Thread, [this, LocalPipe, ConnectionSerial]()
         {
             HandleWindowsClient(LocalPipe, ConnectionSerial);
@@ -311,7 +300,7 @@ uint32 FLoomlePipeServer::Run()
         const int32 ConnectionSerial = NextConnectionSerial.Increment();
         RegisterConnection(ConnectionSerial, reinterpret_cast<void*>(static_cast<UPTRINT>(LocalClientFd)));
         ActiveWorkerCount.Increment();
-        UE_LOG(LogLoomlePipe, Display, TEXT("Loomle client connected on unix socket %s"), *SocketPath);
+        UE_LOG(LogLoomlePipe, Verbose, TEXT("Loomle client connected on unix socket %s"), *SocketPath);
         Async(EAsyncExecution::Thread, [this, LocalClientFd, ConnectionSerial]()
         {
             HandleUnixClient(LocalClientFd, ConnectionSerial);
@@ -327,47 +316,6 @@ uint32 FLoomlePipeServer::Run()
 #endif
 
     return 0;
-}
-
-bool FLoomlePipeServer::WriteMessage(const FString& Message)
-{
-    FScopeLock ScopeLock(&WriteMutex);
-    const int32 Serial = ActiveConnectionSerial.GetValue();
-    if (Serial == 0)
-    {
-        return false;
-    }
-
-#if PLATFORM_WINDOWS
-    void** HandlePtr = ActivePipeHandles.Find(Serial);
-    if (HandlePtr == nullptr || *HandlePtr == nullptr || *HandlePtr == INVALID_HANDLE_VALUE)
-    {
-        return false;
-    }
-
-    const FString MessageWithNewline = Message + TEXT("\n");
-    FTCHARToUTF8 Utf8(*MessageWithNewline);
-    DWORD BytesWritten = 0;
-    const BOOL bOk = WriteFile(
-        static_cast<HANDLE>(*HandlePtr),
-        Utf8.Get(),
-        static_cast<DWORD>(Utf8.Length()),
-        &BytesWritten,
-        nullptr);
-
-    return bOk && BytesWritten == static_cast<DWORD>(Utf8.Length());
-#else
-    int32* ClientFdPtr = ActiveClientFds.Find(Serial);
-    if (ClientFdPtr == nullptr || *ClientFdPtr < 0)
-    {
-        return false;
-    }
-
-    const FString MessageWithNewline = Message + TEXT("\n");
-    FTCHARToUTF8 Utf8(*MessageWithNewline);
-    const ssize_t BytesWritten = write(*ClientFdPtr, Utf8.Get(), static_cast<size_t>(Utf8.Length()));
-    return BytesWritten == Utf8.Length();
-#endif
 }
 
 bool FLoomlePipeServer::WriteMessageForConnection(const FString& Message, int32 ExpectedConnectionSerial)
@@ -464,7 +412,7 @@ void FLoomlePipeServer::HandleWindowsClient(void* NativeHandle, int32 Connection
             EndInFlight();
             if (!Response.IsEmpty() && !WriteMessageForConnection(Response, ConnectionSerial))
             {
-                UE_LOG(LogLoomlePipe, Display, TEXT("Dropping response for stale or disconnected pipe client"));
+                UE_LOG(LogLoomlePipe, Verbose, TEXT("Dropping response for stale or disconnected pipe client"));
                 break;
             }
         }
@@ -478,7 +426,7 @@ void FLoomlePipeServer::HandleWindowsClient(void* NativeHandle, int32 Connection
     FlushFileBuffers(LocalPipe);
     DisconnectNamedPipe(LocalPipe);
     CloseHandle(LocalPipe);
-    UE_LOG(LogLoomlePipe, Display, TEXT("Loomle client disconnected"));
+    UE_LOG(LogLoomlePipe, Verbose, TEXT("Loomle client disconnected"));
 #endif
 }
 
@@ -534,7 +482,7 @@ void FLoomlePipeServer::HandleUnixClient(int32 LocalClientFd, int32 ConnectionSe
             EndInFlight();
             if (!Response.IsEmpty() && !WriteMessageForConnection(Response, ConnectionSerial))
             {
-                UE_LOG(LogLoomlePipe, Display, TEXT("Dropping response for stale or disconnected socket client"));
+                UE_LOG(LogLoomlePipe, Verbose, TEXT("Dropping response for stale or disconnected socket client"));
                 break;
             }
         }
@@ -546,7 +494,7 @@ void FLoomlePipeServer::HandleUnixClient(int32 LocalClientFd, int32 ConnectionSe
         ConnectionClosedHandler(ConnectionSerial);
     }
     close(LocalClientFd);
-    UE_LOG(LogLoomlePipe, Display, TEXT("Loomle client disconnected"));
+    UE_LOG(LogLoomlePipe, Verbose, TEXT("Loomle client disconnected"));
 #endif
 }
 

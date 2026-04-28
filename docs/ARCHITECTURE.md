@@ -6,24 +6,24 @@ Build a clean split where:
 
 - `loomle` is the standard MCP client.
 - `LoomleBridge` owns the runtime authority and native MCP server path.
-- project-scoped socket/pipe transport connects the client to the Unreal-hosted runtime.
+- project-scoped socket/pipe transport connects the MCP proxy to the Unreal-hosted runtime.
 
 ## 2. Topology
 
 1. MCP Client
 - Sends MCP requests.
 
-2. `LoomleBridge` MCP Runtime (C++)
-- Implements MCP lifecycle and tool contracts.
-- Owns tool registry, tool bridge, and per-connection session state.
-- Reuses Unreal authority-side dispatch for runtime-dependent tools.
+2. `loomle` MCP Proxy (Rust)
+- Implements MCP lifecycle and public tool contracts.
+- Maintains a stable runtime RPC session per attached Unreal endpoint.
+- Bridges runtime-dependent tools to Unreal via JSON-RPC.
 
-3. Local Transport Host
+3. `LoomleBridge` Runtime (C++)
 - Owns project-scoped socket/pipe lifecycle.
-- Routes raw MCP messages between the client and runtime sessions.
-- Dispatches to runtime handlers.
+- Executes runtime tool handlers.
+- Keeps the client connection open for a stable RPC session.
 
-5. Unreal Runtime Handlers (C++)
+4. Unreal Runtime Handlers (C++)
 - Execute domain operations and return deterministic results.
 
 ## 3. Boundary Policy
@@ -60,7 +60,6 @@ MCP tools:
 - `graph.verify`
 - `diagnostic.tail`
 - `log.tail`
-- `log.subscribe`
 
 Execution route:
 
@@ -84,11 +83,11 @@ Execution route:
 - `graph.verify`: native MCP `tools/call`.
 - `diagnostic.tail`: native MCP `tools/call`.
 - `log.tail`: native MCP `tools/call`.
-- `log.subscribe`: native MCP `tools/call`; manages filtered `notifications/loomle/log` streams without adding a separate unsubscribe tool.
 
 Windows transport contention handling:
 
 - Named-pipe open failures with OS error `231` are treated as transient and retried with bounded backoff (+ small jitter) before surfacing an error.
+- Runtime RPC uses one stable pipe/socket session per attached endpoint. JSON-RPC ids correlate responses; current Unreal-side execution remains ordered per connection.
 
 ## 5. Determinism Rules
 
