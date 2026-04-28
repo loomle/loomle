@@ -980,9 +980,13 @@ impl LoomleProxyServer {
             "blueprint.graph.edit" => Ok(Some(self.call_blueprint_graph_edit(args).await?)),
             "blueprint.validate" => Ok(Some(self.call_blueprint_validate(args).await?)),
             "blueprint.compile" => Ok(Some(self.call_blueprint_compile(args).await?)),
-            "blueprint.asset.inspect" => Ok(Some(self.call_blueprint_asset_inspect(args).await?)),
-            "blueprint.asset.edit" => {
-                Ok(Some(self.runtime_call("blueprint.asset.edit", args).await?))
+            "blueprint.inspect" => Ok(Some(self.call_blueprint_inspect(args).await?)),
+            "blueprint.edit" => Ok(Some(self.runtime_call("blueprint.edit", args).await?)),
+            "blueprint.enum.inspect" => {
+                Ok(Some(self.runtime_call("blueprint.enum.inspect", args).await?))
+            }
+            "blueprint.enum.edit" => {
+                Ok(Some(self.runtime_call("blueprint.enum.edit", args).await?))
             }
             "blueprint.member.inspect" => Ok(Some(self.call_blueprint_member_inspect(args).await?)),
             "blueprint.member.edit" => Ok(Some(
@@ -1036,7 +1040,7 @@ impl LoomleProxyServer {
         }
     }
 
-    async fn call_blueprint_asset_inspect(
+    async fn call_blueprint_inspect(
         &self,
         args: rmcp::model::JsonObject,
     ) -> Result<CallToolResult, McpError> {
@@ -2863,8 +2867,10 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("editor.open", "Open or focus the editor for a specific Unreal asset path.", Arc::new(editor_open_schema())),
         Tool::new("editor.focus", "Focus a semantic panel inside an asset editor, such as graph, viewport, details, palette, or find.", Arc::new(editor_focus_schema())),
         Tool::new("editor.screenshot", "Capture a PNG of the active editor window and return the written file path.", Arc::new(editor_screenshot_schema())),
-        Tool::new("blueprint.asset.inspect", "Inspect a Blueprint asset and its asset-level contract.", Arc::new(blueprint_asset_inspect_schema())),
-        Tool::new("blueprint.asset.edit", "Edit Blueprint asset-level properties and relationships.", Arc::new(blueprint_asset_edit_schema())),
+        Tool::new("blueprint.inspect", "Inspect a Blueprint and its class-level contract.", Arc::new(blueprint_inspect_schema())),
+        Tool::new("blueprint.edit", "Edit Blueprint-level properties and relationships.", Arc::new(blueprint_edit_schema())),
+        Tool::new("blueprint.enum.inspect", "Inspect a Blueprint user-defined enum asset.", Arc::new(blueprint_enum_inspect_schema())),
+        Tool::new("blueprint.enum.edit", "Create or edit a Blueprint user-defined enum asset.", Arc::new(blueprint_enum_edit_schema())),
         Tool::new("blueprint.member.inspect", "Inspect Blueprint members such as variables, functions, macros, dispatchers, events, and components.", Arc::new(blueprint_member_inspect_schema())),
         Tool::new("blueprint.member.edit", "Edit Blueprint members such as variables, functions, macros, dispatchers, events, and components.", Arc::new(blueprint_member_edit_schema())),
         Tool::new("blueprint.graph.list", "List Blueprint graphs in an asset.", Arc::new(blueprint_graph_list_schema())),
@@ -3867,11 +3873,11 @@ fn mutation_control_fields(properties: &mut serde_json::Map<String, serde_json::
     );
 }
 
-fn blueprint_asset_inspect_schema() -> rmcp::model::JsonObject {
+fn blueprint_inspect_schema() -> rmcp::model::JsonObject {
     asset_path_only_schema("Blueprint asset path.")
 }
 
-fn blueprint_asset_edit_schema() -> rmcp::model::JsonObject {
+fn blueprint_edit_schema() -> rmcp::model::JsonObject {
     let mut properties = serde_json::Map::new();
     properties.insert(
         "assetPath".into(),
@@ -3880,6 +3886,30 @@ fn blueprint_asset_edit_schema() -> rmcp::model::JsonObject {
     properties.insert(
         "operation".into(),
         serde_json::json!({"type":"string","enum":["create","duplicate","rename","delete","reparent","setMetadata","getDefaults","setDefaults","setParent","listInterfaces","addInterface","removeInterface"]}),
+    );
+    properties.insert("args".into(), serde_json::json!({"type":"object"}));
+    mutation_control_fields(&mut properties);
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":["assetPath","operation"],
+        "additionalProperties": false
+    }))
+}
+
+fn blueprint_enum_inspect_schema() -> rmcp::model::JsonObject {
+    asset_path_only_schema("Blueprint enum asset path.")
+}
+
+fn blueprint_enum_edit_schema() -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert(
+        "operation".into(),
+        serde_json::json!({"type":"string","enum":["create","updateEntries"]}),
     );
     properties.insert("args".into(), serde_json::json!({"type":"object"}));
     mutation_control_fields(&mut properties);

@@ -51,8 +51,8 @@ Public MCP tools should still be compressed where usage is low-frequency and sch
 
 Recommended compressed public surface for non-graph Blueprint operations:
 
-- `blueprint.asset.inspect`
-- `blueprint.asset.edit`
+- `blueprint.inspect`
+- `blueprint.edit`
 - `blueprint.member.inspect`
 - `blueprint.member.edit`
 
@@ -71,16 +71,16 @@ Recommended public graph surface:
 
 ## Domain 1: Asset
 
-Asset is a conceptual domain. Public MCP tools should expose asset operations through `blueprint.asset.inspect` and `blueprint.asset.edit`.
+Asset is a conceptual domain. Public MCP tools should expose asset operations through `blueprint.inspect` and `blueprint.edit`.
 
 ### Tools
 
-- `blueprint.asset.inspect`
-- `blueprint.asset.edit`
+- `blueprint.inspect`
+- `blueprint.edit`
 
 ### Asset Edit Operations
 
-Recommended `blueprint.asset.edit` operation set:
+Recommended `blueprint.edit` operation set:
 
 - `create`
 - `duplicate`
@@ -109,12 +109,12 @@ Recommended `blueprint.asset.edit` operation set:
 
 ## Domain 2: Inheritance / Interfaces
 
-Inheritance and interfaces remain a conceptual asset subdomain. Public MCP tools should expose these operations through `blueprint.asset.inspect` and `blueprint.asset.edit`.
+Inheritance and interfaces remain a conceptual asset subdomain. Public MCP tools should expose these operations through `blueprint.inspect` and `blueprint.edit`.
 
 ### Tools
 
-- `blueprint.asset.inspect`
-- `blueprint.asset.edit`
+- `blueprint.inspect`
+- `blueprint.edit`
 
 ### Asset Edit Operations
 
@@ -2502,8 +2502,8 @@ should remain consistent across all Blueprint write interfaces.
 
 The current recommended public Blueprint surface for these domains is:
 
-- `blueprint.asset.inspect`
-- `blueprint.asset.edit`
+- `blueprint.inspect`
+- `blueprint.edit`
 - `blueprint.member.inspect`
 - `blueprint.member.edit`
 - `blueprint.graph.list`

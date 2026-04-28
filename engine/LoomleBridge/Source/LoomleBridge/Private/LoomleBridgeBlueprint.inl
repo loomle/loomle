@@ -332,6 +332,18 @@ TSharedPtr<FJsonObject> MakeBlueprintDescribePropertyType(const FProperty* Prope
         ValueKind = TEXT("enum");
         ObjectClassPath = EnumProperty->GetEnum() ? EnumProperty->GetEnum()->GetPathName() : TEXT("");
     }
+    else if (const FByteProperty* ByteProperty = CastField<FByteProperty>(Property))
+    {
+        if (ByteProperty->Enum != nullptr)
+        {
+            ValueKind = TEXT("enum");
+            ObjectClassPath = ByteProperty->Enum->GetPathName();
+        }
+        else
+        {
+            ValueKind = TEXT("number");
+        }
+    }
     else if (Property->IsA<FArrayProperty>())
     {
         ValueKind = TEXT("array");
@@ -1193,7 +1205,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintListToolResult(const 
     return Result;
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintAssetEditToolResult(const TSharedPtr<FJsonObject>& Arguments)
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
@@ -1208,7 +1220,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintAssetEditToolResult(c
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Result->SetStringField(TEXT("message"), TEXT("blueprint.asset.edit requires assetPath and operation."));
+        Result->SetStringField(TEXT("message"), TEXT("blueprint.edit requires assetPath and operation."));
         return Result;
     }
 
@@ -1250,7 +1262,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintAssetEditToolResult(c
         {
             Result->SetBoolField(TEXT("isError"), true);
             Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
-            Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.asset.edit create failed") : Error);
+            Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.edit create failed") : Error);
             return Result;
         }
 
@@ -1272,7 +1284,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintAssetEditToolResult(c
         {
             Result->SetBoolField(TEXT("isError"), true);
             Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-            Result->SetStringField(TEXT("message"), TEXT("blueprint.asset.edit setParent requires args.parentClassPath."));
+            Result->SetStringField(TEXT("message"), TEXT("blueprint.edit setParent requires args.parentClassPath."));
             return Result;
         }
 
@@ -1289,7 +1301,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintAssetEditToolResult(c
         {
             Result->SetBoolField(TEXT("isError"), true);
             Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-            Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.asset.edit setParent failed") : Error);
+            Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.edit setParent failed") : Error);
             return Result;
         }
 
@@ -1307,7 +1319,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintAssetEditToolResult(c
         {
             Result->SetBoolField(TEXT("isError"), true);
             Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
-            Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.asset.edit listInterfaces failed") : Error);
+            Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.edit listInterfaces failed") : Error);
             return Result;
         }
 
@@ -1334,8 +1346,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintAssetEditToolResult(c
             Result->SetStringField(
                 TEXT("message"),
                 Operation.Equals(TEXT("addInterface"), ESearchCase::IgnoreCase)
-                    ? TEXT("blueprint.asset.edit addInterface requires args.interfaceClassPath.")
-                    : TEXT("blueprint.asset.edit removeInterface requires args.interfaceClassPath."));
+                    ? TEXT("blueprint.edit addInterface requires args.interfaceClassPath.")
+                    : TEXT("blueprint.edit removeInterface requires args.interfaceClassPath."));
             return Result;
         }
 
@@ -1363,7 +1375,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintAssetEditToolResult(c
         {
             Result->SetBoolField(TEXT("isError"), true);
             Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-            Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.asset.edit interface operation failed") : Error);
+            Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.edit interface operation failed") : Error);
             return Result;
         }
 
@@ -1376,7 +1388,132 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintAssetEditToolResult(c
     Result->SetStringField(TEXT("code"), TEXT("NOT_IMPLEMENTED"));
     Result->SetStringField(
         TEXT("message"),
-        FString::Printf(TEXT("blueprint.asset.edit does not support operation yet: %s"), *Operation));
+        FString::Printf(TEXT("blueprint.edit does not support operation yet: %s"), *Operation));
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEnumInspectToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+
+    FString AssetPath;
+    if (!Arguments.IsValid() || !Arguments->TryGetStringField(TEXT("assetPath"), AssetPath) || AssetPath.IsEmpty())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("blueprint.enum.inspect requires assetPath."));
+        return Result;
+    }
+
+    AssetPath = NormalizeAssetPath(AssetPath);
+    FString EnumJson;
+    FString Error;
+    if (!FLoomleBlueprintAdapter::DescribeUserDefinedEnum(AssetPath, EnumJson, Error))
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), Error.Contains(TEXT("not found")) ? TEXT("ASSET_NOT_FOUND") : TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.enum.inspect failed") : Error);
+        return Result;
+    }
+
+    const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(EnumJson);
+    FJsonSerializer::Deserialize(Reader, Result);
+    Result->SetBoolField(TEXT("isError"), false);
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEnumEditToolResult(const TSharedPtr<FJsonObject>& Arguments)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+
+    FString AssetPath;
+    FString Operation;
+    if (!Arguments.IsValid()
+        || !Arguments->TryGetStringField(TEXT("assetPath"), AssetPath)
+        || AssetPath.IsEmpty()
+        || !Arguments->TryGetStringField(TEXT("operation"), Operation)
+        || Operation.IsEmpty())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("blueprint.enum.edit requires assetPath and operation."));
+        return Result;
+    }
+
+    AssetPath = NormalizeAssetPath(AssetPath);
+    Result->SetStringField(TEXT("assetPath"), AssetPath);
+    Result->SetStringField(TEXT("operation"), Operation);
+
+    const TSharedPtr<FJsonObject>* ArgsObject = nullptr;
+    const TSharedPtr<FJsonObject> EmptyArgs = MakeShared<FJsonObject>();
+    const TSharedPtr<FJsonObject> EffectiveArgs =
+        (Arguments->TryGetObjectField(TEXT("args"), ArgsObject) && ArgsObject != nullptr && (*ArgsObject).IsValid())
+            ? *ArgsObject
+            : EmptyArgs;
+
+    bool bDryRun = false;
+    Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
+    Result->SetBoolField(TEXT("dryRun"), bDryRun);
+    if (bDryRun)
+    {
+        Result->SetBoolField(TEXT("applied"), false);
+        return Result;
+    }
+
+    const FString PayloadJson = SerializeBlueprintJsonObjectCondensed(EffectiveArgs);
+    FString EnumJson;
+    FString Error;
+    bool bOk = false;
+    if (Operation.Equals(TEXT("create"), ESearchCase::IgnoreCase))
+    {
+        bOk = FLoomleBlueprintAdapter::CreateUserDefinedEnum(AssetPath, PayloadJson, EnumJson, Error);
+    }
+    else if (Operation.Equals(TEXT("updateEntries"), ESearchCase::IgnoreCase))
+    {
+        bOk = FLoomleBlueprintAdapter::UpdateUserDefinedEnumEntries(AssetPath, PayloadJson, EnumJson, Error);
+    }
+    else
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("NOT_IMPLEMENTED"));
+        Result->SetStringField(TEXT("message"), FString::Printf(TEXT("blueprint.enum.edit does not support operation yet: %s"), *Operation));
+        return Result;
+    }
+
+    if (!bOk)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(
+            TEXT("code"),
+            Error.Contains(TEXT("already exists"))
+                ? TEXT("ALREADY_EXISTS")
+                : Error.Contains(TEXT("not found"))
+                ? TEXT("ASSET_NOT_FOUND")
+                : TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.enum.edit failed") : Error);
+        return Result;
+    }
+
+    TSharedPtr<FJsonObject> EnumObject;
+    const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(EnumJson);
+    if (FJsonSerializer::Deserialize(Reader, EnumObject) && EnumObject.IsValid())
+    {
+        Result->SetObjectField(TEXT("enum"), EnumObject);
+        FString EnumPath;
+        if (EnumObject->TryGetStringField(TEXT("enumPath"), EnumPath))
+        {
+            Result->SetStringField(TEXT("enumPath"), EnumPath);
+        }
+        const TArray<TSharedPtr<FJsonValue>>* Entries = nullptr;
+        if (EnumObject->TryGetArrayField(TEXT("entries"), Entries) && Entries != nullptr)
+        {
+            Result->SetArrayField(TEXT("entries"), *Entries);
+        }
+    }
+
+    Result->SetBoolField(TEXT("applied"), true);
     return Result;
 }
 

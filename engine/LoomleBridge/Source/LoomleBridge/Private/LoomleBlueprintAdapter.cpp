@@ -11,6 +11,7 @@
 #include "Editor.h"
 #include "Engine/Blueprint.h"
 #include "Engine/TimelineTemplate.h"
+#include "Engine/UserDefinedEnum.h"
 #include "Engine/SCS_Node.h"
 #include "Engine/SimpleConstructionScript.h"
 #include "Engine/World.h"
@@ -40,6 +41,7 @@
 #include "EdGraphUtilities.h"
 #include "Misc/Guid.h"
 #include "Kismet2/BlueprintEditorUtils.h"
+#include "Kismet2/EnumEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
@@ -70,6 +72,9 @@ namespace LoomleBlueprintAdapterInternal
     static FString DescribeCustomEventReplication(const uint32 FunctionFlags);
     static FString JsonObjectToCondensedString(const TSharedPtr<FJsonObject>& Object);
     static FString JsonArrayToString(const TArray<TSharedPtr<FJsonValue>>& ArrayValues);
+    static bool TryGetStringFieldAny(const TSharedPtr<FJsonObject>& Object, std::initializer_list<const TCHAR*> FieldNames, FString& OutValue);
+    static TSharedPtr<FJsonObject> TryGetObjectFieldAny(const TSharedPtr<FJsonObject>& Object, std::initializer_list<const TCHAR*> FieldNames);
+    static TArray<TSharedPtr<FJsonValue>> TryGetArrayFieldAny(const TSharedPtr<FJsonObject>& Object, std::initializer_list<const TCHAR*> FieldNames);
 
     static FString BoolToJsonString(bool bValue)
     {
@@ -682,6 +687,172 @@ namespace LoomleBlueprintAdapterInternal
         const FString AssetName = FPackageName::GetLongPackageAssetName(AssetPath);
         const FString ObjectPath = FString::Printf(TEXT("%s.%s"), *AssetPath, *AssetName);
         return LoadObject<UBlueprint>(nullptr, *ObjectPath);
+    }
+
+    static UUserDefinedEnum* LoadUserDefinedEnumByAssetPath(const FString& AssetPath)
+    {
+        if (!FPackageName::IsValidLongPackageName(AssetPath))
+        {
+            return nullptr;
+        }
+
+        const FString AssetName = FPackageName::GetLongPackageAssetName(AssetPath);
+        const FString ObjectPath = FString::Printf(TEXT("%s.%s"), *AssetPath, *AssetName);
+        return LoadObject<UUserDefinedEnum>(nullptr, *ObjectPath);
+    }
+
+    static TSharedPtr<FJsonObject> SerializeUserDefinedEnum(const UUserDefinedEnum* Enum)
+    {
+        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+        if (Enum == nullptr)
+        {
+            return Result;
+        }
+
+        Result->SetStringField(TEXT("assetPath"), Enum->GetOutermost() ? Enum->GetOutermost()->GetName() : TEXT(""));
+        Result->SetStringField(TEXT("enumPath"), Enum->GetPathName());
+        Result->SetStringField(TEXT("name"), Enum->GetName());
+        Result->SetBoolField(TEXT("isUserDefinedEnum"), true);
+
+        TArray<TSharedPtr<FJsonValue>> Entries;
+        const int32 EntryCount = FMath::Max(0, Enum->NumEnums() - 1);
+        for (int32 Index = 0; Index < EntryCount; ++Index)
+        {
+            TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+            Entry->SetStringField(TEXT("name"), Enum->GetAuthoredNameStringByIndex(Index));
+            Entry->SetStringField(TEXT("fullName"), Enum->GetNameStringByIndex(Index));
+            Entry->SetStringField(TEXT("displayName"), Enum->GetDisplayNameTextByIndex(Index).ToString());
+            Entry->SetNumberField(TEXT("value"), static_cast<double>(Enum->GetValueByIndex(Index)));
+            Entries.Add(MakeShared<FJsonValueObject>(Entry));
+        }
+        Result->SetArrayField(TEXT("entries"), Entries);
+        Result->SetNumberField(TEXT("entryCount"), EntryCount);
+        return Result;
+    }
+
+    static bool ParseEnumEntrySpecs(
+        const TSharedPtr<FJsonObject>& Payload,
+        TArray<FString>& OutEntryNames,
+        TMap<FString, FString>& OutDisplayNames,
+        FString& OutError)
+    {
+        OutEntryNames.Reset();
+        OutDisplayNames.Reset();
+        OutError.Empty();
+
+        const TArray<TSharedPtr<FJsonValue>> Entries = TryGetArrayFieldAny(Payload, {TEXT("entries"), TEXT("enumerators")});
+        if (Entries.Num() == 0)
+        {
+            OutError = TEXT("Blueprint enum edit requires args.entries.");
+            return false;
+        }
+
+        TSet<FString> SeenNames;
+        for (const TSharedPtr<FJsonValue>& EntryValue : Entries)
+        {
+            FString Name;
+            FString DisplayName;
+            if (EntryValue.IsValid() && EntryValue->Type == EJson::String)
+            {
+                Name = EntryValue->AsString();
+            }
+            else
+            {
+                const TSharedPtr<FJsonObject> EntryObject = EntryValue.IsValid() ? EntryValue->AsObject() : nullptr;
+                if (!EntryObject.IsValid())
+                {
+                    OutError = TEXT("Blueprint enum entries must be strings or objects.");
+                    return false;
+                }
+                TryGetStringFieldAny(EntryObject, {TEXT("name"), TEXT("entryName"), TEXT("enumeratorName")}, Name);
+                TryGetStringFieldAny(EntryObject, {TEXT("displayName"), TEXT("display")}, DisplayName);
+            }
+
+            Name = Name.TrimStartAndEnd();
+            if (Name.IsEmpty())
+            {
+                OutError = TEXT("Blueprint enum entry name cannot be empty.");
+                return false;
+            }
+            if (Name.Contains(TEXT("::")) || Name.Contains(TEXT(".")) || Name.Contains(TEXT(" ")))
+            {
+                OutError = FString::Printf(TEXT("Blueprint enum entry names must be short names without spaces or qualifiers: %s"), *Name);
+                return false;
+            }
+            if (SeenNames.Contains(Name))
+            {
+                OutError = FString::Printf(TEXT("Duplicate Blueprint enum entry name: %s"), *Name);
+                return false;
+            }
+
+            SeenNames.Add(Name);
+            OutEntryNames.Add(Name);
+            if (!DisplayName.IsEmpty())
+            {
+                OutDisplayNames.Add(Name, DisplayName);
+            }
+        }
+
+        const TSharedPtr<FJsonObject> DisplayNamesObject = TryGetObjectFieldAny(Payload, {TEXT("displayNames")});
+        if (DisplayNamesObject.IsValid())
+        {
+            for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : DisplayNamesObject->Values)
+            {
+                if (Pair.Value.IsValid())
+                {
+                    OutDisplayNames.Add(Pair.Key, Pair.Value->AsString());
+                }
+            }
+        }
+
+        return true;
+    }
+
+    static bool ApplyUserDefinedEnumEntries(
+        UUserDefinedEnum* Enum,
+        const TArray<FString>& EntryNames,
+        const TMap<FString, FString>& DisplayNames,
+        FString& OutError)
+    {
+        OutError.Empty();
+        if (Enum == nullptr)
+        {
+            OutError = TEXT("Blueprint enum asset not found.");
+            return false;
+        }
+
+        TArray<TPair<FName, int64>> Names;
+        for (int32 Index = 0; Index < EntryNames.Num(); ++Index)
+        {
+            const FString& EntryName = EntryNames[Index];
+            const FName ShortName(*EntryName);
+            const FName FullName(*Enum->GenerateFullEnumName(*EntryName));
+            if (!ShortName.IsValidXName(INVALID_OBJECTNAME_CHARACTERS))
+            {
+                OutError = FString::Printf(TEXT("Invalid Blueprint enum entry name: %s"), *EntryName);
+                return false;
+            }
+            Names.Emplace(FullName, Index);
+        }
+
+        Enum->Modify();
+        if (!Enum->SetEnums(Names, UEnum::ECppForm::Namespaced))
+        {
+            OutError = TEXT("Failed to update Blueprint enum entries.");
+            return false;
+        }
+        FEnumEditorUtils::EnsureAllDisplayNamesExist(Enum);
+
+        for (int32 Index = 0; Index < EntryNames.Num(); ++Index)
+        {
+            if (const FString* DisplayName = DisplayNames.Find(EntryNames[Index]))
+            {
+                FEnumEditorUtils::SetEnumeratorDisplayName(Enum, Index, FText::FromString(*DisplayName));
+            }
+        }
+
+        Enum->MarkPackageDirty();
+        return true;
     }
 
     static UClass* ResolveClass(const FString& ClassPathOrName)
@@ -3486,6 +3657,132 @@ bool FLoomleBlueprintAdapter::CreateBlueprint(const FString& AssetPath, const FS
     FAssetRegistryModule::AssetCreated(Blueprint);
     Blueprint->MarkPackageDirty();
     OutBlueprintObjectPath = FString::Printf(TEXT("%s.%s"), *AssetPath, *AssetName);
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::DescribeUserDefinedEnum(const FString& EnumAssetPath, FString& OutEnumJson, FString& OutError)
+{
+    OutEnumJson.Empty();
+    OutError.Empty();
+
+    if (!FPackageName::IsValidLongPackageName(EnumAssetPath))
+    {
+        OutError = TEXT("Invalid enum assetPath; expected /Game/... long package name.");
+        return false;
+    }
+
+    UUserDefinedEnum* Enum = LoomleBlueprintAdapterInternal::LoadUserDefinedEnumByAssetPath(EnumAssetPath);
+    if (Enum == nullptr)
+    {
+        OutError = TEXT("Blueprint enum asset not found.");
+        return false;
+    }
+
+    OutEnumJson = LoomleBlueprintAdapterInternal::JsonObjectToCondensedString(
+        LoomleBlueprintAdapterInternal::SerializeUserDefinedEnum(Enum));
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::CreateUserDefinedEnum(const FString& EnumAssetPath, const FString& PayloadJson, FString& OutEnumJson, FString& OutError)
+{
+    OutEnumJson.Empty();
+    OutError.Empty();
+
+    if (!FPackageName::IsValidLongPackageName(EnumAssetPath))
+    {
+        OutError = TEXT("Invalid enum assetPath; expected /Game/... long package name.");
+        return false;
+    }
+
+    if (LoomleBlueprintAdapterInternal::LoadUserDefinedEnumByAssetPath(EnumAssetPath) != nullptr)
+    {
+        OutError = TEXT("Blueprint enum asset already exists.");
+        return false;
+    }
+
+    TSharedPtr<FJsonObject> Payload;
+    if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Payload))
+    {
+        OutError = TEXT("Failed to parse Blueprint enum payload JSON.");
+        return false;
+    }
+
+    TArray<FString> EntryNames;
+    TMap<FString, FString> DisplayNames;
+    if (!LoomleBlueprintAdapterInternal::ParseEnumEntrySpecs(Payload, EntryNames, DisplayNames, OutError))
+    {
+        return false;
+    }
+
+    const FString AssetName = FPackageName::GetLongPackageAssetName(EnumAssetPath);
+    UPackage* Package = CreatePackage(*EnumAssetPath);
+    if (Package == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Failed to create package: %s"), *EnumAssetPath);
+        return false;
+    }
+
+    UUserDefinedEnum* Enum = Cast<UUserDefinedEnum>(FEnumEditorUtils::CreateUserDefinedEnum(
+        Package,
+        FName(*AssetName),
+        RF_Public | RF_Standalone | RF_Transactional));
+    if (Enum == nullptr)
+    {
+        OutError = TEXT("Failed to create Blueprint user-defined enum.");
+        return false;
+    }
+
+    if (!LoomleBlueprintAdapterInternal::ApplyUserDefinedEnumEntries(Enum, EntryNames, DisplayNames, OutError))
+    {
+        return false;
+    }
+
+    FAssetRegistryModule::AssetCreated(Enum);
+    Enum->MarkPackageDirty();
+    OutEnumJson = LoomleBlueprintAdapterInternal::JsonObjectToCondensedString(
+        LoomleBlueprintAdapterInternal::SerializeUserDefinedEnum(Enum));
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::UpdateUserDefinedEnumEntries(const FString& EnumAssetPath, const FString& PayloadJson, FString& OutEnumJson, FString& OutError)
+{
+    OutEnumJson.Empty();
+    OutError.Empty();
+
+    if (!FPackageName::IsValidLongPackageName(EnumAssetPath))
+    {
+        OutError = TEXT("Invalid enum assetPath; expected /Game/... long package name.");
+        return false;
+    }
+
+    UUserDefinedEnum* Enum = LoomleBlueprintAdapterInternal::LoadUserDefinedEnumByAssetPath(EnumAssetPath);
+    if (Enum == nullptr)
+    {
+        OutError = TEXT("Blueprint enum asset not found.");
+        return false;
+    }
+
+    TSharedPtr<FJsonObject> Payload;
+    if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Payload))
+    {
+        OutError = TEXT("Failed to parse Blueprint enum payload JSON.");
+        return false;
+    }
+
+    TArray<FString> EntryNames;
+    TMap<FString, FString> DisplayNames;
+    if (!LoomleBlueprintAdapterInternal::ParseEnumEntrySpecs(Payload, EntryNames, DisplayNames, OutError))
+    {
+        return false;
+    }
+
+    if (!LoomleBlueprintAdapterInternal::ApplyUserDefinedEnumEntries(Enum, EntryNames, DisplayNames, OutError))
+    {
+        return false;
+    }
+
+    OutEnumJson = LoomleBlueprintAdapterInternal::JsonObjectToCondensedString(
+        LoomleBlueprintAdapterInternal::SerializeUserDefinedEnum(Enum));
     return true;
 }
 

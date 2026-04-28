@@ -45,7 +45,7 @@ def call_domain_tool(
             "query": "blueprint.graph.inspect",
             "mutate": "blueprint.graph.edit",
             "verify": "blueprint.validate",
-            "describe": "blueprint.asset.inspect",
+            "describe": "blueprint.inspect",
             "compile": "blueprint.compile",
         }.get(action, tool_name)
     return call_tool(client, request_id, tool_name, arguments, expect_error=expect_error)
@@ -543,6 +543,7 @@ def main() -> int:
     client = McpStdioClient(project_root=project_root, server_binary=server_binary, timeout_s=args.timeout)
     temp_asset = make_temp_asset_path(args.asset_prefix)
     temp_interface_asset = make_temp_asset_path("/Game/Codex/BPI_BridgeRegression")
+    temp_enum_asset = make_temp_asset_path("/Game/Codex/E_BridgeRegression")
     temp_pcg_asset = make_temp_asset_path("/Game/Codex/PCG_BridgeRegression")
     temp_pcg_health_asset = make_temp_asset_path("/Game/Codex/PCG_HealthRegression")
     temp_pcg_remove_asset = make_temp_asset_path("/Game/Codex/PCG_RemoveRegression")
@@ -712,6 +713,50 @@ def main() -> int:
             fail(f"graph.list event graph graphRef missing/invalid: {event_graph}")
         print("[PASS] blueprint.list validated")
 
+        enum_create_payload = call_tool(
+            client,
+            580,
+            "blueprint.enum.edit",
+            {
+                "assetPath": temp_enum_asset,
+                "operation": "create",
+                "args": {
+                    "entries": [
+                        {"name": "Idle", "displayName": "Idle"},
+                        {"name": "Active", "displayName": "Active"},
+                    ],
+                },
+            },
+        )
+        if enum_create_payload.get("applied") is not True:
+            fail(f"blueprint.enum.edit create did not apply: {enum_create_payload}")
+        enum_path = enum_create_payload.get("enumPath")
+        if not isinstance(enum_path, str) or "." not in enum_path:
+            fail(f"blueprint.enum.edit create missing enumPath: {enum_create_payload}")
+        enum_inspect_payload = call_tool(client, 581, "blueprint.enum.inspect", {"assetPath": temp_enum_asset})
+        enum_entries = enum_inspect_payload.get("entries")
+        if not isinstance(enum_entries, list) or [entry.get("name") for entry in enum_entries if isinstance(entry, dict)] != ["Idle", "Active"]:
+            fail(f"blueprint.enum.inspect entries mismatch: {enum_inspect_payload}")
+        enum_update_payload = call_tool(
+            client,
+            582,
+            "blueprint.enum.edit",
+            {
+                "assetPath": temp_enum_asset,
+                "operation": "updateEntries",
+                "args": {
+                    "entries": ["Idle", "Active", "Complete"],
+                    "displayNames": {"Complete": "Complete"},
+                },
+            },
+        )
+        if enum_update_payload.get("applied") is not True:
+            fail(f"blueprint.enum.edit updateEntries did not apply: {enum_update_payload}")
+        enum_updated_entries = enum_update_payload.get("entries")
+        if not isinstance(enum_updated_entries, list) or [entry.get("name") for entry in enum_updated_entries if isinstance(entry, dict)] != ["Idle", "Active", "Complete"]:
+            fail(f"blueprint.enum.edit updateEntries entries mismatch: {enum_update_payload}")
+        print("[PASS] blueprint.enum asset lifecycle validated")
+
         interface_fixture_payload = call_tool(
             client,
             600,
@@ -743,7 +788,7 @@ def main() -> int:
         dry_run_interface_payload = call_tool(
             client,
             606,
-            "blueprint.asset.edit",
+            "blueprint.edit",
             {
                 "assetPath": temp_asset,
                 "operation": "addInterface",
@@ -752,11 +797,11 @@ def main() -> int:
             },
         )
         if dry_run_interface_payload.get("applied") is not False or dry_run_interface_payload.get("dryRun") is not True:
-            fail(f"blueprint.asset.edit addInterface dryRun shape mismatch: {dry_run_interface_payload}")
+            fail(f"blueprint.edit addInterface dryRun shape mismatch: {dry_run_interface_payload}")
         dry_run_list_payload = call_tool(
             client,
             607,
-            "blueprint.asset.edit",
+            "blueprint.edit",
             {"assetPath": temp_asset, "operation": "listInterfaces"},
         )
         dry_run_interfaces = dry_run_list_payload.get("interfaces")
@@ -764,11 +809,11 @@ def main() -> int:
             isinstance(entry, dict) and entry.get("classPath") == interface_class_path
             for entry in dry_run_interfaces
         ):
-            fail(f"blueprint.asset.edit dryRun unexpectedly added interface: {dry_run_list_payload}")
+            fail(f"blueprint.edit dryRun unexpectedly added interface: {dry_run_list_payload}")
         add_interface_payload = call_tool(
             client,
             601,
-            "blueprint.asset.edit",
+            "blueprint.edit",
             {
                 "assetPath": temp_asset,
                 "operation": "addInterface",
@@ -776,11 +821,11 @@ def main() -> int:
             },
         )
         if add_interface_payload.get("applied") is not True:
-            fail(f"blueprint.asset.edit addInterface did not apply: {add_interface_payload}")
+            fail(f"blueprint.edit addInterface did not apply: {add_interface_payload}")
         list_interface_payload = call_tool(
             client,
             602,
-            "blueprint.asset.edit",
+            "blueprint.edit",
             {"assetPath": temp_asset, "operation": "listInterfaces"},
         )
         listed_interfaces = list_interface_payload.get("interfaces")
@@ -788,18 +833,18 @@ def main() -> int:
             isinstance(entry, dict) and entry.get("classPath") == interface_class_path
             for entry in listed_interfaces
         ):
-            fail(f"blueprint.asset.edit listInterfaces missing added interface: {list_interface_payload}")
-        asset_inspect_payload = call_tool(client, 603, "blueprint.asset.inspect", {"assetPath": temp_asset})
+            fail(f"blueprint.edit listInterfaces missing added interface: {list_interface_payload}")
+        asset_inspect_payload = call_tool(client, 603, "blueprint.inspect", {"assetPath": temp_asset})
         inspected_interfaces = asset_inspect_payload.get("implementedInterfaces")
         if not isinstance(inspected_interfaces, list) or not any(
             isinstance(entry, dict) and entry.get("classPath") == interface_class_path
             for entry in inspected_interfaces
         ):
-            fail(f"blueprint.asset.inspect missing implementedInterfaces entry: {asset_inspect_payload}")
+            fail(f"blueprint.inspect missing implementedInterfaces entry: {asset_inspect_payload}")
         remove_interface_payload = call_tool(
             client,
             604,
-            "blueprint.asset.edit",
+            "blueprint.edit",
             {
                 "assetPath": temp_asset,
                 "operation": "removeInterface",
@@ -807,11 +852,11 @@ def main() -> int:
             },
         )
         if remove_interface_payload.get("applied") is not True:
-            fail(f"blueprint.asset.edit removeInterface did not apply: {remove_interface_payload}")
+            fail(f"blueprint.edit removeInterface did not apply: {remove_interface_payload}")
         list_after_remove_payload = call_tool(
             client,
             605,
-            "blueprint.asset.edit",
+            "blueprint.edit",
             {"assetPath": temp_asset, "operation": "listInterfaces"},
         )
         interfaces_after_remove = list_after_remove_payload.get("interfaces")
@@ -819,8 +864,8 @@ def main() -> int:
             isinstance(entry, dict) and entry.get("classPath") == interface_class_path
             for entry in interfaces_after_remove
         ):
-            fail(f"blueprint.asset.edit removeInterface did not remove interface: {list_after_remove_payload}")
-        print("[PASS] blueprint.asset.edit interface lifecycle validated")
+            fail(f"blueprint.edit removeInterface did not remove interface: {list_after_remove_payload}")
+        print("[PASS] blueprint.edit interface lifecycle validated")
 
         graph_query = call_domain_tool(
             client,
@@ -1034,6 +1079,15 @@ def main() -> int:
                 "args": {
                     "variableName": "ItemCount",
                     "defaultValue": "5",
+                },
+            }),
+            ("variable create enum state", {
+                "assetPath": temp_asset,
+                "memberKind": "variable",
+                "operation": "create",
+                "args": {
+                    "variableName": "EnumState",
+                    "type": {"category": "enum", "enumPath": enum_path},
                 },
             }),
             ("variable create temp delete", {
@@ -1342,6 +1396,10 @@ def main() -> int:
         variable_items = variable_inspect_payload.get("items")
         if not isinstance(variable_items, list):
             fail(f"blueprint.member.inspect variable items missing: {variable_inspect_payload}")
+        enum_variable = next((item for item in variable_items if isinstance(item, dict) and item.get("name") == "EnumState"), None)
+        enum_variable_type = enum_variable.get("type") if isinstance(enum_variable, dict) else None
+        if not isinstance(enum_variable_type, dict) or enum_variable_type.get("kind") != "enum" or enum_variable_type.get("objectClassPath") != enum_path:
+            fail(f"blueprint.member.inspect enum variable type mismatch: {variable_inspect_payload}")
         component_inspect_payload = call_tool(
             client,
             6523,
@@ -5086,6 +5144,7 @@ def main() -> int:
         # Cleanup is intentionally skipped to avoid flaky teardown timeouts
         # masking a fully successful regression run.
         print(f"[WARN] cleanup skipped for temporary asset: {temp_asset}")
+        print(f"[WARN] cleanup skipped for temporary enum asset: {temp_enum_asset}")
         print(f"[WARN] cleanup skipped for temporary material asset: {temp_material_asset}")
         print(f"[WARN] cleanup skipped for temporary PCG asset: {temp_pcg_asset}")
         print(f"[WARN] cleanup skipped for temporary PCG health asset: {temp_pcg_health_asset}")

@@ -19,8 +19,10 @@ TEST_FIXTURES_DIR = REPO_ROOT / "tests" / "fixtures"
 
 REQUIRED_TOOLS = {
     "loomle",
-    "blueprint.asset.inspect",
-    "blueprint.asset.edit",
+    "blueprint.inspect",
+    "blueprint.edit",
+    "blueprint.enum.inspect",
+    "blueprint.enum.edit",
     "blueprint.member.inspect",
     "blueprint.member.edit",
     "blueprint.graph.list",
@@ -3379,15 +3381,15 @@ def main() -> int:
         )
         print(f"[PASS] temporary blueprint created: {temp_asset}")
 
-        blueprint_describe = call_tool(client, 6, "blueprint.asset.inspect", {"assetPath": temp_asset})
+        blueprint_describe = call_tool(client, 6, "blueprint.inspect", {"assetPath": temp_asset})
         if blueprint_describe.get("assetPath") != temp_asset:
-            fail(f"blueprint.asset.inspect assetPath mismatch: {blueprint_describe}")
+            fail(f"blueprint.inspect assetPath mismatch: {blueprint_describe}")
         if not isinstance(blueprint_describe.get("variables"), list):
-            fail(f"blueprint.asset.inspect missing variables[]: {blueprint_describe}")
+            fail(f"blueprint.inspect missing variables[]: {blueprint_describe}")
         if not isinstance(blueprint_describe.get("functions"), list):
-            fail(f"blueprint.asset.inspect missing functions[]: {blueprint_describe}")
+            fail(f"blueprint.inspect missing functions[]: {blueprint_describe}")
         if not isinstance(blueprint_describe.get("components"), list):
-            fail(f"blueprint.asset.inspect missing components[]: {blueprint_describe}")
+            fail(f"blueprint.inspect missing components[]: {blueprint_describe}")
 
         material_describe = call_tool(
             client,

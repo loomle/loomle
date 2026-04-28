@@ -101,7 +101,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
     Result->SetArrayField(TEXT("methods"), MakeStringArray({TEXT("rpc.health"), TEXT("rpc.capabilities"), TEXT("rpc.invoke")}));
     Result->SetArrayField(TEXT("tools"), MakeStringArray({
         TEXT("context"), TEXT("jobs"), TEXT("profiling"), TEXT("play"), TEXT("editor.open"), TEXT("editor.focus"), TEXT("editor.screenshot"), TEXT("execute"),
-        TEXT("blueprint.asset.edit"), TEXT("blueprint.member.edit"),
+        TEXT("blueprint.edit"), TEXT("blueprint.enum.inspect"), TEXT("blueprint.enum.edit"), TEXT("blueprint.member.edit"),
         TEXT("blueprint.list"), TEXT("blueprint.query"), TEXT("blueprint.mutate"), TEXT("blueprint.verify"), TEXT("blueprint.describe"), TEXT("blueprint.palette"),
         TEXT("material.list"), TEXT("material.query"), TEXT("material.mutate"), TEXT("material.verify"), TEXT("material.describe"),
         TEXT("pcg.list"), TEXT("pcg.query"), TEXT("pcg.mutate"), TEXT("pcg.verify"), TEXT("pcg.describe"),
@@ -270,9 +270,17 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     {
         Payload = BuildBlueprintListToolResult(Arguments);
     }
-    else if (Name.Equals(TEXT("blueprint.asset.edit")))
+    else if (Name.Equals(TEXT("blueprint.edit")))
     {
-        Payload = BuildBlueprintAssetEditToolResult(Arguments);
+        Payload = BuildBlueprintEditToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("blueprint.enum.inspect")))
+    {
+        Payload = BuildBlueprintEnumInspectToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("blueprint.enum.edit")))
+    {
+        Payload = BuildBlueprintEnumEditToolResult(Arguments);
     }
     else if (Name.Equals(TEXT("blueprint.member.edit")))
     {

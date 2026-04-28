@@ -22,6 +22,9 @@ class LOOMLEBRIDGE_API FLoomleBlueprintAdapter
 
 public:
     static bool CreateBlueprint(const FString& AssetPath, const FString& ParentClassPath, FString& OutBlueprintObjectPath, FString& OutError);
+    static bool DescribeUserDefinedEnum(const FString& EnumAssetPath, FString& OutEnumJson, FString& OutError);
+    static bool CreateUserDefinedEnum(const FString& EnumAssetPath, const FString& PayloadJson, FString& OutEnumJson, FString& OutError);
+    static bool UpdateUserDefinedEnumEntries(const FString& EnumAssetPath, const FString& PayloadJson, FString& OutEnumJson, FString& OutError);
     static bool SetParentClass(const FString& BlueprintAssetPath, const FString& ParentClassPath, FString& OutError);
     static bool ListImplementedInterfaces(const FString& BlueprintAssetPath, FString& OutInterfacesJson, FString& OutError);
     static bool AddInterface(const FString& BlueprintAssetPath, const FString& InterfaceClassPath, FString& OutError);
