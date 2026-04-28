@@ -997,6 +997,7 @@ impl LoomleProxyServer {
             "blueprint.graph.recipe.validate" => {
                 Ok(Some(call_blueprint_graph_recipe_validate(&args)))
             }
+            "blueprint.palette" => Ok(Some(self.call_blueprint_palette(args).await?)),
             _ => Ok(None),
         }
     }
@@ -1210,6 +1211,17 @@ impl LoomleProxyServer {
             }
         }
         Ok(structured_result(serde_json::Value::Object(result)))
+    }
+
+    async fn call_blueprint_palette(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let payload = self.runtime_payload("blueprint.palette", args).await?;
+        if payload.get("isError").and_then(|v| v.as_bool()) == Some(true) {
+            return Ok(CallToolResult::structured_error(payload));
+        }
+        Ok(structured_result(payload))
     }
 
     async fn call_blueprint_graph_edit(
@@ -2863,6 +2875,7 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("blueprint.graph.recipe.list", "List discoverable Blueprint graph recipes.", Arc::new(blueprint_graph_recipe_list_schema())),
         Tool::new("blueprint.graph.recipe.inspect", "Inspect the contract of a Blueprint graph recipe.", Arc::new(blueprint_graph_recipe_inspect_schema())),
         Tool::new("blueprint.graph.recipe.validate", "Validate a Blueprint graph recipe definition.", Arc::new(blueprint_graph_recipe_validate_schema())),
+        Tool::new("blueprint.palette", "Search Blueprint palette for addable nodes.", Arc::new(blueprint_palette_schema())),
         Tool::new("blueprint.compile", "Compile a Blueprint asset.", Arc::new(blueprint_compile_schema())),
         Tool::new("blueprint.validate", "Run read-only structural validation for a Blueprint graph or asset.", Arc::new(blueprint_validate_schema())),
         Tool::new("material.list", "List material expressions in a material asset.", Arc::new(asset_path_only_schema("Material asset path."))),
@@ -4136,6 +4149,21 @@ fn blueprint_compile_schema() -> rmcp::model::JsonObject {
         serde_json::json!({"type":"string","minLength":1}),
     );
     mutation_control_fields(&mut properties);
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":["assetPath"],
+        "additionalProperties": false
+    }))
+}
+
+fn blueprint_palette_schema() -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert("assetPath".into(), serde_json::json!({"type":"string","minLength":1}));
+    properties.insert("query".into(), serde_json::json!({"type":"string"}));
+    properties.insert("family".into(), serde_json::json!({"type":"string"}));
+    properties.insert("limit".into(), serde_json::json!({"type":"integer","minimum":1,"default":100}));
+    properties.insert("offset".into(), serde_json::json!({"type":"integer","minimum":0,"default":0}));
     schema_from_value(serde_json::json!({
         "type":"object",
         "properties": properties,

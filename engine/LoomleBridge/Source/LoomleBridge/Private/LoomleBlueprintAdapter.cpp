@@ -47,6 +47,8 @@
 #include "UObject/Interface.h"
 #include "UObject/UnrealType.h"
 
+using FCondensedJsonWriter = TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>;
+
 namespace LoomleBlueprintAdapterInternal
 {
     static const TCHAR* DefaultBlueprintMacroLibraryAssetPath = TEXT("/Engine/EditorBlueprintResources/StandardMacros");
@@ -6462,5 +6464,450 @@ bool FLoomleBlueprintAdapter::SpawnBlueprintActor(const FString& BlueprintAssetP
     }
 
     OutActorPath = Spawned->GetPathName();
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::SearchBlueprintPalette(
+    const FString& AssetPath,
+    const FString& Query,
+    const FString& Family,
+    int32 Limit,
+    int32 Offset,
+    FString& OutJson,
+    FString& OutError)
+{
+    using namespace LoomleBlueprintAdapterInternal;
+
+    OutJson.Empty();
+    OutError.Empty();
+
+    UBlueprint* Blueprint = LoadBlueprintByAssetPath(AssetPath);
+    if (!Blueprint)
+    {
+        OutError = TEXT("ASSET_NOT_FOUND");
+        return false;
+    }
+
+    UClass* BlueprintClass = Blueprint->GeneratedClass ? Blueprint->GeneratedClass : Blueprint->SkeletonGeneratedClass;
+
+    // Helpers ----------------------------------------------------------------
+
+    // Lower-case + strip spaces for fuzzy matching
+    auto Normalize = [](const FString& In) -> FString
+    {
+        return In.ToLower().Replace(TEXT(" "), TEXT("")).Replace(TEXT("_"), TEXT(""));
+    };
+
+    // Query words for multi-token match
+    TArray<FString> QueryWords;
+    if (!Query.IsEmpty())
+    {
+        FString NormQuery = Normalize(Query);
+        NormQuery.ParseIntoArray(QueryWords, TEXT(" "), true);
+        // Also split the non-normalized query for display matching
+        // Re-normalize each word
+        for (FString& Word : QueryWords)
+        {
+            Word = Normalize(Word);
+        }
+        if (QueryWords.Num() == 0)
+        {
+            QueryWords.Add(NormQuery);
+        }
+    }
+
+    auto MatchesQuery = [&](const FString& Title, const FString& ExtraKeywords) -> bool
+    {
+        if (QueryWords.Num() == 0)
+        {
+            return true;
+        }
+        FString Haystack = Normalize(Title) + Normalize(ExtraKeywords);
+        for (const FString& Word : QueryWords)
+        {
+            if (!Haystack.Contains(Word))
+            {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    bool bFilterFamily = !Family.IsEmpty();
+
+    // Collect all entries ---------------------------------------------------
+    TArray<TSharedPtr<FJsonObject>> Entries;
+
+    // --- Variables (non-component properties) ---
+    if (!bFilterFamily || Family.Equals(TEXT("variable")))
+    {
+        TSet<FString> Seen;
+        for (UClass* Class = BlueprintClass; Class != nullptr; Class = Class->GetSuperClass())
+        {
+            for (TFieldIterator<FProperty> It(Class, EFieldIteratorFlags::ExcludeSuper); It; ++It)
+            {
+                FProperty* Prop = *It;
+                if (Prop == nullptr)
+                {
+                    continue;
+                }
+
+                const FString VarName = Prop->GetName();
+                if (Seen.Contains(VarName))
+                {
+                    continue;
+                }
+
+                // Skip component properties (they'll appear under "component")
+                if (Prop->IsA<FObjectProperty>())
+                {
+                    FObjectProperty* ObjProp = CastField<FObjectProperty>(Prop);
+                    if (ObjProp && ObjProp->PropertyClass && ObjProp->PropertyClass->IsChildOf(UActorComponent::StaticClass()))
+                    {
+                        continue;
+                    }
+                }
+
+                Seen.Add(VarName);
+
+                FString DisplayName = FName::NameToDisplayString(VarName, false);
+                FString Keywords = VarName;
+
+                if (!MatchesQuery(DisplayName, Keywords))
+                {
+                    continue;
+                }
+
+                TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+                Entry->SetStringField(TEXT("title"), FString::Printf(TEXT("Get %s"), *DisplayName));
+                Entry->SetStringField(TEXT("family"), TEXT("variable"));
+                Entry->SetStringField(TEXT("variableName"), VarName);
+
+                // addNode for Get
+                TSharedPtr<FJsonObject> AddNodeGet = MakeShared<FJsonObject>();
+                AddNodeGet->SetStringField(TEXT("kind"), TEXT("addNode"));
+                TSharedPtr<FJsonObject> NodeTypeGet = MakeShared<FJsonObject>();
+                NodeTypeGet->SetStringField(TEXT("type"), TEXT("byvariable"));
+                NodeTypeGet->SetStringField(TEXT("variableName"), VarName);
+                NodeTypeGet->SetStringField(TEXT("mode"), TEXT("get"));
+                AddNodeGet->SetObjectField(TEXT("nodeType"), NodeTypeGet);
+
+                // addNode for Set
+                TSharedPtr<FJsonObject> AddNodeSet = MakeShared<FJsonObject>();
+                AddNodeSet->SetStringField(TEXT("kind"), TEXT("addNode"));
+                TSharedPtr<FJsonObject> NodeTypeSet = MakeShared<FJsonObject>();
+                NodeTypeSet->SetStringField(TEXT("type"), TEXT("byvariable"));
+                NodeTypeSet->SetStringField(TEXT("variableName"), VarName);
+                NodeTypeSet->SetStringField(TEXT("mode"), TEXT("set"));
+                AddNodeSet->SetObjectField(TEXT("nodeType"), NodeTypeSet);
+
+                TArray<TSharedPtr<FJsonValue>> AddNodes;
+                AddNodes.Add(MakeShared<FJsonValueObject>(AddNodeGet));
+                AddNodes.Add(MakeShared<FJsonValueObject>(AddNodeSet));
+                Entry->SetArrayField(TEXT("addNodes"), AddNodes);
+                Entry->SetObjectField(TEXT("addNode"), AddNodeGet);
+
+                Entries.Add(Entry);
+            }
+        }
+    }
+
+    // --- Components (SCS variables that are UActorComponent subclasses) ---
+    if (!bFilterFamily || Family.Equals(TEXT("component")))
+    {
+        if (Blueprint->SimpleConstructionScript != nullptr)
+        {
+            for (USCS_Node* ScsNode : Blueprint->SimpleConstructionScript->GetAllNodes())
+            {
+                if (ScsNode == nullptr)
+                {
+                    continue;
+                }
+
+                const FString VarName = ScsNode->GetVariableName().ToString();
+                FString DisplayName = FName::NameToDisplayString(VarName, false);
+                FString Keywords = VarName;
+
+                if (!MatchesQuery(DisplayName, Keywords))
+                {
+                    continue;
+                }
+
+                TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+                Entry->SetStringField(TEXT("title"), FString::Printf(TEXT("Get %s"), *DisplayName));
+                Entry->SetStringField(TEXT("family"), TEXT("component"));
+                Entry->SetStringField(TEXT("variableName"), VarName);
+
+                UBlueprintGeneratedClass* BGC = Cast<UBlueprintGeneratedClass>(BlueprintClass);
+                UActorComponent* Template = BGC ? ScsNode->GetActualComponentTemplate(BGC) : nullptr;
+                if (Template && Template->GetClass())
+                {
+                    Entry->SetStringField(TEXT("componentClassPath"), Template->GetClass()->GetPathName());
+                }
+
+                // addNode for Get (components are read-only, so only Get)
+                TSharedPtr<FJsonObject> AddNodeGet = MakeShared<FJsonObject>();
+                AddNodeGet->SetStringField(TEXT("kind"), TEXT("addNode"));
+                TSharedPtr<FJsonObject> NodeTypeGet = MakeShared<FJsonObject>();
+                NodeTypeGet->SetStringField(TEXT("type"), TEXT("byvariable"));
+                NodeTypeGet->SetStringField(TEXT("variableName"), VarName);
+                NodeTypeGet->SetStringField(TEXT("mode"), TEXT("get"));
+                AddNodeGet->SetObjectField(TEXT("nodeType"), NodeTypeGet);
+
+                TArray<TSharedPtr<FJsonValue>> AddNodes;
+                AddNodes.Add(MakeShared<FJsonValueObject>(AddNodeGet));
+                Entry->SetArrayField(TEXT("addNodes"), AddNodes);
+                Entry->SetObjectField(TEXT("addNode"), AddNodeGet);
+
+                Entries.Add(Entry);
+            }
+        }
+    }
+
+    // --- Functions ---
+    if (!bFilterFamily || Family.Equals(TEXT("function")))
+    {
+        for (UEdGraph* Graph : Blueprint->FunctionGraphs)
+        {
+            if (Graph == nullptr)
+            {
+                continue;
+            }
+
+            const FString GraphName = Graph->GetName();
+            FString DisplayName = FName::NameToDisplayString(GraphName, false);
+
+            if (!MatchesQuery(DisplayName, GraphName))
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+            Entry->SetStringField(TEXT("title"), FString::Printf(TEXT("Call %s"), *DisplayName));
+            Entry->SetStringField(TEXT("family"), TEXT("function"));
+            Entry->SetStringField(TEXT("graphName"), GraphName);
+
+            TSharedPtr<FJsonObject> AddNode = MakeShared<FJsonObject>();
+            AddNode->SetStringField(TEXT("kind"), TEXT("addNode"));
+            TSharedPtr<FJsonObject> NodeType = MakeShared<FJsonObject>();
+            NodeType->SetStringField(TEXT("type"), TEXT("bycallfunction"));
+            NodeType->SetStringField(TEXT("functionClassPath"), Blueprint->GeneratedClass ? Blueprint->GeneratedClass->GetPathName() : TEXT(""));
+            NodeType->SetStringField(TEXT("functionName"), GraphName);
+            AddNode->SetObjectField(TEXT("nodeType"), NodeType);
+
+            TArray<TSharedPtr<FJsonValue>> AddNodes;
+            AddNodes.Add(MakeShared<FJsonValueObject>(AddNode));
+            Entry->SetArrayField(TEXT("addNodes"), AddNodes);
+            Entry->SetObjectField(TEXT("addNode"), AddNode);
+
+            Entries.Add(Entry);
+        }
+    }
+
+    // --- Macros ---
+    if (!bFilterFamily || Family.Equals(TEXT("macro")))
+    {
+        for (UEdGraph* Graph : Blueprint->MacroGraphs)
+        {
+            if (Graph == nullptr)
+            {
+                continue;
+            }
+
+            const FString GraphName = Graph->GetName();
+            FString DisplayName = FName::NameToDisplayString(GraphName, false);
+
+            if (!MatchesQuery(DisplayName, GraphName))
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+            Entry->SetStringField(TEXT("title"), DisplayName);
+            Entry->SetStringField(TEXT("family"), TEXT("macro"));
+            Entry->SetStringField(TEXT("graphName"), GraphName);
+
+            TSharedPtr<FJsonObject> AddNode = MakeShared<FJsonObject>();
+            AddNode->SetStringField(TEXT("kind"), TEXT("addNode"));
+            TSharedPtr<FJsonObject> NodeType = MakeShared<FJsonObject>();
+            NodeType->SetStringField(TEXT("type"), TEXT("bymacro"));
+            NodeType->SetStringField(TEXT("macroLibraryAssetPath"), AssetPath);
+            NodeType->SetStringField(TEXT("macroGraphName"), GraphName);
+            AddNode->SetObjectField(TEXT("nodeType"), NodeType);
+
+            TArray<TSharedPtr<FJsonValue>> AddNodes;
+            AddNodes.Add(MakeShared<FJsonValueObject>(AddNode));
+            Entry->SetArrayField(TEXT("addNodes"), AddNodes);
+            Entry->SetObjectField(TEXT("addNode"), AddNode);
+
+            Entries.Add(Entry);
+        }
+    }
+
+    // --- Dispatchers (Event Dispatchers) ---
+    if (!bFilterFamily || Family.Equals(TEXT("dispatcher")))
+    {
+        for (UEdGraph* Graph : Blueprint->DelegateSignatureGraphs)
+        {
+            if (Graph == nullptr)
+            {
+                continue;
+            }
+
+            const FString GraphName = Graph->GetName();
+            FString DisplayName = FName::NameToDisplayString(GraphName, false);
+
+            if (!MatchesQuery(DisplayName, GraphName))
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+            Entry->SetStringField(TEXT("title"), FString::Printf(TEXT("Call %s"), *DisplayName));
+            Entry->SetStringField(TEXT("family"), TEXT("dispatcher"));
+            Entry->SetStringField(TEXT("graphName"), GraphName);
+
+            // Dispatchers: Call, Bind, Unbind, Assign (caller side)
+            TSharedPtr<FJsonObject> AddNode = MakeShared<FJsonObject>();
+            AddNode->SetStringField(TEXT("kind"), TEXT("addNode"));
+            TSharedPtr<FJsonObject> NodeType = MakeShared<FJsonObject>();
+            NodeType->SetStringField(TEXT("type"), TEXT("bycallfunction"));
+            NodeType->SetStringField(TEXT("functionClassPath"), Blueprint->GeneratedClass ? Blueprint->GeneratedClass->GetPathName() : TEXT(""));
+            NodeType->SetStringField(TEXT("functionName"), GraphName);
+            AddNode->SetObjectField(TEXT("nodeType"), NodeType);
+
+            TArray<TSharedPtr<FJsonValue>> AddNodes;
+            AddNodes.Add(MakeShared<FJsonValueObject>(AddNode));
+            Entry->SetArrayField(TEXT("addNodes"), AddNodes);
+            Entry->SetObjectField(TEXT("addNode"), AddNode);
+
+            Entries.Add(Entry);
+        }
+    }
+
+    // --- Events (Custom Events from event graphs) ---
+    if (!bFilterFamily || Family.Equals(TEXT("event")))
+    {
+        for (UEdGraph* EventGraph : Blueprint->UbergraphPages)
+        {
+            if (EventGraph == nullptr)
+            {
+                continue;
+            }
+
+            for (const UEdGraphNode* Node : EventGraph->Nodes)
+            {
+                if (Node == nullptr || Node->GetClass() == nullptr)
+                {
+                    continue;
+                }
+
+                const FString NodeClassName = Node->GetClass()->GetName();
+
+                // Only custom events (K2Node_CustomEvent) — non-custom events are engine-side
+                const UK2Node_CustomEvent* CustomEvent = Cast<UK2Node_CustomEvent>(Node);
+                if (CustomEvent == nullptr)
+                {
+                    continue;
+                }
+
+                const FString EventName = CustomEvent->CustomFunctionName.ToString();
+                FString DisplayName = FName::NameToDisplayString(EventName, false);
+
+                if (!MatchesQuery(DisplayName, EventName))
+                {
+                    continue;
+                }
+
+                TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+                Entry->SetStringField(TEXT("title"), FString::Printf(TEXT("Call %s (Custom Event)"), *DisplayName));
+                Entry->SetStringField(TEXT("family"), TEXT("event"));
+                Entry->SetStringField(TEXT("eventName"), EventName);
+                Entry->SetStringField(TEXT("nodeId"), Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
+
+                TSharedPtr<FJsonObject> AddNode = MakeShared<FJsonObject>();
+                AddNode->SetStringField(TEXT("kind"), TEXT("addNode"));
+                TSharedPtr<FJsonObject> NodeType = MakeShared<FJsonObject>();
+                NodeType->SetStringField(TEXT("type"), TEXT("bycustomevent"));
+                NodeType->SetStringField(TEXT("eventName"), EventName);
+                AddNode->SetObjectField(TEXT("nodeType"), NodeType);
+
+                TArray<TSharedPtr<FJsonValue>> AddNodes;
+                AddNodes.Add(MakeShared<FJsonValueObject>(AddNode));
+                Entry->SetArrayField(TEXT("addNodes"), AddNodes);
+                Entry->SetObjectField(TEXT("addNode"), AddNode);
+
+                Entries.Add(Entry);
+            }
+        }
+    }
+
+    // --- Utility nodes (static table) ---
+    if (!bFilterFamily || Family.Equals(TEXT("utility")))
+    {
+        struct FUtilityNodeDef
+        {
+            const TCHAR* Title;
+            const TCHAR* Keywords;
+            const TCHAR* NodeClassPath;
+        };
+
+        static const FUtilityNodeDef UtilityNodes[] = {
+            { TEXT("Branch"), TEXT("if condition branch bool"), TEXT("K2Node_IfThenElse") },
+            { TEXT("Sequence"), TEXT("sequence multi exec then"), TEXT("K2Node_ExecutionSequence") },
+            { TEXT("Reroute"), TEXT("knot reroute redirect wire"), TEXT("K2Node_Knot") },
+            { TEXT("Comment"), TEXT("comment note annotation box"), TEXT("EdGraphNode_Comment") },
+        };
+
+        for (const FUtilityNodeDef& Def : UtilityNodes)
+        {
+            FString Title = Def.Title;
+            FString Keywords = Def.Keywords;
+
+            if (!MatchesQuery(Title, Keywords))
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+            Entry->SetStringField(TEXT("title"), Title);
+            Entry->SetStringField(TEXT("family"), TEXT("utility"));
+
+            TSharedPtr<FJsonObject> AddNode = MakeShared<FJsonObject>();
+            AddNode->SetStringField(TEXT("kind"), TEXT("addNode"));
+            TSharedPtr<FJsonObject> NodeType = MakeShared<FJsonObject>();
+            NodeType->SetStringField(TEXT("type"), TEXT("byclass"));
+            NodeType->SetStringField(TEXT("nodeClassPath"), FString(Def.NodeClassPath));
+            AddNode->SetObjectField(TEXT("nodeType"), NodeType);
+
+            TArray<TSharedPtr<FJsonValue>> AddNodes;
+            AddNodes.Add(MakeShared<FJsonValueObject>(AddNode));
+            Entry->SetArrayField(TEXT("addNodes"), AddNodes);
+            Entry->SetObjectField(TEXT("addNode"), AddNode);
+
+            Entries.Add(Entry);
+        }
+    }
+
+    // Paginate ---------------------------------------------------------------
+    const int32 TotalMatching = Entries.Num();
+    const int32 EffectiveOffset = FMath::Clamp(Offset, 0, TotalMatching);
+    const int32 EffectiveLimit = Limit > 0 ? Limit : TotalMatching;
+
+    TArray<TSharedPtr<FJsonValue>> PageEntries;
+    for (int32 Idx = EffectiveOffset; Idx < TotalMatching && PageEntries.Num() < EffectiveLimit; ++Idx)
+    {
+        PageEntries.Add(MakeShared<FJsonValueObject>(Entries[Idx]));
+    }
+
+    // Serialize --------------------------------------------------------------
+    TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+    Root->SetNumberField(TEXT("total"), TotalMatching);
+    Root->SetNumberField(TEXT("offset"), EffectiveOffset);
+    Root->SetArrayField(TEXT("entries"), PageEntries);
+
+    TSharedRef<FCondensedJsonWriter> Writer = TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&OutJson);
+    FJsonSerializer::Serialize(Root.ToSharedRef(), Writer);
+
     return true;
 }

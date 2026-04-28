@@ -5026,6 +5026,59 @@ def main() -> int:
 
         print("[PASS] widget.* regression complete")
 
+        # ── blueprint.palette regression ─────────────────────────────────────
+        # Uses temp_asset (a real Blueprint created earlier in this run).
+
+        # P01 — no query/family: returns entries list with pagination fields
+        p01 = call_tool(client, 5100, "blueprint.palette", {"assetPath": temp_asset})
+        if not isinstance(p01.get("entries"), list):
+            fail(f"P01 blueprint.palette missing entries[]: {p01}")
+        if not isinstance(p01.get("total"), int):
+            fail(f"P01 blueprint.palette missing total: {p01}")
+        if not isinstance(p01.get("offset"), int):
+            fail(f"P01 blueprint.palette missing offset: {p01}")
+        print(f"[PASS] P01 blueprint.palette baseline returns {p01['total']} entries")
+
+        # P02 — family=variable: all returned entries have family=="variable"
+        p02 = call_tool(client, 5101, "blueprint.palette", {"assetPath": temp_asset, "family": "variable"})
+        if not isinstance(p02.get("entries"), list):
+            fail(f"P02 blueprint.palette family=variable missing entries[]: {p02}")
+        bad_family = [e for e in p02["entries"] if e.get("family") != "variable"]
+        if bad_family:
+            fail(f"P02 family=variable returned non-variable entries: {bad_family[:2]}")
+        print(f"[PASS] P02 blueprint.palette family=variable ({len(p02['entries'])} entries, all variable)")
+
+        # P03 — family=utility: Branch / Sequence / Reroute / Comment always present
+        p03 = call_tool(client, 5102, "blueprint.palette", {"assetPath": temp_asset, "family": "utility"})
+        utility_titles = {e.get("title") for e in p03.get("entries", [])}
+        for expected in ("Branch", "Sequence", "Reroute", "Comment"):
+            if expected not in utility_titles:
+                fail(f"P03 family=utility missing expected title '{expected}': {utility_titles}")
+        print(f"[PASS] P03 blueprint.palette family=utility contains Branch/Sequence/Reroute/Comment")
+
+        # P04 — each entry has addNode with a non-empty kind field
+        all_entries = p01["entries"]
+        bad_entries = [e for e in all_entries if not isinstance(e.get("addNode"), dict) or not e["addNode"].get("kind")]
+        if bad_entries:
+            fail(f"P04 entries missing addNode.kind: {bad_entries[:2]}")
+        print(f"[PASS] P04 all entries have addNode.kind")
+
+        # P05 — limit=1 returns exactly 1 entry and total >= 1
+        p05 = call_tool(client, 5103, "blueprint.palette", {"assetPath": temp_asset, "limit": 1})
+        if len(p05.get("entries", [])) != 1:
+            fail(f"P05 limit=1 should return exactly 1 entry, got: {p05.get('entries')}")
+        if p05.get("total", 0) < 1:
+            fail(f"P05 total should be >= 1: {p05}")
+        print(f"[PASS] P05 blueprint.palette limit=1 returns exactly 1 entry (total={p05['total']})")
+
+        # P06 — invalid assetPath returns error
+        p06_err = call_tool(client, 5104, "blueprint.palette", {"assetPath": "/Game/DoesNotExist_XYZ"}, expect_error=True)
+        if not p06_err.get("isError") and not p06_err.get("code"):
+            fail(f"P06 expected error for missing asset, got: {p06_err}")
+        print("[PASS] P06 blueprint.palette invalid assetPath returns error")
+
+        print("[PASS] blueprint.palette regression complete")
+
         print("[PASS] Bridge regression complete")
         completed_successfully = True
         return 0

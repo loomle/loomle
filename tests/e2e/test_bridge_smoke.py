@@ -31,6 +31,7 @@ REQUIRED_TOOLS = {
     "blueprint.graph.recipe.list",
     "blueprint.graph.recipe.inspect",
     "blueprint.graph.recipe.validate",
+    "blueprint.palette",
     "blueprint.compile",
     "blueprint.validate",
     "material.list",

@@ -4973,3 +4973,62 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintDescribeToolResult(co
 
     return BuildBlueprintClassDescribeResult(AssetPath);
 }
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintPaletteToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+    FString AssetPath;
+    if (!Arguments->TryGetStringField(TEXT("assetPath"), AssetPath) || AssetPath.IsEmpty())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("assetPath is required."));
+        return Result;
+    }
+
+    FString Query;
+    Arguments->TryGetStringField(TEXT("query"), Query);
+
+    FString Family;
+    Arguments->TryGetStringField(TEXT("family"), Family);
+
+    int32 Limit = 100;
+    if (Arguments->HasField(TEXT("limit")))
+    {
+        Limit = static_cast<int32>(Arguments->GetNumberField(TEXT("limit")));
+    }
+
+    int32 Offset = 0;
+    if (Arguments->HasField(TEXT("offset")))
+    {
+        Offset = static_cast<int32>(Arguments->GetNumberField(TEXT("offset")));
+    }
+
+    FString OutJson;
+    FString OutError;
+    if (!FLoomleBlueprintAdapter::SearchBlueprintPalette(AssetPath, Query, Family, Limit, Offset, OutJson, OutError))
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), OutError.IsEmpty() ? TEXT("INTERNAL_ERROR") : OutError);
+        Result->SetStringField(TEXT("message"), OutError.IsEmpty() ? TEXT("SearchBlueprintPalette failed.") : OutError);
+        return Result;
+    }
+
+    TSharedPtr<FJsonObject> Payload;
+    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(OutJson);
+    if (!FJsonSerializer::Deserialize(Reader, Payload) || !Payload.IsValid())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+        Result->SetStringField(TEXT("message"), TEXT("Failed to parse palette result."));
+        return Result;
+    }
+
+    Result->SetBoolField(TEXT("isError"), false);
+    Result->SetNumberField(TEXT("total"), Payload->GetNumberField(TEXT("total")));
+    Result->SetNumberField(TEXT("offset"), Payload->GetNumberField(TEXT("offset")));
+    Result->SetArrayField(TEXT("entries"), Payload->GetArrayField(TEXT("entries")));
+
+    return Result;
+}

@@ -94,4 +94,5 @@ public:
     static bool FindNodesByClass(const FString& BlueprintAssetPath, const FString& NodeClassPathOrName, FString& OutNodesJson, FString& OutError);
     static bool CompileBlueprint(const FString& BlueprintAssetPath, const FString& GraphName, FString& OutError);
     static bool SpawnBlueprintActor(const FString& BlueprintAssetPath, FVector Location, FRotator Rotation, FString& OutActorPath, FString& OutError);
+    static bool SearchBlueprintPalette(const FString& AssetPath, const FString& Query, const FString& Family, int32 Limit, int32 Offset, FString& OutJson, FString& OutError);
 };
