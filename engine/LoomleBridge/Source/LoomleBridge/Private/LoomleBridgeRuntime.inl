@@ -1163,6 +1163,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPlayToolResult(const TSharedPt
     bool bStartRequested = false;
     bool bStopRequested = false;
     bool bStopWasActive = false;
+    bool bStopQueued = false;
     if (Action.Equals(TEXT("start")))
     {
         if (GEditor == nullptr)
@@ -1312,7 +1313,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPlayToolResult(const TSharedPt
         bStopWasActive = GEditor != nullptr && GEditor->IsPlayingSessionInEditor();
         if (bStopWasActive)
         {
-            GEditor->EndPlayMap();
+            GEditor->RequestEndPlayMap();
+            bStopQueued = GEditor->ShouldEndPlayMap();
         }
     }
 
@@ -1327,6 +1329,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPlayToolResult(const TSharedPt
 
     const bool bIsPIE = GEditor != nullptr && GEditor->IsPlayingSessionInEditor();
     const bool bIsStarting = GEditor != nullptr && !bIsPIE && GEditor->IsPlaySessionRequestQueued();
+    const bool bIsStopping = GEditor != nullptr && GEditor->ShouldEndPlayMap();
     int32 ClientIndex = 0;
     int32 ServerCount = 0;
     int32 StandaloneCount = 0;
@@ -1395,9 +1398,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPlayToolResult(const TSharedPt
     }
 
     TSharedPtr<FJsonObject> Session = MakeShared<FJsonObject>();
-    Session->SetStringField(TEXT("id"), bIsPIE ? TEXT("pie-active") : (bIsStarting ? TEXT("pie-starting") : TEXT("inactive")));
+    Session->SetStringField(TEXT("id"), bIsStopping ? TEXT("pie-stopping") : (bIsPIE ? TEXT("pie-active") : (bIsStarting ? TEXT("pie-starting") : TEXT("inactive"))));
     Session->SetStringField(TEXT("backend"), TEXT("pie"));
-    Session->SetStringField(TEXT("state"), bIsPIE ? TEXT("ready") : (bIsStarting ? TEXT("starting") : TEXT("inactive")));
+    Session->SetStringField(TEXT("state"), bIsStopping ? TEXT("stopping") : (bIsPIE ? TEXT("ready") : (bIsStarting ? TEXT("starting") : TEXT("inactive"))));
     Session->SetStringField(TEXT("map"), MapPath);
 
     TSharedPtr<FJsonObject> Topology = MakeShared<FJsonObject>();
@@ -1460,6 +1463,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPlayToolResult(const TSharedPt
     if (bStopRequested)
     {
         Result->SetBoolField(TEXT("stopRequested"), bStopWasActive);
+        Result->SetBoolField(TEXT("stopQueued"), bStopQueued);
     }
     Result->SetObjectField(TEXT("session"), Session);
     Result->SetArrayField(TEXT("participants"), Participants);

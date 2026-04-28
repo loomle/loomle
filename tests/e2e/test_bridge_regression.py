@@ -570,6 +570,37 @@ def main() -> int:
             fail(f"tools/list missing required tools: {', '.join(missing)}")
         print("[PASS] tools/list baseline tools available")
 
+        initial_play_status = call_tool(client, 3000, "play", {"action": "status"})
+        initial_session = initial_play_status.get("session")
+        if not isinstance(initial_session, dict):
+            fail(f"play.status regression missing session: {initial_play_status}")
+        if initial_session.get("state") in {"ready", "starting", "stopping"}:
+            call_tool(client, 3001, "play", {"action": "stop"})
+            call_tool(client, 3002, "play", {"action": "wait", "until": {"session": "inactive"}, "timeoutMs": 60000})
+
+        play_start = call_tool(
+            client,
+            3003,
+            "play",
+            {
+                "action": "start",
+                "backend": "pie",
+                "ifActive": "returnStatus",
+                "topology": {"clientCount": 1, "server": {"kind": "standalone"}},
+            },
+        )
+        if play_start.get("status") != "ok":
+            fail(f"play.start regression failed: {play_start}")
+        call_tool(client, 3004, "play", {"action": "wait", "until": {"session": "ready"}, "timeoutMs": 60000})
+        play_stop = call_tool(client, 3005, "play", {"action": "stop"})
+        if play_stop.get("stopRequested") is not True or play_stop.get("stopQueued") is not True:
+            fail(f"play.stop should queue EndPlayMap instead of tearing down synchronously: {play_stop}")
+        stop_session = play_stop.get("session")
+        if not isinstance(stop_session, dict) or stop_session.get("state") != "stopping":
+            fail(f"play.stop should report stopping session state after RequestEndPlayMap: {play_stop}")
+        call_tool(client, 3006, "play", {"action": "wait", "until": {"session": "inactive"}, "timeoutMs": 60000})
+        print("[PASS] play.stop queues PIE shutdown instead of calling EndPlayMap synchronously")
+
         jobs_key = f"jobs-regression-{int(time.time() * 1000)}"
         jobs_submit = submit_execute_job(
             client,

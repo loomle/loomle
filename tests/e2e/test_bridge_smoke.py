@@ -3235,7 +3235,7 @@ def main() -> int:
             fail(f"play.status missing session: {play_payload}")
         if play_session.get("backend") != "pie":
             fail(f"play.status unexpected backend: {play_payload}")
-        if play_session.get("state") not in {"inactive", "starting", "ready"}:
+        if play_session.get("state") not in {"inactive", "starting", "ready", "stopping"}:
             fail(f"play.status unexpected session state: {play_payload}")
         if not isinstance(play_payload.get("participants"), list):
             fail(f"play.status missing participants[]: {play_payload}")

@@ -3733,7 +3733,7 @@ fn play_schema() -> rmcp::model::JsonObject {
             "until":{
                 "type":"object",
                 "properties":{
-                    "session":{"type":"string","enum":["inactive","starting","ready"]},
+                    "session":{"type":"string","enum":["inactive","starting","ready","stopping"]},
                     "participants":{
                         "type":"array",
                         "items":{
