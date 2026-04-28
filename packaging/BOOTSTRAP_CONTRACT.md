@@ -36,7 +36,8 @@ Bootstrap scripts should:
 8. write `install/active.json`
 9. add the global `bin` directory to the current user's PATH
 10. create `state/runtimes`, `locks`, and `logs`
-11. print MCP host configuration hints
+11. configure Codex and Claude MCP hosts when available
+12. print a friendly installation summary with MCP configuration status and next steps
 
 ## Artifact Contract
 

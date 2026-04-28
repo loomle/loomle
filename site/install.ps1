@@ -79,6 +79,122 @@ function Write-ActiveState(
   $payload | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $ActiveStatePath -Encoding UTF8
 }
 
+function ConvertTo-TomlBasicString([string]$Value) {
+  return $Value.Replace('\', '\\').Replace('"', '\"')
+}
+
+function Set-CodexMcpConfig([string]$LauncherPath) {
+  $manual = "codex mcp add loomle -- `"$LauncherPath`" mcp"
+  $codexDir = Join-Path $HOME ".codex"
+  $configPath = Join-Path $codexDir "config.toml"
+  if (-not (Test-Path -LiteralPath $codexDir -PathType Container) -and -not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+    return [pscustomobject]@{
+      status = "not configured"
+      detail = "Codex config directory not found"
+      manual = $manual
+    }
+  }
+
+  New-Item -ItemType Directory -Force -Path $codexDir | Out-Null
+  $text = if (Test-Path -LiteralPath $configPath -PathType Leaf) {
+    Get-Content -LiteralPath $configPath -Raw
+  } else {
+    ""
+  }
+  $text = [regex]::Replace($text, '(?ms)^\[mcp_servers\.loomle\]\r?\n.*?(?=^\[|\z)', '')
+  $escapedLauncher = ConvertTo-TomlBasicString $LauncherPath
+  $section = "`n[mcp_servers.loomle]`ncommand = `"$escapedLauncher`"`nargs = [`"mcp`"]`n"
+  try {
+    ($text.TrimEnd() + $section) | Set-Content -LiteralPath $configPath -Encoding UTF8
+    return [pscustomobject]@{
+      status = "configured"
+      detail = $configPath
+      manual = $manual
+    }
+  } catch {
+    return [pscustomobject]@{
+      status = "warning"
+      detail = "failed to write ${configPath}: $($_.Exception.Message)"
+      manual = $manual
+    }
+  }
+}
+
+function Set-ClaudeMcpConfig([string]$LauncherPath) {
+  $manual = "claude mcp add --scope user loomle -- `"$LauncherPath`" mcp"
+  $claude = Get-Command claude -ErrorAction SilentlyContinue
+  if (-not $claude) {
+    return [pscustomobject]@{
+      status = "not configured"
+      detail = "Claude CLI not found"
+      manual = $manual
+    }
+  }
+
+  try {
+    & $claude.Source mcp remove --scope user loomle 2>$null | Out-Null
+    & $claude.Source mcp add --scope user loomle -- $LauncherPath mcp | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+      throw "claude mcp add exited with code $LASTEXITCODE"
+    }
+    return [pscustomobject]@{
+      status = "configured"
+      detail = "Claude user MCP config"
+      manual = $manual
+    }
+  } catch {
+    return [pscustomobject]@{
+      status = "warning"
+      detail = "failed to update Claude MCP config: $($_.Exception.Message)"
+      manual = $manual
+    }
+  }
+}
+
+function Write-InstallSummary(
+  [string]$EffectiveVersion,
+  [string]$InstallRoot,
+  [string]$LauncherPath,
+  [string]$ActiveClientPath,
+  [string]$PluginCache,
+  $CodexMcp,
+  $ClaudeMcp
+) {
+  $anyConfigured = $CodexMcp.status -eq "configured" -or $ClaudeMcp.status -eq "configured"
+  $anyNotConfigured = $CodexMcp.status -eq "not configured" -or $ClaudeMcp.status -eq "not configured"
+  $anyWarning = $CodexMcp.status -eq "warning" -or $ClaudeMcp.status -eq "warning"
+
+  Write-Host ""
+  Write-Host "LOOMLE installed successfully."
+  Write-Host ""
+  Write-Host "Installed:"
+  Write-Host "  - LOOMLE client: $LauncherPath"
+  Write-Host "  - Active client payload: $ActiveClientPath"
+  Write-Host "  - LoomleBridge plugin cache: $PluginCache"
+  Write-Host "  - Install root: $InstallRoot"
+  Write-Host "  - Version: $EffectiveVersion (windows)"
+  Write-Host ""
+  Write-Host "MCP configuration:"
+  Write-Host "  - Codex: $($CodexMcp.status) ($($CodexMcp.detail))"
+  Write-Host "  - Claude: $($ClaudeMcp.status) ($($ClaudeMcp.detail))"
+  Write-Host ""
+  Write-Host "Next steps:"
+  if ($anyConfigured) {
+    Write-Host "  - Restart your Codex or Claude agent session so the updated MCP configuration is loaded."
+  }
+  if ($anyNotConfigured) {
+    if ($CodexMcp.status -eq "not configured") {
+      Write-Host "  - To configure Codex manually: $($CodexMcp.manual)"
+    }
+    if ($ClaudeMcp.status -eq "not configured") {
+      Write-Host "  - To configure Claude manually: $($ClaudeMcp.manual)"
+    }
+  }
+  if ($anyWarning) {
+    Write-Host "  - Review the MCP configuration warning above and rerun the installer after fixing it."
+  }
+}
+
 function Split-PathEntries([string]$PathValue) {
   if ([string]::IsNullOrWhiteSpace($PathValue)) { return @() }
   return $PathValue -split [System.IO.Path]::PathSeparator | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
@@ -198,21 +314,17 @@ try {
   Copy-FileReplace -Source $ManifestPath -Destination (Join-Path $VersionRoot "manifest.json")
   Write-ActiveState -ActiveStatePath $ActiveStatePath -Version $EffectiveVersion -InstallRoot $InstallRoot -LauncherPath $LauncherPath -ActiveClientPath $ActiveClientPath
   Ensure-PathEntry -BinDir (Join-Path $InstallRoot "bin")
+  $CodexMcp = Set-CodexMcpConfig -LauncherPath $LauncherPath
+  $ClaudeMcp = Set-ClaudeMcpConfig -LauncherPath $LauncherPath
 
-  [pscustomobject]@{
-    installedVersion = $EffectiveVersion
-    activeVersion = $EffectiveVersion
-    platform = "windows"
-    installRoot = $InstallRoot
-    launcherPath = $LauncherPath
-    activeClientPath = $ActiveClientPath
-    pluginCache = (Join-Path $VersionRoot "plugin-cache\LoomleBridge")
-  } | ConvertTo-Json -Depth 5
-
-  Write-Host ""
-  Write-Host "Configure MCP hosts:"
-  Write-Host "  Codex:  codex mcp add loomle -- $LauncherPath mcp"
-  Write-Host "  Claude: claude mcp add loomle --scope user $LauncherPath mcp"
+  Write-InstallSummary `
+    -EffectiveVersion $EffectiveVersion `
+    -InstallRoot $InstallRoot `
+    -LauncherPath $LauncherPath `
+    -ActiveClientPath $ActiveClientPath `
+    -PluginCache (Join-Path $VersionRoot "plugin-cache\LoomleBridge") `
+    -CodexMcp $CodexMcp `
+    -ClaudeMcp $ClaudeMcp
 }
 finally {
   Remove-Item -LiteralPath $TmpDir -Recurse -Force -ErrorAction SilentlyContinue

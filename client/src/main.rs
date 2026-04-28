@@ -142,7 +142,7 @@ fn run_doctor() -> ExitCode {
         root.display()
     );
     println!(
-        "  Claude: claude mcp add loomle --scope user {}/bin/loomle mcp",
+        "  Claude: claude mcp add --scope user loomle -- {}/bin/loomle mcp",
         root.display()
     );
     ExitCode::SUCCESS

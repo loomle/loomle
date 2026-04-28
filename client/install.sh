@@ -56,6 +56,14 @@ json_escape() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
+toml_escape() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+shell_quote() {
+  printf '%q' "$1"
+}
+
 resolve_effective_version() {
   local manifest_path="$1"
   if [[ "$REQUESTED_VERSION" == "latest" ]]; then
@@ -177,6 +185,128 @@ write_active_state() {
 EOF
 }
 
+CODEX_MCP_STATUS="not configured"
+CODEX_MCP_DETAIL="Codex config directory not found"
+CODEX_MCP_MANUAL="codex mcp add loomle -- <loomle> mcp"
+CLAUDE_MCP_STATUS="not configured"
+CLAUDE_MCP_DETAIL="Claude CLI not found"
+CLAUDE_MCP_MANUAL="claude mcp add --scope user loomle -- <loomle> mcp"
+
+configure_codex_mcp() {
+  local launcher_path="$1"
+  local codex_dir="$HOME/.codex"
+  local config_path="$codex_dir/config.toml"
+  local tmp_path
+  local escaped_launcher
+
+  CODEX_MCP_MANUAL="codex mcp add loomle -- $(shell_quote "$launcher_path") mcp"
+  if [[ ! -d "$codex_dir" && ! -f "$config_path" ]]; then
+    CODEX_MCP_STATUS="not configured"
+    CODEX_MCP_DETAIL="Codex config directory not found"
+    return 0
+  fi
+
+  mkdir -p "$codex_dir"
+  tmp_path="$(mktemp)"
+  if [[ -f "$config_path" ]]; then
+    awk '
+      /^\[mcp_servers\.loomle\]$/ { skip = 1; next }
+      /^\[/ { skip = 0 }
+      !skip { print }
+    ' "$config_path" > "$tmp_path"
+  else
+    : > "$tmp_path"
+  fi
+
+  escaped_launcher="$(toml_escape "$launcher_path")"
+  {
+    printf '\n[mcp_servers.loomle]\n'
+    printf 'command = "%s"\n' "$escaped_launcher"
+    printf 'args = ["mcp"]\n'
+  } >> "$tmp_path"
+
+  if mv "$tmp_path" "$config_path"; then
+    CODEX_MCP_STATUS="configured"
+    CODEX_MCP_DETAIL="$config_path"
+  else
+    rm -f "$tmp_path"
+    CODEX_MCP_STATUS="warning"
+    CODEX_MCP_DETAIL="failed to write $config_path"
+  fi
+}
+
+configure_claude_mcp() {
+  local launcher_path="$1"
+  local output
+
+  CLAUDE_MCP_MANUAL="claude mcp add --scope user loomle -- $(shell_quote "$launcher_path") mcp"
+  if ! command -v claude >/dev/null 2>&1; then
+    CLAUDE_MCP_STATUS="not configured"
+    CLAUDE_MCP_DETAIL="Claude CLI not found"
+    return 0
+  fi
+
+  claude mcp remove --scope user loomle >/dev/null 2>&1 || true
+  if output="$(claude mcp add --scope user loomle -- "$launcher_path" mcp 2>&1 >/dev/null)"; then
+    CLAUDE_MCP_STATUS="configured"
+    CLAUDE_MCP_DETAIL="Claude user MCP config"
+  else
+    CLAUDE_MCP_STATUS="warning"
+    CLAUDE_MCP_DETAIL="failed to update Claude MCP config: $output"
+  fi
+}
+
+print_install_summary() {
+  local effective_version="$1"
+  local platform="$2"
+  local install_root="$3"
+  local launcher_path="$4"
+  local active_client_path="$5"
+  local plugin_cache="$6"
+  local any_configured="false"
+  local any_not_configured="false"
+
+  [[ "$CODEX_MCP_STATUS" == "configured" || "$CLAUDE_MCP_STATUS" == "configured" ]] && any_configured="true"
+  [[ "$CODEX_MCP_STATUS" == "not configured" || "$CLAUDE_MCP_STATUS" == "not configured" ]] && any_not_configured="true"
+
+  cat <<EOF
+
+LOOMLE installed successfully.
+
+Installed:
+  - LOOMLE client: $launcher_path
+  - Active client payload: $active_client_path
+  - LoomleBridge plugin cache: $plugin_cache
+  - Install root: $install_root
+  - Version: $effective_version ($platform)
+
+MCP configuration:
+  - Codex: $CODEX_MCP_STATUS ($CODEX_MCP_DETAIL)
+  - Claude: $CLAUDE_MCP_STATUS ($CLAUDE_MCP_DETAIL)
+
+Next steps:
+EOF
+
+  if [[ "$any_configured" == "true" ]]; then
+    cat <<'EOF'
+  - Restart your Codex or Claude agent session so the updated MCP configuration is loaded.
+EOF
+  fi
+  if [[ "$any_not_configured" == "true" ]]; then
+    if [[ "$CODEX_MCP_STATUS" == "not configured" ]]; then
+      printf '  - To configure Codex manually: %s\n' "$CODEX_MCP_MANUAL"
+    fi
+    if [[ "$CLAUDE_MCP_STATUS" == "not configured" ]]; then
+      printf '  - To configure Claude manually: %s\n' "$CLAUDE_MCP_MANUAL"
+    fi
+  fi
+  if [[ "$CODEX_MCP_STATUS" == "warning" || "$CLAUDE_MCP_STATUS" == "warning" ]]; then
+    cat <<'EOF'
+  - Review the MCP configuration warning above and rerun the installer after fixing it.
+EOF
+  fi
+}
+
 main() {
   require_command curl
   require_command unzip
@@ -282,25 +412,16 @@ main() {
   ensure_executable_if_present "$launcher_path"
   write_active_state "$active_state_path" "$effective_version" "$platform" "$install_root" "$launcher_path" "$active_client_path"
   ensure_path_entry "$install_root/bin"
+  configure_codex_mcp "$launcher_path"
+  configure_claude_mcp "$launcher_path"
 
-  cat <<EOF
-{
-  "installedVersion": "$(json_escape "$effective_version")",
-  "activeVersion": "$(json_escape "$effective_version")",
-  "platform": "$(json_escape "$platform")",
-  "installRoot": "$(json_escape "$install_root")",
-  "launcherPath": "$(json_escape "$launcher_path")",
-  "activeClientPath": "$(json_escape "$active_client_path")",
-  "pluginCache": "$(json_escape "$version_root/plugin-cache/LoomleBridge")"
-}
-EOF
-
-  cat <<EOF
-
-Configure MCP hosts:
-  Codex:  codex mcp add loomle -- $launcher_path mcp
-  Claude: claude mcp add loomle --scope user $launcher_path mcp
-EOF
+  print_install_summary \
+    "$effective_version" \
+    "$platform" \
+    "$install_root" \
+    "$launcher_path" \
+    "$active_client_path" \
+    "$version_root/plugin-cache/LoomleBridge"
 }
 
 main "$@"

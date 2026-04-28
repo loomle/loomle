@@ -68,9 +68,10 @@ The public installer must:
 5. write `~/.loomle/install/active.json`
 6. add `~/.loomle/bin` to the current user's PATH
 7. create `state/runtimes`, `locks`, and `logs`
-8. print Codex and Claude MCP configuration commands
-9. avoid writing Codex or Claude config directly
-10. be idempotent for repeated installs of the same version
+8. configure Codex and Claude MCP hosts when their user config locations or CLIs are available
+9. print a friendly installation summary with MCP configuration status and next steps
+10. provide manual MCP configuration commands in next steps for hosts that were not configured
+11. be idempotent for repeated installs of the same version
 
 ## 6. Source-of-Truth Rule
 

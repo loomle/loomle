@@ -25,10 +25,13 @@ Windows PowerShell:
 & ([scriptblock]::Create((irm https://loomle.ai/install.ps1)))
 ```
 
-The installer writes the global install under `~/.loomle` by default and
-creates a stable `loomle` command under `~/.loomle/bin/`.
+The installer writes the global install under `~/.loomle` by default, creates a
+stable `loomle` command under `~/.loomle/bin/`, and configures Codex/Claude MCP
+when their user config locations or CLIs are available. If a host is not
+configured automatically, the installer prints the manual command in its next
+steps.
 
-Configure your MCP host to run:
+MCP hosts should run:
 
 ```bash
 loomle mcp

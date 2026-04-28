@@ -317,7 +317,8 @@ It should check:
 
 First install is owned by the public install script. The script materializes
 `~/.loomle`, installs the stable launcher, installs the active version payload,
-and prints host configuration commands.
+and configures Codex/Claude MCP hosts when their user config locations or CLIs
+are available.
 
 Example output:
 
@@ -326,10 +327,11 @@ Codex:
   codex mcp add loomle -- ~/.loomle/bin/loomle mcp
 
 Claude:
-  claude mcp add loomle --scope user ~/.loomle/bin/loomle mcp
+  claude mcp add --scope user loomle -- ~/.loomle/bin/loomle mcp
 ```
 
-LOOMLE should not write Codex or Claude configuration in the first version.
+If a host cannot be configured automatically, the installer prints the manual
+command in its next steps instead of treating that as an install warning.
 
 ## Update Flow
 
