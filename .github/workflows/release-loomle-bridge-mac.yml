@@ -135,11 +135,16 @@ jobs:
           set -euo pipefail
           tag="$GITHUB_REF_NAME"
           if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$tag" \
+            create_output=$(gh release create "$tag" \
               --repo "$GITHUB_REPOSITORY" \
               --title "$tag" \
               --latest=false \
-              --generate-notes
+              --generate-notes 2>&1) || {
+              if ! echo "$create_output" | grep -q "already exists"; then
+                echo "$create_output" >&2
+                exit 1
+              fi
+            }
           fi
 
           gh release upload "$tag" \

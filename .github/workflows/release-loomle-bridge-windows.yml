@@ -180,13 +180,16 @@ jobs:
           $ErrorActionPreference = $oldErrorActionPreference
 
           if ($releaseViewExitCode -ne 0) {
-            gh release create $tag `
+            $createOutput = gh release create $tag `
               --repo "${{ github.repository }}" `
               --title $tag `
               --latest=false `
-              --generate-notes
+              --generate-notes 2>&1
             if ($LASTEXITCODE -ne 0) {
-              throw "Failed to create release $tag"
+              $outputStr = "$createOutput"
+              if ($outputStr -notmatch "already exists") {
+                throw "Failed to create release $tag`: $outputStr"
+              }
             }
           }
 
