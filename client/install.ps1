@@ -52,8 +52,12 @@ function Copy-FileReplace([string]$Source, [string]$Destination) {
   if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) {
     Fail "install file not found: $Source"
   }
-  Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Destination) | Out-Null
+  if (Test-Path -LiteralPath $Destination) {
+    $OldPath = "$Destination.old"
+    Remove-Item -LiteralPath $OldPath -Force -ErrorAction SilentlyContinue
+    Rename-Item -LiteralPath $Destination -NewName (Split-Path -Leaf $OldPath) -Force
+  }
   Copy-Item -LiteralPath $Source -Destination $Destination -Force
 }
 
@@ -300,6 +304,9 @@ try {
   $LauncherPath = Join-Path $InstallRoot "bin\$ClientName"
   $ActiveClientPath = Join-Path $VersionRoot $ClientName
   $ActiveStatePath = Join-Path $InstallRoot "install\active.json"
+
+  Remove-Item -LiteralPath "$LauncherPath.old" -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath "$ActiveClientPath.old" -Force -ErrorAction SilentlyContinue
 
   if (-not (Test-Path -LiteralPath $ClientSource -PathType Leaf)) { Fail "bundle missing $ClientName" }
   if (-not (Test-Path -LiteralPath $PluginCacheSource -PathType Container)) { Fail "bundle missing plugin-cache/LoomleBridge" }

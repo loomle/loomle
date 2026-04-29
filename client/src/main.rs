@@ -27,6 +27,8 @@ use tokio::sync::Mutex;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> ExitCode {
+    cleanup_old_binaries();
+
     if let Some(code) = maybe_handoff_to_global_active_client() {
         return code;
     }
@@ -4823,11 +4825,29 @@ fn copy_tree_replace(source: &Path, destination: &Path) -> Result<(), String> {
     copy_dir_recursive(source, destination)
 }
 
+fn cleanup_old_binaries() {
+    if !cfg!(windows) {
+        return;
+    }
+    let Ok(exe) = env::current_exe() else { return };
+    let old = exe.with_extension("exe.old");
+    let _ = fs::remove_file(&old);
+}
+
 fn copy_file_replace(source: &Path, destination: &Path) -> Result<(), String> {
     if !source.is_file() {
         return Err(format!("install file not found: {}", source.display()));
     }
     if destination.exists() || destination.is_symlink() {
+        #[cfg(windows)]
+        {
+            let old = destination.with_extension("exe.old");
+            let _ = fs::remove_file(&old);
+            fs::rename(destination, &old).map_err(|error| {
+                format!("failed to rename {}: {error}", destination.display())
+            })?;
+        }
+        #[cfg(not(windows))]
         fs::remove_file(destination)
             .map_err(|error| format!("failed to remove {}: {error}", destination.display()))?;
     }
