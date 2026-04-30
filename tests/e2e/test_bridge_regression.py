@@ -1121,6 +1121,35 @@ def main() -> int:
                     "type": {"category": "enum", "enumPath": enum_path},
                 },
             }),
+            ("variable update enum state replication repNotify", {
+                "assetPath": temp_asset,
+                "memberKind": "variable",
+                "operation": "update",
+                "args": {
+                    "variableName": "EnumState",
+                    "replication": "repNotify",
+                    "repNotifyFunc": "OnRep_EnumState",
+                },
+            }),
+            ("variable update enum state replicationCondition ownerOnly", {
+                "assetPath": temp_asset,
+                "memberKind": "variable",
+                "operation": "update",
+                "args": {
+                    "variableName": "EnumState",
+                    "replicationCondition": "COND_OwnerOnly",
+                },
+            }),
+            ("variable update enum state replication reset none", {
+                "assetPath": temp_asset,
+                "memberKind": "variable",
+                "operation": "update",
+                "args": {
+                    "variableName": "EnumState",
+                    "replication": "none",
+                    "replicationCondition": "COND_None",
+                },
+            }),
             ("variable create temp delete", {
                 "assetPath": temp_asset,
                 "memberKind": "variable",
@@ -1435,10 +1464,10 @@ def main() -> int:
             fail(f"blueprint.member.inspect enum variable replication flags mismatch: {enum_variable}")
         if enum_variable.get("replication") != "none":
             fail(f"blueprint.member.inspect enum variable replication mode mismatch: {enum_variable}")
-        if not isinstance(enum_variable.get("replicationCondition"), str):
-            fail(f"blueprint.member.inspect enum variable missing replicationCondition: {enum_variable}")
-        if not isinstance(enum_variable.get("replicationConditionValue"), int):
-            fail(f"blueprint.member.inspect enum variable missing replicationConditionValue: {enum_variable}")
+        if enum_variable.get("replicationCondition") != "COND_None":
+            fail(f"blueprint.member.inspect enum variable replicationCondition not reset to COND_None: {enum_variable}")
+        if enum_variable.get("replicationConditionValue") != 0:
+            fail(f"blueprint.member.inspect enum variable replicationConditionValue not reset to 0: {enum_variable}")
         component_inspect_payload = call_tool(
             client,
             6523,

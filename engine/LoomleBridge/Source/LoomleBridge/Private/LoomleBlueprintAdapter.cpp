@@ -4605,6 +4605,93 @@ bool FLoomleBlueprintAdapter::EditVariableMember(const FString& BlueprintAssetPa
             }
         }
 
+        FString Replication;
+        if (LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("replication")}, Replication))
+        {
+            const FString RepLower = Replication.ToLower().Replace(TEXT("_"), TEXT(""));
+            uint64* Flags = FBlueprintEditorUtils::GetBlueprintVariablePropertyFlags(Blueprint, VariableName);
+            if (Flags == nullptr)
+            {
+                OutError = TEXT("Failed to get variable property flags for replication.");
+                return false;
+            }
+
+            if (RepLower == TEXT("none") || RepLower == TEXT("notreplicated"))
+            {
+                *Flags &= ~(CPF_Net | CPF_RepNotify);
+                FBlueprintEditorUtils::SetBlueprintVariableRepNotifyFunc(Blueprint, VariableName, NAME_None);
+            }
+            else if (RepLower == TEXT("replicated"))
+            {
+                *Flags |= CPF_Net;
+                *Flags &= ~CPF_RepNotify;
+                FBlueprintEditorUtils::SetBlueprintVariableRepNotifyFunc(Blueprint, VariableName, NAME_None);
+            }
+            else if (RepLower == TEXT("repnotify"))
+            {
+                *Flags |= CPF_Net | CPF_RepNotify;
+            }
+            else
+            {
+                OutError = FString::Printf(TEXT("Unsupported replication value: %s. Valid: none, replicated, repNotify."), *Replication);
+                return false;
+            }
+        }
+
+        FString RepNotifyFunc;
+        if (LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("repNotifyFunc")}, RepNotifyFunc))
+        {
+            FBlueprintEditorUtils::SetBlueprintVariableRepNotifyFunc(
+                Blueprint, VariableName,
+                RepNotifyFunc.IsEmpty() ? NAME_None : FName(*RepNotifyFunc));
+        }
+
+        FString ReplicationConditionStr;
+        if (LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("replicationCondition")}, ReplicationConditionStr))
+        {
+            ELifetimeCondition NewCondition = COND_None;
+            bool bParsed = false;
+
+            // Try numeric string first
+            if (ReplicationConditionStr.IsNumeric())
+            {
+                const int32 IntVal = FCString::Atoi(*ReplicationConditionStr);
+                NewCondition = static_cast<ELifetimeCondition>(IntVal);
+                bParsed = true;
+            }
+            else if (const UEnum* ConditionEnum = StaticEnum<ELifetimeCondition>())
+            {
+                const int64 EnumVal = ConditionEnum->GetValueByNameString(ReplicationConditionStr, EGetByNameFlags::None);
+                if (EnumVal != INDEX_NONE)
+                {
+                    NewCondition = static_cast<ELifetimeCondition>(EnumVal);
+                    bParsed = true;
+                }
+            }
+
+            if (!bParsed)
+            {
+                OutError = FString::Printf(TEXT("Unsupported replicationCondition value: %s. Use a COND_* enum name (e.g. COND_None, COND_OwnerOnly) or integer."), *ReplicationConditionStr);
+                return false;
+            }
+
+            // Update the variable description (persisted in Blueprint asset)
+            FBPVariableDescription* VarDesc = LoomleBlueprintAdapterInternal::FindVariableDescription(Blueprint, VariableName);
+            if (VarDesc)
+            {
+                VarDesc->ReplicationCondition = NewCondition;
+            }
+
+            // Also update the skeleton class property for immediate reflection before next compile
+            if (UClass* SkeletonClass = Blueprint->SkeletonGeneratedClass)
+            {
+                if (FProperty* Prop = SkeletonClass->FindPropertyByName(VariableName))
+                {
+                    Prop->SetBlueprintReplicationCondition(NewCondition);
+                }
+            }
+        }
+
         Blueprint->MarkPackageDirty();
         return true;
     }
