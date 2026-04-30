@@ -76,6 +76,44 @@ namespace LoomleBlueprintAdapterInternal
     static TSharedPtr<FJsonObject> TryGetObjectFieldAny(const TSharedPtr<FJsonObject>& Object, std::initializer_list<const TCHAR*> FieldNames);
     static TArray<TSharedPtr<FJsonValue>> TryGetArrayFieldAny(const TSharedPtr<FJsonObject>& Object, std::initializer_list<const TCHAR*> FieldNames);
 
+    static bool IsMemberEditOperationSupported(const FString& OperationLower, std::initializer_list<const TCHAR*> SupportedOperations)
+    {
+        for (const TCHAR* SupportedOperation : SupportedOperations)
+        {
+            if (OperationLower.Equals(SupportedOperation, ESearchCase::CaseSensitive))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static FString SuggestMemberEditOperation(const FString& OperationLower)
+    {
+        if (OperationLower.Equals(TEXT("add"), ESearchCase::CaseSensitive))
+        {
+            return TEXT("create");
+        }
+        if (OperationLower.Equals(TEXT("remove"), ESearchCase::CaseSensitive))
+        {
+            return TEXT("delete");
+        }
+        return TEXT("");
+    }
+
+    static bool RejectUnsupportedMemberEditOperation(
+        const FString& MemberKindForMessage,
+        const FString& Operation,
+        const FString& OperationLower,
+        FString& OutError)
+    {
+        const FString Suggestion = SuggestMemberEditOperation(OperationLower);
+        OutError = Suggestion.IsEmpty()
+            ? FString::Printf(TEXT("Unsupported %s operation: %s"), *MemberKindForMessage, *Operation)
+            : FString::Printf(TEXT("Unsupported %s operation: %s. Did you mean %s?"), *MemberKindForMessage, *Operation, *Suggestion);
+        return false;
+    }
+
     static FString BoolToJsonString(bool bValue)
     {
         return bValue ? TEXT("true") : TEXT("false");
@@ -4166,9 +4204,383 @@ bool FLoomleBlueprintAdapter::SetPrimitiveComponentGenerateOverlapEvents(const F
     return true;
 }
 
+bool FLoomleBlueprintAdapter::ValidateMemberEditOperation(const FString& MemberKind, const FString& Operation, FString& OutError)
+{
+    OutError.Empty();
+
+    if (Operation.IsEmpty())
+    {
+        OutError = TEXT("blueprint.member.edit requires operation.");
+        return false;
+    }
+
+    const FString MemberKindLower = MemberKind.ToLower();
+    const FString OperationLower = Operation.ToLower();
+
+    if (MemberKindLower.Equals(TEXT("component"), ESearchCase::CaseSensitive))
+    {
+        if (LoomleBlueprintAdapterInternal::IsMemberEditOperationSupported(
+            OperationLower,
+            {
+                TEXT("create"),
+                TEXT("rename"),
+                TEXT("delete"),
+                TEXT("reparent"),
+                TEXT("reorder"),
+                TEXT("update"),
+                TEXT("setstaticmeshasset"),
+                TEXT("setrelativelocation"),
+                TEXT("setrelativescale3d"),
+                TEXT("setcollisionenabled"),
+                TEXT("setboxextent"),
+                TEXT("setgenerateoverlapevents"),
+            }))
+        {
+            return true;
+        }
+        return LoomleBlueprintAdapterInternal::RejectUnsupportedMemberEditOperation(TEXT("component"), Operation, OperationLower, OutError);
+    }
+
+    if (MemberKindLower.Equals(TEXT("variable"), ESearchCase::CaseSensitive))
+    {
+        if (LoomleBlueprintAdapterInternal::IsMemberEditOperationSupported(
+            OperationLower,
+            {
+                TEXT("create"),
+                TEXT("rename"),
+                TEXT("delete"),
+                TEXT("reorder"),
+                TEXT("setdefault"),
+                TEXT("update"),
+            }))
+        {
+            return true;
+        }
+        return LoomleBlueprintAdapterInternal::RejectUnsupportedMemberEditOperation(TEXT("variable"), Operation, OperationLower, OutError);
+    }
+
+    if (MemberKindLower.Equals(TEXT("function"), ESearchCase::CaseSensitive))
+    {
+        if (LoomleBlueprintAdapterInternal::IsMemberEditOperationSupported(
+            OperationLower,
+            {
+                TEXT("create"),
+                TEXT("rename"),
+                TEXT("delete"),
+                TEXT("updatesignature"),
+                TEXT("setflags"),
+            }))
+        {
+            return true;
+        }
+        return LoomleBlueprintAdapterInternal::RejectUnsupportedMemberEditOperation(TEXT("function"), Operation, OperationLower, OutError);
+    }
+
+    if (MemberKindLower.Equals(TEXT("macro"), ESearchCase::CaseSensitive))
+    {
+        if (LoomleBlueprintAdapterInternal::IsMemberEditOperationSupported(
+            OperationLower,
+            {
+                TEXT("create"),
+                TEXT("rename"),
+                TEXT("delete"),
+                TEXT("updatesignature"),
+            }))
+        {
+            return true;
+        }
+        return LoomleBlueprintAdapterInternal::RejectUnsupportedMemberEditOperation(TEXT("macro"), Operation, OperationLower, OutError);
+    }
+
+    if (MemberKindLower.Equals(TEXT("dispatcher"), ESearchCase::CaseSensitive))
+    {
+        if (LoomleBlueprintAdapterInternal::IsMemberEditOperationSupported(
+            OperationLower,
+            {
+                TEXT("create"),
+                TEXT("rename"),
+                TEXT("delete"),
+                TEXT("updatesignature"),
+            }))
+        {
+            return true;
+        }
+        return LoomleBlueprintAdapterInternal::RejectUnsupportedMemberEditOperation(TEXT("dispatcher"), Operation, OperationLower, OutError);
+    }
+
+    if (MemberKindLower.Equals(TEXT("event"), ESearchCase::CaseSensitive)
+        || MemberKindLower.Equals(TEXT("customevent"), ESearchCase::CaseSensitive))
+    {
+        if (LoomleBlueprintAdapterInternal::IsMemberEditOperationSupported(
+            OperationLower,
+            {
+                TEXT("create"),
+                TEXT("rename"),
+                TEXT("delete"),
+                TEXT("updatesignature"),
+                TEXT("addinput"),
+                TEXT("setflags"),
+            }))
+        {
+            return true;
+        }
+        return LoomleBlueprintAdapterInternal::RejectUnsupportedMemberEditOperation(TEXT("event"), Operation, OperationLower, OutError);
+    }
+
+    OutError = FString::Printf(TEXT("Unsupported Blueprint member kind: %s"), *MemberKind);
+    return false;
+}
+
+bool FLoomleBlueprintAdapter::ValidateMemberEditRequest(
+    const FString& BlueprintAssetPath,
+    const FString& MemberKind,
+    const FString& Operation,
+    const FString& PayloadJson,
+    FString& OutError)
+{
+    OutError.Empty();
+
+    if (!ValidateMemberEditOperation(MemberKind, Operation, OutError))
+    {
+        return false;
+    }
+
+    TSharedPtr<FJsonObject> Payload;
+    if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Payload))
+    {
+        OutError = FString::Printf(TEXT("Failed to parse %s payload JSON."), *MemberKind);
+        return false;
+    }
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    if (Blueprint == nullptr)
+    {
+        OutError = TEXT("Failed to resolve blueprint.");
+        return false;
+    }
+
+    const FString MemberKindLower = MemberKind.ToLower();
+    const FString OperationLower = Operation.ToLower();
+
+    if (MemberKindLower.Equals(TEXT("component"), ESearchCase::CaseSensitive))
+    {
+        USimpleConstructionScript* SCS = Blueprint->SimpleConstructionScript;
+        if (SCS == nullptr)
+        {
+            OutError = TEXT("Blueprint not found or SimpleConstructionScript is unavailable.");
+            return false;
+        }
+
+        if (OperationLower.Equals(TEXT("create")))
+        {
+            FString ComponentClassPath;
+            FString ComponentName;
+            FString ParentComponentName;
+            LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("componentClassPath"), TEXT("classPath")}, ComponentClassPath);
+            LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("componentName"), TEXT("name")}, ComponentName);
+            LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("parentComponentName"), TEXT("parentName")}, ParentComponentName);
+            if (ComponentName.IsEmpty())
+            {
+                OutError = TEXT("component create requires componentName.");
+                return false;
+            }
+            UClass* ComponentClass = LoomleBlueprintAdapterInternal::ResolveClass(ComponentClassPath);
+            if (ComponentClass == nullptr || !ComponentClass->IsChildOf(UActorComponent::StaticClass()))
+            {
+                OutError = FString::Printf(TEXT("Failed to resolve component class: %s"), *ComponentClassPath);
+                return false;
+            }
+            if (!ParentComponentName.IsEmpty() && LoomleBlueprintAdapterInternal::FindComponentNode(Blueprint, ParentComponentName) == nullptr)
+            {
+                OutError = FString::Printf(TEXT("Failed to resolve parent component: %s"), *ParentComponentName);
+                return false;
+            }
+            return true;
+        }
+
+        FString ComponentName;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("componentName"), TEXT("name")}, ComponentName);
+        USCS_Node* Node = LoomleBlueprintAdapterInternal::FindComponentNode(Blueprint, ComponentName);
+        if (Node == nullptr)
+        {
+            OutError = FString::Printf(TEXT("Failed to resolve component node: %s"), *ComponentName);
+            return false;
+        }
+        if (OperationLower.Equals(TEXT("rename")))
+        {
+            FString NewName;
+            LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("newName"), TEXT("name")}, NewName);
+            if (NewName.IsEmpty())
+            {
+                OutError = TEXT("component rename requires newName.");
+                return false;
+            }
+        }
+        else if (OperationLower.Equals(TEXT("reorder")))
+        {
+            FString TargetComponentName;
+            LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("targetComponentName"), TEXT("targetName")}, TargetComponentName);
+            if (TargetComponentName.IsEmpty())
+            {
+                OutError = TEXT("component reorder requires targetComponentName.");
+                return false;
+            }
+            if (LoomleBlueprintAdapterInternal::FindComponentNode(Blueprint, TargetComponentName) == nullptr)
+            {
+                OutError = FString::Printf(TEXT("Failed to resolve reorder target component: %s"), *TargetComponentName);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    if (MemberKindLower.Equals(TEXT("variable"), ESearchCase::CaseSensitive))
+    {
+        FString VariableNameText;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("variableName"), TEXT("name")}, VariableNameText);
+        if (OperationLower.Equals(TEXT("create")))
+        {
+            if (VariableNameText.IsEmpty())
+            {
+                OutError = TEXT("variable create requires variableName.");
+                return false;
+            }
+            FEdGraphPinType PinType;
+            return LoomleBlueprintAdapterInternal::ParsePinTypeFromPayload(Payload, PinType, OutError);
+        }
+
+        FBPVariableDescription* VariableDescription = LoomleBlueprintAdapterInternal::FindVariableDescription(Blueprint, FName(*VariableNameText));
+        if (VariableDescription == nullptr)
+        {
+            OutError = FString::Printf(TEXT("Failed to resolve Blueprint member variable: %s"), *VariableNameText);
+            return false;
+        }
+        if (OperationLower.Equals(TEXT("rename")))
+        {
+            FString NewNameText;
+            LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("newName"), TEXT("name")}, NewNameText);
+            if (NewNameText.IsEmpty())
+            {
+                OutError = TEXT("variable rename requires newName.");
+                return false;
+            }
+        }
+        else if (OperationLower.Equals(TEXT("reorder")))
+        {
+            FString TargetVariableName;
+            LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("targetVariableName"), TEXT("targetName")}, TargetVariableName);
+            if (TargetVariableName.IsEmpty())
+            {
+                OutError = TEXT("variable reorder requires targetVariableName.");
+                return false;
+            }
+        }
+        else if (OperationLower.Equals(TEXT("update")) && (Payload->HasField(TEXT("type")) || Payload->HasField(TEXT("pinType")) || Payload->HasField(TEXT("varType"))))
+        {
+            FEdGraphPinType PinType;
+            if (!LoomleBlueprintAdapterInternal::ParsePinTypeFromPayload(Payload, PinType, OutError))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    if (MemberKindLower.Equals(TEXT("function"), ESearchCase::CaseSensitive)
+        || MemberKindLower.Equals(TEXT("macro"), ESearchCase::CaseSensitive)
+        || MemberKindLower.Equals(TEXT("dispatcher"), ESearchCase::CaseSensitive))
+    {
+        const TCHAR* NameFieldForMessage = MemberKindLower.Equals(TEXT("function"), ESearchCase::CaseSensitive)
+            ? TEXT("functionName")
+            : MemberKindLower.Equals(TEXT("macro"), ESearchCase::CaseSensitive)
+            ? TEXT("macroName")
+            : TEXT("dispatcherName");
+        FString GraphName;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {NameFieldForMessage, TEXT("name")}, GraphName);
+        if (OperationLower.Equals(TEXT("create")))
+        {
+            if (GraphName.IsEmpty())
+            {
+                OutError = FString::Printf(TEXT("%s create requires %s."), *MemberKindLower, NameFieldForMessage);
+                return false;
+            }
+            if (MemberKindLower.Equals(TEXT("dispatcher"), ESearchCase::CaseSensitive))
+            {
+                return true;
+            }
+        }
+        else if (LoomleBlueprintAdapterInternal::FindFunctionLikeGraph(Blueprint, GraphName) == nullptr)
+        {
+            OutError = FString::Printf(TEXT("Failed to resolve %s graph: %s"), *MemberKindLower, *GraphName);
+            return false;
+        }
+
+        if (OperationLower.Equals(TEXT("rename")))
+        {
+            FString NewName;
+            LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("newName"), TEXT("name")}, NewName);
+            if (NewName.IsEmpty())
+            {
+                OutError = FString::Printf(TEXT("%s rename requires newName."), *MemberKindLower);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    if (MemberKindLower.Equals(TEXT("event"), ESearchCase::CaseSensitive)
+        || MemberKindLower.Equals(TEXT("customevent"), ESearchCase::CaseSensitive))
+    {
+        FString EventName;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("eventName"), TEXT("customEventName"), TEXT("name")}, EventName);
+        if (EventName.IsEmpty())
+        {
+            OutError = OperationLower.Equals(TEXT("create")) ? TEXT("event create requires name.") : TEXT("event operation requires name.");
+            return false;
+        }
+        if (OperationLower.Equals(TEXT("create")))
+        {
+            FString GraphName;
+            LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("graphName")}, GraphName);
+            if (!GraphName.IsEmpty() && LoomleBlueprintAdapterInternal::ResolveTargetGraph(Blueprint, GraphName) == nullptr)
+            {
+                OutError = FString::Printf(TEXT("Graph not found: %s"), *GraphName);
+                return false;
+            }
+            return true;
+        }
+
+        UK2Node_CustomEvent* CustomEvent = LoomleBlueprintAdapterInternal::FindCustomEventNode(Blueprint, EventName);
+        if (CustomEvent == nullptr)
+        {
+            OutError = FString::Printf(TEXT("Failed to resolve custom event: %s"), *EventName);
+            return false;
+        }
+        if (OperationLower.Equals(TEXT("rename")))
+        {
+            FString NewName;
+            LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("newName")}, NewName);
+            if (NewName.IsEmpty())
+            {
+                OutError = TEXT("event rename requires newName.");
+                return false;
+            }
+        }
+        return true;
+    }
+
+    OutError = FString::Printf(TEXT("Unsupported Blueprint member kind: %s"), *MemberKind);
+    return false;
+}
+
 bool FLoomleBlueprintAdapter::EditComponentMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError)
 {
     OutError.Empty();
+
+    if (!ValidateMemberEditOperation(TEXT("component"), Operation, OutError))
+    {
+        return false;
+    }
 
     TSharedPtr<FJsonObject> Payload;
     if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Payload))
@@ -4412,6 +4824,11 @@ bool FLoomleBlueprintAdapter::EditComponentMember(const FString& BlueprintAssetP
 bool FLoomleBlueprintAdapter::EditVariableMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError)
 {
     OutError.Empty();
+
+    if (!ValidateMemberEditOperation(TEXT("variable"), Operation, OutError))
+    {
+        return false;
+    }
 
     TSharedPtr<FJsonObject> Payload;
     if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Payload))
@@ -4704,6 +5121,11 @@ bool FLoomleBlueprintAdapter::EditFunctionMember(const FString& BlueprintAssetPa
 {
     OutError.Empty();
 
+    if (!ValidateMemberEditOperation(TEXT("function"), Operation, OutError))
+    {
+        return false;
+    }
+
     TSharedPtr<FJsonObject> Payload;
     if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Payload))
     {
@@ -4875,6 +5297,11 @@ bool FLoomleBlueprintAdapter::EditMacroMember(const FString& BlueprintAssetPath,
 {
     OutError.Empty();
 
+    if (!ValidateMemberEditOperation(TEXT("macro"), Operation, OutError))
+    {
+        return false;
+    }
+
     TSharedPtr<FJsonObject> Payload;
     if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Payload))
     {
@@ -4955,6 +5382,11 @@ bool FLoomleBlueprintAdapter::EditMacroMember(const FString& BlueprintAssetPath,
 bool FLoomleBlueprintAdapter::EditDispatcherMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError)
 {
     OutError.Empty();
+
+    if (!ValidateMemberEditOperation(TEXT("dispatcher"), Operation, OutError))
+    {
+        return false;
+    }
 
     TSharedPtr<FJsonObject> Payload;
     if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Payload))
@@ -5058,6 +5490,11 @@ bool FLoomleBlueprintAdapter::EditDispatcherMember(const FString& BlueprintAsset
 bool FLoomleBlueprintAdapter::EditEventMember(const FString& BlueprintAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutError)
 {
     OutError.Empty();
+
+    if (!ValidateMemberEditOperation(TEXT("event"), Operation, OutError))
+    {
+        return false;
+    }
 
     TSharedPtr<FJsonObject> Payload;
     if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Payload))

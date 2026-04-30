@@ -1491,6 +1491,64 @@ def main() -> int:
         )
         if dry_run_member_payload.get("applied") is not False or dry_run_member_payload.get("dryRun") is not True:
             fail(f"blueprint.member.edit dryRun shape mismatch: {dry_run_member_payload}")
+        dry_run_unsupported_member_payload = call_tool(
+            client,
+            6530,
+            "blueprint.member.edit",
+            {
+                "assetPath": temp_asset,
+                "memberKind": "variable",
+                "operation": "add",
+                "args": {"name": "DryRunUnsupportedVariable", "type": {"category": "bool"}},
+                "dryRun": True,
+            },
+            expect_error=True,
+        )
+        dry_run_unsupported_message = dry_run_unsupported_member_payload.get("message", "")
+        if (
+            extract_nested_error_code(dry_run_unsupported_member_payload) != "INVALID_ARGUMENT"
+            or "Unsupported variable operation: add" not in dry_run_unsupported_message
+            or "Did you mean create?" not in dry_run_unsupported_message
+        ):
+            fail(f"blueprint.member.edit dryRun unsupported operation mismatch: {dry_run_unsupported_member_payload}")
+        real_unsupported_member_payload = call_tool(
+            client,
+            65300,
+            "blueprint.member.edit",
+            {
+                "assetPath": temp_asset,
+                "memberKind": "variable",
+                "operation": "add",
+                "args": {"name": "RealUnsupportedVariable", "type": {"category": "bool"}},
+            },
+            expect_error=True,
+        )
+        real_unsupported_message = real_unsupported_member_payload.get("message", "")
+        if (
+            extract_nested_error_code(real_unsupported_member_payload) != "INVALID_ARGUMENT"
+            or "Unsupported variable operation: add" not in real_unsupported_message
+            or "Did you mean create?" not in real_unsupported_message
+        ):
+            fail(f"blueprint.member.edit real unsupported operation mismatch: {real_unsupported_member_payload}")
+        dry_run_missing_arg_payload = call_tool(
+            client,
+            65301,
+            "blueprint.member.edit",
+            {
+                "assetPath": temp_asset,
+                "memberKind": "variable",
+                "operation": "create",
+                "args": {"type": {"category": "bool"}},
+                "dryRun": True,
+            },
+            expect_error=True,
+        )
+        dry_run_missing_arg_message = dry_run_missing_arg_payload.get("message", "")
+        if (
+            extract_nested_error_code(dry_run_missing_arg_payload) != "INVALID_ARGUMENT"
+            or "variable create requires variableName" not in dry_run_missing_arg_message
+        ):
+            fail(f"blueprint.member.edit dryRun missing arg mismatch: {dry_run_missing_arg_payload}")
         macro_inspect_payload = call_tool(
             client,
             6531,

@@ -1606,6 +1606,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMemberEditToolResult(
         return Result;
     }
 
+    if (!FLoomleBlueprintAdapter::ValidateMemberEditRequest(AssetPath, MemberKind, Operation, PayloadJson, Error))
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.member.edit request is invalid.") : Error);
+        return Result;
+    }
+
     if (bDryRun)
     {
         Result->SetBoolField(TEXT("applied"), false);
