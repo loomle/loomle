@@ -5200,6 +5200,7 @@ fn make_executable_if_unix(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug)]
 struct FileLock {
     path: PathBuf,
 }
@@ -5208,6 +5209,16 @@ impl Drop for FileLock {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.path);
     }
+}
+
+const FILE_LOCK_STALE_AFTER: Duration = Duration::from_secs(30 * 60);
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FileLockMetadata {
+    pid: u32,
+    started_at_unix_secs: u64,
+    command: String,
 }
 
 fn acquire_file_lock(path: &Path, busy_message: &str) -> Result<FileLock, String> {
@@ -5219,18 +5230,123 @@ fn acquire_file_lock(path: &Path, busy_message: &str) -> Result<FileLock, String
             )
         })?;
     }
-    match OpenOptions::new().write(true).create_new(true).open(path) {
-        Ok(_) => Ok(FileLock {
-            path: path.to_path_buf(),
-        }),
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            Err(busy_message.to_string())
+
+    for _ in 0..2 {
+        match create_file_lock(path) {
+            Ok(lock) => return Ok(lock),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                if remove_stale_file_lock(path)? {
+                    continue;
+                }
+                return Err(active_file_lock_message(path, busy_message));
+            }
+            Err(error) => {
+                return Err(format!(
+                    "failed to acquire lock {}: {error}",
+                    path.display()
+                ));
+            }
         }
+    }
+
+    Err(active_file_lock_message(path, busy_message))
+}
+
+fn create_file_lock(path: &Path) -> std::io::Result<FileLock> {
+    let metadata = FileLockMetadata {
+        pid: std::process::id(),
+        started_at_unix_secs: unix_timestamp_secs(),
+        command: env::args().next().unwrap_or_else(|| "loomle".to_string()),
+    };
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    if let Err(error) = serde_json::to_writer_pretty(&mut file, &metadata) {
+        let _ = fs::remove_file(path);
+        return Err(std::io::Error::new(std::io::ErrorKind::Other, error));
+    }
+    Ok(FileLock {
+        path: path.to_path_buf(),
+    })
+}
+
+fn remove_stale_file_lock(path: &Path) -> Result<bool, String> {
+    let metadata = read_file_lock_metadata(path);
+    if let Some(metadata) = metadata.as_ref() {
+        if process_is_running(metadata.pid) {
+            return Ok(false);
+        }
+    } else if !file_lock_is_older_than(path, FILE_LOCK_STALE_AFTER)? {
+        return Ok(false);
+    }
+
+    match fs::remove_file(path) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(true),
         Err(error) => Err(format!(
-            "failed to acquire lock {}: {error}",
+            "failed to remove stale lock {}: {error}",
             path.display()
         )),
     }
+}
+
+fn active_file_lock_message(path: &Path, busy_message: &str) -> String {
+    if let Some(metadata) = read_file_lock_metadata(path) {
+        format!(
+            "{busy_message}; lock={} pid={} startedAt={}",
+            path.display(),
+            metadata.pid,
+            metadata.started_at_unix_secs
+        )
+    } else {
+        format!("{busy_message}; lock={}", path.display())
+    }
+}
+
+fn read_file_lock_metadata(path: &Path) -> Option<FileLockMetadata> {
+    let contents = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&contents).ok()
+}
+
+fn file_lock_is_older_than(path: &Path, age: Duration) -> Result<bool, String> {
+    let modified = fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .map_err(|error| format!("failed to stat lock {}: {error}", path.display()))?;
+    Ok(SystemTime::now()
+        .duration_since(modified)
+        .unwrap_or_default()
+        >= age)
+}
+
+#[cfg(unix)]
+fn process_is_running(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    Command::new("kill")
+        .arg("-0")
+        .arg(pid.to_string())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(windows)]
+fn process_is_running(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!("if (Get-Process -Id {pid} -ErrorAction SilentlyContinue) {{ exit 0 }} else {{ exit 1 }}"),
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 fn loomle_root() -> PathBuf {
@@ -5421,12 +5537,13 @@ fn print_usage_stderr() {
 #[cfg(test)]
 mod tests {
     use super::{
-        compare_semver, compile_blueprint_refactor_request, current_platform_client_binary_name,
-        infer_attached_project_root, material_query_schema, pcg_query_schema,
-        play_participant_wait_conditions_met, play_schema,
-        play_wait_participant_conditions_from_args, runtime_declared_tools,
-        switch_to_installed_version, translate_blueprint_graph_edit_args,
-        translate_material_query_args, translate_pcg_query_args, Cli, RuntimeProject,
+        acquire_file_lock, compare_semver, compile_blueprint_refactor_request,
+        current_platform_client_binary_name, infer_attached_project_root, material_query_schema,
+        pcg_query_schema, play_participant_wait_conditions_met, play_schema,
+        play_wait_participant_conditions_from_args, read_file_lock_metadata,
+        runtime_declared_tools, switch_to_installed_version, translate_blueprint_graph_edit_args,
+        translate_material_query_args, translate_pcg_query_args, Cli, FileLockMetadata,
+        RuntimeProject,
     };
     use rmcp::model::JsonObject;
     use std::ffi::OsString;
@@ -5564,6 +5681,67 @@ mod tests {
         );
         let active = fs::read_to_string(root.join("install").join("active.json")).expect("active");
         assert!(active.contains("\"activeVersion\": \"0.5.7\""));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn file_lock_is_removed_on_drop() {
+        let root = std::env::temp_dir().join(format!(
+            "loomle-test-lock-drop-{}-{}",
+            std::process::id(),
+            super::unix_timestamp_secs()
+        ));
+        let lock_path = root.join("locks").join("update.lock");
+        {
+            let _lock = acquire_file_lock(&lock_path, "busy").expect("lock");
+            assert!(lock_path.exists());
+        }
+        assert!(!lock_path.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn file_lock_recovers_stale_dead_pid() {
+        let root = std::env::temp_dir().join(format!(
+            "loomle-test-lock-stale-{}-{}",
+            std::process::id(),
+            super::unix_timestamp_secs()
+        ));
+        let lock_path = root.join("locks").join("update.lock");
+        fs::create_dir_all(lock_path.parent().expect("parent")).expect("lock dir");
+        fs::write(
+            &lock_path,
+            serde_json::to_string(&FileLockMetadata {
+                pid: u32::MAX,
+                started_at_unix_secs: 1,
+                command: "loomle update".to_string(),
+            })
+            .expect("metadata"),
+        )
+        .expect("write stale lock");
+
+        let _lock = acquire_file_lock(&lock_path, "busy").expect("stale lock should recover");
+        let metadata = read_file_lock_metadata(&lock_path).expect("metadata");
+        assert_eq!(metadata.pid, std::process::id());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn file_lock_blocks_active_pid() {
+        let root = std::env::temp_dir().join(format!(
+            "loomle-test-lock-active-{}-{}",
+            std::process::id(),
+            super::unix_timestamp_secs()
+        ));
+        let lock_path = root.join("locks").join("update.lock");
+        let _lock = acquire_file_lock(&lock_path, "another loomle update is already running")
+            .expect("first lock");
+
+        let error = acquire_file_lock(&lock_path, "another loomle update is already running")
+            .expect_err("second lock should fail");
+        assert!(error.contains("another loomle update is already running"));
+        assert!(error.contains("pid="));
+        assert!(error.contains(lock_path.to_string_lossy().as_ref()));
         let _ = fs::remove_dir_all(root);
     }
 
