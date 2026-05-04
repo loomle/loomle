@@ -43,7 +43,6 @@ private:
     TSharedPtr<FJsonObject> BuildBlueprintMutateToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildBlueprintVerifyToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildBlueprintDescribeToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
-    TSharedPtr<FJsonObject> BuildBlueprintPaletteToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
 
     // Material
     TSharedPtr<FJsonObject> BuildMaterialListToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
