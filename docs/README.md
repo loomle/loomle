@@ -1,30 +1,30 @@
-# LOOMLE Docs
+# Loomle Documentation
 
-Current documentation is organized around the global install model.
+This directory is for current, trusted Loomle design documentation.
 
-## Core
+Loomle documents are written for both users and developers. They should be
+concise and explicit about three things:
 
-- `LOOMLE_GLOBAL_INSTALL_MODEL.md`: global install, per-session attach, project
-  discovery, update, and project plugin installation model.
-- `REPO_STRUCTURE.md`: current source, release, global install, and target
-  project layout.
-- `MCP_PROTOCOL.md`: MCP tool surface and behavior contract.
-- `ARCHITECTURE.md`: system boundary and runtime responsibility split.
-- `LOOMLE_PERMISSION_MODEL.md`: trust and permission model.
+- Design intent: what agent workflow the interface supports and where its
+  boundary is.
+- Interface schema: tool inputs, outputs, edit operations, and error responses.
+- UE implementation model: the Unreal Engine concepts and execution paths that
+  Loomle maps to.
 
-## Packaging
+Historical design notes, old specs, and exploratory material are archived under
+`archive/legacy/`. They may be useful background, but they are not the current
+interface contract.
 
-- `../packaging/install/INSTALL_CONTRACT.md`: global bundle and installer
-  contract.
-- `../packaging/BOOTSTRAP_CONTRACT.md`: public install script contract.
-- `../packaging/README.md`: maintainer-facing packaging commands.
+## Current Documents
 
-## Graph Work
+- `BLUEPRINT_INTERFACE_DESIGN.md`: current Blueprint interface design.
 
-- `spec-graph-domain-split.md`: active spec for replacing the old unified
-  `graph.*` tools with Blueprint, Material, and PCG namespaces.
-- `issues/README.md`: local design issue index.
+## Planned Documents
 
-The legacy project-root client install docs were removed. Do not reintroduce
-per-project client workspaces, project-root update scripts, or project-root MCP
-client guidance in new docs.
+Future formal documents should follow the same shape and replace archived
+material as each area is redesigned:
+
+- `MATERIAL_INTERFACE_DESIGN.md`
+- `PCG_INTERFACE_DESIGN.md`
+- `RUNTIME_INTERFACE_DESIGN.md`
+- `MCP_INTERFACE_DESIGN.md`
