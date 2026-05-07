@@ -18,6 +18,7 @@ interface contract.
 ## Current Documents
 
 - `BLUEPRINT_INTERFACE_DESIGN.md`: current Blueprint interface design.
+- `blueprint/palette.md`: Blueprint palette and `addFromPalette` design.
 
 ## Planned Documents
 
