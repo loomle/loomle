@@ -158,7 +158,7 @@ namespace LoomleBridgeConstants
     static const TCHAR* EditorOpenToolName = TEXT("editor.open");
     static const TCHAR* EditorFocusToolName = TEXT("editor.focus");
     static const TCHAR* EditorScreenshotToolName = TEXT("editor.screenshot");
-    static const TCHAR* BlueprintQueryToolName = TEXT("blueprint.query");
+    static const TCHAR* BlueprintQueryToolName = TEXT("blueprint.graph.inspect");
     static const TCHAR* MaterialQueryToolName = TEXT("material.query");
     static const TCHAR* PcgQueryToolName = TEXT("pcg.query");
     static const TCHAR* DiagnosticTailToolName = TEXT("diagnostic.tail");

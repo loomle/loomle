@@ -1146,7 +1146,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintListToolResult(const 
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
-        Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.list failed") : Error);
+        Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.graph.list failed") : Error);
         return Result;
     }
 
@@ -1751,7 +1751,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintQueryToolResult(const
                     : (Error.Contains(TEXT("not found")) ? TEXT("NODE_NOT_FOUND") : TEXT("GRAPH_REF_INVALID"));
                 Result->SetBoolField(TEXT("isError"), true);
                 Result->SetStringField(TEXT("code"), DomainCode);
-                Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.query (inline ref) failed") : Error);
+                Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.graph.inspect (inline ref) failed") : Error);
                 return Result;
             }
         }
@@ -1768,7 +1768,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintQueryToolResult(const
             {
                 Result->SetBoolField(TEXT("isError"), true);
                 Result->SetStringField(TEXT("code"), Error.Contains(TEXT("Graph not found")) ? TEXT("GRAPH_NOT_FOUND") : TEXT("INTERNAL_ERROR"));
-                Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.query failed") : Error);
+                Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.graph.inspect failed") : Error);
                 return Result;
             }
         }
@@ -1982,7 +1982,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintQueryToolResult(const
             TSharedPtr<FJsonObject> ErrorResult = MakeShared<FJsonObject>();
             ErrorResult->SetBoolField(TEXT("isError"), true);
             ErrorResult->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
-            ErrorResult->SetStringField(TEXT("message"), TEXT("blueprint.query produced an invalid result."));
+            ErrorResult->SetStringField(TEXT("message"), TEXT("blueprint.graph.inspect produced an invalid result."));
             return ErrorResult;
         }
 
@@ -2004,7 +2004,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintQueryToolResult(const
             TSharedPtr<FJsonObject> ErrorResult = MakeShared<FJsonObject>();
             ErrorResult->SetBoolField(TEXT("isError"), true);
             ErrorResult->SetStringField(TEXT("code"), TEXT("INVALID_CURSOR"));
-            ErrorResult->SetStringField(TEXT("message"), ShapeOptions.CursorError.IsEmpty() ? TEXT("blueprint.query cursor is invalid.") : ShapeOptions.CursorError);
+            ErrorResult->SetStringField(TEXT("message"), ShapeOptions.CursorError.IsEmpty() ? TEXT("blueprint.graph.inspect cursor is invalid.") : ShapeOptions.CursorError);
             return ErrorResult;
         }
 
@@ -2221,7 +2221,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
             Result->SetBoolField(TEXT("isError"), true);
             Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_OP"));
-            Result->SetStringField(TEXT("message"), TEXT("blueprint.mutate no longer supports runScript."));
+            Result->SetStringField(TEXT("message"), TEXT("blueprint.graph.edit no longer supports runScript."));
             Result->SetBoolField(TEXT("applied"), false);
             Result->SetBoolField(TEXT("partialApplied"), false);
 
@@ -2248,7 +2248,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             OpResult->SetBoolField(TEXT("ok"), false);
             OpResult->SetBoolField(TEXT("skipped"), false);
             OpResult->SetStringField(TEXT("errorCode"), TEXT("UNSUPPORTED_OP"));
-            OpResult->SetStringField(TEXT("errorMessage"), TEXT("blueprint.mutate no longer supports runScript."));
+            OpResult->SetStringField(TEXT("errorMessage"), TEXT("blueprint.graph.edit no longer supports runScript."));
             OpResults.Add(MakeShared<FJsonValueObject>(OpResult));
             Result->SetArrayField(TEXT("opResults"), OpResults);
 
@@ -2256,7 +2256,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
             Diagnostic->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_OP"));
             Diagnostic->SetStringField(TEXT("severity"), TEXT("error"));
-            Diagnostic->SetStringField(TEXT("message"), TEXT("blueprint.mutate no longer supports runScript."));
+            Diagnostic->SetStringField(TEXT("message"), TEXT("blueprint.graph.edit no longer supports runScript."));
             Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("mutate"));
             Diagnostic->SetStringField(TEXT("op"), Op);
             Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
@@ -2302,7 +2302,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
             Result->SetBoolField(TEXT("isError"), true);
             Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
-            Result->SetStringField(TEXT("message"), TEXT("blueprint.query did not return a revision for blueprint.mutate."));
+            Result->SetStringField(TEXT("message"), TEXT("blueprint.graph.inspect did not return a revision for blueprint.graph.edit."));
             return Result;
         }
 
@@ -2384,7 +2384,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                     Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
                     Result->SetStringField(
                         TEXT("message"),
-                        TEXT("idempotencyKey was already used for a different blueprint.mutate request in this graph scope."));
+                        TEXT("idempotencyKey was already used for a different blueprint.graph.edit request in this graph scope."));
                     return Result;
                 }
 
@@ -2449,7 +2449,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
         if (!RevisionResult->TryGetStringField(TEXT("revision"), OutRevision) || OutRevision.IsEmpty())
         {
             OutCode = TEXT("INTERNAL_ERROR");
-            OutMessage = TEXT("blueprint.query did not return a revision for blueprint.mutate.");
+            OutMessage = TEXT("blueprint.graph.inspect did not return a revision for blueprint.graph.edit.");
             return false;
         }
 
@@ -2985,7 +2985,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 ? TEXT("")
                 : (!StructuredMessage.IsEmpty()
                     ? StructuredMessage
-                    : (ErrorMessage.IsEmpty() ? TEXT("blueprint.mutate failed") : ErrorMessage));
+                    : (ErrorMessage.IsEmpty() ? TEXT("blueprint.graph.edit failed") : ErrorMessage));
 
             TSharedPtr<FJsonObject> DirectResult = MakeShared<FJsonObject>();
             DirectResult->SetBoolField(TEXT("isError"), !bOk);
@@ -3224,70 +3224,22 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 TEXT("INVALID_ARGUMENT"),
                 FString::Printf(TEXT("Duplicate clientRef: %s"), *ClientRef));
         }
-        else if (OpName.Equals(TEXT("addnode.byclass")))
+        else if (OpName.Equals(TEXT("addfrompalette")))
         {
-            FString NodeClassPath;
-            ReadStringAlias({TEXT("nodeClassPath"), TEXT("nodeClass")}, NodeClassPath);
-            if (NodeClassPath.IsEmpty())
+            FString EntryId;
+            ReadStringAlias({TEXT("entryId"), TEXT("id")}, EntryId);
+            if (EntryId.IsEmpty())
             {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("addNode.byClass requires nodeClassPath."));
-            }
-            else if (bDryRun)
-            {
-                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""));
-            }
-            else
-            {
-                int32 X = 0;
-                int32 Y = 0;
-                ResolveInsertionPoint(SingleArgsObject, X, Y);
-                FString NewNodeId;
-                FString Error;
-                const bool bOk = FLoomleBlueprintAdapter::AddNodeByClass(
-                    AssetPath,
-                    EffectiveGraphName,
-                    NodeClassPath,
-                    SerializeForMutate(SingleArgsObject),
-                    X,
-                    Y,
-                    NewNodeId,
-                    Error);
-                SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
-                if (bOk)
+                const TSharedPtr<FJsonObject>* EntryObject = nullptr;
+                if (SingleArgsObject->TryGetObjectField(TEXT("entry"), EntryObject) && EntryObject != nullptr && (*EntryObject).IsValid())
                 {
-                    AttachNodeAddedDiff(SingleResult, NewNodeId, NodeClassPath);
-                    const FString NormalizedClassPath = NodeClassPath.ToLower();
-                    if (NormalizedClassPath.Contains(TEXT("k2node_timeline")))
-                    {
-                        FString TimelineName;
-                        ReadStringAlias({TEXT("timelineName"), TEXT("name")}, TimelineName);
-                        AppendSecondarySurfaceHint(
-                            SingleResult,
-                            MakeBlueprintMemberSurface(TEXT("timeline"), TimelineName, TEXT("embedded_template"), {TEXT("setSettings"), TEXT("addTrack"), TEXT("removeTrack")}),
-                            TEXT("BLUEPRINT_TIMELINE_EMBEDDED_TEMPLATE"),
-                            TEXT("Timeline nodes are backed by a Blueprint timeline template. Use blueprint.member.edit with memberKind=\"timeline\" to configure length, playback flags, and tracks."));
-                    }
-                    else if (NormalizedClassPath.Contains(TEXT("k2node_addcomponent"))
-                        && !NormalizedClassPath.Contains(TEXT("k2node_addcomponentbyclass")))
-                    {
-                        AppendSecondarySurfaceHint(
-                            SingleResult,
-                            MakeBlueprintMemberSurface(TEXT("component"), TEXT(""), TEXT("embedded_template"), {TEXT("setDefaults"), TEXT("setParent"), TEXT("rename")}),
-                            TEXT("BLUEPRINT_ADD_COMPONENT_EMBEDDED_TEMPLATE"),
-                            TEXT("AddComponent nodes are backed by a Blueprint component template. Use blueprint.member.edit with memberKind=\"component\" for deeper component editing."));
-                    }
+                    (*EntryObject)->TryGetStringField(TEXT("id"), EntryId);
                 }
             }
-        }
-        else if (OpName.Equals(TEXT("addnode.byfunction")))
-        {
-            FString FunctionName;
-            FString FunctionClassPath;
-            ReadStringAlias({TEXT("functionName")}, FunctionName);
-            ReadStringAlias({TEXT("functionClassPath"), TEXT("functionClass")}, FunctionClassPath);
-            if (FunctionName.IsEmpty())
+
+            if (EntryId.IsEmpty())
             {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("addNode.byFunction requires functionName."));
+                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("addFromPalette requires entry.id."));
             }
             else if (bDryRun)
             {
@@ -3300,83 +3252,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 ResolveInsertionPoint(SingleArgsObject, X, Y);
                 FString NewNodeId;
                 FString Error;
-                const bool bOk = FLoomleBlueprintAdapter::AddCallFunctionNode(
+                const FString PayloadJson = SerializeForMutate(SingleArgsObject);
+                const bool bOk = FLoomleBlueprintAdapter::AddNodeFromPalette(
                     AssetPath,
                     EffectiveGraphName,
-                    FunctionClassPath,
-                    FunctionName,
-                    X,
-                    Y,
-                    NewNodeId,
-                    Error);
-                SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
-                if (bOk)
-                {
-                    AttachNodeAddedDiff(SingleResult, NewNodeId, FunctionClassPath.IsEmpty() ? FString(TEXT("K2Node_CallFunction")) : FunctionClassPath);
-                }
-            }
-        }
-        else if (OpName.Equals(TEXT("addnode.byevent")))
-        {
-            FString EventName;
-            FString EventClassPath;
-            ReadStringAlias({TEXT("eventName")}, EventName);
-            ReadStringAlias({TEXT("eventClassPath"), TEXT("eventClass")}, EventClassPath);
-            if (EventName.IsEmpty())
-            {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("addNode.byEvent requires eventName."));
-            }
-            else if (bDryRun)
-            {
-                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""));
-            }
-            else
-            {
-                int32 X = 0;
-                int32 Y = 0;
-                ResolveInsertionPoint(SingleArgsObject, X, Y);
-                FString NewNodeId;
-                FString Error;
-                const bool bOk = FLoomleBlueprintAdapter::AddEventNode(
-                    AssetPath,
-                    EffectiveGraphName,
-                    EventName,
-                    EventClassPath,
-                    X,
-                    Y,
-                    NewNodeId,
-                    Error);
-                SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
-                if (bOk)
-                {
-                    AttachNodeAddedDiff(SingleResult, NewNodeId, EventClassPath.IsEmpty() ? FString(TEXT("K2Node_Event")) : EventClassPath);
-                }
-            }
-        }
-        else if (OpName.Equals(TEXT("addnode.customevent")))
-        {
-            FString EventName;
-            ReadStringAlias({TEXT("eventName"), TEXT("customEventName"), TEXT("name")}, EventName);
-            if (EventName.IsEmpty())
-            {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("addNode.customEvent requires name."));
-            }
-            else if (bDryRun)
-            {
-                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""));
-            }
-            else
-            {
-                int32 X = 0;
-                int32 Y = 0;
-                ResolveInsertionPoint(SingleArgsObject, X, Y);
-                FString NewNodeId;
-                FString Error;
-                const FString PayloadJson = SerializeBlueprintJsonObjectCondensed(SingleArgsObject);
-                const bool bOk = FLoomleBlueprintAdapter::AddCustomEventNode(
-                    AssetPath,
-                    EffectiveGraphName,
-                    EventName,
+                    EntryId,
                     PayloadJson,
                     X,
                     Y,
@@ -3385,170 +3265,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
                 if (bOk)
                 {
-                    TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
-                    AppendDiffObject(Diff, TEXT("nodesAdded"), MakeNodeDiffEntry(NewNodeId, TEXT("/Script/BlueprintGraph.K2Node_CustomEvent"), EventName));
-                    FString Replication;
-                    ReadStringAlias({TEXT("replication"), TEXT("rpc"), TEXT("netMode")}, Replication);
-                    bool bReliable = false;
-                    if (!SingleArgsObject->TryGetBoolField(TEXT("reliable"), bReliable))
-                    {
-                        SingleArgsObject->TryGetBoolField(TEXT("isReliable"), bReliable);
-                    }
-                    TSharedPtr<FJsonObject> ReplicationEntry = MakeShared<FJsonObject>();
-                    ReplicationEntry->SetStringField(TEXT("nodeId"), NewNodeId);
-                    ReplicationEntry->SetStringField(TEXT("eventName"), EventName);
-                    ReplicationEntry->SetStringField(TEXT("replication"), Replication);
-                    ReplicationEntry->SetBoolField(TEXT("reliable"), bReliable);
-                    AppendDiffObject(Diff, TEXT("eventReplicationChanged"), ReplicationEntry);
-                    AttachDiffToSingleResult(SingleResult, Diff);
-                    AppendSecondarySurfaceHint(
-                        SingleResult,
-                        MakeBlueprintMemberSurface(TEXT("event"), EventName, TEXT("event_signature"), {TEXT("updateSignature"), TEXT("setFlags"), TEXT("rename")}),
-                        TEXT("BLUEPRINT_CUSTOM_EVENT_MEMBER_SURFACE"),
-                        TEXT("Custom Event nodes also define Blueprint event metadata. Use blueprint.member.edit with memberKind=\"event\" to edit parameters and RPC flags."));
+                    AttachNodeAddedDiff(SingleResult, NewNodeId, TEXT("palette"));
                 }
             }
         }
-        else if (OpName.Equals(TEXT("addnode.byvariable")))
-        {
-            FString VariableName;
-            FString VariableClassPath;
-            FString Mode;
-            ReadStringAlias({TEXT("variableName")}, VariableName);
-            ReadStringAlias({TEXT("variableClassPath"), TEXT("variableClass")}, VariableClassPath);
-            ReadStringAlias({TEXT("mode")}, Mode);
-            if (VariableName.IsEmpty())
-            {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("addNode.byVariable requires variableName."));
-            }
-            else if (bDryRun)
-            {
-                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""));
-            }
-            else
-            {
-                int32 X = 0;
-                int32 Y = 0;
-                ResolveInsertionPoint(SingleArgsObject, X, Y);
-                FString NewNodeId;
-                FString Error;
-                const bool bOk = Mode.Equals(TEXT("set"), ESearchCase::IgnoreCase)
-                    ? FLoomleBlueprintAdapter::AddVariableSetNode(AssetPath, EffectiveGraphName, VariableName, VariableClassPath, X, Y, NewNodeId, Error)
-                    : FLoomleBlueprintAdapter::AddVariableGetNode(AssetPath, EffectiveGraphName, VariableName, VariableClassPath, X, Y, NewNodeId, Error);
-                SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
-                if (bOk)
-                {
-                    AttachNodeAddedDiff(SingleResult, NewNodeId, Mode.Equals(TEXT("set"), ESearchCase::IgnoreCase) ? TEXT("/Script/BlueprintGraph.K2Node_VariableSet") : TEXT("/Script/BlueprintGraph.K2Node_VariableGet"));
-                }
-            }
-        }
-        else if (OpName.Equals(TEXT("addnode.bymacro")))
-        {
-            FString MacroLibraryAssetPath;
-            FString MacroGraphName;
-            ReadStringAlias({TEXT("macroLibraryAssetPath"), TEXT("macroLibrary")}, MacroLibraryAssetPath);
-            ReadStringAlias({TEXT("macroGraphName"), TEXT("macroName")}, MacroGraphName);
-            if (MacroLibraryAssetPath.IsEmpty() || MacroGraphName.IsEmpty())
-            {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("addNode.byMacro requires macroLibraryAssetPath and macroGraphName."));
-            }
-            else if (bDryRun)
-            {
-                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""));
-            }
-            else
-            {
-                int32 X = 0;
-                int32 Y = 0;
-                ResolveInsertionPoint(SingleArgsObject, X, Y);
-                FString NewNodeId;
-                FString Error;
-                const bool bOk = FLoomleBlueprintAdapter::AddMacroNode(
-                    AssetPath,
-                    EffectiveGraphName,
-                    MacroLibraryAssetPath,
-                    MacroGraphName,
-                    X,
-                    Y,
-                    NewNodeId,
-                    Error);
-                SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
-                if (bOk)
-                {
-                    AttachNodeAddedDiff(SingleResult, NewNodeId, TEXT("/Script/BlueprintGraph.K2Node_MacroInstance"));
-                }
-            }
-        }
-        else if (OpName.Equals(TEXT("addnode.branch")))
-        {
-            if (bDryRun)
-            {
-                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""));
-            }
-            else
-            {
-                int32 X = 0;
-                int32 Y = 0;
-                ResolveInsertionPoint(SingleArgsObject, X, Y);
-                FString NewNodeId;
-                FString Error;
-                const bool bOk = FLoomleBlueprintAdapter::AddBranchNode(AssetPath, EffectiveGraphName, X, Y, NewNodeId, Error);
-                SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
-                if (bOk)
-                {
-                    AttachNodeAddedDiff(SingleResult, NewNodeId, TEXT("/Script/BlueprintGraph.K2Node_IfThenElse"));
-                }
-            }
-        }
-        else if (OpName.Equals(TEXT("addnode.sequence")))
-        {
-            if (bDryRun)
-            {
-                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""));
-            }
-            else
-            {
-                int32 X = 0;
-                int32 Y = 0;
-                ResolveInsertionPoint(SingleArgsObject, X, Y);
-                FString NewNodeId;
-                FString Error;
-                const bool bOk = FLoomleBlueprintAdapter::AddExecutionSequenceNode(AssetPath, EffectiveGraphName, X, Y, NewNodeId, Error);
-                SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
-                if (bOk)
-                {
-                    AttachNodeAddedDiff(SingleResult, NewNodeId, TEXT("/Script/BlueprintGraph.K2Node_ExecutionSequence"));
-                }
-            }
-        }
-        else if (OpName.Equals(TEXT("addnode.cast")))
-        {
-            FString TargetClassPath;
-            ReadStringAlias({TEXT("targetClassPath"), TEXT("targetClass")}, TargetClassPath);
-            if (TargetClassPath.IsEmpty())
-            {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("addNode.cast requires targetClass."));
-            }
-            else if (bDryRun)
-            {
-                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""));
-            }
-            else
-            {
-                int32 X = 0;
-                int32 Y = 0;
-                ResolveInsertionPoint(SingleArgsObject, X, Y);
-                FString NewNodeId;
-                FString Error;
-                const bool bOk = FLoomleBlueprintAdapter::AddCastNode(AssetPath, EffectiveGraphName, TargetClassPath, X, Y, NewNodeId, Error);
-                SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
-                if (bOk)
-                {
-                    AttachNodeAddedDiff(SingleResult, NewNodeId, TEXT("/Script/BlueprintGraph.K2Node_DynamicCast"));
-                }
-            }
-        }
-        else if (OpName.Equals(TEXT("addnode.comment")))
+        else if (OpName.Equals(TEXT("addcommentbox")))
         {
             if (bDryRun)
             {
@@ -3582,7 +3303,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 }
             }
         }
-        else if (OpName.Equals(TEXT("addnode.knot")))
+        else if (OpName.Equals(TEXT("addreroute")))
         {
             if (bDryRun)
             {
@@ -4617,7 +4338,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 false,
                 false,
                 TEXT("UNSUPPORTED_OP"),
-                FString::Printf(TEXT("blueprint.mutate does not support op: %s"), *OpName));
+                FString::Printf(TEXT("blueprint.graph.edit does not support op: %s"), *OpName));
         }
 
         if (!SingleResult.IsValid())
@@ -4759,7 +4480,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
     if (bAnyError)
     {
         Result->SetStringField(TEXT("code"), FirstErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : FirstErrorCode);
-        Result->SetStringField(TEXT("message"), FirstErrorMessage.IsEmpty() ? TEXT("blueprint.mutate failed") : FirstErrorMessage);
+        Result->SetStringField(TEXT("message"), FirstErrorMessage.IsEmpty() ? TEXT("blueprint.graph.edit failed") : FirstErrorMessage);
     }
     Result->SetBoolField(TEXT("applied"), !bAnyError);
     Result->SetBoolField(TEXT("partialApplied"), bAnyError && bAnyChanged);
@@ -5088,7 +4809,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintDescribeToolResult(co
         TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Result->SetStringField(TEXT("message"), TEXT("blueprint.describe requires assetPath."));
+        Result->SetStringField(TEXT("message"), TEXT("blueprint.inspect requires assetPath."));
         return Result;
     }
 
@@ -5152,4 +4873,51 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintDescribeToolResult(co
     }
 
     return BuildBlueprintClassDescribeResult(AssetPath);
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintPaletteToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+{
+    FString AssetPath;
+    FString GraphName;
+    if (Arguments.IsValid())
+    {
+        Arguments->TryGetStringField(TEXT("assetPath"), AssetPath);
+        Arguments->TryGetStringField(TEXT("graphName"), GraphName);
+    }
+
+    AssetPath = NormalizeAssetPath(AssetPath);
+    if (AssetPath.IsEmpty())
+    {
+        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("blueprint.palette requires assetPath."));
+        return Result;
+    }
+
+    FString PayloadJson = SerializeBlueprintJsonObjectCondensed(Arguments);
+    FString OutJson;
+    FString OutError;
+    if (!FLoomleBlueprintAdapter::SearchBlueprintPalette(AssetPath, GraphName, PayloadJson, OutJson, OutError))
+    {
+        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("PALETTE_QUERY_FAILED"));
+        Result->SetStringField(TEXT("message"), OutError.IsEmpty() ? TEXT("blueprint.palette failed.") : OutError);
+        return Result;
+    }
+
+    TSharedPtr<FJsonObject> Parsed;
+    const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(OutJson);
+    if (!FJsonSerializer::Deserialize(Reader, Parsed) || !Parsed.IsValid())
+    {
+        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+        Result->SetStringField(TEXT("message"), TEXT("Failed to parse blueprint.palette result."));
+        return Result;
+    }
+
+    Parsed->SetBoolField(TEXT("isError"), false);
+    return Parsed;
 }

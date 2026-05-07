@@ -1,6 +1,13 @@
 #include "LoomleBlueprintAdapter.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "AssetRegistry/IAssetRegistry.h"
+#include "Blueprint/BlueprintSupport.h"
+#include "BlueprintActionDatabase.h"
+#include "BlueprintActionMenuBuilder.h"
+#include "BlueprintActionMenuItem.h"
+#include "BlueprintActionMenuUtils.h"
+#include "BlueprintNodeSpawner.h"
 #include "Components/BoxComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
@@ -40,6 +47,7 @@
 #include "EdGraphNode_Comment.h"
 #include "EdGraphUtilities.h"
 #include "Misc/Guid.h"
+#include "Misc/SecureHash.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/EnumEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
@@ -6079,6 +6087,496 @@ bool FLoomleBlueprintAdapter::AddVariableSetNode(const FString& BlueprintAssetPa
 
     OutNodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
     return true;
+}
+
+namespace
+{
+    static FString LoomleTextToString(const FText& Text)
+    {
+        return Text.IsEmptyOrWhitespace() ? FString() : Text.ToString();
+    }
+
+    static TArray<TSharedPtr<FJsonValue>> LoomleStringArrayToJson(const TArray<FString>& Values)
+    {
+        TArray<TSharedPtr<FJsonValue>> Out;
+        for (const FString& Value : Values)
+        {
+            if (!Value.IsEmpty())
+            {
+                Out.Add(MakeShared<FJsonValueString>(Value));
+            }
+        }
+        return Out;
+    }
+
+    static UEdGraphPin* LoomleFindPinByRef(UEdGraph* Graph, const TSharedPtr<FJsonObject>& PinRef)
+    {
+        if (Graph == nullptr || !PinRef.IsValid())
+        {
+            return nullptr;
+        }
+
+        FString NodeId;
+        FString NodeName;
+        FString NodePath;
+        PinRef->TryGetStringField(TEXT("nodeId"), NodeId);
+        PinRef->TryGetStringField(TEXT("nodeName"), NodeName);
+        PinRef->TryGetStringField(TEXT("nodePath"), NodePath);
+
+        UEdGraphNode* Node = nullptr;
+        if (!NodeId.IsEmpty())
+        {
+            Node = LoomleBlueprintAdapterInternal::FindNodeByGuid(Graph, NodeId);
+        }
+        if (Node == nullptr && !NodePath.IsEmpty())
+        {
+            Node = LoomleBlueprintAdapterInternal::FindNodeByPath(Graph, NodePath);
+        }
+        if (Node == nullptr && !NodeName.IsEmpty())
+        {
+            Node = LoomleBlueprintAdapterInternal::FindNodeByName(Graph, NodeName);
+        }
+        if (Node == nullptr)
+        {
+            return nullptr;
+        }
+
+        FString PinId;
+        FString PinName;
+        PinRef->TryGetStringField(TEXT("pinId"), PinId);
+        PinRef->TryGetStringField(TEXT("pinName"), PinName);
+        if (PinName.IsEmpty())
+        {
+            PinRef->TryGetStringField(TEXT("pin"), PinName);
+        }
+
+        FGuid ParsedPinId;
+        const bool bHasPinId = !PinId.IsEmpty() && FGuid::Parse(PinId, ParsedPinId);
+        for (UEdGraphPin* Pin : Node->Pins)
+        {
+            if (Pin == nullptr)
+            {
+                continue;
+            }
+            if (bHasPinId && Pin->PinId == ParsedPinId)
+            {
+                return Pin;
+            }
+            if (!PinName.IsEmpty() && Pin->PinName.ToString().Equals(PinName, ESearchCase::IgnoreCase))
+            {
+                return Pin;
+            }
+        }
+        return nullptr;
+    }
+
+    static bool LoomleBuildPaletteContext(
+        const FString& BlueprintAssetPath,
+        const FString& GraphName,
+        const TSharedPtr<FJsonObject>& Payload,
+        UBlueprint*& OutBlueprint,
+        UEdGraph*& OutGraph,
+        TArray<UEdGraphPin*>& OutPins,
+        FBlueprintActionContext& OutContext,
+        FString& OutError)
+    {
+        OutBlueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+        if (OutBlueprint == nullptr)
+        {
+            OutError = FString::Printf(TEXT("Blueprint asset was not found: %s"), *BlueprintAssetPath);
+            return false;
+        }
+
+        OutGraph = LoomleBlueprintAdapterInternal::ResolveTargetGraph(OutBlueprint, GraphName);
+        if (OutGraph == nullptr)
+        {
+            OutError = GraphName.IsEmpty()
+                ? TEXT("Target Blueprint graph was not found.")
+                : FString::Printf(TEXT("Target Blueprint graph was not found: %s"), *GraphName);
+            return false;
+        }
+
+        OutPins.Reset();
+        const TArray<TSharedPtr<FJsonValue>>* FromPins = nullptr;
+        if (Payload.IsValid() && Payload->TryGetArrayField(TEXT("fromPins"), FromPins) && FromPins != nullptr)
+        {
+            for (const TSharedPtr<FJsonValue>& PinValue : *FromPins)
+            {
+                const TSharedPtr<FJsonObject>* PinObject = nullptr;
+                if (!PinValue.IsValid() || !PinValue->TryGetObject(PinObject) || PinObject == nullptr || !(*PinObject).IsValid())
+                {
+                    continue;
+                }
+
+                UEdGraphPin* Pin = LoomleFindPinByRef(OutGraph, *PinObject);
+                if (Pin == nullptr)
+                {
+                    OutError = TEXT("source pin was not found for palette context.");
+                    return false;
+                }
+                OutPins.Add(Pin);
+            }
+        }
+
+        OutContext.Blueprints.Add(OutBlueprint);
+        OutContext.Graphs.Add(OutGraph);
+        OutContext.Pins = OutPins;
+        return true;
+    }
+
+    static void LoomleBuildPaletteActions(const FBlueprintActionContext& Context, bool bContextSensitive, FBlueprintActionMenuBuilder& Builder)
+    {
+        static TSet<FString> RefreshedMacroLibraryAssets;
+        static bool bSearchedAllAssetsForPalette = false;
+
+        auto RefreshMacroLibraryActions = [](UBlueprint* MacroLibrary)
+        {
+            if (MacroLibrary == nullptr || MacroLibrary->BlueprintType != BPTYPE_MacroLibrary)
+            {
+                return;
+            }
+
+            const FString ObjectPath = MacroLibrary->GetPathName();
+            if (RefreshedMacroLibraryAssets.Contains(ObjectPath))
+            {
+                return;
+            }
+
+            FBlueprintActionDatabase::Get().RefreshAssetActions(MacroLibrary);
+            RefreshedMacroLibraryAssets.Add(ObjectPath);
+        };
+
+        RefreshMacroLibraryActions(LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(LoomleBlueprintAdapterInternal::DefaultBlueprintMacroLibraryAssetPath));
+
+        const FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+        IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
+        if (!bSearchedAllAssetsForPalette)
+        {
+            AssetRegistry.SearchAllAssets(true);
+            AssetRegistry.WaitForCompletion();
+            bSearchedAllAssetsForPalette = true;
+        }
+
+        TArray<FAssetData> BlueprintAssets;
+        AssetRegistry.GetAssetsByClass(UBlueprint::StaticClass()->GetClassPathName(), BlueprintAssets, true);
+        for (const FAssetData& Asset : BlueprintAssets)
+        {
+            FAssetDataTagMapSharedView::FFindTagResult BlueprintType = Asset.TagsAndValues.FindTag(FBlueprintTags::BlueprintType);
+            if (!Asset.IsValid() || !BlueprintType.IsSet()
+                || (!BlueprintType.Equals(TEXT("BPType_MacroLibrary")) && !BlueprintType.Equals(TEXT("BPTYPE_MacroLibrary"))))
+            {
+                continue;
+            }
+
+            RefreshMacroLibraryActions(Cast<UBlueprint>(Asset.GetAsset()));
+        }
+
+        uint32 TargetMask =
+            EContextTargetFlags::TARGET_Blueprint |
+            EContextTargetFlags::TARGET_SubComponents |
+            EContextTargetFlags::TARGET_NodeTarget |
+            EContextTargetFlags::TARGET_PinObject |
+            EContextTargetFlags::TARGET_SiblingPinObjects |
+            EContextTargetFlags::TARGET_BlueprintLibraries;
+
+        FBlueprintActionMenuUtils::MakeContextMenu(Context, bContextSensitive, TargetMask, Builder);
+
+        if (Context.Blueprints.Num() > 0 && Context.Graphs.Num() > 0)
+        {
+            if (const UEdGraphSchema* Schema = Context.Graphs[0]->GetSchema())
+            {
+                Schema->InsertAdditionalActions(Context.Blueprints, Context.Graphs, Context.Pins, Builder);
+            }
+        }
+    }
+
+    static FString LoomlePaletteActionNodeClass(const TSharedPtr<FEdGraphSchemaAction>& Action)
+    {
+        if (!Action.IsValid() || Action->GetTypeId() != FBlueprintActionMenuItem::StaticGetTypeId())
+        {
+            return FString();
+        }
+
+        const FBlueprintActionMenuItem* MenuItem = static_cast<const FBlueprintActionMenuItem*>(Action.Get());
+        const UBlueprintNodeSpawner* Spawner = MenuItem->GetRawAction();
+        if (Spawner == nullptr || Spawner->NodeClass == nullptr)
+        {
+            return FString();
+        }
+        return Spawner->NodeClass->GetPathName();
+    }
+
+    static FString LoomlePaletteActionType(const TSharedPtr<FEdGraphSchemaAction>& Action)
+    {
+        return Action.IsValid() && Action->GetTypeId() == FBlueprintActionMenuItem::StaticGetTypeId()
+            ? FString(TEXT("nodeSpawner"))
+            : FString(TEXT("schemaAction"));
+    }
+
+    static FString LoomlePaletteActionStableText(const TSharedPtr<FEdGraphSchemaAction>& Action, int32 Index)
+    {
+        if (!Action.IsValid())
+        {
+            return FString::Printf(TEXT("invalid:%d"), Index);
+        }
+        return FString::Printf(
+            TEXT("%s|%s|%s|%s|%d"),
+            *LoomleTextToString(Action->GetCategory()),
+            *LoomleTextToString(Action->GetMenuDescription()),
+            *LoomleTextToString(Action->GetTooltipDescription()),
+            *LoomlePaletteActionNodeClass(Action),
+            Action->GetGrouping());
+    }
+
+    static FString LoomlePaletteActionId(const TSharedPtr<FEdGraphSchemaAction>& Action, int32 Index)
+    {
+        return FString::Printf(TEXT("palette:%s"), *FMD5::HashAnsiString(*LoomlePaletteActionStableText(Action, Index)));
+    }
+
+    static bool LoomlePaletteActionMatchesQuery(const TSharedPtr<FEdGraphSchemaAction>& Action, const FString& Query)
+    {
+        if (!Action.IsValid() || Query.IsEmpty())
+        {
+            return true;
+        }
+
+        const FString QueryLower = Query.ToLower();
+        TArray<FString> Haystack;
+        Haystack.Add(LoomleTextToString(Action->GetMenuDescription()));
+        Haystack.Add(LoomleTextToString(Action->GetTooltipDescription()));
+        Haystack.Add(LoomleTextToString(Action->GetCategory()));
+        Haystack.Add(LoomleTextToString(Action->GetKeywords()));
+        Haystack.Append(Action->GetSearchTitleArray());
+        Haystack.Append(Action->GetSearchKeywordsArray());
+        Haystack.Append(Action->GetSearchCategoryArray());
+
+        for (const FString& Value : Haystack)
+        {
+            if (Value.ToLower().Contains(QueryLower))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static int32 LoomlePaletteActionQueryScore(const TSharedPtr<FEdGraphSchemaAction>& Action, const FString& Query)
+    {
+        if (!Action.IsValid() || Query.IsEmpty())
+        {
+            return 0;
+        }
+
+        const FString QueryLower = Query.ToLower();
+        const FString LabelLower = LoomleTextToString(Action->GetMenuDescription()).ToLower();
+        if (LabelLower.Equals(QueryLower, ESearchCase::CaseSensitive))
+        {
+            return 0;
+        }
+        if (LabelLower.StartsWith(QueryLower))
+        {
+            return 10;
+        }
+        if (LabelLower.Contains(QueryLower))
+        {
+            return 20;
+        }
+
+        TArray<FString> SearchText;
+        SearchText.Add(LoomleTextToString(Action->GetKeywords()));
+        SearchText.Append(Action->GetSearchTitleArray());
+        SearchText.Append(Action->GetSearchKeywordsArray());
+        SearchText.Append(Action->GetSearchCategoryArray());
+        SearchText.Add(LoomleTextToString(Action->GetCategory()));
+        SearchText.Add(LoomleTextToString(Action->GetTooltipDescription()));
+
+        for (const FString& Value : SearchText)
+        {
+            if (Value.ToLower().Contains(QueryLower))
+            {
+                return 30;
+            }
+        }
+        return 100;
+    }
+
+    static TSharedPtr<FJsonObject> LoomleSerializePaletteAction(const TSharedPtr<FEdGraphSchemaAction>& Action, int32 Index)
+    {
+        TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+        Entry->SetStringField(TEXT("id"), LoomlePaletteActionId(Action, Index));
+        Entry->SetStringField(TEXT("label"), Action.IsValid() ? LoomleTextToString(Action->GetMenuDescription()) : TEXT(""));
+        Entry->SetStringField(TEXT("category"), Action.IsValid() ? LoomleTextToString(Action->GetCategory()) : TEXT(""));
+        Entry->SetStringField(TEXT("tooltip"), Action.IsValid() ? LoomleTextToString(Action->GetTooltipDescription()) : TEXT(""));
+        Entry->SetStringField(TEXT("actionType"), LoomlePaletteActionType(Action));
+        Entry->SetBoolField(TEXT("requiresContext"), true);
+        Entry->SetArrayField(TEXT("keywords"), Action.IsValid() ? LoomleStringArrayToJson(Action->GetSearchKeywordsArray()) : TArray<TSharedPtr<FJsonValue>>());
+
+        const FString NodeClass = LoomlePaletteActionNodeClass(Action);
+        if (!NodeClass.IsEmpty())
+        {
+            Entry->SetStringField(TEXT("nodeClass"), NodeClass);
+        }
+        return Entry;
+    }
+}
+
+bool FLoomleBlueprintAdapter::SearchBlueprintPalette(const FString& BlueprintAssetPath, const FString& GraphName, const FString& PayloadJson, FString& OutJson, FString& OutError)
+{
+    OutJson.Empty();
+    OutError.Empty();
+
+    TSharedPtr<FJsonObject> Payload;
+    if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Payload))
+    {
+        OutError = TEXT("Invalid palette payload JSON.");
+        return false;
+    }
+
+    UBlueprint* Blueprint = nullptr;
+    UEdGraph* TargetGraph = nullptr;
+    TArray<UEdGraphPin*> FromPins;
+    FBlueprintActionContext Context;
+    if (!LoomleBuildPaletteContext(BlueprintAssetPath, GraphName, Payload, Blueprint, TargetGraph, FromPins, Context, OutError))
+    {
+        return false;
+    }
+
+    bool bContextSensitive = true;
+    if (Payload.IsValid())
+    {
+        Payload->TryGetBoolField(TEXT("contextSensitive"), bContextSensitive);
+    }
+
+    FString Query;
+    if (Payload.IsValid())
+    {
+        Payload->TryGetStringField(TEXT("query"), Query);
+    }
+
+    int32 Limit = 50;
+    int32 Offset = 0;
+    if (Payload.IsValid())
+    {
+        double LimitNumber = 0.0;
+        if (Payload->TryGetNumberField(TEXT("limit"), LimitNumber))
+        {
+            Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, 500);
+        }
+        double OffsetNumber = 0.0;
+        if (Payload->TryGetNumberField(TEXT("offset"), OffsetNumber))
+        {
+            Offset = FMath::Max(0, static_cast<int32>(OffsetNumber));
+        }
+    }
+
+    FBlueprintActionMenuBuilder Builder;
+    LoomleBuildPaletteActions(Context, bContextSensitive, Builder);
+
+    struct FMatchedPaletteAction
+    {
+        TSharedPtr<FEdGraphSchemaAction> Action;
+        int32 Index = 0;
+        int32 Score = 0;
+    };
+
+    TArray<FMatchedPaletteAction> Matches;
+    for (int32 Index = 0; Index < Builder.GetNumActions(); ++Index)
+    {
+        TSharedPtr<FEdGraphSchemaAction> Action = Builder.GetSchemaAction(Index);
+        if (!Action.IsValid() || !LoomlePaletteActionMatchesQuery(Action, Query))
+        {
+            continue;
+        }
+
+        Matches.Add({ Action, Index, LoomlePaletteActionQueryScore(Action, Query) });
+    }
+
+    Matches.Sort([](const FMatchedPaletteAction& Left, const FMatchedPaletteAction& Right)
+    {
+        return Left.Score == Right.Score
+            ? Left.Index < Right.Index
+            : Left.Score < Right.Score;
+    });
+
+    TArray<TSharedPtr<FJsonValue>> Entries;
+    for (int32 MatchIndex = Offset; MatchIndex < Matches.Num() && Entries.Num() < Limit; ++MatchIndex)
+    {
+        const FMatchedPaletteAction& Match = Matches[MatchIndex];
+        Entries.Add(MakeShared<FJsonValueObject>(LoomleSerializePaletteAction(Match.Action, Match.Index)));
+    }
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetArrayField(TEXT("entries"), Entries);
+    Result->SetNumberField(TEXT("total"), Matches.Num());
+    Result->SetNumberField(TEXT("offset"), Offset);
+    Result->SetNumberField(TEXT("limit"), Limit);
+    Result->SetStringField(TEXT("assetPath"), BlueprintAssetPath);
+    if (TargetGraph != nullptr)
+    {
+        Result->SetStringField(TEXT("graphName"), TargetGraph->GetName());
+    }
+
+    OutJson = LoomleBlueprintAdapterInternal::JsonObjectToCondensedString(Result);
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::AddNodeFromPalette(const FString& BlueprintAssetPath, const FString& GraphName, const FString& EntryId, const FString& PayloadJson, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+{
+    OutNodeGuid.Empty();
+    OutError.Empty();
+
+    if (EntryId.IsEmpty())
+    {
+        OutError = TEXT("addFromPalette requires entry.id.");
+        return false;
+    }
+
+    TSharedPtr<FJsonObject> Payload;
+    if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Payload))
+    {
+        OutError = TEXT("Invalid addFromPalette payload JSON.");
+        return false;
+    }
+
+    UBlueprint* Blueprint = nullptr;
+    UEdGraph* TargetGraph = nullptr;
+    TArray<UEdGraphPin*> FromPins;
+    FBlueprintActionContext Context;
+    if (!LoomleBuildPaletteContext(BlueprintAssetPath, GraphName, Payload, Blueprint, TargetGraph, FromPins, Context, OutError))
+    {
+        return false;
+    }
+
+    bool bContextSensitive = true;
+    if (Payload.IsValid())
+    {
+        Payload->TryGetBoolField(TEXT("contextSensitive"), bContextSensitive);
+    }
+
+    FBlueprintActionMenuBuilder Builder;
+    LoomleBuildPaletteActions(Context, bContextSensitive, Builder);
+
+    for (int32 Index = 0; Index < Builder.GetNumActions(); ++Index)
+    {
+        TSharedPtr<FEdGraphSchemaAction> Action = Builder.GetSchemaAction(Index);
+        if (!Action.IsValid() || !LoomlePaletteActionId(Action, Index).Equals(EntryId, ESearchCase::CaseSensitive))
+        {
+            continue;
+        }
+
+        UEdGraphNode* NewNode = Action->PerformAction(TargetGraph, FromPins, FVector2f(NodePosX, NodePosY), false);
+        if (NewNode == nullptr)
+        {
+            OutError = FString::Printf(TEXT("Palette entry could not be executed: %s"), *EntryId);
+            return false;
+        }
+
+        OutNodeGuid = NewNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+        return true;
+    }
+
+    OutError = FString::Printf(TEXT("Palette entry was not found for this context: %s"), *EntryId);
+    return false;
 }
 
 bool FLoomleBlueprintAdapter::AddNodeByClass(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeClassPath, const FString& PayloadJson, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)

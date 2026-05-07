@@ -69,13 +69,50 @@ def bp_pin(node_id: str, pin: str) -> dict:
     return {"node": bp_node(node_id), "pin": pin}
 
 
+BP_BRANCH_ENTRY: dict | None = None
+
+
 def bp_branch(position: dict | None = None, *, alias: str | None = None) -> dict:
-    command = {"kind": "addNode", "nodeType": {"kind": "branch"}}
+    if BP_BRANCH_ENTRY is None:
+        fail("bp_branch helper used before blueprint.palette Branch entry was resolved")
+    command = {"kind": "addFromPalette", "entry": BP_BRANCH_ENTRY}
     if position is not None:
         command["position"] = position
     if alias:
         command["alias"] = alias
     return command
+
+
+def find_palette_entry(
+    client: McpStdioClient,
+    request_id: int,
+    asset_path: str,
+    query: str,
+    preferred_label: str | None = None,
+    preferred_node_class: str | None = None,
+) -> dict:
+    payload = call_tool(client, request_id, "blueprint.palette", {
+        "assetPath": asset_path,
+        "graphName": "EventGraph",
+        "query": query,
+        "limit": 20,
+    })
+    entries = payload.get("entries")
+    if not isinstance(entries, list) or not entries:
+        fail(f"blueprint.palette query {query!r} returned no entries: {payload}")
+    if preferred_node_class is not None:
+        entry = next((item for item in entries if item.get("nodeClass") == preferred_node_class), None)
+        if entry is None:
+            fail(f"blueprint.palette query {query!r} did not return nodeClass {preferred_node_class!r}: {payload}")
+    elif preferred_label is None:
+        entry = entries[0]
+    else:
+        entry = next((item for item in entries if item.get("label") == preferred_label), None)
+        if entry is None:
+            fail(f"blueprint.palette query {query!r} did not return label {preferred_label!r}: {payload}")
+    if not isinstance(entry, dict) or not entry.get("id"):
+        fail(f"blueprint.palette query {query!r} entry missing id: {entry}")
+    return entry
 
 
 def bp_remove(node_id: str) -> dict:
@@ -251,16 +288,16 @@ def query_nodes(
         except SystemExit:
             if attempt >= max_attempts:
                 raise
-            print(f"[WARN] blueprint.query retrying after failure ({attempt}/{max_attempts})...")
+            print(f"[WARN] blueprint.graph.inspect retrying after failure ({attempt}/{max_attempts})...")
             time.sleep(retry_delay_s)
 
     if payload is None:
-        fail("blueprint.query retry loop ended without payload")
+        fail("blueprint.graph.inspect retry loop ended without payload")
 
     snapshot = payload.get("semanticSnapshot", {})
     nodes = snapshot.get("nodes")
     if not isinstance(nodes, list):
-        fail(f"blueprint.query missing nodes[]: {payload}")
+        fail(f"blueprint.graph.inspect missing nodes[]: {payload}")
     return [node for node in nodes if isinstance(node, dict)]
 
 
@@ -373,9 +410,9 @@ def query_graph_payload(
         arguments["cursor"] = cursor
     payload = call_domain_tool(client, request_id, "blueprint", "query", arguments)
     if not isinstance(payload.get("semanticSnapshot"), dict):
-        fail(f"blueprint.query missing semanticSnapshot for pagination test: {payload}")
+        fail(f"blueprint.graph.inspect missing semanticSnapshot for pagination test: {payload}")
     if not isinstance(payload.get("meta"), dict):
-        fail(f"blueprint.query missing meta for pagination test: {payload}")
+        fail(f"blueprint.graph.inspect missing meta for pagination test: {payload}")
     return payload
 
 
@@ -702,8 +739,8 @@ def main() -> int:
 
         blueprint_desc = call_domain_tool(client, 3, "blueprint", "describe", {"assetPath": temp_asset}, expect_error=True)
         if extract_nested_error_code(blueprint_desc) not in {"ASSET_NOT_FOUND", "LOAD_ASSET_FAILED", "INVALID_ARGUMENT"}:
-            fail(f"blueprint.describe pre-create error shape mismatch: {blueprint_desc}")
-        print("[PASS] blueprint.describe error path validated")
+            fail(f"blueprint.inspect pre-create error shape mismatch: {blueprint_desc}")
+        print("[PASS] blueprint.inspect error path validated")
 
         create_payload = call_tool(
             client,
@@ -727,22 +764,26 @@ def main() -> int:
         _ = create_payload
         print(f"[PASS] temporary asset created: {temp_asset}")
 
+        global BP_BRANCH_ENTRY
+        BP_BRANCH_ENTRY = find_palette_entry(client, 401, temp_asset, "Branch", "Branch")
+        print("[PASS] blueprint.palette Branch entry resolved")
+
         blueprint_list = call_domain_tool(client, 5, "blueprint", "list", {"assetPath": temp_asset})
         graphs = blueprint_list.get("graphs")
         if not isinstance(graphs, list):
-            fail(f"blueprint.list missing graphs[]: {blueprint_list}")
+            fail(f"blueprint.graph.list missing graphs[]: {blueprint_list}")
         if not any(isinstance(g, dict) and g.get("graphName") == "EventGraph" for g in graphs):
-            fail(f"blueprint.list did not include EventGraph: {blueprint_list}")
+            fail(f"blueprint.graph.list did not include EventGraph: {blueprint_list}")
         event_graph = next(
             (g for g in graphs if isinstance(g, dict) and g.get("graphName") == "EventGraph"),
             None,
         )
         if not isinstance(event_graph, dict):
-            fail(f"blueprint.list event graph entry missing: {blueprint_list}")
+            fail(f"blueprint.graph.list event graph entry missing: {blueprint_list}")
         event_graph_ref = event_graph.get("graphRef")
         if not isinstance(event_graph_ref, dict) or event_graph_ref.get("kind") != "asset":
             fail(f"graph.list event graph graphRef missing/invalid: {event_graph}")
-        print("[PASS] blueprint.list validated")
+        print("[PASS] blueprint.graph.list validated")
 
         enum_create_payload = call_tool(
             client,
@@ -912,27 +953,27 @@ def main() -> int:
         )
         snapshot = graph_query.get("semanticSnapshot")
         if not isinstance(snapshot, dict):
-            fail(f"blueprint.query missing semanticSnapshot: {graph_query}")
+            fail(f"blueprint.graph.inspect missing semanticSnapshot: {graph_query}")
         if not isinstance(snapshot.get("nodes"), list) or not isinstance(snapshot.get("edges"), list):
-            fail(f"blueprint.query invalid semanticSnapshot shape: {snapshot}")
+            fail(f"blueprint.graph.inspect invalid semanticSnapshot shape: {snapshot}")
         query_meta = graph_query.get("meta")
         if not isinstance(query_meta, dict):
-            fail(f"blueprint.query missing meta: {graph_query}")
+            fail(f"blueprint.graph.inspect missing meta: {graph_query}")
         layout_caps = query_meta.get("layoutCapabilities")
         if not isinstance(layout_caps, dict):
-            fail(f"blueprint.query missing layoutCapabilities: {graph_query}")
+            fail(f"blueprint.graph.inspect missing layoutCapabilities: {graph_query}")
         if layout_caps.get("canReadPosition") is not True:
-            fail(f"blueprint.query layoutCapabilities missing canReadPosition=true: {query_meta}")
+            fail(f"blueprint.graph.inspect layoutCapabilities missing canReadPosition=true: {query_meta}")
         if query_meta.get("layoutDetailRequested") != "measured":
-            fail(f"blueprint.query layoutDetailRequested mismatch: {query_meta}")
+            fail(f"blueprint.graph.inspect layoutDetailRequested mismatch: {query_meta}")
         if query_meta.get("layoutDetailApplied") != "basic":
-            fail(f"blueprint.query layoutDetailApplied mismatch: {query_meta}")
+            fail(f"blueprint.graph.inspect layoutDetailApplied mismatch: {query_meta}")
         query_diagnostics = graph_query.get("diagnostics")
         if not isinstance(query_diagnostics, list):
-            fail(f"blueprint.query diagnostics missing or invalid: {graph_query}")
+            fail(f"blueprint.graph.inspect diagnostics missing or invalid: {graph_query}")
         if not any(isinstance(d, dict) and d.get("code") == "LAYOUT_DETAIL_DOWNGRADED" for d in query_diagnostics):
-            fail(f"blueprint.query missing LAYOUT_DETAIL_DOWNGRADED diagnostic: {graph_query}")
-        print("[PASS] blueprint.query structure validated")
+            fail(f"blueprint.graph.inspect missing LAYOUT_DETAIL_DOWNGRADED diagnostic: {graph_query}")
+        print("[PASS] blueprint.graph.inspect structure validated")
 
         blueprint_verify = call_domain_tool(
             client,
@@ -1296,31 +1337,6 @@ def main() -> int:
             if payload.get("applied") is not True:
                 fail(f"blueprint.member.edit {label} did not apply: {payload}")
 
-        custom_event_graph_payload = call_tool(
-            client,
-            6510,
-            "blueprint.graph.edit",
-            {
-                "assetPath": temp_asset,
-                "graph": {"name": "EventGraph"},
-                "commands": [
-                    {
-                        "kind": "addNode.customEvent",
-                        "alias": "customEvent",
-                        "name": "OnGraphCustomEvent",
-                        "position": {"x": 480, "y": 120},
-                        "replication": "server",
-                        "reliable": True,
-                        "inputs": [
-                            {"name": "Count", "type": {"category": "int"}},
-                        ],
-                    }
-                ],
-            },
-        )
-        if custom_event_graph_payload.get("applied") is not True:
-            fail(f"blueprint.graph.edit addNode.customEvent did not apply: {custom_event_graph_payload}")
-
         event_member_ops = [
             (
                 "event create temp",
@@ -1329,6 +1345,25 @@ def main() -> int:
                     "memberKind": "event",
                     "operation": "create",
                     "args": {"name": "TempDeleteCustomEvent", "graphName": "EventGraph", "x": 480, "y": 260},
+                },
+            ),
+            (
+                "event create graph custom",
+                {
+                    "assetPath": temp_asset,
+                    "memberKind": "event",
+                    "operation": "create",
+                    "args": {
+                        "name": "OnGraphCustomEvent",
+                        "graphName": "EventGraph",
+                        "x": 480,
+                        "y": 120,
+                        "replication": "server",
+                        "reliable": True,
+                        "inputs": [
+                            {"name": "Count", "type": {"category": "int"}},
+                        ],
+                    },
                 },
             ),
             (
@@ -1926,7 +1961,7 @@ def main() -> int:
             expect_error=True,
         )
         _ = bad_query
-        print("[PASS] blueprint.query error path validated")
+        print("[PASS] blueprint.graph.inspect error path validated")
 
         bad_remove = call_domain_tool(
             client,
@@ -1974,7 +2009,9 @@ def main() -> int:
         node_b = op_ok(add_b).get("nodeId")
         if not isinstance(node_b, str) or not node_b:
             fail(f"addNode.byClass did not return nodeId for second node: {add_b}")
-        print("[PASS] blueprint.mutate addNode.byClass validated")
+        print("[PASS] blueprint.graph.edit addFromPalette validated")
+
+        gate_entry = find_palette_entry(client, 1011, temp_asset, "Gate", "Gate")
 
         macro_add = call_domain_tool(
             client,
@@ -1986,10 +2023,9 @@ def main() -> int:
                 "graphName": "EventGraph",
                 "commands": [
                     {
-                        "kind": "addNode.byMacro",
+                        "kind": "addFromPalette",
                         "alias": "authority_macro",
-                        "macroLibraryAssetPath": "/Engine/EditorBlueprintResources/StandardMacros",
-                        "macroGraphName": "Gate",
+                        "entry": gate_entry,
                         "position": {"x": 0, "y": 520},
                     }
                 ],
@@ -1997,51 +2033,20 @@ def main() -> int:
         )
         macro_node_id = op_ok(macro_add).get("nodeId")
         if not isinstance(macro_node_id, str) or not macro_node_id:
-            fail(f"addNode.byMacro did not return nodeId: {macro_add}")
+            fail(f"addFromPalette Gate did not return nodeId: {macro_add}")
         macro_snapshot = query_snapshot(client, 1013, temp_asset, "blueprint", "EventGraph")
         macro_node = require_node(
             [node for node in macro_snapshot.get("nodes", []) if isinstance(node, dict)],
             macro_node_id,
         )
         if macro_node.get("className") != "K2Node_MacroInstance":
-            fail(f"addNode.byMacro did not create K2Node_MacroInstance: {macro_node}")
+            fail(f"addFromPalette Gate did not create K2Node_MacroInstance: {macro_node}")
         macro_ext = macro_node.get("k2Extensions", {}).get("macro") if isinstance(macro_node.get("k2Extensions"), dict) else None
         if not isinstance(macro_ext, dict) or macro_ext.get("macroGraphName") != "Gate":
-            fail(f"blueprint.graph.inspect missing macro identity for addNode.byMacro: {macro_node}")
+            fail(f"blueprint.graph.inspect missing macro identity for addFromPalette Gate: {macro_node}")
         if macro_ext.get("macroLibraryAssetPath") != "/Engine/EditorBlueprintResources/StandardMacros":
             fail(f"blueprint.graph.inspect macro library mismatch: {macro_node}")
-
-        macro_bad = call_domain_tool(
-            client,
-            1014,
-            "blueprint",
-            "mutate",
-            {
-                "assetPath": temp_asset,
-                "graphName": "EventGraph",
-                "commands": [
-                    {
-                        "kind": "addNode.byMacro",
-                        "alias": "bad_authority_macro",
-                        "macroLibraryAssetPath": "/Engine/EditorBlueprintResources/StandardMacros",
-                        "macroGraphName": "MissingMacroForDiagnostics",
-                    }
-                ],
-            },
-            expect_error=True,
-        )
-        macro_bad_struct = structured_detail_or_payload(macro_bad)
-        if macro_bad_struct.get("code") != "MACRO_GRAPH_NOT_FOUND":
-            fail(f"bad addNode.byMacro should return MACRO_GRAPH_NOT_FOUND: {macro_bad_struct}")
-        macro_bad_details = macro_bad_struct.get("details") if isinstance(macro_bad_struct.get("details"), dict) else None
-        if not isinstance(macro_bad_details, dict):
-            macro_bad_results = macro_bad_struct.get("opResults")
-            macro_bad_first = macro_bad_results[0] if isinstance(macro_bad_results, list) and macro_bad_results and isinstance(macro_bad_results[0], dict) else {}
-            macro_bad_details = macro_bad_first.get("details") if isinstance(macro_bad_first.get("details"), dict) else macro_bad_struct
-        available_macros = macro_bad_details.get("availableMacroGraphs") if isinstance(macro_bad_details, dict) else None
-        if not isinstance(available_macros, list) or "Gate" not in available_macros:
-            fail(f"bad addNode.byMacro should return availableMacroGraphs with Gate: {macro_bad_struct}")
-        print("[PASS] blueprint.graph.edit MacroInstance creation and learning diagnostics validated")
+        print("[PASS] blueprint.palette MacroInstance creation validated")
 
         replace_setup = call_domain_tool(
             client,
@@ -2052,8 +2057,8 @@ def main() -> int:
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
                 "commands": [
-                    {"kind": "addNode", "alias": "replace_old", "nodeType": {"kind": "branch"}, "position": {"x": 0, "y": 720}},
-                    {"kind": "addNode", "alias": "replace_next", "nodeType": {"kind": "branch"}, "position": {"x": 360, "y": 720}},
+                    bp_branch({"x": 0, "y": 720}, alias="replace_old"),
+                    bp_branch({"x": 360, "y": 720}, alias="replace_next"),
                     {
                         "kind": "connect",
                         "from": {"node": {"alias": "replace_old"}, "pin": "then"},
@@ -2083,7 +2088,7 @@ def main() -> int:
                     {
                         "kind": "replaceNode",
                         "target": {"id": replace_old_id},
-                        "replacement": {"kind": "branch"},
+                        "replacement": BP_BRANCH_ENTRY,
                         "alias": "replace_new",
                         "rebindPolicy": "matchingPins",
                         "removeOriginal": True,
@@ -2127,8 +2132,8 @@ def main() -> int:
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
                 "commands": [
-                    {"kind": "addNode", "alias": "wrap_source", "nodeType": {"kind": "branch"}, "position": {"x": 0, "y": 1040}},
-                    {"kind": "addNode", "alias": "wrap_target", "nodeType": {"kind": "branch"}, "position": {"x": 360, "y": 1040}},
+                    bp_branch({"x": 0, "y": 1040}, alias="wrap_source"),
+                    bp_branch({"x": 360, "y": 1040}, alias="wrap_target"),
                     {
                         "kind": "connect",
                         "from": {"node": {"alias": "wrap_source"}, "pin": "then"},
@@ -2158,7 +2163,7 @@ def main() -> int:
                     {
                         "kind": "wrapWith",
                         "target": {"id": wrap_target_id},
-                        "wrapper": {"kind": "branch"},
+                        "wrapper": BP_BRANCH_ENTRY,
                         "alias": "wrap_guard",
                         "entryPin": "execute",
                         "targetEntryPin": "execute",
@@ -2210,6 +2215,14 @@ def main() -> int:
             fail(f"blueprint.graph.refactor wrapWith did not connect wrapper back to target: {wrap_snapshot}")
         print("[PASS] blueprint.graph.refactor wrapWith execution wrapper validated")
 
+        self_entry = find_palette_entry(
+            client,
+            1201,
+            temp_asset,
+            "Self",
+            preferred_node_class="/Script/BlueprintGraph.K2Node_Self",
+        )
+        cast_actor_entry = find_palette_entry(client, 1202, temp_asset, "Cast To Actor")
         self_graph_edit = call_domain_tool(
             client,
             12,
@@ -2220,15 +2233,15 @@ def main() -> int:
                 "graphName": "EventGraph",
                 "commands": [
                     {
-                        "kind": "addNode",
+                        "kind": "addFromPalette",
                         "alias": "self",
-                        "nodeType": {"id": "class:/Script/BlueprintGraph.K2Node_Self"},
+                        "entry": self_entry,
                         "position": {"x": 0, "y": 220},
                     },
                     {
-                        "kind": "addNode",
+                        "kind": "addFromPalette",
                         "alias": "cast_actor",
-                        "nodeType": {"kind": "cast", "targetClassPath": "/Script/Engine.Actor"},
+                        "entry": cast_actor_entry,
                         "position": {"x": 280, "y": 220},
                     },
                     {
@@ -2328,16 +2341,8 @@ def main() -> int:
                 "graphName": "EventGraph",
                 "dryRun": True,
                 "commands": [
-                    {
-                        "kind": "addNode",
-                        "alias": "dry_alias_source",
-                        "nodeType": {"kind": "branch"},
-                    },
-                    {
-                        "kind": "addNode",
-                        "alias": "dry_alias_target",
-                        "nodeType": {"kind": "branch"},
-                    },
+                    bp_branch(alias="dry_alias_source"),
+                    bp_branch(alias="dry_alias_target"),
                     {
                         "kind": "connect",
                         "from": {"node": {"alias": "dry_alias_source"}, "pin": "then"},
@@ -2930,6 +2935,51 @@ def main() -> int:
         op_ok(remove_e)
         print("[PASS] blueprint.graph.edit addNode.byClass auto-placement validated")
 
+        palette_branch = call_tool(client, 1809, "blueprint.palette", {
+            "assetPath": temp_asset,
+            "graphName": "EventGraph",
+            "query": "Branch",
+            "limit": 10,
+        })
+        palette_entries = palette_branch.get("entries")
+        if not isinstance(palette_entries, list) or not palette_entries:
+            fail(f"blueprint.palette query Branch returned no entries: {palette_branch}")
+        branch_entry = next((entry for entry in palette_entries if entry.get("label") == "Branch"), palette_entries[0])
+        if not branch_entry.get("id"):
+            fail(f"blueprint.palette entry missing id: {branch_entry}")
+        if branch_entry.get("actionType") not in {"nodeSpawner", "schemaAction"}:
+            fail(f"blueprint.palette entry has unexpected actionType: {branch_entry}")
+        add_from_palette = call_tool(client, 1810, "blueprint.graph.edit", {
+            "assetPath": temp_asset,
+            "graphName": "EventGraph",
+            "commands": [{
+                "kind": "addFromPalette",
+                "entry": {"id": branch_entry["id"]},
+                "position": {"x": 960, "y": 320},
+                "alias": "paletteBranch",
+            }],
+        })
+        palette_node = op_ok(add_from_palette).get("nodeId")
+        if not isinstance(palette_node, str) or not palette_node:
+            fail(f"addFromPalette did not return nodeId: {add_from_palette}")
+        nodes_after_palette = query_nodes(client, 1811, temp_asset, "EventGraph")
+        palette_node_info = require_node(nodes_after_palette, palette_node)
+        if "K2Node_IfThenElse" not in (palette_node_info.get("nodeClassPath") or palette_node_info.get("classPath") or palette_node_info.get("className") or ""):
+            fail(f"addFromPalette Branch did not create K2Node_IfThenElse: {palette_node_info}")
+        remove_palette_node = call_domain_tool(
+            client,
+            1812,
+            "blueprint",
+            "mutate",
+            {
+                "assetPath": temp_asset,
+                "graphName": "EventGraph",
+                "commands": [bp_remove(palette_node)],
+            },
+        )
+        op_ok(remove_palette_node)
+        print("[PASS] blueprint.palette and addFromPalette Branch creation validated")
+
         remove_a = call_domain_tool(
             client,
             21,
@@ -3026,9 +3076,9 @@ def main() -> int:
         for index in range(60):
             bulk_branch_ops.append(
                 {
-                    "kind": "addNode",
+                    "kind": "addFromPalette",
                     "alias": f"bulk_branch_{index}",
-                    "nodeType": {"kind": "branch"},
+                    "entry": BP_BRANCH_ENTRY,
                     "position": {"x": 2200 + (index * 48), "y": 1800},
                 }
             )

@@ -840,6 +840,7 @@ impl LoomleProxyServer {
             "blueprint.graph.recipe.validate" => {
                 Ok(Some(call_blueprint_graph_recipe_validate(&args)))
             }
+            "blueprint.palette" => Ok(Some(self.call_blueprint_palette(args).await?)),
             _ => Ok(None),
         }
     }
@@ -882,7 +883,7 @@ impl LoomleProxyServer {
         &self,
         args: rmcp::model::JsonObject,
     ) -> Result<CallToolResult, McpError> {
-        let payload = self.runtime_payload("blueprint.describe", args).await?;
+        let payload = self.runtime_payload("blueprint.inspect", args).await?;
         if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
             return Ok(CallToolResult::structured_error(payload));
         }
@@ -955,7 +956,7 @@ impl LoomleProxyServer {
             .get("name")
             .and_then(|value| value.as_str())
             .map(str::to_owned);
-        let payload = self.runtime_payload("blueprint.describe", args).await?;
+        let payload = self.runtime_payload("blueprint.inspect", args).await?;
         if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
             return Ok(CallToolResult::structured_error(payload));
         }
@@ -1021,7 +1022,7 @@ impl LoomleProxyServer {
             Ok(value) => value,
             Err(error) => return Ok(error),
         };
-        Ok(self.runtime_call("blueprint.list", legacy_args).await?)
+        Ok(self.runtime_call("blueprint.graph.list", legacy_args).await?)
     }
 
     async fn call_blueprint_graph_inspect(
@@ -1032,7 +1033,9 @@ impl LoomleProxyServer {
             Ok(value) => value,
             Err(error) => return Ok(error),
         };
-        let payload = self.runtime_payload("blueprint.query", legacy_args).await?;
+        let payload = self
+            .runtime_payload("blueprint.graph.inspect", legacy_args)
+            .await?;
         if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
             return Ok(CallToolResult::structured_error(payload));
         }
@@ -1064,7 +1067,7 @@ impl LoomleProxyServer {
             Err(error) => return Ok(error),
         };
         let payload = self
-            .runtime_payload("blueprint.mutate", legacy_args)
+            .runtime_payload("blueprint.graph.edit", legacy_args)
             .await?;
         Ok(structured_result(augment_blueprint_mutate_result(payload)))
     }
@@ -1136,6 +1139,21 @@ impl LoomleProxyServer {
         }
 
         Ok(structured_result(serde_json::Value::Object(result)))
+    }
+
+    async fn call_blueprint_palette(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let translated = match translate_blueprint_palette_args(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        let payload = self.runtime_payload("blueprint.palette", translated).await?;
+        if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
+            return Ok(CallToolResult::structured_error(payload));
+        }
+        Ok(structured_result(payload))
     }
 }
 
@@ -1358,6 +1376,21 @@ fn translate_blueprint_graph_inspect_args(
     Ok(translated)
 }
 
+fn translate_blueprint_palette_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let asset_path = read_required_asset_path(args, "blueprint.palette")?;
+    let graph_address =
+        read_optional_graph_address(args, &asset_path, true, "blueprint.palette")?;
+    let mut translated = rmcp::model::JsonObject::new();
+    translated.insert("assetPath".into(), serde_json::json!(asset_path));
+    write_optional_graph_address(&mut translated, graph_address);
+    for field in ["query", "contextSensitive", "fromPins", "limit", "offset"] {
+        copy_if_present(args, &mut translated, field);
+    }
+    Ok(translated)
+}
+
 fn translate_blueprint_validate_args(
     args: &rmcp::model::JsonObject,
 ) -> Result<rmcp::model::JsonObject, CallToolResult> {
@@ -1417,220 +1450,24 @@ fn extract_pin_endpoint(endpoint: &serde_json::Value) -> Result<serde_json::Valu
     Ok(serde_json::Value::Object(result))
 }
 
-fn copy_add_node_type_payload_fields(
-    node_type_obj: &serde_json::Map<String, serde_json::Value>,
-    args: &mut serde_json::Map<String, serde_json::Value>,
-) {
-    for (key, value) in node_type_obj {
-        if matches!(
-            key.as_str(),
-            "id" | "kind"
-                | "nodeClassPath"
-                | "functionClassPath"
-                | "functionName"
-                | "customEventName"
-        ) {
-            continue;
-        }
-        args.entry(key.clone()).or_insert_with(|| value.clone());
-    }
-}
-
-fn infer_add_node_op(
-    command: &serde_json::Map<String, serde_json::Value>,
-) -> Result<(String, serde_json::Map<String, serde_json::Value>), String> {
-    let mut args = serde_json::Map::new();
-    if let Some(position) = command.get("position") {
-        args.insert("position".into(), position.clone());
-    }
-    if let Some(anchor) = command.get("anchor") {
-        args.insert("anchor".into(), anchor.clone());
-    }
-    if let Some(from) = command.get("from") {
-        args.insert("from".into(), from.clone());
-    }
-
-    let node_type = command
-        .get("nodeType")
-        .or_else(|| command.get("wrapper"))
-        .or_else(|| command.get("call"))
-        .ok_or_else(|| "addNode requires nodeType.".to_owned())?;
-    let node_type_obj = node_type
-        .as_object()
-        .ok_or_else(|| "nodeType must be an object.".to_owned())?;
-    let node_type_id = node_type_obj
-        .get("id")
-        .and_then(|value| value.as_str())
-        .or_else(|| command.get("nodeTypeId").and_then(|value| value.as_str()));
-    let node_kind = node_type_obj
-        .get("kind")
-        .and_then(|value| value.as_str())
-        .or_else(|| command.get("nodeKind").and_then(|value| value.as_str()));
-
-    if matches!(node_kind, Some("branch")) {
-        return Ok(("addNode.branch".into(), args));
-    }
-    if matches!(node_kind, Some("sequence")) {
-        return Ok(("addNode.sequence".into(), args));
-    }
-    if matches!(node_kind, Some("knot" | "reroute")) {
-        return Ok(("addNode.knot".into(), args));
-    }
-    if matches!(node_kind, Some("comment")) {
-        if let Some(text) = command.get("text").or_else(|| command.get("comment")) {
-            args.insert("text".into(), text.clone());
-        }
-        return Ok(("addNode.comment".into(), args));
-    }
-    if matches!(node_kind, Some("customEvent" | "custom_event")) {
-        let event_name = node_type_obj
-            .get("name")
-            .and_then(|value| value.as_str())
-            .or_else(|| {
-                node_type_obj
-                    .get("eventName")
-                    .and_then(|value| value.as_str())
-            })
-            .or_else(|| {
-                node_type_obj
-                    .get("customEventName")
-                    .and_then(|value| value.as_str())
-            })
-            .or_else(|| command.get("name").and_then(|value| value.as_str()))
-            .or_else(|| command.get("eventName").and_then(|value| value.as_str()))
-            .ok_or_else(|| "Custom event nodes require name.".to_owned())?;
-        args.insert("name".into(), serde_json::json!(event_name));
-        copy_add_node_type_payload_fields(node_type_obj, &mut args);
-        if let Some(inputs) = command.get("inputs").or_else(|| command.get("parameters")) {
-            args.insert("inputs".into(), inputs.clone());
-        }
-        for field in ["replication", "rpc", "netMode", "reliable", "isReliable"] {
-            copy_if_present(command, &mut args, field);
-        }
-        return Ok(("addNode.customEvent".into(), args));
-    }
-    if matches!(node_kind, Some("cast")) {
-        let target_class = node_type_obj
-            .get("targetClassPath")
-            .and_then(|value| value.as_str())
-            .or_else(|| {
-                command
-                    .get("targetClassPath")
-                    .and_then(|value| value.as_str())
-            })
-            .or_else(|| command.get("targetType").and_then(|value| value.as_str()))
-            .ok_or_else(|| "Cast nodes require targetClassPath or targetType.".to_owned())?;
-        args.insert("targetClassPath".into(), serde_json::json!(target_class));
-        return Ok(("addNode.cast".into(), args));
-    }
-
-    if let Some(node_type_id) = node_type_id {
-        if let Some(function_descriptor) = node_type_id.strip_prefix("ufunction:") {
-            let Some((class_path, function_name)) = function_descriptor.rsplit_once(':') else {
-                return Err(
-                    "ufunction nodeType ids must use ufunction:<classPath>:<functionName>.".into(),
-                );
-            };
-            args.insert("functionClassPath".into(), serde_json::json!(class_path));
-            args.insert("functionName".into(), serde_json::json!(function_name));
-            return Ok(("addNode.byFunction".into(), args));
-        }
-        if let Some(class_path) = node_type_id.strip_prefix("class:") {
-            args.insert("nodeClassPath".into(), serde_json::json!(class_path));
-            copy_add_node_type_payload_fields(node_type_obj, &mut args);
-            return Ok(("addNode.byClass".into(), args));
-        }
-        if let Some(class_path) = node_type_id.strip_prefix("event:") {
-            let Some((event_class_path, event_name)) = class_path.rsplit_once(':') else {
-                return Err("event nodeType ids must use event:<classPath>:<eventName>.".into());
-            };
-            args.insert("eventClassPath".into(), serde_json::json!(event_class_path));
-            args.insert("eventName".into(), serde_json::json!(event_name));
-            return Ok(("addNode.byEvent".into(), args));
-        }
-        if node_type_id.starts_with("/Script/") {
-            args.insert("nodeClassPath".into(), serde_json::json!(node_type_id));
-            copy_add_node_type_payload_fields(node_type_obj, &mut args);
-            return Ok(("addNode.byClass".into(), args));
-        }
-    }
-
-    if let Some(node_class_path) = node_type_obj
-        .get("nodeClassPath")
-        .and_then(|value| value.as_str())
-        .or_else(|| {
-            command
-                .get("nodeClassPath")
-                .and_then(|value| value.as_str())
-        })
-    {
-        args.insert("nodeClassPath".into(), serde_json::json!(node_class_path));
-        copy_add_node_type_payload_fields(node_type_obj, &mut args);
-        return Ok(("addNode.byClass".into(), args));
-    }
-
-    if let Some(function_name) = node_type_obj
-        .get("functionName")
-        .and_then(|value| value.as_str())
-        .or_else(|| command.get("functionName").and_then(|value| value.as_str()))
-    {
-        args.insert("functionName".into(), serde_json::json!(function_name));
-        if let Some(function_class_path) = node_type_obj
-            .get("functionClassPath")
-            .and_then(|value| value.as_str())
-            .or_else(|| {
-                command
-                    .get("functionClassPath")
-                    .and_then(|value| value.as_str())
-            })
-        {
-            args.insert(
-                "functionClassPath".into(),
-                serde_json::json!(function_class_path),
-            );
-        }
-        return Ok(("addNode.byFunction".into(), args));
-    }
-
-    if let Some(variable_name) = node_type_obj
-        .get("variableName")
-        .and_then(|value| value.as_str())
-        .or_else(|| command.get("variableName").and_then(|value| value.as_str()))
-    {
-        args.insert("variableName".into(), serde_json::json!(variable_name));
-        if let Some(mode) = node_type_obj
-            .get("mode")
-            .and_then(|value| value.as_str())
-            .or_else(|| command.get("mode").and_then(|value| value.as_str()))
-        {
-            args.insert("mode".into(), serde_json::json!(mode));
-        }
-        if let Some(variable_class_path) = node_type_obj
-            .get("variableClassPath")
-            .and_then(|value| value.as_str())
-            .or_else(|| {
-                command
-                    .get("variableClassPath")
-                    .and_then(|value| value.as_str())
-            })
-        {
-            args.insert(
-                "variableClassPath".into(),
-                serde_json::json!(variable_class_path),
-            );
-        }
-        return Ok(("addNode.byVariable".into(), args));
-    }
-
-    Err("Unable to infer addNode op from nodeType.".into())
-}
-
-fn compile_add_node_command(
+fn compile_add_from_palette_command(
     command: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<Vec<serde_json::Value>, String> {
-    let (op_name, args) = infer_add_node_op(command)?;
+    let entry = command
+        .get("entry")
+        .and_then(|value| value.as_object())
+        .ok_or_else(|| "addFromPalette requires entry.".to_owned())?;
+    let entry_id = entry
+        .get("id")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| "addFromPalette requires entry.id.".to_owned())?;
+    let mut args = serde_json::Map::new();
+    args.insert("entryId".into(), serde_json::json!(entry_id));
+    for field in ["position", "anchor", "from", "fromPins", "contextSensitive"] {
+        copy_if_present(command, &mut args, field);
+    }
     let mut op = serde_json::Map::new();
-    op.insert("op".into(), serde_json::json!(op_name));
+    op.insert("op".into(), serde_json::json!("addFromPalette"));
     if let Some(alias) = command.get("alias").and_then(|value| value.as_str()) {
         op.insert("clientRef".into(), serde_json::json!(alias));
     }
@@ -1674,6 +1511,22 @@ fn compile_add_node_command(
     Ok(ops)
 }
 
+fn palette_entry_command_value(
+    transform: &serde_json::Map<String, serde_json::Value>,
+    primary_field: &str,
+    transform_kind: &str,
+) -> Result<serde_json::Value, CallToolResult> {
+    transform
+        .get(primary_field)
+        .or_else(|| transform.get("entry"))
+        .cloned()
+        .ok_or_else(|| {
+            invalid_argument_result(format!(
+                "{transform_kind} requires {primary_field}. Use blueprint.palette first and pass the selected entry."
+            ))
+        })
+}
+
 fn compile_blueprint_graph_commands(
     commands: &[serde_json::Value],
 ) -> Result<Vec<serde_json::Value>, CallToolResult> {
@@ -1691,103 +1544,7 @@ fn compile_blueprint_graph_commands(
         };
 
         let compiled = match kind {
-            "addNode" => compile_add_node_command(command_obj),
-            "addNode.customEvent" => {
-                let event_name = command_obj
-                    .get("name")
-                    .and_then(|value| value.as_str())
-                    .or_else(|| {
-                        command_obj
-                            .get("eventName")
-                            .and_then(|value| value.as_str())
-                    })
-                    .ok_or_else(|| invalid_argument_result("addNode.customEvent requires name."))?;
-                let mut args = serde_json::Map::new();
-                args.insert("name".into(), serde_json::json!(event_name));
-                for field in [
-                    "position",
-                    "anchor",
-                    "inputs",
-                    "parameters",
-                    "replication",
-                    "rpc",
-                    "netMode",
-                    "reliable",
-                    "isReliable",
-                ] {
-                    copy_if_present(command_obj, &mut args, field);
-                }
-                let mut op = serde_json::Map::new();
-                op.insert("op".into(), serde_json::json!("addNode.customEvent"));
-                if let Some(alias) = command_obj.get("alias").and_then(|value| value.as_str()) {
-                    op.insert("clientRef".into(), serde_json::json!(alias));
-                }
-                op.insert("args".into(), serde_json::Value::Object(args));
-                Ok(vec![serde_json::Value::Object(op)])
-            }
-            "addNode.timeline" => {
-                if command_obj.contains_key("settings") || command_obj.contains_key("tracks") {
-                    return Err(invalid_argument_result(
-                        "addNode.timeline currently creates the timeline node/template only; use the returned secondarySurface guidance for deeper timeline settings and tracks.",
-                    ));
-                }
-                let mut args = serde_json::Map::new();
-                args.insert(
-                    "nodeClassPath".into(),
-                    serde_json::json!("/Script/BlueprintGraph.K2Node_Timeline"),
-                );
-                for field in ["position", "anchor", "timelineName", "name"] {
-                    copy_if_present(command_obj, &mut args, field);
-                }
-                if !args.contains_key("timelineName") {
-                    if let Some(name) = command_obj.get("name") {
-                        args.insert("timelineName".into(), name.clone());
-                    }
-                }
-                let mut op = serde_json::Map::new();
-                op.insert("op".into(), serde_json::json!("addNode.byClass"));
-                if let Some(alias) = command_obj.get("alias").and_then(|value| value.as_str()) {
-                    op.insert("clientRef".into(), serde_json::json!(alias));
-                }
-                op.insert("args".into(), serde_json::Value::Object(args));
-                Ok(vec![serde_json::Value::Object(op)])
-            }
-            "addNode.byMacro" => {
-                let macro_library = command_obj
-                    .get("macroLibraryAssetPath")
-                    .and_then(|value| value.as_str())
-                    .or_else(|| command_obj.get("macroLibrary").and_then(|value| value.as_str()))
-                    .ok_or_else(|| {
-                        invalid_argument_result(
-                            "addNode.byMacro requires macroLibraryAssetPath or macroLibrary.",
-                        )
-                    })?;
-                let macro_graph = command_obj
-                    .get("macroGraphName")
-                    .and_then(|value| value.as_str())
-                    .or_else(|| command_obj.get("macroName").and_then(|value| value.as_str()))
-                    .ok_or_else(|| {
-                        invalid_argument_result(
-                            "addNode.byMacro requires macroGraphName or macroName.",
-                        )
-                    })?;
-                let mut args = serde_json::Map::new();
-                args.insert(
-                    "macroLibraryAssetPath".into(),
-                    serde_json::json!(macro_library),
-                );
-                args.insert("macroGraphName".into(), serde_json::json!(macro_graph));
-                for field in ["position", "anchor"] {
-                    copy_if_present(command_obj, &mut args, field);
-                }
-                let mut op = serde_json::Map::new();
-                op.insert("op".into(), serde_json::json!("addNode.byMacro"));
-                if let Some(alias) = command_obj.get("alias").and_then(|value| value.as_str()) {
-                    op.insert("clientRef".into(), serde_json::json!(alias));
-                }
-                op.insert("args".into(), serde_json::Value::Object(args));
-                Ok(vec![serde_json::Value::Object(op)])
-            }
+            "addFromPalette" => compile_add_from_palette_command(command_obj),
             "removeNode" => {
                 let node = command_obj
                     .get("node")
@@ -2033,7 +1790,7 @@ fn compile_blueprint_graph_commands(
                     args.insert("position".into(), position.clone());
                 }
                 let mut op = serde_json::Map::new();
-                op.insert("op".into(), serde_json::json!("addNode.knot"));
+                op.insert("op".into(), serde_json::json!("addReroute"));
                 if let Some(alias) = command_obj.get("alias").and_then(|value| value.as_str()) {
                     op.insert("clientRef".into(), serde_json::json!(alias));
                 }
@@ -2064,7 +1821,7 @@ fn compile_blueprint_graph_commands(
                     args.insert("text".into(), serde_json::json!(text));
                 }
                 let mut op = serde_json::Map::new();
-                op.insert("op".into(), serde_json::json!("addNode.comment"));
+                op.insert("op".into(), serde_json::json!("addCommentBox"));
                 if let Some(alias) = command_obj.get("alias").and_then(|value| value.as_str()) {
                     op.insert("clientRef".into(), serde_json::json!(alias));
                 }
@@ -2145,10 +1902,11 @@ fn compile_blueprint_refactor_request(
                     .get("alias")
                     .and_then(|value| value.as_str())
                     .unwrap_or("insertedNode");
+                let entry = palette_entry_command_value(transform_obj, "entry", "insertBetween")?;
                 let add_node = serde_json::json!({
-                    "kind": "addNode",
+                    "kind": "addFromPalette",
                     "alias": alias,
-                    "nodeType": transform_obj.get("nodeType").cloned().unwrap_or(serde_json::Value::Null),
+                    "entry": entry,
                     "from": transform_obj.get("link").and_then(|value| value.get("from")).cloned().unwrap_or(serde_json::Value::Null)
                 });
                 let input_pin = transform_obj
@@ -2187,7 +1945,7 @@ fn compile_blueprint_refactor_request(
             "replaceNode" => {
                 if transform_obj.contains_key("node") || transform_obj.contains_key("nodeType") {
                     return Err(invalid_argument_result(
-                        "replaceNode uses target/replacement only; node/nodeType are no longer supported.",
+                        "replaceNode uses target/replacement palette entry only; node/nodeType are no longer supported.",
                     ));
                 }
                 let alias = transform_obj
@@ -2210,11 +1968,13 @@ fn compile_blueprint_refactor_request(
                 let replacement = transform_obj
                     .get("replacement")
                     .cloned()
-                    .ok_or_else(|| invalid_argument_result("replaceNode requires replacement."))?;
+                    .ok_or_else(|| invalid_argument_result(
+                        "replaceNode requires replacement. Use blueprint.palette first and pass the selected entry.",
+                    ))?;
                 commands.push(serde_json::json!({
-                    "kind": "addNode",
+                    "kind": "addFromPalette",
                     "alias": alias,
-                    "nodeType": replacement,
+                    "entry": replacement,
                     "anchor": target
                 }));
                 if rebind_policy == "matchingPins" {
@@ -2249,7 +2009,9 @@ fn compile_blueprint_refactor_request(
                 let wrapper = transform_obj
                     .get("wrapper")
                     .cloned()
-                    .ok_or_else(|| invalid_argument_result("wrapWith requires wrapper."))?;
+                    .ok_or_else(|| invalid_argument_result(
+                        "wrapWith requires wrapper. Use blueprint.palette first and pass the selected entry.",
+                    ))?;
                 let entry_pin = transform_obj
                     .get("entryPin")
                     .and_then(|value| value.as_str())
@@ -2263,9 +2025,9 @@ fn compile_blueprint_refactor_request(
                     .and_then(|value| value.as_str())
                     .unwrap_or("then");
                 commands.push(serde_json::json!({
-                    "kind":"addNode",
+                    "kind":"addFromPalette",
                     "alias": alias,
-                    "nodeType": wrapper,
+                    "entry": wrapper,
                     "anchor": target
                 }));
                 commands.push(serde_json::json!({
@@ -2292,10 +2054,11 @@ fn compile_blueprint_refactor_request(
                     .get("targets")
                     .and_then(|value| value.as_array())
                     .ok_or_else(|| invalid_argument_result("fanoutExec requires targets."))?;
+                let entry = palette_entry_command_value(transform_obj, "entry", "fanoutExec")?;
                 commands.push(serde_json::json!({
-                    "kind":"addNode",
+                    "kind":"addFromPalette",
                     "alias": alias,
-                    "nodeType": { "kind": "sequence" },
+                    "entry": entry,
                     "from": source
                 }));
                 commands.push(serde_json::json!({
@@ -2371,6 +2134,13 @@ fn compile_builtin_recipe(
     attach: Option<&serde_json::Map<String, serde_json::Value>>,
 ) -> Result<Vec<serde_json::Value>, CallToolResult> {
     let mut commands = Vec::new();
+    let input_entry = |name: &str| -> Result<serde_json::Value, CallToolResult> {
+        inputs.get(name).cloned().ok_or_else(|| {
+            invalid_argument_result(format!(
+                "Built-in Blueprint recipes now require inputs.{name}. Use blueprint.palette first and pass the selected entry."
+            ))
+        })
+    };
     let attach_mode = attach
         .and_then(|value| value.get("mode"))
         .and_then(|value| value.as_str())
@@ -2384,13 +2154,11 @@ fn compile_builtin_recipe(
     let attach_from = attach.and_then(|value| value.get("from")).cloned();
     match recipe_id {
         "branch_then_call" => {
-            let call_node_type = inputs
-                .get("callNodeType")
-                .cloned()
-                .unwrap_or_else(|| serde_json::json!({ "id": "ufunction:/Script/Engine.KismetSystemLibrary:PrintString" }));
-            commands.push(serde_json::json!({"kind":"addNode","alias":"branchNode","nodeType":{"kind":"branch"}}));
+            let branch_entry = input_entry("branchEntry")?;
+            let call_entry = input_entry("callEntry")?;
+            commands.push(serde_json::json!({"kind":"addFromPalette","alias":"branchNode","entry":branch_entry}));
             commands.push(
-                serde_json::json!({"kind":"addNode","alias":"callNode","nodeType":call_node_type}),
+                serde_json::json!({"kind":"addFromPalette","alias":"callNode","entry":call_entry}),
             );
             commands.push(serde_json::json!({"kind":"connect","from":{"node":{"alias":"branchNode"},"pin":"then"},"to":{"node":{"alias":"callNode"},"pin":"execute"}}));
             if let Some(condition) = inputs.get("condition") {
@@ -2401,16 +2169,14 @@ fn compile_builtin_recipe(
             }
         }
         "delay_then_call" => {
-            let call_node_type = inputs
-                .get("callNodeType")
-                .cloned()
-                .unwrap_or_else(|| serde_json::json!({ "id": "ufunction:/Script/Engine.KismetSystemLibrary:PrintString" }));
-            commands.push(serde_json::json!({"kind":"addNode","alias":"delayNode","nodeType":{"id":"class:/Script/BlueprintGraph.K2Node_Delay"}}));
+            let delay_entry = input_entry("delayEntry")?;
+            let call_entry = input_entry("callEntry")?;
+            commands.push(serde_json::json!({"kind":"addFromPalette","alias":"delayNode","entry":delay_entry}));
             if let Some(duration) = inputs.get("duration") {
                 commands.push(serde_json::json!({"kind":"setPinDefault","target":{"node":{"alias":"delayNode"},"pin":"Duration"},"value":duration}));
             }
             commands.push(
-                serde_json::json!({"kind":"addNode","alias":"callNode","nodeType":call_node_type}),
+                serde_json::json!({"kind":"addFromPalette","alias":"callNode","entry":call_entry}),
             );
             commands.push(serde_json::json!({"kind":"connect","from":{"node":{"alias":"delayNode"},"pin":"Completed"},"to":{"node":{"alias":"callNode"},"pin":"execute"}}));
             if let Some(from) = attach_from {
@@ -2418,7 +2184,8 @@ fn compile_builtin_recipe(
             }
         }
         "sequence_fanout" => {
-            commands.push(serde_json::json!({"kind":"addNode","alias":"sequenceNode","nodeType":{"kind":"sequence"}}));
+            let sequence_entry = input_entry("sequenceEntry")?;
+            commands.push(serde_json::json!({"kind":"addFromPalette","alias":"sequenceNode","entry":sequence_entry}));
             if let Some(from) = attach_from {
                 commands.push(serde_json::json!({"kind":"connect","from":from,"to":{"node":{"alias":"sequenceNode"},"pin":"execute"}}));
             }
@@ -2433,14 +2200,12 @@ fn compile_builtin_recipe(
             let value = inputs.get("value").cloned().ok_or_else(|| {
                 invalid_argument_result("set_variable_then_call requires inputs.value.")
             })?;
-            let call_node_type = inputs
-                .get("callNodeType")
-                .cloned()
-                .unwrap_or_else(|| serde_json::json!({ "id": "ufunction:/Script/Engine.KismetSystemLibrary:PrintString" }));
-            commands.push(serde_json::json!({"kind":"addNode","alias":"setNode","nodeType":{"variableName":variable_name,"mode":"set"}}));
+            let set_entry = input_entry("setVariableEntry")?;
+            let call_entry = input_entry("callEntry")?;
+            commands.push(serde_json::json!({"kind":"addFromPalette","alias":"setNode","entry":set_entry}));
             commands.push(serde_json::json!({"kind":"setPinDefault","target":{"node":{"alias":"setNode"},"pin":variable_name},"value":value}));
             commands.push(
-                serde_json::json!({"kind":"addNode","alias":"callNode","nodeType":call_node_type}),
+                serde_json::json!({"kind":"addFromPalette","alias":"callNode","entry":call_entry}),
             );
             commands.push(serde_json::json!({"kind":"connect","from":{"node":{"alias":"setNode"},"pin":"then"},"to":{"node":{"alias":"callNode"},"pin":"execute"}}));
             if let Some(from) = attach_from {
@@ -2448,7 +2213,8 @@ fn compile_builtin_recipe(
             }
         }
         "guard_clause" => {
-            commands.push(serde_json::json!({"kind":"addNode","alias":"guardNode","nodeType":{"kind":"branch"}}));
+            let guard_entry = input_entry("guardEntry")?;
+            commands.push(serde_json::json!({"kind":"addFromPalette","alias":"guardNode","entry":guard_entry}));
             if let Some(condition) = inputs.get("condition") {
                 commands.push(serde_json::json!({"kind":"setPinDefault","target":{"node":{"alias":"guardNode"},"pin":"Condition"},"value":condition}));
             }
@@ -2457,19 +2223,17 @@ fn compile_builtin_recipe(
             }
         }
         "cast_then_call" => {
-            let target_type = inputs
+            let _target_type = inputs
                 .get("targetType")
                 .and_then(|value| value.as_str())
                 .ok_or_else(|| {
                     invalid_argument_result("cast_then_call requires inputs.targetType.")
                 })?;
-            let call_node_type = inputs
-                .get("callNodeType")
-                .cloned()
-                .unwrap_or_else(|| serde_json::json!({ "id": "ufunction:/Script/Engine.KismetSystemLibrary:PrintString" }));
-            commands.push(serde_json::json!({"kind":"addNode","alias":"castNode","nodeType":{"kind":"cast","targetClassPath":target_type}}));
+            let cast_entry = input_entry("castEntry")?;
+            let call_entry = input_entry("callEntry")?;
+            commands.push(serde_json::json!({"kind":"addFromPalette","alias":"castNode","entry":cast_entry}));
             commands.push(
-                serde_json::json!({"kind":"addNode","alias":"callNode","nodeType":call_node_type}),
+                serde_json::json!({"kind":"addFromPalette","alias":"callNode","entry":call_entry}),
             );
             commands.push(serde_json::json!({"kind":"connect","from":{"node":{"alias":"castNode"},"pin":"Cast Succeeded"},"to":{"node":{"alias":"callNode"},"pin":"execute"}}));
             if let Some(from) = attach_from {
@@ -2643,6 +2407,7 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("blueprint.graph.recipe.list", "List discoverable Blueprint graph recipes.", Arc::new(blueprint_graph_recipe_list_schema())),
         Tool::new("blueprint.graph.recipe.inspect", "Inspect the contract of a Blueprint graph recipe.", Arc::new(blueprint_graph_recipe_inspect_schema())),
         Tool::new("blueprint.graph.recipe.validate", "Validate a Blueprint graph recipe definition.", Arc::new(blueprint_graph_recipe_validate_schema())),
+        Tool::new("blueprint.palette", "Search UE Blueprint Action Menu entries for graph creation.", Arc::new(blueprint_palette_schema())),
         Tool::new("blueprint.compile", "Compile a Blueprint asset.", Arc::new(blueprint_compile_schema())),
         Tool::new("blueprint.validate", "Run read-only structural validation for a Blueprint graph or asset.", Arc::new(blueprint_validate_schema())),
         Tool::new("material.list", "List material expressions in a material asset.", Arc::new(asset_path_only_schema("Material asset path."))),
@@ -2722,7 +2487,8 @@ fn builtin_blueprint_recipe(id: &str) -> Option<serde_json::Value> {
             "version": "1",
             "inputs": [
                 {"name":"condition","type":"bool","required":false,"default":null,"description":"Optional bool source for Branch.Condition."},
-                {"name":"callNodeType","type":"nodeType","required":true,"default":null,"description":"The call node type placed on the true branch."}
+                {"name":"branchEntry","type":"paletteEntry","required":true,"default":null,"description":"Palette entry for the Branch node."},
+                {"name":"callEntry","type":"paletteEntry","required":true,"default":null,"description":"Palette entry for the call node placed on the true branch."}
             ],
             "attach": {
                 "modes": ["append_exec", "insert_between_exec"],
@@ -2748,7 +2514,7 @@ fn builtin_blueprint_recipe(id: &str) -> Option<serde_json::Value> {
             ],
             "constraints": [],
             "example": {
-                "inputs": {"callNodeType":"ufunction:/Script/Engine.KismetSystemLibrary:PrintString"},
+                "inputs": {"branchEntry":{"id":"palette:<id>"},"callEntry":{"id":"palette:<id>"}},
                 "attach": {"mode":"append_exec"},
                 "expectedOutputs": ["branchNode", "callNode"]
             },
@@ -2764,7 +2530,8 @@ fn builtin_blueprint_recipe(id: &str) -> Option<serde_json::Value> {
             "version": "1",
             "inputs": [
                 {"name":"duration","type":"float","required":false,"default":0.2,"description":"Delay duration in seconds."},
-                {"name":"callNodeType","type":"nodeType","required":true,"default":null,"description":"The call node type placed after the delay."}
+                {"name":"delayEntry","type":"paletteEntry","required":true,"default":null,"description":"Palette entry for the Delay node."},
+                {"name":"callEntry","type":"paletteEntry","required":true,"default":null,"description":"Palette entry for the call node placed after the delay."}
             ],
             "attach": {
                 "modes": ["append_exec", "insert_between_exec"],
@@ -2790,7 +2557,7 @@ fn builtin_blueprint_recipe(id: &str) -> Option<serde_json::Value> {
             ],
             "constraints": [],
             "example": {
-                "inputs": {"duration":0.2,"callNodeType":"ufunction:/Script/Engine.KismetSystemLibrary:PrintString"},
+                "inputs": {"duration":0.2,"delayEntry":{"id":"palette:<id>"},"callEntry":{"id":"palette:<id>"}},
                 "attach": {"mode":"append_exec"},
                 "expectedOutputs": ["delayNode", "callNode"]
             },
@@ -2805,7 +2572,8 @@ fn builtin_blueprint_recipe(id: &str) -> Option<serde_json::Value> {
             "description": "Builds a Sequence node that fans one execution input into multiple deterministic branches.",
             "version": "1",
             "inputs": [
-                {"name":"branches","type":"int","required":false,"default":2,"description":"Number of sequence outputs to create."}
+                {"name":"branches","type":"int","required":false,"default":2,"description":"Number of sequence outputs to create."},
+                {"name":"sequenceEntry","type":"paletteEntry","required":true,"default":null,"description":"Palette entry for the Sequence node."}
             ],
             "attach": {
                 "modes": ["append_exec", "insert_between_exec"],
@@ -2829,7 +2597,7 @@ fn builtin_blueprint_recipe(id: &str) -> Option<serde_json::Value> {
             ],
             "constraints": [],
             "example": {
-                "inputs": {"branches":3},
+                "inputs": {"branches":3,"sequenceEntry":{"id":"palette:<id>"}},
                 "attach": {"mode":"append_exec"},
                 "expectedOutputs": ["sequenceNode"]
             },
@@ -2846,7 +2614,8 @@ fn builtin_blueprint_recipe(id: &str) -> Option<serde_json::Value> {
             "inputs": [
                 {"name":"variableName","type":"string","required":true,"default":null,"description":"Blueprint variable to set."},
                 {"name":"value","type":"wildcard","required":true,"default":null,"description":"Value assigned to the variable set pin."},
-                {"name":"callNodeType","type":"nodeType","required":true,"default":null,"description":"The call node type executed after the variable set."}
+                {"name":"setVariableEntry","type":"paletteEntry","required":true,"default":null,"description":"Palette entry for the variable set node."},
+                {"name":"callEntry","type":"paletteEntry","required":true,"default":null,"description":"Palette entry for the call node executed after the variable set."}
             ],
             "attach": {
                 "modes": ["append_exec", "insert_between_exec"],
@@ -2872,7 +2641,7 @@ fn builtin_blueprint_recipe(id: &str) -> Option<serde_json::Value> {
             ],
             "constraints": [],
             "example": {
-                "inputs": {"variableName":"bIsReady","value":true,"callNodeType":"ufunction:/Script/Engine.KismetSystemLibrary:PrintString"},
+                "inputs": {"variableName":"bIsReady","value":true,"setVariableEntry":{"id":"palette:<id>"},"callEntry":{"id":"palette:<id>"}},
                 "attach": {"mode":"append_exec"},
                 "expectedOutputs": ["setNode", "callNode"]
             },
@@ -2887,7 +2656,8 @@ fn builtin_blueprint_recipe(id: &str) -> Option<serde_json::Value> {
             "description": "Builds a Branch-based guard clause that only allows downstream execution when the provided condition is true.",
             "version": "1",
             "inputs": [
-                {"name":"condition","type":"bool","required":true,"default":null,"description":"Condition evaluated by the guard."}
+                {"name":"condition","type":"bool","required":true,"default":null,"description":"Condition evaluated by the guard."},
+                {"name":"guardEntry","type":"paletteEntry","required":true,"default":null,"description":"Palette entry for the Branch guard node."}
             ],
             "attach": {
                 "modes": ["append_exec", "insert_between_exec"],
@@ -2911,7 +2681,7 @@ fn builtin_blueprint_recipe(id: &str) -> Option<serde_json::Value> {
             ],
             "constraints": [],
             "example": {
-                "inputs": {"condition":true},
+                "inputs": {"condition":true,"guardEntry":{"id":"palette:<id>"}},
                 "attach": {"mode":"insert_between_exec"},
                 "expectedOutputs": ["guardNode"]
             },
@@ -2927,7 +2697,8 @@ fn builtin_blueprint_recipe(id: &str) -> Option<serde_json::Value> {
             "version": "1",
             "inputs": [
                 {"name":"targetType","type":"class","required":true,"default":null,"description":"Target class for the cast."},
-                {"name":"callNodeType","type":"nodeType","required":true,"default":null,"description":"The call node type placed after a successful cast."}
+                {"name":"castEntry","type":"paletteEntry","required":true,"default":null,"description":"Palette entry for the cast node."},
+                {"name":"callEntry","type":"paletteEntry","required":true,"default":null,"description":"Palette entry for the call node placed after a successful cast."}
             ],
             "attach": {
                 "modes": ["append_exec", "insert_between_exec", "attach_data_input"],
@@ -2953,7 +2724,7 @@ fn builtin_blueprint_recipe(id: &str) -> Option<serde_json::Value> {
             ],
             "constraints": [],
             "example": {
-                "inputs": {"targetType":"/Script/Engine.Actor","callNodeType":"ufunction:/Script/Engine.KismetSystemLibrary:PrintString"},
+                "inputs": {"targetType":"/Script/Engine.Actor","castEntry":{"id":"palette:<id>"},"callEntry":{"id":"palette:<id>"}},
                 "attach": {"mode":"append_exec"},
                 "expectedOutputs": ["castNode", "callNode"]
             },
@@ -3764,16 +3535,18 @@ fn blueprint_graph_edit_schema() -> rmcp::model::JsonObject {
                     "kind":{"type":"string","minLength":1},
                     "alias":{"type":"string","minLength":1},
                     "node":{"type":"object"},
-                    "nodeType":{"type":"object"},
                     "from":{"type":"object"},
                     "to":{"type":"object"},
                     "fromNode":{"type":"object"},
                     "toNode":{"type":"object"},
                     "target":{"type":"object"},
+                    "entry":{"type":"object"},
                     "value":{},
                     "position":{"type":"object"},
                     "anchor":{"type":"object"},
-                    "preserveLinks":{"type":"boolean"}
+                    "preserveLinks":{"type":"boolean"},
+                    "fromPins":{"type":"array","items":{"type":"object"}},
+                    "contextSensitive":{"type":"boolean"}
                 },
                 "required":["kind"],
                 "additionalProperties": true
@@ -3810,7 +3583,7 @@ fn blueprint_graph_refactor_schema() -> rmcp::model::JsonObject {
                     "kind":{"type":"string","enum":["insertBetween","replaceNode","wrapWith","fanoutExec","cleanupReroutes"]},
                     "alias":{"type":"string","minLength":1},
                     "link":{"type":"object"},
-                    "nodeType":{"type":"object"},
+                    "entry":{"type":"object"},
                     "inputPin":{"type":"string","minLength":1},
                     "outputPin":{"type":"string","minLength":1},
                     "target":{"type":"object"},
@@ -3942,6 +3715,38 @@ fn blueprint_compile_schema() -> rmcp::model::JsonObject {
     schema_from_value(serde_json::json!({
         "type":"object",
         "properties": properties,
+        "required":["assetPath"],
+        "additionalProperties": false
+    }))
+}
+
+fn blueprint_palette_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "assetPath":{"type":"string","minLength":1},
+            "graph": graph_ref_schema(),
+            "graphName":{"type":"string","minLength":1},
+            "query":{"type":"string"},
+            "contextSensitive":{"type":"boolean","default":true},
+            "fromPins":{
+                "type":"array",
+                "items":{
+                    "type":"object",
+                    "properties":{
+                        "nodeId":{"type":"string"},
+                        "nodeName":{"type":"string"},
+                        "nodePath":{"type":"string"},
+                        "pinId":{"type":"string"},
+                        "pinName":{"type":"string"},
+                        "pin":{"type":"string"}
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "limit":{"type":"integer","minimum":1,"default":50},
+            "offset":{"type":"integer","minimum":0,"default":0}
+        },
         "required":["assetPath"],
         "additionalProperties": false
     }))
@@ -5822,7 +5627,7 @@ mod tests {
     }
 
     #[test]
-    fn blueprint_graph_edit_translates_custom_event_command() {
+    fn blueprint_graph_edit_translates_add_from_palette_command() {
         let mut args = JsonObject::new();
         args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
         args.insert("graph".into(), serde_json::json!({ "name": "EventGraph" }));
@@ -5830,15 +5635,10 @@ mod tests {
             "commands".into(),
             serde_json::json!([
                 {
-                    "kind": "addNode.customEvent",
-                    "alias": "collected",
-                    "name": "OnCollected",
-                    "position": { "x": 320, "y": 160 },
-                    "replication": "netMulticast",
-                    "reliable": false,
-                    "inputs": [
-                        { "name": "Collector", "type": { "category": "object", "object": "/Script/Engine.Actor" } }
-                    ]
+                    "kind": "addFromPalette",
+                    "alias": "branch",
+                    "entry": { "id": "palette:abc123" },
+                    "position": { "x": 320, "y": 160 }
                 }
             ]),
         );
@@ -5851,201 +5651,18 @@ mod tests {
         assert_eq!(ops.len(), 1);
         assert_eq!(
             ops[0].get("op").and_then(|value| value.as_str()),
-            Some("addNode.customEvent")
+            Some("addFromPalette")
         );
         assert_eq!(
             ops[0].get("clientRef").and_then(|value| value.as_str()),
-            Some("collected")
+            Some("branch")
         );
         assert_eq!(
             ops[0]
                 .get("args")
-                .and_then(|value| value.get("name"))
+                .and_then(|value| value.get("entryId"))
                 .and_then(|value| value.as_str()),
-            Some("OnCollected")
-        );
-        assert_eq!(
-            ops[0]
-                .get("args")
-                .and_then(|value| value.get("replication"))
-                .and_then(|value| value.as_str()),
-            Some("netMulticast")
-        );
-    }
-
-    #[test]
-    fn blueprint_graph_edit_translates_timeline_command() {
-        let mut args = JsonObject::new();
-        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
-        args.insert("graph".into(), serde_json::json!({ "name": "EventGraph" }));
-        args.insert(
-            "commands".into(),
-            serde_json::json!([
-                {
-                    "kind": "addNode.timeline",
-                    "alias": "fade",
-                    "name": "FadeTimeline"
-                }
-            ]),
-        );
-
-        let translated = translate_blueprint_graph_edit_args(&args).expect("translated args");
-        let ops = translated
-            .get("ops")
-            .and_then(|value| value.as_array())
-            .expect("ops");
-        assert_eq!(ops.len(), 1);
-        assert_eq!(
-            ops[0].get("op").and_then(|value| value.as_str()),
-            Some("addNode.byClass")
-        );
-        assert_eq!(
-            ops[0].get("clientRef").and_then(|value| value.as_str()),
-            Some("fade")
-        );
-        assert_eq!(
-            ops[0]
-                .get("args")
-                .and_then(|value| value.get("nodeClassPath"))
-                .and_then(|value| value.as_str()),
-            Some("/Script/BlueprintGraph.K2Node_Timeline")
-        );
-        assert_eq!(
-            ops[0]
-                .get("args")
-                .and_then(|value| value.get("timelineName"))
-                .and_then(|value| value.as_str()),
-            Some("FadeTimeline")
-        );
-    }
-
-    #[test]
-    fn blueprint_graph_edit_translates_macro_command() {
-        let mut args = JsonObject::new();
-        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
-        args.insert("graph".into(), serde_json::json!({ "name": "EventGraph" }));
-        args.insert(
-            "commands".into(),
-            serde_json::json!([
-                {
-                    "kind": "addNode.byMacro",
-                    "alias": "authority",
-                    "macroLibraryAssetPath": "/Engine/EditorBlueprintResources/StandardMacros",
-                    "macroGraphName": "Gate",
-                    "position": { "x": 160, "y": 240 }
-                }
-            ]),
-        );
-
-        let translated = translate_blueprint_graph_edit_args(&args).expect("translated args");
-        let ops = translated
-            .get("ops")
-            .and_then(|value| value.as_array())
-            .expect("ops");
-        assert_eq!(ops.len(), 1);
-        assert_eq!(
-            ops[0].get("op").and_then(|value| value.as_str()),
-            Some("addNode.byMacro")
-        );
-        assert_eq!(
-            ops[0].get("clientRef").and_then(|value| value.as_str()),
-            Some("authority")
-        );
-        assert_eq!(
-            ops[0]
-                .get("args")
-                .and_then(|value| value.get("macroLibraryAssetPath"))
-                .and_then(|value| value.as_str()),
-            Some("/Engine/EditorBlueprintResources/StandardMacros")
-        );
-        assert_eq!(
-            ops[0]
-                .get("args")
-                .and_then(|value| value.get("macroGraphName"))
-                .and_then(|value| value.as_str()),
-            Some("Gate")
-        );
-    }
-
-    #[test]
-    fn blueprint_graph_edit_preserves_macro_instance_context_by_class() {
-        let mut args = JsonObject::new();
-        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
-        args.insert("graph".into(), serde_json::json!({ "name": "EventGraph" }));
-        args.insert(
-            "commands".into(),
-            serde_json::json!([
-                {
-                    "kind": "addNode",
-                    "alias": "doOnce",
-                    "nodeType": {
-                        "id": "class:/Script/BlueprintGraph.K2Node_MacroInstance",
-                        "macroLibraryAssetPath": "/Engine/EditorBlueprintResources/StandardMacros",
-                        "macroGraphName": "DoOnce"
-                    }
-                }
-            ]),
-        );
-
-        let translated = translate_blueprint_graph_edit_args(&args).expect("translated args");
-        let op_args = translated
-            .get("ops")
-            .and_then(|value| value.as_array())
-            .and_then(|ops| ops.first())
-            .and_then(|op| op.get("args"))
-            .expect("op args");
-        assert_eq!(
-            op_args
-                .get("nodeClassPath")
-                .and_then(|value| value.as_str()),
-            Some("/Script/BlueprintGraph.K2Node_MacroInstance")
-        );
-        assert_eq!(
-            op_args
-                .get("macroLibraryAssetPath")
-                .and_then(|value| value.as_str()),
-            Some("/Engine/EditorBlueprintResources/StandardMacros")
-        );
-        assert_eq!(
-            op_args
-                .get("macroGraphName")
-                .and_then(|value| value.as_str()),
-            Some("DoOnce")
-        );
-    }
-
-    #[test]
-    fn blueprint_graph_edit_translates_self_node_by_class() {
-        let mut args = JsonObject::new();
-        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
-        args.insert("graph".into(), serde_json::json!({ "name": "EventGraph" }));
-        args.insert(
-            "commands".into(),
-            serde_json::json!([
-                {
-                    "kind": "addNode",
-                    "alias": "self",
-                    "nodeType": { "id": "class:/Script/BlueprintGraph.K2Node_Self" }
-                }
-            ]),
-        );
-
-        let translated = translate_blueprint_graph_edit_args(&args).expect("translated args");
-        let ops = translated
-            .get("ops")
-            .and_then(|value| value.as_array())
-            .expect("ops");
-        assert_eq!(ops.len(), 1);
-        assert_eq!(
-            ops[0].get("op").and_then(|value| value.as_str()),
-            Some("addNode.byClass")
-        );
-        assert_eq!(
-            ops[0]
-                .get("args")
-                .and_then(|value| value.get("nodeClassPath"))
-                .and_then(|value| value.as_str()),
-            Some("/Script/BlueprintGraph.K2Node_Self")
+            Some("palette:abc123")
         );
     }
 
@@ -6095,7 +5712,7 @@ mod tests {
                 {
                     "kind": "replaceNode",
                     "target": { "id": "node-guid" },
-                    "replacement": { "kind": "branch" }
+                    "replacement": { "id": "palette:branch" }
                 }
             ]),
         );
@@ -6141,7 +5758,7 @@ mod tests {
                 {
                     "kind": "replaceNode",
                     "target": { "id": "old-node" },
-                    "replacement": { "kind": "branch" },
+                    "replacement": { "id": "palette:branch" },
                     "rebindPolicy": "matchingPins",
                     "removeOriginal": true
                 }
@@ -6156,7 +5773,7 @@ mod tests {
         assert_eq!(commands.len(), 3);
         assert_eq!(
             commands[0].get("kind").and_then(|value| value.as_str()),
-            Some("addNode")
+            Some("addFromPalette")
         );
         assert_eq!(
             commands[1].get("kind").and_then(|value| value.as_str()),
@@ -6179,7 +5796,7 @@ mod tests {
                 {
                     "kind": "wrapWith",
                     "target": { "id": "target-node" },
-                    "wrapper": { "kind": "branch" },
+                    "wrapper": { "id": "palette:branch" },
                     "alias": "guard",
                     "entryPin": "execute",
                     "targetEntryPin": "execute",
@@ -6196,7 +5813,7 @@ mod tests {
         assert_eq!(commands.len(), 3);
         assert_eq!(
             commands[0].get("kind").and_then(|value| value.as_str()),
-            Some("addNode")
+            Some("addFromPalette")
         );
         assert_eq!(
             commands[1].get("kind").and_then(|value| value.as_str()),
