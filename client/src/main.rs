@@ -1,5 +1,7 @@
 #![recursion_limit = "512"]
 
+mod schema_inspect;
+
 use loomle::{
     resolve_project_root, rpc_capabilities, rpc_health, rpc_invoke,
     should_handoff_to_active_client, validate_project_root, Environment, RpcClientError,
@@ -24,6 +26,8 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
+
+use schema_inspect::{call_schema_inspect, schema_inspect_schema};
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> ExitCode {
@@ -652,6 +656,7 @@ impl LoomleProxyServer {
             "project.list" => call_project_list(&args),
             "project.attach" => self.call_project_attach(&args).await,
             "project.install" => call_project_install(&args),
+            "schema.inspect" => call_schema_inspect(&args),
             _ => bridge_unavailable_result("unknown pre-attach tool"),
         }
     }
@@ -1022,7 +1027,9 @@ impl LoomleProxyServer {
             Ok(value) => value,
             Err(error) => return Ok(error),
         };
-        Ok(self.runtime_call("blueprint.graph.list", legacy_args).await?)
+        Ok(self
+            .runtime_call("blueprint.graph.list", legacy_args)
+            .await?)
     }
 
     async fn call_blueprint_graph_inspect(
@@ -1149,7 +1156,9 @@ impl LoomleProxyServer {
             Ok(value) => value,
             Err(error) => return Ok(error),
         };
-        let payload = self.runtime_payload("blueprint.palette", translated).await?;
+        let payload = self
+            .runtime_payload("blueprint.palette", translated)
+            .await?;
         if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
             return Ok(CallToolResult::structured_error(payload));
         }
@@ -1380,8 +1389,7 @@ fn translate_blueprint_palette_args(
     args: &rmcp::model::JsonObject,
 ) -> Result<rmcp::model::JsonObject, CallToolResult> {
     let asset_path = read_required_asset_path(args, "blueprint.palette")?;
-    let graph_address =
-        read_optional_graph_address(args, &asset_path, true, "blueprint.palette")?;
+    let graph_address = read_optional_graph_address(args, &asset_path, true, "blueprint.palette")?;
     let mut translated = rmcp::model::JsonObject::new();
     translated.insert("assetPath".into(), serde_json::json!(asset_path));
     write_optional_graph_address(&mut translated, graph_address);
@@ -1468,8 +1476,14 @@ fn compile_add_from_palette_command(
         copy_if_present(command, &mut args, field);
     }
     if !args.contains_key("contextSensitive") {
-        if let Some(context_sensitive) = entry.get("contextSensitive").and_then(|value| value.as_bool()) {
-            args.insert("contextSensitive".into(), serde_json::json!(context_sensitive));
+        if let Some(context_sensitive) = entry
+            .get("contextSensitive")
+            .and_then(|value| value.as_bool())
+        {
+            args.insert(
+                "contextSensitive".into(),
+                serde_json::json!(context_sensitive),
+            );
         }
     }
     let mut op = serde_json::Map::new();
@@ -1573,7 +1587,9 @@ fn compile_blueprint_graph_commands(
                         .and_then(|value| value.as_bool())
                         .unwrap_or(true)),
                 );
-                Ok(vec![serde_json::json!({"op":"reconstructNode","args": args})])
+                Ok(vec![
+                    serde_json::json!({"op":"reconstructNode","args": args}),
+                ])
             }
             "rebindMatchingPins" => {
                 let from_node = command_obj
@@ -2208,7 +2224,9 @@ fn compile_builtin_recipe(
             })?;
             let set_entry = input_entry("setVariableEntry")?;
             let call_entry = input_entry("callEntry")?;
-            commands.push(serde_json::json!({"kind":"addFromPalette","alias":"setNode","entry":set_entry}));
+            commands.push(
+                serde_json::json!({"kind":"addFromPalette","alias":"setNode","entry":set_entry}),
+            );
             commands.push(serde_json::json!({"kind":"setPinDefault","target":{"node":{"alias":"setNode"},"pin":variable_name},"value":value}));
             commands.push(
                 serde_json::json!({"kind":"addFromPalette","alias":"callNode","entry":call_entry}),
@@ -2237,7 +2255,9 @@ fn compile_builtin_recipe(
                 })?;
             let cast_entry = input_entry("castEntry")?;
             let call_entry = input_entry("callEntry")?;
-            commands.push(serde_json::json!({"kind":"addFromPalette","alias":"castNode","entry":cast_entry}));
+            commands.push(
+                serde_json::json!({"kind":"addFromPalette","alias":"castNode","entry":cast_entry}),
+            );
             commands.push(
                 serde_json::json!({"kind":"addFromPalette","alias":"callNode","entry":call_entry}),
             );
@@ -2378,6 +2398,11 @@ fn pre_attach_tools() -> Vec<Tool> {
             "Install or update LOOMLE support for an Unreal Engine project, including the LoomleBridge plugin and required project settings.",
             Arc::new(project_install_schema()),
         ),
+        Tool::new(
+            "schema.inspect",
+            "Inspect documented second-level Loomle tool schemas, such as Blueprint graph edit command schemas.",
+            Arc::new(schema_inspect_schema()),
+        ),
     ]
 }
 
@@ -2444,7 +2469,12 @@ fn bridge_unavailable_result(reason: &str) -> CallToolResult {
 fn is_local_tool(name: &str) -> bool {
     matches!(
         name,
-        "loomle" | "loomle.status" | "project.list" | "project.attach" | "project.install"
+        "loomle"
+            | "loomle.status"
+            | "project.list"
+            | "project.attach"
+            | "project.install"
+            | "schema.inspect"
     )
 }
 
@@ -3535,24 +3565,13 @@ fn blueprint_graph_edit_schema() -> rmcp::model::JsonObject {
         "commands".into(),
         serde_json::json!({
             "type":"array",
+            "description":"Ordered Blueprint graph edit commands. Each command requires kind. Use schema.inspect with domain='blueprint', tool='blueprint.graph.edit', and operation=<kind> for command-specific schema.",
             "items":{
                 "type":"object",
+                "description":"Command envelope. Command-specific fields are documented through schema.inspect.",
                 "properties":{
                     "kind":{"type":"string","minLength":1},
-                    "alias":{"type":"string","minLength":1},
-                    "node":{"type":"object"},
-                    "from":{"type":"object"},
-                    "to":{"type":"object"},
-                    "fromNode":{"type":"object"},
-                    "toNode":{"type":"object"},
-                    "target":{"type":"object"},
-                    "entry":{"type":"object"},
-                    "value":{},
-                    "position":{"type":"object"},
-                    "anchor":{"type":"object"},
-                    "preserveLinks":{"type":"boolean"},
-                    "fromPins":{"type":"array","items":{"type":"object"}},
-                    "contextSensitive":{"type":"boolean"}
+                    "alias":{"type":"string","minLength":1}
                 },
                 "required":["kind"],
                 "additionalProperties": true
@@ -4617,9 +4636,8 @@ fn copy_file_replace(source: &Path, destination: &Path) -> Result<(), String> {
         {
             let old = destination.with_extension("exe.old");
             let _ = fs::remove_file(&old);
-            fs::rename(destination, &old).map_err(|error| {
-                format!("failed to rename {}: {error}", destination.display())
-            })?;
+            fs::rename(destination, &old)
+                .map_err(|error| format!("failed to rename {}: {error}", destination.display()))?;
         }
         #[cfg(not(windows))]
         fs::remove_file(destination)
@@ -5311,9 +5329,10 @@ fn print_usage_stderr() {
 #[cfg(test)]
 mod tests {
     use super::{
-        acquire_file_lock, compare_semver, compile_blueprint_refactor_request,
-        current_platform_client_binary_name, infer_attached_project_root, material_query_schema,
-        pcg_query_schema, play_participant_wait_conditions_met, play_schema,
+        acquire_file_lock, all_declared_tools, call_schema_inspect, compare_semver,
+        compile_blueprint_refactor_request, current_platform_client_binary_name,
+        infer_attached_project_root, material_query_schema, pcg_query_schema,
+        play_participant_wait_conditions_met, play_schema,
         play_wait_participant_conditions_from_args, read_file_lock_metadata,
         runtime_declared_tools, switch_to_installed_version, translate_blueprint_graph_edit_args,
         translate_material_query_args, translate_pcg_query_args, Cli, FileLockMetadata,
@@ -5691,6 +5710,24 @@ mod tests {
     }
 
     #[test]
+    fn blueprint_graph_edit_schema_uses_lightweight_command_envelope() {
+        let schema = super::blueprint_graph_edit_schema();
+        let command_properties = schema
+            .get("properties")
+            .and_then(|properties| properties.get("commands"))
+            .and_then(|commands| commands.get("items"))
+            .and_then(|items| items.get("properties"))
+            .and_then(|properties| properties.as_object())
+            .expect("command properties");
+
+        assert!(command_properties.contains_key("kind"));
+        assert!(command_properties.contains_key("alias"));
+        assert!(!command_properties.contains_key("entry"));
+        assert!(!command_properties.contains_key("from"));
+        assert!(!command_properties.contains_key("target"));
+    }
+
+    #[test]
     fn blueprint_graph_edit_preserves_structured_pin_default_object() {
         let mut args = JsonObject::new();
         args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
@@ -6019,6 +6056,104 @@ mod tests {
         assert!(tool_names.contains("log.tail"));
         assert!(!tool_names.contains("log.subscribe"));
         assert!(!tool_names.contains("diag.tail"));
+    }
+
+    #[test]
+    fn schema_inspect_tool_is_declared() {
+        let tool_names = all_declared_tools()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        assert!(tool_names.contains("schema.inspect"));
+    }
+
+    #[test]
+    fn schema_inspect_lists_blueprint_graph_edit_operations() {
+        let mut args = JsonObject::new();
+        args.insert("domain".into(), serde_json::json!("blueprint"));
+        args.insert("tool".into(), serde_json::json!("blueprint.graph.edit"));
+
+        let result = call_schema_inspect(&args);
+        assert_eq!(result.is_error, Some(false));
+        let payload = result.structured_content.expect("structured content");
+        let operations = payload
+            .get("operations")
+            .and_then(|value| value.as_array())
+            .expect("operations");
+        let names = operations
+            .iter()
+            .filter_map(|entry| entry.get("name").and_then(|value| value.as_str()))
+            .collect::<std::collections::HashSet<_>>();
+
+        for expected in [
+            "addFromPalette",
+            "connect",
+            "disconnect",
+            "breakLinks",
+            "setPinDefault",
+            "removeNode",
+            "moveNode",
+        ] {
+            assert!(names.contains(expected), "missing operation {expected}");
+        }
+    }
+
+    #[test]
+    fn schema_inspect_returns_add_from_palette_schema() {
+        let mut args = JsonObject::new();
+        args.insert("domain".into(), serde_json::json!("blueprint"));
+        args.insert("tool".into(), serde_json::json!("blueprint.graph.edit"));
+        args.insert("operation".into(), serde_json::json!("addFromPalette"));
+        args.insert(
+            "include".into(),
+            serde_json::json!(["summary", "schema", "examples", "errors", "notes"]),
+        );
+
+        let result = call_schema_inspect(&args);
+        assert_eq!(result.is_error, Some(false));
+        let payload = result.structured_content.expect("structured content");
+        assert_eq!(
+            payload.get("category").and_then(|value| value.as_str()),
+            Some("core")
+        );
+        assert_eq!(
+            payload
+                .get("schema")
+                .and_then(|schema| schema.get("properties"))
+                .and_then(|properties| properties.get("kind"))
+                .and_then(|kind| kind.get("const"))
+                .and_then(|value| value.as_str()),
+            Some("addFromPalette")
+        );
+        assert_eq!(
+            payload
+                .get("errors")
+                .and_then(|value| value.as_array())
+                .and_then(|errors| errors.first())
+                .and_then(|value| value.as_str()),
+            Some("PALETTE_ENTRY_NOT_EXECUTABLE")
+        );
+    }
+
+    #[test]
+    fn schema_inspect_rejects_unknown_operation_with_available_operations() {
+        let mut args = JsonObject::new();
+        args.insert("domain".into(), serde_json::json!("blueprint"));
+        args.insert("tool".into(), serde_json::json!("blueprint.graph.edit"));
+        args.insert("operation".into(), serde_json::json!("connectPin"));
+
+        let result = call_schema_inspect(&args);
+        assert_eq!(result.is_error, Some(true));
+        let payload = result.structured_content.expect("structured content");
+        assert_eq!(
+            payload.get("code").and_then(|value| value.as_str()),
+            Some("UNKNOWN_OPERATION")
+        );
+        assert!(payload
+            .get("availableOperations")
+            .and_then(|value| value.as_array())
+            .is_some_and(|operations| operations.iter().any(|op| op == "connect")));
     }
 
     #[test]

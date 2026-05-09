@@ -19,6 +19,8 @@ interface contract.
 
 - `BLUEPRINT_INTERFACE_DESIGN.md`: current Blueprint interface design.
 - `blueprint/palette.md`: Blueprint palette and `addFromPalette` design.
+- `blueprint/graph-edit.md`: Blueprint graph edit command design.
+- `blueprint/schema-inspect.md`: Blueprint second-level schema inspection design.
 
 ## Planned Documents
 
