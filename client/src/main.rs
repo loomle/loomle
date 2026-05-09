@@ -1463,8 +1463,14 @@ fn compile_add_from_palette_command(
         .ok_or_else(|| "addFromPalette requires entry.id.".to_owned())?;
     let mut args = serde_json::Map::new();
     args.insert("entryId".into(), serde_json::json!(entry_id));
+    args.insert("entry".into(), serde_json::Value::Object(entry.clone()));
     for field in ["position", "anchor", "from", "fromPins", "contextSensitive"] {
         copy_if_present(command, &mut args, field);
+    }
+    if !args.contains_key("contextSensitive") {
+        if let Some(context_sensitive) = entry.get("contextSensitive").and_then(|value| value.as_bool()) {
+            args.insert("contextSensitive".into(), serde_json::json!(context_sensitive));
+        }
     }
     let mut op = serde_json::Map::new();
     op.insert("op".into(), serde_json::json!("addFromPalette"));
@@ -5637,7 +5643,10 @@ mod tests {
                 {
                     "kind": "addFromPalette",
                     "alias": "branch",
-                    "entry": { "id": "palette:abc123" },
+                    "entry": {
+                        "id": "palette:abc123",
+                        "contextSensitive": false
+                    },
                     "position": { "x": 320, "y": 160 }
                 }
             ]),
@@ -5663,6 +5672,21 @@ mod tests {
                 .and_then(|value| value.get("entryId"))
                 .and_then(|value| value.as_str()),
             Some("palette:abc123")
+        );
+        assert_eq!(
+            ops[0]
+                .get("args")
+                .and_then(|value| value.get("entry"))
+                .and_then(|value| value.get("id"))
+                .and_then(|value| value.as_str()),
+            Some("palette:abc123")
+        );
+        assert_eq!(
+            ops[0]
+                .get("args")
+                .and_then(|value| value.get("contextSensitive"))
+                .and_then(|value| value.as_bool()),
+            Some(false)
         );
     }
 

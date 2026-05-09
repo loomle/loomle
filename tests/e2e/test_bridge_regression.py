@@ -2356,6 +2356,8 @@ def main() -> int:
             fail(f"blueprint.graph.edit alias dryRun opResults mismatch: {alias_dry_run}")
         if not all(isinstance(entry, dict) and entry.get("ok") for entry in alias_dry_run_results):
             fail(f"blueprint.graph.edit alias dryRun should accept request-local aliases: {alias_dry_run}")
+        if alias_dry_run.get("applied") is not False:
+            fail(f"blueprint.graph.edit alias dryRun should report applied=false: {alias_dry_run}")
         print("[PASS] blueprint.graph.edit dryRun request-local aliases validated")
 
         reconstruct_payload = call_domain_tool(
@@ -2480,6 +2482,8 @@ def main() -> int:
             },
         )
         blueprint_dry_run_first = op_ok(blueprint_dry_run)
+        if blueprint_dry_run.get("applied") is not False or blueprint_dry_run.get("dryRun") is not True:
+            fail(f"Blueprint dryRun mutate should report applied=false and dryRun=true: {blueprint_dry_run}")
         if blueprint_dry_run_first.get("changed") is not False:
             fail(f"Blueprint dryRun mutate should report changed=false: {blueprint_dry_run}")
         if blueprint_dry_run.get("previousRevision") != blueprint_revision_r1 or blueprint_dry_run.get("newRevision") != blueprint_revision_r1:
@@ -2949,12 +2953,30 @@ def main() -> int:
             fail(f"blueprint.palette entry missing id: {branch_entry}")
         if branch_entry.get("actionType") not in {"nodeSpawner", "schemaAction"}:
             fail(f"blueprint.palette entry has unexpected actionType: {branch_entry}")
+        if branch_entry.get("contextSensitive") is not True or branch_entry.get("executable") is not True:
+            fail(f"blueprint.palette nodeSpawner metadata mismatch: {branch_entry}")
+        dry_palette = call_tool(client, 18095, "blueprint.graph.edit", {
+            "assetPath": temp_asset,
+            "graphName": "EventGraph",
+            "dryRun": True,
+            "commands": [{
+                "kind": "addFromPalette",
+                "entry": branch_entry,
+                "position": {"x": 960, "y": 320},
+                "alias": "paletteBranchDry",
+            }],
+        })
+        if dry_palette.get("applied") is not False:
+            fail(f"addFromPalette dryRun should report applied=false: {dry_palette}")
+        dry_palette_first = op_ok(dry_palette)
+        if dry_palette_first.get("changed") is not False:
+            fail(f"addFromPalette dryRun should validate without changing graph: {dry_palette}")
         add_from_palette = call_tool(client, 1810, "blueprint.graph.edit", {
             "assetPath": temp_asset,
             "graphName": "EventGraph",
             "commands": [{
                 "kind": "addFromPalette",
-                "entry": {"id": branch_entry["id"]},
+                "entry": branch_entry,
                 "position": {"x": 960, "y": 320},
                 "alias": "paletteBranch",
             }],
@@ -2979,6 +3001,35 @@ def main() -> int:
         )
         op_ok(remove_palette_node)
         print("[PASS] blueprint.palette and addFromPalette Branch creation validated")
+
+        palette_schema = call_tool(client, 1813, "blueprint.palette", {
+            "assetPath": temp_asset,
+            "graphName": "EventGraph",
+            "query": "Select a Component",
+            "limit": 20,
+        })
+        schema_entries = palette_schema.get("entries")
+        if not isinstance(schema_entries, list) or not schema_entries:
+            fail(f"blueprint.palette schema action query returned no entries: {palette_schema}")
+        schema_entry = next((entry for entry in schema_entries if entry.get("actionType") == "schemaAction"), None)
+        if not isinstance(schema_entry, dict):
+            fail(f"blueprint.palette schema action missing from query: {palette_schema}")
+        if schema_entry.get("executable") is not False:
+            fail(f"blueprint.palette schema action should report executable=false: {schema_entry}")
+        schema_dry_run = call_tool(client, 1814, "blueprint.graph.edit", {
+            "assetPath": temp_asset,
+            "graphName": "EventGraph",
+            "dryRun": True,
+            "commands": [{
+                "kind": "addFromPalette",
+                "entry": schema_entry,
+                "position": {"x": 960, "y": 480},
+            }],
+        }, expect_error=True)
+        schema_result = schema_dry_run.get("opResults", [{}])[0]
+        if schema_result.get("errorCode") != "PALETTE_ENTRY_NOT_EXECUTABLE":
+            fail(f"schema action addFromPalette dryRun should fail as not executable: {schema_dry_run}")
+        print("[PASS] blueprint.palette schema action non-executable metadata validated")
 
         remove_a = call_domain_tool(
             client,

@@ -3237,13 +3237,22 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 }
             }
 
+            const TSharedPtr<FJsonObject>* PaletteEntryObject = nullptr;
+            if (!SingleArgsObject->HasField(TEXT("contextSensitive"))
+                && SingleArgsObject->TryGetObjectField(TEXT("entry"), PaletteEntryObject)
+                && PaletteEntryObject != nullptr
+                && (*PaletteEntryObject).IsValid())
+            {
+                if ((*PaletteEntryObject)->HasTypedField<EJson::Boolean>(TEXT("contextSensitive")))
+                {
+                    const bool bEntryContextSensitive = (*PaletteEntryObject)->GetBoolField(TEXT("contextSensitive"));
+                    SingleArgsObject->SetBoolField(TEXT("contextSensitive"), bEntryContextSensitive);
+                }
+            }
+
             if (EntryId.IsEmpty())
             {
                 SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("addFromPalette requires entry.id."));
-            }
-            else if (bDryRun)
-            {
-                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""));
             }
             else
             {
@@ -3261,11 +3270,20 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                     X,
                     Y,
                     NewNodeId,
-                    Error);
-                SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
+                    Error,
+                    bDryRun);
+                SingleResult = BuildDirectSingleResult(bOk, bOk && !bDryRun, TEXT(""), Error, NewNodeId);
                 if (bOk)
                 {
-                    AttachNodeAddedDiff(SingleResult, NewNodeId, TEXT("palette"));
+                    if (bDryRun)
+                    {
+                        TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
+                        AttachDiffToSingleResult(SingleResult, Diff);
+                    }
+                    else
+                    {
+                        AttachNodeAddedDiff(SingleResult, NewNodeId, TEXT("palette"));
+                    }
                 }
             }
         }
@@ -4482,7 +4500,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
         Result->SetStringField(TEXT("code"), FirstErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : FirstErrorCode);
         Result->SetStringField(TEXT("message"), FirstErrorMessage.IsEmpty() ? TEXT("blueprint.graph.edit failed") : FirstErrorMessage);
     }
-    Result->SetBoolField(TEXT("applied"), !bAnyError);
+    Result->SetBoolField(TEXT("applied"), !bDryRun && !bAnyError);
+    Result->SetBoolField(TEXT("dryRun"), bDryRun);
     Result->SetBoolField(TEXT("partialApplied"), bAnyError && bAnyChanged);
     Result->SetStringField(TEXT("graphType"), TEXT("blueprint"));
     Result->SetStringField(TEXT("assetPath"), AssetPath);

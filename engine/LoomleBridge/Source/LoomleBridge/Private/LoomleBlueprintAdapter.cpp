@@ -6400,15 +6400,18 @@ namespace
         return 100;
     }
 
-    static TSharedPtr<FJsonObject> LoomleSerializePaletteAction(const TSharedPtr<FEdGraphSchemaAction>& Action, int32 Index)
+    static TSharedPtr<FJsonObject> LoomleSerializePaletteAction(const TSharedPtr<FEdGraphSchemaAction>& Action, int32 Index, bool bContextSensitive)
     {
         TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
         Entry->SetStringField(TEXT("id"), LoomlePaletteActionId(Action, Index));
         Entry->SetStringField(TEXT("label"), Action.IsValid() ? LoomleTextToString(Action->GetMenuDescription()) : TEXT(""));
         Entry->SetStringField(TEXT("category"), Action.IsValid() ? LoomleTextToString(Action->GetCategory()) : TEXT(""));
         Entry->SetStringField(TEXT("tooltip"), Action.IsValid() ? LoomleTextToString(Action->GetTooltipDescription()) : TEXT(""));
-        Entry->SetStringField(TEXT("actionType"), LoomlePaletteActionType(Action));
+        const FString ActionType = LoomlePaletteActionType(Action);
+        Entry->SetStringField(TEXT("actionType"), ActionType);
         Entry->SetBoolField(TEXT("requiresContext"), true);
+        Entry->SetBoolField(TEXT("contextSensitive"), bContextSensitive);
+        Entry->SetBoolField(TEXT("executable"), ActionType.Equals(TEXT("nodeSpawner"), ESearchCase::CaseSensitive));
         Entry->SetArrayField(TEXT("keywords"), Action.IsValid() ? LoomleStringArrayToJson(Action->GetSearchKeywordsArray()) : TArray<TSharedPtr<FJsonValue>>());
 
         const FString NodeClass = LoomlePaletteActionNodeClass(Action);
@@ -6502,7 +6505,7 @@ bool FLoomleBlueprintAdapter::SearchBlueprintPalette(const FString& BlueprintAss
     for (int32 MatchIndex = Offset; MatchIndex < Matches.Num() && Entries.Num() < Limit; ++MatchIndex)
     {
         const FMatchedPaletteAction& Match = Matches[MatchIndex];
-        Entries.Add(MakeShared<FJsonValueObject>(LoomleSerializePaletteAction(Match.Action, Match.Index)));
+        Entries.Add(MakeShared<FJsonValueObject>(LoomleSerializePaletteAction(Match.Action, Match.Index, bContextSensitive)));
     }
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
@@ -6520,7 +6523,7 @@ bool FLoomleBlueprintAdapter::SearchBlueprintPalette(const FString& BlueprintAss
     return true;
 }
 
-bool FLoomleBlueprintAdapter::AddNodeFromPalette(const FString& BlueprintAssetPath, const FString& GraphName, const FString& EntryId, const FString& PayloadJson, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError)
+bool FLoomleBlueprintAdapter::AddNodeFromPalette(const FString& BlueprintAssetPath, const FString& GraphName, const FString& EntryId, const FString& PayloadJson, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError, bool bDryRun)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
@@ -6551,6 +6554,11 @@ bool FLoomleBlueprintAdapter::AddNodeFromPalette(const FString& BlueprintAssetPa
     if (Payload.IsValid())
     {
         Payload->TryGetBoolField(TEXT("contextSensitive"), bContextSensitive);
+        const TSharedPtr<FJsonObject>* EntryObject = nullptr;
+        if (Payload->TryGetObjectField(TEXT("entry"), EntryObject) && EntryObject != nullptr && (*EntryObject).IsValid())
+        {
+            (*EntryObject)->TryGetBoolField(TEXT("contextSensitive"), bContextSensitive);
+        }
     }
 
     FBlueprintActionMenuBuilder Builder;
@@ -6562,6 +6570,16 @@ bool FLoomleBlueprintAdapter::AddNodeFromPalette(const FString& BlueprintAssetPa
         if (!Action.IsValid() || !LoomlePaletteActionId(Action, Index).Equals(EntryId, ESearchCase::CaseSensitive))
         {
             continue;
+        }
+        if (Action->GetTypeId() != FBlueprintActionMenuItem::StaticGetTypeId())
+        {
+            OutError = TEXT("{\"code\":\"PALETTE_ENTRY_NOT_EXECUTABLE\",\"message\":\"Palette entry is a schema action and cannot be executed with addFromPalette.\"}");
+            return false;
+        }
+
+        if (bDryRun)
+        {
+            return true;
         }
 
         UEdGraphNode* NewNode = Action->PerformAction(TargetGraph, FromPins, FVector2f(NodePosX, NodePosY), false);
