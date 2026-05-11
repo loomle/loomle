@@ -714,6 +714,7 @@ struct FBlueprintGraphQueryShapeOptions
 {
     TArray<FString> NodeClasses;
     TSet<FString> NodeIds;
+    FString Text;
     int32 Limit = 200;
     int32 Offset = 0;
     bool bLimitExplicit = false;
