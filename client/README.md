@@ -5,11 +5,16 @@ This directory is the canonical home for the global Rust `loomle` command.
 ## Role
 
 - `loomle mcp`: stdio MCP server for Codex, Claude, and other MCP hosts
-- `loomle update`: update the global install under `~/.loomle`
+- `loomle update`: update the global install under `~/.loomle`, then sync
+  registered offline Unreal projects from the active plugin cache
 - `loomle doctor`: inspect global install state and print MCP configuration hints
 
 The client is not installed into Unreal projects. Project support is installed
 by copying `LoomleBridge` into `<ProjectRoot>/Plugins/LoomleBridge/`.
+`loomle update` performs that copy automatically for registered projects that
+are not currently online in Unreal Editor. Online projects are skipped so the
+loaded plugin is not overwritten; close Unreal Editor and run `loomle update`
+again to sync them.
 
 ## Build
 

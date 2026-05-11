@@ -61,6 +61,12 @@ Global updates are handled by:
 loomle update
 ```
 
+`loomle update` first updates the global install and active plugin cache. It
+then scans registered LOOMLE runtime records and syncs the active
+`LoomleBridge` plugin into registered Unreal projects that are offline. Online
+projects are skipped because Unreal Editor may have the plugin loaded; users can
+close Unreal Editor and run `loomle update` again.
+
 There are no per-project update scripts.
 
 ## Decision

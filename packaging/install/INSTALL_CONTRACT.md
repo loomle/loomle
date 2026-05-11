@@ -4,8 +4,9 @@
 
 LOOMLE installs once into the current user's global install root.
 
-UE projects are prepared separately through MCP `project.install`, which installs
-or updates project support from the global plugin cache.
+UE projects are prepared through the global plugin cache. MCP `project.install`
+installs or updates an explicit project. `loomle update` also syncs registered
+offline projects after the global install is updated.
 
 ## 2. Global Install Layout
 
@@ -83,3 +84,16 @@ The release manifest determines:
 
 Project installation is an MCP responsibility, not a public bootstrap script
 responsibility.
+
+## 7. Update Responsibilities
+
+`loomle update` must:
+
+1. update the global install and active plugin cache
+2. read registered runtime records from `~/.loomle/state/runtimes`
+3. sync the active `LoomleBridge` plugin into registered offline projects
+4. skip online projects without overwriting loaded plugins
+5. report updated, unchanged, skipped, and failed project counts
+
+Project sync failures should be reported per project. They should not make the
+global update fail after the global install has already succeeded.

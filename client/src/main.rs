@@ -4221,53 +4221,10 @@ fn call_project_install(args: &rmcp::model::JsonObject) -> CallToolResult {
         Ok(version) => version,
         Err(message) => return CallToolResult::error(vec![rmcp::model::Content::text(message)]),
     };
-    let plugin_source = loomle_root()
-        .join("versions")
-        .join(&active_version)
-        .join("plugin-cache")
-        .join("LoomleBridge");
-    if !plugin_source.is_dir() {
-        return CallToolResult::error(vec![rmcp::model::Content::text(format!(
-            "LOOMLE plugin cache missing: {}",
-            plugin_source.display()
-        ))]);
+    match sync_project_support_to_version(&project_root, &active_version, force) {
+        Ok(outcome) => structured_result(outcome.to_project_install_json()),
+        Err(message) => CallToolResult::error(vec![rmcp::model::Content::text(message)]),
     }
-
-    let _lock = match acquire_project_install_lock(&project_root) {
-        Ok(lock) => lock,
-        Err(message) => return CallToolResult::error(vec![rmcp::model::Content::text(message)]),
-    };
-
-    let plugin_destination = project_root.join("Plugins").join("LoomleBridge");
-    let previous_version = read_plugin_version(&plugin_destination);
-    if previous_version.as_deref() == Some(active_version.as_str()) && !force {
-        return structured_result(serde_json::json!({
-            "projectRoot": project_root.display().to_string(),
-            "pluginPath": plugin_destination.display().to_string(),
-            "changed": false,
-            "previousVersion": previous_version,
-            "installedVersion": active_version,
-            "requiresEditorRestart": false,
-            "message": "LOOMLE project support is already installed at the active version."
-        }));
-    }
-
-    if let Err(message) = copy_tree_replace(&plugin_source, &plugin_destination) {
-        return CallToolResult::error(vec![rmcp::model::Content::text(message)]);
-    }
-    if let Err(message) = ensure_editor_performance_setting(&project_root) {
-        return CallToolResult::error(vec![rmcp::model::Content::text(message)]);
-    }
-
-    structured_result(serde_json::json!({
-        "projectRoot": project_root.display().to_string(),
-        "pluginPath": plugin_destination.display().to_string(),
-        "changed": true,
-        "previousVersion": previous_version,
-        "installedVersion": active_version,
-        "requiresEditorRestart": true,
-        "message": "LOOMLE project support installed. Restart Unreal Editor to activate LoomleBridge."
-    }))
 }
 
 fn infer_attached_project_root(
@@ -4696,6 +4653,173 @@ fn copy_dir_recursive(source: &Path, destination: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, Clone)]
+struct ProjectSupportSyncOutcome {
+    project_root: PathBuf,
+    plugin_path: PathBuf,
+    changed: bool,
+    previous_version: Option<String>,
+    installed_version: String,
+    requires_editor_restart: bool,
+}
+
+impl ProjectSupportSyncOutcome {
+    fn to_project_install_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "projectRoot": self.project_root.display().to_string(),
+            "pluginPath": self.plugin_path.display().to_string(),
+            "changed": self.changed,
+            "previousVersion": self.previous_version,
+            "installedVersion": self.installed_version,
+            "requiresEditorRestart": self.requires_editor_restart,
+            "message": if self.changed {
+                "LOOMLE project support installed. Restart Unreal Editor to activate LoomleBridge."
+            } else {
+                "LOOMLE project support is already installed at the active version."
+            }
+        })
+    }
+}
+
+#[derive(Debug, Default)]
+struct RegisteredProjectSyncSummary {
+    updated: usize,
+    unchanged: usize,
+    skipped_online: usize,
+    failed: usize,
+}
+
+fn plugin_cache_path_for_version(version: &str) -> PathBuf {
+    loomle_root()
+        .join("versions")
+        .join(version)
+        .join("plugin-cache")
+        .join("LoomleBridge")
+}
+
+fn sync_project_support_to_version(
+    project_root: &Path,
+    active_version: &str,
+    force: bool,
+) -> Result<ProjectSupportSyncOutcome, String> {
+    let plugin_source = plugin_cache_path_for_version(active_version);
+    if !plugin_source.is_dir() {
+        return Err(format!(
+            "LOOMLE plugin cache missing: {}",
+            plugin_source.display()
+        ));
+    }
+
+    let _lock = acquire_project_install_lock(project_root)?;
+    let plugin_destination = project_root.join("Plugins").join("LoomleBridge");
+    let previous_version = read_plugin_version(&plugin_destination);
+    if previous_version.as_deref() == Some(active_version) && !force {
+        return Ok(ProjectSupportSyncOutcome {
+            project_root: project_root.to_path_buf(),
+            plugin_path: plugin_destination,
+            changed: false,
+            previous_version,
+            installed_version: active_version.to_string(),
+            requires_editor_restart: false,
+        });
+    }
+
+    copy_tree_replace(&plugin_source, &plugin_destination)?;
+    ensure_editor_performance_setting(project_root)?;
+
+    Ok(ProjectSupportSyncOutcome {
+        project_root: project_root.to_path_buf(),
+        plugin_path: plugin_destination,
+        changed: true,
+        previous_version,
+        installed_version: active_version.to_string(),
+        requires_editor_restart: true,
+    })
+}
+
+fn sync_registered_project_support() -> RegisteredProjectSyncSummary {
+    let active_version = match read_global_active_version() {
+        Ok(version) => version,
+        Err(message) => {
+            eprintln!("[loomle-update] project sync skipped: {message}");
+            return RegisteredProjectSyncSummary {
+                failed: 1,
+                ..RegisteredProjectSyncSummary::default()
+            };
+        }
+    };
+    let projects = discover_runtime_projects(ProjectStatusFilter::All);
+    let mut summary = RegisteredProjectSyncSummary::default();
+    if projects.is_empty() {
+        eprintln!("[loomle-update] no registered Unreal projects found");
+        return summary;
+    }
+
+    for project in projects {
+        if project.status == "online" {
+            summary.skipped_online += 1;
+            eprintln!(
+                "[loomle-update] skipped online project {} ({})",
+                project.name,
+                project.project_root.display()
+            );
+            continue;
+        }
+
+        let project_root = match validate_project_root(&project.project_root) {
+            Ok(project_root) => project_root,
+            Err(message) => {
+                summary.failed += 1;
+                eprintln!(
+                    "[loomle-update] failed to sync project {} ({}): {}",
+                    project.name,
+                    project.project_root.display(),
+                    message
+                );
+                continue;
+            }
+        };
+
+        match sync_project_support_to_version(&project_root, &active_version, false) {
+            Ok(outcome) if outcome.changed => {
+                summary.updated += 1;
+                eprintln!(
+                    "[loomle-update] updated project {} to {}",
+                    project_root.display(),
+                    active_version
+                );
+            }
+            Ok(_) => {
+                summary.unchanged += 1;
+                eprintln!(
+                    "[loomle-update] project {} is already at {}",
+                    project_root.display(),
+                    active_version
+                );
+            }
+            Err(message) => {
+                summary.failed += 1;
+                eprintln!(
+                    "[loomle-update] failed to sync project {}: {}",
+                    project_root.display(),
+                    message
+                );
+            }
+        }
+    }
+
+    eprintln!(
+        "[loomle-update] project sync summary: updated={}, unchanged={}, skippedOnline={}, failed={}",
+        summary.updated, summary.unchanged, summary.skipped_online, summary.failed
+    );
+    if summary.skipped_online > 0 {
+        eprintln!(
+            "[loomle-update] close Unreal Editor and run `loomle update` again to sync skipped online projects"
+        );
+    }
+    summary
+}
+
 fn ensure_editor_performance_setting(project_root: &Path) -> Result<(), String> {
     const SECTION: &str = "[/Script/UnrealEd.EditorPerformanceSettings]";
     const SETTING: &str = "bThrottleCPUWhenNotForeground=False";
@@ -4781,6 +4905,7 @@ fn update_global_install(options: UpdateOptions) -> Result<(), String> {
     if let Some(version) = options.version.as_deref() {
         if switch_to_installed_version(&install_root, version)? {
             eprintln!("[loomle-update] switched to locally installed version {version}");
+            let _ = sync_registered_project_support();
             return Ok(());
         }
         eprintln!("[loomle-update] version {version} is not installed locally; downloading");
@@ -4805,6 +4930,7 @@ fn update_global_install(options: UpdateOptions) -> Result<(), String> {
     if !status.success() {
         return Err(format!("installer failed with status {status}"));
     }
+    let _ = sync_registered_project_support();
     Ok(())
 }
 
@@ -5311,6 +5437,7 @@ Commands:\n\
   doctor    Print install paths and MCP host configuration hints.\n\
   update    Update to the latest release. With --version, switch to an installed\n\
             local version first; if it is not installed, download that version.\n\
+            Registered offline Unreal projects are synced from the active plugin cache.\n\
 \n\
 Examples:\n\
   loomle update\n\
@@ -5333,8 +5460,9 @@ mod tests {
         compile_blueprint_refactor_request, current_platform_client_binary_name,
         infer_attached_project_root, material_query_schema, pcg_query_schema,
         play_participant_wait_conditions_met, play_schema,
-        play_wait_participant_conditions_from_args, read_file_lock_metadata,
-        runtime_declared_tools, switch_to_installed_version, translate_blueprint_graph_edit_args,
+        play_wait_participant_conditions_from_args, read_file_lock_metadata, read_plugin_version,
+        runtime_declared_tools, switch_to_installed_version, sync_project_support_to_version,
+        sync_registered_project_support, translate_blueprint_graph_edit_args,
         translate_material_query_args, translate_pcg_query_args, Cli, FileLockMetadata,
         RuntimeProject,
     };
@@ -5474,6 +5602,169 @@ mod tests {
         );
         let active = fs::read_to_string(root.join("install").join("active.json")).expect("active");
         assert!(active.contains("\"activeVersion\": \"0.5.7\""));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn project_support_sync_updates_plugin_from_active_cache() {
+        let root = std::env::temp_dir().join(format!(
+            "loomle-test-project-sync-{}-{}",
+            std::process::id(),
+            super::unix_timestamp_secs()
+        ));
+        let previous_root = std::env::var_os("LOOMLE_INSTALL_ROOT");
+        std::env::set_var("LOOMLE_INSTALL_ROOT", &root);
+
+        let plugin_cache = root
+            .join("versions")
+            .join("0.5.8")
+            .join("plugin-cache")
+            .join("LoomleBridge");
+        fs::create_dir_all(&plugin_cache).expect("plugin cache");
+        fs::write(
+            plugin_cache.join("LoomleBridge.uplugin"),
+            r#"{"VersionName":"0.5.8"}"#,
+        )
+        .expect("cached uplugin");
+
+        let project_root = root.join("Projects").join("Game");
+        let installed_plugin = project_root.join("Plugins").join("LoomleBridge");
+        fs::create_dir_all(&installed_plugin).expect("installed plugin");
+        fs::write(project_root.join("Game.uproject"), "{}\n").expect("uproject");
+        fs::write(
+            installed_plugin.join("LoomleBridge.uplugin"),
+            r#"{"VersionName":"0.5.7"}"#,
+        )
+        .expect("old uplugin");
+
+        let outcome = sync_project_support_to_version(&project_root, "0.5.8", false).expect("sync");
+        assert!(outcome.changed);
+        assert_eq!(outcome.previous_version.as_deref(), Some("0.5.7"));
+        assert_eq!(
+            read_plugin_version(&installed_plugin).as_deref(),
+            Some("0.5.8")
+        );
+        assert!(fs::read_to_string(
+            project_root
+                .join("Config")
+                .join("DefaultEditorSettings.ini")
+        )
+        .expect("settings")
+        .contains("bThrottleCPUWhenNotForeground=False"));
+
+        let unchanged =
+            sync_project_support_to_version(&project_root, "0.5.8", false).expect("sync");
+        assert!(!unchanged.changed);
+        assert!(!unchanged.requires_editor_restart);
+
+        if let Some(previous_root) = previous_root {
+            std::env::set_var("LOOMLE_INSTALL_ROOT", previous_root);
+        } else {
+            std::env::remove_var("LOOMLE_INSTALL_ROOT");
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn registered_project_sync_updates_offline_and_skips_online_projects() {
+        let root = std::env::temp_dir().join(format!(
+            "loomle-test-registered-sync-{}-{}",
+            std::process::id(),
+            super::unix_timestamp_secs()
+        ));
+        let previous_root = std::env::var_os("LOOMLE_INSTALL_ROOT");
+        std::env::set_var("LOOMLE_INSTALL_ROOT", &root);
+
+        fs::create_dir_all(root.join("install")).expect("install");
+        fs::write(
+            root.join("install").join("active.json"),
+            r#"{"activeVersion":"0.5.8","launcherPath":"/tmp/loomle","activeClientPath":"/tmp/loomle"}"#,
+        )
+        .expect("active");
+        let plugin_cache = root
+            .join("versions")
+            .join("0.5.8")
+            .join("plugin-cache")
+            .join("LoomleBridge");
+        fs::create_dir_all(&plugin_cache).expect("plugin cache");
+        fs::write(
+            plugin_cache.join("LoomleBridge.uplugin"),
+            r#"{"VersionName":"0.5.8"}"#,
+        )
+        .expect("cached uplugin");
+
+        let offline_project = root.join("Projects").join("OfflineGame");
+        fs::create_dir_all(offline_project.join("Plugins").join("LoomleBridge"))
+            .expect("offline plugin");
+        fs::write(offline_project.join("OfflineGame.uproject"), "{}\n").expect("uproject");
+        fs::write(
+            offline_project
+                .join("Plugins")
+                .join("LoomleBridge")
+                .join("LoomleBridge.uplugin"),
+            r#"{"VersionName":"0.5.7"}"#,
+        )
+        .expect("old plugin");
+
+        let online_project = root.join("Projects").join("OnlineGame");
+        let online_endpoint = online_project.join("Intermediate").join("loomle.sock");
+        fs::create_dir_all(online_endpoint.parent().expect("endpoint parent")).expect("endpoint");
+        fs::write(&online_endpoint, "").expect("endpoint marker");
+        fs::create_dir_all(online_project.join("Plugins").join("LoomleBridge"))
+            .expect("online plugin");
+        fs::write(online_project.join("OnlineGame.uproject"), "{}\n").expect("uproject");
+        fs::write(
+            online_project
+                .join("Plugins")
+                .join("LoomleBridge")
+                .join("LoomleBridge.uplugin"),
+            r#"{"VersionName":"0.5.7"}"#,
+        )
+        .expect("old plugin");
+
+        let runtimes = root.join("state").join("runtimes");
+        fs::create_dir_all(&runtimes).expect("runtimes");
+        fs::write(
+            runtimes.join("offline.json"),
+            serde_json::json!({
+                "name": "OfflineGame",
+                "projectRoot": offline_project,
+                "pluginVersion": "0.5.7"
+            })
+            .to_string(),
+        )
+        .expect("offline record");
+        fs::write(
+            runtimes.join("online.json"),
+            serde_json::json!({
+                "name": "OnlineGame",
+                "projectRoot": online_project,
+                "endpoint": online_endpoint,
+                "pluginVersion": "0.5.7"
+            })
+            .to_string(),
+        )
+        .expect("online record");
+
+        let summary = sync_registered_project_support();
+        assert_eq!(summary.updated, 1);
+        assert_eq!(summary.unchanged, 0);
+        assert_eq!(summary.skipped_online, 1);
+        assert_eq!(summary.failed, 0);
+        assert_eq!(
+            read_plugin_version(&offline_project.join("Plugins").join("LoomleBridge")).as_deref(),
+            Some("0.5.8")
+        );
+        assert_eq!(
+            read_plugin_version(&online_project.join("Plugins").join("LoomleBridge")).as_deref(),
+            Some("0.5.7")
+        );
+
+        if let Some(previous_root) = previous_root {
+            std::env::set_var("LOOMLE_INSTALL_ROOT", previous_root);
+        } else {
+            std::env::remove_var("LOOMLE_INSTALL_ROOT");
+        }
         let _ = fs::remove_dir_all(root);
     }
 
