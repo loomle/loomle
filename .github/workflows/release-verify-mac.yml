@@ -13,7 +13,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Check Release Version Strings
         shell: bash
@@ -216,27 +216,28 @@ jobs:
         if: always()
         timeout-minutes: 2
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-verify-mac-logs
           path: ${{ steps.test_project.outputs.test_root }}/Saved/Logs/*.log
           if-no-files-found: ignore
 
       - name: Run Non-Blocking Latency Benchmark
-        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
-          python3 tests/integration/test_loomle_latency.py \
+          if ! python3 tests/integration/test_loomle_latency.py \
             --project-root "${{ steps.test_project.outputs.test_root }}" \
-            --loomle-bin "$GITHUB_WORKSPACE/client/target/release/loomle"
+            --loomle-bin "$GITHUB_WORKSPACE/client/target/release/loomle"; then
+            echo "::warning::Non-blocking latency benchmark failed; continuing release verification."
+          fi
 
       - name: Upload Benchmark Artifact
         if: always()
         timeout-minutes: 2
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-verify-benchmarks
           path: runtime/benchmarks/*.csv
