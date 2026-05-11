@@ -30,6 +30,7 @@ REQUIRED_TOOLS = {
     "blueprint.graph.list",
     "blueprint.graph.inspect",
     "blueprint.graph.edit",
+    "blueprint.graph.layout",
     "blueprint.palette",
     "blueprint.compile",
     "material.list",

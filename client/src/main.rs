@@ -7313,6 +7313,46 @@ mod tests {
     }
 
     #[test]
+    fn public_blueprint_surface_is_declared_without_retired_tools() {
+        let tool_names = runtime_declared_tools()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        for expected in [
+            "asset.create",
+            "asset.inspect",
+            "asset.edit",
+            "blueprint.inspect",
+            "blueprint.class.inspect",
+            "blueprint.class.edit",
+            "blueprint.member.inspect",
+            "blueprint.member.edit",
+            "blueprint.graph.list",
+            "blueprint.graph.inspect",
+            "blueprint.graph.edit",
+            "blueprint.graph.layout",
+            "blueprint.palette",
+            "blueprint.compile",
+        ] {
+            assert!(tool_names.contains(expected), "missing tool {expected}");
+        }
+
+        for retired in [
+            "blueprint.edit",
+            "blueprint.enum.inspect",
+            "blueprint.enum.edit",
+            "blueprint.graph.refactor",
+            "blueprint.graph.generate",
+        ] {
+            assert!(
+                !tool_names.contains(retired),
+                "retired tool should not be declared: {retired}"
+            );
+        }
+    }
+
+    #[test]
     fn schema_inspect_tool_is_declared() {
         let tool_names = all_declared_tools()
             .into_iter()
@@ -7454,6 +7494,45 @@ mod tests {
                 .and_then(|value| value.as_str()),
             Some("create")
         );
+    }
+
+    #[test]
+    fn schema_inspect_only_supports_second_layer_blueprint_tools() {
+        for tool in [
+            "asset.create",
+            "asset.inspect",
+            "asset.edit",
+            "blueprint.inspect",
+            "blueprint.class.inspect",
+            "blueprint.class.edit",
+        ] {
+            let mut args = JsonObject::new();
+            args.insert("domain".into(), serde_json::json!("blueprint"));
+            args.insert("tool".into(), serde_json::json!(tool));
+
+            let result = call_schema_inspect(&args);
+            assert_eq!(
+                result.is_error,
+                Some(true),
+                "{tool} should not use schema.inspect"
+            );
+            let payload = result.structured_content.expect("structured content");
+            assert_eq!(
+                payload.get("code").and_then(|value| value.as_str()),
+                Some("UNKNOWN_TOOL")
+            );
+            let available_tools = payload
+                .get("availableTools")
+                .and_then(|value| value.as_array())
+                .expect("availableTools");
+            let names = available_tools
+                .iter()
+                .filter_map(|value| value.as_str())
+                .collect::<std::collections::HashSet<_>>();
+            assert_eq!(names.len(), 2);
+            assert!(names.contains("blueprint.graph.edit"));
+            assert!(names.contains("blueprint.member.edit"));
+        }
     }
 
     #[test]

@@ -1623,10 +1623,10 @@ should remain consistent across all Blueprint write interfaces.
 
 The current recommended public Blueprint surface for these domains is:
 
-- `blueprint.inspect`
 - `asset.create`
 - `asset.inspect`
 - `asset.edit`
+- `blueprint.inspect`
 - `blueprint.class.inspect`
 - `blueprint.class.edit`
 - `blueprint.member.inspect`

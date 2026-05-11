@@ -10,6 +10,13 @@ Schema inspection provides a second-level lookup path. The first-level tool
 schema stays small, and the agent asks for the exact operation schema only when
 it needs that operation.
 
+Not every Blueprint-facing tool should support schema inspection. Tools whose
+first-level schema fully describes their request shape, such as `asset.create`,
+`asset.inspect`, `asset.edit`, `blueprint.inspect`, `blueprint.class.inspect`,
+and `blueprint.class.edit`, should stay self-contained in `tools/list`.
+`schema.inspect` is reserved for tools with a deliberately compressed
+operation envelope.
+
 ## Design Principle
 
 The formal documentation is the source of truth.
@@ -181,5 +188,5 @@ The first implementation should cover:
 - common member edit request schemas for variable, function, macro, dispatcher,
   event, and component operations
 
-Other Blueprint tools can be added after these operation-bearing paths are
-stable.
+Other Blueprint tools should only be added if their first-level schema becomes
+too large or too polymorphic to remain clear in `tools/list`.
