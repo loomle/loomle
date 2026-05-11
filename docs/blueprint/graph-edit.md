@@ -27,8 +27,9 @@ loaded on demand through the schema inspection flow.
 It does not own:
 
 - palette discovery, which belongs to `blueprint.palette`
-- structural refactors, which belong to `blueprint.graph.refactor`
-- recipe expansion, which belongs to `blueprint.graph.generate`
+- fuzzy or semantic refactor planning; callers should inspect first and compose
+  explicit edit commands
+- recipe expansion as a separate public abstraction
 - visual formatting, which belongs to `blueprint.graph.layout`
 - compile or validate
 - graph management such as add, rename, or delete graph
@@ -113,8 +114,8 @@ These operations should not be presented as normal public commands:
 
 | Operation | Preferred Surface |
 | --- | --- |
-| `rebindMatchingPins` | Internal implementation or `blueprint.graph.refactor`. |
-| `moveInputLinks` | Internal implementation or `blueprint.graph.refactor`. |
+| `rebindMatchingPins` | Internal implementation only; public callers should connect pins explicitly. |
+| `moveInputLinks` | Internal implementation only; public callers should disconnect and reconnect explicit pins. |
 | `layoutGraph` | `blueprint.graph.layout` with `operation="format"`. |
 | `compile` | `blueprint.compile`. |
 | `moveNodes` | `blueprint.graph.layout` selection formatting, or explicit `moveNode` commands. |

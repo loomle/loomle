@@ -21,10 +21,11 @@ entire graph.
 It does not own:
 
 - node creation, which belongs to `blueprint.graph.edit`
-- pin connection changes, which belong to `blueprint.graph.edit` or
-  `blueprint.graph.refactor`
-- structural transformations, which belong to `blueprint.graph.refactor`
-- recipe expansion, which belongs to `blueprint.graph.generate`
+- pin connection changes, which belong to explicit `blueprint.graph.edit`
+  commands
+- structural transformations; callers should inspect first and compose explicit
+  `blueprint.graph.edit` commands
+- recipe expansion as a separate public abstraction
 - whole-graph formatting
 - reroute insertion, reroute cleanup, or wire routing in the first version
 - comment fitting or comment creation in the first version
@@ -227,4 +228,3 @@ The first version must not implement:
 - comment creation
 - comment fitting
 - data-flow-only traversal
-

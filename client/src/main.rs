@@ -837,15 +837,6 @@ impl LoomleProxyServer {
             "blueprint.member.edit" => Ok(Some(
                 self.runtime_call("blueprint.member.edit", args).await?,
             )),
-            "blueprint.graph.refactor" => Ok(Some(self.call_blueprint_graph_refactor(args).await?)),
-            "blueprint.graph.generate" => Ok(Some(self.call_blueprint_graph_generate(args).await?)),
-            "blueprint.graph.recipe.list" => Ok(Some(call_blueprint_graph_recipe_list(&args))),
-            "blueprint.graph.recipe.inspect" => {
-                Ok(Some(call_blueprint_graph_recipe_inspect(&args)))
-            }
-            "blueprint.graph.recipe.validate" => {
-                Ok(Some(call_blueprint_graph_recipe_validate(&args)))
-            }
             "blueprint.palette" => Ok(Some(self.call_blueprint_palette(args).await?)),
             _ => Ok(None),
         }
@@ -1138,6 +1129,7 @@ impl LoomleProxyServer {
         Ok(structured_result(plan.to_json(false)))
     }
 
+    #[allow(dead_code)]
     async fn call_blueprint_graph_refactor(
         &self,
         args: rmcp::model::JsonObject,
@@ -1149,6 +1141,7 @@ impl LoomleProxyServer {
         self.call_blueprint_graph_edit(edit_args).await
     }
 
+    #[allow(dead_code)]
     async fn call_blueprint_graph_generate(
         &self,
         args: rmcp::model::JsonObject,
@@ -2954,11 +2947,6 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("blueprint.graph.inspect", "Read graph, node, pin, and link data from a Blueprint graph.", Arc::new(blueprint_graph_inspect_schema())),
         Tool::new("blueprint.graph.edit", "Apply explicit local graph edit commands to a Blueprint graph.", Arc::new(blueprint_graph_edit_schema())),
         Tool::new("blueprint.graph.layout", "Format a selected Blueprint graph region without changing graph semantics.", Arc::new(blueprint_graph_layout_schema())),
-        Tool::new("blueprint.graph.refactor", "Apply structural graph refactors to a Blueprint graph.", Arc::new(blueprint_graph_refactor_schema())),
-        Tool::new("blueprint.graph.generate", "Generate a Blueprint graph snippet from a recipe source.", Arc::new(blueprint_graph_generate_schema())),
-        Tool::new("blueprint.graph.recipe.list", "List discoverable Blueprint graph recipes.", Arc::new(blueprint_graph_recipe_list_schema())),
-        Tool::new("blueprint.graph.recipe.inspect", "Inspect the contract of a Blueprint graph recipe.", Arc::new(blueprint_graph_recipe_inspect_schema())),
-        Tool::new("blueprint.graph.recipe.validate", "Validate a Blueprint graph recipe definition.", Arc::new(blueprint_graph_recipe_validate_schema())),
         Tool::new("blueprint.palette", "Search UE Blueprint Action Menu entries for graph creation.", Arc::new(blueprint_palette_schema())),
         Tool::new("blueprint.compile", "Compile a Blueprint asset.", Arc::new(blueprint_compile_schema())),
         Tool::new("blueprint.validate", "Run read-only structural validation for a Blueprint graph or asset.", Arc::new(blueprint_validate_schema())),
@@ -3317,6 +3305,7 @@ fn builtin_blueprint_recipe_summaries() -> Vec<serde_json::Value> {
         .collect()
 }
 
+#[allow(dead_code)]
 fn call_blueprint_graph_recipe_list(args: &rmcp::model::JsonObject) -> CallToolResult {
     let kind = args.get("kind").and_then(|value| value.as_str());
     let tag = args.get("tag").and_then(|value| value.as_str());
@@ -3340,6 +3329,7 @@ fn call_blueprint_graph_recipe_list(args: &rmcp::model::JsonObject) -> CallToolR
     }))
 }
 
+#[allow(dead_code)]
 fn call_blueprint_graph_recipe_inspect(args: &rmcp::model::JsonObject) -> CallToolResult {
     let Some(kind) = args.get("kind").and_then(|value| value.as_str()) else {
         return CallToolResult::structured_error(serde_json::json!({
@@ -3383,6 +3373,7 @@ fn call_blueprint_graph_recipe_inspect(args: &rmcp::model::JsonObject) -> CallTo
     }
 }
 
+#[allow(dead_code)]
 fn validate_recipe_shape(
     recipe: &serde_json::Value,
     kind: &str,
@@ -3460,6 +3451,7 @@ fn validate_recipe_shape(
     }))
 }
 
+#[allow(dead_code)]
 fn call_blueprint_graph_recipe_validate(args: &rmcp::model::JsonObject) -> CallToolResult {
     let Some(recipe_source) = args.get("recipeSource").and_then(|value| value.as_object()) else {
         return CallToolResult::structured_error(serde_json::json!({
@@ -4203,6 +4195,7 @@ fn blueprint_graph_layout_schema() -> rmcp::model::JsonObject {
     }))
 }
 
+#[allow(dead_code)]
 fn blueprint_graph_refactor_schema() -> rmcp::model::JsonObject {
     let mut properties = serde_json::Map::new();
     properties.insert(
@@ -4252,6 +4245,7 @@ fn blueprint_graph_refactor_schema() -> rmcp::model::JsonObject {
     }))
 }
 
+#[allow(dead_code)]
 fn blueprint_graph_generate_schema() -> rmcp::model::JsonObject {
     let mut properties = serde_json::Map::new();
     properties.insert(
@@ -4292,6 +4286,7 @@ fn blueprint_graph_generate_schema() -> rmcp::model::JsonObject {
     }))
 }
 
+#[allow(dead_code)]
 fn blueprint_graph_recipe_list_schema() -> rmcp::model::JsonObject {
     schema_from_value(serde_json::json!({
         "type":"object",
@@ -4303,6 +4298,7 @@ fn blueprint_graph_recipe_list_schema() -> rmcp::model::JsonObject {
     }))
 }
 
+#[allow(dead_code)]
 fn blueprint_graph_recipe_inspect_schema() -> rmcp::model::JsonObject {
     schema_from_value(serde_json::json!({
         "type":"object",
@@ -4316,6 +4312,7 @@ fn blueprint_graph_recipe_inspect_schema() -> rmcp::model::JsonObject {
     }))
 }
 
+#[allow(dead_code)]
 fn blueprint_graph_recipe_validate_schema() -> rmcp::model::JsonObject {
     let mut properties = serde_json::Map::new();
     properties.insert(

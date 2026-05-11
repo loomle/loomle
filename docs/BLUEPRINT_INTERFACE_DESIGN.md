@@ -61,11 +61,8 @@ Recommended public graph surface:
 - `blueprint.graph.list`
 - `blueprint.graph.inspect`
 - `blueprint.graph.edit`
-- `blueprint.graph.refactor`
-- `blueprint.graph.generate`
-- `blueprint.graph.recipe.list`
-- `blueprint.graph.recipe.inspect`
-- `blueprint.graph.recipe.validate`
+- `blueprint.graph.layout`
+- `blueprint.palette`
 - `blueprint.compile`
 - `blueprint.validate`
 
@@ -349,11 +346,8 @@ Graph is a conceptual domain. Public MCP tools should keep high-frequency graph 
 - `blueprint.graph.list`
 - `blueprint.graph.inspect`
 - `blueprint.graph.edit`
-- `blueprint.graph.refactor`
-- `blueprint.graph.generate`
-- `blueprint.graph.recipe.list`
-- `blueprint.graph.recipe.inspect`
-- `blueprint.graph.recipe.validate`
+- `blueprint.graph.layout`
+- `blueprint.palette`
 
 ### Graph Management Operations
 
@@ -373,14 +367,14 @@ Conceptually required graph-level operations:
 - graph summary
 - entry routing metadata
 - graph-level layout action
-- graph recipe discovery and management
 
 ### Notes
 
 - Graphs are child resources inside the Blueprint asset.
 - `graph.inspect` is graph-level structure read, not low-level edit.
 - graph management operations are lower-frequency than graph inspection and graph mutation.
-- `graph.recipe.*` is the recipe discovery and management surface for graph generation.
+- recipe discovery and graph generation are not part of the current public
+  graph surface.
 
 ## Graph Object Model
 
@@ -679,14 +673,15 @@ Reason:
 
 ## Graph Editing Domains
 
-Graph-facing mutation should be split into three distinct public interfaces:
+Graph-facing mutation should be split into explicit edit and visual layout
+interfaces:
 
 - `blueprint.graph.edit`
-- `blueprint.graph.refactor`
-- `blueprint.graph.generate`
 - `blueprint.graph.layout`
 
-These interfaces must not be treated as aliases for one shared low-level op list.
+Structural replacement, wrapping, and snippet generation should be composed from
+explicit `blueprint.graph.edit` commands after inspection rather than exposed as
+separate public abstractions.
 
 ### Design Intent
 
@@ -1459,9 +1454,11 @@ Recommended properties:
 - errors should include enough structured context for an agent to retry correctly
 - `nextActions` should be advisory, not implicit auto-repair
 
-## blueprint.graph.refactor
+## blueprint.graph.refactor Retired Draft
 
-`blueprint.graph.refactor` is the public structural transformation interface.
+`blueprint.graph.refactor` was a proposed structural transformation interface.
+It is no longer part of the public MCP surface. Keep this section only as
+internal design history while the implementation remains in the codebase.
 
 It should be used when:
 
@@ -1810,9 +1807,11 @@ The following do not belong in `blueprint.graph.refactor`:
 - validate
 - generic low-level mutation bundling without structural semantics
 
-## blueprint.graph.generate
+## blueprint.graph.generate Retired Draft
 
-`blueprint.graph.generate` is the public local graph generation interface.
+`blueprint.graph.generate` was a proposed local graph generation interface. It
+is no longer part of the public MCP surface. New snippets should be authored
+through explicit `blueprint.graph.edit` commands.
 
 It should be used when:
 
@@ -1842,9 +1841,10 @@ Public protocol should prefer `recipeSource` over separate legacy template/recip
 
 ### Relationship To Recipe Management
 
-`blueprint.graph.generate` executes a recipe.
+The retired `blueprint.graph.generate` design executed a recipe.
 
-`blueprint.graph.recipe.*` is the discovery and management surface for reusable recipes.
+The retired `blueprint.graph.recipe.*` design provided discovery and management
+for reusable recipes.
 
 Recommended boundary:
 
@@ -2209,9 +2209,10 @@ The following do not belong in `blueprint.graph.generate`:
 - validate
 - generic low-level mutation replay
 
-## blueprint.graph.recipe
+## blueprint.graph.recipe Retired Draft
 
-`blueprint.graph.recipe.*` is the public recipe discovery and management domain.
+`blueprint.graph.recipe.*` was the proposed recipe discovery and management
+domain. It is no longer part of the public MCP surface.
 
 It exists so MCP itself provides recipe self-discovery without depending on repository files or external documentation.
 
@@ -2479,9 +2480,8 @@ Rules:
 
 Use `blueprint.graph.edit` when the caller wants explicit, local graph changes.
 
-Use `blueprint.graph.refactor` when the caller wants existing structure transformed semantically.
-
-Use `blueprint.graph.generate` when the caller wants a new local snippet built from a controlled pattern.
+Use `blueprint.graph.layout` when the caller wants visual graph formatting
+without semantic changes.
 
 ## Unified Mutation Contract
 
@@ -2631,11 +2631,8 @@ The current recommended public Blueprint surface for these domains is:
 - `blueprint.graph.list`
 - `blueprint.graph.inspect`
 - `blueprint.graph.edit`
-- `blueprint.graph.refactor`
-- `blueprint.graph.generate`
-- `blueprint.graph.recipe.list`
-- `blueprint.graph.recipe.inspect`
-- `blueprint.graph.recipe.validate`
+- `blueprint.graph.layout`
+- `blueprint.palette`
 - `blueprint.compile`
 - `blueprint.validate`
 
