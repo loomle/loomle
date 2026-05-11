@@ -1177,6 +1177,9 @@ impl LoomleProxyServer {
         &self,
         args: rmcp::model::JsonObject,
     ) -> Result<CallToolResult, McpError> {
+        if let Err(error) = validate_blueprint_graph_inspect_args(&args) {
+            return Ok(error);
+        }
         let legacy_args = match translate_blueprint_graph_inspect_args(&args) {
             Ok(value) => value,
             Err(error) => return Ok(error),
@@ -1203,6 +1206,7 @@ impl LoomleProxyServer {
                 result.insert("graph".into(), serde_json::json!({ "name": graph_name }));
             }
         }
+        shape_blueprint_graph_inspect_result(&mut result, &args);
         Ok(structured_result(serde_json::Value::Object(result)))
     }
 
@@ -1581,21 +1585,332 @@ fn translate_blueprint_graph_inspect_args(
     let mut translated = rmcp::model::JsonObject::new();
     translated.insert("assetPath".into(), serde_json::json!(asset_path));
     let graph_address =
-        read_optional_graph_address(args, &asset_path, true, "blueprint.graph.inspect")?;
-    write_optional_graph_address(&mut translated, graph_address);
-    for field in [
-        "nodeIds",
-        "nodeClasses",
-        "includeComments",
-        "includePinDefaults",
-        "includeConnections",
-        "limit",
-        "cursor",
-        "layoutDetail",
-    ] {
-        copy_if_present(args, &mut translated, field);
+        read_required_graph_object_address(args, &asset_path, "blueprint.graph.inspect")?;
+    write_optional_graph_address(&mut translated, Some(graph_address));
+
+    if let Some(filter) = args.get("filter").and_then(|value| value.as_object()) {
+        if let Some(node_ids) = filter.get("nodeIds") {
+            translated.insert("nodeIds".into(), node_ids.clone());
+        }
+        if let Some(text) = filter.get("text") {
+            translated.insert("text".into(), text.clone());
+        }
+    }
+
+    if let Some(page) = args.get("page").and_then(|value| value.as_object()) {
+        if let Some(limit) = page.get("limit") {
+            translated.insert("limit".into(), limit.clone());
+        }
+        if let Some(cursor) = page.get("cursor") {
+            translated.insert("cursor".into(), cursor.clone());
+        }
+    }
+
+    let view = blueprint_graph_inspect_view(args);
+    if matches!(view, "links" | "defaults" | "full") {
+        translated.insert("includeConnections".into(), serde_json::json!(true));
+    }
+    if matches!(view, "defaults" | "full") {
+        translated.insert("includePinDefaults".into(), serde_json::json!(true));
     }
     Ok(translated)
+}
+
+fn read_required_graph_object_address(
+    args: &rmcp::model::JsonObject,
+    asset_path: &str,
+    tool_name: &str,
+) -> Result<BlueprintGraphAddress, CallToolResult> {
+    let Some(graph_obj) = args.get("graph").and_then(|value| value.as_object()) else {
+        return Err(invalid_argument_result(format!(
+            "{tool_name} requires graph."
+        )));
+    };
+    if let Some(graph_id) = graph_obj
+        .get("id")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+    {
+        let mut graph_ref = serde_json::Map::new();
+        graph_ref.insert("kind".into(), serde_json::json!("asset"));
+        graph_ref.insert("assetPath".into(), serde_json::json!(asset_path));
+        graph_ref.insert("graphId".into(), serde_json::json!(graph_id));
+        return Ok(BlueprintGraphAddress::Ref(graph_ref));
+    }
+    if let Some(graph_name) = graph_obj
+        .get("name")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(BlueprintGraphAddress::Name(graph_name.to_owned()));
+    }
+    Err(invalid_argument_result(format!(
+        "{tool_name} graph requires id or name."
+    )))
+}
+
+fn validate_blueprint_graph_inspect_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<(), CallToolResult> {
+    for key in args.keys() {
+        if !matches!(
+            key.as_str(),
+            "assetPath" | "graph" | "view" | "filter" | "page"
+        ) {
+            return Err(invalid_argument_result(format!(
+                "blueprint.graph.inspect does not support top-level {key}; use assetPath, graph, view, filter, and page."
+            )));
+        }
+    }
+    for field in [
+        "graphName",
+        "graphRef",
+        "nodeIds",
+        "nodeClasses",
+        "limit",
+        "cursor",
+        "detail",
+        "includePinDefaults",
+        "layoutDetail",
+    ] {
+        if args.contains_key(field) {
+            return Err(invalid_argument_result(format!(
+                "blueprint.graph.inspect no longer accepts top-level {field}; use graph, view, filter, and page."
+            )));
+        }
+    }
+
+    let view = blueprint_graph_inspect_view(args);
+    if !matches!(view, "overview" | "pins" | "links" | "defaults" | "full") {
+        return Err(invalid_argument_result(format!(
+            "Unsupported blueprint.graph.inspect view: {view}."
+        )));
+    }
+
+    if args.contains_key("filter") && !args.get("filter").is_some_and(|value| value.is_object()) {
+        return Err(invalid_argument_result(
+            "blueprint.graph.inspect filter must be an object.",
+        ));
+    }
+    if let Some(filter) = args.get("filter").and_then(|value| value.as_object()) {
+        for key in filter.keys() {
+            if !matches!(key.as_str(), "nodeIds" | "text") {
+                return Err(invalid_argument_result(format!(
+                    "blueprint.graph.inspect filter does not support {key}."
+                )));
+            }
+        }
+    }
+    if args.contains_key("page") && !args.get("page").is_some_and(|value| value.is_object()) {
+        return Err(invalid_argument_result(
+            "blueprint.graph.inspect page must be an object.",
+        ));
+    }
+    if let Some(page) = args.get("page").and_then(|value| value.as_object()) {
+        for key in page.keys() {
+            if !matches!(key.as_str(), "limit" | "cursor") {
+                return Err(invalid_argument_result(format!(
+                    "blueprint.graph.inspect page does not support {key}."
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn blueprint_graph_inspect_view(args: &rmcp::model::JsonObject) -> &str {
+    args.get("view")
+        .and_then(|value| value.as_str())
+        .unwrap_or("overview")
+}
+
+fn copy_json_field(
+    source: &serde_json::Map<String, serde_json::Value>,
+    target: &mut serde_json::Map<String, serde_json::Value>,
+    field: &str,
+) {
+    if let Some(value) = source.get(field) {
+        target.insert(field.to_string(), value.clone());
+    }
+}
+
+fn prune_blueprint_graph_pin(
+    pin: &mut serde_json::Map<String, serde_json::Value>,
+    include_pin_defaults: bool,
+    include_connections: bool,
+) {
+    if !include_pin_defaults {
+        pin.remove("defaultValue");
+        pin.remove("defaultObject");
+        pin.remove("defaultText");
+        pin.remove("default");
+    }
+    if !include_connections {
+        pin.remove("linkedTo");
+        pin.remove("links");
+    }
+}
+
+fn compact_blueprint_graph_pin(
+    pin: &serde_json::Map<String, serde_json::Value>,
+    include_pin_defaults: bool,
+    include_connections: bool,
+) -> serde_json::Value {
+    let mut compact = serde_json::Map::new();
+    for field in [
+        "name",
+        "direction",
+        "category",
+        "subCategory",
+        "subCategoryObject",
+        "type",
+        "isReference",
+        "isConst",
+        "isArray",
+    ] {
+        copy_json_field(pin, &mut compact, field);
+    }
+    if include_pin_defaults {
+        for field in ["defaultValue", "defaultObject", "defaultText", "default"] {
+            copy_json_field(pin, &mut compact, field);
+        }
+    }
+    if include_connections {
+        for field in ["linkedTo", "links"] {
+            copy_json_field(pin, &mut compact, field);
+        }
+    }
+    serde_json::Value::Object(compact)
+}
+
+fn prune_blueprint_graph_comment_fields(
+    node: &mut serde_json::Map<String, serde_json::Value>,
+    include_comments: bool,
+) {
+    if include_comments {
+        return;
+    }
+    node.remove("comment");
+    node.remove("nodeComment");
+    if let Some(k2_extensions) = node
+        .get_mut("k2Extensions")
+        .and_then(|value| value.as_object_mut())
+    {
+        k2_extensions.remove("comment");
+    }
+}
+
+fn compact_blueprint_graph_node(
+    node: &serde_json::Map<String, serde_json::Value>,
+    view: &str,
+    include_pin_defaults: bool,
+    include_connections: bool,
+    include_comments: bool,
+) -> serde_json::Value {
+    if view == "full" {
+        let mut full = node.clone();
+        if let Some(pins) = full.get_mut("pins").and_then(|value| value.as_array_mut()) {
+            for pin in pins {
+                if let Some(pin_object) = pin.as_object_mut() {
+                    prune_blueprint_graph_pin(
+                        pin_object,
+                        include_pin_defaults,
+                        include_connections,
+                    );
+                }
+            }
+        }
+        prune_blueprint_graph_comment_fields(&mut full, include_comments);
+        return serde_json::Value::Object(full);
+    }
+
+    let mut compact = serde_json::Map::new();
+    for field in [
+        "id",
+        "guid",
+        "name",
+        "className",
+        "classPath",
+        "nodeClassPath",
+        "title",
+        "nodeTitle",
+        "enabled",
+        "isNodeEnabled",
+        "position",
+        "layout",
+        "graphName",
+        "childGraphRef",
+        "memberReference",
+        "functionReference",
+        "k2Extensions",
+        "embeddedTemplate",
+        "effectiveSettings",
+        "contextSensitiveConstruct",
+        "graphBoundarySummary",
+    ] {
+        copy_json_field(node, &mut compact, field);
+    }
+    prune_blueprint_graph_comment_fields(&mut compact, include_comments);
+
+    if matches!(view, "pins" | "links" | "defaults") {
+        let pins = node
+            .get("pins")
+            .and_then(|value| value.as_array())
+            .map(|pins| {
+                pins.iter()
+                    .filter_map(|pin| pin.as_object())
+                    .map(|pin| {
+                        compact_blueprint_graph_pin(pin, include_pin_defaults, include_connections)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        compact.insert("pins".to_string(), serde_json::Value::Array(pins));
+    }
+
+    serde_json::Value::Object(compact)
+}
+
+fn shape_blueprint_graph_inspect_result(
+    result: &mut serde_json::Map<String, serde_json::Value>,
+    args: &rmcp::model::JsonObject,
+) {
+    let view = blueprint_graph_inspect_view(args);
+    let include_pin_defaults = matches!(view, "defaults" | "full");
+    let include_connections = matches!(view, "links" | "defaults" | "full");
+    let include_comments = view == "full";
+
+    if let Some(snapshot) = result
+        .get_mut("semanticSnapshot")
+        .and_then(|value| value.as_object_mut())
+    {
+        if let Some(nodes) = snapshot
+            .get_mut("nodes")
+            .and_then(|value| value.as_array_mut())
+        {
+            for node in nodes {
+                if let Some(node_object) = node.as_object() {
+                    *node = compact_blueprint_graph_node(
+                        node_object,
+                        view,
+                        include_pin_defaults,
+                        include_connections,
+                        include_comments,
+                    );
+                }
+            }
+        }
+        if !include_connections {
+            snapshot.insert("edges".to_string(), serde_json::json!([]));
+        }
+    }
+
+    if let Some(meta) = result
+        .get_mut("meta")
+        .and_then(|value| value.as_object_mut())
+    {
+        meta.insert("view".to_string(), serde_json::json!(view));
+    }
 }
 
 fn translate_blueprint_palette_args(
@@ -4280,17 +4595,25 @@ fn blueprint_graph_inspect_schema() -> rmcp::model::JsonObject {
         "properties":{
             "assetPath":{"type":"string","minLength":1},
             "graph": graph_ref_schema(),
-            "graphName":{"type":"string","minLength":1,"description":"Legacy compatibility graph address. Prefer graph:{id|name} for new calls."},
-            "nodeIds":{"type":"array","items":{"type":"string"}},
-            "nodeClasses":{"type":"array","items":{"type":"string"}},
-            "includeComments":{"type":"boolean","default":false},
-            "includePinDefaults":{"type":"boolean","default":false},
-            "includeConnections":{"type":"boolean","default":false},
-            "limit":{"type":"integer"},
-            "cursor":{"type":"string"},
-            "layoutDetail":{"type":"string","enum":["basic","measured"]}
+            "view":{"type":"string","enum":["overview","pins","links","defaults","full"],"default":"overview","description":"Task-oriented result view. overview omits pins and edges; pins adds pin signatures; links adds pins plus edge/link refs; defaults adds pin defaults and link refs for setPinDefault planning; full preserves legacy node fields and comment metadata."},
+            "filter":{
+                "type":"object",
+                "properties":{
+                    "nodeIds":{"type":"array","items":{"type":"string"}},
+                    "text":{"type":"string","minLength":1}
+                },
+                "additionalProperties": false
+            },
+            "page":{
+                "type":"object",
+                "properties":{
+                    "limit":{"type":"integer","minimum":1,"maximum":1000,"default":50},
+                    "cursor":{"type":"string"}
+                },
+                "additionalProperties": false
+            }
         },
-        "required":["assetPath"],
+        "required":["assetPath","graph"],
         "additionalProperties": false
     }))
 }
@@ -6278,16 +6601,17 @@ fn print_usage_stderr() {
 #[cfg(test)]
 mod tests {
     use super::{
-        acquire_file_lock, all_declared_tools, build_blueprint_graph_layout_plan,
-        call_schema_inspect, compare_semver, compile_blueprint_refactor_request,
-        current_platform_client_binary_name, infer_attached_project_root, material_query_schema,
-        parse_blueprint_graph_layout_request, pcg_query_schema,
-        play_participant_wait_conditions_met, play_schema,
+        acquire_file_lock, all_declared_tools, blueprint_graph_inspect_schema,
+        build_blueprint_graph_layout_plan, call_schema_inspect, compare_semver,
+        compile_blueprint_refactor_request, current_platform_client_binary_name,
+        infer_attached_project_root, material_query_schema, parse_blueprint_graph_layout_request,
+        pcg_query_schema, play_participant_wait_conditions_met, play_schema,
         play_wait_participant_conditions_from_args, read_file_lock_metadata, read_plugin_version,
-        runtime_declared_tools, switch_to_installed_version, sync_project_support_to_version,
-        sync_registered_project_support, translate_blueprint_graph_edit_args,
-        translate_material_query_args, translate_pcg_query_args, Cli, FileLockMetadata,
-        RuntimeProject,
+        runtime_declared_tools, shape_blueprint_graph_inspect_result, switch_to_installed_version,
+        sync_project_support_to_version, sync_registered_project_support,
+        translate_blueprint_graph_edit_args, translate_blueprint_graph_inspect_args,
+        translate_material_query_args, translate_pcg_query_args,
+        validate_blueprint_graph_inspect_args, Cli, FileLockMetadata, RuntimeProject,
     };
     use rmcp::model::JsonObject;
     use std::ffi::OsString;
@@ -7184,6 +7508,227 @@ mod tests {
                 .and_then(|value| value.get("nodeId"))
                 .and_then(|value| value.as_str()),
             Some("node-guid")
+        );
+    }
+
+    #[test]
+    fn blueprint_graph_inspect_overview_view_prunes_heavy_node_fields() {
+        let mut result = serde_json::json!({
+            "semanticSnapshot": {
+                "nodes": [
+                    {
+                        "id": "node-1",
+                        "guid": "node-1",
+                        "className": "K2Node_CallFunction",
+                        "classPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+                        "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
+                        "path": "/Game/BP.BP:EventGraph.Node",
+                        "title": "Print String",
+                        "nodeTitleFull": "Print String Full",
+                        "position": { "x": 10, "y": 20 },
+                        "layout": { "x": 10, "y": 20, "source": "model" },
+                        "pins": [
+                            {
+                                "name": "InString",
+                                "direction": "input",
+                                "category": "string",
+                                "defaultValue": "Hello",
+                                "default": { "value": "Hello" },
+                                "linkedTo": [{ "nodeGuid": "node-2", "pin": "Then" }],
+                                "links": [{ "toNodeId": "node-2", "toPin": "Then" }]
+                            }
+                        ]
+                    }
+                ],
+                "edges": [{ "fromNodeId": "node-1", "toNodeId": "node-2" }]
+            },
+            "meta": {}
+        })
+        .as_object()
+        .cloned()
+        .expect("object");
+        let args = JsonObject::new();
+
+        shape_blueprint_graph_inspect_result(&mut result, &args);
+
+        let node = result
+            .get("semanticSnapshot")
+            .and_then(|value| value.get("nodes"))
+            .and_then(|value| value.as_array())
+            .and_then(|nodes| nodes.first())
+            .and_then(|value| value.as_object())
+            .expect("node");
+        assert!(node.contains_key("id"));
+        assert!(node.contains_key("position"));
+        assert!(!node.contains_key("pins"));
+        assert!(!node.contains_key("path"));
+        assert!(!node.contains_key("nodeTitleFull"));
+        assert_eq!(
+            result
+                .get("semanticSnapshot")
+                .and_then(|value| value.get("edges"))
+                .and_then(|value| value.as_array())
+                .map(Vec::len),
+            Some(0)
+        );
+        assert_eq!(
+            result
+                .get("meta")
+                .and_then(|value| value.get("view"))
+                .and_then(|value| value.as_str()),
+            Some("overview")
+        );
+    }
+
+    #[test]
+    fn blueprint_graph_inspect_defaults_view_includes_defaults_and_links() {
+        let mut result = serde_json::json!({
+            "semanticSnapshot": {
+                "nodes": [
+                    {
+                        "id": "node-1",
+                        "pins": [
+                            {
+                                "name": "InString",
+                                "direction": "input",
+                                "category": "string",
+                                "defaultValue": "Hello",
+                                "default": { "value": "Hello" },
+                                "linkedTo": [{ "nodeGuid": "node-2", "pin": "Then" }],
+                                "links": [{ "toNodeId": "node-2", "toPin": "Then" }]
+                            }
+                        ]
+                    }
+                ],
+                "edges": [{ "fromNodeId": "node-1", "toNodeId": "node-2" }]
+            },
+            "meta": {}
+        })
+        .as_object()
+        .cloned()
+        .expect("object");
+        let mut args = JsonObject::new();
+        args.insert("view".into(), serde_json::json!("defaults"));
+
+        shape_blueprint_graph_inspect_result(&mut result, &args);
+
+        let pin = result
+            .get("semanticSnapshot")
+            .and_then(|value| value.get("nodes"))
+            .and_then(|value| value.as_array())
+            .and_then(|nodes| nodes.first())
+            .and_then(|value| value.get("pins"))
+            .and_then(|value| value.as_array())
+            .and_then(|pins| pins.first())
+            .and_then(|value| value.as_object())
+            .expect("pin");
+        assert!(pin.contains_key("defaultValue"));
+        assert!(pin.contains_key("default"));
+        assert!(pin.contains_key("linkedTo"));
+        assert!(pin.contains_key("links"));
+        assert_eq!(
+            result
+                .get("semanticSnapshot")
+                .and_then(|value| value.get("edges"))
+                .and_then(|value| value.as_array())
+                .map(Vec::len),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn blueprint_graph_inspect_schema_declares_view_filter_and_page() {
+        let schema = blueprint_graph_inspect_schema();
+        let view_enum = schema
+            .get("properties")
+            .and_then(|value| value.get("view"))
+            .and_then(|value| value.get("enum"))
+            .and_then(|value| value.as_array())
+            .expect("view enum");
+        let values = view_enum
+            .iter()
+            .filter_map(|value| value.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        assert!(values.contains("overview"));
+        assert!(values.contains("pins"));
+        assert!(values.contains("links"));
+        assert!(values.contains("defaults"));
+        assert!(values.contains("full"));
+        assert!(schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .is_some_and(|properties| properties.contains_key("filter")
+                && properties.contains_key("page")
+                && !properties.contains_key("graphName")
+                && !properties.contains_key("nodeIds")
+                && !properties.contains_key("nodeClasses")
+                && !properties.contains_key("limit")
+                && !properties.contains_key("cursor")
+                && !properties.contains_key("detail")
+                && !properties.contains_key("includePinDefaults")));
+    }
+
+    #[test]
+    fn blueprint_graph_inspect_translates_view_filter_and_page() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graph".into(), serde_json::json!({"name":"EventGraph"}));
+        args.insert("view".into(), serde_json::json!("defaults"));
+        args.insert(
+            "filter".into(),
+            serde_json::json!({"nodeIds":["node-1"],"text":"Print"}),
+        );
+        args.insert(
+            "page".into(),
+            serde_json::json!({"limit":10,"cursor":"offset:10"}),
+        );
+
+        let translated = translate_blueprint_graph_inspect_args(&args).expect("translated args");
+        assert_eq!(
+            translated.get("graphName").and_then(|value| value.as_str()),
+            Some("EventGraph")
+        );
+        assert_eq!(
+            translated
+                .get("nodeIds")
+                .and_then(|value| value.as_array())
+                .map(Vec::len),
+            Some(1)
+        );
+        assert_eq!(
+            translated.get("text").and_then(|value| value.as_str()),
+            Some("Print")
+        );
+        assert_eq!(
+            translated.get("limit").and_then(|value| value.as_i64()),
+            Some(10)
+        );
+        assert_eq!(
+            translated
+                .get("includeConnections")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
+        assert_eq!(
+            translated
+                .get("includePinDefaults")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn blueprint_graph_inspect_rejects_legacy_top_level_query_args() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graph".into(), serde_json::json!({"name":"EventGraph"}));
+        args.insert("graphName".into(), serde_json::json!("EventGraph"));
+
+        let error = validate_blueprint_graph_inspect_args(&args).expect_err("legacy arg rejected");
+        let payload = error.structured_content.expect("structured content");
+        assert_eq!(
+            payload.get("code").and_then(|value| value.as_str()),
+            Some("INVALID_ARGUMENT")
         );
     }
 

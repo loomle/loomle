@@ -821,6 +821,12 @@ FBlueprintGraphQueryShapeOptions ParseBlueprintGraphQueryShapeOptions(const TSha
         }
     }
 
+    FString Text;
+    if (Arguments->TryGetStringField(TEXT("text"), Text))
+    {
+        Options.Text = Text.TrimStartAndEnd();
+    }
+
     bool bIncludeConnections = false;
     if (Arguments->TryGetBoolField(TEXT("includeConnections"), bIncludeConnections))
     {

@@ -480,7 +480,12 @@ Recommended `kind` values:
 Notes:
 
 - `nodeTypeId` points to the corresponding `NodeType`.
-- `pins` should be embedded so graph inspection can return a fully usable node snapshot.
+- `blueprint.graph.inspect` should default to an overview node snapshot. Pins
+  are returned when callers request `view="pins"`, `view="links"`,
+  `view="defaults"`, or `view="full"`.
+- Default graph inspection should optimize for orientation and node selection;
+  targeted edit preparation can request pins, pin defaults, or links explicitly
+  through `view`.
 
 ### GraphPin
 
@@ -515,7 +520,8 @@ Recommended `kind` values:
 Notes:
 
 - `type` should be structured, not a single display string.
-- `linkedTo` should expose direct targets for fast graph traversal.
+- `linkedTo` should only be returned when callers request connection detail.
+  Otherwise top-level `semanticSnapshot.edges` is the connection surface.
 
 ### PinType
 
@@ -577,7 +583,8 @@ Recommended `kind` values:
 Notes:
 
 - `from` and `to` should each contain `nodeId` and `pinId`.
-- Links should be returned explicitly even if they can be derived from pin linkage.
+- Links should not be duplicated by default in both top-level edges and pin-local
+  link arrays. Pin-local link arrays are reserved for connection detail.
 
 ### NodeType
 
@@ -663,7 +670,7 @@ Rules:
 - public graph-facing requests should prefer the `graph` object
 - `graph.id` is preferred after the graph has been discovered
 - `graph.name` is the recommended name-based form
-- top-level `graphName` remains a compatibility field only
+- `blueprint.graph.inspect` should not expose top-level `graphName`
 - inspect returns stable ids
 - edit should prefer `id` and request-local `alias`
 - fuzzy selectors should not be part of low-level edit
@@ -822,6 +829,53 @@ Dry run and execution should share the same shape:
 - comment creation
 - comment fitting
 - data-flow-only traversal
+
+## blueprint.graph.inspect
+
+`blueprint.graph.inspect` is the read surface for graph orientation and targeted
+edit preparation. It should stay one tool, but callers choose response size with
+`view`.
+
+Recommended request shape:
+
+```json
+{
+  "assetPath": "/Game/Example/BP_Test",
+  "graph": { "name": "EventGraph" },
+  "view": "overview",
+  "filter": {
+    "nodeIds": ["..."],
+    "text": "Print"
+  },
+  "page": {
+    "limit": 50,
+    "cursor": "offset:50"
+  }
+}
+```
+
+Recommended views:
+
+- `overview` returns graph metadata and compact node summaries. This is the
+  default and omits pins, pin defaults, comments, and links.
+- `pins` adds pruned pin data for node-local edit preparation.
+- `links` adds pins, top-level `semanticSnapshot.edges`, and pin-local link
+  arrays for connection-oriented edits.
+- `defaults` adds pin defaults and link refs for `setPinDefault` planning,
+  because linked pins cannot accept defaults directly.
+- `full` preserves the legacy node payload shape, pin defaults, link refs, and
+  comment metadata for debugging.
+
+Recommended filters:
+
+- `filter.nodeIds` selects exact nodes.
+- `filter.text` performs a coarse node text search over title, name, id, and
+  class path.
+
+`nodeClasses` is intentionally not part of the public query model. Class-based
+matching is too implementation-oriented for the primary graph inspect surface;
+callers should use `filter.text` for coarse discovery and `filter.nodeIds` for
+precise follow-up inspection.
 
 ## blueprint.graph.edit
 
