@@ -787,46 +787,43 @@ def main() -> int:
         enum_create_payload = call_tool(
             client,
             580,
-            "blueprint.enum.edit",
+            "asset.create",
             {
+                "kind": "enum",
                 "assetPath": temp_enum_asset,
-                "operation": "create",
-                "args": {
-                    "entries": [
-                        {"name": "Idle", "displayName": "Idle"},
-                        {"name": "Active", "displayName": "Active"},
-                    ],
-                },
+                "entries": [
+                    {"name": "Idle", "displayName": "Idle"},
+                    {"name": "Active", "displayName": "Active"},
+                ],
             },
         )
         if enum_create_payload.get("applied") is not True:
-            fail(f"blueprint.enum.edit create did not apply: {enum_create_payload}")
+            fail(f"asset.create enum did not apply: {enum_create_payload}")
         enum_path = enum_create_payload.get("enumPath")
         if not isinstance(enum_path, str) or "." not in enum_path:
-            fail(f"blueprint.enum.edit create missing enumPath: {enum_create_payload}")
-        enum_inspect_payload = call_tool(client, 581, "blueprint.enum.inspect", {"assetPath": temp_enum_asset})
+            fail(f"asset.create enum missing enumPath: {enum_create_payload}")
+        enum_inspect_payload = call_tool(client, 581, "asset.inspect", {"kind": "enum", "assetPath": temp_enum_asset})
         enum_entries = enum_inspect_payload.get("entries")
         if not isinstance(enum_entries, list) or [entry.get("name") for entry in enum_entries if isinstance(entry, dict)] != ["Idle", "Active"]:
-            fail(f"blueprint.enum.inspect entries mismatch: {enum_inspect_payload}")
+            fail(f"asset.inspect enum entries mismatch: {enum_inspect_payload}")
         enum_update_payload = call_tool(
             client,
             582,
-            "blueprint.enum.edit",
+            "asset.edit",
             {
+                "kind": "enum",
                 "assetPath": temp_enum_asset,
                 "operation": "updateEntries",
-                "args": {
-                    "entries": ["Idle", "Active", "Complete"],
-                    "displayNames": {"Complete": "Complete"},
-                },
+                "entries": ["Idle", "Active", "Complete"],
+                "displayNames": {"Complete": "Complete"},
             },
         )
         if enum_update_payload.get("applied") is not True:
-            fail(f"blueprint.enum.edit updateEntries did not apply: {enum_update_payload}")
+            fail(f"asset.edit enum updateEntries did not apply: {enum_update_payload}")
         enum_updated_entries = enum_update_payload.get("entries")
         if not isinstance(enum_updated_entries, list) or [entry.get("name") for entry in enum_updated_entries if isinstance(entry, dict)] != ["Idle", "Active", "Complete"]:
-            fail(f"blueprint.enum.edit updateEntries entries mismatch: {enum_update_payload}")
-        print("[PASS] blueprint.enum asset lifecycle validated")
+            fail(f"asset.edit enum updateEntries entries mismatch: {enum_update_payload}")
+        print("[PASS] asset enum lifecycle validated")
 
         interface_fixture_payload = call_tool(
             client,
@@ -859,7 +856,7 @@ def main() -> int:
         dry_run_interface_payload = call_tool(
             client,
             606,
-            "blueprint.edit",
+            "blueprint.class.edit",
             {
                 "assetPath": temp_asset,
                 "operation": "addInterface",
@@ -868,11 +865,11 @@ def main() -> int:
             },
         )
         if dry_run_interface_payload.get("applied") is not False or dry_run_interface_payload.get("dryRun") is not True:
-            fail(f"blueprint.edit addInterface dryRun shape mismatch: {dry_run_interface_payload}")
+            fail(f"blueprint.class.edit addInterface dryRun shape mismatch: {dry_run_interface_payload}")
         dry_run_list_payload = call_tool(
             client,
             607,
-            "blueprint.edit",
+            "blueprint.class.edit",
             {"assetPath": temp_asset, "operation": "listInterfaces"},
         )
         dry_run_interfaces = dry_run_list_payload.get("interfaces")
@@ -880,11 +877,11 @@ def main() -> int:
             isinstance(entry, dict) and entry.get("classPath") == interface_class_path
             for entry in dry_run_interfaces
         ):
-            fail(f"blueprint.edit dryRun unexpectedly added interface: {dry_run_list_payload}")
+            fail(f"blueprint.class.edit dryRun unexpectedly added interface: {dry_run_list_payload}")
         add_interface_payload = call_tool(
             client,
             601,
-            "blueprint.edit",
+            "blueprint.class.edit",
             {
                 "assetPath": temp_asset,
                 "operation": "addInterface",
@@ -892,11 +889,11 @@ def main() -> int:
             },
         )
         if add_interface_payload.get("applied") is not True:
-            fail(f"blueprint.edit addInterface did not apply: {add_interface_payload}")
+            fail(f"blueprint.class.edit addInterface did not apply: {add_interface_payload}")
         list_interface_payload = call_tool(
             client,
             602,
-            "blueprint.edit",
+            "blueprint.class.edit",
             {"assetPath": temp_asset, "operation": "listInterfaces"},
         )
         listed_interfaces = list_interface_payload.get("interfaces")
@@ -904,7 +901,7 @@ def main() -> int:
             isinstance(entry, dict) and entry.get("classPath") == interface_class_path
             for entry in listed_interfaces
         ):
-            fail(f"blueprint.edit listInterfaces missing added interface: {list_interface_payload}")
+            fail(f"blueprint.class.edit listInterfaces missing added interface: {list_interface_payload}")
         asset_inspect_payload = call_tool(client, 603, "blueprint.inspect", {"assetPath": temp_asset})
         inspected_interfaces = asset_inspect_payload.get("implementedInterfaces")
         if not isinstance(inspected_interfaces, list) or not any(
@@ -915,7 +912,7 @@ def main() -> int:
         remove_interface_payload = call_tool(
             client,
             604,
-            "blueprint.edit",
+            "blueprint.class.edit",
             {
                 "assetPath": temp_asset,
                 "operation": "removeInterface",
@@ -923,11 +920,11 @@ def main() -> int:
             },
         )
         if remove_interface_payload.get("applied") is not True:
-            fail(f"blueprint.edit removeInterface did not apply: {remove_interface_payload}")
+            fail(f"blueprint.class.edit removeInterface did not apply: {remove_interface_payload}")
         list_after_remove_payload = call_tool(
             client,
             605,
-            "blueprint.edit",
+            "blueprint.class.edit",
             {"assetPath": temp_asset, "operation": "listInterfaces"},
         )
         interfaces_after_remove = list_after_remove_payload.get("interfaces")
@@ -935,8 +932,8 @@ def main() -> int:
             isinstance(entry, dict) and entry.get("classPath") == interface_class_path
             for entry in interfaces_after_remove
         ):
-            fail(f"blueprint.edit removeInterface did not remove interface: {list_after_remove_payload}")
-        print("[PASS] blueprint.edit interface lifecycle validated")
+            fail(f"blueprint.class.edit removeInterface did not remove interface: {list_after_remove_payload}")
+        print("[PASS] blueprint.class.edit interface lifecycle validated")
 
         graph_query = call_domain_tool(
             client,

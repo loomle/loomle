@@ -297,6 +297,111 @@ impl LoomleProxyServer {
         }
     }
 
+    async fn call_public_asset_tool(
+        &self,
+        tool_name: &str,
+        args: rmcp::model::JsonObject,
+    ) -> Result<Option<CallToolResult>, McpError> {
+        match tool_name {
+            "asset.create" => Ok(Some(self.call_asset_create(args).await?)),
+            "asset.inspect" => Ok(Some(self.call_asset_inspect(args).await?)),
+            "asset.edit" => Ok(Some(self.call_asset_edit(args).await?)),
+            _ => Ok(None),
+        }
+    }
+
+    async fn call_asset_create(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let Some(kind) = args.get("kind").and_then(|value| value.as_str()) else {
+            return Ok(invalid_argument_result("asset.create requires kind."));
+        };
+        let asset_path = match read_required_asset_path(&args, "asset.create") {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+
+        match kind {
+            "blueprint" => {
+                let mut edit_args = rmcp::model::JsonObject::new();
+                edit_args.insert("assetPath".into(), serde_json::json!(asset_path));
+                edit_args.insert("operation".into(), serde_json::json!("create"));
+                let mut operation_args = serde_json::Map::new();
+                if let Some(parent_class_path) = args
+                    .get("parentClassPath")
+                    .or_else(|| args.get("parentClass"))
+                    .and_then(|value| value.as_str())
+                {
+                    operation_args.insert(
+                        "parentClassPath".into(),
+                        serde_json::json!(parent_class_path),
+                    );
+                }
+                edit_args.insert("args".into(), serde_json::Value::Object(operation_args));
+                copy_mutation_controls(&args, &mut edit_args);
+                self.runtime_call("blueprint.edit", edit_args).await
+            }
+            "enum" => {
+                let mut edit_args = rmcp::model::JsonObject::new();
+                edit_args.insert("assetPath".into(), serde_json::json!(asset_path));
+                edit_args.insert("operation".into(), serde_json::json!("create"));
+                edit_args.insert("args".into(), asset_enum_args_from_top_level(&args));
+                copy_mutation_controls(&args, &mut edit_args);
+                self.runtime_call("blueprint.enum.edit", edit_args).await
+            }
+            other => Ok(invalid_argument_result(format!(
+                "Unsupported asset.create kind: {other}."
+            ))),
+        }
+    }
+
+    async fn call_asset_inspect(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let Some(kind) = args.get("kind").and_then(|value| value.as_str()) else {
+            return Ok(invalid_argument_result("asset.inspect requires kind."));
+        };
+        match kind {
+            "blueprint" => self.runtime_call("blueprint.inspect", args).await,
+            "enum" => self.runtime_call("blueprint.enum.inspect", args).await,
+            other => Ok(invalid_argument_result(format!(
+                "Unsupported asset.inspect kind: {other}."
+            ))),
+        }
+    }
+
+    async fn call_asset_edit(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let Some(kind) = args.get("kind").and_then(|value| value.as_str()) else {
+            return Ok(invalid_argument_result("asset.edit requires kind."));
+        };
+        let Some(operation) = args.get("operation").and_then(|value| value.as_str()) else {
+            return Ok(invalid_argument_result("asset.edit requires operation."));
+        };
+
+        match (kind, operation) {
+            ("enum", "updateEntries") => {
+                let asset_path = match read_required_asset_path(&args, "asset.edit") {
+                    Ok(value) => value,
+                    Err(error) => return Ok(error),
+                };
+                let mut edit_args = rmcp::model::JsonObject::new();
+                edit_args.insert("assetPath".into(), serde_json::json!(asset_path));
+                edit_args.insert("operation".into(), serde_json::json!("updateEntries"));
+                edit_args.insert("args".into(), asset_enum_args_from_top_level(&args));
+                copy_mutation_controls(&args, &mut edit_args);
+                self.runtime_call("blueprint.enum.edit", edit_args).await
+            }
+            _ => Ok(invalid_argument_result(format!(
+                "Unsupported asset.edit operation for kind {kind}: {operation}."
+            ))),
+        }
+    }
+
     async fn attached_env_info(&self) -> Result<Arc<Environment>, String> {
         self.try_auto_attach().await;
         let env_info = self.env_info.lock().await.clone();
@@ -604,6 +709,15 @@ impl ServerHandler for LoomleProxyServer {
             return Ok(self.call_pre_attach_tool(request).await);
         }
         if let Some(result) = self
+            .call_public_asset_tool(
+                request.name.as_ref(),
+                request.arguments.clone().unwrap_or_default(),
+            )
+            .await?
+        {
+            return Ok(result);
+        }
+        if let Some(result) = self
             .call_public_blueprint_tool(
                 request.name.as_ref(),
                 request.arguments.clone().unwrap_or_default(),
@@ -825,13 +939,8 @@ impl LoomleProxyServer {
             "blueprint.graph.layout" => Ok(Some(self.call_blueprint_graph_layout(args).await?)),
             "blueprint.compile" => Ok(Some(self.call_blueprint_compile(args).await?)),
             "blueprint.inspect" => Ok(Some(self.call_blueprint_inspect(args).await?)),
-            "blueprint.edit" => Ok(Some(self.runtime_call("blueprint.edit", args).await?)),
-            "blueprint.enum.inspect" => Ok(Some(
-                self.runtime_call("blueprint.enum.inspect", args).await?,
-            )),
-            "blueprint.enum.edit" => {
-                Ok(Some(self.runtime_call("blueprint.enum.edit", args).await?))
-            }
+            "blueprint.class.inspect" => Ok(Some(self.call_blueprint_class_inspect(args).await?)),
+            "blueprint.class.edit" => Ok(Some(self.call_blueprint_class_edit(args).await?)),
             "blueprint.member.inspect" => Ok(Some(self.call_blueprint_member_inspect(args).await?)),
             "blueprint.member.edit" => Ok(Some(
                 self.runtime_call("blueprint.member.edit", args).await?,
@@ -931,6 +1040,47 @@ impl LoomleProxyServer {
                 "eventSignatureCount": event_signatures
             }
         })))
+    }
+
+    async fn call_blueprint_class_inspect(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let payload = self.runtime_payload("blueprint.inspect", args).await?;
+        if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
+            return Ok(CallToolResult::structured_error(payload));
+        }
+
+        Ok(structured_result(serde_json::json!({
+            "assetPath": payload.get("assetPath").cloned().unwrap_or(serde_json::Value::Null),
+            "blueprintClass": payload.get("blueprintClass").cloned().unwrap_or(serde_json::Value::Null),
+            "parentClass": payload.get("parentClass").cloned().unwrap_or(serde_json::Value::Null),
+            "parentClassPath": payload.get("parentClassPath").cloned().unwrap_or(serde_json::Value::Null),
+            "implementedInterfaces": payload.get("implementedInterfaces").cloned().unwrap_or(serde_json::json!([])),
+            "interfaceFunctions": payload.get("interfaceFunctions").cloned().unwrap_or(serde_json::json!([])),
+            "classDefaults": payload.get("classDefaults").cloned().unwrap_or(serde_json::Value::Null),
+            "metadata": payload.get("metadata").cloned().unwrap_or(serde_json::Value::Null),
+        })))
+    }
+
+    async fn call_blueprint_class_edit(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let Some(operation) = args.get("operation").and_then(|value| value.as_str()) else {
+            return Ok(invalid_argument_result(
+                "blueprint.class.edit requires operation.",
+            ));
+        };
+        if !matches!(
+            operation,
+            "setParent" | "listInterfaces" | "addInterface" | "removeInterface"
+        ) {
+            return Ok(invalid_argument_result(format!(
+                "Unsupported blueprint.class.edit operation: {operation}."
+            )));
+        }
+        Ok(self.runtime_call("blueprint.edit", args).await?)
     }
 
     async fn call_blueprint_member_inspect(
@@ -1324,6 +1474,28 @@ fn copy_if_present(
     if let Some(value) = source.get(field) {
         target.insert(field.to_owned(), value.clone());
     }
+}
+
+fn copy_mutation_controls(source: &rmcp::model::JsonObject, target: &mut rmcp::model::JsonObject) {
+    for field in [
+        "dryRun",
+        "returnDiff",
+        "returnDiagnostics",
+        "expectedRevision",
+    ] {
+        copy_if_present(source, target, field);
+    }
+}
+
+fn asset_enum_args_from_top_level(args: &rmcp::model::JsonObject) -> serde_json::Value {
+    if let Some(args_object) = args.get("args").and_then(|value| value.as_object()) {
+        return serde_json::Value::Object(args_object.clone());
+    }
+
+    let mut enum_args = serde_json::Map::new();
+    copy_if_present(args, &mut enum_args, "entries");
+    copy_if_present(args, &mut enum_args, "displayNames");
+    serde_json::Value::Object(enum_args)
 }
 
 fn extract_query_graph_asset_path(
@@ -2921,13 +3093,15 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("jobs", "Inspect or retrieve long-running job state, results, and logs.", Arc::new(jobs_schema())),
         Tool::new("profiling", "Bridge official Unreal profiling data families such as stat unit, stat groups, ticks, memory reports, and capture workflows.", Arc::new(profiling_schema())),
         Tool::new("play", "Inspect and control Unreal play sessions; supports PIE status, start, stop, and wait.", Arc::new(play_schema())),
+        Tool::new("asset.create", "Create an Unreal asset such as a Blueprint or enum.", Arc::new(asset_create_schema())),
+        Tool::new("asset.inspect", "Inspect an Unreal asset through a kind-specific public surface.", Arc::new(asset_inspect_schema())),
+        Tool::new("asset.edit", "Edit kind-specific asset-local content.", Arc::new(asset_edit_schema())),
         Tool::new("editor.open", "Open or focus the editor for a specific Unreal asset path.", Arc::new(editor_open_schema())),
         Tool::new("editor.focus", "Focus a semantic panel inside an asset editor, such as graph, viewport, details, palette, or find.", Arc::new(editor_focus_schema())),
         Tool::new("editor.screenshot", "Capture a PNG of the active editor window and return the written file path.", Arc::new(editor_screenshot_schema())),
         Tool::new("blueprint.inspect", "Inspect a Blueprint and its class-level contract.", Arc::new(blueprint_inspect_schema())),
-        Tool::new("blueprint.edit", "Edit Blueprint-level properties and relationships.", Arc::new(blueprint_edit_schema())),
-        Tool::new("blueprint.enum.inspect", "Inspect a Blueprint user-defined enum asset.", Arc::new(blueprint_enum_inspect_schema())),
-        Tool::new("blueprint.enum.edit", "Create or edit a Blueprint user-defined enum asset.", Arc::new(blueprint_enum_edit_schema())),
+        Tool::new("blueprint.class.inspect", "Inspect Blueprint class contract such as parent class and implemented interfaces.", Arc::new(blueprint_class_inspect_schema())),
+        Tool::new("blueprint.class.edit", "Edit Blueprint class contract such as parent class and implemented interfaces.", Arc::new(blueprint_class_edit_schema())),
         Tool::new("blueprint.member.inspect", "Inspect Blueprint members such as variables, functions, macros, dispatchers, events, and components.", Arc::new(blueprint_member_inspect_schema())),
         Tool::new("blueprint.member.edit", "Edit Blueprint members such as variables, functions, macros, dispatchers, events, and components.", Arc::new(blueprint_member_edit_schema())),
         Tool::new("blueprint.graph.list", "List Blueprint graphs in an asset.", Arc::new(blueprint_graph_list_schema())),
@@ -3893,6 +4067,83 @@ fn editor_screenshot_schema() -> rmcp::model::JsonObject {
     }))
 }
 
+fn asset_create_schema() -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "kind".into(),
+        serde_json::json!({"type":"string","enum":["blueprint","enum"]}),
+    );
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert(
+        "parentClassPath".into(),
+        serde_json::json!({"type":"string","minLength":1,"description":"Blueprint parent class path. Defaults to /Script/Engine.Actor for kind=blueprint."}),
+    );
+    properties.insert(
+        "parentClass".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert(
+        "entries".into(),
+        serde_json::json!({"type":"array","description":"Enum entries for kind=enum.","items":{"oneOf":[{"type":"string"},{"type":"object"}]}}),
+    );
+    properties.insert(
+        "displayNames".into(),
+        serde_json::json!({"type":"object","description":"Optional enum display names keyed by entry name."}),
+    );
+    properties.insert("args".into(), serde_json::json!({"type":"object"}));
+    mutation_control_fields(&mut properties);
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":["kind","assetPath"],
+        "additionalProperties": false
+    }))
+}
+
+fn asset_inspect_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "kind":{"type":"string","enum":["blueprint","enum"]},
+            "assetPath":{"type":"string","minLength":1}
+        },
+        "required":["kind","assetPath"],
+        "additionalProperties": false
+    }))
+}
+
+fn asset_edit_schema() -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "kind".into(),
+        serde_json::json!({"type":"string","enum":["enum"]}),
+    );
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert(
+        "operation".into(),
+        serde_json::json!({"type":"string","enum":["updateEntries"]}),
+    );
+    properties.insert(
+        "entries".into(),
+        serde_json::json!({"type":"array","items":{"oneOf":[{"type":"string"},{"type":"object"}]}}),
+    );
+    properties.insert("displayNames".into(), serde_json::json!({"type":"object"}));
+    properties.insert("args".into(), serde_json::json!({"type":"object"}));
+    mutation_control_fields(&mut properties);
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":["kind","assetPath","operation"],
+        "additionalProperties": false
+    }))
+}
+
 fn blueprint_list_schema() -> rmcp::model::JsonObject {
     schema_from_value(serde_json::json!({
         "type":"object",
@@ -3944,7 +4195,11 @@ fn blueprint_inspect_schema() -> rmcp::model::JsonObject {
     asset_path_only_schema("Blueprint asset path.")
 }
 
-fn blueprint_edit_schema() -> rmcp::model::JsonObject {
+fn blueprint_class_inspect_schema() -> rmcp::model::JsonObject {
+    asset_path_only_schema("Blueprint asset path.")
+}
+
+fn blueprint_class_edit_schema() -> rmcp::model::JsonObject {
     let mut properties = serde_json::Map::new();
     properties.insert(
         "assetPath".into(),
@@ -3952,31 +4207,7 @@ fn blueprint_edit_schema() -> rmcp::model::JsonObject {
     );
     properties.insert(
         "operation".into(),
-        serde_json::json!({"type":"string","enum":["create","duplicate","rename","delete","reparent","setMetadata","getDefaults","setDefaults","setParent","listInterfaces","addInterface","removeInterface"]}),
-    );
-    properties.insert("args".into(), serde_json::json!({"type":"object"}));
-    mutation_control_fields(&mut properties);
-    schema_from_value(serde_json::json!({
-        "type":"object",
-        "properties": properties,
-        "required":["assetPath","operation"],
-        "additionalProperties": false
-    }))
-}
-
-fn blueprint_enum_inspect_schema() -> rmcp::model::JsonObject {
-    asset_path_only_schema("Blueprint enum asset path.")
-}
-
-fn blueprint_enum_edit_schema() -> rmcp::model::JsonObject {
-    let mut properties = serde_json::Map::new();
-    properties.insert(
-        "assetPath".into(),
-        serde_json::json!({"type":"string","minLength":1}),
-    );
-    properties.insert(
-        "operation".into(),
-        serde_json::json!({"type":"string","enum":["create","updateEntries"]}),
+        serde_json::json!({"type":"string","enum":["setParent","listInterfaces","addInterface","removeInterface"]}),
     );
     properties.insert("args".into(), serde_json::json!({"type":"object"}));
     mutation_control_fields(&mut properties);

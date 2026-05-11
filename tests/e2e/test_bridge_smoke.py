@@ -19,10 +19,12 @@ TEST_FIXTURES_DIR = REPO_ROOT / "tests" / "fixtures"
 
 REQUIRED_TOOLS = {
     "loomle",
+    "asset.create",
+    "asset.inspect",
+    "asset.edit",
     "blueprint.inspect",
-    "blueprint.edit",
-    "blueprint.enum.inspect",
-    "blueprint.enum.edit",
+    "blueprint.class.inspect",
+    "blueprint.class.edit",
     "blueprint.member.inspect",
     "blueprint.member.edit",
     "blueprint.graph.list",

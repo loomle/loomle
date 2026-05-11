@@ -51,8 +51,12 @@ Public MCP tools should still be compressed where usage is low-frequency and sch
 
 Recommended compressed public surface for non-graph Blueprint operations:
 
+- `asset.create`
+- `asset.inspect`
+- `asset.edit`
 - `blueprint.inspect`
-- `blueprint.edit`
+- `blueprint.class.inspect`
+- `blueprint.class.edit`
 - `blueprint.member.inspect`
 - `blueprint.member.edit`
 
@@ -67,52 +71,56 @@ Recommended public graph surface:
 
 ## Domain 1: Asset
 
-Asset is a conceptual domain. Public MCP tools should expose asset operations through `blueprint.inspect` and `blueprint.edit`.
+Asset is a conceptual domain. Blueprint-specific asset operations are being
+split away from class contract operations. Generic asset lifecycle operations
+belong on the `asset.*` surface.
 
 ### Tools
 
+- `asset.create`
+- `asset.inspect`
+- `asset.edit`
 - `blueprint.inspect`
-- `blueprint.edit`
 
 ### Asset Edit Operations
 
-Recommended `blueprint.edit` operation set:
+Current `asset.*` coverage:
 
-- `create`
-- `duplicate`
-- `rename`
-- `delete`
-- `reparent`
-- `setMetadata`
-- `getDefaults`
-- `setDefaults`
+- `asset.create` creates Blueprint assets with a parent class and enum assets
+  with entries.
+- `asset.inspect` reads Blueprint or enum assets through the requested
+  `kind`.
+- `asset.edit` currently edits enum entries through `kind=enum` and
+  `operation=updateEntries`.
 
 ### Scope
 
 - asset identity
 - asset class
-- parent class
-- implemented interfaces
 - top-level metadata
-- class defaults
 - asset summary
 
 ### Notes
 
-- `inspect` is the canonical asset overview entrypoint.
-- `getDefaults` and `setDefaults` operate on Blueprint-level defaults, not graph-local values.
-- `reparent` belongs to asset management, not inheritance inspection.
+- `asset.create` is the preferred creation entrypoint for Blueprint and enum
+  assets.
+- `asset.inspect` and `asset.edit` are the preferred generic asset-facing
+  entrypoints where the requested kind is not Blueprint-specific class, member,
+  or graph structure.
+- `blueprint.inspect` remains the canonical Blueprint overview entrypoint.
 
 ## Domain 2: Inheritance / Interfaces
 
-Inheritance and interfaces remain a conceptual asset subdomain. Public MCP tools should expose these operations through `blueprint.inspect` and `blueprint.edit`.
+Inheritance and interfaces are Blueprint class contract operations. Public MCP
+tools should expose them through `blueprint.class.inspect` and
+`blueprint.class.edit`.
 
 ### Tools
 
-- `blueprint.inspect`
-- `blueprint.edit`
+- `blueprint.class.inspect`
+- `blueprint.class.edit`
 
-### Asset Edit Operations
+### Class Edit Operations
 
 Recommended asset-level operations for this domain:
 
@@ -130,8 +138,8 @@ Recommended asset-level operations for this domain:
 
 ### Notes
 
-- `inheritance.inspect` is read-oriented and summarizes the Blueprint class lineage.
-- interface management stays separate from generic asset metadata.
+- `blueprint.class.inspect` is read-oriented and summarizes the Blueprint class lineage.
+- interface management stays separate from generic asset metadata and member editing.
 
 ## Domain 3: Variable
 
@@ -1616,7 +1624,11 @@ should remain consistent across all Blueprint write interfaces.
 The current recommended public Blueprint surface for these domains is:
 
 - `blueprint.inspect`
-- `blueprint.edit`
+- `asset.create`
+- `asset.inspect`
+- `asset.edit`
+- `blueprint.class.inspect`
+- `blueprint.class.edit`
 - `blueprint.member.inspect`
 - `blueprint.member.edit`
 - `blueprint.graph.list`
