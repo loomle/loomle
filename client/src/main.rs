@@ -822,6 +822,7 @@ impl LoomleProxyServer {
             "blueprint.graph.list" => Ok(Some(self.call_blueprint_graph_list(args).await?)),
             "blueprint.graph.inspect" => Ok(Some(self.call_blueprint_graph_inspect(args).await?)),
             "blueprint.graph.edit" => Ok(Some(self.call_blueprint_graph_edit(args).await?)),
+            "blueprint.graph.layout" => Ok(Some(self.call_blueprint_graph_layout(args).await?)),
             "blueprint.validate" => Ok(Some(self.call_blueprint_validate(args).await?)),
             "blueprint.compile" => Ok(Some(self.call_blueprint_compile(args).await?)),
             "blueprint.inspect" => Ok(Some(self.call_blueprint_inspect(args).await?)),
@@ -1079,6 +1080,64 @@ impl LoomleProxyServer {
         Ok(structured_result(augment_blueprint_mutate_result(payload)))
     }
 
+    async fn call_blueprint_graph_layout(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let request = match parse_blueprint_graph_layout_request(&args) {
+            Ok(request) => request,
+            Err(error) => return Ok(error),
+        };
+
+        let mut inspect_args = rmcp::model::JsonObject::new();
+        inspect_args.insert("assetPath".into(), serde_json::json!(request.asset_path));
+        write_optional_graph_address(&mut inspect_args, request.graph_address.clone());
+        inspect_args.insert("includeConnections".into(), serde_json::json!(true));
+        inspect_args.insert("includePinDefaults".into(), serde_json::json!(false));
+        inspect_args.insert("includeComments".into(), serde_json::json!(false));
+        inspect_args.insert("layoutDetail".into(), serde_json::json!("basic"));
+        inspect_args.insert("limit".into(), serde_json::json!(1000));
+
+        let inspect_payload = self
+            .runtime_payload("blueprint.graph.inspect", inspect_args)
+            .await?;
+        if inspect_payload
+            .get("isError")
+            .and_then(|value| value.as_bool())
+            == Some(true)
+        {
+            return Ok(CallToolResult::structured_error(inspect_payload));
+        }
+
+        let plan = match build_blueprint_graph_layout_plan(&request, &inspect_payload) {
+            Ok(plan) => plan,
+            Err(message) => return Ok(invalid_argument_result(message)),
+        };
+
+        if request.dry_run || !plan.changed() {
+            return Ok(structured_result(plan.to_json(request.dry_run)));
+        }
+
+        let commands = plan.to_move_commands();
+        let mut edit_args = rmcp::model::JsonObject::new();
+        edit_args.insert("assetPath".into(), serde_json::json!(request.asset_path));
+        write_optional_graph_address(&mut edit_args, request.graph_address.clone());
+        edit_args.insert("commands".into(), serde_json::Value::Array(commands));
+        if let Some(expected_revision) = request.expected_revision {
+            edit_args.insert(
+                "expectedRevision".into(),
+                serde_json::json!(expected_revision),
+            );
+        }
+
+        let edit_result = self.call_blueprint_graph_edit(edit_args).await?;
+        if edit_result.is_error == Some(true) {
+            return Ok(edit_result);
+        }
+
+        Ok(structured_result(plan.to_json(false)))
+    }
+
     async fn call_blueprint_graph_refactor(
         &self,
         args: rmcp::model::JsonObject,
@@ -1207,6 +1266,7 @@ fn read_required_asset_path(
         .ok_or_else(|| invalid_argument_result(format!("{tool_name} requires assetPath.")))
 }
 
+#[derive(Clone, Debug)]
 enum BlueprintGraphAddress {
     Name(String),
     Ref(serde_json::Map<String, serde_json::Value>),
@@ -1413,6 +1473,466 @@ fn translate_blueprint_validate_args(
         copy_if_present(args, &mut translated, field);
     }
     Ok(translated)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BlueprintLayoutDirection {
+    Right,
+    Down,
+}
+
+#[derive(Clone, Debug)]
+enum BlueprintLayoutScope {
+    Selection { nodes: Vec<String> },
+    Tree { root: String },
+}
+
+#[derive(Clone, Debug)]
+struct BlueprintGraphLayoutRequest {
+    asset_path: String,
+    graph_address: Option<BlueprintGraphAddress>,
+    scope: BlueprintLayoutScope,
+    direction: BlueprintLayoutDirection,
+    spacing_x: i64,
+    spacing_y: i64,
+    origin: Option<(i64, i64)>,
+    dry_run: bool,
+    expected_revision: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+struct BlueprintLayoutNode {
+    id: String,
+    x: i64,
+    y: i64,
+    children: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+struct BlueprintLayoutMove {
+    node_id: String,
+    from_x: i64,
+    from_y: i64,
+    to_x: i64,
+    to_y: i64,
+}
+
+#[derive(Clone, Debug)]
+struct BlueprintGraphLayoutPlan {
+    operation: String,
+    scope_mode: String,
+    resolved_node_count: usize,
+    moves: Vec<BlueprintLayoutMove>,
+    warnings: Vec<String>,
+}
+
+impl BlueprintGraphLayoutPlan {
+    fn changed(&self) -> bool {
+        !self.moves.is_empty()
+    }
+
+    fn to_move_commands(&self) -> Vec<serde_json::Value> {
+        self.moves
+            .iter()
+            .map(|movement| {
+                serde_json::json!({
+                    "kind": "moveNode",
+                    "node": { "id": movement.node_id },
+                    "position": { "x": movement.to_x, "y": movement.to_y }
+                })
+            })
+            .collect()
+    }
+
+    fn to_json(&self, dry_run: bool) -> serde_json::Value {
+        serde_json::json!({
+            "changed": self.changed(),
+            "dryRun": dry_run,
+            "operation": self.operation,
+            "scope": {
+                "mode": self.scope_mode,
+                "resolvedNodeCount": self.resolved_node_count,
+            },
+            "nodesMoved": self.moves.iter().map(|movement| serde_json::json!({
+                "node": { "id": movement.node_id },
+                "from": { "x": movement.from_x, "y": movement.from_y },
+                "to": { "x": movement.to_x, "y": movement.to_y },
+            })).collect::<Vec<_>>(),
+            "warnings": self.warnings,
+        })
+    }
+}
+
+fn parse_node_ref_id(value: &serde_json::Value, field_name: &str) -> Result<String, String> {
+    value
+        .as_object()
+        .and_then(|object| object.get("id"))
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| format!("{field_name} requires a node reference with id."))
+}
+
+fn parse_i64_object_field(
+    object: &serde_json::Map<String, serde_json::Value>,
+    object_name: &str,
+    field_name: &str,
+) -> Result<i64, String> {
+    object
+        .get(field_name)
+        .and_then(|value| {
+            value
+                .as_i64()
+                .or_else(|| value.as_f64().map(|number| number as i64))
+        })
+        .ok_or_else(|| format!("{object_name}.{field_name} must be a number."))
+}
+
+fn parse_blueprint_graph_layout_request(
+    args: &rmcp::model::JsonObject,
+) -> Result<BlueprintGraphLayoutRequest, CallToolResult> {
+    let asset_path = read_required_asset_path(args, "blueprint.graph.layout")?;
+    let graph_address =
+        read_optional_graph_address(args, &asset_path, true, "blueprint.graph.layout")?;
+
+    let operation = args
+        .get("operation")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| invalid_argument_result("blueprint.graph.layout requires operation."))?;
+    if operation != "format" {
+        return Err(invalid_argument_result(format!(
+            "Unsupported blueprint.graph.layout operation: {operation}. Supported operations: format."
+        )));
+    }
+
+    let scope_obj = args
+        .get("scope")
+        .and_then(|value| value.as_object())
+        .ok_or_else(|| invalid_argument_result("blueprint.graph.layout requires scope."))?;
+    let scope_mode = scope_obj
+        .get("mode")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| invalid_argument_result("blueprint.graph.layout scope requires mode."))?;
+    let scope = match scope_mode {
+        "selection" => {
+            let nodes = scope_obj
+                .get("nodes")
+                .and_then(|value| value.as_array())
+                .ok_or_else(|| invalid_argument_result("scope.nodes is required for selection layout."))?;
+            if nodes.is_empty() {
+                return Err(invalid_argument_result(
+                    "scope.nodes must contain at least one node.",
+                ));
+            }
+            let mut node_ids = Vec::new();
+            for (index, node) in nodes.iter().enumerate() {
+                node_ids.push(
+                    parse_node_ref_id(node, &format!("scope.nodes[{index}]"))
+                        .map_err(invalid_argument_result)?,
+                );
+            }
+            BlueprintLayoutScope::Selection { nodes: node_ids }
+        }
+        "tree" => {
+            let root = scope_obj
+                .get("root")
+                .ok_or_else(|| invalid_argument_result("scope.root is required for tree layout."))
+                .and_then(|value| parse_node_ref_id(value, "scope.root").map_err(invalid_argument_result))?;
+            BlueprintLayoutScope::Tree { root }
+        }
+        other => {
+            return Err(invalid_argument_result(format!(
+                "Unsupported blueprint.graph.layout scope.mode: {other}. Supported modes: selection, tree."
+            )))
+        }
+    };
+
+    let direction = match args
+        .get("direction")
+        .and_then(|value| value.as_str())
+        .unwrap_or("right")
+    {
+        "right" => BlueprintLayoutDirection::Right,
+        "down" => BlueprintLayoutDirection::Down,
+        other => {
+            return Err(invalid_argument_result(format!(
+                "Unsupported blueprint.graph.layout direction: {other}. Supported directions: right, down."
+            )))
+        }
+    };
+
+    let style = args
+        .get("style")
+        .and_then(|value| value.as_str())
+        .unwrap_or("simple");
+    if style != "simple" {
+        return Err(invalid_argument_result(format!(
+            "Unsupported blueprint.graph.layout style: {style}. Supported styles: simple."
+        )));
+    }
+
+    let (spacing_x, spacing_y) =
+        if let Some(spacing) = args.get("spacing").and_then(|value| value.as_object()) {
+            (
+                parse_i64_object_field(spacing, "spacing", "x").map_err(invalid_argument_result)?,
+                parse_i64_object_field(spacing, "spacing", "y").map_err(invalid_argument_result)?,
+            )
+        } else {
+            (360, 180)
+        };
+
+    let origin = if let Some(origin) = args.get("origin").and_then(|value| value.as_object()) {
+        Some((
+            parse_i64_object_field(origin, "origin", "x").map_err(invalid_argument_result)?,
+            parse_i64_object_field(origin, "origin", "y").map_err(invalid_argument_result)?,
+        ))
+    } else {
+        None
+    };
+
+    Ok(BlueprintGraphLayoutRequest {
+        asset_path,
+        graph_address,
+        scope,
+        direction,
+        spacing_x,
+        spacing_y,
+        origin,
+        dry_run: args
+            .get("dryRun")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false),
+        expected_revision: args
+            .get("expectedRevision")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned),
+    })
+}
+
+fn blueprint_layout_node_id(node: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
+    node.get("id")
+        .or_else(|| node.get("guid"))
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
+fn blueprint_layout_node_position(
+    node: &serde_json::Map<String, serde_json::Value>,
+) -> Option<(i64, i64)> {
+    if let Some(position) = node.get("position").and_then(|value| value.as_object()) {
+        let x = position.get("x").and_then(|value| {
+            value
+                .as_i64()
+                .or_else(|| value.as_f64().map(|number| number as i64))
+        });
+        let y = position.get("y").and_then(|value| {
+            value
+                .as_i64()
+                .or_else(|| value.as_f64().map(|number| number as i64))
+        });
+        if let (Some(x), Some(y)) = (x, y) {
+            return Some((x, y));
+        }
+    }
+    let x = node.get("nodePosX").and_then(|value| {
+        value
+            .as_i64()
+            .or_else(|| value.as_f64().map(|number| number as i64))
+    });
+    let y = node.get("nodePosY").and_then(|value| {
+        value
+            .as_i64()
+            .or_else(|| value.as_f64().map(|number| number as i64))
+    });
+    x.zip(y)
+}
+
+fn build_blueprint_layout_nodes(
+    inspect_payload: &serde_json::Value,
+) -> Result<std::collections::HashMap<String, BlueprintLayoutNode>, String> {
+    let nodes = inspect_payload
+        .get("semanticSnapshot")
+        .and_then(|value| value.get("nodes"))
+        .and_then(|value| value.as_array())
+        .ok_or_else(|| {
+            "blueprint.graph.inspect result missing semanticSnapshot.nodes.".to_string()
+        })?;
+    let mut result = std::collections::HashMap::new();
+
+    for node_value in nodes {
+        let Some(node_obj) = node_value.as_object() else {
+            continue;
+        };
+        let Some(id) = blueprint_layout_node_id(node_obj) else {
+            continue;
+        };
+        let Some((x, y)) = blueprint_layout_node_position(node_obj) else {
+            continue;
+        };
+        let mut children = Vec::new();
+        if let Some(pins) = node_obj.get("pins").and_then(|value| value.as_array()) {
+            for pin in pins {
+                let Some(pin_obj) = pin.as_object() else {
+                    continue;
+                };
+                let is_exec_output = pin_obj
+                    .get("direction")
+                    .and_then(|value| value.as_str())
+                    .is_some_and(|value| value.eq_ignore_ascii_case("output"))
+                    && pin_obj
+                        .get("category")
+                        .and_then(|value| value.as_str())
+                        .is_some_and(|value| value.eq_ignore_ascii_case("exec"));
+                if !is_exec_output {
+                    continue;
+                }
+                if let Some(linked_to) = pin_obj.get("linkedTo").and_then(|value| value.as_array())
+                {
+                    for link in linked_to {
+                        if let Some(target_id) = link
+                            .as_object()
+                            .and_then(|object| object.get("nodeGuid"))
+                            .and_then(|value| value.as_str())
+                            .filter(|value| !value.is_empty())
+                        {
+                            if target_id != id && !children.iter().any(|child| child == target_id) {
+                                children.push(target_id.to_owned());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        result.insert(id.clone(), BlueprintLayoutNode { id, x, y, children });
+    }
+
+    Ok(result)
+}
+
+fn collect_blueprint_layout_tree_order(
+    root: &str,
+    nodes: &std::collections::HashMap<String, BlueprintLayoutNode>,
+) -> Vec<(String, usize)> {
+    fn visit(
+        node_id: &str,
+        depth: usize,
+        nodes: &std::collections::HashMap<String, BlueprintLayoutNode>,
+        visited: &mut std::collections::HashSet<String>,
+        order: &mut Vec<(String, usize)>,
+    ) {
+        if !visited.insert(node_id.to_owned()) {
+            return;
+        }
+        order.push((node_id.to_owned(), depth));
+        let Some(node) = nodes.get(node_id) else {
+            return;
+        };
+        for child in &node.children {
+            if nodes.contains_key(child) {
+                visit(child, depth + 1, nodes, visited, order);
+            }
+        }
+    }
+
+    let mut visited = std::collections::HashSet::new();
+    let mut order = Vec::new();
+    visit(root, 0, nodes, &mut visited, &mut order);
+    order
+}
+
+fn build_blueprint_graph_layout_plan(
+    request: &BlueprintGraphLayoutRequest,
+    inspect_payload: &serde_json::Value,
+) -> Result<BlueprintGraphLayoutPlan, String> {
+    let nodes = build_blueprint_layout_nodes(inspect_payload)?;
+    let (scope_mode, ordered_nodes): (String, Vec<(String, usize)>) = match &request.scope {
+        BlueprintLayoutScope::Selection { nodes: selected } => {
+            for node_id in selected {
+                if !nodes.contains_key(node_id) {
+                    return Err(format!("selection node not found in graph: {node_id}"));
+                }
+            }
+            (
+                "selection".to_string(),
+                selected
+                    .iter()
+                    .enumerate()
+                    .map(|(index, node_id)| (node_id.clone(), index))
+                    .collect(),
+            )
+        }
+        BlueprintLayoutScope::Tree { root } => {
+            if !nodes.contains_key(root) {
+                return Err(format!("tree root node not found in graph: {root}"));
+            }
+            (
+                "tree".to_string(),
+                collect_blueprint_layout_tree_order(root, &nodes),
+            )
+        }
+    };
+
+    let origin = if let Some(origin) = request.origin {
+        origin
+    } else {
+        match &request.scope {
+            BlueprintLayoutScope::Tree { root } => {
+                let root_node = nodes
+                    .get(root)
+                    .ok_or_else(|| format!("tree root node not found in graph: {root}"))?;
+                (root_node.x, root_node.y)
+            }
+            BlueprintLayoutScope::Selection { nodes: selected } => selected
+                .iter()
+                .filter_map(|node_id| nodes.get(node_id))
+                .fold(None, |bounds: Option<(i64, i64)>, node| match bounds {
+                    Some((min_x, min_y)) => Some((min_x.min(node.x), min_y.min(node.y))),
+                    None => Some((node.x, node.y)),
+                })
+                .ok_or_else(|| "selection contains no resolvable nodes.".to_string())?,
+        }
+    };
+
+    let mut moves = Vec::new();
+    for (row, (node_id, depth)) in ordered_nodes.iter().enumerate() {
+        let node = nodes
+            .get(node_id)
+            .ok_or_else(|| format!("layout node not found in graph: {node_id}"))?;
+        let (to_x, to_y) = match (&request.scope, request.direction) {
+            (BlueprintLayoutScope::Selection { .. }, BlueprintLayoutDirection::Right) => {
+                (origin.0 + row as i64 * request.spacing_x, origin.1)
+            }
+            (BlueprintLayoutScope::Selection { .. }, BlueprintLayoutDirection::Down) => {
+                (origin.0, origin.1 + row as i64 * request.spacing_y)
+            }
+            (BlueprintLayoutScope::Tree { .. }, BlueprintLayoutDirection::Right) => (
+                origin.0 + *depth as i64 * request.spacing_x,
+                origin.1 + row as i64 * request.spacing_y,
+            ),
+            (BlueprintLayoutScope::Tree { .. }, BlueprintLayoutDirection::Down) => (
+                origin.0 + row as i64 * request.spacing_x,
+                origin.1 + *depth as i64 * request.spacing_y,
+            ),
+        };
+        if node.x != to_x || node.y != to_y {
+            moves.push(BlueprintLayoutMove {
+                node_id: node.id.clone(),
+                from_x: node.x,
+                from_y: node.y,
+                to_x,
+                to_y,
+            });
+        }
+    }
+
+    Ok(BlueprintGraphLayoutPlan {
+        operation: "format".to_string(),
+        scope_mode,
+        resolved_node_count: ordered_nodes.len(),
+        moves,
+        warnings: Vec::new(),
+    })
 }
 
 fn json_string_value(value: &serde_json::Value) -> String {
@@ -2433,6 +2953,7 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("blueprint.graph.list", "List Blueprint graphs in an asset.", Arc::new(blueprint_graph_list_schema())),
         Tool::new("blueprint.graph.inspect", "Read graph, node, pin, and link data from a Blueprint graph.", Arc::new(blueprint_graph_inspect_schema())),
         Tool::new("blueprint.graph.edit", "Apply explicit local graph edit commands to a Blueprint graph.", Arc::new(blueprint_graph_edit_schema())),
+        Tool::new("blueprint.graph.layout", "Format a selected Blueprint graph region without changing graph semantics.", Arc::new(blueprint_graph_layout_schema())),
         Tool::new("blueprint.graph.refactor", "Apply structural graph refactors to a Blueprint graph.", Arc::new(blueprint_graph_refactor_schema())),
         Tool::new("blueprint.graph.generate", "Generate a Blueprint graph snippet from a recipe source.", Arc::new(blueprint_graph_generate_schema())),
         Tool::new("blueprint.graph.recipe.list", "List discoverable Blueprint graph recipes.", Arc::new(blueprint_graph_recipe_list_schema())),
@@ -3584,6 +4105,101 @@ fn blueprint_graph_edit_schema() -> rmcp::model::JsonObject {
         "properties": properties,
         "required":["assetPath","commands"],
         "additionalProperties": false
+    }))
+}
+
+fn blueprint_graph_layout_schema() -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert("graph".into(), graph_ref_schema());
+    properties.insert(
+        "graphName".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert(
+        "operation".into(),
+        serde_json::json!({"type":"string","enum":["format"]}),
+    );
+    properties.insert(
+        "scope".into(),
+        serde_json::json!({
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "mode": { "type": "string", "enum": ["selection"] },
+                        "nodes": {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": { "$ref": "#/$defs/nodeRef" }
+                        }
+                    },
+                    "required": ["mode", "nodes"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "mode": { "type": "string", "enum": ["tree"] },
+                        "root": { "$ref": "#/$defs/nodeRef" }
+                    },
+                    "required": ["mode", "root"],
+                    "additionalProperties": false
+                }
+            ]
+        }),
+    );
+    properties.insert(
+        "direction".into(),
+        serde_json::json!({"type":"string","enum":["right","down"],"default":"right"}),
+    );
+    properties.insert(
+        "style".into(),
+        serde_json::json!({"type":"string","enum":["simple"],"default":"simple"}),
+    );
+    properties.insert(
+        "spacing".into(),
+        serde_json::json!({
+            "type":"object",
+            "properties":{
+                "x":{"type":"number"},
+                "y":{"type":"number"}
+            },
+            "required":["x","y"],
+            "additionalProperties":false
+        }),
+    );
+    properties.insert(
+        "origin".into(),
+        serde_json::json!({
+            "type":"object",
+            "properties":{
+                "x":{"type":"number"},
+                "y":{"type":"number"}
+            },
+            "required":["x","y"],
+            "additionalProperties":false
+        }),
+    );
+    mutation_control_fields(&mut properties);
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":["assetPath","operation","scope"],
+        "additionalProperties": false,
+        "$defs": {
+            "nodeRef": {
+                "type":"object",
+                "properties": {
+                    "id": { "type":"string", "minLength": 1 }
+                },
+                "required": ["id"],
+                "additionalProperties": false
+            }
+        }
     }))
 }
 
@@ -5456,9 +6072,10 @@ fn print_usage_stderr() {
 #[cfg(test)]
 mod tests {
     use super::{
-        acquire_file_lock, all_declared_tools, call_schema_inspect, compare_semver,
-        compile_blueprint_refactor_request, current_platform_client_binary_name,
-        infer_attached_project_root, material_query_schema, pcg_query_schema,
+        acquire_file_lock, all_declared_tools, build_blueprint_graph_layout_plan,
+        call_schema_inspect, compare_semver, compile_blueprint_refactor_request,
+        current_platform_client_binary_name, infer_attached_project_root, material_query_schema,
+        parse_blueprint_graph_layout_request, pcg_query_schema,
         play_participant_wait_conditions_met, play_schema,
         play_wait_participant_conditions_from_args, read_file_lock_metadata, read_plugin_version,
         runtime_declared_tools, switch_to_installed_version, sync_project_support_to_version,
@@ -5470,6 +6087,14 @@ mod tests {
     use std::ffi::OsString;
     use std::fs;
     use std::path::PathBuf;
+    use std::sync::{Mutex, OnceLock};
+
+    fn loomle_install_root_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("LOOMLE_INSTALL_ROOT test env lock")
+    }
 
     #[test]
     fn parse_default_shows_help() {
@@ -5567,6 +6192,135 @@ mod tests {
         }
     }
 
+    fn layout_node(id: &str, x: i64, y: i64, exec_children: &[&str]) -> serde_json::Value {
+        let linked_to = exec_children
+            .iter()
+            .map(|child| serde_json::json!({ "nodeGuid": child, "pin": "Execute" }))
+            .collect::<Vec<_>>();
+        serde_json::json!({
+            "id": id,
+            "guid": id,
+            "position": { "x": x, "y": y },
+            "pins": [
+                {
+                    "name": "Then",
+                    "direction": "output",
+                    "category": "exec",
+                    "linkedTo": linked_to
+                },
+                {
+                    "name": "Value",
+                    "direction": "output",
+                    "category": "int",
+                    "linkedTo": [
+                        { "nodeGuid": "dataOnly", "pin": "Value" }
+                    ]
+                }
+            ]
+        })
+    }
+
+    fn layout_inspect_payload(nodes: Vec<serde_json::Value>) -> serde_json::Value {
+        serde_json::json!({
+            "semanticSnapshot": {
+                "nodes": nodes
+            }
+        })
+    }
+
+    #[test]
+    fn blueprint_graph_layout_selection_formats_only_explicit_nodes() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graphName".into(), serde_json::json!("EventGraph"));
+        args.insert("operation".into(), serde_json::json!("format"));
+        args.insert(
+            "scope".into(),
+            serde_json::json!({
+                "mode": "selection",
+                "nodes": [
+                    { "id": "a" },
+                    { "id": "b" }
+                ]
+            }),
+        );
+        args.insert("direction".into(), serde_json::json!("right"));
+        args.insert("origin".into(), serde_json::json!({ "x": 100, "y": 200 }));
+        args.insert("spacing".into(), serde_json::json!({ "x": 300, "y": 150 }));
+        args.insert("dryRun".into(), serde_json::json!(true));
+
+        let request = parse_blueprint_graph_layout_request(&args).expect("request");
+        let plan = build_blueprint_graph_layout_plan(
+            &request,
+            &layout_inspect_payload(vec![
+                layout_node("a", 0, 0, &[]),
+                layout_node("b", 10, 10, &[]),
+                layout_node("c", 20, 20, &[]),
+            ]),
+        )
+        .expect("plan");
+
+        assert_eq!(plan.resolved_node_count, 2);
+        assert_eq!(plan.moves.len(), 2);
+        assert_eq!(plan.moves[0].node_id, "a");
+        assert_eq!((plan.moves[0].to_x, plan.moves[0].to_y), (100, 200));
+        assert_eq!(plan.moves[1].node_id, "b");
+        assert_eq!((plan.moves[1].to_x, plan.moves[1].to_y), (400, 200));
+        assert_eq!(
+            plan.to_move_commands(),
+            vec![
+                serde_json::json!({
+                    "kind": "moveNode",
+                    "node": { "id": "a" },
+                    "position": { "x": 100, "y": 200 }
+                }),
+                serde_json::json!({
+                    "kind": "moveNode",
+                    "node": { "id": "b" },
+                    "position": { "x": 400, "y": 200 }
+                })
+            ]
+        );
+    }
+
+    #[test]
+    fn blueprint_graph_layout_tree_follows_exec_outputs_only() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graphName".into(), serde_json::json!("EventGraph"));
+        args.insert("operation".into(), serde_json::json!("format"));
+        args.insert(
+            "scope".into(),
+            serde_json::json!({
+                "mode": "tree",
+                "root": { "id": "root" }
+            }),
+        );
+        args.insert("direction".into(), serde_json::json!("down"));
+        args.insert("spacing".into(), serde_json::json!({ "x": 300, "y": 150 }));
+
+        let request = parse_blueprint_graph_layout_request(&args).expect("request");
+        let plan = build_blueprint_graph_layout_plan(
+            &request,
+            &layout_inspect_payload(vec![
+                layout_node("root", 100, 200, &["then"]),
+                layout_node("then", 500, 600, &[]),
+                layout_node("dataOnly", 700, 800, &[]),
+            ]),
+        )
+        .expect("plan");
+
+        assert_eq!(plan.scope_mode, "tree");
+        assert_eq!(plan.resolved_node_count, 2);
+        assert_eq!(plan.moves.len(), 1);
+        assert_eq!(plan.moves[0].node_id, "then");
+        assert_eq!((plan.moves[0].to_x, plan.moves[0].to_y), (400, 350));
+        assert!(!plan
+            .moves
+            .iter()
+            .any(|movement| movement.node_id == "dataOnly"));
+    }
+
     #[test]
     fn semver_compare_handles_v_prefix() {
         assert_eq!(
@@ -5607,6 +6361,7 @@ mod tests {
 
     #[test]
     fn project_support_sync_updates_plugin_from_active_cache() {
+        let _env_lock = loomle_install_root_env_lock();
         let root = std::env::temp_dir().join(format!(
             "loomle-test-project-sync-{}-{}",
             std::process::id(),
@@ -5667,6 +6422,7 @@ mod tests {
 
     #[test]
     fn registered_project_sync_updates_offline_and_skips_online_projects() {
+        let _env_lock = loomle_install_root_env_lock();
         let root = std::env::temp_dir().join(format!(
             "loomle-test-registered-sync-{}-{}",
             std::process::id(),
@@ -6345,6 +7101,7 @@ mod tests {
         assert!(tool_names.contains("play"));
         assert!(tool_names.contains("diagnostic.tail"));
         assert!(tool_names.contains("log.tail"));
+        assert!(tool_names.contains("blueprint.graph.layout"));
         assert!(!tool_names.contains("log.subscribe"));
         assert!(!tool_names.contains("diag.tail"));
     }

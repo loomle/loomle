@@ -29,7 +29,8 @@ It does not own:
 - palette discovery, which belongs to `blueprint.palette`
 - structural refactors, which belong to `blueprint.graph.refactor`
 - recipe expansion, which belongs to `blueprint.graph.generate`
-- compile, validate, or layout as primary public commands
+- visual formatting, which belongs to `blueprint.graph.layout`
+- compile or validate
 - graph management such as add, rename, or delete graph
 
 ## Lightweight Public Schema
@@ -114,9 +115,9 @@ These operations should not be presented as normal public commands:
 | --- | --- |
 | `rebindMatchingPins` | Internal implementation or `blueprint.graph.refactor`. |
 | `moveInputLinks` | Internal implementation or `blueprint.graph.refactor`. |
-| `layoutGraph` | Layout-specific workflow. |
+| `layoutGraph` | `blueprint.graph.layout` with `operation="format"`. |
 | `compile` | `blueprint.compile`. |
-| `moveNodes` | Layout-specific workflow. |
+| `moveNodes` | `blueprint.graph.layout` selection formatting, or explicit `moveNode` commands. |
 | `addGraph` / `addFunctionGraph` / `addMacroGraph` | Graph management surface. |
 | `renameGraph` | Graph management surface. |
 | `deleteGraph` | Graph management surface. |
@@ -359,6 +360,11 @@ The top-level result should include:
 - `diagnostics`
 - `diff`
 
+Each entry in `opResults` includes `durationMs`, measured on the UE side for
+that command after request-local reference rewriting has completed. The timing
+is diagnostic data for agent and developer feedback; it must not be used as a
+success criterion.
+
 For `dryRun=true`, `applied` must be `false`, command results must report
 `changed=false`, and graph revision/node count must not change.
 
@@ -375,3 +381,17 @@ The public command layer maps to UE graph operations through Loomle's bridge:
 
 The public schema should describe agent intent. The bridge may keep lower-level
 legacy operations internally, but those operations are not the public contract.
+
+`blueprint.graph.edit` is a batch operation at the UE boundary. A single request
+should resolve the target Blueprint and graph once per graph scope, reuse those
+resolved objects while executing local graph edits, and avoid broadcasting graph
+or Blueprint dirty notifications after every command. Commands that mutate the
+same graph should record that the graph changed, then the bridge should emit one
+`NotifyGraphChanged()` and one Blueprint dirty/modified update after the command
+batch completes successfully or partially applies.
+
+This batching must not replace UE semantics. Link edits still use the UE graph
+schema's connection validation and pin mutation APIs. Node creation through
+`addFromPalette` still executes UE action menu entries. The batching only moves
+expensive editor notifications and repeated request-local lookup work out of the
+per-command loop.

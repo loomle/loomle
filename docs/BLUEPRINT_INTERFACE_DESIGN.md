@@ -684,16 +684,138 @@ Graph-facing mutation should be split into three distinct public interfaces:
 - `blueprint.graph.edit`
 - `blueprint.graph.refactor`
 - `blueprint.graph.generate`
+- `blueprint.graph.layout`
 
-These three interfaces must not be treated as aliases for one shared low-level op list.
+These interfaces must not be treated as aliases for one shared low-level op list.
 
 ### Design Intent
 
 - `edit` is for deterministic, local, low-ambiguity graph changes.
 - `refactor` is for structural transformation of existing graph structure.
 - `generate` is for creating new local graph structure from controlled recipes.
+- `layout` is for visual formatting of an explicit graph region without
+  changing Blueprint behavior.
 
 This split is the core agent-facing editing model for Blueprint graphs.
+
+## blueprint.graph.layout
+
+`blueprint.graph.layout` is the visual formatting interface.
+
+It should be used when:
+
+- the graph already contains the nodes to organize
+- the caller wants the region to become easier to read
+- the operation should not change execution or data semantics
+- the caller wants a dry-run movement plan before applying layout
+
+### Required Properties
+
+- visual-only by default
+- deterministic
+- dry-run capable
+- region-scoped
+- diff-friendly
+
+### First-Version Operation
+
+Recommended public operation set:
+
+- `format`
+
+The first version supports two explicit scope modes:
+
+- `selection`
+- `tree`
+
+There is no shortcut syntax. Formatting one node still uses
+`scope.mode="selection"` with one node in `scope.nodes`.
+
+### Top-Level Request Shape
+
+Recommended shape:
+
+```json
+{
+  "assetPath": "/Game/Example/BP_Test",
+  "graphName": "EventGraph",
+  "operation": "format",
+  "scope": {
+    "mode": "tree",
+    "root": { "id": "branch1" }
+  },
+  "direction": "right",
+  "style": "simple",
+  "spacing": { "x": 360, "y": 180 },
+  "origin": { "x": 400, "y": 200 },
+  "dryRun": true
+}
+```
+
+### Scope Rules
+
+`selection`:
+
+- requires `scope.nodes`
+- moves only the listed nodes
+- does not expand the selection automatically
+
+`tree`:
+
+- requires `scope.root`
+- includes the root
+- follows execution output pins downstream
+- stays within the addressed graph
+- skips already visited nodes
+- does not follow data-flow-only links in the first version
+
+### Formatting Rules
+
+- first version supports `direction: right | down`
+- first version supports `style: simple`
+- first version accepts optional `spacing`
+- if `origin` is omitted, `tree` keeps the root anchored at its current position
+- if `origin` is omitted, `selection` uses the selection bounding box top-left
+- first version must not insert, remove, or clean up reroute nodes
+- first version must not create or fit comment boxes
+- first version must not change links
+
+### Result Shape
+
+Dry run and execution should share the same shape:
+
+```json
+{
+  "changed": true,
+  "dryRun": true,
+  "operation": "format",
+  "scope": {
+    "mode": "tree",
+    "resolvedNodeCount": 5
+  },
+  "nodesMoved": [
+    {
+      "node": { "id": "nodeA" },
+      "from": { "x": 100, "y": 200 },
+      "to": { "x": 400, "y": 200 }
+    }
+  ],
+  "warnings": []
+}
+```
+
+### Explicitly Excluded From Layout MVP
+
+- `organizeGraph`
+- implicit single-node shortcut syntax
+- whole-graph formatting
+- automatic region discovery beyond `tree`
+- reroute insertion
+- reroute cleanup
+- wire routing
+- comment creation
+- comment fitting
+- data-flow-only traversal
 
 ## blueprint.graph.edit
 
