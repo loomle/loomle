@@ -652,6 +652,10 @@ Recommended forms:
 
 Rules:
 
+- public graph-facing requests should prefer the `graph` object
+- `graph.id` is preferred after the graph has been discovered
+- `graph.name` is the recommended name-based form
+- top-level `graphName` remains a compatibility field only
 - inspect returns stable ids
 - edit should prefer `id` and request-local `alias`
 - fuzzy selectors should not be part of low-level edit
@@ -732,7 +736,7 @@ Recommended shape:
 ```json
 {
   "assetPath": "/Game/Example/BP_Test",
-  "graphName": "EventGraph",
+  "graph": { "name": "EventGraph" },
   "operation": "format",
   "scope": {
     "mode": "tree",

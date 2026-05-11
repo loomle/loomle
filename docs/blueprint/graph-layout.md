@@ -48,7 +48,7 @@ Recommended first-version request shape:
 ```json
 {
   "assetPath": "/Game/Blueprints/BP_Test",
-  "graphName": "EventGraph",
+  "graph": { "name": "EventGraph" },
   "operation": "format",
   "scope": {
     "mode": "tree",
@@ -65,7 +65,8 @@ Recommended first-version request shape:
 Required fields:
 
 - `assetPath`
-- graph address, such as `graphName`
+- graph address, preferably `graph: { "id": "..." }` or
+  `graph: { "name": "EventGraph" }`
 - `operation`
 - `scope`
 

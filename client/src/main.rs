@@ -3908,6 +3908,7 @@ fn blueprint_list_schema() -> rmcp::model::JsonObject {
 fn graph_ref_schema() -> serde_json::Value {
     serde_json::json!({
         "type":"object",
+        "description":"Recommended graph address. Prefer {\"id\":\"...\"} when available from blueprint.graph.list or blueprint.graph.inspect; use {\"name\":\"EventGraph\"} when id is not available.",
         "properties":{
             "id":{"type":"string","minLength":1},
             "name":{"type":"string","minLength":1}
@@ -4048,7 +4049,7 @@ fn blueprint_graph_inspect_schema() -> rmcp::model::JsonObject {
         "properties":{
             "assetPath":{"type":"string","minLength":1},
             "graph": graph_ref_schema(),
-            "graphName":{"type":"string","minLength":1},
+            "graphName":{"type":"string","minLength":1,"description":"Legacy compatibility graph address. Prefer graph:{id|name} for new calls."},
             "nodeIds":{"type":"array","items":{"type":"string"}},
             "nodeClasses":{"type":"array","items":{"type":"string"}},
             "includeComments":{"type":"boolean","default":false},
@@ -4072,7 +4073,7 @@ fn blueprint_graph_edit_schema() -> rmcp::model::JsonObject {
     properties.insert("graph".into(), graph_ref_schema());
     properties.insert(
         "graphName".into(),
-        serde_json::json!({"type":"string","minLength":1}),
+        serde_json::json!({"type":"string","minLength":1,"description":"Legacy compatibility graph address. Prefer graph:{id|name} for new calls."}),
     );
     properties.insert(
         "commands".into(),
@@ -4109,7 +4110,7 @@ fn blueprint_graph_layout_schema() -> rmcp::model::JsonObject {
     properties.insert("graph".into(), graph_ref_schema());
     properties.insert(
         "graphName".into(),
-        serde_json::json!({"type":"string","minLength":1}),
+        serde_json::json!({"type":"string","minLength":1,"description":"Legacy compatibility graph address. Prefer graph:{id|name} for new calls."}),
     );
     properties.insert(
         "operation".into(),
@@ -4205,7 +4206,7 @@ fn blueprint_graph_refactor_schema() -> rmcp::model::JsonObject {
     properties.insert("graph".into(), graph_ref_schema());
     properties.insert(
         "graphName".into(),
-        serde_json::json!({"type":"string","minLength":1}),
+        serde_json::json!({"type":"string","minLength":1,"description":"Legacy compatibility graph address. Prefer graph:{id|name} for new calls."}),
     );
     properties.insert(
         "transforms".into(),
@@ -4255,7 +4256,7 @@ fn blueprint_graph_generate_schema() -> rmcp::model::JsonObject {
     properties.insert("graph".into(), graph_ref_schema());
     properties.insert(
         "graphName".into(),
-        serde_json::json!({"type":"string","minLength":1}),
+        serde_json::json!({"type":"string","minLength":1,"description":"Legacy compatibility graph address. Prefer graph:{id|name} for new calls."}),
     );
     properties.insert(
         "recipeSource".into(),
@@ -4347,7 +4348,7 @@ fn blueprint_compile_schema() -> rmcp::model::JsonObject {
     properties.insert("graph".into(), graph_ref_schema());
     properties.insert(
         "graphName".into(),
-        serde_json::json!({"type":"string","minLength":1}),
+        serde_json::json!({"type":"string","minLength":1,"description":"Legacy compatibility graph address. Prefer graph:{id|name} for new calls."}),
     );
     mutation_control_fields(&mut properties);
     schema_from_value(serde_json::json!({
@@ -4364,7 +4365,7 @@ fn blueprint_palette_schema() -> rmcp::model::JsonObject {
         "properties":{
             "assetPath":{"type":"string","minLength":1},
             "graph": graph_ref_schema(),
-            "graphName":{"type":"string","minLength":1},
+            "graphName":{"type":"string","minLength":1,"description":"Legacy compatibility graph address. Prefer graph:{id|name} for new calls."},
             "query":{"type":"string"},
             "contextSensitive":{"type":"boolean","default":true},
             "fromPins":{

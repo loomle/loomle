@@ -43,8 +43,15 @@ The `tools/list` schema should expose only the stable command envelope:
   "type": "object",
   "properties": {
     "assetPath": { "type": "string", "minLength": 1 },
-    "graph": { "type": "object" },
-    "graphName": { "type": "string", "minLength": 1 },
+    "graph": {
+      "type": "object",
+      "description": "Recommended graph address. Prefer {\"id\":\"...\"} after discovery; use {\"name\":\"EventGraph\"} when id is unavailable."
+    },
+    "graphName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Legacy compatibility graph address. Prefer graph:{id|name} for new calls."
+    },
     "commands": {
       "type": "array",
       "items": {
