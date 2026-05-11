@@ -403,7 +403,7 @@ main() {
   [[ -f "$bundle_dir/$client_name" ]] || fail "bundle missing $client_name"
   [[ -d "$bundle_dir/plugin-cache/LoomleBridge" ]] || fail "bundle missing plugin-cache/LoomleBridge"
 
-  mkdir -p "$install_root/bin" "$install_root/install" "$install_root/state/runtimes" "$install_root/locks" "$install_root/logs"
+  mkdir -p "$install_root/bin" "$install_root/install" "$install_root/state/projects" "$install_root/state/runtimes" "$install_root/locks" "$install_root/logs"
   copy_file_replace "$bundle_dir/$client_name" "$active_client_path"
   copy_file_replace "$bundle_dir/$client_name" "$launcher_path"
   copy_tree_replace "$bundle_dir/plugin-cache/LoomleBridge" "$version_root/plugin-cache/LoomleBridge"

@@ -311,7 +311,7 @@ try {
   if (-not (Test-Path -LiteralPath $ClientSource -PathType Leaf)) { Fail "bundle missing $ClientName" }
   if (-not (Test-Path -LiteralPath $PluginCacheSource -PathType Container)) { Fail "bundle missing plugin-cache/LoomleBridge" }
 
-  foreach ($dir in @("bin", "install", "state\runtimes", "locks", "logs")) {
+  foreach ($dir in @("bin", "install", "state\projects", "state\runtimes", "locks", "logs")) {
     New-Item -ItemType Directory -Force -Path (Join-Path $InstallRoot $dir) | Out-Null
   }
 

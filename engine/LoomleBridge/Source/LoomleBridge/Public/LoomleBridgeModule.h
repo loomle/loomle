@@ -141,6 +141,7 @@ private:
     void StartNextJobIfNeeded();
     void RunQueuedJob(const FString& JobId);
     void AppendJobLogLine(const FString& JobId, const FString& Level, const FString& Message);
+    void WriteProjectRegistration(const FString& ProjectRoot, const FString& ProjectId);
     void WriteRuntimeRegistration();
     void RemoveRuntimeRegistration();
 

@@ -35,7 +35,7 @@ Bootstrap scripts should:
 7. install `versions/<version>/plugin-cache/LoomleBridge`
 8. write `install/active.json`
 9. add the global `bin` directory to the current user's PATH
-10. create `state/runtimes`, `locks`, and `logs`
+10. create `state/projects`, `state/runtimes`, `locks`, and `logs`
 11. configure Codex and Claude MCP hosts when available
 12. print a friendly installation summary with MCP configuration status and next steps
 
@@ -62,10 +62,14 @@ loomle update
 ```
 
 `loomle update` first updates the global install and active plugin cache. It
-then scans registered LOOMLE runtime records and syncs the active
+then scans persistent LOOMLE project records and syncs the active
 `LoomleBridge` plugin into registered Unreal projects that are offline. Online
 projects are skipped because Unreal Editor may have the plugin loaded; users can
 close Unreal Editor and run `loomle update` again.
+
+Runtime records under `state/runtimes` are live status only. Persistent project
+membership lives under `state/projects` so closed Unreal projects remain
+eligible for update.
 
 There are no per-project update scripts.
 

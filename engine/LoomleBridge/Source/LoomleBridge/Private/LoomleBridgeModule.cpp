@@ -182,6 +182,19 @@ FString GetLoomleBridgePluginVersion()
     return VersionName.IsEmpty() ? TEXT("unknown") : VersionName;
 }
 
+FString GetLoomlePlatformName()
+{
+#if PLATFORM_WINDOWS
+    return TEXT("windows");
+#elif PLATFORM_MAC
+    return TEXT("darwin");
+#elif PLATFORM_LINUX
+    return TEXT("linux");
+#else
+    return TEXT("unknown");
+#endif
+}
+
 #if PLATFORM_WINDOWS
 bool CaptureNativeWindowToColorData(HWND WindowHandle, TArray<FColor>& OutColorData, FIntVector& OutImageSize, FString& OutError)
 {
@@ -3966,6 +3979,63 @@ FString FLoomleBridgeModule::GetRuntimeEndpointDisplayString() const
 #endif
 }
 
+void FLoomleBridgeModule::WriteProjectRegistration(const FString& ProjectRoot, const FString& ProjectId)
+{
+    const FString LoomleRoot = FPaths::Combine(GetLoomleHomeDirectory(), TEXT(".loomle"));
+    const FString ProjectDir = FPaths::Combine(LoomleRoot, TEXT("state"), TEXT("projects"));
+    IFileManager::Get().MakeDirectory(*ProjectDir, true);
+
+    const FString RegistrationPath = FPaths::Combine(ProjectDir, ProjectId + TEXT(".json"));
+    const FString TempPath = RegistrationPath + TEXT(".tmp");
+    FString Existing;
+    FFileHelper::LoadFileToString(Existing, *RegistrationPath);
+    TSharedPtr<FJsonObject> ExistingRecord;
+    if (!Existing.IsEmpty())
+    {
+        const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Existing);
+        FJsonSerializer::Deserialize(Reader, ExistingRecord);
+    }
+
+    const FString Now = FDateTime::UtcNow().ToIso8601();
+    FString RegisteredAt = Now;
+    if (ExistingRecord.IsValid())
+    {
+        FString ExistingRegisteredAt;
+        if (ExistingRecord->TryGetStringField(TEXT("registeredAt"), ExistingRegisteredAt) && !ExistingRegisteredAt.IsEmpty())
+        {
+            RegisteredAt = ExistingRegisteredAt;
+        }
+    }
+
+    TSharedPtr<FJsonObject> Record = MakeShared<FJsonObject>();
+    Record->SetNumberField(TEXT("schemaVersion"), 1);
+    Record->SetStringField(TEXT("projectId"), ProjectId);
+    Record->SetStringField(TEXT("name"), FApp::GetProjectName());
+    Record->SetStringField(TEXT("projectRoot"), ProjectRoot);
+    Record->SetStringField(TEXT("uproject"), FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath()));
+    Record->SetStringField(TEXT("pluginPath"), FPaths::Combine(ProjectRoot, TEXT("Plugins"), TEXT("LoomleBridge")));
+    Record->SetStringField(TEXT("pluginVersion"), GetLoomleBridgePluginVersion());
+    Record->SetStringField(TEXT("platform"), GetLoomlePlatformName());
+    Record->SetStringField(TEXT("registeredAt"), RegisteredAt);
+    Record->SetStringField(TEXT("lastSeenAt"), Now);
+    Record->SetStringField(TEXT("source"), TEXT("runtime"));
+
+    FString Output;
+    const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Output);
+    FJsonSerializer::Serialize(Record.ToSharedRef(), Writer);
+    if (!FFileHelper::SaveStringToFile(Output + TEXT("\n"), *TempPath))
+    {
+        UE_LOG(LogLoomleBridge, Warning, TEXT("Failed to write LOOMLE project registration temp file %s"), *TempPath);
+        return;
+    }
+    if (!IFileManager::Get().Move(*RegistrationPath, *TempPath, true, true))
+    {
+        UE_LOG(LogLoomleBridge, Warning, TEXT("Failed to publish LOOMLE project registration %s"), *RegistrationPath);
+        IFileManager::Get().Delete(*TempPath, false, true);
+        return;
+    }
+}
+
 void FLoomleBridgeModule::WriteRuntimeRegistration()
 {
     FString ProjectRoot = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
@@ -4002,15 +4072,7 @@ void FLoomleBridgeModule::WriteRuntimeRegistration()
     Endpoint = FPaths::ConvertRelativePathToFull(Endpoint);
 #endif
     Record->SetStringField(TEXT("endpoint"), Endpoint);
-#if PLATFORM_WINDOWS
-    Record->SetStringField(TEXT("platform"), TEXT("windows"));
-#elif PLATFORM_MAC
-    Record->SetStringField(TEXT("platform"), TEXT("darwin"));
-#elif PLATFORM_LINUX
-    Record->SetStringField(TEXT("platform"), TEXT("linux"));
-#else
-    Record->SetStringField(TEXT("platform"), TEXT("unknown"));
-#endif
+    Record->SetStringField(TEXT("platform"), GetLoomlePlatformName());
     Record->SetNumberField(TEXT("pid"), static_cast<double>(FPlatformProcess::GetCurrentProcessId()));
     Record->SetStringField(TEXT("pluginVersion"), GetLoomleBridgePluginVersion());
     Record->SetNumberField(TEXT("protocolVersion"), LoomleBridgeConstants::ProtocolVersion);
@@ -4035,6 +4097,7 @@ void FLoomleBridgeModule::WriteRuntimeRegistration()
     }
 
     UE_LOG(LogLoomleBridge, Display, TEXT("LOOMLE runtime registered at %s"), *RuntimeRegistrationPath);
+    WriteProjectRegistration(ProjectRoot, ProjectId);
 }
 
 void FLoomleBridgeModule::RemoveRuntimeRegistration()

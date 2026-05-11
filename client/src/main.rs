@@ -16,6 +16,7 @@ use rmcp::{
     transport::stdio,
     ErrorData as McpError, RoleServer, ServerHandler, ServiceExt,
 };
+use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
 use std::fs;
@@ -5300,6 +5301,20 @@ struct RuntimeRecord {
     last_seen_at: Option<String>,
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+struct ProjectRecord {
+    #[serde(rename = "projectId")]
+    project_id: Option<String>,
+    name: Option<String>,
+    #[serde(rename = "projectRoot")]
+    project_root: PathBuf,
+    uproject: Option<PathBuf>,
+    #[serde(rename = "pluginVersion")]
+    plugin_version: Option<String>,
+    #[serde(rename = "lastSeenAt")]
+    last_seen_at: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 struct RuntimeProject {
     project_id: String,
@@ -5402,12 +5417,46 @@ fn infer_attached_project_root(
 }
 
 fn discover_runtime_projects(filter: ProjectStatusFilter) -> Vec<RuntimeProject> {
+    let mut runtimes = read_runtime_records();
+    let mut projects = Vec::new();
+
+    for record in read_project_records() {
+        let project_id = project_record_project_id(&record);
+        let runtime = runtimes.remove(&project_id);
+        let project = project_record_to_project(record, runtime);
+        let include = match filter {
+            ProjectStatusFilter::Online => project.status == "online",
+            ProjectStatusFilter::Offline => project.status == "offline",
+            ProjectStatusFilter::All => true,
+        };
+        if include {
+            projects.push(project);
+        }
+    }
+
+    for record in runtimes.into_values() {
+        let project = runtime_record_to_project(record);
+        let include = match filter {
+            ProjectStatusFilter::Online => project.status == "online",
+            ProjectStatusFilter::Offline => project.status == "offline",
+            ProjectStatusFilter::All => true,
+        };
+        if include {
+            projects.push(project);
+        }
+    }
+
+    projects.sort_by(|left, right| left.name.cmp(&right.name));
+    projects
+}
+
+fn read_runtime_records() -> HashMap<String, RuntimeRecord> {
     let runtime_dir = loomle_root().join("state").join("runtimes");
     let Ok(entries) = std::fs::read_dir(runtime_dir) else {
-        return Vec::new();
+        return HashMap::new();
     };
 
-    let mut projects = Vec::new();
+    let mut records = HashMap::new();
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
@@ -5419,21 +5468,108 @@ fn discover_runtime_projects(filter: ProjectStatusFilter) -> Vec<RuntimeProject>
         let Ok(record) = serde_json::from_str::<RuntimeRecord>(&raw) else {
             continue;
         };
-        let project = runtime_record_to_project(record);
-        let include = match filter {
-            ProjectStatusFilter::Online => project.status == "online",
-            ProjectStatusFilter::Offline => project.status == "offline",
-            ProjectStatusFilter::All => true,
-        };
-        if include {
-            projects.push(project);
-        }
+        records.insert(runtime_record_project_id(&record), record);
     }
-    projects.sort_by(|left, right| left.name.cmp(&right.name));
-    projects
+    records
+}
+
+fn read_project_records() -> Vec<ProjectRecord> {
+    let project_dir = project_registry_dir();
+    let Ok(entries) = std::fs::read_dir(project_dir) else {
+        return Vec::new();
+    };
+
+    let mut records = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(record) = serde_json::from_str::<ProjectRecord>(&raw) else {
+            continue;
+        };
+        records.push(record);
+    }
+    records
+}
+
+fn runtime_record_project_id(record: &RuntimeRecord) -> String {
+    record
+        .project_id
+        .clone()
+        .or_else(|| record.runtime_id.clone())
+        .unwrap_or_else(|| stable_project_id(&record.project_root))
+}
+
+fn project_record_project_id(record: &ProjectRecord) -> String {
+    record
+        .project_id
+        .clone()
+        .unwrap_or_else(|| stable_project_id(&record.project_root))
+}
+
+fn project_record_to_project(
+    record: ProjectRecord,
+    runtime: Option<RuntimeRecord>,
+) -> RuntimeProject {
+    let project_root = record.project_root;
+    let runtime_endpoint = runtime.as_ref().and_then(|record| record.endpoint.clone());
+    let endpoint = runtime_endpoint.unwrap_or_else(|| {
+        Environment::for_project_root(project_root.clone()).runtime_endpoint_path
+    });
+    let endpoint_exists = runtime.as_ref().is_some_and(|_| endpoint.exists());
+    let status = if endpoint_exists { "online" } else { "offline" }.to_string();
+    let reason = if endpoint_exists {
+        None
+    } else {
+        Some("LOOMLE runtime endpoint is not available".to_string())
+    };
+    let project_id = record
+        .project_id
+        .unwrap_or_else(|| stable_project_id(&project_root));
+    let name = runtime
+        .as_ref()
+        .and_then(|runtime| runtime.name.clone())
+        .or(record.name)
+        .unwrap_or_else(|| {
+            project_root
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("Unreal Project")
+                .to_string()
+        });
+    RuntimeProject {
+        project_id,
+        name,
+        project_root: project_root.clone(),
+        uproject: runtime
+            .as_ref()
+            .and_then(|runtime| runtime.uproject.clone())
+            .or(record.uproject),
+        endpoint,
+        status,
+        attachable: endpoint_exists,
+        plugin_installed: project_root.join("Plugins").join("LoomleBridge").is_dir(),
+        plugin_version: runtime
+            .as_ref()
+            .and_then(|runtime| runtime.plugin_version.clone())
+            .or(record.plugin_version),
+        protocol_version: runtime
+            .as_ref()
+            .and_then(|runtime| runtime.protocol_version),
+        last_seen_at: runtime
+            .as_ref()
+            .and_then(|runtime| runtime.last_seen_at.clone())
+            .or(record.last_seen_at),
+        reason,
+    }
 }
 
 fn runtime_record_to_project(record: RuntimeRecord) -> RuntimeProject {
+    let project_id = runtime_record_project_id(&record);
     let project_root = record.project_root;
     let endpoint = record.endpoint.unwrap_or_else(|| {
         Environment::for_project_root(project_root.clone()).runtime_endpoint_path
@@ -5445,10 +5581,6 @@ fn runtime_record_to_project(record: RuntimeRecord) -> RuntimeProject {
     } else {
         Some("LOOMLE runtime endpoint is not available".to_string())
     };
-    let project_id = record
-        .project_id
-        .or(record.runtime_id)
-        .unwrap_or_else(|| stable_project_id(&project_root));
     let name = record.name.unwrap_or_else(|| {
         project_root
             .file_name()
@@ -5842,6 +5974,74 @@ fn plugin_cache_path_for_version(version: &str) -> PathBuf {
         .join("LoomleBridge")
 }
 
+fn project_registry_dir() -> PathBuf {
+    loomle_root().join("state").join("projects")
+}
+
+fn project_registry_path(project_root: &Path) -> PathBuf {
+    project_registry_dir().join(format!("{}.json", stable_project_id(project_root)))
+}
+
+fn find_project_uproject(project_root: &Path) -> Option<PathBuf> {
+    let entries = fs::read_dir(project_root).ok()?;
+    entries.flatten().map(|entry| entry.path()).find(|path| {
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("uproject"))
+    })
+}
+
+fn project_name_from_root(project_root: &Path) -> String {
+    project_root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("Unreal Project")
+        .to_string()
+}
+
+fn write_project_registration(
+    project_root: &Path,
+    plugin_version: &str,
+    source: &str,
+) -> Result<(), String> {
+    let project_id = stable_project_id(project_root);
+    let path = project_registry_path(project_root);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
+    }
+
+    let previous = fs::read_to_string(&path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok());
+    let registered_at = previous
+        .as_ref()
+        .and_then(|value| value.get("registeredAt").cloned())
+        .unwrap_or_else(|| serde_json::json!(unix_timestamp_secs().to_string()));
+    let now = unix_timestamp_secs().to_string();
+    let uproject = find_project_uproject(project_root);
+    let value = serde_json::json!({
+        "schemaVersion": 1,
+        "projectId": project_id,
+        "name": project_name_from_root(project_root),
+        "projectRoot": project_root.display().to_string(),
+        "uproject": uproject.map(|path| path.display().to_string()),
+        "pluginPath": project_root.join("Plugins").join("LoomleBridge").display().to_string(),
+        "pluginVersion": plugin_version,
+        "platform": current_platform_name(),
+        "registeredAt": registered_at,
+        "lastSeenAt": now,
+        "source": source,
+    });
+    fs::write(
+        &path,
+        serde_json::to_string_pretty(&value)
+            .map_err(|error| format!("failed to encode project registration: {error}"))?
+            + "\n",
+    )
+    .map_err(|error| format!("failed to write {}: {error}", path.display()))
+}
+
 fn sync_project_support_to_version(
     project_root: &Path,
     active_version: &str,
@@ -5859,6 +6059,7 @@ fn sync_project_support_to_version(
     let plugin_destination = project_root.join("Plugins").join("LoomleBridge");
     let previous_version = read_plugin_version(&plugin_destination);
     if previous_version.as_deref() == Some(active_version) && !force {
+        write_project_registration(project_root, active_version, "project.sync")?;
         return Ok(ProjectSupportSyncOutcome {
             project_root: project_root.to_path_buf(),
             plugin_path: plugin_destination,
@@ -5871,6 +6072,7 @@ fn sync_project_support_to_version(
 
     copy_tree_replace(&plugin_source, &plugin_destination)?;
     ensure_editor_performance_setting(project_root)?;
+    write_project_registration(project_root, active_version, "project.sync")?;
 
     Ok(ProjectSupportSyncOutcome {
         project_root: project_root.to_path_buf(),
@@ -6929,6 +7131,10 @@ mod tests {
             read_plugin_version(&installed_plugin).as_deref(),
             Some("0.5.8")
         );
+        let registration = fs::read_to_string(super::project_registry_path(&project_root))
+            .expect("project registration");
+        assert!(registration.contains("\"projectId\""));
+        assert!(registration.contains("\"pluginVersion\": \"0.5.8\""));
         assert!(fs::read_to_string(
             project_root
                 .join("Config")
@@ -7008,10 +7214,15 @@ mod tests {
         )
         .expect("old plugin");
 
+        let projects = root.join("state").join("projects");
         let runtimes = root.join("state").join("runtimes");
+        fs::create_dir_all(&projects).expect("projects");
         fs::create_dir_all(&runtimes).expect("runtimes");
         fs::write(
-            runtimes.join("offline.json"),
+            projects.join(format!(
+                "{}.json",
+                super::stable_project_id(&offline_project)
+            )),
             serde_json::json!({
                 "name": "OfflineGame",
                 "projectRoot": offline_project,
@@ -7021,7 +7232,23 @@ mod tests {
         )
         .expect("offline record");
         fs::write(
-            runtimes.join("online.json"),
+            projects.join(format!(
+                "{}.json",
+                super::stable_project_id(&online_project)
+            )),
+            serde_json::json!({
+                "name": "OnlineGame",
+                "projectRoot": online_project,
+                "pluginVersion": "0.5.7"
+            })
+            .to_string(),
+        )
+        .expect("online project record");
+        fs::write(
+            runtimes.join(format!(
+                "{}.json",
+                super::stable_project_id(&online_project)
+            )),
             serde_json::json!({
                 "name": "OnlineGame",
                 "projectRoot": online_project,

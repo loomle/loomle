@@ -16,6 +16,10 @@ are not currently online in Unreal Editor. Online projects are skipped so the
 loaded plugin is not overwritten; close Unreal Editor and run `loomle update`
 again to sync them.
 
+Project registration is persistent under `~/.loomle/state/projects`. Runtime
+records under `~/.loomle/state/runtimes` only indicate currently running Bridge
+instances.
+
 ## Build
 
 ```bash
