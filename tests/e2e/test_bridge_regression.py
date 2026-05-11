@@ -3133,18 +3133,19 @@ def main() -> int:
                     "position": {"x": 2200 + (index * 48), "y": 1800},
                 }
             )
-        bulk_blueprint_insert = call_domain_tool(
-            client,
-            1600,
-            "blueprint",
-            "mutate",
-            {
-                "assetPath": temp_asset,
-                "graphName": "EventGraph",
-                "commands": bulk_branch_ops,
-            },
-        )
-        op_ok(bulk_blueprint_insert)
+        for chunk_index in range(0, len(bulk_branch_ops), 10):
+            bulk_blueprint_insert = call_domain_tool(
+                client,
+                1600 + chunk_index,
+                "blueprint",
+                "mutate",
+                {
+                    "assetPath": temp_asset,
+                    "graphName": "EventGraph",
+                    "commands": bulk_branch_ops[chunk_index:chunk_index + 10],
+                },
+            )
+            op_ok(bulk_blueprint_insert)
 
         blueprint_default_page = call_domain_tool(
             client,
