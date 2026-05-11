@@ -4698,7 +4698,7 @@ bool FLoomleBlueprintAdapter::EditComponentMember(const FString& BlueprintAssetP
             {
                 SCS->RemoveNode(Node, false);
             }
-            Node->SetParent(ParentNode);
+            LoomleBlueprintAdapterInternal::ClearSCSNodeParent(Node);
             ParentNode->AddChildNode(Node, bWasRootNode);
         }
 
