@@ -346,6 +346,15 @@ TSharedPtr<FJsonObject> BuildGameThreadTimeoutContext(const FString& Scope, cons
     Context->SetStringField(TEXT("target"), Target);
     Context->SetNumberField(TEXT("timeoutMs"), TimeoutMs);
 
+    if (!IsInGameThread())
+    {
+        Context->SetBoolField(TEXT("slateContextUnavailable"), true);
+        Context->SetStringField(TEXT("slateContextUnavailableReason"), TEXT("NOT_GAME_THREAD"));
+        Context->SetStringField(TEXT("suspectedCause"), TEXT("GAME_THREAD_BLOCKED"));
+        Context->SetStringField(TEXT("hint"), TEXT("The game thread did not respond before the timeout expired."));
+        return Context;
+    }
+
     const bool bSlateInitialized = FSlateApplication::IsInitialized();
     Context->SetBoolField(TEXT("slateInitialized"), bSlateInitialized);
     if (!bSlateInitialized)
