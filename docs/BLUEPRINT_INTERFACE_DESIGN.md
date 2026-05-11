@@ -64,7 +64,6 @@ Recommended public graph surface:
 - `blueprint.graph.layout`
 - `blueprint.palette`
 - `blueprint.compile`
-- `blueprint.validate`
 
 ## Domain 1: Asset
 
@@ -1622,15 +1621,14 @@ The current recommended public Blueprint surface for these domains is:
 - `blueprint.graph.layout`
 - `blueprint.palette`
 - `blueprint.compile`
-- `blueprint.validate`
 
 ## Deferred Topics
 
 The following topics are intentionally deferred to a separate design pass:
 
-- compile and validate payload details
+- compile payload details
 - final recipe file format
 - final asset/member edit command schemas
-- compile and validation contract
+- compile contract
 - preview and transaction semantics
 - unified identifier model for graph elements

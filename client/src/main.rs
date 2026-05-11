@@ -823,7 +823,6 @@ impl LoomleProxyServer {
             "blueprint.graph.inspect" => Ok(Some(self.call_blueprint_graph_inspect(args).await?)),
             "blueprint.graph.edit" => Ok(Some(self.call_blueprint_graph_edit(args).await?)),
             "blueprint.graph.layout" => Ok(Some(self.call_blueprint_graph_layout(args).await?)),
-            "blueprint.validate" => Ok(Some(self.call_blueprint_validate(args).await?)),
             "blueprint.compile" => Ok(Some(self.call_blueprint_compile(args).await?)),
             "blueprint.inspect" => Ok(Some(self.call_blueprint_inspect(args).await?)),
             "blueprint.edit" => Ok(Some(self.runtime_call("blueprint.edit", args).await?)),
@@ -1153,22 +1152,11 @@ impl LoomleProxyServer {
         self.call_blueprint_graph_edit(edit_args).await
     }
 
-    async fn call_blueprint_validate(
-        &self,
-        args: rmcp::model::JsonObject,
-    ) -> Result<CallToolResult, McpError> {
-        let legacy_args = match translate_blueprint_validate_args(&args) {
-            Ok(value) => value,
-            Err(error) => return Ok(error),
-        };
-        Ok(self.runtime_call("blueprint.verify", legacy_args).await?)
-    }
-
     async fn call_blueprint_compile(
         &self,
         args: rmcp::model::JsonObject,
     ) -> Result<CallToolResult, McpError> {
-        let legacy_args = match translate_blueprint_validate_args(&args) {
+        let legacy_args = match translate_blueprint_compile_args(&args) {
             Ok(value) => value,
             Err(error) => return Ok(error),
         };
@@ -1452,15 +1440,14 @@ fn translate_blueprint_palette_args(
     Ok(translated)
 }
 
-fn translate_blueprint_validate_args(
+fn translate_blueprint_compile_args(
     args: &rmcp::model::JsonObject,
 ) -> Result<rmcp::model::JsonObject, CallToolResult> {
-    let asset_path = read_required_asset_path(args, "blueprint.validate")?;
+    let asset_path = read_required_asset_path(args, "blueprint.compile")?;
     let mut translated = rmcp::model::JsonObject::new();
     translated.insert("assetPath".into(), serde_json::json!(asset_path));
-    let graph_address =
-        read_optional_graph_address(args, &asset_path, false, "blueprint.validate")?
-            .unwrap_or_else(|| BlueprintGraphAddress::Name("EventGraph".to_string()));
+    let graph_address = read_optional_graph_address(args, &asset_path, false, "blueprint.compile")?
+        .unwrap_or_else(|| BlueprintGraphAddress::Name("EventGraph".to_string()));
     write_optional_graph_address(&mut translated, Some(graph_address));
     for field in ["limit", "cursor", "layoutDetail"] {
         copy_if_present(args, &mut translated, field);
@@ -2949,7 +2936,6 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("blueprint.graph.layout", "Format a selected Blueprint graph region without changing graph semantics.", Arc::new(blueprint_graph_layout_schema())),
         Tool::new("blueprint.palette", "Search UE Blueprint Action Menu entries for graph creation.", Arc::new(blueprint_palette_schema())),
         Tool::new("blueprint.compile", "Compile a Blueprint asset.", Arc::new(blueprint_compile_schema())),
-        Tool::new("blueprint.validate", "Run read-only structural validation for a Blueprint graph or asset.", Arc::new(blueprint_validate_schema())),
         Tool::new("material.list", "List material expressions in a material asset.", Arc::new(asset_path_only_schema("Material asset path."))),
         Tool::new("material.query", "Read expression nodes and pin data from a material.", Arc::new(material_query_schema())),
         Tool::new("material.mutate", "Apply a batch of write operations to a material asset.", Arc::new(material_mutate_schema())),
@@ -4399,29 +4385,6 @@ fn blueprint_palette_schema() -> rmcp::model::JsonObject {
             "limit":{"type":"integer","minimum":1,"default":50},
             "offset":{"type":"integer","minimum":0,"default":0}
         },
-        "required":["assetPath"],
-        "additionalProperties": false
-    }))
-}
-
-fn blueprint_validate_schema() -> rmcp::model::JsonObject {
-    let mut properties = serde_json::Map::new();
-    properties.insert(
-        "assetPath".into(),
-        serde_json::json!({"type":"string","minLength":1}),
-    );
-    properties.insert("graph".into(), graph_ref_schema());
-    properties.insert(
-        "graphName".into(),
-        serde_json::json!({"type":"string","minLength":1}),
-    );
-    properties.insert(
-        "returnDiagnostics".into(),
-        serde_json::json!({"type":"boolean","default":true}),
-    );
-    schema_from_value(serde_json::json!({
-        "type":"object",
-        "properties": properties,
         "required":["assetPath"],
         "additionalProperties": false
     }))

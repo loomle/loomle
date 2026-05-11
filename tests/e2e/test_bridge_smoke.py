@@ -30,7 +30,6 @@ REQUIRED_TOOLS = {
     "blueprint.graph.edit",
     "blueprint.palette",
     "blueprint.compile",
-    "blueprint.validate",
     "material.list",
     "material.query",
     "material.mutate",

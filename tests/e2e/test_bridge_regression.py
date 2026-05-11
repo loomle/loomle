@@ -44,7 +44,6 @@ def call_domain_tool(
             "list": "blueprint.graph.list",
             "query": "blueprint.graph.inspect",
             "mutate": "blueprint.graph.edit",
-            "verify": "blueprint.validate",
             "describe": "blueprint.inspect",
             "compile": "blueprint.compile",
         }.get(action, tool_name)
@@ -975,27 +974,21 @@ def main() -> int:
             fail(f"blueprint.graph.inspect missing LAYOUT_DETAIL_DOWNGRADED diagnostic: {graph_query}")
         print("[PASS] blueprint.graph.inspect structure validated")
 
-        blueprint_verify = call_domain_tool(
+        blueprint_compile = call_domain_tool(
             client,
             6405,
             "blueprint",
-            "verify",
+            "compile",
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "limit": 200,
             },
         )
-        if blueprint_verify.get("status") not in {"ok", "warn"}:
-            fail(f"blueprint.verify returned unexpected status: {blueprint_verify}")
-        if not isinstance(blueprint_verify.get("queryReport"), dict):
-            fail(f"blueprint.verify missing queryReport: {blueprint_verify}")
-        blueprint_compile_report = blueprint_verify.get("compileReport")
-        if not isinstance(blueprint_compile_report, dict) or blueprint_compile_report.get("compiled") is not True:
-            fail(f"blueprint.verify missing compiled=true compileReport: {blueprint_verify}")
-        if not isinstance(blueprint_verify.get("diagnostics"), list):
-            fail(f"blueprint.verify missing diagnostics[]: {blueprint_verify}")
-        print("[PASS] blueprint.verify unified summary validated")
+        if blueprint_compile.get("compiled") is not True:
+            fail(f"blueprint.compile returned unexpected result: {blueprint_compile}")
+        if not isinstance(blueprint_compile.get("diagnostics"), list):
+            fail(f"blueprint.compile missing diagnostics[]: {blueprint_compile}")
+        print("[PASS] blueprint.compile summary validated")
 
         member_ops = [
             ("component create root", {
@@ -1479,9 +1472,6 @@ def main() -> int:
         compiled_member_bp = call_tool(client, 6520, "blueprint.compile", {"assetPath": temp_asset})
         if compiled_member_bp.get("compiled") is not True:
             fail(f"blueprint.compile after member.edit failed: {compiled_member_bp}")
-        validated_member_bp = call_tool(client, 6521, "blueprint.validate", {"assetPath": temp_asset})
-        if validated_member_bp.get("status") not in {"ok", "warn"}:
-            fail(f"blueprint.validate after member.edit returned unexpected status: {validated_member_bp}")
         variable_inspect_payload = call_tool(
             client,
             6522,
