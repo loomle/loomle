@@ -99,7 +99,9 @@ public:
     static bool GetNodeDetails(const FString& BlueprintAssetPath, const FString& NodeGuid, FString& OutNodeJson, FString& OutError);
     static bool FindNodesByClass(const FString& BlueprintAssetPath, const FString& NodeClassPathOrName, FString& OutNodesJson, FString& OutError);
     static bool SearchBlueprintPalette(const FString& BlueprintAssetPath, const FString& GraphName, const FString& PayloadJson, FString& OutJson, FString& OutError);
-    static bool AddNodeFromPalette(const FString& BlueprintAssetPath, const FString& GraphName, const FString& EntryId, const FString& PayloadJson, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError, bool bDryRun = false);
+    static int32 BeginPaletteRequestCache();
+    static void EndPaletteRequestCache(int32 CacheId);
+    static bool AddNodeFromPalette(const FString& BlueprintAssetPath, const FString& GraphName, const FString& EntryId, const FString& PayloadJson, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError, bool bDryRun = false, int32 PaletteRequestCacheId = INDEX_NONE);
     static bool CompileBlueprint(const FString& BlueprintAssetPath, const FString& GraphName, FString& OutError);
     static bool SpawnBlueprintActor(const FString& BlueprintAssetPath, FVector Location, FRotator Rotation, FString& OutActorPath, FString& OutError);
 };

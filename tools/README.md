@@ -19,15 +19,22 @@ Use:
 python3 tools/dev_verify.py --project-root /path/to/MyProject
 ```
 
-`dev_verify.py` builds the checkout `loomle` binary, syncs
-`engine/LoomleBridge` into the dev project, starts Unreal Editor, waits for the
-bridge runtime, then runs smoke and optional regression checks through the
-checkout-built global-client path.
+`dev_verify.py` builds the checkout `loomle` binary, syncs the
+`engine/LoomleBridge` plugin source into the dev project, builds the dev
+project's Editor target, starts Unreal Editor, waits for the bridge runtime,
+then runs the smoke check through the checkout-built global-client path.
+
+This is a local development loop. It does not run `RunUAT BuildPlugin -Rocket`
+or package the plugin. Release/package verification lives in the GitHub
+workflows under `.github/workflows/`.
 
 Useful variants:
 
 ```bash
+python3 tools/dev_verify.py --project-root /path/to/MyProject --run-regression
 python3 tools/dev_verify.py --project-root /path/to/MyProject --run-latency
+python3 tools/dev_verify.py --project-root /path/to/MyProject --skip-editor-build
+python3 tools/dev_verify.py --project-root /path/to/MyProject --no-engine-changes
 python3 tools/dev_verify.py --project-root /path/to/MyProject --install-only
 ```
 

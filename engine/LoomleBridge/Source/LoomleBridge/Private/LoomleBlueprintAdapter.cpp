@@ -6290,6 +6290,38 @@ namespace
         }
     }
 
+    static int32 NextPaletteRequestCacheId = 1;
+    static TMap<int32, TMap<FString, TSharedPtr<FBlueprintActionMenuBuilder>>> PaletteRequestCaches;
+
+    static FString LoomlePaletteActionCacheKey(
+        const FString& BlueprintAssetPath,
+        const UEdGraph* TargetGraph,
+        const TArray<UEdGraphPin*>& FromPins,
+        bool bContextSensitive)
+    {
+        TArray<FString> PinKeys;
+        for (const UEdGraphPin* Pin : FromPins)
+        {
+            const UEdGraphNode* OwningNode = Pin != nullptr ? Pin->GetOwningNode() : nullptr;
+            if (OwningNode == nullptr)
+            {
+                continue;
+            }
+            PinKeys.Add(FString::Printf(
+                TEXT("%s:%s"),
+                *OwningNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower),
+                *Pin->PinName.ToString()));
+        }
+        PinKeys.Sort();
+
+        return FString::Printf(
+            TEXT("%s|%s|%d|%s"),
+            *BlueprintAssetPath,
+            TargetGraph != nullptr ? *TargetGraph->GetPathName() : TEXT(""),
+            bContextSensitive ? 1 : 0,
+            *FString::Join(PinKeys, TEXT(",")));
+    }
+
     static FString LoomlePaletteActionNodeClass(const TSharedPtr<FEdGraphSchemaAction>& Action)
     {
         if (!Action.IsValid() || Action->GetTypeId() != FBlueprintActionMenuItem::StaticGetTypeId())
@@ -6423,6 +6455,21 @@ namespace
     }
 }
 
+int32 FLoomleBlueprintAdapter::BeginPaletteRequestCache()
+{
+    const int32 CacheId = NextPaletteRequestCacheId++;
+    PaletteRequestCaches.Add(CacheId, {});
+    return CacheId;
+}
+
+void FLoomleBlueprintAdapter::EndPaletteRequestCache(int32 CacheId)
+{
+    if (CacheId != INDEX_NONE)
+    {
+        PaletteRequestCaches.Remove(CacheId);
+    }
+}
+
 bool FLoomleBlueprintAdapter::SearchBlueprintPalette(const FString& BlueprintAssetPath, const FString& GraphName, const FString& PayloadJson, FString& OutJson, FString& OutError)
 {
     OutJson.Empty();
@@ -6523,7 +6570,7 @@ bool FLoomleBlueprintAdapter::SearchBlueprintPalette(const FString& BlueprintAss
     return true;
 }
 
-bool FLoomleBlueprintAdapter::AddNodeFromPalette(const FString& BlueprintAssetPath, const FString& GraphName, const FString& EntryId, const FString& PayloadJson, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError, bool bDryRun)
+bool FLoomleBlueprintAdapter::AddNodeFromPalette(const FString& BlueprintAssetPath, const FString& GraphName, const FString& EntryId, const FString& PayloadJson, int32 NodePosX, int32 NodePosY, FString& OutNodeGuid, FString& OutError, bool bDryRun, int32 PaletteRequestCacheId)
 {
     OutNodeGuid.Empty();
     OutError.Empty();
@@ -6561,8 +6608,31 @@ bool FLoomleBlueprintAdapter::AddNodeFromPalette(const FString& BlueprintAssetPa
         }
     }
 
-    FBlueprintActionMenuBuilder Builder;
-    LoomleBuildPaletteActions(Context, bContextSensitive, Builder);
+    TSharedPtr<FBlueprintActionMenuBuilder> CachedBuilder;
+    if (PaletteRequestCacheId != INDEX_NONE)
+    {
+        if (TMap<FString, TSharedPtr<FBlueprintActionMenuBuilder>>* RequestCache = PaletteRequestCaches.Find(PaletteRequestCacheId))
+        {
+            const FString CacheKey = LoomlePaletteActionCacheKey(BlueprintAssetPath, TargetGraph, FromPins, bContextSensitive);
+            if (const TSharedPtr<FBlueprintActionMenuBuilder>* ExistingBuilder = RequestCache->Find(CacheKey))
+            {
+                CachedBuilder = *ExistingBuilder;
+            }
+            else
+            {
+                CachedBuilder = MakeShared<FBlueprintActionMenuBuilder>();
+                LoomleBuildPaletteActions(Context, bContextSensitive, *CachedBuilder);
+                RequestCache->Add(CacheKey, CachedBuilder);
+            }
+        }
+    }
+
+    FBlueprintActionMenuBuilder LocalBuilder;
+    FBlueprintActionMenuBuilder& Builder = CachedBuilder.IsValid() ? *CachedBuilder : LocalBuilder;
+    if (!CachedBuilder.IsValid())
+    {
+        LoomleBuildPaletteActions(Context, bContextSensitive, Builder);
+    }
 
     for (int32 Index = 0; Index < Builder.GetNumActions(); ++Index)
     {

@@ -135,20 +135,6 @@ def resolve_ue_root(platform: str, override: str) -> Path:
     return candidate
 
 
-def resolve_run_uat(ue_root: Path, platform: str) -> Path:
-    if platform == "darwin":
-        run_uat = ue_root / "Engine" / "Build" / "BatchFiles" / "RunUAT.sh"
-    elif platform == "windows":
-        run_uat = ue_root / "Engine" / "Build" / "BatchFiles" / "RunUAT.bat"
-    else:
-        fail("local plugin build automation is only supported on macOS and Windows")
-        raise RuntimeError("unreachable")
-
-    if not run_uat.exists():
-        fail(f"RunUAT not found: {run_uat}")
-    return run_uat
-
-
 def resolve_editor_binary(ue_root: Path, platform: str) -> Path:
     if platform == "darwin":
         editor = ue_root / "Engine" / "Binaries" / "Mac" / "UnrealEditor.app"
@@ -161,6 +147,38 @@ def resolve_editor_binary(ue_root: Path, platform: str) -> Path:
     if not editor.exists():
         fail(f"Unreal Editor binary not found: {editor}")
     return editor
+
+
+def resolve_editor_build_script(ue_root: Path, platform: str) -> Path:
+    if platform == "darwin":
+        build_script = ue_root / "Engine" / "Build" / "BatchFiles" / "Mac" / "Build.sh"
+    elif platform == "windows":
+        build_script = ue_root / "Engine" / "Build" / "BatchFiles" / "Build.bat"
+    else:
+        fail("local UE editor automation is only supported on macOS and Windows")
+        raise RuntimeError("unreachable")
+
+    if not build_script.exists():
+        fail(f"Unreal editor build script not found: {build_script}")
+    return build_script
+
+
+def build_editor_target(ue_root: Path, uproject: Path, platform: str, no_engine_changes: bool) -> None:
+    step("Build Unreal Editor target for dev project")
+    build_script = resolve_editor_build_script(ue_root, platform)
+    platform_name = "Mac" if platform == "darwin" else "Win64"
+    command = [
+        str(build_script),
+        "Development",
+        platform_name,
+        f"-Project={uproject}",
+        "-TargetType=Editor",
+        "-Progress",
+        "-NoHotReloadFromIDE",
+    ]
+    if no_engine_changes:
+        command.append("-NoEngineChanges")
+    run(command)
 
 
 def stop_editor(uproject: Path, platform: str) -> None:
@@ -192,30 +210,22 @@ def start_editor(editor_binary: Path, uproject: Path, platform: str) -> None:
         subprocess.Popen(args)
 
 
-def sync_built_plugin_into_project(project_root: Path, ue_root: Path, platform: str, output_dir: Path) -> None:
-    step("Build plugin binaries from current checkout and sync into project")
+def sync_source_plugin_into_project(project_root: Path) -> None:
+    step("Sync plugin source from current checkout into project")
     plugin_descriptor = REPO_ROOT / "engine" / "LoomleBridge" / "LoomleBridge.uplugin"
     if not plugin_descriptor.exists():
         fail(f"plugin descriptor not found: {plugin_descriptor}")
 
-    package_dir = output_dir / "plugin-package"
-    if package_dir.exists():
-        shutil.rmtree(package_dir)
-
-    run_uat = resolve_run_uat(ue_root, platform)
-    target_platform = "Mac" if platform == "darwin" else "Win64"
-    run([str(run_uat), "BuildPlugin", f"-Plugin={plugin_descriptor}", f"-Package={package_dir}", f"-TargetPlatforms={target_platform}", "-Rocket"])
-
     plugin_dst = project_root / "Plugins" / "LoomleBridge"
-    if not plugin_dst.exists():
-        fail(f"project plugin destination not found after install: {plugin_dst}")
+    if plugin_dst.exists():
+        shutil.rmtree(plugin_dst)
+
+    overlay_tree(plugin_descriptor.parent, plugin_dst)
 
     for generated_dir in ["Binaries", "Intermediate"]:
         stale_dir = plugin_dst / generated_dir
         if stale_dir.exists():
             shutil.rmtree(stale_dir)
-
-    overlay_tree(package_dir, plugin_dst)
 
 
 def restart_editor(project_root: Path, ue_root: Path, platform: str) -> None:
@@ -363,7 +373,7 @@ def run_smoke_with_retry(project_root: Path, timeout_s: float) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Sync the current checkout plugin into a dev UE project, then verify through the release loomle binary."
+        description="Sync the current checkout plugin source into a dev UE project, then verify through the release loomle binary."
     )
     parser.add_argument(
         "--project-root",
@@ -383,7 +393,7 @@ def main() -> int:
     parser.add_argument(
         "--output-dir",
         default=str(REPO_ROOT / "runtime" / "dev-verify-install"),
-        help="Temporary build/install output directory.",
+        help="Deprecated compatibility option; dev_verify no longer packages the plugin.",
     )
     parser.add_argument(
         "--version",
@@ -396,9 +406,28 @@ def main() -> int:
         default=240.0,
         help="Seconds to wait for smoke validation after restart.",
     )
-    parser.add_argument("--skip-regression", action="store_true", help="Skip the regression suite.")
-    parser.add_argument("--run-latency", action="store_true", help="Run latency validation after smoke/regression.")
+    parser.add_argument(
+        "--run-regression",
+        action="store_true",
+        help="Run the regression suite after smoke validation. Skipped by default for local dev speed.",
+    )
+    parser.add_argument(
+        "--skip-regression",
+        action="store_true",
+        help="Deprecated compatibility option; regression is skipped unless --run-regression is set.",
+    )
+    parser.add_argument("--run-latency", action="store_true", help="Run latency validation after smoke and any requested regression.")
     parser.add_argument("--no-restart", action="store_true", help="Skip Unreal Editor restart after install.")
+    parser.add_argument(
+        "--skip-editor-build",
+        action="store_true",
+        help="Skip the explicit project Editor target build before launching UE.",
+    )
+    parser.add_argument(
+        "--no-engine-changes",
+        action="store_true",
+        help="Pass -NoEngineChanges to the explicit Editor target build.",
+    )
     parser.add_argument("--install-only", action="store_true", help="Only refresh the dev project plugin, do not run tests.")
     parser.add_argument(
         "--keep-editor-open",
@@ -409,28 +438,25 @@ def main() -> int:
 
     platform = detect_platform()
     project_root = resolve_project_root(args.project_root, args.dev_config)
-    output_dir = Path(args.output_dir).resolve()
-    if output_dir == REPO_ROOT or output_dir == project_root:
-        fail(f"refusing to use repository root or project root as output dir: {output_dir}")
     ue_root = resolve_ue_root(platform, args.ue_root)
     uproject = next(path for path in project_root.iterdir() if path.is_file() and path.suffix.lower() == ".uproject")
     should_close_editor = not args.keep_editor_open
 
     try:
-        if output_dir.exists():
-            shutil.rmtree(output_dir)
-        output_dir.parent.mkdir(parents=True, exist_ok=True)
+        if not args.no_restart or args.install_only:
+            step("Close target Unreal Editor before plugin sync")
+            stop_editor(uproject, platform)
+            time.sleep(2.0)
 
         loomle_binary = build_release_loomle_binary(platform)
-        plugin_dst = project_root / "Plugins" / "LoomleBridge"
-        if plugin_dst.exists():
-            shutil.rmtree(plugin_dst)
-        overlay_tree(REPO_ROOT / "engine" / "LoomleBridge", plugin_dst)
-        sync_built_plugin_into_project(project_root, ue_root, platform, output_dir)
+        sync_source_plugin_into_project(project_root)
 
         if args.install_only:
             print("[PASS] dev plugin sync completed", file=sys.stderr)
             return 0
+
+        if not args.skip_editor_build:
+            build_editor_target(ue_root, uproject, platform, args.no_engine_changes)
 
         if not args.no_restart:
             restart_editor(project_root, ue_root, platform)
@@ -441,7 +467,7 @@ def main() -> int:
         step("Run smoke validation")
         run_smoke_with_retry(project_root, args.wait_timeout)
 
-        if not args.skip_regression:
+        if args.run_regression and not args.skip_regression:
             step("Run regression validation")
             run(
                 [

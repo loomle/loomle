@@ -277,6 +277,13 @@ the Blueprint Action Menu:
 execution. The entry id is not a permanent global id. It is valid only for the
 context needed to reproduce the selected UE action.
 
+Within one `blueprint.graph.edit` request, repeated `addFromPalette` commands
+with the same Blueprint action context should reuse the request-local action
+menu builder result. Building the Blueprint Action Menu can scan and filter a
+large UE action set, so repeated node creation in one batch should not rebuild
+that menu for every command. The cache is request-local only; it must not make
+palette entry ids stable across requests or bypass UE's action menu machinery.
+
 ## Coverage Model
 
 Palette coverage should be audited against UE Action Menu entries, not against a

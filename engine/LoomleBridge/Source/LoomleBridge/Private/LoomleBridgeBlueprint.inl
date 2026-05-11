@@ -2512,6 +2512,85 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
     FString FirstErrorCode;
     FString FirstErrorMessage;
 
+    struct FBlueprintGraphEditResolvedGraph
+    {
+        UBlueprint* Blueprint = nullptr;
+        UEdGraph* Graph = nullptr;
+    };
+
+    TMap<FString, FBlueprintGraphEditResolvedGraph> ResolvedGraphCache;
+    TSet<UEdGraph*> DeferredNotifyGraphs;
+    TSet<UBlueprint*> DeferredModifiedBlueprints;
+
+    auto ResolveCachedGraph = [&](const FString& EffectiveGraphName, FBlueprintGraphEditResolvedGraph& OutResolved, FString& OutError) -> bool
+    {
+        const FString CacheKey = FString::Printf(TEXT("%s|%s"), *AssetPath, *EffectiveGraphName);
+        if (const FBlueprintGraphEditResolvedGraph* Existing = ResolvedGraphCache.Find(CacheKey))
+        {
+            OutResolved = *Existing;
+            return OutResolved.Blueprint != nullptr && OutResolved.Graph != nullptr;
+        }
+
+        FBlueprintGraphEditResolvedGraph Resolved;
+        Resolved.Blueprint = LoadBlueprintByAssetPath(AssetPath);
+        Resolved.Graph = ResolveBlueprintGraph(Resolved.Blueprint, EffectiveGraphName);
+        ResolvedGraphCache.Add(CacheKey, Resolved);
+        OutResolved = Resolved;
+        if (Resolved.Blueprint == nullptr || Resolved.Graph == nullptr)
+        {
+            OutError = TEXT("Failed to resolve blueprint/target graph.");
+            return false;
+        }
+        return true;
+    };
+
+    auto DeferGraphModified = [&](UBlueprint* Blueprint, UEdGraph* Graph)
+    {
+        if (Blueprint != nullptr && Graph != nullptr && !bDryRun)
+        {
+            DeferredNotifyGraphs.Add(Graph);
+            DeferredModifiedBlueprints.Add(Blueprint);
+        }
+    };
+
+    auto FlushDeferredGraphNotifications = [&]()
+    {
+        for (UEdGraph* Graph : DeferredNotifyGraphs)
+        {
+            if (Graph != nullptr)
+            {
+                Graph->NotifyGraphChanged();
+            }
+        }
+        for (UBlueprint* Blueprint : DeferredModifiedBlueprints)
+        {
+            if (Blueprint != nullptr)
+            {
+                FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+                Blueprint->MarkPackageDirty();
+            }
+        }
+        DeferredNotifyGraphs.Empty();
+        DeferredModifiedBlueprints.Empty();
+    };
+
+    struct FPaletteRequestCacheScope
+    {
+        int32 CacheId = INDEX_NONE;
+
+        FPaletteRequestCacheScope()
+            : CacheId(FLoomleBlueprintAdapter::BeginPaletteRequestCache())
+        {
+        }
+
+        ~FPaletteRequestCacheScope()
+        {
+            FLoomleBlueprintAdapter::EndPaletteRequestCache(CacheId);
+        }
+    };
+
+    FPaletteRequestCacheScope PaletteRequestCache;
+
     for (int32 Index = 0; Index < Ops->Num(); ++Index)
     {
         const TSharedPtr<FJsonObject>* OpObj = nullptr;
@@ -2519,6 +2598,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
         {
             continue;
         }
+
+        const double OpStartSeconds = FPlatformTime::Seconds();
 
         TSharedPtr<FJsonObject> SingleOp = CloneJsonObject(*OpObj);
         if (!SingleOp.IsValid())
@@ -2644,6 +2725,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             Result->SetBoolField(TEXT("isError"), true);
             Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
             Result->SetStringField(TEXT("message"), TEXT("Supply either targetGraphRef/args.graphRef or targetGraphName, not both."));
+            FlushDeferredGraphNotifications();
             return Result;
         }
         else if (bHasTargetGraphRef)
@@ -3271,7 +3353,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                     Y,
                     NewNodeId,
                     Error,
-                    bDryRun);
+                    bDryRun,
+                    PaletteRequestCache.CacheId);
                 SingleResult = BuildDirectSingleResult(bOk, bOk && !bDryRun, TEXT(""), Error, NewNodeId);
                 if (bOk)
                 {
@@ -3447,9 +3530,91 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             else
             {
                 FString Error;
-                const bool bOk = OpName.Equals(TEXT("connectpins"))
-                    ? FLoomleBlueprintAdapter::ConnectPins(AssetPath, EffectiveGraphName, FromNodeId, FromPinName, ToNodeId, ToPinName, Error)
-                    : FLoomleBlueprintAdapter::DisconnectPins(AssetPath, EffectiveGraphName, FromNodeId, FromPinName, ToNodeId, ToPinName, Error);
+                bool bOk = false;
+                FBlueprintGraphEditResolvedGraph Resolved;
+                if (ResolveCachedGraph(EffectiveGraphName, Resolved, Error))
+                {
+                    UEdGraphNode* FromNode = ResolveBlueprintGraphNodeByToken(Resolved.Graph, FromNodeId);
+                    UEdGraphNode* ToNode = ResolveBlueprintGraphNodeByToken(Resolved.Graph, ToNodeId);
+                    if (FromNode == nullptr)
+                    {
+                        Error = FString::Printf(TEXT("NODE_REF_NOT_FOUND: from.node id was not found in graph: %s"), *FromNodeId);
+                    }
+                    else if (ToNode == nullptr)
+                    {
+                        Error = FString::Printf(TEXT("NODE_REF_NOT_FOUND: to.node id was not found in graph: %s"), *ToNodeId);
+                    }
+                    else
+                    {
+                        UEdGraphPin* FromPin = FindPinByName(FromNode, FromPinName);
+                        UEdGraphPin* ToPin = FindPinByName(ToNode, ToPinName);
+                        if (FromPin == nullptr)
+                        {
+                            Error = FString::Printf(TEXT("PIN_REF_NOT_FOUND: from pin was not found on node %s: %s"), *FromNodeId, *FromPinName);
+                        }
+                        else if (ToPin == nullptr)
+                        {
+                            Error = FString::Printf(TEXT("PIN_REF_NOT_FOUND: to pin was not found on node %s: %s"), *ToNodeId, *ToPinName);
+                        }
+                        else if (FromPin->Direction != EGPD_Output || ToPin->Direction != EGPD_Input)
+                        {
+                            Error = OpName.Equals(TEXT("connectpins"))
+                                ? TEXT("CONNECT_REQUIRES_OUTPUT_TO_INPUT: connect requires from to be an output pin and to to be an input pin.")
+                                : TEXT("CONNECT_REQUIRES_OUTPUT_TO_INPUT: disconnect requires from to be an output pin and to to be an input pin.");
+                        }
+                        else if (OpName.Equals(TEXT("disconnectpins")) && !(FromPin->LinkedTo.Contains(ToPin) || ToPin->LinkedTo.Contains(FromPin)))
+                        {
+                            Error = TEXT("LINK_NOT_FOUND: specified pin link does not exist; disconnect treated it as a no-op.");
+                            bOk = true;
+                        }
+                        else
+                        {
+                            const UEdGraphSchema_K2* Schema = GetDefault<UEdGraphSchema_K2>();
+                            if (Schema == nullptr)
+                            {
+                                Error = TEXT("INTERNAL_ERROR: Failed to resolve K2 graph schema.");
+                            }
+                            else if (OpName.Equals(TEXT("connectpins")))
+                            {
+                                const FPinConnectionResponse Response = Schema->CanCreateConnection(FromPin, ToPin);
+                                if (Response.Response == CONNECT_RESPONSE_MAKE_WITH_CONVERSION_NODE || Response.Response == CONNECT_RESPONSE_MAKE_WITH_PROMOTION)
+                                {
+                                    Error = FString::Printf(TEXT("CONNECT_PIN_TYPE_MISMATCH: Pins require conversion or promotion, which blueprint.graph.edit does not auto-insert. %s"), *Response.Message.ToString());
+                                }
+                                else if (Response.Response == CONNECT_RESPONSE_DISALLOW)
+                                {
+                                    Error = FString::Printf(TEXT("CONNECT_PIN_TYPE_MISMATCH: %s"), *Response.Message.ToString());
+                                }
+                                else
+                                {
+                                    Resolved.Blueprint->Modify();
+                                    Resolved.Graph->Modify();
+                                    FromNode->Modify();
+                                    ToNode->Modify();
+                                    if (Schema->TryCreateConnection(FromPin, ToPin))
+                                    {
+                                        bOk = true;
+                                        DeferGraphModified(Resolved.Blueprint, Resolved.Graph);
+                                    }
+                                    else
+                                    {
+                                        Error = FString::Printf(TEXT("CONNECT_PIN_TYPE_MISMATCH: %s"), *Response.Message.ToString());
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                Resolved.Blueprint->Modify();
+                                Resolved.Graph->Modify();
+                                FromNode->Modify();
+                                ToNode->Modify();
+                                FromPin->BreakLinkTo(ToPin);
+                                bOk = true;
+                                DeferGraphModified(Resolved.Blueprint, Resolved.Graph);
+                            }
+                        }
+                    }
+                }
                 const FString ErrorCode = ErrorCodeFromPrefixedMessage(Error);
                 const bool bChanged = bOk && !ErrorCode.Equals(TEXT("LINK_NOT_FOUND"));
                 SingleResult = BuildDirectSingleResult(bOk, bChanged, ErrorCode, Error);
@@ -4367,6 +4532,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             FallbackOpResult->SetBoolField(TEXT("ok"), false);
             FallbackOpResult->SetStringField(TEXT("errorCode"), TEXT("INTERNAL_ERROR"));
             FallbackOpResult->SetStringField(TEXT("errorMessage"), TEXT("Single-op blueprint mutate returned an invalid result."));
+            FallbackOpResult->SetNumberField(TEXT("durationMs"), (FPlatformTime::Seconds() - OpStartSeconds) * 1000.0);
             OpResults.Add(MakeShared<FJsonValueObject>(FallbackOpResult));
             bAnyError = true;
             if (FirstErrorCode.IsEmpty())
@@ -4403,6 +4569,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 RewrittenOpResult = *FirstSingleOpResult;
             }
             RewrittenOpResult->SetNumberField(TEXT("index"), Index);
+            RewrittenOpResult->SetNumberField(TEXT("durationMs"), (FPlatformTime::Seconds() - OpStartSeconds) * 1000.0);
             OpResults.Add(MakeShared<FJsonValueObject>(RewrittenOpResult));
 
             FString CreatedNodeId;
@@ -4430,6 +4597,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             SingleResult->TryGetStringField(TEXT("message"), SingleMessage);
             FallbackOpResult->SetStringField(TEXT("errorCode"), bSingleError ? SingleCode : TEXT(""));
             FallbackOpResult->SetStringField(TEXT("errorMessage"), bSingleError ? SingleMessage : TEXT(""));
+            FallbackOpResult->SetNumberField(TEXT("durationMs"), (FPlatformTime::Seconds() - OpStartSeconds) * 1000.0);
             OpResults.Add(MakeShared<FJsonValueObject>(FallbackOpResult));
         }
 
@@ -4450,6 +4618,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             }
         }
     }
+
+    FlushDeferredGraphNotifications();
 
     TSharedPtr<FJsonObject> AggregateDiff = MakeShared<FJsonObject>();
     static const TCHAR* DiffFields[] = {
