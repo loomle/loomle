@@ -42,12 +42,12 @@ pub fn call_schema_inspect(args: &JsonObject) -> CallToolResult {
     let Some(tool) = args.get("tool").and_then(|value| value.as_str()) else {
         return invalid_argument_result("schema.inspect requires tool.");
     };
-    if tool != "blueprint.graph.edit" {
+    if !matches!(tool, "blueprint.graph.edit" | "blueprint.member.edit") {
         return CallToolResult::structured_error(serde_json::json!({
             "isError": true,
             "code": "UNKNOWN_TOOL",
             "message": format!("Unknown schema tool for domain blueprint: {tool}"),
-            "availableTools": ["blueprint.graph.edit"],
+            "availableTools": ["blueprint.graph.edit", "blueprint.member.edit"],
             "retryable": false
         }));
     }
@@ -57,8 +57,16 @@ pub fn call_schema_inspect(args: &JsonObject) -> CallToolResult {
         Err(error) => return error,
     };
 
+    match tool {
+        "blueprint.graph.edit" => call_graph_edit_schema_inspect(args, &includes),
+        "blueprint.member.edit" => call_member_edit_schema_inspect(args, &includes),
+        _ => unreachable!("validated schema.inspect tool"),
+    }
+}
+
+fn call_graph_edit_schema_inspect(args: &JsonObject, includes: &[String]) -> CallToolResult {
     if let Some(operation) = args.get("operation").and_then(|value| value.as_str()) {
-        let Some(payload) = blueprint_graph_edit_operation_schema(operation, &includes) else {
+        let Some(payload) = blueprint_graph_edit_operation_schema(operation, includes) else {
             return CallToolResult::structured_error(serde_json::json!({
                 "isError": true,
                 "code": "UNKNOWN_OPERATION",
@@ -77,6 +85,31 @@ pub fn call_schema_inspect(args: &JsonObject) -> CallToolResult {
         "source": {
             "document": "docs/blueprint/graph-edit.md",
             "section": "Command Classification"
+        }
+    }))
+}
+
+fn call_member_edit_schema_inspect(args: &JsonObject, includes: &[String]) -> CallToolResult {
+    if let Some(operation) = args.get("operation").and_then(|value| value.as_str()) {
+        let Some(payload) = blueprint_member_edit_operation_schema(operation, includes) else {
+            return CallToolResult::structured_error(serde_json::json!({
+                "isError": true,
+                "code": "UNKNOWN_OPERATION",
+                "message": format!("Unknown operation for blueprint.member.edit: {operation}"),
+                "availableOperations": blueprint_member_edit_operation_names(),
+                "retryable": false
+            }));
+        };
+        return CallToolResult::structured(payload);
+    }
+
+    CallToolResult::structured(serde_json::json!({
+        "domain": "blueprint",
+        "tool": "blueprint.member.edit",
+        "operations": blueprint_member_edit_operation_index(),
+        "source": {
+            "document": "docs/BLUEPRINT_INTERFACE_DESIGN.md",
+            "section": "Member domains"
         }
     }))
 }
@@ -126,6 +159,335 @@ fn parse_schema_inspect_includes(args: &JsonObject) -> Result<Vec<String>, CallT
 
 fn schema_include_requested(includes: &[String], section: &str) -> bool {
     includes.iter().any(|include| include == section)
+}
+
+fn blueprint_member_edit_operation_names() -> Vec<&'static str> {
+    vec![
+        "variable.create",
+        "variable.update",
+        "variable.rename",
+        "variable.reorder",
+        "variable.setDefault",
+        "variable.delete",
+        "function.create",
+        "function.rename",
+        "function.setFlags",
+        "function.delete",
+        "macro.create",
+        "macro.rename",
+        "macro.delete",
+        "dispatcher.create",
+        "dispatcher.rename",
+        "dispatcher.delete",
+        "event.create",
+        "event.updateSignature",
+        "event.addInput",
+        "event.setFlags",
+        "event.rename",
+        "event.delete",
+        "component.create",
+        "component.update",
+        "component.rename",
+        "component.reparent",
+        "component.reorder",
+        "component.delete",
+    ]
+}
+
+fn blueprint_member_edit_operation_index() -> Vec<serde_json::Value> {
+    blueprint_member_edit_operation_names()
+        .into_iter()
+        .map(|name| {
+            let (member_kind, operation) = split_member_operation(name)
+                .expect("member edit operation names use memberKind.operation");
+            serde_json::json!({
+                "name": name,
+                "memberKind": member_kind,
+                "operation": operation,
+                "category": member_kind,
+                "summary": member_edit_operation_summary(member_kind, operation)
+            })
+        })
+        .collect()
+}
+
+fn split_member_operation(operation: &str) -> Option<(&str, &str)> {
+    operation.split_once('.')
+}
+
+fn member_edit_operation_summary(member_kind: &str, operation: &str) -> &'static str {
+    match (member_kind, operation) {
+        ("variable", "create") => "Create one Blueprint variable.",
+        ("variable", "update") => {
+            "Update variable metadata, type, default, or replication settings."
+        }
+        ("variable", "rename") => "Rename one Blueprint variable.",
+        ("variable", "reorder") => "Move one variable before or after another variable.",
+        ("variable", "setDefault") => "Set one Blueprint variable default value.",
+        ("variable", "delete") => "Delete one Blueprint variable.",
+        ("function", "create") => "Create one Blueprint function graph and signature.",
+        ("function", "rename") => "Rename one Blueprint function.",
+        ("function", "setFlags") => "Update Blueprint function flags and metadata.",
+        ("function", "delete") => "Delete one Blueprint function.",
+        ("macro", "create") => "Create one Blueprint macro graph and signature.",
+        ("macro", "rename") => "Rename one Blueprint macro.",
+        ("macro", "delete") => "Delete one Blueprint macro.",
+        ("dispatcher", "create") => "Create one Blueprint event dispatcher.",
+        ("dispatcher", "rename") => "Rename one Blueprint event dispatcher.",
+        ("dispatcher", "delete") => "Delete one Blueprint event dispatcher.",
+        ("event", "create") => "Create one custom event node and signature.",
+        ("event", "updateSignature") => "Replace a custom event signature.",
+        ("event", "addInput") => "Add one input parameter to a custom event.",
+        ("event", "setFlags") => "Update custom event replication flags.",
+        ("event", "rename") => "Rename one custom event.",
+        ("event", "delete") => "Delete one custom event.",
+        ("component", "create") => "Create one Blueprint component.",
+        ("component", "update") => "Update component defaults or editor properties.",
+        ("component", "rename") => "Rename one Blueprint component.",
+        ("component", "reparent") => "Change one component's attachment parent.",
+        ("component", "reorder") => "Move one component before or after another component.",
+        ("component", "delete") => "Delete one Blueprint component.",
+        _ => "Edit one Blueprint member.",
+    }
+}
+
+fn blueprint_member_edit_operation_schema(
+    operation_name: &str,
+    includes: &[String],
+) -> Option<serde_json::Value> {
+    let (member_kind, operation) = split_member_operation(operation_name)?;
+    if !blueprint_member_edit_operation_names()
+        .iter()
+        .any(|name| name == &operation_name)
+    {
+        return None;
+    }
+
+    let schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "assetPath": {"type":"string","minLength":1},
+            "memberKind": {"const": member_kind},
+            "operation": {"const": operation},
+            "args": member_edit_args_schema(member_kind, operation),
+            "dryRun": {"type":"boolean","default":false},
+            "returnDiff": {"type":"boolean","default":false},
+            "returnDiagnostics": {"type":"boolean","default":true},
+            "expectedRevision": {"type":"string"}
+        },
+        "required": ["assetPath", "memberKind", "operation", "args"],
+        "additionalProperties": false
+    });
+    let examples = vec![member_edit_example(member_kind, operation)];
+    let notes = vec![
+        "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately.",
+        "The args schema documents the stable request shape. UE may still reject invalid Blueprint-specific combinations.",
+    ];
+
+    let mut payload = serde_json::json!({
+        "domain": "blueprint",
+        "tool": "blueprint.member.edit",
+        "operation": operation_name,
+        "memberKind": member_kind,
+        "category": member_kind,
+        "source": {
+            "document": "docs/BLUEPRINT_INTERFACE_DESIGN.md",
+            "section": format!("{member_kind}.{operation}")
+        }
+    });
+    let payload_object = payload.as_object_mut()?;
+    if schema_include_requested(includes, "summary") {
+        payload_object.insert(
+            "summary".to_string(),
+            serde_json::json!(member_edit_operation_summary(member_kind, operation)),
+        );
+    }
+    if schema_include_requested(includes, "schema") {
+        payload_object.insert("schema".to_string(), schema);
+    }
+    if schema_include_requested(includes, "examples") {
+        payload_object.insert("examples".to_string(), serde_json::json!(examples));
+    }
+    if schema_include_requested(includes, "errors") {
+        payload_object.insert(
+            "errors".to_string(),
+            serde_json::json!([
+                "INVALID_ARGUMENT",
+                "MEMBER_NOT_FOUND",
+                "MEMBER_ALREADY_EXISTS"
+            ]),
+        );
+    }
+    if schema_include_requested(includes, "notes") {
+        payload_object.insert("notes".to_string(), serde_json::json!(notes));
+    }
+    Some(payload)
+}
+
+fn member_edit_args_schema(member_kind: &str, operation: &str) -> serde_json::Value {
+    match (member_kind, operation) {
+        ("variable", "create") => serde_json::json!({
+            "type":"object",
+            "properties":{"variableName":{"type":"string","minLength":1},"type":{"type":"object"},"defaultValue":{}},
+            "required":["variableName","type"],
+            "additionalProperties":true
+        }),
+        ("variable", "rename") => name_schema("variableName"),
+        ("variable", "setDefault") => serde_json::json!({
+            "type":"object",
+            "properties":{"variableName":{"type":"string","minLength":1},"defaultValue":{}},
+            "required":["variableName","defaultValue"],
+            "additionalProperties":false
+        }),
+        ("variable", "delete") => single_name_schema("variableName"),
+        ("variable", "reorder") => serde_json::json!({
+            "type":"object",
+            "properties":{"variableName":{"type":"string","minLength":1},"targetVariableName":{"type":"string","minLength":1},"placement":{"type":"string","enum":["before","after"]}},
+            "required":["variableName","targetVariableName","placement"],
+            "additionalProperties":false
+        }),
+        ("variable", "update") => object_with_required_name("variableName"),
+        ("function", "create") => function_like_create_schema("functionName"),
+        ("function", "rename") => name_schema("functionName"),
+        ("function", "setFlags") => object_with_required_name("functionName"),
+        ("function", "delete") => single_name_schema("functionName"),
+        ("macro", "create") => function_like_create_schema("macroName"),
+        ("macro", "rename") => name_schema("macroName"),
+        ("macro", "delete") => single_name_schema("macroName"),
+        ("dispatcher", "create") => function_like_create_schema("dispatcherName"),
+        ("dispatcher", "rename") => name_schema("dispatcherName"),
+        ("dispatcher", "delete") => single_name_schema("dispatcherName"),
+        ("event", "create") => serde_json::json!({
+            "type":"object",
+            "properties":{"name":{"type":"string","minLength":1},"graphName":{"type":"string","minLength":1},"inputs":{"type":"array","items":{"type":"object"}},"replication":{"type":"string"},"reliable":{"type":"boolean"},"x":{"type":"number"},"y":{"type":"number"}},
+            "required":["name"],
+            "additionalProperties":true
+        }),
+        ("event", "updateSignature") => serde_json::json!({
+            "type":"object",
+            "properties":{"name":{"type":"string","minLength":1},"inputs":{"type":"array","items":{"type":"object"}}},
+            "required":["name","inputs"],
+            "additionalProperties":false
+        }),
+        ("event", "addInput") => serde_json::json!({
+            "type":"object",
+            "properties":{"name":{"type":"string","minLength":1},"inputName":{"type":"string","minLength":1},"type":{"type":"object"},"inputType":{"type":"string"}},
+            "required":["name","inputName","type"],
+            "additionalProperties":true
+        }),
+        ("event", "setFlags") => object_with_required_name("name"),
+        ("event", "rename") => name_schema("name"),
+        ("event", "delete") => single_name_schema("name"),
+        ("component", "create") => serde_json::json!({
+            "type":"object",
+            "properties":{"componentName":{"type":"string","minLength":1},"componentClassPath":{"type":"string","minLength":1},"parentComponentName":{"type":"string","minLength":1}},
+            "required":["componentName","componentClassPath"],
+            "additionalProperties":true
+        }),
+        ("component", "update") => object_with_required_name("componentName"),
+        ("component", "rename") => name_schema("componentName"),
+        ("component", "reparent") => serde_json::json!({
+            "type":"object",
+            "properties":{"componentName":{"type":"string","minLength":1},"parentComponentName":{"type":"string","minLength":1}},
+            "required":["componentName","parentComponentName"],
+            "additionalProperties":false
+        }),
+        ("component", "reorder") => serde_json::json!({
+            "type":"object",
+            "properties":{"componentName":{"type":"string","minLength":1},"targetComponentName":{"type":"string","minLength":1},"placement":{"type":"string","enum":["before","after"]}},
+            "required":["componentName","targetComponentName","placement"],
+            "additionalProperties":false
+        }),
+        ("component", "delete") => single_name_schema("componentName"),
+        _ => serde_json::json!({"type":"object","additionalProperties":true}),
+    }
+}
+
+fn single_name_schema(name_field: &str) -> serde_json::Value {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        name_field.to_string(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":[name_field],
+        "additionalProperties":false
+    })
+}
+
+fn name_schema(name_field: &str) -> serde_json::Value {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        name_field.to_string(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert(
+        "newName".to_string(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":[name_field,"newName"],
+        "additionalProperties":false
+    })
+}
+
+fn object_with_required_name(name_field: &str) -> serde_json::Value {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        name_field.to_string(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":[name_field],
+        "additionalProperties":true
+    })
+}
+
+fn function_like_create_schema(name_field: &str) -> serde_json::Value {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        name_field.to_string(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert(
+        "inputs".to_string(),
+        serde_json::json!({"type":"array","items":{"type":"object"}}),
+    );
+    properties.insert(
+        "outputs".to_string(),
+        serde_json::json!({"type":"array","items":{"type":"object"}}),
+    );
+    properties.insert("category".to_string(), serde_json::json!({"type":"string"}));
+    properties.insert("tooltip".to_string(), serde_json::json!({"type":"string"}));
+    serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":[name_field],
+        "additionalProperties":true
+    })
+}
+
+fn member_edit_example(member_kind: &str, operation: &str) -> serde_json::Value {
+    match (member_kind, operation) {
+        ("variable", "create") => {
+            serde_json::json!({"assetPath":"/Game/BP_Test","memberKind":"variable","operation":"create","args":{"variableName":"bIsReady","type":{"category":"bool"},"defaultValue":"false"}})
+        }
+        ("event", "addInput") => {
+            serde_json::json!({"assetPath":"/Game/BP_Test","memberKind":"event","operation":"addInput","args":{"name":"OnReady","inputName":"Count","type":{"category":"int"}}})
+        }
+        ("component", "create") => {
+            serde_json::json!({"assetPath":"/Game/BP_Test","memberKind":"component","operation":"create","args":{"componentName":"VisualMesh","componentClassPath":"/Script/Engine.StaticMeshComponent"}})
+        }
+        _ => {
+            serde_json::json!({"assetPath":"/Game/BP_Test","memberKind":member_kind,"operation":operation,"args":{}})
+        }
+    }
 }
 
 fn blueprint_graph_edit_operation_names() -> Vec<&'static str> {

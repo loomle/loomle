@@ -25,8 +25,8 @@ Blueprint behavior.
 ```json
 {
   "domain": "blueprint",
-  "tool": "blueprint.graph.edit",
-  "operation": "addFromPalette",
+  "tool": "blueprint.member.edit",
+  "operation": "variable.create",
   "include": ["schema", "examples", "errors"]
 }
 ```
@@ -114,6 +114,14 @@ For pin editing:
    `setPinDefault`.
 3. Call `blueprint.graph.edit`.
 
+For Blueprint member editing:
+
+1. Call `schema.inspect` with `tool="blueprint.member.edit"` and no operation
+   to list supported `memberKind.operation` entries.
+2. Call `schema.inspect` again with an operation such as `variable.create`,
+   `event.addInput`, or `component.create`.
+3. Call `blueprint.member.edit` using the returned top-level request shape.
+
 ## Relationship To Resources
 
 Resources are a good transport for full documents. `schema.inspect` is a small
@@ -169,5 +177,9 @@ The first implementation should cover:
 - core graph edit commands
 - secondary graph edit commands as non-core entries
 - `blueprint.palette` entry and `addFromPalette` relationship
+- `blueprint.member.edit` operation index
+- common member edit request schemas for variable, function, macro, dispatcher,
+  event, and component operations
 
-Other Blueprint tools can be added after the graph-edit schema path is proven.
+Other Blueprint tools can be added after these operation-bearing paths are
+stable.

@@ -4022,13 +4022,27 @@ fn blueprint_member_edit_schema() -> rmcp::model::JsonObject {
     );
     properties.insert(
         "memberKind".into(),
-        serde_json::json!({"type":"string","enum":["variable","function","macro","dispatcher","event","customEvent","component"]}),
+        serde_json::json!({
+            "type":"string",
+            "enum":["variable","function","macro","dispatcher","event","customEvent","component"],
+            "description":"Blueprint member domain. Use schema.inspect with domain='blueprint' and tool='blueprint.member.edit' to list supported memberKind.operation entries."
+        }),
     );
     properties.insert(
         "operation".into(),
-        serde_json::json!({"type":"string","minLength":1}),
+        serde_json::json!({
+            "type":"string",
+            "minLength":1,
+            "description":"Operation within memberKind. Use schema.inspect with domain='blueprint', tool='blueprint.member.edit', and operation='<memberKind>.<operation>' for the operation-specific request schema."
+        }),
     );
-    properties.insert("args".into(), serde_json::json!({"type":"object"}));
+    properties.insert(
+        "args".into(),
+        serde_json::json!({
+            "type":"object",
+            "description":"Operation-specific arguments. The shape is intentionally omitted from tools/list; call schema.inspect for the selected memberKind.operation."
+        }),
+    );
     mutation_control_fields(&mut properties);
     schema_from_value(serde_json::json!({
         "type":"object",
@@ -4078,10 +4092,10 @@ fn blueprint_graph_edit_schema() -> rmcp::model::JsonObject {
         "commands".into(),
         serde_json::json!({
             "type":"array",
-            "description":"Ordered Blueprint graph edit commands. Each command requires kind. Use schema.inspect with domain='blueprint', tool='blueprint.graph.edit', and operation=<kind> for command-specific schema.",
+            "description":"Ordered Blueprint graph edit commands. Each command requires kind. If unsure which kinds are available, call schema.inspect with domain='blueprint' and tool='blueprint.graph.edit'. For a command-specific schema, call schema.inspect with operation=<kind>.",
             "items":{
                 "type":"object",
-                "description":"Command envelope. Command-specific fields are documented through schema.inspect.",
+                "description":"Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema.inspect.",
                 "properties":{
                     "kind":{"type":"string","minLength":1},
                     "alias":{"type":"string","minLength":1}
@@ -7178,6 +7192,72 @@ mod tests {
                 .and_then(|errors| errors.first())
                 .and_then(|value| value.as_str()),
             Some("PALETTE_ENTRY_NOT_EXECUTABLE")
+        );
+    }
+
+    #[test]
+    fn schema_inspect_lists_blueprint_member_edit_operations() {
+        let mut args = JsonObject::new();
+        args.insert("domain".into(), serde_json::json!("blueprint"));
+        args.insert("tool".into(), serde_json::json!("blueprint.member.edit"));
+
+        let result = call_schema_inspect(&args);
+        assert_eq!(result.is_error, Some(false));
+        let payload = result.structured_content.expect("structured content");
+        let operations = payload
+            .get("operations")
+            .and_then(|value| value.as_array())
+            .expect("operations");
+        let names = operations
+            .iter()
+            .filter_map(|entry| entry.get("name").and_then(|value| value.as_str()))
+            .collect::<std::collections::HashSet<_>>();
+
+        for expected in [
+            "variable.create",
+            "function.create",
+            "event.addInput",
+            "component.create",
+        ] {
+            assert!(names.contains(expected), "missing operation {expected}");
+        }
+    }
+
+    #[test]
+    fn schema_inspect_returns_member_edit_operation_schema() {
+        let mut args = JsonObject::new();
+        args.insert("domain".into(), serde_json::json!("blueprint"));
+        args.insert("tool".into(), serde_json::json!("blueprint.member.edit"));
+        args.insert("operation".into(), serde_json::json!("variable.create"));
+        args.insert(
+            "include".into(),
+            serde_json::json!(["summary", "schema", "examples", "errors", "notes"]),
+        );
+
+        let result = call_schema_inspect(&args);
+        assert_eq!(result.is_error, Some(false));
+        let payload = result.structured_content.expect("structured content");
+        assert_eq!(
+            payload.get("memberKind").and_then(|value| value.as_str()),
+            Some("variable")
+        );
+        assert_eq!(
+            payload
+                .get("schema")
+                .and_then(|schema| schema.get("properties"))
+                .and_then(|properties| properties.get("memberKind"))
+                .and_then(|member_kind| member_kind.get("const"))
+                .and_then(|value| value.as_str()),
+            Some("variable")
+        );
+        assert_eq!(
+            payload
+                .get("schema")
+                .and_then(|schema| schema.get("properties"))
+                .and_then(|properties| properties.get("operation"))
+                .and_then(|operation| operation.get("const"))
+                .and_then(|value| value.as_str()),
+            Some("create")
         );
     }
 
