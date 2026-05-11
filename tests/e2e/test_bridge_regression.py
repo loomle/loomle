@@ -28,6 +28,38 @@ def require_graph_domain(graph_type: str) -> str:
     return graph_type
 
 
+def blueprint_graph_inspect_args(arguments: dict) -> dict:
+    normalized = dict(arguments)
+    graph_name = normalized.pop("graphName", None)
+    if "graph" not in normalized and isinstance(graph_name, str) and graph_name:
+        normalized["graph"] = {"name": graph_name}
+
+    page: dict = {}
+    for key in ("limit", "cursor"):
+        value = normalized.pop(key, None)
+        if value not in (None, ""):
+            page[key] = value
+    if page:
+        normalized["page"] = page
+
+    filter_args = dict(normalized.get("filter", {})) if isinstance(normalized.get("filter"), dict) else {}
+    node_ids = normalized.pop("nodeIds", None)
+    if isinstance(node_ids, list) and node_ids:
+        filter_args["nodeIds"] = node_ids
+    text = normalized.pop("text", None)
+    if isinstance(text, str) and text:
+        filter_args["text"] = text
+    if filter_args:
+        normalized["filter"] = filter_args
+
+    include_connections = normalized.pop("includeConnections", None)
+    normalized.pop("layoutDetail", None)
+    normalized.pop("includePinDefaults", None)
+    if "view" not in normalized:
+        normalized["view"] = "links" if include_connections is True else "full"
+    return normalized
+
+
 def call_domain_tool(
     client: McpStdioClient,
     request_id: int,
@@ -47,6 +79,8 @@ def call_domain_tool(
             "describe": "blueprint.inspect",
             "compile": "blueprint.compile",
         }.get(action, tool_name)
+        if action == "query":
+            arguments = blueprint_graph_inspect_args(arguments)
     return call_tool(client, request_id, tool_name, arguments, expect_error=expect_error)
 
 
@@ -944,7 +978,7 @@ def main() -> int:
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
                 "limit": 200,
-                "layoutDetail": "measured",
+                "view": "full",
             },
         )
         snapshot = graph_query.get("semanticSnapshot")
@@ -960,15 +994,9 @@ def main() -> int:
             fail(f"blueprint.graph.inspect missing layoutCapabilities: {graph_query}")
         if layout_caps.get("canReadPosition") is not True:
             fail(f"blueprint.graph.inspect layoutCapabilities missing canReadPosition=true: {query_meta}")
-        if query_meta.get("layoutDetailRequested") != "measured":
-            fail(f"blueprint.graph.inspect layoutDetailRequested mismatch: {query_meta}")
-        if query_meta.get("layoutDetailApplied") != "basic":
-            fail(f"blueprint.graph.inspect layoutDetailApplied mismatch: {query_meta}")
         query_diagnostics = graph_query.get("diagnostics")
         if not isinstance(query_diagnostics, list):
             fail(f"blueprint.graph.inspect diagnostics missing or invalid: {graph_query}")
-        if not any(isinstance(d, dict) and d.get("code") == "LAYOUT_DETAIL_DOWNGRADED" for d in query_diagnostics):
-            fail(f"blueprint.graph.inspect missing LAYOUT_DETAIL_DOWNGRADED diagnostic: {graph_query}")
         print("[PASS] blueprint.graph.inspect structure validated")
 
         blueprint_compile = call_domain_tool(
@@ -1645,19 +1673,19 @@ def main() -> int:
             client,
             6525,
             "blueprint.graph.inspect",
-            {"assetPath": temp_asset, "graph": {"name": "ComputeValueRenamed"}},
+            {"assetPath": temp_asset, "graph": {"name": "ComputeValueRenamed"}, "view": "full"},
         )
         guard_graph_payload = call_tool(
             client,
             6526,
             "blueprint.graph.inspect",
-            {"assetPath": temp_asset, "graph": {"name": "GuardMacroRenamed"}},
+            {"assetPath": temp_asset, "graph": {"name": "GuardMacroRenamed"}, "view": "full"},
         )
         dispatcher_graph_payload = call_tool(
             client,
             6527,
             "blueprint.graph.inspect",
-            {"assetPath": temp_asset, "graph": {"name": "OnReadyChanged"}},
+            {"assetPath": temp_asset, "graph": {"name": "OnReadyChanged"}, "view": "full"},
         )
         deleted_dispatcher_graph = call_tool(
             client,
@@ -2133,9 +2161,9 @@ def main() -> int:
             "blueprint.graph.inspect",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
-                "nodeIds": [self_node_id],
-                "includeConnections": True,
+                "graph": {"name": "EventGraph"},
+                "view": "links",
+                "filter": {"nodeIds": [self_node_id]},
             },
         )
         self_external_nodes = self_external_query.get("semanticSnapshot", {}).get("nodes", [])
