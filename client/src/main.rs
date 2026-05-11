@@ -5716,12 +5716,16 @@ fn check_for_updates() -> serde_json::Value {
             let update_available = compare_semver(&latest, current)
                 .map(|ordering| ordering == std::cmp::Ordering::Greater)
                 .unwrap_or(latest != current);
-            serde_json::json!({
+            let mut value = serde_json::json!({
                 "status": "ok",
                 "latestVersion": latest,
                 "updateAvailable": update_available,
                 "updateCommand": if update_available { Some("loomle update".to_string()) } else { None::<String> },
-            })
+            });
+            if update_available {
+                value["updateSteps"] = update_steps_for_agents();
+            }
+            value
         }
         Err(error) => serde_json::json!({
             "status": "unavailable",
@@ -5729,6 +5733,15 @@ fn check_for_updates() -> serde_json::Value {
             "updateAvailable": false,
         }),
     }
+}
+
+fn update_steps_for_agents() -> serde_json::Value {
+    serde_json::json!([
+        "Close Unreal Editor for registered LOOMLE projects.",
+        "Run `loomle update`.",
+        "Restart Codex, Claude, or other MCP host sessions so they use the updated LOOMLE client.",
+        "Reopen Unreal Editor after the update completes."
+    ])
 }
 
 fn read_or_fetch_latest_version() -> Result<String, String> {
@@ -7063,6 +7076,18 @@ mod tests {
             compare_semver("0.5.7", "0.5.8"),
             Some(std::cmp::Ordering::Less)
         );
+    }
+
+    #[test]
+    fn update_steps_prompt_agents_to_close_unreal_editor() {
+        let steps = super::update_steps_for_agents();
+        let steps = steps.as_array().expect("steps array");
+        assert!(steps.iter().any(|step| step
+            .as_str()
+            .is_some_and(|step| step.contains("Close Unreal Editor"))));
+        assert!(steps.iter().any(|step| step
+            .as_str()
+            .is_some_and(|step| step.contains("loomle update"))));
     }
 
     #[test]
