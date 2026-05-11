@@ -232,7 +232,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
             Promise.SetValue(MoveTemp(DispatchResult));
         });
 
-        static constexpr uint32 GameThreadTimeoutMs = 30000;
+        static constexpr uint32 GameThreadTimeoutMs = 120000;
         if (PayloadFuture.WaitFor(FTimespan::FromMilliseconds(GameThreadTimeoutMs)))
         {
             FDispatchToolResult DispatchResult = PayloadFuture.Get();
