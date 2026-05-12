@@ -237,6 +237,7 @@ function Ensure-PathEntry([string]$BinDir) {
 $ManifestUrl = ""
 $AssetUrl = ""
 $InstallRoot = if ($env:LOOMLE_INSTALL_ROOT) { $env:LOOMLE_INSTALL_ROOT } else { Join-Path $HOME ".loomle" }
+$PreserveLauncher = $false
 
 for ($i = 0; $i -lt $args.Count; $i++) {
   switch ($args[$i]) {
@@ -256,8 +257,11 @@ for ($i = 0; $i -lt $args.Count; $i++) {
       $i++; if ($i -ge $args.Count) { Fail "missing value for --install-root" }
       $InstallRoot = $args[$i]
     }
+    "--preserve-launcher" {
+      $PreserveLauncher = $true
+    }
     "--help" {
-      Write-Host "Usage: install.ps1 [--version <Version>] [--manifest-url <URL>] [--asset-url <URL>] [--install-root <Path>]"
+      Write-Host "Usage: install.ps1 [--version <Version>] [--manifest-url <URL>] [--asset-url <URL>] [--install-root <Path>] [--preserve-launcher]"
       exit 0
     }
     default { Fail "unknown argument: $($args[$i])" }
@@ -316,7 +320,9 @@ try {
   }
 
   Copy-FileReplace -Source $ClientSource -Destination $ActiveClientPath
-  Copy-FileReplace -Source $ClientSource -Destination $LauncherPath
+  if (-not $PreserveLauncher) {
+    Copy-FileReplace -Source $ClientSource -Destination $LauncherPath
+  }
   Copy-TreeReplace -Source $PluginCacheSource -Destination (Join-Path $VersionRoot "plugin-cache\LoomleBridge")
   Copy-FileReplace -Source $ManifestPath -Destination (Join-Path $VersionRoot "manifest.json")
   Write-ActiveState -ActiveStatePath $ActiveStatePath -Version $EffectiveVersion -InstallRoot $InstallRoot -LauncherPath $LauncherPath -ActiveClientPath $ActiveClientPath

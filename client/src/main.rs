@@ -6392,21 +6392,7 @@ fn run_installer(
     install_root: &Path,
     options: UpdateOptions,
 ) -> Result<ExitStatus, String> {
-    let mut args = Vec::new();
-    if let Some(version) = options.version {
-        args.push("--version".to_string());
-        args.push(version);
-    }
-    if let Some(manifest_url) = options.manifest_url {
-        args.push("--manifest-url".to_string());
-        args.push(manifest_url);
-    }
-    if let Some(asset_url) = options.asset_url {
-        args.push("--asset-url".to_string());
-        args.push(asset_url);
-    }
-    args.push("--install-root".to_string());
-    args.push(install_root.display().to_string());
+    let args = build_installer_args(options, install_root, cfg!(windows));
 
     if cfg!(windows) {
         Command::new("powershell")
@@ -6422,6 +6408,33 @@ fn run_installer(
             .status()
             .map_err(|error| format!("failed to start install.sh: {error}"))
     }
+}
+
+fn build_installer_args(
+    options: UpdateOptions,
+    install_root: &Path,
+    preserve_launcher: bool,
+) -> Vec<String> {
+    let mut args = Vec::new();
+    if let Some(version) = options.version {
+        args.push("--version".to_string());
+        args.push(version);
+    }
+    if let Some(manifest_url) = options.manifest_url {
+        args.push("--manifest-url".to_string());
+        args.push(manifest_url);
+    }
+    if let Some(asset_url) = options.asset_url {
+        args.push("--asset-url".to_string());
+        args.push(asset_url);
+    }
+    args.push("--install-root".to_string());
+    args.push(install_root.display().to_string());
+    if preserve_launcher {
+        args.push("--preserve-launcher".to_string());
+    }
+
+    args
 }
 
 fn make_temp_update_dir() -> Result<PathBuf, String> {
@@ -6817,8 +6830,8 @@ fn print_usage_stderr() {
 mod tests {
     use super::{
         acquire_file_lock, all_declared_tools, blueprint_graph_inspect_schema,
-        build_blueprint_graph_layout_plan, call_schema_inspect, compare_semver,
-        compile_blueprint_refactor_request, current_platform_client_binary_name,
+        build_blueprint_graph_layout_plan, build_installer_args, call_schema_inspect,
+        compare_semver, compile_blueprint_refactor_request, current_platform_client_binary_name,
         infer_attached_project_root, material_query_schema, parse_blueprint_graph_layout_request,
         pcg_query_schema, play_participant_wait_conditions_met, play_schema,
         play_wait_participant_conditions_from_args, read_file_lock_metadata, read_plugin_version,
@@ -6826,7 +6839,7 @@ mod tests {
         sync_project_support_to_version, sync_registered_project_support,
         translate_blueprint_graph_edit_args, translate_blueprint_graph_inspect_args,
         translate_material_query_args, translate_pcg_query_args,
-        validate_blueprint_graph_inspect_args, Cli, FileLockMetadata, RuntimeProject,
+        validate_blueprint_graph_inspect_args, Cli, FileLockMetadata, RuntimeProject, UpdateOptions,
     };
     use rmcp::model::JsonObject;
     use std::ffi::OsString;
@@ -6935,6 +6948,38 @@ mod tests {
             Cli::Update(options) => assert_eq!(options.version.as_deref(), Some("0.5.7")),
             _ => panic!("expected update"),
         }
+    }
+
+    #[test]
+    fn update_installer_args_preserve_launcher() {
+        let install_root = PathBuf::from(r"C:\Users\example\.loomle");
+        let args = build_installer_args(UpdateOptions::default(), &install_root, true);
+
+        assert!(args.iter().any(|arg| arg == "--preserve-launcher"));
+        assert!(args.iter().any(|arg| arg == "--install-root"));
+        assert!(args.iter().any(|arg| arg == r"C:\Users\example\.loomle"));
+    }
+
+    #[test]
+    fn windows_installer_supports_preserve_launcher() {
+        let script_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("install.ps1");
+        let script = fs::read_to_string(&script_path).expect("install.ps1");
+
+        assert!(
+            script.contains("$PreserveLauncher"),
+            "{}",
+            script_path.display()
+        );
+        assert!(
+            script.contains("--preserve-launcher"),
+            "{}",
+            script_path.display()
+        );
+        assert!(
+            script.contains("if (-not $PreserveLauncher)"),
+            "{}",
+            script_path.display()
+        );
     }
 
     fn layout_node(id: &str, x: i64, y: i64, exec_children: &[&str]) -> serde_json::Value {
