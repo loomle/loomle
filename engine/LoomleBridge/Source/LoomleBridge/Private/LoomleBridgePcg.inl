@@ -212,6 +212,913 @@ TSharedPtr<FJsonObject> MakePcgGraphAssetRef(const FString& AssetPath)
     return Ref;
 }
 
+FString PcgPaletteTextToString(const FText& Text)
+{
+    return Text.IsEmpty() ? FString() : Text.ToString();
+}
+
+TArray<TSharedPtr<FJsonValue>> PcgPaletteStringArrayToJson(const TArray<FString>& Values)
+{
+    TArray<TSharedPtr<FJsonValue>> Out;
+    for (const FString& Value : Values)
+    {
+        if (!Value.IsEmpty())
+        {
+            Out.Add(MakeShared<FJsonValueString>(Value));
+        }
+    }
+    return Out;
+}
+
+void PcgPaletteSerializePreconfiguredInfo(const FPCGPreConfiguredSettingsInfo& Info, TSharedPtr<FJsonObject>& Target)
+{
+    if (Info.PreconfiguredIndex >= 0)
+    {
+        Target->SetNumberField(TEXT("preconfiguredIndex"), Info.PreconfiguredIndex);
+    }
+    if (!Info.Label.IsEmpty())
+    {
+        Target->SetStringField(TEXT("preconfiguredLabel"), PcgPaletteTextToString(Info.Label));
+    }
+#if WITH_EDITORONLY_DATA
+    if (!Info.Tooltip.IsEmpty())
+    {
+        Target->SetStringField(TEXT("preconfiguredTooltip"), PcgPaletteTextToString(Info.Tooltip));
+    }
+#endif
+    if (!Info.SearchHints.IsEmpty())
+    {
+        Target->SetStringField(TEXT("searchHints"), PcgPaletteTextToString(Info.SearchHints));
+    }
+}
+
+FPCGPreConfiguredSettingsInfo PcgPaletteDeserializePreconfiguredInfo(const TSharedPtr<FJsonObject>& Source)
+{
+    FPCGPreConfiguredSettingsInfo Info;
+    if (!Source.IsValid())
+    {
+        return Info;
+    }
+
+    double Index = -1.0;
+    if (Source->TryGetNumberField(TEXT("preconfiguredIndex"), Index))
+    {
+        Info.PreconfiguredIndex = static_cast<int32>(Index);
+    }
+
+    FString Text;
+    if (Source->TryGetStringField(TEXT("preconfiguredLabel"), Text) && !Text.IsEmpty())
+    {
+        Info.Label = FText::FromString(Text);
+    }
+#if WITH_EDITORONLY_DATA
+    if (Source->TryGetStringField(TEXT("preconfiguredTooltip"), Text) && !Text.IsEmpty())
+    {
+        Info.Tooltip = FText::FromString(Text);
+    }
+#endif
+    if (Source->TryGetStringField(TEXT("searchHints"), Text) && !Text.IsEmpty())
+    {
+        Info.SearchHints = FText::FromString(Text);
+    }
+    return Info;
+}
+
+UClass* LoadPcgSettingsClassFromPath(const FString& SettingsClassPath)
+{
+    if (SettingsClassPath.IsEmpty())
+    {
+        return nullptr;
+    }
+    if (UClass* DirectClass = LoadObject<UClass>(nullptr, *SettingsClassPath))
+    {
+        return DirectClass->IsChildOf(UPCGSettings::StaticClass()) ? DirectClass : nullptr;
+    }
+    if (UClass* SoftClass = FSoftClassPath(SettingsClassPath).TryLoadClass<UPCGSettings>())
+    {
+        return SoftClass;
+    }
+    return nullptr;
+}
+
+FString PcgPropertyBagTypeName(EPropertyBagPropertyType Type)
+{
+    if (const UEnum* TypeEnum = StaticEnum<EPropertyBagPropertyType>())
+    {
+        return TypeEnum->GetNameStringByValue(static_cast<int64>(Type));
+    }
+    return TEXT("None");
+}
+
+FString PcgPropertyBagContainerName(EPropertyBagContainerType Type)
+{
+    if (const UEnum* TypeEnum = StaticEnum<EPropertyBagContainerType>())
+    {
+        return TypeEnum->GetNameStringByValue(static_cast<int64>(Type));
+    }
+    return TEXT("None");
+}
+
+bool ParsePcgPropertyBagType(const FString& RawType, EPropertyBagPropertyType& OutType)
+{
+    const FString Type = RawType.TrimStartAndEnd();
+    const FString Lower = Type.ToLower().Replace(TEXT("epropertybagpropertytype::"), TEXT(""));
+    if (Lower == TEXT("bool")) { OutType = EPropertyBagPropertyType::Bool; return true; }
+    if (Lower == TEXT("byte")) { OutType = EPropertyBagPropertyType::Byte; return true; }
+    if (Lower == TEXT("int32") || Lower == TEXT("int")) { OutType = EPropertyBagPropertyType::Int32; return true; }
+    if (Lower == TEXT("int64")) { OutType = EPropertyBagPropertyType::Int64; return true; }
+    if (Lower == TEXT("uint32")) { OutType = EPropertyBagPropertyType::UInt32; return true; }
+    if (Lower == TEXT("uint64")) { OutType = EPropertyBagPropertyType::UInt64; return true; }
+    if (Lower == TEXT("float")) { OutType = EPropertyBagPropertyType::Float; return true; }
+    if (Lower == TEXT("double") || Lower == TEXT("real")) { OutType = EPropertyBagPropertyType::Double; return true; }
+    if (Lower == TEXT("name")) { OutType = EPropertyBagPropertyType::Name; return true; }
+    if (Lower == TEXT("string")) { OutType = EPropertyBagPropertyType::String; return true; }
+    if (Lower == TEXT("text")) { OutType = EPropertyBagPropertyType::Text; return true; }
+    if (Lower == TEXT("enum")) { OutType = EPropertyBagPropertyType::Enum; return true; }
+    if (Lower == TEXT("struct")) { OutType = EPropertyBagPropertyType::Struct; return true; }
+    if (Lower == TEXT("object")) { OutType = EPropertyBagPropertyType::Object; return true; }
+    if (Lower == TEXT("softobject") || Lower == TEXT("soft_object")) { OutType = EPropertyBagPropertyType::SoftObject; return true; }
+    if (Lower == TEXT("class")) { OutType = EPropertyBagPropertyType::Class; return true; }
+    if (Lower == TEXT("softclass") || Lower == TEXT("soft_class")) { OutType = EPropertyBagPropertyType::SoftClass; return true; }
+    return false;
+}
+
+bool ParsePcgPropertyBagContainer(const FString& RawContainer, EPropertyBagContainerType& OutContainer)
+{
+    const FString Lower = RawContainer.TrimStartAndEnd().ToLower().Replace(TEXT("epropertybagcontainertype::"), TEXT(""));
+    if (Lower.IsEmpty() || Lower == TEXT("none")) { OutContainer = EPropertyBagContainerType::None; return true; }
+    if (Lower == TEXT("array")) { OutContainer = EPropertyBagContainerType::Array; return true; }
+    if (Lower == TEXT("set")) { OutContainer = EPropertyBagContainerType::Set; return true; }
+    return false;
+}
+
+const UObject* ResolvePcgPropertyBagTypeObject(EPropertyBagPropertyType Type, const FString& TypeObjectPath)
+{
+    if (TypeObjectPath.TrimStartAndEnd().IsEmpty())
+    {
+        return nullptr;
+    }
+
+    switch (Type)
+    {
+    case EPropertyBagPropertyType::Enum:
+        return LoadObject<UEnum>(nullptr, *TypeObjectPath);
+    case EPropertyBagPropertyType::Struct:
+        return LoadObject<UScriptStruct>(nullptr, *TypeObjectPath);
+    case EPropertyBagPropertyType::Object:
+    case EPropertyBagPropertyType::SoftObject:
+    case EPropertyBagPropertyType::Class:
+    case EPropertyBagPropertyType::SoftClass:
+        return LoadObject<UClass>(nullptr, *TypeObjectPath);
+    default:
+        return nullptr;
+    }
+}
+
+FString PcgPropertyBagAlterationResultCode(EPropertyBagAlterationResult Result)
+{
+    if (Result == EPropertyBagAlterationResult::Success)
+    {
+        return TEXT("Success");
+    }
+    if (const UEnum* ResultEnum = StaticEnum<EPropertyBagAlterationResult>())
+    {
+        return ResultEnum->GetNameStringByValue(static_cast<int64>(Result));
+    }
+    return TEXT("InternalError");
+}
+
+FString PcgPropertyBagSetResultCode(EPropertyBagResult Result)
+{
+    switch (Result)
+    {
+    case EPropertyBagResult::Success: return TEXT("Success");
+    case EPropertyBagResult::TypeMismatch: return TEXT("TypeMismatch");
+    case EPropertyBagResult::OutOfBounds: return TEXT("OutOfBounds");
+    case EPropertyBagResult::PropertyNotFound: return TEXT("PropertyNotFound");
+    case EPropertyBagResult::DuplicatedValue: return TEXT("DuplicatedValue");
+    default: return TEXT("Unknown");
+    }
+}
+
+TSharedPtr<FJsonObject> MakePcgParameterObject(const FInstancedPropertyBag& UserParameters, const FPropertyBagPropertyDesc& PropertyDesc)
+{
+    TSharedPtr<FJsonObject> Parameter = MakeShared<FJsonObject>();
+    Parameter->SetStringField(TEXT("name"), PropertyDesc.Name.ToString());
+    Parameter->SetStringField(TEXT("id"), PropertyDesc.ID.ToString(EGuidFormats::DigitsWithHyphensLower));
+    Parameter->SetStringField(TEXT("type"), PcgPropertyBagTypeName(PropertyDesc.ValueType));
+    Parameter->SetStringField(TEXT("container"), PcgPropertyBagContainerName(PropertyDesc.ContainerTypes.GetFirstContainerType()));
+    if (PropertyDesc.ValueTypeObject)
+    {
+        Parameter->SetStringField(TEXT("typeObject"), PropertyDesc.ValueTypeObject->GetPathName());
+    }
+
+    TValueOrError<FString, EPropertyBagResult> SerializedValue = UserParameters.GetValueSerializedString(PropertyDesc.Name);
+    if (SerializedValue.IsValid())
+    {
+        Parameter->SetStringField(TEXT("defaultValue"), SerializedValue.GetValue());
+    }
+    return Parameter;
+}
+
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgParameterInspectToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+
+    FString AssetPath;
+    FString NameFilter;
+    if (Arguments.IsValid())
+    {
+        Arguments->TryGetStringField(TEXT("assetPath"), AssetPath);
+        const TSharedPtr<FJsonObject>* GraphObject = nullptr;
+        if (AssetPath.IsEmpty() && Arguments->TryGetObjectField(TEXT("graph"), GraphObject) && GraphObject != nullptr && (*GraphObject).IsValid())
+        {
+            (*GraphObject)->TryGetStringField(TEXT("assetPath"), AssetPath);
+        }
+        Arguments->TryGetStringField(TEXT("name"), NameFilter);
+    }
+
+    if (AssetPath.TrimStartAndEnd().IsEmpty())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("pcg.parameter.inspect requires assetPath or graph.assetPath."));
+        return Result;
+    }
+
+    AssetPath = NormalizeAssetPath(AssetPath);
+    UPCGGraph* PcgGraph = LoadPcgGraphByAssetPath(AssetPath);
+    if (PcgGraph == nullptr)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("ASSET_NOT_FOUND"));
+        Result->SetStringField(TEXT("message"), TEXT("PCG asset not found."));
+        return Result;
+    }
+
+    Result->SetStringField(TEXT("assetPath"), AssetPath);
+    Result->SetStringField(TEXT("graphType"), TEXT("pcg"));
+    Result->SetObjectField(TEXT("graphRef"), MakePcgGraphAssetRef(AssetPath));
+
+    TArray<TSharedPtr<FJsonValue>> Parameters;
+    const FInstancedPropertyBag* UserParameters = PcgGraph->GetUserParametersStruct();
+    const UPropertyBag* BagStruct = UserParameters ? UserParameters->GetPropertyBagStruct() : nullptr;
+    if (UserParameters != nullptr && BagStruct != nullptr)
+    {
+        for (const FPropertyBagPropertyDesc& PropertyDesc : BagStruct->GetPropertyDescs())
+        {
+            if (!NameFilter.IsEmpty() && !PropertyDesc.Name.ToString().Equals(NameFilter, ESearchCase::IgnoreCase))
+            {
+                continue;
+            }
+            Parameters.Add(MakeShared<FJsonValueObject>(MakePcgParameterObject(*UserParameters, PropertyDesc)));
+        }
+    }
+
+    Result->SetArrayField(TEXT("parameters"), Parameters);
+    Result->SetNumberField(TEXT("total"), Parameters.Num());
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgParameterEditToolResult(const TSharedPtr<FJsonObject>& Arguments)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+    Result->SetBoolField(TEXT("applied"), false);
+    Result->SetBoolField(TEXT("changed"), false);
+
+    FString AssetPath;
+    FString Operation;
+    bool bDryRun = false;
+    const TSharedPtr<FJsonObject>* Args = nullptr;
+    if (Arguments.IsValid())
+    {
+        Arguments->TryGetStringField(TEXT("assetPath"), AssetPath);
+        const TSharedPtr<FJsonObject>* GraphObject = nullptr;
+        if (AssetPath.IsEmpty() && Arguments->TryGetObjectField(TEXT("graph"), GraphObject) && GraphObject != nullptr && (*GraphObject).IsValid())
+        {
+            (*GraphObject)->TryGetStringField(TEXT("assetPath"), AssetPath);
+        }
+        Arguments->TryGetStringField(TEXT("operation"), Operation);
+        Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
+        Arguments->TryGetObjectField(TEXT("args"), Args);
+    }
+
+    if (AssetPath.TrimStartAndEnd().IsEmpty() || Operation.TrimStartAndEnd().IsEmpty() || Args == nullptr || !(*Args).IsValid())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("pcg.parameter.edit requires assetPath, operation, and args."));
+        return Result;
+    }
+
+    AssetPath = NormalizeAssetPath(AssetPath);
+    UPCGGraph* PcgGraph = LoadPcgGraphByAssetPath(AssetPath);
+    if (PcgGraph == nullptr)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("ASSET_NOT_FOUND"));
+        Result->SetStringField(TEXT("message"), TEXT("PCG asset not found."));
+        return Result;
+    }
+
+    FInstancedPropertyBag* UserParameters = PcgGraph->GetMutableUserParametersStruct_Unsafe();
+    if (UserParameters == nullptr)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+        Result->SetStringField(TEXT("message"), TEXT("PCG graph has no mutable user parameter bag."));
+        return Result;
+    }
+
+    FString Name;
+    (*Args)->TryGetStringField(TEXT("name"), Name);
+    const FName ParameterName(*Name.TrimStartAndEnd());
+    const FString NormalizedOperation = Operation.TrimStartAndEnd();
+
+    auto Fail = [&](const FString& Code, const FString& Message)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), Code);
+        Result->SetStringField(TEXT("message"), Message);
+        Result->SetBoolField(TEXT("applied"), false);
+        Result->SetBoolField(TEXT("changed"), false);
+    };
+
+    if (ParameterName.IsNone())
+    {
+        Fail(TEXT("INVALID_ARGUMENT"), TEXT("pcg.parameter.edit args.name is required."));
+        return Result;
+    }
+
+    Result->SetStringField(TEXT("assetPath"), AssetPath);
+    Result->SetStringField(TEXT("graphType"), TEXT("pcg"));
+    Result->SetObjectField(TEXT("graphRef"), MakePcgGraphAssetRef(AssetPath));
+    Result->SetStringField(TEXT("operation"), NormalizedOperation);
+    Result->SetStringField(TEXT("name"), ParameterName.ToString());
+    Result->SetBoolField(TEXT("dryRun"), bDryRun);
+
+    bool bChanged = false;
+    if (NormalizedOperation.Equals(TEXT("create"), ESearchCase::IgnoreCase)
+        || NormalizedOperation.Equals(TEXT("update"), ESearchCase::IgnoreCase))
+    {
+        FString TypeString;
+        if (!(*Args)->TryGetStringField(TEXT("type"), TypeString) || TypeString.TrimStartAndEnd().IsEmpty())
+        {
+            Fail(TEXT("INVALID_ARGUMENT"), TEXT("create/update requires args.type."));
+            return Result;
+        }
+
+        EPropertyBagPropertyType ValueType = EPropertyBagPropertyType::None;
+        if (!ParsePcgPropertyBagType(TypeString, ValueType) || ValueType == EPropertyBagPropertyType::None)
+        {
+            Fail(TEXT("INVALID_ARGUMENT"), FString::Printf(TEXT("Unsupported PCG parameter type: %s"), *TypeString));
+            return Result;
+        }
+
+        FString ContainerString;
+        (*Args)->TryGetStringField(TEXT("container"), ContainerString);
+        EPropertyBagContainerType ContainerType = EPropertyBagContainerType::None;
+        if (!ParsePcgPropertyBagContainer(ContainerString, ContainerType))
+        {
+            Fail(TEXT("INVALID_ARGUMENT"), FString::Printf(TEXT("Unsupported PCG parameter container: %s"), *ContainerString));
+            return Result;
+        }
+
+        FString TypeObjectPath;
+        (*Args)->TryGetStringField(TEXT("typeObject"), TypeObjectPath);
+        const UObject* TypeObject = ResolvePcgPropertyBagTypeObject(ValueType, TypeObjectPath);
+        if (!TypeObjectPath.TrimStartAndEnd().IsEmpty() && TypeObject == nullptr)
+        {
+            Fail(TEXT("INVALID_ARGUMENT"), FString::Printf(TEXT("Unable to load parameter typeObject: %s"), *TypeObjectPath));
+            return Result;
+        }
+
+        if (!bDryRun)
+        {
+            const bool bExistingParameter = UserParameters->FindPropertyDescByName(ParameterName) != nullptr;
+            PcgGraph->Modify();
+            const EPropertyBagAlterationResult AlterResult = ContainerType == EPropertyBagContainerType::None
+                ? UserParameters->AddProperty(ParameterName, ValueType, TypeObject, true)
+                : UserParameters->AddContainerProperty(ParameterName, ContainerType, ValueType, TypeObject, true);
+            if (AlterResult != EPropertyBagAlterationResult::Success)
+            {
+                Fail(TEXT("PARAMETER_EDIT_FAILED"), FString::Printf(TEXT("Failed to add/update parameter: %s"), *PcgPropertyBagAlterationResultCode(AlterResult)));
+                return Result;
+            }
+            PcgGraph->OnGraphParametersChanged(
+                bExistingParameter ? EPCGGraphParameterEvent::PropertyTypeModified : EPCGGraphParameterEvent::Added,
+                ParameterName);
+            FString InitialValue;
+            if ((*Args)->TryGetStringField(TEXT("value"), InitialValue))
+            {
+                const EPropertyBagResult SetResult = UserParameters->SetValueSerializedString(ParameterName, InitialValue);
+                if (SetResult != EPropertyBagResult::Success)
+                {
+                    Fail(TEXT("PARAMETER_EDIT_FAILED"), FString::Printf(TEXT("Failed to set parameter default after add/update: %s"), *PcgPropertyBagSetResultCode(SetResult)));
+                    return Result;
+                }
+                PcgGraph->OnGraphParametersChanged(EPCGGraphParameterEvent::ValueModifiedLocally, ParameterName);
+            }
+            bChanged = true;
+        }
+    }
+    else if (NormalizedOperation.Equals(TEXT("rename"), ESearchCase::IgnoreCase))
+    {
+        FString NewName;
+        if (!(*Args)->TryGetStringField(TEXT("newName"), NewName) || NewName.TrimStartAndEnd().IsEmpty())
+        {
+            Fail(TEXT("INVALID_ARGUMENT"), TEXT("rename requires args.newName."));
+            return Result;
+        }
+        if (!bDryRun)
+        {
+            const EPropertyBagAlterationResult AlterResult = PcgGraph->RenameUserParameter(ParameterName, FName(*NewName.TrimStartAndEnd()));
+            if (AlterResult != EPropertyBagAlterationResult::Success)
+            {
+                Fail(TEXT("PARAMETER_EDIT_FAILED"), FString::Printf(TEXT("Failed to rename parameter: %s"), *PcgPropertyBagAlterationResultCode(AlterResult)));
+                return Result;
+            }
+            bChanged = true;
+            Result->SetStringField(TEXT("newName"), NewName.TrimStartAndEnd());
+        }
+    }
+    else if (NormalizedOperation.Equals(TEXT("delete"), ESearchCase::IgnoreCase))
+    {
+        if (!bDryRun)
+        {
+            PcgGraph->Modify();
+            const EPropertyBagAlterationResult AlterResult = UserParameters->RemovePropertyByName(ParameterName);
+            if (AlterResult != EPropertyBagAlterationResult::Success)
+            {
+                Fail(TEXT("PARAMETER_EDIT_FAILED"), FString::Printf(TEXT("Failed to delete parameter: %s"), *PcgPropertyBagAlterationResultCode(AlterResult)));
+                return Result;
+            }
+            PcgGraph->OnGraphParametersChanged(EPCGGraphParameterEvent::RemovedUnused, ParameterName);
+            bChanged = true;
+        }
+    }
+    else if (NormalizedOperation.Equals(TEXT("setDefault"), ESearchCase::IgnoreCase))
+    {
+        FString Value;
+        if (!(*Args)->TryGetStringField(TEXT("value"), Value))
+        {
+            Fail(TEXT("INVALID_ARGUMENT"), TEXT("setDefault requires args.value as the Unreal serialized value string."));
+            return Result;
+        }
+        if (!bDryRun)
+        {
+            PcgGraph->Modify();
+            const EPropertyBagResult SetResult = UserParameters->SetValueSerializedString(ParameterName, Value);
+            if (SetResult != EPropertyBagResult::Success)
+            {
+                Fail(TEXT("PARAMETER_EDIT_FAILED"), FString::Printf(TEXT("Failed to set parameter default: %s"), *PcgPropertyBagSetResultCode(SetResult)));
+                return Result;
+            }
+            PcgGraph->OnGraphParametersChanged(EPCGGraphParameterEvent::ValueModifiedLocally, ParameterName);
+            bChanged = true;
+        }
+    }
+    else
+    {
+        Fail(TEXT("UNSUPPORTED_OPERATION"), FString::Printf(TEXT("Unsupported pcg.parameter.edit operation: %s"), *Operation));
+        return Result;
+    }
+
+    if (!bDryRun && bChanged)
+    {
+        PcgGraph->MarkPackageDirty();
+    }
+    Result->SetBoolField(TEXT("applied"), !bDryRun && bChanged);
+    Result->SetBoolField(TEXT("changed"), bChanged);
+
+    const TSharedPtr<FJsonObject> InspectArgs = MakeShared<FJsonObject>();
+    InspectArgs->SetStringField(TEXT("assetPath"), AssetPath);
+    Result->SetObjectField(TEXT("after"), BuildPcgParameterInspectToolResult(InspectArgs));
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgPaletteToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+{
+    FString AssetPath;
+    FString Query;
+    int32 Limit = 50;
+    int32 Offset = 0;
+    if (Arguments.IsValid())
+    {
+        Arguments->TryGetStringField(TEXT("assetPath"), AssetPath);
+        const TSharedPtr<FJsonObject>* GraphObject = nullptr;
+        if (AssetPath.IsEmpty() && Arguments->TryGetObjectField(TEXT("graph"), GraphObject) && GraphObject != nullptr && (*GraphObject).IsValid())
+        {
+            (*GraphObject)->TryGetStringField(TEXT("assetPath"), AssetPath);
+        }
+        Arguments->TryGetStringField(TEXT("query"), Query);
+        double LimitNumber = 0.0;
+        if (Arguments->TryGetNumberField(TEXT("limit"), LimitNumber))
+        {
+            Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, 500);
+        }
+        double OffsetNumber = 0.0;
+        if (Arguments->TryGetNumberField(TEXT("offset"), OffsetNumber))
+        {
+            Offset = FMath::Max(0, static_cast<int32>(OffsetNumber));
+        }
+    }
+
+    AssetPath = NormalizeAssetPath(AssetPath);
+    if (AssetPath.IsEmpty())
+    {
+        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("pcg.palette requires assetPath or graph.assetPath."));
+        return Result;
+    }
+
+    UPCGGraph* PcgGraph = LoadPcgGraphByAssetPath(AssetPath);
+    if (PcgGraph == nullptr)
+    {
+        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("ASSET_NOT_FOUND"));
+        Result->SetStringField(TEXT("message"), FString::Printf(TEXT("PCG graph asset was not found: %s"), *AssetPath));
+        return Result;
+    }
+
+    const FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+    IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
+    AssetRegistry.SearchAllAssets(true);
+    AssetRegistry.WaitForCompletion();
+
+    const TArray<TSharedPtr<FJsonValue>>* ElementTypeValues = nullptr;
+    TSet<FString> ElementTypes;
+    if (Arguments.IsValid() && Arguments->TryGetArrayField(TEXT("elementTypes"), ElementTypeValues) && ElementTypeValues != nullptr)
+    {
+        for (const TSharedPtr<FJsonValue>& Value : *ElementTypeValues)
+        {
+            FString Text;
+            if (Value.IsValid() && Value->TryGetString(Text))
+            {
+                ElementTypes.Add(Text.ToLower());
+            }
+        }
+    }
+    auto IncludesElementType = [&ElementTypes](const TCHAR* Type)
+    {
+        return ElementTypes.IsEmpty() || ElementTypes.Contains(FString(Type).ToLower());
+    };
+
+    TArray<TSharedPtr<FJsonObject>> AllEntries;
+    int32 EntryIndex = 0;
+    auto AddEntry = [&AllEntries, &EntryIndex](const FString& Kind, const FText& Label, const FText& Category, const FText& Tooltip, const TSharedPtr<FJsonObject>& Payload, const TArray<FString>& Keywords = {}, bool bExecutable = true)
+    {
+        const FString StableText = FString::Printf(
+            TEXT("%s|%s|%s|%s|%s|%d"),
+            *Kind,
+            *PcgPaletteTextToString(Category),
+            *PcgPaletteTextToString(Label),
+            *PcgPaletteTextToString(Tooltip),
+            *SerializeBlueprintJsonObjectCondensed(Payload),
+            EntryIndex);
+        TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+        Entry->SetStringField(TEXT("id"), FString::Printf(TEXT("pcg.palette:%s"), *FMD5::HashAnsiString(*StableText)));
+        Entry->SetStringField(TEXT("kind"), Kind);
+        Entry->SetStringField(TEXT("label"), PcgPaletteTextToString(Label));
+        Entry->SetStringField(TEXT("category"), PcgPaletteTextToString(Category));
+        Entry->SetStringField(TEXT("tooltip"), PcgPaletteTextToString(Tooltip));
+        Entry->SetBoolField(TEXT("requiresContext"), true);
+        Entry->SetBoolField(TEXT("executable"), bExecutable);
+        Entry->SetArrayField(TEXT("keywords"), PcgPaletteStringArrayToJson(Keywords));
+        Entry->SetObjectField(TEXT("payload"), Payload);
+        AllEntries.Add(Entry);
+        ++EntryIndex;
+    };
+
+    auto CategoryAccepted = [PcgGraph](const FText& Category)
+    {
+        return PcgGraph == nullptr || PcgGraph->GraphCustomization.Accepts(Category);
+    };
+
+    if (IncludesElementType(TEXT("native")))
+    {
+        TArray<UClass*> SettingsClasses;
+        for (TObjectIterator<UClass> It; It; ++It)
+        {
+            UClass* Class = *It;
+            if (Class != nullptr
+                && Class->IsChildOf(UPCGSettings::StaticClass())
+                && !Class->HasAnyClassFlags(CLASS_Abstract | CLASS_Deprecated | CLASS_Hidden))
+            {
+                SettingsClasses.Add(Class);
+            }
+        }
+        SettingsClasses.Sort([](const UClass& Left, const UClass& Right)
+        {
+            return Left.GetPathName() < Right.GetPathName();
+        });
+
+        for (UClass* SettingsClass : SettingsClasses)
+        {
+            const UPCGSettings* Settings = SettingsClass ? SettingsClass->GetDefaultObject<UPCGSettings>() : nullptr;
+            if (Settings == nullptr || !Settings->bExposeToLibrary)
+            {
+                continue;
+            }
+            const FText Label = Settings->GetDefaultNodeTitle();
+            const FText Category = StaticEnum<EPCGSettingsType>()->GetDisplayNameTextByValue(static_cast<__underlying_type(EPCGSettingsType)>(Settings->GetType()));
+            const FText Tooltip = Settings->GetNodeTooltipText();
+            if (!CategoryAccepted(Category))
+            {
+                continue;
+            }
+
+            const TArray<FPCGPreConfiguredSettingsInfo> PreconfiguredInfos = Settings->GetPreconfiguredInfo();
+            if (PreconfiguredInfos.IsEmpty() || !Settings->OnlyExposePreconfiguredSettings())
+            {
+                TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+                Payload->SetStringField(TEXT("settingsClass"), SettingsClass->GetPathName());
+                AddEntry(TEXT("native"), Label, Category, Tooltip, Payload);
+                for (const FText& Alias : Settings->GetNodeTitleAliases())
+                {
+                    TSharedPtr<FJsonObject> AliasPayload = MakeShared<FJsonObject>();
+                    AliasPayload->SetStringField(TEXT("settingsClass"), SettingsClass->GetPathName());
+                    AliasPayload->SetStringField(TEXT("aliasFor"), PcgPaletteTextToString(Label));
+                    AddEntry(TEXT("native"), Alias, Category, Tooltip, AliasPayload);
+                }
+            }
+
+            const FText PreconfiguredCategory = Settings->GroupPreconfiguredSettings()
+                ? FText::Format(INVTEXT("{0}|{1}"), Category, Label)
+                : Category;
+            if (!CategoryAccepted(PreconfiguredCategory))
+            {
+                continue;
+            }
+            for (const FPCGPreConfiguredSettingsInfo& Info : PreconfiguredInfos)
+            {
+                TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+                Payload->SetStringField(TEXT("settingsClass"), SettingsClass->GetPathName());
+                PcgPaletteSerializePreconfiguredInfo(Info, Payload);
+                AddEntry(
+                    TEXT("native"),
+                    Info.Label,
+                    PreconfiguredCategory,
+#if WITH_EDITORONLY_DATA
+                    Info.Tooltip.IsEmpty() ? Tooltip : Info.Tooltip,
+#else
+                    Tooltip,
+#endif
+                    Payload,
+                    Info.SearchHints.IsEmpty() ? TArray<FString>() : TArray<FString>{ PcgPaletteTextToString(Info.SearchHints) });
+            }
+        }
+    }
+
+    if (IncludesElementType(TEXT("native")))
+    {
+        const FText ParameterCategory = INVTEXT("Graph Parameters");
+        if (CategoryAccepted(ParameterCategory))
+        {
+            const FInstancedPropertyBag* UserParameters = PcgGraph->GetUserParametersStruct();
+            const UPropertyBag* BagStruct = UserParameters ? UserParameters->GetPropertyBagStruct() : nullptr;
+            if (BagStruct != nullptr)
+            {
+                for (const FPropertyBagPropertyDesc& PropertyDesc : BagStruct->GetPropertyDescs())
+                {
+                    TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+                    Payload->SetStringField(TEXT("settingsClass"), UPCGUserParameterGetSettings::StaticClass()->GetPathName());
+                    Payload->SetStringField(TEXT("parameterName"), PropertyDesc.Name.ToString());
+                    Payload->SetStringField(TEXT("parameterId"), PropertyDesc.ID.ToString(EGuidFormats::DigitsWithHyphensLower));
+                    Payload->SetStringField(TEXT("parameterType"), UEnum::GetValueAsString(PropertyDesc.ValueType));
+                    if (PropertyDesc.ValueTypeObject)
+                    {
+                        Payload->SetStringField(TEXT("parameterTypeObject"), PropertyDesc.ValueTypeObject->GetPathName());
+                    }
+                    AddEntry(
+                        TEXT("parameterGetter"),
+                        FText::Format(INVTEXT("Get {0}"), FText::FromName(PropertyDesc.Name)),
+                        ParameterCategory,
+                        FText::Format(INVTEXT("Get the value from '{0}' parameter, can be overridden by the graph instance."), FText::FromName(PropertyDesc.Name)),
+                        Payload);
+                }
+            }
+        }
+    }
+
+    auto AddAssetEntries = [&](UClass* AssetClass, const FString& Kind)
+    {
+        TArray<FAssetData> Assets;
+        AssetRegistry.GetAssetsByClass(AssetClass->GetClassPathName(), Assets, true);
+        Assets.Sort([](const FAssetData& Left, const FAssetData& Right)
+        {
+            return Left.GetSoftObjectPath().ToString() < Right.GetSoftObjectPath().ToString();
+        });
+        for (const FAssetData& AssetData : Assets)
+        {
+            if (!AssetData.IsValid())
+            {
+                continue;
+            }
+            if (Kind == TEXT("settingsAsset") && !AssetData.GetTagValueRef<bool>(TEXT("bExposeToLibrary")))
+            {
+                continue;
+            }
+            if (Kind == TEXT("dataAsset") && !AssetData.GetTagValueRef<bool>(GET_MEMBER_NAME_CHECKED(UPCGDataAsset, bExposeToLibrary)))
+            {
+                continue;
+            }
+
+            const FText Label = Kind == TEXT("dataAsset") && !AssetData.GetTagValueRef<FString>(GET_MEMBER_NAME_CHECKED(UPCGDataAsset, Name)).IsEmpty()
+                ? FText::FromString(AssetData.GetTagValueRef<FString>(GET_MEMBER_NAME_CHECKED(UPCGDataAsset, Name)))
+                : FText::FromString(FName::NameToDisplayString(AssetData.AssetName.ToString(), false));
+            const FText Category = Kind == TEXT("dataAsset")
+                ? AssetData.GetTagValueRef<FText>(GET_MEMBER_NAME_CHECKED(UPCGDataAsset, Category))
+                : AssetData.GetTagValueRef<FText>(TEXT("Category"));
+            const FText Tooltip = Kind == TEXT("dataAsset")
+                ? AssetData.GetTagValueRef<FText>(GET_MEMBER_NAME_CHECKED(UPCGDataAsset, Description))
+                : FText::Format(INVTEXT("{0}\n{1}"), FText::FromString(AssetData.GetObjectPathString()), AssetData.GetTagValueRef<FText>(TEXT("Description")));
+            if (!CategoryAccepted(Category))
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+            Payload->SetStringField(Kind == TEXT("settingsAsset") ? TEXT("settingsObjectPath") : TEXT("assetPath"), AssetData.GetSoftObjectPath().ToString());
+            Payload->SetStringField(TEXT("assetClass"), AssetData.AssetClassPath.ToString());
+            if (Kind == TEXT("settingsAsset"))
+            {
+                Payload->SetStringField(TEXT("behavior"), TEXT("normal"));
+            }
+            else
+            {
+                const FSoftClassPath SettingsClassPath = FSoftClassPath(AssetData.GetTagValueRef<FString>(GET_MEMBER_NAME_CHECKED(UPCGDataAsset, SettingsClass)));
+                Payload->SetStringField(TEXT("settingsClass"), SettingsClassPath.ToString().IsEmpty() ? UPCGLoadDataAssetSettings::StaticClass()->GetPathName() : SettingsClassPath.ToString());
+            }
+            AddEntry(Kind, Label, Category.IsEmptyOrWhitespace() && Kind == TEXT("settingsAsset") ? INVTEXT("Uncategorized Assets") : Category, Tooltip, Payload);
+        }
+    };
+
+    if (IncludesElementType(TEXT("settings")))
+    {
+        AddAssetEntries(UPCGSettings::StaticClass(), TEXT("settingsAsset"));
+    }
+
+    if (IncludesElementType(TEXT("asset")) || IncludesElementType(TEXT("dataAsset")))
+    {
+        AddAssetEntries(UPCGDataAsset::StaticClass(), TEXT("dataAsset"));
+    }
+
+    if (IncludesElementType(TEXT("subgraph")))
+    {
+        TArray<FAssetData> GraphAssets;
+        AssetRegistry.GetAssetsByClass(UPCGGraph::StaticClass()->GetClassPathName(), GraphAssets, true);
+        AssetRegistry.GetAssetsByClass(UPCGGraphInstance::StaticClass()->GetClassPathName(), GraphAssets, true);
+        GraphAssets.Sort([](const FAssetData& Left, const FAssetData& Right)
+        {
+            return Left.GetSoftObjectPath().ToString() < Right.GetSoftObjectPath().ToString();
+        });
+        for (const FAssetData& AssetData : GraphAssets)
+        {
+            if (!AssetData.GetTagValueRef<bool>(GET_MEMBER_NAME_CHECKED(UPCGGraphInterface, bExposeToLibrary)))
+            {
+                continue;
+            }
+            const FText Category = AssetData.GetTagValueRef<FText>(GET_MEMBER_NAME_CHECKED(UPCGGraph, Category));
+            if (!CategoryAccepted(Category))
+            {
+                continue;
+            }
+            const FText Label = AssetData.GetTagValueRef<bool>(GET_MEMBER_NAME_CHECKED(UPCGGraphInterface, bOverrideTitle))
+                ? AssetData.GetTagValueRef<FText>(GET_MEMBER_NAME_CHECKED(UPCGGraphInterface, Title))
+                : FText::FromString(FName::NameToDisplayString(AssetData.AssetName.ToString(), false));
+            TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+            Payload->SetStringField(TEXT("subgraphObjectPath"), AssetData.GetSoftObjectPath().ToString());
+            Payload->SetStringField(TEXT("behavior"), TEXT("normal"));
+            Payload->SetStringField(TEXT("settingsClass"), UPCGSubgraphSettings::StaticClass()->GetPathName());
+            AddEntry(TEXT("subgraph"), Label, Category, AssetData.GetTagValueRef<FText>(GET_MEMBER_NAME_CHECKED(UPCGGraph, Description)), Payload);
+        }
+    }
+
+    if (IncludesElementType(TEXT("blueprint")))
+    {
+        TArray<FAssetData> BlueprintAssets;
+        AssetRegistry.GetAssetsByClass(UBlueprint::StaticClass()->GetClassPathName(), BlueprintAssets, true);
+        for (const FAssetData& AssetData : BlueprintAssets)
+        {
+            const FSoftClassPath GeneratedClassPath = FSoftClassPath(AssetData.GetTagValueRef<FString>(FBlueprintTags::GeneratedClassPath));
+            TSubclassOf<UPCGBlueprintBaseElement> BlueprintClass = GeneratedClassPath.TryLoadClass<UPCGBlueprintBaseElement>();
+            const UPCGBlueprintBaseElement* BlueprintElement = BlueprintClass ? Cast<UPCGBlueprintBaseElement>(BlueprintClass->GetDefaultObject()) : nullptr;
+            if (BlueprintElement == nullptr || !BlueprintElement->bExposeToLibrary)
+            {
+                continue;
+            }
+            const FText Label = FText::FromString(FName::NameToDisplayString(AssetData.AssetName.ToString(), false));
+            if (!CategoryAccepted(BlueprintElement->Category))
+            {
+                continue;
+            }
+            TArray<FPCGPreConfiguredSettingsInfo> PreconfiguredInfos = BlueprintElement->bEnablePreconfiguredSettings ? BlueprintElement->PreconfiguredInfo : TArray<FPCGPreConfiguredSettingsInfo>();
+            if (PreconfiguredInfos.IsEmpty() || !BlueprintElement->bOnlyExposePreconfiguredSettings)
+            {
+                TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+                Payload->SetStringField(TEXT("blueprintClassPath"), GeneratedClassPath.ToString());
+                Payload->SetStringField(TEXT("settingsClass"), UPCGBlueprintSettings::StaticClass()->GetPathName());
+                AddEntry(TEXT("blueprintElement"), Label, BlueprintElement->Category, BlueprintElement->Description, Payload);
+            }
+            const FText PreconfiguredCategory = FText::Format(INVTEXT("{0}|{1}"), BlueprintElement->Category, Label);
+            for (const FPCGPreConfiguredSettingsInfo& Info : PreconfiguredInfos)
+            {
+                TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+                Payload->SetStringField(TEXT("blueprintClassPath"), GeneratedClassPath.ToString());
+                Payload->SetStringField(TEXT("settingsClass"), UPCGBlueprintSettings::StaticClass()->GetPathName());
+                PcgPaletteSerializePreconfiguredInfo(Info, Payload);
+                AddEntry(TEXT("blueprintElement"), Info.Label, PreconfiguredCategory, Info.Tooltip.IsEmpty() ? BlueprintElement->Description : Info.Tooltip, Payload);
+            }
+        }
+    }
+
+    if (IncludesElementType(TEXT("other")))
+    {
+        for (const UPCGNode* Node : PcgGraph->GetNodes())
+        {
+            if (Node != nullptr && Cast<UPCGNamedRerouteDeclarationSettings>(Node->GetSettings()) != nullptr)
+            {
+                TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+                Payload->SetStringField(TEXT("declarationNodeId"), Node->GetPathName());
+                Payload->SetStringField(TEXT("declarationNodeTitle"), Node->NodeTitle.ToString());
+                AddEntry(TEXT("namedRerouteUsage"), FText::FromName(Node->NodeTitle), INVTEXT("Named Reroutes"), FText::Format(INVTEXT("Add a usage of '{0}' here."), FText::FromName(Node->NodeTitle)), Payload);
+            }
+        }
+        AddEntry(TEXT("comment"), INVTEXT("Add Comment..."), FText(), INVTEXT("Create a resizable comment box."), MakeShared<FJsonObject>(), {}, false);
+        AddEntry(TEXT("reroute"), INVTEXT("Add Reroute Node"), FText(), INVTEXT("Add a reroute node, aka knot."), MakeShared<FJsonObject>());
+        AddEntry(TEXT("namedRerouteDeclaration"), INVTEXT("Add Named Reroute Declaration Node..."), FText(), INVTEXT("Creates a new Named Reroute Declaration from the input."), MakeShared<FJsonObject>());
+    }
+
+    auto EntryMatchesQuery = [&Query](const TSharedPtr<FJsonObject>& Entry)
+    {
+        if (Query.IsEmpty())
+        {
+            return true;
+        }
+        const FString QueryLower = Query.ToLower();
+        for (const TCHAR* Field : { TEXT("label"), TEXT("category"), TEXT("tooltip"), TEXT("kind") })
+        {
+            FString Value;
+            if (Entry->TryGetStringField(Field, Value) && Value.ToLower().Contains(QueryLower))
+            {
+                return true;
+            }
+        }
+        return SerializeBlueprintJsonObjectCondensed(Entry).ToLower().Contains(QueryLower);
+    };
+
+    auto EntryScore = [&Query](const TSharedPtr<FJsonObject>& Entry)
+    {
+        if (Query.IsEmpty())
+        {
+            return 0;
+        }
+        FString Label;
+        Entry->TryGetStringField(TEXT("label"), Label);
+        const FString QueryLower = Query.ToLower();
+        const FString LabelLower = Label.ToLower();
+        if (LabelLower.Equals(QueryLower, ESearchCase::CaseSensitive)) { return 0; }
+        if (LabelLower.StartsWith(QueryLower)) { return 10; }
+        if (LabelLower.Contains(QueryLower)) { return 20; }
+        return 30;
+    };
+
+    AllEntries = AllEntries.FilterByPredicate(EntryMatchesQuery);
+    AllEntries.Sort([&EntryScore](const TSharedPtr<FJsonObject>& Left, const TSharedPtr<FJsonObject>& Right)
+    {
+        return EntryScore(Left) < EntryScore(Right);
+    });
+
+    TArray<TSharedPtr<FJsonValue>> Entries;
+    for (int32 MatchIndex = Offset; MatchIndex < AllEntries.Num() && Entries.Num() < Limit; ++MatchIndex)
+    {
+        Entries.Add(MakeShared<FJsonValueObject>(AllEntries[MatchIndex]));
+    }
+
+    TSharedPtr<FJsonObject> Source = MakeShared<FJsonObject>();
+    Source->SetStringField(TEXT("ueSchema"), TEXT("UPCGEditorGraphSchema::GetPaletteActions"));
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+    Result->SetStringField(TEXT("assetPath"), AssetPath);
+    Result->SetObjectField(TEXT("graphRef"), MakePcgGraphAssetRef(AssetPath));
+    Result->SetArrayField(TEXT("entries"), Entries);
+    Result->SetNumberField(TEXT("total"), AllEntries.Num());
+    Result->SetNumberField(TEXT("offset"), Offset);
+    Result->SetNumberField(TEXT("limit"), Limit);
+    Result->SetArrayField(TEXT("elementTypes"), Arguments.IsValid() && Arguments->HasTypedField<EJson::Array>(TEXT("elementTypes"))
+        ? Arguments->GetArrayField(TEXT("elementTypes"))
+        : PcgPaletteStringArrayToJson({ TEXT("native"), TEXT("blueprint"), TEXT("subgraph"), TEXT("settings"), TEXT("asset"), TEXT("other") }));
+    Result->SetObjectField(TEXT("source"), Source);
+    return Result;
 }
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgListToolResult(const TSharedPtr<FJsonObject>& Arguments) const
@@ -1115,6 +2022,242 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgMutateToolResult(const TSha
                 false,
                 TEXT("INVALID_ARGUMENT"),
                 FString::Printf(TEXT("Duplicate clientRef: %s"), *ClientRef));
+        }
+        else if (OpName.Equals(TEXT("addfrompalette")))
+        {
+            const TSharedPtr<FJsonObject>* EntryObj = nullptr;
+            const TSharedPtr<FJsonObject>* PayloadObj = nullptr;
+            FString EntryKind;
+            bool bExecutable = true;
+            if (!SingleOp->TryGetObjectField(TEXT("entry"), EntryObj) || EntryObj == nullptr || !(*EntryObj).IsValid())
+            {
+                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("addFromPalette requires entry from pcg.palette."));
+            }
+            else if (!(*EntryObj)->TryGetStringField(TEXT("kind"), EntryKind) || EntryKind.IsEmpty())
+            {
+                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("addFromPalette requires entry.kind."));
+            }
+            else if ((*EntryObj)->TryGetBoolField(TEXT("executable"), bExecutable) && !bExecutable)
+            {
+                SingleResult = BuildDirectSingleResult(false, false, TEXT("PALETTE_ENTRY_NOT_EXECUTABLE"), TEXT("The selected pcg.palette entry is not executable by pcg.graph.edit."));
+            }
+            else if (!(*EntryObj)->TryGetObjectField(TEXT("payload"), PayloadObj) || PayloadObj == nullptr || !(*PayloadObj).IsValid())
+            {
+                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("addFromPalette requires entry.payload."));
+            }
+            else if (bDryRun)
+            {
+                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""));
+            }
+            else
+            {
+                UPCGGraph* PcgGraph = LoadPcgGraphByAssetPath(AssetPath);
+                if (PcgGraph == nullptr)
+                {
+                    SingleResult = BuildDirectSingleResult(false, false, TEXT("ASSET_NOT_FOUND"), TEXT("PCG asset not found."));
+                }
+                else
+                {
+                    int32 X = 0;
+                    int32 Y = 0;
+                    ResolvePlacement(SingleOp, X, Y);
+
+                    FString Error;
+                    UPCGNode* NewNode = nullptr;
+                    UPCGSettings* DefaultSettings = nullptr;
+                    FString Behavior;
+                    SingleOp->TryGetStringField(TEXT("behavior"), Behavior);
+                    if (Behavior.IsEmpty())
+                    {
+                        (*PayloadObj)->TryGetStringField(TEXT("behavior"), Behavior);
+                    }
+
+                    auto AddNodeOfSettingsClass = [&](UClass* SettingsClass) -> UPCGNode*
+                    {
+                        UPCGSettings* CreatedSettings = nullptr;
+                        UPCGNode* CreatedNode = PcgGraph->AddNodeOfType(SettingsClass, CreatedSettings);
+                        DefaultSettings = CreatedSettings;
+                        return CreatedNode;
+                    };
+
+                    if (EntryKind.Equals(TEXT("native"), ESearchCase::IgnoreCase)
+                        || EntryKind.Equals(TEXT("parameterGetter"), ESearchCase::IgnoreCase))
+                    {
+                        FString SettingsClassPath;
+                        (*PayloadObj)->TryGetStringField(TEXT("settingsClass"), SettingsClassPath);
+                        UClass* SettingsClass = LoadPcgSettingsClassFromPath(SettingsClassPath);
+                        if (SettingsClass == nullptr)
+                        {
+                            Error = TEXT("Invalid PCG settings class in palette entry.");
+                        }
+                        else
+                        {
+                            NewNode = AddNodeOfSettingsClass(SettingsClass);
+                            if (DefaultSettings != nullptr)
+                            {
+                                if (EntryKind.Equals(TEXT("parameterGetter"), ESearchCase::IgnoreCase))
+                                {
+                                    UPCGUserParameterGetSettings* ParameterSettings = Cast<UPCGUserParameterGetSettings>(DefaultSettings);
+                                    FString ParameterName;
+                                    FString ParameterId;
+                                    (*PayloadObj)->TryGetStringField(TEXT("parameterName"), ParameterName);
+                                    (*PayloadObj)->TryGetStringField(TEXT("parameterId"), ParameterId);
+                                    if (ParameterSettings != nullptr)
+                                    {
+                                        ParameterSettings->PropertyName = FName(*ParameterName);
+                                        FGuid::Parse(ParameterId, ParameterSettings->PropertyGuid);
+                                    }
+                                }
+                                DefaultSettings->ApplyPreconfiguredSettings(PcgPaletteDeserializePreconfiguredInfo(*PayloadObj));
+                                if (NewNode != nullptr)
+                                {
+                                    NewNode->UpdateAfterSettingsChangeDuringCreation();
+                                }
+                            }
+                        }
+                    }
+                    else if (EntryKind.Equals(TEXT("settingsAsset"), ESearchCase::IgnoreCase))
+                    {
+                        FString SettingsObjectPath;
+                        (*PayloadObj)->TryGetStringField(TEXT("settingsObjectPath"), SettingsObjectPath);
+                        UPCGSettings* Settings = LoadObject<UPCGSettings>(nullptr, *SettingsObjectPath);
+                        if (Settings == nullptr)
+                        {
+                            Error = TEXT("Invalid PCG settings asset in palette entry.");
+                        }
+                        else if (Behavior.Equals(TEXT("instance"), ESearchCase::IgnoreCase))
+                        {
+                            NewNode = PcgGraph->AddNodeInstance(Settings);
+                        }
+                        else
+                        {
+                            NewNode = PcgGraph->AddNodeCopy(Settings, DefaultSettings);
+                        }
+                    }
+                    else if (EntryKind.Equals(TEXT("dataAsset"), ESearchCase::IgnoreCase))
+                    {
+                        FString DataAssetPath;
+                        FString SettingsClassPath;
+                        (*PayloadObj)->TryGetStringField(TEXT("assetPath"), DataAssetPath);
+                        (*PayloadObj)->TryGetStringField(TEXT("settingsClass"), SettingsClassPath);
+                        UClass* SettingsClass = LoadPcgSettingsClassFromPath(SettingsClassPath);
+                        if (SettingsClass == nullptr)
+                        {
+                            SettingsClass = UPCGLoadDataAssetSettings::StaticClass();
+                        }
+                        FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+                        const FAssetData AssetData = AssetRegistryModule.Get().GetAssetByObjectPath(FSoftObjectPath(DataAssetPath));
+                        if (!AssetData.IsValid())
+                        {
+                            Error = TEXT("Invalid PCG data asset in palette entry.");
+                        }
+                        else
+                        {
+                            NewNode = AddNodeOfSettingsClass(SettingsClass);
+                            UPCGLoadDataAssetSettings* LoadAssetSettings = Cast<UPCGLoadDataAssetSettings>(DefaultSettings);
+                            if (LoadAssetSettings != nullptr)
+                            {
+                                LoadAssetSettings->SetFromAsset(AssetData);
+                                NewNode->UpdateAfterSettingsChangeDuringCreation();
+                            }
+                        }
+                    }
+                    else if (EntryKind.Equals(TEXT("subgraph"), ESearchCase::IgnoreCase))
+                    {
+                        FString SubgraphObjectPath;
+                        (*PayloadObj)->TryGetStringField(TEXT("subgraphObjectPath"), SubgraphObjectPath);
+                        UPCGGraphInterface* Subgraph = LoadObject<UPCGGraphInterface>(nullptr, *SubgraphObjectPath);
+                        if (Subgraph == nullptr)
+                        {
+                            Error = TEXT("Invalid PCG subgraph asset in palette entry.");
+                        }
+                        else
+                        {
+                            const bool bCreateLoop = Behavior.Equals(TEXT("loop"), ESearchCase::IgnoreCase);
+                            NewNode = AddNodeOfSettingsClass(bCreateLoop ? UPCGLoopSettings::StaticClass() : UPCGSubgraphSettings::StaticClass());
+                            UPCGBaseSubgraphSettings* SubgraphSettings = Cast<UPCGBaseSubgraphSettings>(DefaultSettings);
+                            if (SubgraphSettings != nullptr)
+                            {
+                                SubgraphSettings->SetSubgraph(Subgraph);
+                                NewNode->UpdateAfterSettingsChangeDuringCreation();
+                            }
+                        }
+                    }
+                    else if (EntryKind.Equals(TEXT("blueprintElement"), ESearchCase::IgnoreCase))
+                    {
+                        FString BlueprintClassPath;
+                        (*PayloadObj)->TryGetStringField(TEXT("blueprintClassPath"), BlueprintClassPath);
+                        TSubclassOf<UPCGBlueprintBaseElement> BlueprintClass = FSoftClassPath(BlueprintClassPath).TryLoadClass<UPCGBlueprintBaseElement>();
+                        if (!BlueprintClass)
+                        {
+                            Error = TEXT("Invalid PCG blueprint element class in palette entry.");
+                        }
+                        else
+                        {
+                            NewNode = AddNodeOfSettingsClass(UPCGBlueprintSettings::StaticClass());
+                            UPCGBlueprintSettings* BlueprintSettings = Cast<UPCGBlueprintSettings>(DefaultSettings);
+                            if (BlueprintSettings != nullptr)
+                            {
+                                UPCGBlueprintBaseElement* ElementInstance = nullptr;
+                                BlueprintSettings->SetBlueprintElementType(BlueprintClass, ElementInstance);
+                                BlueprintSettings->ApplyPreconfiguredSettings(PcgPaletteDeserializePreconfiguredInfo(*PayloadObj));
+                                NewNode->UpdateAfterSettingsChangeDuringCreation();
+                            }
+                        }
+                    }
+                    else if (EntryKind.Equals(TEXT("reroute"), ESearchCase::IgnoreCase))
+                    {
+                        NewNode = AddNodeOfSettingsClass(UPCGRerouteSettings::StaticClass());
+                    }
+                    else if (EntryKind.Equals(TEXT("namedRerouteDeclaration"), ESearchCase::IgnoreCase))
+                    {
+                        NewNode = AddNodeOfSettingsClass(UPCGNamedRerouteDeclarationSettings::StaticClass());
+                        if (NewNode != nullptr && DefaultSettings != nullptr)
+                        {
+                            NewNode->UpdateAfterSettingsChangeDuringCreation();
+                        }
+                    }
+                    else if (EntryKind.Equals(TEXT("namedRerouteUsage"), ESearchCase::IgnoreCase))
+                    {
+                        FString DeclarationNodeId;
+                        (*PayloadObj)->TryGetStringField(TEXT("declarationNodeId"), DeclarationNodeId);
+                        UPCGNode* DeclarationNode = FindPcgNodeById(PcgGraph, DeclarationNodeId);
+                        UPCGNamedRerouteDeclarationSettings* Declaration = DeclarationNode ? Cast<UPCGNamedRerouteDeclarationSettings>(DeclarationNode->GetSettings()) : nullptr;
+                        if (DeclarationNode == nullptr || Declaration == nullptr)
+                        {
+                            Error = TEXT("Named reroute declaration node was not found.");
+                        }
+                        else
+                        {
+                            NewNode = AddNodeOfSettingsClass(UPCGNamedRerouteUsageSettings::StaticClass());
+                            UPCGNamedRerouteUsageSettings* UsageSettings = Cast<UPCGNamedRerouteUsageSettings>(DefaultSettings);
+                            if (UsageSettings != nullptr)
+                            {
+                                UsageSettings->Declaration = Declaration;
+                                NewNode->SetNodeTitle(DeclarationNode->NodeTitle, false);
+                                NewNode->NodeTitleColor = DeclarationNode->NodeTitleColor;
+                                PcgGraph->AddEdge(DeclarationNode, PCGNamedRerouteConstants::InvisiblePinLabel, NewNode, PCGPinConstants::DefaultInputLabel);
+                                NewNode->UpdateAfterSettingsChangeDuringCreation();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Error = FString::Printf(TEXT("Unsupported pcg.palette entry kind: %s"), *EntryKind);
+                    }
+
+                    if (NewNode == nullptr)
+                    {
+                        SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_PALETTE_ENTRY"), Error.IsEmpty() ? TEXT("Failed to create PCG node from palette entry.") : Error);
+                    }
+                    else
+                    {
+                        NewNode->SetNodePosition(X, Y);
+                        PendingLayoutNodeIds.AddUnique(NewNode->GetPathName());
+                        SingleResult = BuildDirectSingleResult(true, true, TEXT(""), TEXT(""), NewNode->GetPathName());
+                    }
+                }
+            }
         }
         else if (OpName.Equals(TEXT("addnode.byclass")))
         {

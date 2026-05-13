@@ -104,7 +104,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
         TEXT("blueprint.inspect"), TEXT("blueprint.edit"), TEXT("blueprint.enum.inspect"), TEXT("blueprint.enum.edit"), TEXT("blueprint.member.edit"),
         TEXT("blueprint.graph.list"), TEXT("blueprint.graph.inspect"), TEXT("blueprint.graph.edit"), TEXT("blueprint.verify"), TEXT("blueprint.palette"),
         TEXT("material.list"), TEXT("material.query"), TEXT("material.mutate"), TEXT("material.verify"), TEXT("material.describe"),
-        TEXT("pcg.list"), TEXT("pcg.query"), TEXT("pcg.mutate"), TEXT("pcg.verify"), TEXT("pcg.describe"),
+        TEXT("pcg.list"), TEXT("pcg.query"), TEXT("pcg.mutate"), TEXT("pcg.verify"), TEXT("pcg.describe"), TEXT("pcg.palette"),
+        TEXT("pcg.parameter.inspect"), TEXT("pcg.parameter.edit"),
         TEXT("diagnostic.tail"), TEXT("log.tail"),
         TEXT("widget.query"), TEXT("widget.mutate"), TEXT("widget.verify"), TEXT("widget.describe")
     }));
@@ -345,6 +346,18 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     else if (Name.Equals(TEXT("pcg.describe")))
     {
         Payload = BuildPcgDescribeToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("pcg.palette")))
+    {
+        Payload = BuildPcgPaletteToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("pcg.parameter.inspect")))
+    {
+        Payload = BuildPcgParameterInspectToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("pcg.parameter.edit")))
+    {
+        Payload = BuildPcgParameterEditToolResult(Arguments);
     }
     else if (Name.Equals(LoomleBridgeConstants::ExecuteToolName))
     {

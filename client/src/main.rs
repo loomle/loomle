@@ -974,6 +974,7 @@ impl LoomleProxyServer {
         args: rmcp::model::JsonObject,
     ) -> Result<Option<CallToolResult>, McpError> {
         match tool_name {
+            "pcg.graph.inspect" => Ok(Some(self.call_pcg_graph_inspect(args).await?)),
             "pcg.query" => {
                 let query_args = match translate_pcg_query_args(&args) {
                     Ok(value) => value,
@@ -981,6 +982,12 @@ impl LoomleProxyServer {
                 };
                 Ok(Some(self.runtime_call("pcg.query", query_args).await?))
             }
+            "pcg.palette" => Ok(Some(self.call_pcg_palette(args).await?)),
+            "pcg.node.inspect" => Ok(Some(self.call_pcg_node_inspect(args).await?)),
+            "pcg.parameter.inspect" => Ok(Some(self.call_pcg_parameter_inspect(args).await?)),
+            "pcg.parameter.edit" => Ok(Some(self.call_pcg_parameter_edit(args).await?)),
+            "pcg.graph.edit" => Ok(Some(self.call_pcg_graph_edit(args).await?)),
+            "pcg.compile" => Ok(Some(self.call_pcg_compile(args).await?)),
             _ => Ok(None),
         }
     }
@@ -1359,6 +1366,123 @@ impl LoomleProxyServer {
         }
         Ok(structured_result(payload))
     }
+
+    async fn call_pcg_palette(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let translated = match translate_pcg_palette_args(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        let payload = self.runtime_payload("pcg.palette", translated).await?;
+        if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
+            return Ok(CallToolResult::structured_error(payload));
+        }
+        Ok(structured_result(payload))
+    }
+
+    async fn call_pcg_graph_inspect(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        if let Err(error) = validate_pcg_graph_inspect_args(&args) {
+            return Ok(error);
+        }
+        let translated = match translate_pcg_graph_inspect_args(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        let payload = self.runtime_payload("pcg.query", translated).await?;
+        if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
+            return Ok(CallToolResult::structured_error(payload));
+        }
+
+        let mut result = payload.as_object().cloned().unwrap_or_default();
+        shape_pcg_graph_inspect_result(&mut result, &args);
+        Ok(structured_result(serde_json::Value::Object(result)))
+    }
+
+    async fn call_pcg_node_inspect(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let translated = match translate_pcg_node_inspect_args(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        let payload = self.runtime_payload("pcg.describe", translated).await?;
+        if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
+            return Ok(CallToolResult::structured_error(payload));
+        }
+        Ok(structured_result(shape_pcg_node_inspect_result(payload)))
+    }
+
+    async fn call_pcg_parameter_inspect(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let translated = match translate_asset_or_graph_args(&args, "pcg.parameter.inspect") {
+            Ok(mut value) => {
+                if let Some(name) = args.get("name") {
+                    value.insert("name".into(), name.clone());
+                }
+                value
+            }
+            Err(error) => return Ok(error),
+        };
+        let payload = self
+            .runtime_payload("pcg.parameter.inspect", translated)
+            .await?;
+        if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
+            return Ok(CallToolResult::structured_error(payload));
+        }
+        Ok(structured_result(payload))
+    }
+
+    async fn call_pcg_parameter_edit(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let translated = match translate_pcg_parameter_edit_args(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        let payload = self
+            .runtime_payload("pcg.parameter.edit", translated)
+            .await?;
+        if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
+            return Ok(CallToolResult::structured_error(payload));
+        }
+        Ok(structured_result(payload))
+    }
+
+    async fn call_pcg_graph_edit(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let translated = match translate_pcg_graph_edit_args(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        let payload = self.runtime_payload("pcg.mutate", translated).await?;
+        Ok(structured_result(augment_blueprint_mutate_result(payload)))
+    }
+
+    async fn call_pcg_compile(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let translated = match translate_pcg_compile_args(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        let payload = self.runtime_payload("pcg.verify", translated).await?;
+        if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
+            return Ok(CallToolResult::structured_error(payload));
+        }
+        Ok(structured_result(shape_pcg_compile_result(payload)))
+    }
 }
 
 fn invalid_argument_result(message: impl Into<String>) -> CallToolResult {
@@ -1567,6 +1691,514 @@ fn translate_pcg_query_args(
     args: &rmcp::model::JsonObject,
 ) -> Result<rmcp::model::JsonObject, CallToolResult> {
     translate_asset_query_args(args, "pcg.query")
+}
+
+fn translate_pcg_graph_inspect_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let graph_asset_path = extract_query_graph_asset_path(args, "pcg.graph.inspect")?;
+    let direct_asset_path = args
+        .get("assetPath")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty());
+    let asset_path = graph_asset_path
+        .as_deref()
+        .or(direct_asset_path)
+        .ok_or_else(|| invalid_argument_result("pcg.graph.inspect requires assetPath or graph."))?;
+
+    let mut translated = rmcp::model::JsonObject::new();
+    translated.insert("assetPath".into(), serde_json::json!(asset_path));
+    if let Some(filter) = args.get("filter").and_then(|value| value.as_object()) {
+        if let Some(node_ids) = filter.get("nodeIds") {
+            translated.insert("nodeIds".into(), node_ids.clone());
+        }
+    }
+
+    let view = pcg_graph_inspect_view(args);
+    if matches!(view, "links" | "defaults" | "full") {
+        translated.insert("includeConnections".into(), serde_json::json!(true));
+    }
+    Ok(translated)
+}
+
+fn translate_pcg_node_inspect_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let mut translated = rmcp::model::JsonObject::new();
+
+    if let Some(node_class) = args
+        .get("nodeClass")
+        .or_else(|| args.get("settingsClass"))
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+    {
+        translated.insert("nodeClass".into(), serde_json::json!(node_class));
+        return Ok(translated);
+    }
+
+    let graph_asset_path = extract_query_graph_asset_path(args, "pcg.node.inspect")?;
+    let direct_asset_path = args
+        .get("assetPath")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty());
+    let asset_path = graph_asset_path
+        .as_deref()
+        .or(direct_asset_path)
+        .ok_or_else(|| {
+            invalid_argument_result("pcg.node.inspect requires assetPath or graph for node mode.")
+        })?;
+    translated.insert("assetPath".into(), serde_json::json!(asset_path));
+
+    let node_id = args
+        .get("node")
+        .and_then(|value| extract_node_token(value).ok())
+        .and_then(|value| {
+            value
+                .get("nodeId")
+                .and_then(|node_id| node_id.as_str())
+                .map(str::to_owned)
+        })
+        .or_else(|| {
+            args.get("nodeId")
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+        })
+        .ok_or_else(|| invalid_argument_result("pcg.node.inspect requires node.id."))?;
+    translated.insert("nodeId".into(), serde_json::json!(node_id));
+    Ok(translated)
+}
+
+fn translate_pcg_compile_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let graph_asset_path = extract_query_graph_asset_path(args, "pcg.compile")?;
+    let direct_asset_path = args
+        .get("assetPath")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty());
+    let asset_path = graph_asset_path
+        .as_deref()
+        .or(direct_asset_path)
+        .ok_or_else(|| invalid_argument_result("pcg.compile requires assetPath or graph."))?;
+    let mut translated = rmcp::model::JsonObject::new();
+    translated.insert("assetPath".into(), serde_json::json!(asset_path));
+    Ok(translated)
+}
+
+fn translate_asset_or_graph_args(
+    args: &rmcp::model::JsonObject,
+    tool_name: &str,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let graph_asset_path = extract_query_graph_asset_path(args, tool_name)?;
+    let direct_asset_path = args
+        .get("assetPath")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty());
+    let asset_path = graph_asset_path
+        .as_deref()
+        .or(direct_asset_path)
+        .ok_or_else(|| {
+            invalid_argument_result(&format!("{tool_name} requires assetPath or graph."))
+        })?;
+    let mut translated = rmcp::model::JsonObject::new();
+    translated.insert("assetPath".into(), serde_json::json!(asset_path));
+    Ok(translated)
+}
+
+fn translate_pcg_parameter_edit_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let mut translated = translate_asset_or_graph_args(args, "pcg.parameter.edit")?;
+    let operation = args
+        .get("operation")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| invalid_argument_result("pcg.parameter.edit requires operation."))?;
+    let operation_args = args
+        .get("args")
+        .and_then(|value| value.as_object())
+        .ok_or_else(|| invalid_argument_result("pcg.parameter.edit requires args."))?;
+
+    translated.insert("operation".into(), serde_json::json!(operation));
+    translated.insert(
+        "args".into(),
+        serde_json::Value::Object(operation_args.clone()),
+    );
+    copy_mutation_controls(args, &mut translated);
+    Ok(translated)
+}
+
+fn shape_pcg_compile_result(payload: serde_json::Value) -> serde_json::Value {
+    let Some(object) = payload.as_object() else {
+        return payload;
+    };
+    let status = object
+        .get("status")
+        .and_then(|value| value.as_str())
+        .unwrap_or("error");
+    let compile_report = object
+        .get("compileReport")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let compiled = compile_report
+        .get("compiled")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(status == "ok");
+    serde_json::json!({
+        "assetPath": object.get("assetPath").cloned().unwrap_or(serde_json::Value::Null),
+        "status": status,
+        "valid": status == "ok" && compiled,
+        "compiled": compiled,
+        "summary": object.get("summary").cloned().unwrap_or(serde_json::Value::Null),
+        "diagnostics": object.get("diagnostics").cloned().unwrap_or(serde_json::json!([])),
+        "compileReport": compile_report,
+        "queryReport": object.get("queryReport").cloned().unwrap_or(serde_json::Value::Null)
+    })
+}
+
+fn shape_pcg_node_inspect_result(payload: serde_json::Value) -> serde_json::Value {
+    let Some(object) = payload.as_object() else {
+        return payload;
+    };
+    let mode = object
+        .get("mode")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    if mode == "instance" {
+        let node = object
+            .get("node")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        let settings = node
+            .get("settings")
+            .cloned()
+            .or_else(|| node.get("effectiveSettings").cloned())
+            .unwrap_or(serde_json::Value::Null);
+        let properties = settings
+            .get("properties")
+            .cloned()
+            .unwrap_or(serde_json::json!([]));
+        return serde_json::json!({
+            "mode": "instance",
+            "assetPath": object.get("assetPath").cloned().unwrap_or(serde_json::Value::Null),
+            "nodeId": object.get("nodeId").cloned().unwrap_or(serde_json::Value::Null),
+            "node": node,
+            "settings": settings,
+            "properties": properties,
+            "pins": object
+                .get("node")
+                .and_then(|node| node.get("pins"))
+                .cloned()
+                .unwrap_or(serde_json::json!([]))
+        });
+    }
+
+    if mode == "class" {
+        return serde_json::json!({
+            "mode": "class",
+            "nodeClass": object.get("nodeClass").cloned().unwrap_or(serde_json::Value::Null),
+            "title": object.get("title").cloned().unwrap_or(serde_json::Value::Null),
+            "tooltip": object.get("tooltip").cloned().unwrap_or(serde_json::Value::Null),
+            "settingsType": object.get("settingsType").cloned().unwrap_or(serde_json::Value::Null),
+            "inputPins": object.get("inputPins").cloned().unwrap_or(serde_json::json!([])),
+            "outputPins": object.get("outputPins").cloned().unwrap_or(serde_json::json!([])),
+            "properties": object.get("properties").cloned().unwrap_or(serde_json::json!([]))
+        });
+    }
+    payload
+}
+
+fn validate_pcg_graph_inspect_args(args: &rmcp::model::JsonObject) -> Result<(), CallToolResult> {
+    for key in args.keys() {
+        if !matches!(
+            key.as_str(),
+            "assetPath" | "graph" | "view" | "filter" | "page"
+        ) {
+            return Err(invalid_argument_result(format!(
+                "pcg.graph.inspect does not support top-level {key}; use assetPath, graph, view, filter, and page."
+            )));
+        }
+    }
+    for field in [
+        "graphName",
+        "graphRef",
+        "nodeIds",
+        "nodeClasses",
+        "includeConnections",
+        "limit",
+        "cursor",
+    ] {
+        if args.contains_key(field) {
+            return Err(invalid_argument_result(format!(
+                "pcg.graph.inspect no longer accepts top-level {field}; use graph, view, filter, and page."
+            )));
+        }
+    }
+
+    let view = pcg_graph_inspect_view(args);
+    if !matches!(view, "overview" | "pins" | "links" | "defaults" | "full") {
+        return Err(invalid_argument_result(format!(
+            "Unsupported pcg.graph.inspect view: {view}."
+        )));
+    }
+    if args.contains_key("filter") && !args.get("filter").is_some_and(|value| value.is_object()) {
+        return Err(invalid_argument_result(
+            "pcg.graph.inspect filter must be an object.",
+        ));
+    }
+    if let Some(filter) = args.get("filter").and_then(|value| value.as_object()) {
+        for key in filter.keys() {
+            if !matches!(key.as_str(), "nodeIds" | "text") {
+                return Err(invalid_argument_result(format!(
+                    "pcg.graph.inspect filter does not support {key}."
+                )));
+            }
+        }
+    }
+    if args.contains_key("page") && !args.get("page").is_some_and(|value| value.is_object()) {
+        return Err(invalid_argument_result(
+            "pcg.graph.inspect page must be an object.",
+        ));
+    }
+    if let Some(page) = args.get("page").and_then(|value| value.as_object()) {
+        for key in page.keys() {
+            if !matches!(key.as_str(), "limit" | "cursor") {
+                return Err(invalid_argument_result(format!(
+                    "pcg.graph.inspect page does not support {key}."
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn pcg_graph_inspect_view(args: &rmcp::model::JsonObject) -> &str {
+    args.get("view")
+        .and_then(|value| value.as_str())
+        .unwrap_or("overview")
+}
+
+fn translate_pcg_palette_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let graph_asset_path = extract_query_graph_asset_path(args, "pcg.palette")?;
+    let direct_asset_path = args
+        .get("assetPath")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty());
+    let asset_path = graph_asset_path
+        .as_deref()
+        .or(direct_asset_path)
+        .ok_or_else(|| invalid_argument_result("pcg.palette requires assetPath or graph."))?;
+
+    let mut translated = rmcp::model::JsonObject::new();
+    translated.insert("assetPath".into(), serde_json::json!(asset_path));
+    for field in ["query", "elementTypes", "limit", "offset"] {
+        copy_if_present(args, &mut translated, field);
+    }
+    Ok(translated)
+}
+
+fn compile_pcg_add_from_palette_command(
+    command: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let entry = command
+        .get("entry")
+        .and_then(|value| value.as_object())
+        .ok_or_else(|| "addFromPalette requires entry from pcg.palette.".to_owned())?;
+    let entry_id = entry
+        .get("id")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| "addFromPalette requires entry.id.".to_owned())?;
+    if entry.get("executable").and_then(|value| value.as_bool()) == Some(false) {
+        return Err(format!("pcg.palette entry is not executable: {entry_id}"));
+    }
+
+    let mut op = serde_json::Map::new();
+    op.insert("op".into(), serde_json::json!("addFromPalette"));
+    op.insert("entryId".into(), serde_json::json!(entry_id));
+    op.insert("entry".into(), serde_json::Value::Object(entry.clone()));
+    if let Some(position) = command.get("position").and_then(|value| value.as_object()) {
+        if let Some(x) = position.get("x") {
+            op.insert("x".into(), x.clone());
+        }
+        if let Some(y) = position.get("y") {
+            op.insert("y".into(), y.clone());
+        }
+    }
+    for field in ["anchor", "near", "from", "target", "behavior"] {
+        copy_if_present(command, &mut op, field);
+    }
+    if let Some(alias) = command.get("alias").and_then(|value| value.as_str()) {
+        op.insert("clientRef".into(), serde_json::json!(alias));
+    }
+    Ok(vec![serde_json::Value::Object(op)])
+}
+
+fn compile_pcg_graph_commands(
+    commands: &[serde_json::Value],
+) -> Result<Vec<serde_json::Value>, CallToolResult> {
+    let mut ops = Vec::new();
+    for (index, command) in commands.iter().enumerate() {
+        let Some(command_obj) = command.as_object() else {
+            return Err(invalid_argument_result(format!(
+                "pcg.graph.edit command at index {index} must be an object."
+            )));
+        };
+        let Some(kind) = command_obj.get("kind").and_then(|value| value.as_str()) else {
+            return Err(invalid_argument_result(format!(
+                "pcg.graph.edit command at index {index} requires kind."
+            )));
+        };
+
+        let compiled = match kind {
+            "addFromPalette" => compile_pcg_add_from_palette_command(command_obj),
+            "removeNode" => {
+                let node = command_obj
+                    .get("node")
+                    .ok_or_else(|| "removeNode requires node.".to_owned())
+                    .and_then(extract_node_token)
+                    .map_err(invalid_argument_result)?;
+                let mut op = node.as_object().cloned().unwrap_or_default();
+                op.insert("op".into(), serde_json::json!("removeNode"));
+                Ok(vec![serde_json::Value::Object(op)])
+            }
+            "moveNode" => {
+                let node = command_obj
+                    .get("node")
+                    .ok_or_else(|| "moveNode requires node.".to_owned())
+                    .and_then(extract_node_token)
+                    .map_err(invalid_argument_result)?;
+                let mut op = node.as_object().cloned().unwrap_or_default();
+                let op_name = if let Some(position) = command_obj
+                    .get("position")
+                    .and_then(|value| value.as_object())
+                {
+                    if let Some(x) = position.get("x") {
+                        op.insert("x".into(), x.clone());
+                    }
+                    if let Some(y) = position.get("y") {
+                        op.insert("y".into(), y.clone());
+                    }
+                    "moveNode"
+                } else if let Some(delta) =
+                    command_obj.get("delta").and_then(|value| value.as_object())
+                {
+                    if let Some(dx) = delta.get("x") {
+                        op.insert("dx".into(), dx.clone());
+                    }
+                    if let Some(dy) = delta.get("y") {
+                        op.insert("dy".into(), dy.clone());
+                    }
+                    "moveNodeBy"
+                } else {
+                    return Err(invalid_argument_result(
+                        "moveNode requires position or delta.",
+                    ));
+                };
+                op.insert("op".into(), serde_json::json!(op_name));
+                Ok(vec![serde_json::Value::Object(op)])
+            }
+            "connect" | "disconnect" => {
+                if command_obj
+                    .get("conversionPolicy")
+                    .and_then(|value| value.as_str())
+                    .is_some_and(|value| value != "strict")
+                {
+                    return Err(invalid_argument_result(
+                        "pcg.graph.edit connect currently supports conversionPolicy='strict' only.",
+                    ));
+                }
+                let from = command_obj
+                    .get("from")
+                    .ok_or_else(|| format!("{kind} requires from."))
+                    .and_then(extract_pin_endpoint)
+                    .map_err(invalid_argument_result)?;
+                let to = command_obj
+                    .get("to")
+                    .ok_or_else(|| format!("{kind} requires to."))
+                    .and_then(extract_pin_endpoint)
+                    .map_err(invalid_argument_result)?;
+                Ok(vec![serde_json::json!({
+                    "op": if kind == "connect" { "connectPins" } else { "disconnectPins" },
+                    "from": from,
+                    "to": to
+                })])
+            }
+            "setPinDefault" => {
+                let target = command_obj
+                    .get("target")
+                    .ok_or_else(|| "setPinDefault requires target.".to_owned())
+                    .and_then(extract_pin_endpoint)
+                    .map_err(invalid_argument_result)?;
+                let value = command_obj
+                    .get("value")
+                    .ok_or_else(|| invalid_argument_result("setPinDefault requires value."))?;
+                Ok(vec![serde_json::json!({
+                    "op": "setPinDefault",
+                    "target": target,
+                    "value": json_string_value(value)
+                })])
+            }
+            "setNodeProperty" => {
+                let node = command_obj
+                    .get("node")
+                    .ok_or_else(|| "setNodeProperty requires node.".to_owned())
+                    .and_then(extract_node_token)
+                    .map_err(invalid_argument_result)?;
+                let property = command_obj
+                    .get("property")
+                    .and_then(|value| value.as_str())
+                    .ok_or_else(|| invalid_argument_result("setNodeProperty requires property."))?;
+                let value = command_obj
+                    .get("value")
+                    .ok_or_else(|| invalid_argument_result("setNodeProperty requires value."))?;
+                let mut op = node.as_object().cloned().unwrap_or_default();
+                op.insert("op".into(), serde_json::json!("setProperty"));
+                op.insert("property".into(), serde_json::json!(property));
+                op.insert("value".into(), serde_json::json!(json_string_value(value)));
+                Ok(vec![serde_json::Value::Object(op)])
+            }
+            other => Err(format!("Unsupported pcg.graph.edit command kind: {other}")),
+        }
+        .map_err(invalid_argument_result)?;
+        ops.extend(compiled);
+    }
+    Ok(ops)
+}
+
+fn translate_pcg_graph_edit_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let graph_asset_path = extract_query_graph_asset_path(args, "pcg.graph.edit")?;
+    let direct_asset_path = args
+        .get("assetPath")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty());
+    let asset_path = graph_asset_path
+        .as_deref()
+        .or(direct_asset_path)
+        .ok_or_else(|| invalid_argument_result("pcg.graph.edit requires assetPath or graph."))?;
+    let mut translated = rmcp::model::JsonObject::new();
+    translated.insert("assetPath".into(), serde_json::json!(asset_path));
+    for field in [
+        "expectedRevision",
+        "idempotencyKey",
+        "dryRun",
+        "continueOnError",
+    ] {
+        copy_if_present(args, &mut translated, field);
+    }
+    let commands = args
+        .get("commands")
+        .and_then(|value| value.as_array())
+        .ok_or_else(|| invalid_argument_result("pcg.graph.edit requires commands."))?;
+    translated.insert(
+        "ops".into(),
+        serde_json::Value::Array(compile_pcg_graph_commands(commands)?),
+    );
+    Ok(translated)
 }
 
 fn translate_blueprint_graph_list_args(
@@ -1912,6 +2544,245 @@ fn shape_blueprint_graph_inspect_result(
     {
         meta.insert("view".to_string(), serde_json::json!(view));
     }
+}
+
+fn compact_pcg_graph_pin(
+    pin: &serde_json::Map<String, serde_json::Value>,
+    include_pin_defaults: bool,
+    include_connections: bool,
+) -> serde_json::Value {
+    let mut compact = serde_json::Map::new();
+    for field in ["name", "direction", "category", "type", "isArray"] {
+        copy_json_field(pin, &mut compact, field);
+    }
+    if include_pin_defaults {
+        for field in ["defaultValue", "defaultObject", "defaultText", "default"] {
+            copy_json_field(pin, &mut compact, field);
+        }
+    }
+    if include_connections {
+        for field in ["links", "linkedTo"] {
+            copy_json_field(pin, &mut compact, field);
+        }
+    }
+    serde_json::Value::Object(compact)
+}
+
+fn compact_pcg_graph_node(
+    node: &serde_json::Map<String, serde_json::Value>,
+    view: &str,
+    include_pin_defaults: bool,
+    include_connections: bool,
+) -> serde_json::Value {
+    if view == "full" {
+        let mut full = node.clone();
+        if let Some(pins) = full.get_mut("pins").and_then(|value| value.as_array_mut()) {
+            for pin in pins {
+                if let Some(pin_object) = pin.as_object_mut() {
+                    prune_blueprint_graph_pin(
+                        pin_object,
+                        include_pin_defaults,
+                        include_connections,
+                    );
+                }
+            }
+        }
+        return serde_json::Value::Object(full);
+    }
+
+    let mut compact = serde_json::Map::new();
+    for field in [
+        "id",
+        "guid",
+        "nodeClassPath",
+        "title",
+        "enabled",
+        "position",
+        "layout",
+        "childGraphRef",
+        "settings",
+    ] {
+        copy_json_field(node, &mut compact, field);
+    }
+
+    if matches!(view, "pins" | "links" | "defaults") {
+        let pins = node
+            .get("pins")
+            .and_then(|value| value.as_array())
+            .map(|pins| {
+                pins.iter()
+                    .filter_map(|pin| pin.as_object())
+                    .map(|pin| {
+                        compact_pcg_graph_pin(pin, include_pin_defaults, include_connections)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        compact.insert("pins".to_string(), serde_json::Value::Array(pins));
+    }
+
+    serde_json::Value::Object(compact)
+}
+
+fn pcg_node_matches_text(node: &serde_json::Map<String, serde_json::Value>, text: &str) -> bool {
+    let needle = text.to_lowercase();
+    if needle.is_empty() {
+        return true;
+    }
+    for field in ["id", "guid", "nodeClassPath", "title"] {
+        if node
+            .get(field)
+            .and_then(|value| value.as_str())
+            .is_some_and(|value| value.to_lowercase().contains(&needle))
+        {
+            return true;
+        }
+    }
+    serde_json::to_string(node)
+        .map(|value| value.to_lowercase().contains(&needle))
+        .unwrap_or(false)
+}
+
+fn parse_page_cursor(args: &rmcp::model::JsonObject) -> usize {
+    args.get("page")
+        .and_then(|value| value.as_object())
+        .and_then(|page| page.get("cursor"))
+        .and_then(|value| value.as_str())
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0)
+}
+
+fn parse_page_limit(args: &rmcp::model::JsonObject, default_limit: usize) -> usize {
+    args.get("page")
+        .and_then(|value| value.as_object())
+        .and_then(|page| page.get("limit"))
+        .and_then(|value| value.as_u64())
+        .map(|value| value.clamp(1, 1000) as usize)
+        .unwrap_or(default_limit)
+}
+
+fn shape_pcg_graph_inspect_result(
+    result: &mut serde_json::Map<String, serde_json::Value>,
+    args: &rmcp::model::JsonObject,
+) {
+    let view = pcg_graph_inspect_view(args);
+    let include_pin_defaults = matches!(view, "defaults" | "full");
+    let include_connections = matches!(view, "links" | "defaults" | "full");
+    let text_filter = args
+        .get("filter")
+        .and_then(|value| value.as_object())
+        .and_then(|filter| filter.get("text"))
+        .and_then(|value| value.as_str())
+        .map(str::to_owned);
+    let cursor = parse_page_cursor(args);
+    let limit = parse_page_limit(args, 50);
+
+    let mut returned_nodes = 0usize;
+    let mut total_nodes_after_filter = 0usize;
+    let mut kept_node_ids = std::collections::HashSet::new();
+    let mut next_cursor = String::new();
+
+    if let Some(snapshot) = result
+        .get_mut("semanticSnapshot")
+        .and_then(|value| value.as_object_mut())
+    {
+        let mut filtered_nodes = snapshot
+            .get("nodes")
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|node| {
+                let Some(node_object) = node.as_object() else {
+                    return false;
+                };
+                text_filter
+                    .as_deref()
+                    .is_none_or(|text| pcg_node_matches_text(node_object, text))
+            })
+            .collect::<Vec<_>>();
+
+        total_nodes_after_filter = filtered_nodes.len();
+        let end = (cursor + limit).min(total_nodes_after_filter);
+        if end < total_nodes_after_filter {
+            next_cursor = end.to_string();
+        }
+        filtered_nodes = filtered_nodes
+            .into_iter()
+            .skip(cursor)
+            .take(limit)
+            .map(|node| {
+                if let Some(node_object) = node.as_object() {
+                    if let Some(id) = node_object.get("id").and_then(|value| value.as_str()) {
+                        kept_node_ids.insert(id.to_owned());
+                    }
+                    compact_pcg_graph_node(
+                        node_object,
+                        view,
+                        include_pin_defaults,
+                        include_connections,
+                    )
+                } else {
+                    node
+                }
+            })
+            .collect::<Vec<_>>();
+        returned_nodes = filtered_nodes.len();
+        snapshot.insert(
+            "nodes".to_string(),
+            serde_json::Value::Array(filtered_nodes),
+        );
+
+        if include_connections {
+            let filtered_edges = snapshot
+                .get("edges")
+                .and_then(|value| value.as_array())
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|edge| {
+                    let Some(edge_object) = edge.as_object() else {
+                        return false;
+                    };
+                    let from_kept = edge_object
+                        .get("fromNodeId")
+                        .and_then(|value| value.as_str())
+                        .is_some_and(|id| kept_node_ids.contains(id));
+                    let to_kept = edge_object
+                        .get("toNodeId")
+                        .and_then(|value| value.as_str())
+                        .is_some_and(|id| kept_node_ids.contains(id));
+                    from_kept || to_kept
+                })
+                .collect::<Vec<_>>();
+            snapshot.insert(
+                "edges".to_string(),
+                serde_json::Value::Array(filtered_edges),
+            );
+        } else {
+            snapshot.insert("edges".to_string(), serde_json::json!([]));
+        }
+    }
+
+    if let Some(meta) = result
+        .get_mut("meta")
+        .and_then(|value| value.as_object_mut())
+    {
+        meta.insert("view".to_string(), serde_json::json!(view));
+        meta.insert(
+            "totalNodes".to_string(),
+            serde_json::json!(total_nodes_after_filter),
+        );
+        meta.insert(
+            "returnedNodes".to_string(),
+            serde_json::json!(returned_nodes),
+        );
+        meta.insert(
+            "truncated".to_string(),
+            serde_json::json!(!next_cursor.is_empty()),
+        );
+    }
+    result.insert("nextCursor".to_string(), serde_json::json!(next_cursor));
 }
 
 fn translate_blueprint_palette_args(
@@ -3431,11 +4302,13 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("material.mutate", "Apply a batch of write operations to a material asset.", Arc::new(material_mutate_schema())),
         Tool::new("material.verify", "Compile a material and return diagnostics.", Arc::new(asset_path_only_schema("Material asset path."))),
         Tool::new("material.describe", "Describe a material expression class or instance.", Arc::new(material_describe_schema())),
-        Tool::new("pcg.list", "List nodes in a PCG graph asset.", Arc::new(asset_path_only_schema("PCG graph asset path."))),
-        Tool::new("pcg.query", "Read node and pin data from a PCG graph.", Arc::new(pcg_query_schema())),
-        Tool::new("pcg.mutate", "Apply a batch of write operations to a PCG graph.", Arc::new(pcg_mutate_schema())),
-        Tool::new("pcg.verify", "Run read-only validation for a PCG graph.", Arc::new(asset_path_only_schema("PCG graph asset path."))),
-        Tool::new("pcg.describe", "Describe a PCG settings class or instance.", Arc::new(pcg_describe_schema())),
+        Tool::new("pcg.graph.inspect", "Read PCG graph nodes, pins, links, and defaults with task-oriented views.", Arc::new(pcg_graph_inspect_schema())),
+        Tool::new("pcg.palette", "Search UE PCG graph palette actions for node creation.", Arc::new(pcg_palette_schema())),
+        Tool::new("pcg.node.inspect", "Inspect one PCG node instance or settings class for editable pins and properties.", Arc::new(pcg_node_inspect_schema())),
+        Tool::new("pcg.parameter.inspect", "Inspect PCG graph user parameters exposed by the graph's Parameters panel.", Arc::new(pcg_parameter_inspect_schema())),
+        Tool::new("pcg.parameter.edit", "Edit PCG graph user parameters. Use schema.inspect for operation-specific args.", Arc::new(pcg_parameter_edit_schema())),
+        Tool::new("pcg.graph.edit", "Apply explicit local edit commands to a PCG graph. Use pcg.palette for node creation.", Arc::new(pcg_graph_edit_schema())),
+        Tool::new("pcg.compile", "Validate and compile-confirm a PCG graph after edits.", Arc::new(pcg_compile_schema())),
         Tool::new("diagnostic.tail", "Read persisted structured diagnostics incrementally by sequence cursor.", Arc::new(diagnostic_tail_schema())),
         Tool::new("log.tail", "Read persisted Unreal output log events incrementally by sequence cursor.", Arc::new(log_tail_schema())),
         Tool::new("widget.query", "Read the UMG WidgetTree of a WidgetBlueprint asset.", Arc::new(widget_query_schema())),
@@ -4619,6 +5492,48 @@ fn blueprint_graph_inspect_schema() -> rmcp::model::JsonObject {
     }))
 }
 
+fn pcg_graph_ref_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type":"object",
+        "description":"Optional PCG graph reference. For PCG this resolves to graph.assetPath.",
+        "properties":{
+            "kind":{"type":"string","enum":["asset"]},
+            "assetPath":{"type":"string","minLength":1}
+        },
+        "required":["assetPath"],
+        "additionalProperties": true
+    })
+}
+
+fn pcg_graph_inspect_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "assetPath":{"type":"string","minLength":1},
+            "graph": pcg_graph_ref_schema(),
+            "view":{"type":"string","enum":["overview","pins","links","defaults","full"],"default":"overview","description":"Task-oriented PCG graph view. overview omits pins and edges; pins adds pin signatures; links adds pins plus edge/link refs; defaults adds pin defaults and link refs; full preserves the legacy pcg.query node payload."},
+            "filter":{
+                "type":"object",
+                "properties":{
+                    "nodeIds":{"type":"array","items":{"type":"string"}},
+                    "text":{"type":"string","minLength":1,"description":"Case-insensitive fuzzy match over node id, title, class, and compact node JSON."}
+                },
+                "additionalProperties": false
+            },
+            "page":{
+                "type":"object",
+                "properties":{
+                    "limit":{"type":"integer","minimum":1,"maximum":1000,"default":50},
+                    "cursor":{"type":"string"}
+                },
+                "additionalProperties": false
+            }
+        },
+        "required":["assetPath"],
+        "additionalProperties": false
+    }))
+}
+
 fn blueprint_graph_edit_schema() -> rmcp::model::JsonObject {
     let mut properties = serde_json::Map::new();
     properties.insert(
@@ -4635,6 +5550,39 @@ fn blueprint_graph_edit_schema() -> rmcp::model::JsonObject {
         serde_json::json!({
             "type":"array",
             "description":"Ordered Blueprint graph edit commands. Each command requires kind. If unsure which kinds are available, call schema.inspect with domain='blueprint' and tool='blueprint.graph.edit'. For a command-specific schema, call schema.inspect with operation=<kind>.",
+            "items":{
+                "type":"object",
+                "description":"Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema.inspect.",
+                "properties":{
+                    "kind":{"type":"string","minLength":1},
+                    "alias":{"type":"string","minLength":1}
+                },
+                "required":["kind"],
+                "additionalProperties": true
+            }
+        }),
+    );
+    mutation_control_fields(&mut properties);
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":["assetPath","commands"],
+        "additionalProperties": false
+    }))
+}
+
+fn pcg_graph_edit_schema() -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert("graph".into(), pcg_graph_ref_schema());
+    properties.insert(
+        "commands".into(),
+        serde_json::json!({
+            "type":"array",
+            "description":"Ordered PCG graph edit commands. Each command requires kind. Use schema.inspect with domain='pcg' and tool='pcg.graph.edit' to list supported command kinds. For a command-specific schema, call schema.inspect with operation=<kind>. Use pcg.palette first and pass the selected entry to addFromPalette instead of guessing settings classes.",
             "items":{
                 "type":"object",
                 "description":"Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema.inspect.",
@@ -5004,6 +5952,7 @@ fn material_describe_schema() -> rmcp::model::JsonObject {
     }))
 }
 
+#[cfg(test)]
 fn pcg_query_schema() -> rmcp::model::JsonObject {
     schema_from_value(serde_json::json!({
         "type": "object",
@@ -5032,31 +5981,144 @@ fn pcg_query_schema() -> rmcp::model::JsonObject {
     }))
 }
 
-fn pcg_mutate_schema() -> rmcp::model::JsonObject {
-    graph_mutate_schema(
-        &[
-            "addNode.byClass",
-            "removeNode",
-            "moveNode",
-            "moveNodeBy",
-            "moveNodes",
-            "connectPins",
-            "disconnectPins",
-            "setProperty",
-            "layoutGraph",
-            "compile",
-        ],
-        false,
-    )
+fn pcg_palette_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "assetPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "PCG graph asset path."
+            },
+            "graph": {
+                "type": "object",
+                "description": "Optional PCG graph reference. For PCG this currently resolves to graph.assetPath.",
+                "properties": {
+                    "kind": { "type": "string", "enum": ["asset"] },
+                    "assetPath": { "type": "string", "minLength": 1 }
+                },
+                "required": ["assetPath"],
+                "additionalProperties": true
+            },
+            "query": {
+                "type": "string",
+                "description": "Case-insensitive fuzzy search over UE palette label, category, tooltip, keywords, and action payload."
+            },
+            "elementTypes": {
+                "type": "array",
+                "description": "UE PCG palette element families to include. Defaults to all.",
+                "items": {
+                    "type": "string",
+                    "enum": ["native", "blueprint", "subgraph", "settings", "asset", "dataAsset", "other"]
+                }
+            },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 500, "default": 50 },
+            "offset": { "type": "integer", "minimum": 0, "default": 0 }
+        },
+        "additionalProperties": false
+    }))
 }
 
-fn pcg_describe_schema() -> rmcp::model::JsonObject {
+fn pcg_node_inspect_schema() -> rmcp::model::JsonObject {
     schema_from_value(serde_json::json!({
-        "type":"object",
-        "properties":{
-            "assetPath":{"type":"string","minLength":1},
-            "nodeId":{"type":"string","minLength":1},
-            "nodeClass":{"type":"string","minLength":1}
+        "type": "object",
+        "properties": {
+            "assetPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "PCG graph asset path for instance mode."
+            },
+            "graph": pcg_graph_ref_schema(),
+            "node": {
+                "type": "object",
+                "description": "PCG node reference for instance mode.",
+                "properties": {
+                    "id": { "type": "string", "minLength": 1 }
+                },
+                "required": ["id"],
+                "additionalProperties": false
+            },
+            "nodeClass": {
+                "type": "string",
+                "minLength": 1,
+                "description": "PCG settings class path for class mode."
+            },
+            "settingsClass": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Alias for nodeClass."
+            }
+        },
+        "additionalProperties": false
+    }))
+}
+
+fn pcg_parameter_inspect_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "assetPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "PCG graph asset path."
+            },
+            "graph": pcg_graph_ref_schema(),
+            "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional exact parameter name filter."
+            }
+        },
+        "additionalProperties": false
+    }))
+}
+
+fn pcg_parameter_edit_schema() -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({
+            "type": "string",
+            "minLength": 1,
+            "description": "PCG graph asset path."
+        }),
+    );
+    properties.insert("graph".into(), pcg_graph_ref_schema());
+    properties.insert(
+        "operation".into(),
+        serde_json::json!({
+            "type": "string",
+            "enum": ["create", "update", "rename", "delete", "setDefault"],
+            "description": "PCG parameter edit operation. Use schema.inspect with domain='pcg', tool='pcg.parameter.edit', and operation='<operation>' for operation-specific args."
+        }),
+    );
+    properties.insert(
+        "args".into(),
+        serde_json::json!({
+            "type": "object",
+            "description": "Operation-specific arguments. The shape is intentionally omitted from tools/list; call schema.inspect for the selected pcg.parameter.edit operation.",
+            "additionalProperties": true
+        }),
+    );
+    mutation_control_fields(&mut properties);
+    schema_from_value(serde_json::json!({
+        "type": "object",
+        "properties": properties,
+        "required": ["operation", "args"],
+        "additionalProperties": false
+    }))
+}
+
+fn pcg_compile_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "assetPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "PCG graph asset path."
+            },
+            "graph": pcg_graph_ref_schema()
         },
         "additionalProperties": false
     }))
@@ -6833,13 +7895,18 @@ mod tests {
         build_blueprint_graph_layout_plan, build_installer_args, call_schema_inspect,
         compare_semver, compile_blueprint_refactor_request, current_platform_client_binary_name,
         infer_attached_project_root, material_query_schema, parse_blueprint_graph_layout_request,
-        pcg_query_schema, play_participant_wait_conditions_met, play_schema,
-        play_wait_participant_conditions_from_args, read_file_lock_metadata, read_plugin_version,
-        runtime_declared_tools, shape_blueprint_graph_inspect_result, switch_to_installed_version,
-        sync_project_support_to_version, sync_registered_project_support,
-        translate_blueprint_graph_edit_args, translate_blueprint_graph_inspect_args,
-        translate_material_query_args, translate_pcg_query_args,
-        validate_blueprint_graph_inspect_args, Cli, FileLockMetadata, RuntimeProject, UpdateOptions,
+        pcg_compile_schema, pcg_graph_inspect_schema, pcg_node_inspect_schema, pcg_palette_schema,
+        pcg_parameter_edit_schema, pcg_query_schema, play_participant_wait_conditions_met,
+        play_schema, play_wait_participant_conditions_from_args, read_file_lock_metadata,
+        read_plugin_version, runtime_declared_tools, shape_blueprint_graph_inspect_result,
+        shape_pcg_compile_result, shape_pcg_graph_inspect_result, shape_pcg_node_inspect_result,
+        switch_to_installed_version, sync_project_support_to_version,
+        sync_registered_project_support, translate_blueprint_graph_edit_args,
+        translate_blueprint_graph_inspect_args, translate_material_query_args,
+        translate_pcg_compile_args, translate_pcg_graph_inspect_args,
+        translate_pcg_node_inspect_args, translate_pcg_parameter_edit_args,
+        translate_pcg_query_args, validate_blueprint_graph_inspect_args,
+        validate_pcg_graph_inspect_args, Cli, FileLockMetadata, RuntimeProject, UpdateOptions,
     };
     use rmcp::model::JsonObject;
     use std::ffi::OsString;
@@ -8140,6 +9207,466 @@ mod tests {
     }
 
     #[test]
+    fn pcg_graph_inspect_schema_declares_view_filter_and_page() {
+        let schema = pcg_graph_inspect_schema();
+        let properties = schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("properties");
+        assert!(properties.contains_key("view"));
+        assert!(properties.contains_key("filter"));
+        assert!(properties.contains_key("page"));
+        assert!(!properties.contains_key("nodeIds"));
+        assert!(!properties.contains_key("nodeClasses"));
+    }
+
+    #[test]
+    fn pcg_graph_inspect_translates_view_filter_and_rejects_legacy_args() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/PCG_Test"));
+        args.insert("view".into(), serde_json::json!("defaults"));
+        args.insert(
+            "filter".into(),
+            serde_json::json!({
+                "nodeIds": ["node-1"],
+                "text": "spawn"
+            }),
+        );
+
+        let translated = translate_pcg_graph_inspect_args(&args).expect("translated args");
+        assert_eq!(
+            translated.get("assetPath").and_then(|value| value.as_str()),
+            Some("/Game/PCG_Test")
+        );
+        assert_eq!(
+            translated
+                .get("includeConnections")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
+        assert_eq!(
+            translated
+                .get("nodeIds")
+                .and_then(|value| value.as_array())
+                .map(|items| items.len()),
+            Some(1)
+        );
+
+        args.insert("nodeIds".into(), serde_json::json!(["node-1"]));
+        let error = validate_pcg_graph_inspect_args(&args).expect_err("legacy arg rejected");
+        let payload = error.structured_content.expect("structured content");
+        assert_eq!(
+            payload.get("code").and_then(|value| value.as_str()),
+            Some("INVALID_ARGUMENT")
+        );
+    }
+
+    #[test]
+    fn pcg_graph_inspect_overview_prunes_pins_and_edges() {
+        let mut result = serde_json::json!({
+            "semanticSnapshot": {
+                "nodes": [
+                    {
+                        "id": "node-1",
+                        "nodeClassPath": "/Script/PCG.TestSettings",
+                        "title": "Spawn Points",
+                        "pins": [
+                            {
+                                "name": "Input",
+                                "direction": "input",
+                                "defaultValue": "42",
+                                "default": { "value": "42" },
+                                "links": [{ "toNodeId": "node-2", "toPin": "Output" }]
+                            }
+                        ],
+                        "settings": {"properties": []}
+                    }
+                ],
+                "edges": [{ "fromNodeId": "node-2", "toNodeId": "node-1" }]
+            },
+            "meta": {}
+        })
+        .as_object()
+        .cloned()
+        .expect("object");
+        let mut args = JsonObject::new();
+        args.insert("view".into(), serde_json::json!("overview"));
+
+        shape_pcg_graph_inspect_result(&mut result, &args);
+        let node = result
+            .get("semanticSnapshot")
+            .and_then(|value| value.get("nodes"))
+            .and_then(|value| value.as_array())
+            .and_then(|nodes| nodes.first())
+            .and_then(|value| value.as_object())
+            .expect("node");
+        assert!(!node.contains_key("pins"));
+        assert_eq!(
+            result
+                .get("semanticSnapshot")
+                .and_then(|value| value.get("edges"))
+                .and_then(|value| value.as_array())
+                .map(|edges| edges.len()),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn pcg_graph_inspect_defaults_keeps_pin_defaults_and_links() {
+        let mut result = serde_json::json!({
+            "semanticSnapshot": {
+                "nodes": [
+                    {
+                        "id": "node-1",
+                        "nodeClassPath": "/Script/PCG.TestSettings",
+                        "title": "Spawn Points",
+                        "pins": [
+                            {
+                                "name": "Input",
+                                "direction": "input",
+                                "defaultValue": "42",
+                                "default": { "value": "42" },
+                                "links": [{ "toNodeId": "node-2", "toPin": "Output" }]
+                            }
+                        ]
+                    }
+                ],
+                "edges": [{ "fromNodeId": "node-2", "toNodeId": "node-1" }]
+            },
+            "meta": {}
+        })
+        .as_object()
+        .cloned()
+        .expect("object");
+        let mut args = JsonObject::new();
+        args.insert("view".into(), serde_json::json!("defaults"));
+
+        shape_pcg_graph_inspect_result(&mut result, &args);
+        let pin = result
+            .get("semanticSnapshot")
+            .and_then(|value| value.get("nodes"))
+            .and_then(|value| value.as_array())
+            .and_then(|nodes| nodes.first())
+            .and_then(|value| value.get("pins"))
+            .and_then(|value| value.as_array())
+            .and_then(|pins| pins.first())
+            .and_then(|value| value.as_object())
+            .expect("pin");
+        assert!(pin.contains_key("defaultValue"));
+        assert!(pin.contains_key("default"));
+        assert!(pin.contains_key("links"));
+    }
+
+    #[test]
+    fn pcg_node_inspect_schema_declares_node_and_class_modes() {
+        let schema = pcg_node_inspect_schema();
+        let properties = schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("properties");
+        assert!(properties.contains_key("assetPath"));
+        assert!(properties.contains_key("graph"));
+        assert!(properties.contains_key("node"));
+        assert!(properties.contains_key("nodeClass"));
+        assert!(properties.contains_key("settingsClass"));
+    }
+
+    #[test]
+    fn pcg_node_inspect_translates_instance_and_class_modes() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/PCG_Test"));
+        args.insert("node".into(), serde_json::json!({"id": "node-1"}));
+
+        let translated = translate_pcg_node_inspect_args(&args).expect("translated args");
+        assert_eq!(
+            translated.get("assetPath").and_then(|value| value.as_str()),
+            Some("/Game/PCG_Test")
+        );
+        assert_eq!(
+            translated.get("nodeId").and_then(|value| value.as_str()),
+            Some("node-1")
+        );
+
+        let mut class_args = JsonObject::new();
+        class_args.insert(
+            "nodeClass".into(),
+            serde_json::json!("/Script/PCG.PCGStaticMeshSpawnerSettings"),
+        );
+        let class_translated =
+            translate_pcg_node_inspect_args(&class_args).expect("class translated args");
+        assert_eq!(
+            class_translated
+                .get("nodeClass")
+                .and_then(|value| value.as_str()),
+            Some("/Script/PCG.PCGStaticMeshSpawnerSettings")
+        );
+        assert!(!class_translated.contains_key("assetPath"));
+    }
+
+    #[test]
+    fn pcg_node_inspect_shapes_instance_properties_for_edit() {
+        let payload = serde_json::json!({
+            "mode": "instance",
+            "assetPath": "/Game/PCG_Test",
+            "nodeId": "node-1",
+            "node": {
+                "id": "node-1",
+                "settings": {
+                    "properties": [
+                        { "name": "Density", "defaultValue": "1.0" }
+                    ]
+                },
+                "pins": [
+                    { "name": "Input", "direction": "input" }
+                ]
+            }
+        });
+
+        let shaped = shape_pcg_node_inspect_result(payload);
+        assert_eq!(
+            shaped.get("mode").and_then(|value| value.as_str()),
+            Some("instance")
+        );
+        assert_eq!(
+            shaped
+                .get("properties")
+                .and_then(|value| value.as_array())
+                .map(|items| items.len()),
+            Some(1)
+        );
+        assert_eq!(
+            shaped
+                .get("pins")
+                .and_then(|value| value.as_array())
+                .map(|items| items.len()),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn pcg_compile_schema_accepts_asset_or_graph() {
+        let schema = pcg_compile_schema();
+        let properties = schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("properties");
+        assert!(properties.contains_key("assetPath"));
+        assert!(properties.contains_key("graph"));
+    }
+
+    #[test]
+    fn pcg_compile_translates_graph_asset_path() {
+        let mut args = JsonObject::new();
+        args.insert(
+            "graph".into(),
+            serde_json::json!({
+                "kind": "asset",
+                "assetPath": "/Game/PCG_Test"
+            }),
+        );
+
+        let translated = translate_pcg_compile_args(&args).expect("translated args");
+        assert_eq!(
+            translated.get("assetPath").and_then(|value| value.as_str()),
+            Some("/Game/PCG_Test")
+        );
+    }
+
+    #[test]
+    fn pcg_compile_shapes_verify_result() {
+        let payload = serde_json::json!({
+            "assetPath": "/Game/PCG_Test",
+            "status": "ok",
+            "summary": "PCG verification succeeded.",
+            "diagnostics": [],
+            "compileReport": {
+                "compiled": true,
+                "compilationChanged": false
+            },
+            "queryReport": {
+                "revision": "pcg:1234"
+            }
+        });
+
+        let shaped = shape_pcg_compile_result(payload);
+        assert_eq!(
+            shaped.get("status").and_then(|value| value.as_str()),
+            Some("ok")
+        );
+        assert_eq!(
+            shaped.get("valid").and_then(|value| value.as_bool()),
+            Some(true)
+        );
+        assert_eq!(
+            shaped.get("compiled").and_then(|value| value.as_bool()),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn pcg_palette_tool_is_declared() {
+        let tool_names = runtime_declared_tools()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        assert!(tool_names.contains("pcg.palette"));
+    }
+
+    #[test]
+    fn pcg_graph_inspect_tool_is_declared() {
+        let tool_names = runtime_declared_tools()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        assert!(tool_names.contains("pcg.graph.inspect"));
+    }
+
+    #[test]
+    fn pcg_node_inspect_tool_is_declared() {
+        let tool_names = runtime_declared_tools()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        assert!(tool_names.contains("pcg.node.inspect"));
+    }
+
+    #[test]
+    fn pcg_compile_tool_is_declared() {
+        let tool_names = runtime_declared_tools()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        assert!(tool_names.contains("pcg.compile"));
+    }
+
+    #[test]
+    fn pcg_graph_edit_tool_is_declared() {
+        let tool_names = runtime_declared_tools()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        assert!(tool_names.contains("pcg.graph.edit"));
+    }
+
+    #[test]
+    fn pcg_parameter_tools_are_declared() {
+        let tool_names = runtime_declared_tools()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        assert!(tool_names.contains("pcg.parameter.inspect"));
+        assert!(tool_names.contains("pcg.parameter.edit"));
+    }
+
+    #[test]
+    fn pcg_parameter_edit_schema_points_to_schema_inspect() {
+        let schema = pcg_parameter_edit_schema();
+        let properties = schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("properties");
+        assert!(properties
+            .get("operation")
+            .and_then(|value| value.get("description"))
+            .and_then(|value| value.as_str())
+            .is_some_and(|description| description.contains("schema.inspect")));
+        assert!(properties
+            .get("args")
+            .and_then(|value| value.get("description"))
+            .and_then(|value| value.as_str())
+            .is_some_and(|description| description.contains("schema.inspect")));
+    }
+
+    #[test]
+    fn pcg_parameter_edit_translates_operation_args_and_controls() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/PCG_Test"));
+        args.insert("operation".into(), serde_json::json!("create"));
+        args.insert(
+            "args".into(),
+            serde_json::json!({"name": "DensityScale", "type": "Double"}),
+        );
+        args.insert("dryRun".into(), serde_json::json!(true));
+
+        let translated = translate_pcg_parameter_edit_args(&args).expect("translated args");
+        assert_eq!(
+            translated.get("assetPath").and_then(|value| value.as_str()),
+            Some("/Game/PCG_Test")
+        );
+        assert_eq!(
+            translated.get("operation").and_then(|value| value.as_str()),
+            Some("create")
+        );
+        assert_eq!(
+            translated.get("dryRun").and_then(|value| value.as_bool()),
+            Some(true)
+        );
+        assert!(translated
+            .get("args")
+            .is_some_and(|value| value.is_object()));
+    }
+
+    #[test]
+    fn public_pcg_surface_is_declared_without_legacy_tools() {
+        let tool_names = runtime_declared_tools()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        for expected in [
+            "pcg.graph.inspect",
+            "pcg.node.inspect",
+            "pcg.parameter.inspect",
+            "pcg.parameter.edit",
+            "pcg.palette",
+            "pcg.graph.edit",
+            "pcg.compile",
+        ] {
+            assert!(tool_names.contains(expected), "missing tool {expected}");
+        }
+
+        for retired in [
+            "pcg.list",
+            "pcg.query",
+            "pcg.mutate",
+            "pcg.verify",
+            "pcg.describe",
+        ] {
+            assert!(
+                !tool_names.contains(retired),
+                "retired PCG tool should not be declared: {retired}"
+            );
+        }
+    }
+
+    #[test]
+    fn pcg_palette_schema_is_top_level_simple() {
+        let schema = pcg_palette_schema();
+        assert_eq!(
+            schema.get("type").and_then(|value| value.as_str()),
+            Some("object")
+        );
+        for keyword in ["oneOf", "anyOf", "allOf", "not"] {
+            assert!(
+                !schema.contains_key(keyword),
+                "pcg.palette schema should not expose top-level {keyword}"
+            );
+        }
+        let properties = schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("properties");
+        assert!(properties.contains_key("query"));
+        assert!(properties.contains_key("elementTypes"));
+    }
+
+    #[test]
     fn diagnostic_and_log_tools_are_declared() {
         let tool_names = runtime_declared_tools()
             .into_iter()
@@ -8298,6 +9825,82 @@ mod tests {
         ] {
             assert!(names.contains(expected), "missing operation {expected}");
         }
+    }
+
+    #[test]
+    fn schema_inspect_lists_pcg_graph_edit_operations() {
+        let mut args = JsonObject::new();
+        args.insert("domain".into(), serde_json::json!("pcg"));
+        args.insert("tool".into(), serde_json::json!("pcg.graph.edit"));
+
+        let result = call_schema_inspect(&args);
+        assert_eq!(result.is_error, Some(false));
+        let payload = result.structured_content.expect("structured content");
+        let operations = payload
+            .get("operations")
+            .and_then(|value| value.as_array())
+            .expect("operations");
+        let names = operations
+            .iter()
+            .filter_map(|entry| entry.get("name").and_then(|value| value.as_str()))
+            .collect::<std::collections::HashSet<_>>();
+
+        for expected in [
+            "addFromPalette",
+            "removeNode",
+            "moveNode",
+            "connect",
+            "disconnect",
+            "setPinDefault",
+            "setNodeProperty",
+        ] {
+            assert!(names.contains(expected), "missing operation {expected}");
+        }
+    }
+
+    #[test]
+    fn schema_inspect_lists_pcg_parameter_edit_operations() {
+        let mut args = JsonObject::new();
+        args.insert("domain".into(), serde_json::json!("pcg"));
+        args.insert("tool".into(), serde_json::json!("pcg.parameter.edit"));
+
+        let result = call_schema_inspect(&args);
+        assert_eq!(result.is_error, Some(false));
+        let payload = result.structured_content.expect("structured content");
+        let operations = payload
+            .get("operations")
+            .and_then(|value| value.as_array())
+            .expect("operations");
+        let names = operations
+            .iter()
+            .filter_map(|entry| entry.get("name").and_then(|value| value.as_str()))
+            .collect::<std::collections::HashSet<_>>();
+
+        for expected in ["create", "update", "rename", "delete", "setDefault"] {
+            assert!(names.contains(expected), "missing operation {expected}");
+        }
+    }
+
+    #[test]
+    fn schema_inspect_returns_pcg_parameter_edit_operation_schema() {
+        let mut args = JsonObject::new();
+        args.insert("domain".into(), serde_json::json!("pcg"));
+        args.insert("tool".into(), serde_json::json!("pcg.parameter.edit"));
+        args.insert("operation".into(), serde_json::json!("create"));
+        args.insert("include".into(), serde_json::json!(["summary", "schema"]));
+
+        let result = call_schema_inspect(&args);
+        assert_eq!(result.is_error, Some(false));
+        let payload = result.structured_content.expect("structured content");
+        assert_eq!(
+            payload.get("operation").and_then(|value| value.as_str()),
+            Some("create")
+        );
+        assert!(payload
+            .get("schema")
+            .and_then(|schema| schema.get("properties"))
+            .and_then(|properties| properties.get("type"))
+            .is_some());
     }
 
     #[test]

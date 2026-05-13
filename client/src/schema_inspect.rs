@@ -4,7 +4,7 @@ pub fn schema_inspect_schema() -> JsonObject {
     serde_json::from_value(serde_json::json!({
         "type": "object",
         "properties": {
-            "domain": { "type": "string", "enum": ["blueprint"] },
+            "domain": { "type": "string", "enum": ["blueprint", "pcg"] },
             "tool": { "type": "string", "minLength": 1 },
             "operation": {
                 "type": "string",
@@ -29,12 +29,12 @@ pub fn call_schema_inspect(args: &JsonObject) -> CallToolResult {
     let Some(domain) = args.get("domain").and_then(|value| value.as_str()) else {
         return invalid_argument_result("schema.inspect requires domain.");
     };
-    if domain != "blueprint" {
+    if domain != "blueprint" && domain != "pcg" {
         return CallToolResult::structured_error(serde_json::json!({
             "isError": true,
             "code": "UNKNOWN_DOMAIN",
             "message": format!("Unknown schema domain: {domain}"),
-            "availableDomains": ["blueprint"],
+            "availableDomains": ["blueprint", "pcg"],
             "retryable": false
         }));
     }
@@ -42,6 +42,27 @@ pub fn call_schema_inspect(args: &JsonObject) -> CallToolResult {
     let Some(tool) = args.get("tool").and_then(|value| value.as_str()) else {
         return invalid_argument_result("schema.inspect requires tool.");
     };
+    if domain == "pcg" {
+        if !matches!(tool, "pcg.graph.edit" | "pcg.parameter.edit") {
+            return CallToolResult::structured_error(serde_json::json!({
+                "isError": true,
+                "code": "UNKNOWN_TOOL",
+                "message": format!("Unknown schema tool for domain pcg: {tool}"),
+                "availableTools": ["pcg.graph.edit", "pcg.parameter.edit"],
+                "retryable": false
+            }));
+        }
+        let includes = match parse_schema_inspect_includes(args) {
+            Ok(value) => value,
+            Err(error) => return error,
+        };
+        return match tool {
+            "pcg.graph.edit" => call_pcg_graph_edit_schema_inspect(args, &includes),
+            "pcg.parameter.edit" => call_pcg_parameter_edit_schema_inspect(args, &includes),
+            _ => unreachable!("validated pcg schema.inspect tool"),
+        };
+    }
+
     if !matches!(tool, "blueprint.graph.edit" | "blueprint.member.edit") {
         return CallToolResult::structured_error(serde_json::json!({
             "isError": true,
@@ -85,6 +106,59 @@ fn call_graph_edit_schema_inspect(args: &JsonObject, includes: &[String]) -> Cal
         "source": {
             "document": "docs/blueprint/graph-edit.md",
             "section": "Command Classification"
+        }
+    }))
+}
+
+fn call_pcg_graph_edit_schema_inspect(args: &JsonObject, includes: &[String]) -> CallToolResult {
+    if let Some(operation) = args.get("operation").and_then(|value| value.as_str()) {
+        let Some(payload) = pcg_graph_edit_operation_schema(operation, includes) else {
+            return CallToolResult::structured_error(serde_json::json!({
+                "isError": true,
+                "code": "UNKNOWN_OPERATION",
+                "message": format!("Unknown operation for pcg.graph.edit: {operation}"),
+                "availableOperations": pcg_graph_edit_operation_names(),
+                "retryable": false
+            }));
+        };
+        return CallToolResult::structured(payload);
+    }
+
+    CallToolResult::structured(serde_json::json!({
+        "domain": "pcg",
+        "tool": "pcg.graph.edit",
+        "operations": pcg_graph_edit_operation_index(),
+        "source": {
+            "document": "UE PCG editor schema actions",
+            "section": "PCG graph edit command set"
+        }
+    }))
+}
+
+fn call_pcg_parameter_edit_schema_inspect(
+    args: &JsonObject,
+    includes: &[String],
+) -> CallToolResult {
+    if let Some(operation) = args.get("operation").and_then(|value| value.as_str()) {
+        let Some(payload) = pcg_parameter_edit_operation_schema(operation, includes) else {
+            return CallToolResult::structured_error(serde_json::json!({
+                "isError": true,
+                "code": "UNKNOWN_OPERATION",
+                "message": format!("Unknown operation for pcg.parameter.edit: {operation}"),
+                "availableOperations": pcg_parameter_edit_operation_names(),
+                "retryable": false
+            }));
+        };
+        return CallToolResult::structured(payload);
+    }
+
+    CallToolResult::structured(serde_json::json!({
+        "domain": "pcg",
+        "tool": "pcg.parameter.edit",
+        "operations": pcg_parameter_edit_operation_index(),
+        "source": {
+            "document": "UE PCG graph User Parameters",
+            "section": "FInstancedPropertyBag operations"
         }
     }))
 }
@@ -722,4 +796,228 @@ fn add_graph_edit_schema_defs(mut schema: serde_json::Value) -> serde_json::Valu
         );
     }
     schema
+}
+
+fn pcg_graph_edit_operation_names() -> Vec<&'static str> {
+    vec![
+        "addFromPalette",
+        "removeNode",
+        "moveNode",
+        "connect",
+        "disconnect",
+        "setPinDefault",
+        "setNodeProperty",
+    ]
+}
+
+fn pcg_graph_edit_operation_index() -> Vec<serde_json::Value> {
+    vec![
+        serde_json::json!({"name":"addFromPalette","category":"core","summary":"Create one PCG node from a selected pcg.palette entry."}),
+        serde_json::json!({"name":"removeNode","category":"core","summary":"Remove one PCG node."}),
+        serde_json::json!({"name":"moveNode","category":"layout","summary":"Move one PCG node by absolute position or delta."}),
+        serde_json::json!({"name":"connect","category":"core","summary":"Create one explicit PCG pin edge."}),
+        serde_json::json!({"name":"disconnect","category":"core","summary":"Remove one explicit PCG pin edge."}),
+        serde_json::json!({"name":"setPinDefault","category":"core","summary":"Set one PCG pin default value."}),
+        serde_json::json!({"name":"setNodeProperty","category":"core","summary":"Set one property on a PCG node settings object."}),
+    ]
+}
+
+fn pcg_parameter_edit_operation_names() -> Vec<&'static str> {
+    vec!["create", "update", "rename", "delete", "setDefault"]
+}
+
+fn pcg_parameter_edit_operation_index() -> Vec<serde_json::Value> {
+    vec![
+        serde_json::json!({"name":"create","category":"schema","summary":"Add a graph user parameter to the PCG graph Parameters bag."}),
+        serde_json::json!({"name":"update","category":"schema","summary":"Change an existing graph user parameter type/container while preserving values when UE can migrate them."}),
+        serde_json::json!({"name":"rename","category":"schema","summary":"Rename a graph user parameter and let PCG update parameter getter references."}),
+        serde_json::json!({"name":"delete","category":"schema","summary":"Remove a graph user parameter from the Parameters bag."}),
+        serde_json::json!({"name":"setDefault","category":"value","summary":"Set a graph user parameter default value using UE serialized value text."}),
+    ]
+}
+
+fn pcg_parameter_edit_operation_schema(
+    operation: &str,
+    includes: &[String],
+) -> Option<serde_json::Value> {
+    let type_schema = serde_json::json!({
+        "type": "string",
+        "enum": ["Bool", "Byte", "Int32", "Int64", "UInt32", "UInt64", "Float", "Double", "Name", "String", "Text", "Enum", "Struct", "Object", "SoftObject", "Class", "SoftClass"]
+    });
+    let (category, summary, schema, examples, errors, notes) = match operation {
+        "create" => (
+            "schema",
+            "Add a graph user parameter to the PCG graph Parameters bag.",
+            serde_json::json!({"type":"object","properties":{"name":{"type":"string","minLength":1},"type":type_schema,"container":{"type":"string","enum":["None","Array","Set"],"default":"None"},"typeObject":{"type":"string","minLength":1},"value":{"type":"string","description":"Optional UE serialized default value, set with a follow-up setDefault if omitted."}},"required":["name","type"],"additionalProperties":false}),
+            vec![serde_json::json!({"assetPath":"/Game/PCG/PCG_Forest","operation":"create","args":{"name":"DensityScale","type":"Double","value":"1.0"}})],
+            vec!["INVALID_ARGUMENT", "PARAMETER_EDIT_FAILED"],
+            vec!["This creates the parameter itself. Use pcg.palette afterwards to create a parameterGetter node for it."],
+        ),
+        "update" => (
+            "schema",
+            "Change an existing graph user parameter type/container while preserving values when UE can migrate them.",
+            serde_json::json!({"type":"object","properties":{"name":{"type":"string","minLength":1},"type":type_schema,"container":{"type":"string","enum":["None","Array","Set"],"default":"None"},"typeObject":{"type":"string","minLength":1}},"required":["name","type"],"additionalProperties":false}),
+            vec![serde_json::json!({"assetPath":"/Game/PCG/PCG_Forest","operation":"update","args":{"name":"DensityScale","type":"Float"}})],
+            vec!["INVALID_ARGUMENT", "PARAMETER_EDIT_FAILED"],
+            vec!["UE may migrate compatible numeric values when the type changes; incompatible values reset according to PropertyBag behavior."],
+        ),
+        "rename" => (
+            "schema",
+            "Rename a graph user parameter and let PCG update parameter getter references.",
+            serde_json::json!({"type":"object","properties":{"name":{"type":"string","minLength":1},"newName":{"type":"string","minLength":1}},"required":["name","newName"],"additionalProperties":false}),
+            vec![serde_json::json!({"assetPath":"/Game/PCG/PCG_Forest","operation":"rename","args":{"name":"DensityScale","newName":"DensityMultiplier"}})],
+            vec!["INVALID_ARGUMENT", "PARAMETER_EDIT_FAILED"],
+            vec!["Uses UE PCG RenameUserParameter so getter nodes can track the rename by property id."],
+        ),
+        "delete" => (
+            "schema",
+            "Remove a graph user parameter from the Parameters bag.",
+            serde_json::json!({"type":"object","properties":{"name":{"type":"string","minLength":1}},"required":["name"],"additionalProperties":false}),
+            vec![serde_json::json!({"assetPath":"/Game/PCG/PCG_Forest","operation":"delete","args":{"name":"DensityScale"}})],
+            vec!["INVALID_ARGUMENT", "PARAMETER_EDIT_FAILED"],
+            vec!["Deleting a used parameter follows PCG graph parameter change propagation and may remove/repair parameter getter usage according to UE behavior."],
+        ),
+        "setDefault" => (
+            "value",
+            "Set a graph user parameter default value using UE serialized value text.",
+            serde_json::json!({"type":"object","properties":{"name":{"type":"string","minLength":1},"value":{"type":"string","description":"UE serialized text accepted by FInstancedPropertyBag::SetValueSerializedString."}},"required":["name","value"],"additionalProperties":false}),
+            vec![serde_json::json!({"assetPath":"/Game/PCG/PCG_Forest","operation":"setDefault","args":{"name":"DensityScale","value":"0.75"}})],
+            vec!["INVALID_ARGUMENT", "PARAMETER_EDIT_FAILED"],
+            vec!["Inspect the current parameter first with pcg.parameter.inspect to see type and serialized default format."],
+        ),
+        _ => return None,
+    };
+
+    let mut payload = serde_json::json!({
+        "domain": "pcg",
+        "tool": "pcg.parameter.edit",
+        "operation": operation,
+        "category": category,
+        "source": {
+            "document": "UE PCG graph User Parameters",
+            "section": operation
+        }
+    });
+    let payload_object = payload.as_object_mut()?;
+    if schema_include_requested(includes, "summary") {
+        payload_object.insert("summary".to_string(), serde_json::json!(summary));
+    }
+    if schema_include_requested(includes, "schema") {
+        payload_object.insert("schema".to_string(), schema);
+    }
+    if schema_include_requested(includes, "examples") {
+        payload_object.insert("examples".to_string(), serde_json::json!(examples));
+    }
+    if schema_include_requested(includes, "errors") {
+        payload_object.insert("errors".to_string(), serde_json::json!(errors));
+    }
+    if schema_include_requested(includes, "notes") {
+        payload_object.insert("notes".to_string(), serde_json::json!(notes));
+    }
+    Some(payload)
+}
+
+fn pcg_graph_edit_operation_schema(
+    operation: &str,
+    includes: &[String],
+) -> Option<serde_json::Value> {
+    let (category, summary, schema, examples, errors, notes) = match operation {
+        "addFromPalette" => (
+            "core",
+            "Create one PCG node from a selected pcg.palette entry.",
+            serde_json::json!({
+                "type":"object",
+                "properties":{
+                    "kind":{"const":"addFromPalette"},
+                    "entry":{"type":"object","properties":{"id":{"type":"string","minLength":1},"kind":{"type":"string"},"payload":{"type":"object"},"executable":{"type":"boolean"}},"required":["id","kind","payload"],"additionalProperties":true},
+                    "position":{"$ref":"#/$defs/position"},
+                    "anchor":{"$ref":"#/$defs/nodeRef"},
+                    "behavior":{"type":"string","enum":["normal","copy","instance","subgraph","loop"]},
+                    "alias":{"type":"string","minLength":1}
+                },
+                "required":["kind","entry"],
+                "additionalProperties":false
+            }),
+            vec![serde_json::json!({"kind":"addFromPalette","entry":{"id":"pcg.palette:...","kind":"native","payload":{"settingsClass":"/Script/PCG.PCGStaticMeshSpawnerSettings"}},"position":{"x":400,"y":160},"alias":"spawnMeshes"})],
+            vec!["PALETTE_ENTRY_NOT_EXECUTABLE", "INVALID_PALETTE_ENTRY"],
+            vec!["Use pcg.palette first and pass the full selected entry. Do not guess settings classes in public calls."],
+        ),
+        "removeNode" => (
+            "core",
+            "Remove one PCG node.",
+            serde_json::json!({"type":"object","properties":{"kind":{"const":"removeNode"},"node":{"$ref":"#/$defs/nodeRef"}},"required":["kind","node"],"additionalProperties":false}),
+            vec![serde_json::json!({"kind":"removeNode","node":{"id":"node-1"}})],
+            vec!["NODE_NOT_FOUND"],
+            vec!["removeNode does not auto-heal surrounding graph structure."],
+        ),
+        "moveNode" => (
+            "layout",
+            "Move one PCG node by absolute position or delta.",
+            serde_json::json!({"type":"object","properties":{"kind":{"const":"moveNode"},"node":{"$ref":"#/$defs/nodeRef"},"position":{"$ref":"#/$defs/position"},"delta":{"$ref":"#/$defs/position"}},"required":["kind","node"],"additionalProperties":false}),
+            vec![serde_json::json!({"kind":"moveNode","node":{"alias":"spawnMeshes"},"delta":{"x":240,"y":0}})],
+            vec!["NODE_NOT_FOUND"],
+            vec!["Use exactly one of position or delta."],
+        ),
+        "connect" => (
+            "core",
+            "Create one explicit PCG pin edge.",
+            serde_json::json!({"type":"object","properties":{"kind":{"const":"connect"},"from":{"$ref":"#/$defs/pinRef"},"to":{"$ref":"#/$defs/pinRef"},"conversionPolicy":{"type":"string","enum":["strict"],"default":"strict"}},"required":["kind","from","to"],"additionalProperties":false}),
+            vec![serde_json::json!({"kind":"connect","from":{"node":{"alias":"source"},"pin":"Output"},"to":{"node":{"alias":"filter"},"pin":"Input"},"conversionPolicy":"strict"})],
+            vec!["PIN_NOT_FOUND", "CONNECT_PIN_TYPE_MISMATCH"],
+            vec!["conversionPolicy currently supports strict only; auto conversion/filter insertion is not implemented."],
+        ),
+        "disconnect" => (
+            "core",
+            "Remove one explicit PCG pin edge.",
+            serde_json::json!({"type":"object","properties":{"kind":{"const":"disconnect"},"from":{"$ref":"#/$defs/pinRef"},"to":{"$ref":"#/$defs/pinRef"}},"required":["kind","from","to"],"additionalProperties":false}),
+            vec![serde_json::json!({"kind":"disconnect","from":{"node":{"id":"node-1"},"pin":"Output"},"to":{"node":{"id":"node-2"},"pin":"Input"}})],
+            vec!["PIN_NOT_FOUND"],
+            vec![],
+        ),
+        "setPinDefault" => (
+            "core",
+            "Set one PCG pin default value.",
+            serde_json::json!({"type":"object","properties":{"kind":{"const":"setPinDefault"},"target":{"$ref":"#/$defs/pinRef"},"value":{}},"required":["kind","target","value"],"additionalProperties":false}),
+            vec![serde_json::json!({"kind":"setPinDefault","target":{"node":{"alias":"sampler"},"pin":"Density"},"value":"0.5"})],
+            vec!["PIN_NOT_FOUND", "PIN_DEFAULT_NOT_EDITABLE"],
+            vec![],
+        ),
+        "setNodeProperty" => (
+            "core",
+            "Set one property on a PCG node settings object.",
+            serde_json::json!({"type":"object","properties":{"kind":{"const":"setNodeProperty"},"node":{"$ref":"#/$defs/nodeRef"},"property":{"type":"string","minLength":1},"value":{}},"required":["kind","node","property","value"],"additionalProperties":false}),
+            vec![serde_json::json!({"kind":"setNodeProperty","node":{"alias":"sampler"},"property":"PointExtents","value":"(X=100,Y=100,Z=100)"})],
+            vec!["PROPERTY_NOT_FOUND", "SETTINGS_NOT_FOUND"],
+            vec!["Use pcg.node.inspect to inspect editable settings properties before calling this operation."],
+        ),
+        _ => return None,
+    };
+
+    let mut payload = serde_json::json!({
+        "domain": "pcg",
+        "tool": "pcg.graph.edit",
+        "operation": operation,
+        "category": category,
+        "source": {
+            "document": "UE PCG editor schema actions",
+            "section": operation
+        }
+    });
+    let payload_object = payload.as_object_mut()?;
+    if schema_include_requested(includes, "summary") {
+        payload_object.insert("summary".to_string(), serde_json::json!(summary));
+    }
+    if schema_include_requested(includes, "schema") {
+        payload_object.insert("schema".to_string(), add_graph_edit_schema_defs(schema));
+    }
+    if schema_include_requested(includes, "examples") {
+        payload_object.insert("examples".to_string(), serde_json::json!(examples));
+    }
+    if schema_include_requested(includes, "errors") {
+        payload_object.insert("errors".to_string(), serde_json::json!(errors));
+    }
+    if schema_include_requested(includes, "notes") {
+        payload_object.insert("notes".to_string(), serde_json::json!(notes));
+    }
+    Some(payload)
 }
