@@ -1191,6 +1191,10 @@ def main() -> int:
     temp_pcg_health_asset = make_temp_asset_path("/Game/Codex/PCG_HealthRegression")
     temp_pcg_remove_asset = make_temp_asset_path("/Game/Codex/PCG_RemoveRegression")
     temp_material_asset = make_temp_asset_path("/Game/Codex/M_RegressionLayout")
+    temp_asset_create_material = make_temp_asset_path("/Game/Codex/M_AssetCreateRegression")
+    temp_asset_create_function = make_temp_asset_path("/Game/Codex/MF_AssetCreateRegression")
+    temp_asset_create_pcg = make_temp_asset_path("/Game/Codex/PCG_AssetCreateRegression")
+    temp_asset_create_widget = make_temp_asset_path("/Game/Codex/WBP_AssetCreateRegression")
     skip_editor_visual_regression = os.environ.get("LOOMLE_SKIP_EDITOR_VISUAL_REGRESSION") == "1"
     skip_material_visual_regression = (
         skip_editor_visual_regression or os.environ.get("LOOMLE_SKIP_MATERIAL_VISUAL_REGRESSION") == "1"
@@ -1430,7 +1434,81 @@ def main() -> int:
         enum_updated_entries = enum_update_payload.get("entries")
         if not isinstance(enum_updated_entries, list) or [entry.get("name") for entry in enum_updated_entries if isinstance(entry, dict)] != ["Idle", "Active", "Complete"]:
             fail(f"asset.edit enum updateEntries entries mismatch: {enum_update_payload}")
+        metadata_payload = call_tool(
+            client,
+            583,
+            "asset.edit",
+            {
+                "assetPath": temp_enum_asset,
+                "operation": "updateMetadata",
+                "metadata": {"LoomleTestPurpose": "asset-edit-metadata", "LoomleRemoveMe": "temporary"},
+            },
+        )
+        if metadata_payload.get("applied") is not True:
+            fail(f"asset.edit updateMetadata did not apply: {metadata_payload}")
+        metadata_remove_payload = call_tool(
+            client,
+            584,
+            "asset.edit",
+            {
+                "assetPath": temp_enum_asset,
+                "operation": "updateMetadata",
+                "removeKeys": ["LoomleRemoveMe"],
+            },
+        )
+        if metadata_remove_payload.get("applied") is not True:
+            fail(f"asset.edit updateMetadata removeKeys did not apply: {metadata_remove_payload}")
+        metadata_check = call_tool(
+            client,
+            585,
+            "execute",
+            {
+                "language": "python",
+                "code": (
+                    "import json, unreal\n"
+                    f"asset = {json.dumps(temp_enum_asset)}\n"
+                    "obj = unreal.EditorAssetLibrary.load_asset(asset)\n"
+                    "purpose = unreal.EditorAssetLibrary.get_metadata_tag(obj, 'LoomleTestPurpose')\n"
+                    "removed = unreal.EditorAssetLibrary.get_metadata_tag(obj, 'LoomleRemoveMe')\n"
+                    "print(json.dumps({'purpose': purpose, 'removed': removed}, ensure_ascii=False))\n"
+                ),
+            },
+        )
+        metadata_result = parse_execute_json(metadata_check)
+        if metadata_result.get("purpose") != "asset-edit-metadata" or metadata_result.get("removed"):
+            fail(f"asset.edit metadata values mismatch: {metadata_result}")
         print("[PASS] asset enum lifecycle validated")
+
+        asset_create_cases = [
+            ("material", temp_asset_create_material),
+            ("materialFunction", temp_asset_create_function),
+            ("pcgGraph", temp_asset_create_pcg),
+            ("widgetBlueprint", temp_asset_create_widget),
+        ]
+        for offset, (kind, asset_path) in enumerate(asset_create_cases):
+            create_payload = call_tool(
+                client,
+                586 + offset,
+                "asset.create",
+                {"kind": kind, "assetPath": asset_path},
+            )
+            if create_payload.get("applied") is not True:
+                fail(f"asset.create {kind} did not apply: {create_payload}")
+            if create_payload.get("assetPath") != asset_path:
+                fail(f"asset.create {kind} assetPath mismatch: {create_payload}")
+        inspect_material_create = call_tool(client, 590, "asset.inspect", {"kind": "material", "assetPath": temp_asset_create_material})
+        if inspect_material_create.get("assetPath") != temp_asset_create_material:
+            fail(f"asset.inspect material created asset mismatch: {inspect_material_create}")
+        inspect_function_create = call_tool(client, 591, "asset.inspect", {"kind": "materialFunction", "assetPath": temp_asset_create_function})
+        if inspect_function_create.get("assetPath") != temp_asset_create_function:
+            fail(f"asset.inspect materialFunction created asset mismatch: {inspect_function_create}")
+        inspect_pcg_create = call_tool(client, 592, "asset.inspect", {"kind": "pcgGraph", "assetPath": temp_asset_create_pcg})
+        if inspect_pcg_create.get("assetPath") != temp_asset_create_pcg:
+            fail(f"asset.inspect pcgGraph created asset mismatch: {inspect_pcg_create}")
+        inspect_widget_create = call_tool(client, 593, "asset.inspect", {"kind": "widgetBlueprint", "assetPath": temp_asset_create_widget})
+        if inspect_widget_create.get("assetPath") != temp_asset_create_widget:
+            fail(f"asset.inspect widgetBlueprint created asset mismatch: {inspect_widget_create}")
+        print("[PASS] asset.create extended asset categories validated")
 
         interface_fixture_payload = call_tool(
             client,
@@ -5831,6 +5909,10 @@ def main() -> int:
         print(f"[WARN] cleanup skipped for temporary asset: {temp_asset}")
         print(f"[WARN] cleanup skipped for temporary enum asset: {temp_enum_asset}")
         print(f"[WARN] cleanup skipped for temporary material asset: {temp_material_asset}")
+        print(f"[WARN] cleanup skipped for temporary asset.create material asset: {temp_asset_create_material}")
+        print(f"[WARN] cleanup skipped for temporary asset.create material function asset: {temp_asset_create_function}")
+        print(f"[WARN] cleanup skipped for temporary asset.create PCG asset: {temp_asset_create_pcg}")
+        print(f"[WARN] cleanup skipped for temporary asset.create widget asset: {temp_asset_create_widget}")
         print(f"[WARN] cleanup skipped for temporary PCG asset: {temp_pcg_asset}")
         print(f"[WARN] cleanup skipped for temporary PCG health asset: {temp_pcg_health_asset}")
         print(f"[WARN] cleanup skipped for temporary PCG remove asset: {temp_pcg_remove_asset}")

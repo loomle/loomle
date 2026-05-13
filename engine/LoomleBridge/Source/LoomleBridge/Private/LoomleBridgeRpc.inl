@@ -100,7 +100,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
 
     Result->SetArrayField(TEXT("methods"), MakeStringArray({TEXT("rpc.health"), TEXT("rpc.capabilities"), TEXT("rpc.invoke")}));
     Result->SetArrayField(TEXT("tools"), MakeStringArray({
-        TEXT("context"), TEXT("jobs"), TEXT("profiling"), TEXT("play"), TEXT("editor.open"), TEXT("editor.focus"), TEXT("editor.screenshot"), TEXT("execute"),
+        TEXT("context"), TEXT("jobs"), TEXT("profiling"), TEXT("play"), TEXT("asset.create"), TEXT("asset.edit"), TEXT("editor.open"), TEXT("editor.focus"), TEXT("editor.screenshot"), TEXT("execute"),
         TEXT("blueprint.inspect"), TEXT("blueprint.edit"), TEXT("blueprint.enum.inspect"), TEXT("blueprint.enum.edit"), TEXT("blueprint.member.edit"),
         TEXT("blueprint.graph.list"), TEXT("blueprint.graph.inspect"), TEXT("blueprint.graph.edit"), TEXT("blueprint.verify"), TEXT("blueprint.palette"),
         TEXT("material.list"), TEXT("material.graph.inspect"), TEXT("material.graph.edit"), TEXT("material.compile"), TEXT("material.node.inspect"), TEXT("material.palette"),
@@ -254,6 +254,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     if (Name.Equals(TEXT("context")))
     {
         Payload = BuildGetContextToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("asset.create")))
+    {
+        Payload = BuildAssetCreateToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("asset.edit")))
+    {
+        Payload = BuildAssetEditToolResult(Arguments);
     }
     else if (Name.Equals(LoomleBridgeConstants::EditorOpenToolName))
     {

@@ -33,6 +33,9 @@ private:
     TSharedPtr<FJsonObject> BuildRpcCapabilitiesResult() const;
     TSharedPtr<FJsonObject> BuildRpcInvokeResult(const TSharedPtr<FJsonObject>& Params, bool& bOutHasError, int32& OutErrorCode, FString& OutErrorMessage, TSharedPtr<FJsonObject>& OutErrorData);
 
+    TSharedPtr<FJsonObject> BuildAssetEditToolResult(const TSharedPtr<FJsonObject>& Arguments);
+    TSharedPtr<FJsonObject> BuildAssetCreateToolResult(const TSharedPtr<FJsonObject>& Arguments);
+
     // Blueprint
     TSharedPtr<FJsonObject> BuildBlueprintEditToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildBlueprintEnumInspectToolResult(const TSharedPtr<FJsonObject>& Arguments) const;

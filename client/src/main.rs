@@ -351,6 +351,9 @@ impl LoomleProxyServer {
                 copy_mutation_controls(&args, &mut edit_args);
                 self.runtime_call("blueprint.enum.edit", edit_args).await
             }
+            "material" | "materialFunction" | "pcgGraph" | "widgetBlueprint" => {
+                self.runtime_call("asset.create", args).await
+            }
             other => Ok(invalid_argument_result(format!(
                 "Unsupported asset.create kind: {other}."
             ))),
@@ -367,6 +370,25 @@ impl LoomleProxyServer {
         match kind {
             "blueprint" => self.runtime_call("blueprint.inspect", args).await,
             "enum" => self.runtime_call("blueprint.enum.inspect", args).await,
+            "material" | "materialFunction" => {
+                let mut inspect_args = args;
+                inspect_args.remove("kind");
+                let query_args = match translate_material_graph_inspect_args(&inspect_args) {
+                    Ok(value) => value,
+                    Err(error) => return Ok(error),
+                };
+                self.runtime_call("material.query", query_args).await
+            }
+            "pcgGraph" => {
+                let mut inspect_args = args;
+                inspect_args.remove("kind");
+                self.call_pcg_graph_inspect(inspect_args).await
+            }
+            "widgetBlueprint" => {
+                let mut inspect_args = args;
+                inspect_args.remove("kind");
+                self.runtime_call("widget.query", inspect_args).await
+            }
             other => Ok(invalid_argument_result(format!(
                 "Unsupported asset.inspect kind: {other}."
             ))),
@@ -377,11 +399,18 @@ impl LoomleProxyServer {
         &self,
         args: rmcp::model::JsonObject,
     ) -> Result<CallToolResult, McpError> {
-        let Some(kind) = args.get("kind").and_then(|value| value.as_str()) else {
-            return Ok(invalid_argument_result("asset.edit requires kind."));
-        };
         let Some(operation) = args.get("operation").and_then(|value| value.as_str()) else {
             return Ok(invalid_argument_result("asset.edit requires operation."));
+        };
+
+        if operation == "updateMetadata" {
+            return self.runtime_call("asset.edit", args).await;
+        }
+
+        let Some(kind) = args.get("kind").and_then(|value| value.as_str()) else {
+            return Ok(invalid_argument_result(format!(
+                "asset.edit operation {operation} requires kind."
+            )));
         };
 
         match (kind, operation) {
@@ -4700,9 +4729,9 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("jobs", "Inspect or retrieve long-running job state, results, and logs.", Arc::new(jobs_schema())),
         Tool::new("profiling", "Bridge official Unreal profiling data families such as stat unit, stat groups, ticks, memory reports, and capture workflows.", Arc::new(profiling_schema())),
         Tool::new("play", "Inspect and control Unreal play sessions; supports PIE status, start, stop, and wait.", Arc::new(play_schema())),
-        Tool::new("asset.create", "Create an Unreal asset such as a Blueprint or enum.", Arc::new(asset_create_schema())),
-        Tool::new("asset.inspect", "Inspect an Unreal asset through a kind-specific public surface.", Arc::new(asset_inspect_schema())),
-        Tool::new("asset.edit", "Edit kind-specific asset-local content.", Arc::new(asset_edit_schema())),
+        Tool::new("asset.create", "Create an Unreal asset such as a Blueprint, enum, Material, PCG graph, or WidgetBlueprint.", Arc::new(asset_create_schema())),
+        Tool::new("asset.inspect", "Inspect an Unreal asset through a kind-specific public surface such as Blueprint, enum, Material, PCG graph, or WidgetBlueprint.", Arc::new(asset_inspect_schema())),
+        Tool::new("asset.edit", "Edit asset-level metadata. Enum entry editing remains as a compatibility special case.", Arc::new(asset_edit_schema())),
         Tool::new("editor.open", "Open or focus the editor for a specific Unreal asset path.", Arc::new(editor_open_schema())),
         Tool::new("editor.focus", "Focus a semantic panel inside an asset editor, such as graph, viewport, details, palette, or find.", Arc::new(editor_focus_schema())),
         Tool::new("editor.screenshot", "Capture a PNG of the active editor window and return the written file path.", Arc::new(editor_screenshot_schema())),
@@ -5577,7 +5606,11 @@ fn asset_create_schema() -> rmcp::model::JsonObject {
     let mut properties = serde_json::Map::new();
     properties.insert(
         "kind".into(),
-        serde_json::json!({"type":"string","enum":["blueprint","enum"]}),
+        serde_json::json!({
+            "type":"string",
+            "enum":["blueprint","enum","material","materialFunction","pcgGraph","widgetBlueprint"],
+            "description":"Asset category to create."
+        }),
     );
     properties.insert(
         "assetPath".into(),
@@ -5585,7 +5618,7 @@ fn asset_create_schema() -> rmcp::model::JsonObject {
     );
     properties.insert(
         "parentClassPath".into(),
-        serde_json::json!({"type":"string","minLength":1,"description":"Blueprint parent class path. Defaults to /Script/Engine.Actor for kind=blueprint."}),
+        serde_json::json!({"type":"string","minLength":1,"description":"Blueprint parent class path. Defaults to /Script/Engine.Actor for kind=blueprint. WidgetBlueprint currently defaults to /Script/UMG.UserWidget."}),
     );
     properties.insert(
         "parentClass".into(),
@@ -5613,8 +5646,38 @@ fn asset_inspect_schema() -> rmcp::model::JsonObject {
     schema_from_value(serde_json::json!({
         "type":"object",
         "properties":{
-            "kind":{"type":"string","enum":["blueprint","enum"]},
-            "assetPath":{"type":"string","minLength":1}
+            "kind":{
+                "type":"string",
+                "enum":["blueprint","enum","material","materialFunction","pcgGraph","widgetBlueprint"],
+                "description":"Asset category to inspect. Use material for UMaterial, materialFunction for UMaterialFunction, pcgGraph for UPCGGraph, and widgetBlueprint for UWidgetBlueprint."
+            },
+            "assetPath":{"type":"string","minLength":1},
+            "view":{
+                "type":"string",
+                "enum":["overview","pins","links","defaults","full"],
+                "description":"PCG graph view when kind=pcgGraph."
+            },
+            "filter":{
+                "type":"object",
+                "description":"PCG graph filter when kind=pcgGraph.",
+                "properties":{
+                    "nodeIds":{"type":"array","items":{"type":"string"}},
+                    "text":{"type":"string","minLength":1}
+                },
+                "additionalProperties": false
+            },
+            "page":{
+                "type":"object",
+                "description":"PCG graph pagination when kind=pcgGraph.",
+                "properties":{
+                    "limit":{"type":"integer","minimum":1,"maximum":1000,"default":50},
+                    "cursor":{"type":"string"}
+                },
+                "additionalProperties": false
+            },
+            "includeSlotProperties":{"type":"boolean","default":false,"description":"WidgetTree slot property detail when kind=widgetBlueprint."},
+            "includeConnections":{"type":"boolean","default":false,"description":"Material graph connection detail when kind=material or materialFunction."},
+            "nodeIds":{"type":"array","items":{"type":"string"},"description":"Optional Material expression ids when kind=material or materialFunction."}
         },
         "required":["kind","assetPath"],
         "additionalProperties": false
@@ -5625,7 +5688,11 @@ fn asset_edit_schema() -> rmcp::model::JsonObject {
     let mut properties = serde_json::Map::new();
     properties.insert(
         "kind".into(),
-        serde_json::json!({"type":"string","enum":["enum"]}),
+        serde_json::json!({
+            "type":"string",
+            "enum":["blueprint","enum","material","materialFunction","pcgGraph","widgetBlueprint"],
+            "description":"Optional for operation=updateMetadata. Required only for compatibility operation=updateEntries, where it must be enum."
+        }),
     );
     properties.insert(
         "assetPath".into(),
@@ -5633,19 +5700,53 @@ fn asset_edit_schema() -> rmcp::model::JsonObject {
     );
     properties.insert(
         "operation".into(),
-        serde_json::json!({"type":"string","enum":["updateEntries"]}),
+        serde_json::json!({
+            "type":"string",
+            "enum":["updateMetadata","updateEntries"],
+            "description":"Use updateMetadata for generic asset metadata. updateEntries is an enum-only compatibility special case."
+        }),
+    );
+    properties.insert(
+        "metadata".into(),
+        serde_json::json!({
+            "type":"object",
+            "description":"Metadata key/value pairs to set on the asset object. Values are stored as strings.",
+            "additionalProperties":{"type":"string"}
+        }),
+    );
+    properties.insert(
+        "removeKeys".into(),
+        serde_json::json!({
+            "type":"array",
+            "description":"Metadata keys to remove from the asset object.",
+            "items":{"type":"string","minLength":1}
+        }),
+    );
+    properties.insert(
+        "clearMetadata".into(),
+        serde_json::json!({
+            "type":"boolean",
+            "default":false,
+            "description":"Remove all current metadata keys from the asset object before applying metadata."
+        }),
     );
     properties.insert(
         "entries".into(),
-        serde_json::json!({"type":"array","items":{"oneOf":[{"type":"string"},{"type":"object"}]}}),
+        serde_json::json!({"type":"array","description":"Enum entries for enum-only operation=updateEntries.","items":{"oneOf":[{"type":"string"},{"type":"object"}]}}),
     );
     properties.insert("displayNames".into(), serde_json::json!({"type":"object"}));
-    properties.insert("args".into(), serde_json::json!({"type":"object"}));
+    properties.insert(
+        "args".into(),
+        serde_json::json!({
+            "type":"object",
+            "description":"Optional envelope for operation-specific fields. For updateMetadata it may contain metadata, removeKeys, or clearMetadata."
+        }),
+    );
     mutation_control_fields(&mut properties);
     schema_from_value(serde_json::json!({
         "type":"object",
         "properties": properties,
-        "required":["kind","assetPath","operation"],
+        "required":["assetPath","operation"],
         "additionalProperties": false
     }))
 }
@@ -8357,27 +8458,28 @@ fn print_usage_stderr() {
 #[cfg(test)]
 mod tests {
     use super::{
-        acquire_file_lock, all_declared_tools, blueprint_graph_inspect_schema,
-        blueprint_graph_layout_schema, build_blueprint_graph_layout_plan, build_installer_args,
-        call_schema_inspect, compare_semver, compile_blueprint_refactor_request,
-        current_platform_client_binary_name, infer_attached_project_root,
-        material_graph_edit_schema, material_graph_inspect_schema, material_graph_layout_schema,
-        material_node_edit_schema, material_palette_schema, parse_blueprint_graph_layout_request,
-        pcg_compile_schema, pcg_graph_inspect_schema, pcg_graph_layout_schema,
-        pcg_node_inspect_schema, pcg_palette_schema, pcg_parameter_edit_schema, pcg_query_schema,
-        play_participant_wait_conditions_met, play_schema,
-        play_wait_participant_conditions_from_args, read_file_lock_metadata, read_plugin_version,
-        runtime_declared_tools, shape_blueprint_graph_inspect_result, shape_pcg_compile_result,
-        shape_pcg_graph_inspect_result, shape_pcg_node_inspect_result, switch_to_installed_version,
-        sync_project_support_to_version, sync_registered_project_support,
-        translate_blueprint_graph_edit_args, translate_blueprint_graph_inspect_args,
-        translate_material_graph_edit_args, translate_material_graph_inspect_args,
-        translate_material_graph_layout_args, translate_material_node_edit_args,
-        translate_material_palette_args, translate_pcg_compile_args,
-        translate_pcg_graph_inspect_args, translate_pcg_graph_layout_args,
-        translate_pcg_node_inspect_args, translate_pcg_parameter_edit_args,
-        translate_pcg_query_args, validate_blueprint_graph_inspect_args,
-        validate_pcg_graph_inspect_args, Cli, FileLockMetadata, RuntimeProject, UpdateOptions,
+        acquire_file_lock, all_declared_tools, asset_create_schema, asset_edit_schema,
+        asset_inspect_schema, blueprint_graph_inspect_schema, blueprint_graph_layout_schema,
+        build_blueprint_graph_layout_plan, build_installer_args, call_schema_inspect,
+        compare_semver, compile_blueprint_refactor_request, current_platform_client_binary_name,
+        infer_attached_project_root, material_graph_edit_schema, material_graph_inspect_schema,
+        material_graph_layout_schema, material_node_edit_schema, material_palette_schema,
+        parse_blueprint_graph_layout_request, pcg_compile_schema, pcg_graph_inspect_schema,
+        pcg_graph_layout_schema, pcg_node_inspect_schema, pcg_palette_schema,
+        pcg_parameter_edit_schema, pcg_query_schema, play_participant_wait_conditions_met,
+        play_schema, play_wait_participant_conditions_from_args, read_file_lock_metadata,
+        read_plugin_version, runtime_declared_tools, shape_blueprint_graph_inspect_result,
+        shape_pcg_compile_result, shape_pcg_graph_inspect_result, shape_pcg_node_inspect_result,
+        switch_to_installed_version, sync_project_support_to_version,
+        sync_registered_project_support, translate_blueprint_graph_edit_args,
+        translate_blueprint_graph_inspect_args, translate_material_graph_edit_args,
+        translate_material_graph_inspect_args, translate_material_graph_layout_args,
+        translate_material_node_edit_args, translate_material_palette_args,
+        translate_pcg_compile_args, translate_pcg_graph_inspect_args,
+        translate_pcg_graph_layout_args, translate_pcg_node_inspect_args,
+        translate_pcg_parameter_edit_args, translate_pcg_query_args,
+        validate_blueprint_graph_inspect_args, validate_pcg_graph_inspect_args, Cli,
+        FileLockMetadata, RuntimeProject, UpdateOptions,
     };
     use rmcp::model::JsonObject;
     use std::ffi::OsString;
@@ -9667,6 +9769,104 @@ mod tests {
                 "material.graph.inspect schema should not expose top-level {keyword}"
             );
         }
+    }
+
+    #[test]
+    fn asset_inspect_schema_declares_supported_asset_kinds() {
+        let schema = asset_inspect_schema();
+        let kind_values = schema
+            .get("properties")
+            .and_then(|properties| properties.get("kind"))
+            .and_then(|kind| kind.get("enum"))
+            .and_then(|value| value.as_array())
+            .expect("kind enum")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .collect::<std::collections::HashSet<_>>();
+
+        for expected in [
+            "blueprint",
+            "enum",
+            "material",
+            "materialFunction",
+            "pcgGraph",
+            "widgetBlueprint",
+        ] {
+            assert!(
+                kind_values.contains(expected),
+                "missing asset kind {expected}"
+            );
+        }
+
+        let properties = schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("properties");
+        assert!(properties.contains_key("view"));
+        assert!(properties.contains_key("filter"));
+        assert!(properties.contains_key("includeSlotProperties"));
+        assert!(properties.contains_key("includeConnections"));
+    }
+
+    #[test]
+    fn asset_create_schema_declares_supported_asset_kinds() {
+        let schema = asset_create_schema();
+        let kind_values = schema
+            .get("properties")
+            .and_then(|properties| properties.get("kind"))
+            .and_then(|kind| kind.get("enum"))
+            .and_then(|value| value.as_array())
+            .expect("kind enum")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .collect::<std::collections::HashSet<_>>();
+
+        for expected in [
+            "blueprint",
+            "enum",
+            "material",
+            "materialFunction",
+            "pcgGraph",
+            "widgetBlueprint",
+        ] {
+            assert!(
+                kind_values.contains(expected),
+                "missing asset kind {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn asset_edit_schema_centers_metadata_editing() {
+        let schema = asset_edit_schema();
+        let properties = schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("properties");
+
+        assert!(properties.contains_key("metadata"));
+        assert!(properties.contains_key("removeKeys"));
+        assert!(properties.contains_key("clearMetadata"));
+
+        let operations = properties
+            .get("operation")
+            .and_then(|value| value.get("enum"))
+            .and_then(|value| value.as_array())
+            .expect("operation enum")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        assert!(operations.contains("updateMetadata"));
+        assert!(operations.contains("updateEntries"));
+
+        let required = schema
+            .get("required")
+            .and_then(|value| value.as_array())
+            .expect("required")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        assert!(!required.contains("kind"));
     }
 
     #[test]

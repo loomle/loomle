@@ -3627,6 +3627,327 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildSelectionTransformToolResult()
     return Result;
 }
 
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildAssetCreateToolResult(const TSharedPtr<FJsonObject>& Arguments)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+
+    FString Kind;
+    FString AssetPath;
+    if (!Arguments.IsValid()
+        || !Arguments->TryGetStringField(TEXT("kind"), Kind)
+        || Kind.TrimStartAndEnd().IsEmpty()
+        || !Arguments->TryGetStringField(TEXT("assetPath"), AssetPath)
+        || AssetPath.TrimStartAndEnd().IsEmpty())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("asset.create requires kind and assetPath."));
+        return Result;
+    }
+
+    AssetPath = NormalizeAssetPath(AssetPath);
+    Result->SetStringField(TEXT("kind"), Kind);
+    Result->SetStringField(TEXT("assetPath"), AssetPath);
+
+    if (!FPackageName::IsValidLongPackageName(AssetPath))
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("Invalid assetPath; expected /Game/... long package name."));
+        return Result;
+    }
+
+    if (LoadObjectByAssetPath(AssetPath) != nullptr)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("ALREADY_EXISTS"));
+        Result->SetStringField(TEXT("message"), TEXT("Asset already exists."));
+        return Result;
+    }
+
+    bool bDryRun = false;
+    Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
+    Result->SetBoolField(TEXT("dryRun"), bDryRun);
+
+    const FString AssetName = FPackageName::GetLongPackageAssetName(AssetPath);
+    const FString PackagePath = FPackageName::GetLongPackagePath(AssetPath);
+    UClass* AssetClass = nullptr;
+    UFactory* Factory = nullptr;
+    UObject* CreatedAsset = nullptr;
+
+    if (Kind.Equals(TEXT("material"), ESearchCase::IgnoreCase))
+    {
+        AssetClass = UMaterial::StaticClass();
+        Factory = NewObject<UMaterialFactoryNew>();
+    }
+    else if (Kind.Equals(TEXT("materialFunction"), ESearchCase::IgnoreCase))
+    {
+        AssetClass = UMaterialFunction::StaticClass();
+        Factory = NewObject<UMaterialFunctionFactoryNew>();
+    }
+    else if (Kind.Equals(TEXT("widgetBlueprint"), ESearchCase::IgnoreCase))
+    {
+        AssetClass = UWidgetBlueprint::StaticClass();
+        UWidgetBlueprintFactory* WidgetFactory = NewObject<UWidgetBlueprintFactory>();
+        WidgetFactory->BlueprintType = BPTYPE_Normal;
+        WidgetFactory->ParentClass = UUserWidget::StaticClass();
+        Factory = WidgetFactory;
+    }
+    else if (Kind.Equals(TEXT("pcgGraph"), ESearchCase::IgnoreCase))
+    {
+        AssetClass = UPCGGraph::StaticClass();
+    }
+    else
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("NOT_IMPLEMENTED"));
+        Result->SetStringField(TEXT("message"), FString::Printf(TEXT("asset.create runtime bridge does not support kind: %s"), *Kind));
+        return Result;
+    }
+
+    if (bDryRun)
+    {
+        Result->SetBoolField(TEXT("applied"), false);
+        Result->SetStringField(TEXT("assetName"), AssetName);
+        Result->SetStringField(TEXT("packagePath"), PackagePath);
+        Result->SetStringField(TEXT("assetClassPath"), AssetClass ? AssetClass->GetPathName() : TEXT(""));
+        return Result;
+    }
+
+    if (Kind.Equals(TEXT("pcgGraph"), ESearchCase::IgnoreCase))
+    {
+        UPackage* Package = CreatePackage(*AssetPath);
+        if (Package == nullptr)
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+            Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Failed to create package: %s"), *AssetPath));
+            return Result;
+        }
+
+        CreatedAsset = NewObject<UPCGGraph>(
+            Package,
+            UPCGGraph::StaticClass(),
+            FName(*AssetName),
+            RF_Public | RF_Standalone | RF_Transactional);
+        if (CreatedAsset != nullptr)
+        {
+            FAssetRegistryModule::AssetCreated(CreatedAsset);
+        }
+    }
+    else
+    {
+        FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools"));
+        CreatedAsset = AssetToolsModule.Get().CreateAsset(AssetName, PackagePath, AssetClass, Factory);
+    }
+
+    if (CreatedAsset == nullptr)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+        Result->SetStringField(TEXT("message"), TEXT("Failed to create asset."));
+        return Result;
+    }
+
+    CreatedAsset->MarkPackageDirty();
+    if (UPackage* Package = CreatedAsset->GetOutermost())
+    {
+        Package->MarkPackageDirty();
+    }
+
+    const FString ObjectPath = FString::Printf(TEXT("%s.%s"), *AssetPath, *AssetName);
+    Result->SetBoolField(TEXT("applied"), true);
+    Result->SetStringField(TEXT("assetName"), AssetName);
+    Result->SetStringField(TEXT("packagePath"), PackagePath);
+    Result->SetStringField(TEXT("objectPath"), ObjectPath);
+    Result->SetStringField(TEXT("assetClassPath"), CreatedAsset->GetClass() ? CreatedAsset->GetClass()->GetPathName() : TEXT(""));
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildAssetEditToolResult(const TSharedPtr<FJsonObject>& Arguments)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+
+    FString AssetPath;
+    FString Operation;
+    if (!Arguments.IsValid()
+        || !Arguments->TryGetStringField(TEXT("assetPath"), AssetPath)
+        || AssetPath.TrimStartAndEnd().IsEmpty()
+        || !Arguments->TryGetStringField(TEXT("operation"), Operation)
+        || Operation.TrimStartAndEnd().IsEmpty())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("asset.edit requires assetPath and operation."));
+        return Result;
+    }
+
+    AssetPath = NormalizeAssetPath(AssetPath);
+    Result->SetStringField(TEXT("assetPath"), AssetPath);
+    Result->SetStringField(TEXT("operation"), Operation);
+
+    if (!Operation.Equals(TEXT("updateMetadata"), ESearchCase::IgnoreCase))
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("NOT_IMPLEMENTED"));
+        Result->SetStringField(TEXT("message"), FString::Printf(TEXT("asset.edit supports updateMetadata only in the runtime bridge: %s"), *Operation));
+        return Result;
+    }
+
+#if WITH_METADATA
+    UObject* Asset = LoadObjectByAssetPath(AssetPath);
+    if (Asset == nullptr)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("ASSET_NOT_FOUND"));
+        Result->SetStringField(TEXT("message"), TEXT("Asset not found."));
+        return Result;
+    }
+
+    const TSharedPtr<FJsonObject>* ArgsObject = nullptr;
+    const TSharedPtr<FJsonObject> EffectiveArgs =
+        (Arguments->TryGetObjectField(TEXT("args"), ArgsObject) && ArgsObject != nullptr && (*ArgsObject).IsValid())
+            ? *ArgsObject
+            : Arguments;
+
+    bool bClearMetadata = false;
+    EffectiveArgs->TryGetBoolField(TEXT("clearMetadata"), bClearMetadata);
+
+    const TSharedPtr<FJsonObject>* MetadataObject = nullptr;
+    const bool bHasMetadataObject =
+        EffectiveArgs->TryGetObjectField(TEXT("metadata"), MetadataObject)
+        && MetadataObject != nullptr
+        && (*MetadataObject).IsValid();
+
+    const TArray<TSharedPtr<FJsonValue>>* RemoveKeyValues = nullptr;
+    EffectiveArgs->TryGetArrayField(TEXT("removeKeys"), RemoveKeyValues);
+
+    if (!bClearMetadata && !bHasMetadataObject && RemoveKeyValues == nullptr)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("asset.edit updateMetadata requires metadata, removeKeys, or clearMetadata."));
+        return Result;
+    }
+
+    TMap<FString, FString> ValuesToSet;
+    if (bHasMetadataObject)
+    {
+        for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*MetadataObject)->Values)
+        {
+            FString Value;
+            if (!Pair.Value.IsValid() || !Pair.Value->TryGetString(Value))
+            {
+                Result->SetBoolField(TEXT("isError"), true);
+                Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+                Result->SetStringField(TEXT("message"), FString::Printf(TEXT("metadata.%s must be a string."), *Pair.Key));
+                return Result;
+            }
+            ValuesToSet.Add(Pair.Key, Value);
+        }
+    }
+
+    TArray<FString> KeysToRemove;
+    if (RemoveKeyValues != nullptr)
+    {
+        for (const TSharedPtr<FJsonValue>& KeyValue : *RemoveKeyValues)
+        {
+            FString Key;
+            if (!KeyValue.IsValid() || !KeyValue->TryGetString(Key) || Key.TrimStartAndEnd().IsEmpty())
+            {
+                Result->SetBoolField(TEXT("isError"), true);
+                Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+                Result->SetStringField(TEXT("message"), TEXT("removeKeys entries must be non-empty strings."));
+                return Result;
+            }
+            KeysToRemove.Add(Key);
+        }
+    }
+
+    bool bDryRun = false;
+    Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
+    Result->SetBoolField(TEXT("dryRun"), bDryRun);
+
+    TArray<FString> ClearedKeys;
+    if (bClearMetadata)
+    {
+        if (TMap<FName, FString>* ExistingMap = FMetaData::GetMapForObject(Asset))
+        {
+            for (const TPair<FName, FString>& Pair : *ExistingMap)
+            {
+                ClearedKeys.Add(Pair.Key.ToString());
+            }
+        }
+    }
+
+    if (!bDryRun)
+    {
+        FMetaData& PackageMetaData = Asset->GetOutermost()->GetMetaData();
+
+        for (const FString& Key : ClearedKeys)
+        {
+            PackageMetaData.RemoveValue(Asset, *Key);
+        }
+        for (const FString& Key : KeysToRemove)
+        {
+            PackageMetaData.RemoveValue(Asset, *Key);
+        }
+        for (const TPair<FString, FString>& Pair : ValuesToSet)
+        {
+            PackageMetaData.SetValue(Asset, *Pair.Key, *Pair.Value);
+        }
+
+        Asset->MarkPackageDirty();
+        if (UPackage* Package = Asset->GetOutermost())
+        {
+            Package->MarkPackageDirty();
+        }
+    }
+
+    auto StringArrayToJson = [](const TArray<FString>& Values)
+    {
+        TArray<TSharedPtr<FJsonValue>> JsonValues;
+        for (const FString& Value : Values)
+        {
+            JsonValues.Add(MakeShared<FJsonValueString>(Value));
+        }
+        return JsonValues;
+    };
+
+    TSharedPtr<FJsonObject> SetObject = MakeShared<FJsonObject>();
+    for (const TPair<FString, FString>& Pair : ValuesToSet)
+    {
+        SetObject->SetStringField(Pair.Key, Pair.Value);
+    }
+
+    TSharedPtr<FJsonObject> CurrentMetadata = MakeShared<FJsonObject>();
+    if (TMap<FName, FString>* CurrentMap = FMetaData::GetMapForObject(Asset))
+    {
+        for (const TPair<FName, FString>& Pair : *CurrentMap)
+        {
+            CurrentMetadata->SetStringField(Pair.Key.ToString(), Pair.Value);
+        }
+    }
+
+    Result->SetStringField(TEXT("assetName"), Asset->GetName());
+    Result->SetStringField(TEXT("assetClassPath"), Asset->GetClass() ? Asset->GetClass()->GetPathName() : TEXT(""));
+    Result->SetBoolField(TEXT("applied"), !bDryRun);
+    Result->SetBoolField(TEXT("clearMetadata"), bClearMetadata);
+    Result->SetObjectField(TEXT("set"), SetObject);
+    Result->SetArrayField(TEXT("removedKeys"), StringArrayToJson(KeysToRemove));
+    Result->SetArrayField(TEXT("clearedKeys"), StringArrayToJson(ClearedKeys));
+    Result->SetObjectField(TEXT("metadata"), CurrentMetadata);
+    return Result;
+#else
+    Result->SetBoolField(TEXT("isError"), true);
+    Result->SetStringField(TEXT("code"), TEXT("NOT_SUPPORTED"));
+    Result->SetStringField(TEXT("message"), TEXT("Asset metadata editing is not available in this build."));
+    return Result;
+#endif
+}
+
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorOpenToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();

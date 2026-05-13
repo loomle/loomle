@@ -20,6 +20,7 @@ public class LoomleBridge : ModuleRules
                 "ApplicationCore",
                 "AssetDefinition",
                 "AssetRegistry",
+                "AssetTools",
                 "BlueprintGraph",
                 "Json",
                 "JsonUtilities",

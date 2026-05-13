@@ -86,12 +86,13 @@ belong on the `asset.*` surface.
 
 Current `asset.*` coverage:
 
-- `asset.create` creates Blueprint assets with a parent class and enum assets
-  with entries.
-- `asset.inspect` reads Blueprint or enum assets through the requested
-  `kind`.
-- `asset.edit` currently edits enum entries through `kind=enum` and
-  `operation=updateEntries`.
+- `asset.create` creates Blueprint, enum, Material, MaterialFunction, PCG graph,
+  and WidgetBlueprint assets.
+- `asset.inspect` reads Blueprint, enum, Material, MaterialFunction, PCG graph,
+  and WidgetBlueprint assets through the requested `kind`.
+- `asset.edit` edits asset-level metadata through `operation=updateMetadata`.
+  Enum entries remain available through `kind=enum` and
+  `operation=updateEntries` as a compatibility special case.
 
 ### Scope
 
@@ -102,11 +103,14 @@ Current `asset.*` coverage:
 
 ### Notes
 
-- `asset.create` is the preferred creation entrypoint for Blueprint and enum
-  assets.
+- `asset.create` is the preferred creation entrypoint for supported asset
+  categories.
 - `asset.inspect` and `asset.edit` are the preferred generic asset-facing
-  entrypoints where the requested kind is not Blueprint-specific class, member,
-  or graph structure.
+  entrypoints for asset identity, summaries, and metadata.
+- `asset.inspect` may delegate to existing domain readers for graph-shaped
+  assets, but structural graph/node/member edits remain on their domain tools.
+- `asset.edit` should not absorb structural Blueprint, Material, PCG, or Widget
+  editing operations.
 - `blueprint.inspect` remains the canonical Blueprint overview entrypoint.
 
 ## Domain 2: Inheritance / Interfaces
