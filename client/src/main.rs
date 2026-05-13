@@ -2041,14 +2041,12 @@ fn translate_selection_graph_layout_args(
             invalid_argument_result(format!("{tool_name} requires assetPath or graph."))
         })?;
 
-    let operation = args
-        .get("operation")
-        .and_then(|value| value.as_str())
-        .ok_or_else(|| invalid_argument_result(format!("{tool_name} requires operation.")))?;
-    if operation != "format" {
-        return Err(invalid_argument_result(format!(
-            "Unsupported {tool_name} operation: {operation}. Supported operations: format."
-        )));
+    if let Some(operation) = args.get("operation").and_then(|value| value.as_str()) {
+        if operation != "format" {
+            return Err(invalid_argument_result(format!(
+                "Unsupported {tool_name} operation: {operation}. Supported operations: format."
+            )));
+        }
     }
 
     let scope = args
@@ -3358,14 +3356,12 @@ fn parse_blueprint_graph_layout_request(
     let graph_address =
         read_optional_graph_address(args, &asset_path, true, "blueprint.graph.layout")?;
 
-    let operation = args
-        .get("operation")
-        .and_then(|value| value.as_str())
-        .ok_or_else(|| invalid_argument_result("blueprint.graph.layout requires operation."))?;
-    if operation != "format" {
-        return Err(invalid_argument_result(format!(
-            "Unsupported blueprint.graph.layout operation: {operation}. Supported operations: format."
-        )));
+    if let Some(operation) = args.get("operation").and_then(|value| value.as_str()) {
+        if operation != "format" {
+            return Err(invalid_argument_result(format!(
+                "Unsupported blueprint.graph.layout operation: {operation}. Supported operations: format."
+            )));
+        }
     }
 
     let scope_obj = args
@@ -5984,23 +5980,20 @@ fn selection_graph_layout_schema(graph_ref: serde_json::Value) -> rmcp::model::J
     );
     properties.insert("graph".into(), graph_ref);
     properties.insert(
-        "operation".into(),
-        serde_json::json!({"type":"string","enum":["format"]}),
-    );
-    properties.insert(
         "scope".into(),
         serde_json::json!({
             "type":"object",
-            "description":"Only explicit selection layout is supported.",
+            "description":"Choose what nodes to format. Only selection is supported: it moves exactly the explicit node list.",
             "properties":{
-                "mode":{"type":"string","enum":["selection"]},
+                "mode":{"type":"string","enum":["selection"],"description":"Format only the explicit nodes array."},
                 "nodes":{
                     "type":"array",
+                    "description":"Node ids from the matching graph.inspect tool. Only these nodes are moved.",
                     "minItems":1,
                     "items":{
                         "type":"object",
                         "properties":{
-                            "id":{"type":"string","minLength":1}
+                            "id":{"type":"string","minLength":1,"description":"Stable node id returned by graph.inspect."}
                         },
                         "required":["id"],
                         "additionalProperties":false
@@ -6015,7 +6008,7 @@ fn selection_graph_layout_schema(graph_ref: serde_json::Value) -> rmcp::model::J
     schema_from_value(serde_json::json!({
         "type":"object",
         "properties": properties,
-        "required":["assetPath","operation","scope"],
+        "required":["assetPath","scope"],
         "additionalProperties": false
     }))
 }
@@ -6032,23 +6025,18 @@ fn blueprint_graph_layout_schema() -> rmcp::model::JsonObject {
     );
     properties.insert("graph".into(), graph_ref_schema());
     properties.insert(
-        "graphName".into(),
-        serde_json::json!({"type":"string","minLength":1,"description":"Legacy compatibility graph address. Prefer graph:{id|name} for new calls."}),
-    );
-    properties.insert(
-        "operation".into(),
-        serde_json::json!({"type":"string","enum":["format"]}),
-    );
-    properties.insert(
         "scope".into(),
         serde_json::json!({
+            "description": "Choose what nodes to format. selection formats only the explicit node list; tree formats the Blueprint exec subtree rooted at root.",
             "oneOf": [
                 {
                     "type": "object",
+                    "description": "Selection layout. Moves only these nodes, in the order provided, left-to-right by default.",
                     "properties": {
-                        "mode": { "type": "string", "enum": ["selection"] },
+                        "mode": { "type": "string", "enum": ["selection"], "description": "Format only the explicit nodes array." },
                         "nodes": {
                             "type": "array",
+                            "description": "Node ids from blueprint.graph.inspect. Order controls left-to-right placement.",
                             "minItems": 1,
                             "items": { "$ref": "#/$defs/nodeRef" }
                         }
@@ -6058,9 +6046,10 @@ fn blueprint_graph_layout_schema() -> rmcp::model::JsonObject {
                 },
                 {
                     "type": "object",
+                    "description": "Exec tree layout. Starts at root and follows Blueprint exec output pins only.",
                     "properties": {
-                        "mode": { "type": "string", "enum": ["tree"] },
-                        "root": { "$ref": "#/$defs/nodeRef" }
+                        "mode": { "type": "string", "enum": ["tree"], "description": "Format an execution subtree rooted at root." },
+                        "root": { "$ref": "#/$defs/nodeRef", "description": "Root node id from blueprint.graph.inspect. Usually an event or exec-flow node." }
                     },
                     "required": ["mode", "root"],
                     "additionalProperties": false
@@ -6069,20 +6058,13 @@ fn blueprint_graph_layout_schema() -> rmcp::model::JsonObject {
         }),
     );
     properties.insert(
-        "direction".into(),
-        serde_json::json!({"type":"string","enum":["right","down"],"default":"right"}),
-    );
-    properties.insert(
-        "style".into(),
-        serde_json::json!({"type":"string","enum":["simple"],"default":"simple"}),
-    );
-    properties.insert(
         "spacing".into(),
         serde_json::json!({
             "type":"object",
+            "description":"Optional spacing between formatted nodes. Defaults to {x:360,y:180}.",
             "properties":{
-                "x":{"type":"number"},
-                "y":{"type":"number"}
+                "x":{"type":"number","description":"Horizontal spacing between layout columns. Default 360."},
+                "y":{"type":"number","description":"Vertical spacing between layout rows. Default 180."}
             },
             "required":["x","y"],
             "additionalProperties":false
@@ -6092,6 +6074,7 @@ fn blueprint_graph_layout_schema() -> rmcp::model::JsonObject {
         "origin".into(),
         serde_json::json!({
             "type":"object",
+            "description":"Optional top-left anchor. If omitted, selection uses the selected nodes' current bounding-box top-left; tree keeps the root at its current position.",
             "properties":{
                 "x":{"type":"number"},
                 "y":{"type":"number"}
@@ -6104,13 +6087,14 @@ fn blueprint_graph_layout_schema() -> rmcp::model::JsonObject {
     schema_from_value(serde_json::json!({
         "type":"object",
         "properties": properties,
-        "required":["assetPath","operation","scope"],
+        "required":["assetPath","graph","scope"],
         "additionalProperties": false,
         "$defs": {
             "nodeRef": {
                 "type":"object",
+                "description":"Stable Blueprint graph node reference from blueprint.graph.inspect.",
                 "properties": {
-                    "id": { "type":"string", "minLength": 1 }
+                    "id": { "type":"string", "minLength": 1, "description":"Stable node id returned by blueprint.graph.inspect." }
                 },
                 "required": ["id"],
                 "additionalProperties": false
@@ -8374,26 +8358,26 @@ fn print_usage_stderr() {
 mod tests {
     use super::{
         acquire_file_lock, all_declared_tools, blueprint_graph_inspect_schema,
-        build_blueprint_graph_layout_plan, build_installer_args, call_schema_inspect,
-        compare_semver, compile_blueprint_refactor_request, current_platform_client_binary_name,
-        infer_attached_project_root, material_graph_edit_schema, material_graph_inspect_schema,
-        material_graph_layout_schema, material_node_edit_schema, material_palette_schema,
-        parse_blueprint_graph_layout_request, pcg_compile_schema, pcg_graph_inspect_schema,
-        pcg_graph_layout_schema, pcg_node_inspect_schema, pcg_palette_schema,
-        pcg_parameter_edit_schema, pcg_query_schema, play_participant_wait_conditions_met,
-        play_schema, play_wait_participant_conditions_from_args, read_file_lock_metadata,
-        read_plugin_version, runtime_declared_tools, shape_blueprint_graph_inspect_result,
-        shape_pcg_compile_result, shape_pcg_graph_inspect_result, shape_pcg_node_inspect_result,
-        switch_to_installed_version, sync_project_support_to_version,
-        sync_registered_project_support, translate_blueprint_graph_edit_args,
-        translate_blueprint_graph_inspect_args, translate_material_graph_edit_args,
-        translate_material_graph_inspect_args, translate_material_graph_layout_args,
-        translate_material_node_edit_args, translate_material_palette_args,
-        translate_pcg_compile_args, translate_pcg_graph_inspect_args,
-        translate_pcg_graph_layout_args, translate_pcg_node_inspect_args,
-        translate_pcg_parameter_edit_args, translate_pcg_query_args,
-        validate_blueprint_graph_inspect_args, validate_pcg_graph_inspect_args, Cli,
-        FileLockMetadata, RuntimeProject, UpdateOptions,
+        blueprint_graph_layout_schema, build_blueprint_graph_layout_plan, build_installer_args,
+        call_schema_inspect, compare_semver, compile_blueprint_refactor_request,
+        current_platform_client_binary_name, infer_attached_project_root,
+        material_graph_edit_schema, material_graph_inspect_schema, material_graph_layout_schema,
+        material_node_edit_schema, material_palette_schema, parse_blueprint_graph_layout_request,
+        pcg_compile_schema, pcg_graph_inspect_schema, pcg_graph_layout_schema,
+        pcg_node_inspect_schema, pcg_palette_schema, pcg_parameter_edit_schema, pcg_query_schema,
+        play_participant_wait_conditions_met, play_schema,
+        play_wait_participant_conditions_from_args, read_file_lock_metadata, read_plugin_version,
+        runtime_declared_tools, shape_blueprint_graph_inspect_result, shape_pcg_compile_result,
+        shape_pcg_graph_inspect_result, shape_pcg_node_inspect_result, switch_to_installed_version,
+        sync_project_support_to_version, sync_registered_project_support,
+        translate_blueprint_graph_edit_args, translate_blueprint_graph_inspect_args,
+        translate_material_graph_edit_args, translate_material_graph_inspect_args,
+        translate_material_graph_layout_args, translate_material_node_edit_args,
+        translate_material_palette_args, translate_pcg_compile_args,
+        translate_pcg_graph_inspect_args, translate_pcg_graph_layout_args,
+        translate_pcg_node_inspect_args, translate_pcg_parameter_edit_args,
+        translate_pcg_query_args, validate_blueprint_graph_inspect_args,
+        validate_pcg_graph_inspect_args, Cli, FileLockMetadata, RuntimeProject, UpdateOptions,
     };
     use rmcp::model::JsonObject;
     use std::ffi::OsString;
@@ -8663,6 +8647,53 @@ mod tests {
             .moves
             .iter()
             .any(|movement| movement.node_id == "dataOnly"));
+    }
+
+    #[test]
+    fn blueprint_graph_layout_schema_is_self_describing() {
+        let schema = blueprint_graph_layout_schema();
+        let properties = schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("properties");
+        assert!(properties.contains_key("scope"));
+        assert!(properties.contains_key("spacing"));
+        assert!(properties.contains_key("origin"));
+        assert!(!properties.contains_key("operation"));
+        assert!(!properties.contains_key("direction"));
+        assert!(!properties.contains_key("style"));
+        assert!(!properties.contains_key("graphName"));
+        let required = schema
+            .get("required")
+            .and_then(|value| value.as_array())
+            .expect("required")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        assert!(required.contains("graph"));
+        assert!(!required.contains("operation"));
+        let schema_text = serde_json::to_string(&schema).expect("schema json");
+        assert!(schema_text.contains("selection formats only the explicit node list"));
+        assert!(schema_text.contains("Blueprint exec subtree"));
+        assert!(schema_text.contains("blueprint.graph.inspect"));
+        assert!(schema_text.contains("Defaults to {x:360,y:180}"));
+    }
+
+    #[test]
+    fn blueprint_graph_layout_operation_is_optional_but_validated() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graphName".into(), serde_json::json!("EventGraph"));
+        args.insert(
+            "scope".into(),
+            serde_json::json!({"mode":"selection","nodes":[{"id":"a"}]}),
+        );
+
+        assert!(parse_blueprint_graph_layout_request(&args).is_ok());
+        args.insert("operation".into(), serde_json::json!("reflow"));
+        let error = parse_blueprint_graph_layout_request(&args).expect_err("expected error");
+        let text = serde_json::to_string(&error).expect("error json");
+        assert!(text.contains("Supported operations: format"));
     }
 
     #[test]
@@ -10337,7 +10368,6 @@ mod tests {
     fn material_graph_layout_translates_selection_only() {
         let mut args = JsonObject::new();
         args.insert("assetPath".into(), serde_json::json!("/Game/M_Test"));
-        args.insert("operation".into(), serde_json::json!("format"));
         args.insert(
             "scope".into(),
             serde_json::json!({"mode": "selection", "nodes": [{"id": "node-1"}, {"id": "node-2"}]}),
@@ -10368,8 +10398,16 @@ mod tests {
     #[test]
     fn graph_layout_schemas_do_not_expose_implicit_scopes() {
         for schema in [material_graph_layout_schema(), pcg_graph_layout_schema()] {
+            let properties = schema
+                .get("properties")
+                .and_then(|value| value.as_object())
+                .expect("properties");
+            assert!(!properties.contains_key("operation"));
+            assert!(!properties.contains_key("direction"));
+            assert!(!properties.contains_key("style"));
             let schema_text = serde_json::to_string(&schema).expect("schema json");
             assert!(schema_text.contains("selection"));
+            assert!(schema_text.contains("graph.inspect"));
             assert!(!schema_text.contains("touched"));
             assert!(!schema_text.contains("\"all\""));
             assert!(!schema_text.contains("\"tree\""));
@@ -10380,7 +10418,6 @@ mod tests {
     fn pcg_graph_layout_rejects_non_selection_scope() {
         let mut args = JsonObject::new();
         args.insert("assetPath".into(), serde_json::json!("/Game/PCG_Test"));
-        args.insert("operation".into(), serde_json::json!("format"));
         args.insert("scope".into(), serde_json::json!({"mode": "all"}));
 
         let error = translate_pcg_graph_layout_args(&args).expect_err("expected error");
