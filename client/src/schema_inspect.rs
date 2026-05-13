@@ -1136,7 +1136,7 @@ fn material_graph_edit_operation_schema(
             serde_json::json!({"type":"object","properties":{"kind":{"const":"connect"},"from":{"$ref":"#/$defs/pinRef"},"to":{"$ref":"#/$defs/pinRef"}},"required":["kind","from","to"],"additionalProperties":false}),
             vec![serde_json::json!({"kind":"connect","from":{"node":{"alias":"multiply"},"pin":"Result"},"to":{"node":{"id":"__material_root__"},"pin":"Base Color"}})],
             vec!["PIN_NOT_FOUND", "CONNECT_PIN_TYPE_MISMATCH"],
-            vec!["Material root inputs are addressed as node id __material_root__ with the root pin name returned by material.query."],
+            vec!["Material root inputs are addressed as node id __material_root__ with the root pin name returned by material.graph.inspect."],
         ),
         "disconnect" => (
             "core",
