@@ -34,16 +34,20 @@ REQUIRED_TOOLS = {
     "blueprint.palette",
     "blueprint.compile",
     "material.list",
-    "material.query",
-    "material.mutate",
-    "material.verify",
-    "material.describe",
+    "material.graph.inspect",
+    "material.graph.edit",
+    "material.graph.layout",
+    "material.compile",
+    "material.node.inspect",
+    "material.node.edit",
+    "material.palette",
     "pcg.graph.inspect",
     "pcg.node.inspect",
     "pcg.parameter.inspect",
     "pcg.parameter.edit",
     "pcg.palette",
     "pcg.graph.edit",
+    "pcg.graph.layout",
     "pcg.compile",
     "diagnostic.tail",
     "log.tail",
@@ -3364,17 +3368,17 @@ def main() -> int:
         material_describe = call_tool(
             client,
             7,
-            "material.describe",
+            "material.node.inspect",
             {"nodeClass": "/Script/Engine.MaterialExpressionConstant"},
         )
         if material_describe.get("mode") != "class":
-            fail(f"material.describe class mode mismatch: {material_describe}")
+            fail(f"material.node.inspect class mode mismatch: {material_describe}")
         if not isinstance(material_describe.get("inputPins"), list):
-            fail(f"material.describe missing inputPins[]: {material_describe}")
+            fail(f"material.node.inspect missing inputPins[]: {material_describe}")
         if not isinstance(material_describe.get("outputPins"), list):
-            fail(f"material.describe missing outputPins[]: {material_describe}")
+            fail(f"material.node.inspect missing outputPins[]: {material_describe}")
         if not isinstance(material_describe.get("properties"), list):
-            fail(f"material.describe missing properties[]: {material_describe}")
+            fail(f"material.node.inspect missing properties[]: {material_describe}")
 
         pcg_describe = call_tool(
             client,

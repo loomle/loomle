@@ -957,13 +957,17 @@ impl LoomleProxyServer {
         args: rmcp::model::JsonObject,
     ) -> Result<Option<CallToolResult>, McpError> {
         match tool_name {
-            "material.query" => {
-                let query_args = match translate_material_query_args(&args) {
+            "material.palette" => Ok(Some(self.call_material_palette(args).await?)),
+            "material.graph.inspect" => {
+                let query_args = match translate_material_graph_inspect_args(&args) {
                     Ok(value) => value,
                     Err(error) => return Ok(Some(error)),
                 };
                 Ok(Some(self.runtime_call("material.query", query_args).await?))
             }
+            "material.graph.edit" => Ok(Some(self.call_material_graph_edit(args).await?)),
+            "material.graph.layout" => Ok(Some(self.call_material_graph_layout(args).await?)),
+            "material.node.edit" => Ok(Some(self.call_material_node_edit(args).await?)),
             _ => Ok(None),
         }
     }
@@ -986,6 +990,7 @@ impl LoomleProxyServer {
             "pcg.node.inspect" => Ok(Some(self.call_pcg_node_inspect(args).await?)),
             "pcg.parameter.inspect" => Ok(Some(self.call_pcg_parameter_inspect(args).await?)),
             "pcg.parameter.edit" => Ok(Some(self.call_pcg_parameter_edit(args).await?)),
+            "pcg.graph.layout" => Ok(Some(self.call_pcg_graph_layout(args).await?)),
             "pcg.graph.edit" => Ok(Some(self.call_pcg_graph_edit(args).await?)),
             "pcg.compile" => Ok(Some(self.call_pcg_compile(args).await?)),
             _ => Ok(None),
@@ -1382,6 +1387,72 @@ impl LoomleProxyServer {
         Ok(structured_result(payload))
     }
 
+    async fn call_material_palette(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let translated = match translate_material_palette_args(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        let payload = self.runtime_payload("material.palette", translated).await?;
+        if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
+            return Ok(CallToolResult::structured_error(payload));
+        }
+        Ok(structured_result(payload))
+    }
+
+    async fn call_material_graph_edit(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let translated = match translate_material_graph_edit_args(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        let payload = self
+            .runtime_payload("material.graph.edit", translated)
+            .await?;
+        if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
+            return Ok(CallToolResult::structured_error(payload));
+        }
+        Ok(structured_result(payload))
+    }
+
+    async fn call_material_graph_layout(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let translated = match translate_material_graph_layout_args(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        let payload = self
+            .runtime_payload("material.graph.edit", translated)
+            .await?;
+        if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
+            return Ok(CallToolResult::structured_error(payload));
+        }
+        Ok(structured_result(payload))
+    }
+
+    async fn call_material_node_edit(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let translated = match translate_material_node_edit_args(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        let payload = self
+            .runtime_payload("material.graph.edit", translated)
+            .await?;
+        if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
+            return Ok(CallToolResult::structured_error(payload));
+        }
+        Ok(structured_result(payload))
+    }
+
     async fn call_pcg_graph_inspect(
         &self,
         args: rmcp::model::JsonObject,
@@ -1466,6 +1537,21 @@ impl LoomleProxyServer {
             Err(error) => return Ok(error),
         };
         let payload = self.runtime_payload("pcg.mutate", translated).await?;
+        Ok(structured_result(augment_blueprint_mutate_result(payload)))
+    }
+
+    async fn call_pcg_graph_layout(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let translated = match translate_pcg_graph_layout_args(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        let payload = self.runtime_payload("pcg.mutate", translated).await?;
+        if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
+            return Ok(CallToolResult::structured_error(payload));
+        }
         Ok(structured_result(augment_blueprint_mutate_result(payload)))
     }
 
@@ -1681,10 +1767,342 @@ fn translate_asset_query_args(
     Ok(translated)
 }
 
-fn translate_material_query_args(
+fn translate_material_graph_inspect_args(
     args: &rmcp::model::JsonObject,
 ) -> Result<rmcp::model::JsonObject, CallToolResult> {
-    translate_asset_query_args(args, "material.query")
+    translate_asset_query_args(args, "material.graph.inspect")
+}
+
+fn translate_material_palette_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let graph_asset_path = extract_query_graph_asset_path(args, "material.palette")?;
+    let direct_asset_path = args
+        .get("assetPath")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty());
+    let asset_path = graph_asset_path
+        .as_deref()
+        .or(direct_asset_path)
+        .ok_or_else(|| invalid_argument_result("material.palette requires assetPath or graph."))?;
+
+    let mut translated = rmcp::model::JsonObject::new();
+    translated.insert("assetPath".into(), serde_json::json!(asset_path));
+    for field in ["query", "elementTypes", "limit", "offset"] {
+        copy_if_present(args, &mut translated, field);
+    }
+    Ok(translated)
+}
+
+fn compile_material_add_from_palette_command(
+    command: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let entry = command
+        .get("entry")
+        .and_then(|value| value.as_object())
+        .ok_or_else(|| "addFromPalette requires entry from material.palette.".to_owned())?;
+    let entry_id = entry
+        .get("id")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| "addFromPalette requires entry.id.".to_owned())?;
+    if entry.get("executable").and_then(|value| value.as_bool()) == Some(false) {
+        return Err(format!(
+            "material.palette entry is not executable: {entry_id}"
+        ));
+    }
+    let payload = entry
+        .get("payload")
+        .and_then(|value| value.as_object())
+        .ok_or_else(|| "addFromPalette requires entry.payload.".to_owned())?;
+    let node_class_path = payload
+        .get("nodeClassPath")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| "material.palette entry.payload requires nodeClassPath.".to_owned())?;
+
+    let mut op = serde_json::Map::new();
+    op.insert("op".into(), serde_json::json!("addNode.byClass"));
+    op.insert("nodeClassPath".into(), serde_json::json!(node_class_path));
+    op.insert("entryId".into(), serde_json::json!(entry_id));
+    op.insert("entry".into(), serde_json::Value::Object(entry.clone()));
+    if let Some(position) = command.get("position").and_then(|value| value.as_object()) {
+        if let Some(x) = position.get("x") {
+            op.insert("x".into(), x.clone());
+        }
+        if let Some(y) = position.get("y") {
+            op.insert("y".into(), y.clone());
+        }
+    }
+    for field in ["anchor", "near", "from", "target", "parameterName"] {
+        copy_if_present(command, &mut op, field);
+    }
+    if let Some(alias) = command.get("alias").and_then(|value| value.as_str()) {
+        op.insert("clientRef".into(), serde_json::json!(alias));
+    }
+    Ok(vec![serde_json::Value::Object(op)])
+}
+
+fn compile_material_graph_commands(
+    commands: &[serde_json::Value],
+) -> Result<Vec<serde_json::Value>, CallToolResult> {
+    let mut ops = Vec::new();
+    for (index, command) in commands.iter().enumerate() {
+        let Some(command_obj) = command.as_object() else {
+            return Err(invalid_argument_result(format!(
+                "material.graph.edit command at index {index} must be an object."
+            )));
+        };
+        let Some(kind) = command_obj.get("kind").and_then(|value| value.as_str()) else {
+            return Err(invalid_argument_result(format!(
+                "material.graph.edit command at index {index} requires kind."
+            )));
+        };
+
+        let compiled = match kind {
+            "addFromPalette" => compile_material_add_from_palette_command(command_obj),
+            "removeNode" => {
+                let node = command_obj
+                    .get("node")
+                    .ok_or_else(|| "removeNode requires node.".to_owned())
+                    .and_then(extract_node_token)
+                    .map_err(invalid_argument_result)?;
+                let mut op = node.as_object().cloned().unwrap_or_default();
+                op.insert("op".into(), serde_json::json!("removeNode"));
+                Ok(vec![serde_json::Value::Object(op)])
+            }
+            "moveNode" => {
+                let node = command_obj
+                    .get("node")
+                    .ok_or_else(|| "moveNode requires node.".to_owned())
+                    .and_then(extract_node_token)
+                    .map_err(invalid_argument_result)?;
+                let mut op = node.as_object().cloned().unwrap_or_default();
+                let op_name = if let Some(position) = command_obj
+                    .get("position")
+                    .and_then(|value| value.as_object())
+                {
+                    if let Some(x) = position.get("x") {
+                        op.insert("x".into(), x.clone());
+                    }
+                    if let Some(y) = position.get("y") {
+                        op.insert("y".into(), y.clone());
+                    }
+                    "moveNode"
+                } else if let Some(delta) =
+                    command_obj.get("delta").and_then(|value| value.as_object())
+                {
+                    if let Some(dx) = delta.get("x") {
+                        op.insert("dx".into(), dx.clone());
+                    }
+                    if let Some(dy) = delta.get("y") {
+                        op.insert("dy".into(), dy.clone());
+                    }
+                    "moveNodeBy"
+                } else {
+                    return Err(invalid_argument_result(
+                        "moveNode requires position or delta.",
+                    ));
+                };
+                op.insert("op".into(), serde_json::json!(op_name));
+                Ok(vec![serde_json::Value::Object(op)])
+            }
+            "connect" | "disconnect" => {
+                let from = command_obj
+                    .get("from")
+                    .ok_or_else(|| format!("{kind} requires from."))
+                    .and_then(extract_pin_endpoint)
+                    .map_err(invalid_argument_result)?;
+                let to = command_obj
+                    .get("to")
+                    .ok_or_else(|| format!("{kind} requires to."))
+                    .and_then(extract_pin_endpoint)
+                    .map_err(invalid_argument_result)?;
+                Ok(vec![serde_json::json!({
+                    "op": if kind == "connect" { "connectPins" } else { "disconnectPins" },
+                    "from": from,
+                    "to": to
+                })])
+            }
+            "breakPinLinks" => {
+                let target = command_obj
+                    .get("target")
+                    .ok_or_else(|| "breakPinLinks requires target.".to_owned())
+                    .and_then(extract_pin_endpoint)
+                    .map_err(invalid_argument_result)?;
+                let mut op = serde_json::Map::new();
+                op.insert("op".into(), serde_json::json!("breakPinLinks"));
+                op.insert("target".into(), target);
+                Ok(vec![serde_json::Value::Object(op)])
+            }
+            other => Err(format!(
+                "Unsupported material.graph.edit command kind: {other}"
+            )),
+        }
+        .map_err(invalid_argument_result)?;
+        ops.extend(compiled);
+    }
+    Ok(ops)
+}
+
+fn translate_material_graph_edit_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let graph_asset_path = extract_query_graph_asset_path(args, "material.graph.edit")?;
+    let direct_asset_path = args
+        .get("assetPath")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty());
+    let asset_path = graph_asset_path
+        .as_deref()
+        .or(direct_asset_path)
+        .ok_or_else(|| {
+            invalid_argument_result("material.graph.edit requires assetPath or graph.")
+        })?;
+    let mut translated = rmcp::model::JsonObject::new();
+    translated.insert("assetPath".into(), serde_json::json!(asset_path));
+    for field in [
+        "expectedRevision",
+        "idempotencyKey",
+        "dryRun",
+        "continueOnError",
+    ] {
+        copy_if_present(args, &mut translated, field);
+    }
+    let commands = args
+        .get("commands")
+        .and_then(|value| value.as_array())
+        .ok_or_else(|| invalid_argument_result("material.graph.edit requires commands."))?;
+    translated.insert(
+        "ops".into(),
+        serde_json::Value::Array(compile_material_graph_commands(commands)?),
+    );
+    Ok(translated)
+}
+
+fn translate_material_node_edit_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let graph_asset_path = extract_query_graph_asset_path(args, "material.node.edit")?;
+    let direct_asset_path = args
+        .get("assetPath")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty());
+    let asset_path = graph_asset_path
+        .as_deref()
+        .or(direct_asset_path)
+        .ok_or_else(|| {
+            invalid_argument_result("material.node.edit requires assetPath or graph.")
+        })?;
+
+    let node = args
+        .get("node")
+        .ok_or_else(|| invalid_argument_result("material.node.edit requires node."))?;
+    let property = args
+        .get("property")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| invalid_argument_result("material.node.edit requires property."))?;
+    let value = args
+        .get("value")
+        .ok_or_else(|| invalid_argument_result("material.node.edit requires value."))?;
+
+    let mut op = match extract_node_token(node).map_err(invalid_argument_result)? {
+        serde_json::Value::Object(object) => object,
+        _ => serde_json::Map::new(),
+    };
+    op.insert("op".into(), serde_json::json!("setProperty"));
+    op.insert("property".into(), serde_json::json!(property));
+    op.insert("value".into(), value.clone());
+
+    let mut translated = rmcp::model::JsonObject::new();
+    translated.insert("assetPath".into(), serde_json::json!(asset_path));
+    translated.insert(
+        "ops".into(),
+        serde_json::json!([serde_json::Value::Object(op)]),
+    );
+    for field in ["expectedRevision", "idempotencyKey", "dryRun"] {
+        copy_if_present(args, &mut translated, field);
+    }
+    Ok(translated)
+}
+
+fn translate_selection_graph_layout_args(
+    args: &rmcp::model::JsonObject,
+    tool_name: &str,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let graph_asset_path = extract_query_graph_asset_path(args, tool_name)?;
+    let direct_asset_path = args
+        .get("assetPath")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty());
+    let asset_path = graph_asset_path
+        .as_deref()
+        .or(direct_asset_path)
+        .ok_or_else(|| {
+            invalid_argument_result(format!("{tool_name} requires assetPath or graph."))
+        })?;
+
+    let operation = args
+        .get("operation")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| invalid_argument_result(format!("{tool_name} requires operation.")))?;
+    if operation != "format" {
+        return Err(invalid_argument_result(format!(
+            "Unsupported {tool_name} operation: {operation}. Supported operations: format."
+        )));
+    }
+
+    let scope = args
+        .get("scope")
+        .and_then(|value| value.as_object())
+        .ok_or_else(|| invalid_argument_result(format!("{tool_name} requires scope.")))?;
+    let mode = scope
+        .get("mode")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| invalid_argument_result(format!("{tool_name} scope requires mode.")))?;
+    if mode != "selection" {
+        return Err(invalid_argument_result(format!(
+            "Unsupported {tool_name} scope.mode: {mode}. Supported modes: selection."
+        )));
+    }
+
+    let nodes = scope
+        .get("nodes")
+        .and_then(|value| value.as_array())
+        .ok_or_else(|| invalid_argument_result("scope.nodes is required for selection layout."))?;
+    if nodes.is_empty() {
+        return Err(invalid_argument_result(
+            "scope.nodes must contain at least one node.",
+        ));
+    }
+
+    let mut node_ids = Vec::new();
+    for (index, node) in nodes.iter().enumerate() {
+        node_ids.push(
+            parse_node_ref_id(node, &format!("scope.nodes[{index}]"))
+                .map_err(invalid_argument_result)?,
+        );
+    }
+
+    let mut translated = rmcp::model::JsonObject::new();
+    translated.insert("assetPath".into(), serde_json::json!(asset_path));
+    translated.insert(
+        "ops".into(),
+        serde_json::json!([{
+            "op": "layoutGraph",
+            "scope": "selection",
+            "nodeIds": node_ids
+        }]),
+    );
+    for field in ["expectedRevision", "dryRun"] {
+        copy_if_present(args, &mut translated, field);
+    }
+    Ok(translated)
+}
+
+fn translate_material_graph_layout_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    translate_selection_graph_layout_args(args, "material.graph.layout")
 }
 
 fn translate_pcg_query_args(
@@ -2199,6 +2617,12 @@ fn translate_pcg_graph_edit_args(
         serde_json::Value::Array(compile_pcg_graph_commands(commands)?),
     );
     Ok(translated)
+}
+
+fn translate_pcg_graph_layout_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    translate_selection_graph_layout_args(args, "pcg.graph.layout")
 }
 
 fn translate_blueprint_graph_list_args(
@@ -4298,16 +4722,20 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("blueprint.palette", "Search UE Blueprint Action Menu entries for graph creation.", Arc::new(blueprint_palette_schema())),
         Tool::new("blueprint.compile", "Compile a Blueprint asset.", Arc::new(blueprint_compile_schema())),
         Tool::new("material.list", "List material expressions in a material asset.", Arc::new(asset_path_only_schema("Material asset path."))),
-        Tool::new("material.query", "Read expression nodes and pin data from a material.", Arc::new(material_query_schema())),
-        Tool::new("material.mutate", "Apply a batch of write operations to a material asset.", Arc::new(material_mutate_schema())),
-        Tool::new("material.verify", "Compile a material and return diagnostics.", Arc::new(asset_path_only_schema("Material asset path."))),
-        Tool::new("material.describe", "Describe a material expression class or instance.", Arc::new(material_describe_schema())),
+        Tool::new("material.graph.inspect", "Read expression nodes and pin data from a Material graph.", Arc::new(material_graph_inspect_schema())),
+        Tool::new("material.graph.edit", "Apply explicit local edit commands to a Material graph. Use material.palette for node creation.", Arc::new(material_graph_edit_schema())),
+        Tool::new("material.graph.layout", "Format an explicit Material graph node selection without changing graph semantics.", Arc::new(material_graph_layout_schema())),
+        Tool::new("material.compile", "Compile a Material asset and return diagnostics.", Arc::new(asset_path_only_schema("Material asset path."))),
+        Tool::new("material.node.inspect", "Inspect one Material expression instance or expression class for pins and editable properties.", Arc::new(material_node_inspect_schema())),
+        Tool::new("material.node.edit", "Set one editable property on a Material expression node.", Arc::new(material_node_edit_schema())),
+        Tool::new("material.palette", "Search UE Material Editor palette actions for expression node creation.", Arc::new(material_palette_schema())),
         Tool::new("pcg.graph.inspect", "Read PCG graph nodes, pins, links, and defaults with task-oriented views.", Arc::new(pcg_graph_inspect_schema())),
         Tool::new("pcg.palette", "Search UE PCG graph palette actions for node creation.", Arc::new(pcg_palette_schema())),
         Tool::new("pcg.node.inspect", "Inspect one PCG node instance or settings class for editable pins and properties.", Arc::new(pcg_node_inspect_schema())),
         Tool::new("pcg.parameter.inspect", "Inspect PCG graph user parameters exposed by the graph's Parameters panel.", Arc::new(pcg_parameter_inspect_schema())),
         Tool::new("pcg.parameter.edit", "Edit PCG graph user parameters. Use schema.inspect for operation-specific args.", Arc::new(pcg_parameter_edit_schema())),
         Tool::new("pcg.graph.edit", "Apply explicit local edit commands to a PCG graph. Use pcg.palette for node creation.", Arc::new(pcg_graph_edit_schema())),
+        Tool::new("pcg.graph.layout", "Format an explicit PCG graph node selection without changing graph semantics.", Arc::new(pcg_graph_layout_schema())),
         Tool::new("pcg.compile", "Validate and compile-confirm a PCG graph after edits.", Arc::new(pcg_compile_schema())),
         Tool::new("diagnostic.tail", "Read persisted structured diagnostics incrementally by sequence cursor.", Arc::new(diagnostic_tail_schema())),
         Tool::new("log.tail", "Read persisted Unreal output log events incrementally by sequence cursor.", Arc::new(log_tail_schema())),
@@ -4950,113 +5378,6 @@ fn asset_path_only_schema(description: &str) -> rmcp::model::JsonObject {
     }))
 }
 
-fn graph_mutate_schema(op_names: &[&str], include_graph_name: bool) -> rmcp::model::JsonObject {
-    let mut properties = serde_json::Map::new();
-    properties.insert(
-        "assetPath".into(),
-        serde_json::json!({"type":"string","minLength":1}),
-    );
-    if include_graph_name {
-        properties.insert(
-            "graphName".into(),
-            serde_json::json!({"type":"string","minLength":1,"default":"EventGraph"}),
-        );
-    }
-    properties.insert(
-        "expectedRevision".into(),
-        serde_json::json!({"type":"string"}),
-    );
-    properties.insert(
-        "idempotencyKey".into(),
-        serde_json::json!({"type":"string"}),
-    );
-    properties.insert(
-        "dryRun".into(),
-        serde_json::json!({"type":"boolean","default":false}),
-    );
-    properties.insert(
-        "continueOnError".into(),
-        serde_json::json!({"type":"boolean","default":false}),
-    );
-    properties.insert(
-        "ops".into(),
-        serde_json::json!({
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 200,
-            "items": {
-                "type": "object",
-                "properties": {
-                    "op": { "type": "string", "enum": op_names },
-                    "clientRef": { "type": "string" },
-                    "graphName": { "type": "string" },
-                    "newName": { "type": "string" },
-                    "nodeId": { "type": "string" },
-                    "nodeRef": { "type": "string" },
-                    "nodePath": { "type": "string" },
-                    "nodeName": { "type": "string" },
-                    "name": { "type": "string" },
-                    "nodeClass": { "type": "string" },
-                    "functionClass": { "type": "string" },
-                    "functionName": { "type": "string" },
-                    "eventName": { "type": "string" },
-                    "eventClass": { "type": "string" },
-                    "variableName": { "type": "string" },
-                    "variableClass": { "type": "string" },
-                    "mode": { "type": "string", "enum": ["get","set","exec","eval","sync","job"] },
-                    "macroLibrary": { "type": "string" },
-                    "macroName": { "type": "string" },
-                    "targetClass": { "type": "string" },
-                    "text": { "type": "string" },
-                    "comment": { "type": "string" },
-                    "enabled": { "type": "boolean" },
-                    "width": { "type": "integer" },
-                    "height": { "type": "integer" },
-                    "x": { "type": "integer" },
-                    "y": { "type": "integer" },
-                    "dx": { "type": "integer" },
-                    "dy": { "type": "integer" },
-                    "pinName": { "type": "string" },
-                    "fromPin": { "type": "string" },
-                    "toPin": { "type": "string" },
-                    "fromNodeId": { "type": "string" },
-                    "fromNodeRef": { "type": "string" },
-                    "toNodeId": { "type": "string" },
-                    "toNodeRef": { "type": "string" },
-                    "value": { "type": "string" },
-                    "property": { "type": "string" },
-                    "algorithm": { "type": "string" },
-                    "scope": { "type": "string", "enum": ["touched","all"] },
-                    "nodeIds": { "type": "array", "items": { "type": "string" } },
-                    "nodes": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "nodeId": { "type": "string" },
-                                "dx": { "type": "integer" },
-                                "dy": { "type": "integer" }
-                            },
-                            "additionalProperties": false
-                        }
-                    },
-                    "from": { "type": "object", "additionalProperties": true },
-                    "to": { "type": "object", "additionalProperties": true },
-                    "target": { "type": "object", "additionalProperties": true }
-                },
-                "required": ["op"],
-                "additionalProperties": false
-            }
-        }),
-    );
-    schema_from_value(serde_json::Value::Object(serde_json::Map::from_iter([
-        ("type".into(), serde_json::json!("object")),
-        ("properties".into(), serde_json::Value::Object(properties)),
-        ("required".into(), serde_json::json!(["assetPath", "ops"])),
-        ("additionalProperties".into(), serde_json::json!(false)),
-    ])))
-}
-
 fn context_schema() -> rmcp::model::JsonObject {
     schema_from_value(serde_json::json!({
         "type":"object",
@@ -5604,6 +5925,105 @@ fn pcg_graph_edit_schema() -> rmcp::model::JsonObject {
     }))
 }
 
+fn pcg_graph_layout_schema() -> rmcp::model::JsonObject {
+    selection_graph_layout_schema(pcg_graph_ref_schema())
+}
+
+fn material_graph_ref_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type":"object",
+        "description":"Optional Material graph reference. For Material this resolves to graph.assetPath.",
+        "properties":{
+            "kind":{"type":"string","enum":["asset"]},
+            "assetPath":{"type":"string","minLength":1}
+        },
+        "required":["assetPath"],
+        "additionalProperties": true
+    })
+}
+
+fn material_graph_edit_schema() -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert("graph".into(), material_graph_ref_schema());
+    properties.insert(
+        "commands".into(),
+        serde_json::json!({
+            "type":"array",
+            "description":"Ordered Material graph edit commands. Each command requires kind. Use schema.inspect with domain='material' and tool='material.graph.edit' to list supported command kinds. For a command-specific schema, call schema.inspect with operation=<kind>. Use material.palette first and pass the selected entry to addFromPalette instead of guessing expression classes.",
+            "items":{
+                "type":"object",
+                "description":"Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema.inspect.",
+                "properties":{
+                    "kind":{"type":"string","minLength":1},
+                    "alias":{"type":"string","minLength":1}
+                },
+                "required":["kind"],
+                "additionalProperties": true
+            },
+            "minItems":1
+        }),
+    );
+    mutation_control_fields(&mut properties);
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":["assetPath","commands"],
+        "additionalProperties": false
+    }))
+}
+
+fn selection_graph_layout_schema(graph_ref: serde_json::Value) -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert("graph".into(), graph_ref);
+    properties.insert(
+        "operation".into(),
+        serde_json::json!({"type":"string","enum":["format"]}),
+    );
+    properties.insert(
+        "scope".into(),
+        serde_json::json!({
+            "type":"object",
+            "description":"Only explicit selection layout is supported.",
+            "properties":{
+                "mode":{"type":"string","enum":["selection"]},
+                "nodes":{
+                    "type":"array",
+                    "minItems":1,
+                    "items":{
+                        "type":"object",
+                        "properties":{
+                            "id":{"type":"string","minLength":1}
+                        },
+                        "required":["id"],
+                        "additionalProperties":false
+                    }
+                }
+            },
+            "required":["mode","nodes"],
+            "additionalProperties":false
+        }),
+    );
+    mutation_control_fields(&mut properties);
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":["assetPath","operation","scope"],
+        "additionalProperties": false
+    }))
+}
+
+fn material_graph_layout_schema() -> rmcp::model::JsonObject {
+    selection_graph_layout_schema(material_graph_ref_schema())
+}
+
 fn blueprint_graph_layout_schema() -> rmcp::model::JsonObject {
     let mut properties = serde_json::Map::new();
     properties.insert(
@@ -5894,7 +6314,7 @@ fn blueprint_palette_schema() -> rmcp::model::JsonObject {
     }))
 }
 
-fn material_query_schema() -> rmcp::model::JsonObject {
+fn material_graph_inspect_schema() -> rmcp::model::JsonObject {
     schema_from_value(serde_json::json!({
         "type": "object",
         "properties": {
@@ -5922,31 +6342,93 @@ fn material_query_schema() -> rmcp::model::JsonObject {
     }))
 }
 
-fn material_mutate_schema() -> rmcp::model::JsonObject {
-    graph_mutate_schema(
-        &[
-            "addNode.byClass",
-            "removeNode",
-            "moveNode",
-            "moveNodeBy",
-            "moveNodes",
-            "connectPins",
-            "disconnectPins",
-            "setProperty",
-            "layoutGraph",
-            "compile",
-        ],
-        false,
-    )
-}
-
-fn material_describe_schema() -> rmcp::model::JsonObject {
+fn material_node_inspect_schema() -> rmcp::model::JsonObject {
     schema_from_value(serde_json::json!({
         "type":"object",
         "properties":{
             "assetPath":{"type":"string","minLength":1},
             "nodeId":{"type":"string","minLength":1},
             "nodeClass":{"type":"string","minLength":1}
+        },
+        "additionalProperties": false
+    }))
+}
+
+fn material_node_edit_schema() -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert("graph".into(), material_graph_ref_schema());
+    properties.insert(
+        "node".into(),
+        serde_json::json!({
+            "type":"object",
+            "description":"Material expression node reference. Use id from material.graph.inspect/material.graph.edit results, or alias from an earlier edit command in the same request.",
+            "properties":{
+                "id":{"type":"string","minLength":1},
+                "alias":{"type":"string","minLength":1}
+            },
+            "additionalProperties": false
+        }),
+    );
+    properties.insert(
+        "property".into(),
+        serde_json::json!({
+            "type":"string",
+            "minLength":1,
+            "description":"Editable property name from material.node.inspect properties[].name."
+        }),
+    );
+    properties.insert(
+        "value".into(),
+        serde_json::json!({
+            "description":"New property value. Use JSON string/number/boolean/null for scalar properties, or {\"importText\":\"...\"} for UE import text values."
+        }),
+    );
+    mutation_control_fields(&mut properties);
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":["assetPath","node","property","value"],
+        "additionalProperties": false
+    }))
+}
+
+fn material_palette_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "assetPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Material or MaterialFunction asset path."
+            },
+            "graph": {
+                "type": "object",
+                "description": "Optional Material graph reference. For Material this currently resolves to graph.assetPath.",
+                "properties": {
+                    "kind": { "type": "string", "enum": ["asset"] },
+                    "assetPath": { "type": "string", "minLength": 1 }
+                },
+                "required": ["assetPath"],
+                "additionalProperties": true
+            },
+            "query": {
+                "type": "string",
+                "description": "Case-insensitive fuzzy search over UE Material palette label, category, tooltip, keywords, and action payload."
+            },
+            "elementTypes": {
+                "type": "array",
+                "description": "UE Material palette element families to include. Defaults to all.",
+                "items": {
+                    "type": "string",
+                    "enum": ["expression"]
+                }
+            },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 500, "default": 50 },
+            "offset": { "type": "integer", "minimum": 0, "default": 0 }
         },
         "additionalProperties": false
     }))
@@ -7894,19 +8376,24 @@ mod tests {
         acquire_file_lock, all_declared_tools, blueprint_graph_inspect_schema,
         build_blueprint_graph_layout_plan, build_installer_args, call_schema_inspect,
         compare_semver, compile_blueprint_refactor_request, current_platform_client_binary_name,
-        infer_attached_project_root, material_query_schema, parse_blueprint_graph_layout_request,
-        pcg_compile_schema, pcg_graph_inspect_schema, pcg_node_inspect_schema, pcg_palette_schema,
+        infer_attached_project_root, material_graph_edit_schema, material_graph_inspect_schema,
+        material_graph_layout_schema, material_node_edit_schema, material_palette_schema,
+        parse_blueprint_graph_layout_request, pcg_compile_schema, pcg_graph_inspect_schema,
+        pcg_graph_layout_schema, pcg_node_inspect_schema, pcg_palette_schema,
         pcg_parameter_edit_schema, pcg_query_schema, play_participant_wait_conditions_met,
         play_schema, play_wait_participant_conditions_from_args, read_file_lock_metadata,
         read_plugin_version, runtime_declared_tools, shape_blueprint_graph_inspect_result,
         shape_pcg_compile_result, shape_pcg_graph_inspect_result, shape_pcg_node_inspect_result,
         switch_to_installed_version, sync_project_support_to_version,
         sync_registered_project_support, translate_blueprint_graph_edit_args,
-        translate_blueprint_graph_inspect_args, translate_material_query_args,
+        translate_blueprint_graph_inspect_args, translate_material_graph_edit_args,
+        translate_material_graph_inspect_args, translate_material_graph_layout_args,
+        translate_material_node_edit_args, translate_material_palette_args,
         translate_pcg_compile_args, translate_pcg_graph_inspect_args,
-        translate_pcg_node_inspect_args, translate_pcg_parameter_edit_args,
-        translate_pcg_query_args, validate_blueprint_graph_inspect_args,
-        validate_pcg_graph_inspect_args, Cli, FileLockMetadata, RuntimeProject, UpdateOptions,
+        translate_pcg_graph_layout_args, translate_pcg_node_inspect_args,
+        translate_pcg_parameter_edit_args, translate_pcg_query_args,
+        validate_blueprint_graph_inspect_args, validate_pcg_graph_inspect_args, Cli,
+        FileLockMetadata, RuntimeProject, UpdateOptions,
     };
     use rmcp::model::JsonObject;
     use std::ffi::OsString;
@@ -9097,7 +9584,7 @@ mod tests {
     }
 
     #[test]
-    fn material_query_accepts_child_graph_ref_as_graph() {
+    fn material_graph_inspect_accepts_child_graph_ref_as_graph() {
         let mut args = JsonObject::new();
         args.insert(
             "graph".into(),
@@ -9108,7 +9595,7 @@ mod tests {
         );
         args.insert("includeConnections".into(), serde_json::json!(true));
 
-        let translated = translate_material_query_args(&args).expect("translated args");
+        let translated = translate_material_graph_inspect_args(&args).expect("translated args");
         assert_eq!(
             translated.get("assetPath").and_then(|value| value.as_str()),
             Some("/Game/MF_Test")
@@ -9122,7 +9609,7 @@ mod tests {
     }
 
     #[test]
-    fn material_query_rejects_inline_graph_ref() {
+    fn material_graph_inspect_rejects_inline_graph_ref() {
         let mut args = JsonObject::new();
         args.insert(
             "graph".into(),
@@ -9133,12 +9620,12 @@ mod tests {
             }),
         );
 
-        assert!(translate_material_query_args(&args).is_err());
+        assert!(translate_material_graph_inspect_args(&args).is_err());
     }
 
     #[test]
-    fn material_query_schema_has_openai_compatible_top_level() {
-        let schema = material_query_schema();
+    fn material_graph_inspect_schema_has_openai_compatible_top_level() {
+        let schema = material_graph_inspect_schema();
         assert_eq!(
             schema.get("type").and_then(|value| value.as_str()),
             Some("object")
@@ -9146,7 +9633,7 @@ mod tests {
         for keyword in ["oneOf", "anyOf", "allOf", "enum", "not"] {
             assert!(
                 !schema.contains_key(keyword),
-                "material.query schema should not expose top-level {keyword}"
+                "material.graph.inspect schema should not expose top-level {keyword}"
             );
         }
     }
@@ -9514,6 +10001,35 @@ mod tests {
     }
 
     #[test]
+    fn material_palette_tool_is_declared() {
+        let tool_names = runtime_declared_tools()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        assert!(tool_names.contains("material.palette"));
+    }
+
+    #[test]
+    fn material_graph_edit_tool_replaces_public_mutate_tool() {
+        let tool_names = runtime_declared_tools()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        assert!(tool_names.contains("material.graph.edit"));
+        assert!(tool_names.contains("material.graph.layout"));
+        assert!(tool_names.contains("material.graph.inspect"));
+        assert!(tool_names.contains("material.compile"));
+        assert!(tool_names.contains("material.node.inspect"));
+        assert!(tool_names.contains("material.node.edit"));
+        assert!(!tool_names.contains("material.query"));
+        assert!(!tool_names.contains("material.mutate"));
+        assert!(!tool_names.contains("material.verify"));
+        assert!(!tool_names.contains("material.describe"));
+    }
+
+    #[test]
     fn pcg_graph_inspect_tool_is_declared() {
         let tool_names = runtime_declared_tools()
             .into_iter()
@@ -9551,6 +10067,7 @@ mod tests {
             .collect::<std::collections::HashSet<_>>();
 
         assert!(tool_names.contains("pcg.graph.edit"));
+        assert!(tool_names.contains("pcg.graph.layout"));
     }
 
     #[test]
@@ -9664,6 +10181,211 @@ mod tests {
             .expect("properties");
         assert!(properties.contains_key("query"));
         assert!(properties.contains_key("elementTypes"));
+    }
+
+    #[test]
+    fn material_palette_schema_is_top_level_simple() {
+        let schema = material_palette_schema();
+        assert_eq!(
+            schema.get("type").and_then(|value| value.as_str()),
+            Some("object")
+        );
+        for keyword in ["oneOf", "anyOf", "allOf", "not"] {
+            assert!(
+                !schema.contains_key(keyword),
+                "material.palette schema should not expose top-level {keyword}"
+            );
+        }
+        let properties = schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("properties");
+        assert!(properties.contains_key("query"));
+        assert!(properties.contains_key("elementTypes"));
+    }
+
+    #[test]
+    fn material_palette_accepts_asset_graph_ref() {
+        let mut args = JsonObject::new();
+        args.insert(
+            "graph".into(),
+            serde_json::json!({"kind": "asset", "assetPath": "/Game/M_Test"}),
+        );
+        args.insert("query".into(), serde_json::json!("Multiply"));
+
+        let translated = translate_material_palette_args(&args).expect("translated args");
+        assert_eq!(
+            translated.get("assetPath").and_then(|value| value.as_str()),
+            Some("/Game/M_Test")
+        );
+        assert_eq!(
+            translated.get("query").and_then(|value| value.as_str()),
+            Some("Multiply")
+        );
+    }
+
+    #[test]
+    fn material_graph_edit_translates_add_from_palette_and_connect() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/M_Test"));
+        args.insert(
+            "commands".into(),
+            serde_json::json!([
+                {
+                    "kind": "addFromPalette",
+                    "entry": {
+                        "id": "material.palette:multiply",
+                        "kind": "expression",
+                        "payload": {"nodeClassPath": "/Script/Engine.MaterialExpressionMultiply"}
+                    },
+                    "alias": "multiply",
+                    "position": {"x": 240, "y": 120}
+                },
+                {
+                    "kind": "connect",
+                    "from": {"node": {"alias": "multiply"}, "pin": "Result"},
+                    "to": {"node": {"id": "__material_root__"}, "pin": "Base Color"}
+                }
+            ]),
+        );
+
+        let translated = translate_material_graph_edit_args(&args).expect("translated args");
+        let ops = translated
+            .get("ops")
+            .and_then(|value| value.as_array())
+            .expect("ops");
+        assert_eq!(
+            ops[0].get("op").and_then(|value| value.as_str()),
+            Some("addNode.byClass")
+        );
+        assert_eq!(
+            ops[0].get("nodeClassPath").and_then(|value| value.as_str()),
+            Some("/Script/Engine.MaterialExpressionMultiply")
+        );
+        assert_eq!(
+            ops[1].get("op").and_then(|value| value.as_str()),
+            Some("connectPins")
+        );
+    }
+
+    #[test]
+    fn material_graph_edit_schema_points_to_schema_inspect() {
+        let schema = material_graph_edit_schema();
+        let commands_description = schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .and_then(|properties| properties.get("commands"))
+            .and_then(|commands| commands.get("description"))
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        assert!(commands_description.contains("schema.inspect"));
+        assert!(commands_description.contains("material.palette"));
+    }
+
+    #[test]
+    fn material_node_edit_translates_to_set_property_op() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/M_Test"));
+        args.insert("node".into(), serde_json::json!({"id": "node-1"}));
+        args.insert("property".into(), serde_json::json!("ParameterName"));
+        args.insert("value".into(), serde_json::json!("DensityScale"));
+
+        let translated = translate_material_node_edit_args(&args).expect("translated args");
+        let ops = translated
+            .get("ops")
+            .and_then(|value| value.as_array())
+            .expect("ops");
+        assert_eq!(
+            ops[0].get("op").and_then(|value| value.as_str()),
+            Some("setProperty")
+        );
+        assert_eq!(
+            ops[0].get("nodeId").and_then(|value| value.as_str()),
+            Some("node-1")
+        );
+        assert_eq!(
+            ops[0].get("property").and_then(|value| value.as_str()),
+            Some("ParameterName")
+        );
+        assert_eq!(
+            ops[0].get("value").and_then(|value| value.as_str()),
+            Some("DensityScale")
+        );
+    }
+
+    #[test]
+    fn material_node_edit_schema_is_single_layer() {
+        let schema = material_node_edit_schema();
+        for keyword in ["oneOf", "anyOf", "allOf", "not"] {
+            assert!(
+                !schema.contains_key(keyword),
+                "material.node.edit schema should not expose top-level {keyword}"
+            );
+        }
+        let properties = schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("properties");
+        assert!(properties.contains_key("node"));
+        assert!(properties.contains_key("property"));
+        assert!(properties.contains_key("value"));
+        let schema_text = serde_json::to_string(&schema).expect("schema json");
+        assert!(!schema_text.contains("schema.inspect"));
+    }
+
+    #[test]
+    fn material_graph_layout_translates_selection_only() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/M_Test"));
+        args.insert("operation".into(), serde_json::json!("format"));
+        args.insert(
+            "scope".into(),
+            serde_json::json!({"mode": "selection", "nodes": [{"id": "node-1"}, {"id": "node-2"}]}),
+        );
+
+        let translated = translate_material_graph_layout_args(&args).expect("translated args");
+        let ops = translated
+            .get("ops")
+            .and_then(|value| value.as_array())
+            .expect("ops");
+        assert_eq!(
+            ops[0].get("op").and_then(|value| value.as_str()),
+            Some("layoutGraph")
+        );
+        assert_eq!(
+            ops[0].get("scope").and_then(|value| value.as_str()),
+            Some("selection")
+        );
+        assert_eq!(
+            ops[0]
+                .get("nodeIds")
+                .and_then(|value| value.as_array())
+                .map(Vec::len),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn graph_layout_schemas_do_not_expose_implicit_scopes() {
+        for schema in [material_graph_layout_schema(), pcg_graph_layout_schema()] {
+            let schema_text = serde_json::to_string(&schema).expect("schema json");
+            assert!(schema_text.contains("selection"));
+            assert!(!schema_text.contains("touched"));
+            assert!(!schema_text.contains("\"all\""));
+            assert!(!schema_text.contains("\"tree\""));
+        }
+    }
+
+    #[test]
+    fn pcg_graph_layout_rejects_non_selection_scope() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/PCG_Test"));
+        args.insert("operation".into(), serde_json::json!("format"));
+        args.insert("scope".into(), serde_json::json!({"mode": "all"}));
+
+        let error = translate_pcg_graph_layout_args(&args).expect_err("expected error");
+        let text = serde_json::to_string(&error).expect("error json");
+        assert!(text.contains("Supported modes: selection"));
     }
 
     #[test]
@@ -9856,6 +10578,60 @@ mod tests {
         ] {
             assert!(names.contains(expected), "missing operation {expected}");
         }
+    }
+
+    #[test]
+    fn schema_inspect_lists_material_graph_edit_operations() {
+        let mut args = JsonObject::new();
+        args.insert("domain".into(), serde_json::json!("material"));
+        args.insert("tool".into(), serde_json::json!("material.graph.edit"));
+
+        let result = call_schema_inspect(&args);
+        assert_eq!(result.is_error, Some(false));
+        let payload = result.structured_content.expect("structured content");
+        let operations = payload
+            .get("operations")
+            .and_then(|value| value.as_array())
+            .expect("operations");
+        let names = operations
+            .iter()
+            .filter_map(|entry| entry.get("name").and_then(|value| value.as_str()))
+            .collect::<std::collections::HashSet<_>>();
+
+        for expected in [
+            "addFromPalette",
+            "removeNode",
+            "moveNode",
+            "connect",
+            "disconnect",
+            "breakPinLinks",
+        ] {
+            assert!(names.contains(expected), "missing operation {expected}");
+        }
+        assert!(!names.contains("layoutGraph"));
+        assert!(!names.contains("compile"));
+    }
+
+    #[test]
+    fn schema_inspect_returns_material_add_from_palette_schema() {
+        let mut args = JsonObject::new();
+        args.insert("domain".into(), serde_json::json!("material"));
+        args.insert("tool".into(), serde_json::json!("material.graph.edit"));
+        args.insert("operation".into(), serde_json::json!("addFromPalette"));
+        args.insert("include".into(), serde_json::json!(["summary", "schema"]));
+
+        let result = call_schema_inspect(&args);
+        assert_eq!(result.is_error, Some(false));
+        let payload = result.structured_content.expect("structured content");
+        assert_eq!(
+            payload.get("operation").and_then(|value| value.as_str()),
+            Some("addFromPalette")
+        );
+        assert!(payload
+            .get("schema")
+            .and_then(|schema| schema.get("properties"))
+            .and_then(|properties| properties.get("entry"))
+            .is_some());
     }
 
     #[test]

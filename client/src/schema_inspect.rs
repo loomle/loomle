@@ -4,7 +4,7 @@ pub fn schema_inspect_schema() -> JsonObject {
     serde_json::from_value(serde_json::json!({
         "type": "object",
         "properties": {
-            "domain": { "type": "string", "enum": ["blueprint", "pcg"] },
+            "domain": { "type": "string", "enum": ["blueprint", "material", "pcg"] },
             "tool": { "type": "string", "minLength": 1 },
             "operation": {
                 "type": "string",
@@ -29,12 +29,12 @@ pub fn call_schema_inspect(args: &JsonObject) -> CallToolResult {
     let Some(domain) = args.get("domain").and_then(|value| value.as_str()) else {
         return invalid_argument_result("schema.inspect requires domain.");
     };
-    if domain != "blueprint" && domain != "pcg" {
+    if domain != "blueprint" && domain != "material" && domain != "pcg" {
         return CallToolResult::structured_error(serde_json::json!({
             "isError": true,
             "code": "UNKNOWN_DOMAIN",
             "message": format!("Unknown schema domain: {domain}"),
-            "availableDomains": ["blueprint", "pcg"],
+            "availableDomains": ["blueprint", "material", "pcg"],
             "retryable": false
         }));
     }
@@ -61,6 +61,22 @@ pub fn call_schema_inspect(args: &JsonObject) -> CallToolResult {
             "pcg.parameter.edit" => call_pcg_parameter_edit_schema_inspect(args, &includes),
             _ => unreachable!("validated pcg schema.inspect tool"),
         };
+    }
+    if domain == "material" {
+        if tool != "material.graph.edit" {
+            return CallToolResult::structured_error(serde_json::json!({
+                "isError": true,
+                "code": "UNKNOWN_TOOL",
+                "message": format!("Unknown schema tool for domain material: {tool}"),
+                "availableTools": ["material.graph.edit"],
+                "retryable": false
+            }));
+        }
+        let includes = match parse_schema_inspect_includes(args) {
+            Ok(value) => value,
+            Err(error) => return error,
+        };
+        return call_material_graph_edit_schema_inspect(args, &includes);
     }
 
     if !matches!(tool, "blueprint.graph.edit" | "blueprint.member.edit") {
@@ -106,6 +122,34 @@ fn call_graph_edit_schema_inspect(args: &JsonObject, includes: &[String]) -> Cal
         "source": {
             "document": "docs/blueprint/graph-edit.md",
             "section": "Command Classification"
+        }
+    }))
+}
+
+fn call_material_graph_edit_schema_inspect(
+    args: &JsonObject,
+    includes: &[String],
+) -> CallToolResult {
+    if let Some(operation) = args.get("operation").and_then(|value| value.as_str()) {
+        let Some(payload) = material_graph_edit_operation_schema(operation, includes) else {
+            return CallToolResult::structured_error(serde_json::json!({
+                "isError": true,
+                "code": "UNKNOWN_OPERATION",
+                "message": format!("Unknown operation for material.graph.edit: {operation}"),
+                "availableOperations": material_graph_edit_operation_names(),
+                "retryable": false
+            }));
+        };
+        return CallToolResult::structured(payload);
+    }
+
+    CallToolResult::structured(serde_json::json!({
+        "domain": "material",
+        "tool": "material.graph.edit",
+        "operations": material_graph_edit_operation_index(),
+        "source": {
+            "document": "UE Material Editor palette and expression graph actions",
+            "section": "Material graph edit command set"
         }
     }))
 }
@@ -822,6 +866,28 @@ fn pcg_graph_edit_operation_index() -> Vec<serde_json::Value> {
     ]
 }
 
+fn material_graph_edit_operation_names() -> Vec<&'static str> {
+    vec![
+        "addFromPalette",
+        "removeNode",
+        "moveNode",
+        "connect",
+        "disconnect",
+        "breakPinLinks",
+    ]
+}
+
+fn material_graph_edit_operation_index() -> Vec<serde_json::Value> {
+    vec![
+        serde_json::json!({"name":"addFromPalette","category":"core","summary":"Create one Material expression node from a selected material.palette entry."}),
+        serde_json::json!({"name":"removeNode","category":"core","summary":"Remove one Material expression node."}),
+        serde_json::json!({"name":"moveNode","category":"core","summary":"Move one Material expression node by absolute position or delta."}),
+        serde_json::json!({"name":"connect","category":"core","summary":"Create one explicit Material expression or root pin link."}),
+        serde_json::json!({"name":"disconnect","category":"core","summary":"Remove one explicit Material expression or root pin link."}),
+        serde_json::json!({"name":"breakPinLinks","category":"core","summary":"Remove all links from one Material expression or root pin."}),
+    ]
+}
+
 fn pcg_parameter_edit_operation_names() -> Vec<&'static str> {
     vec!["create", "update", "rename", "delete", "setDefault"]
 }
@@ -1000,6 +1066,104 @@ fn pcg_graph_edit_operation_schema(
         "category": category,
         "source": {
             "document": "UE PCG editor schema actions",
+            "section": operation
+        }
+    });
+    let payload_object = payload.as_object_mut()?;
+    if schema_include_requested(includes, "summary") {
+        payload_object.insert("summary".to_string(), serde_json::json!(summary));
+    }
+    if schema_include_requested(includes, "schema") {
+        payload_object.insert("schema".to_string(), add_graph_edit_schema_defs(schema));
+    }
+    if schema_include_requested(includes, "examples") {
+        payload_object.insert("examples".to_string(), serde_json::json!(examples));
+    }
+    if schema_include_requested(includes, "errors") {
+        payload_object.insert("errors".to_string(), serde_json::json!(errors));
+    }
+    if schema_include_requested(includes, "notes") {
+        payload_object.insert("notes".to_string(), serde_json::json!(notes));
+    }
+    Some(payload)
+}
+
+fn material_graph_edit_operation_schema(
+    operation: &str,
+    includes: &[String],
+) -> Option<serde_json::Value> {
+    let (category, summary, schema, examples, errors, notes) = match operation {
+        "addFromPalette" => (
+            "core",
+            "Create one Material expression node from a selected material.palette entry.",
+            serde_json::json!({
+                "type":"object",
+                "properties":{
+                    "kind":{"const":"addFromPalette"},
+                    "entry":{"type":"object","properties":{"id":{"type":"string","minLength":1},"kind":{"const":"expression"},"payload":{"type":"object","properties":{"nodeClassPath":{"type":"string","minLength":1}},"required":["nodeClassPath"],"additionalProperties":true},"executable":{"type":"boolean"}},"required":["id","payload"],"additionalProperties":true},
+                    "position":{"$ref":"#/$defs/position"},
+                    "anchor":{"$ref":"#/$defs/nodeRef"},
+                    "near":{"$ref":"#/$defs/nodeRef"},
+                    "parameterName":{"type":"string","minLength":1},
+                    "alias":{"type":"string","minLength":1}
+                },
+                "required":["kind","entry"],
+                "additionalProperties":false
+            }),
+            vec![serde_json::json!({"kind":"addFromPalette","entry":{"id":"material.palette:...","kind":"expression","payload":{"nodeClassPath":"/Script/Engine.MaterialExpressionMultiply"}},"position":{"x":240,"y":120},"alias":"multiply"})],
+            vec!["PALETTE_ENTRY_NOT_EXECUTABLE", "INVALID_PALETTE_ENTRY"],
+            vec!["Use material.palette first and pass the full selected entry. Do not guess expression classes in public calls."],
+        ),
+        "removeNode" => (
+            "core",
+            "Remove one Material expression node.",
+            serde_json::json!({"type":"object","properties":{"kind":{"const":"removeNode"},"node":{"$ref":"#/$defs/nodeRef"}},"required":["kind","node"],"additionalProperties":false}),
+            vec![serde_json::json!({"kind":"removeNode","node":{"id":"node-1"}})],
+            vec!["NODE_NOT_FOUND"],
+            vec!["removeNode does not auto-heal surrounding graph structure."],
+        ),
+        "moveNode" => (
+            "core",
+            "Move one Material expression node by absolute position or delta.",
+            serde_json::json!({"type":"object","properties":{"kind":{"const":"moveNode"},"node":{"$ref":"#/$defs/nodeRef"},"position":{"$ref":"#/$defs/position"},"delta":{"$ref":"#/$defs/position"}},"required":["kind","node"],"additionalProperties":false}),
+            vec![serde_json::json!({"kind":"moveNode","node":{"alias":"multiply"},"delta":{"x":180,"y":0}})],
+            vec!["NODE_NOT_FOUND"],
+            vec!["Use exactly one of position or delta."],
+        ),
+        "connect" => (
+            "core",
+            "Create one explicit Material expression or root pin link.",
+            serde_json::json!({"type":"object","properties":{"kind":{"const":"connect"},"from":{"$ref":"#/$defs/pinRef"},"to":{"$ref":"#/$defs/pinRef"}},"required":["kind","from","to"],"additionalProperties":false}),
+            vec![serde_json::json!({"kind":"connect","from":{"node":{"alias":"multiply"},"pin":"Result"},"to":{"node":{"id":"__material_root__"},"pin":"Base Color"}})],
+            vec!["PIN_NOT_FOUND", "CONNECT_PIN_TYPE_MISMATCH"],
+            vec!["Material root inputs are addressed as node id __material_root__ with the root pin name returned by material.query."],
+        ),
+        "disconnect" => (
+            "core",
+            "Remove one explicit Material expression or root pin link.",
+            serde_json::json!({"type":"object","properties":{"kind":{"const":"disconnect"},"from":{"$ref":"#/$defs/pinRef"},"to":{"$ref":"#/$defs/pinRef"}},"required":["kind","from","to"],"additionalProperties":false}),
+            vec![serde_json::json!({"kind":"disconnect","from":{"node":{"id":"node-1"},"pin":"Result"},"to":{"node":{"id":"__material_root__"},"pin":"Base Color"}})],
+            vec!["PIN_NOT_FOUND"],
+            vec![],
+        ),
+        "breakPinLinks" => (
+            "core",
+            "Remove all links from one Material expression or root pin.",
+            serde_json::json!({"type":"object","properties":{"kind":{"const":"breakPinLinks"},"target":{"$ref":"#/$defs/pinRef"}},"required":["kind","target"],"additionalProperties":false}),
+            vec![serde_json::json!({"kind":"breakPinLinks","target":{"node":{"id":"__material_root__"},"pin":"Base Color"}})],
+            vec!["PIN_NOT_FOUND"],
+            vec!["breakPinLinks removes links only; it does not create replacement values."],
+        ),
+        _ => return None,
+    };
+
+    let mut payload = serde_json::json!({
+        "domain": "material",
+        "tool": "material.graph.edit",
+        "operation": operation,
+        "category": category,
+        "source": {
+            "document": "UE Material Editor palette and expression graph actions",
             "section": operation
         }
     });

@@ -49,8 +49,9 @@ private:
     TSharedPtr<FJsonObject> BuildMaterialListToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildMaterialQueryToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildMaterialMutateToolResult(const TSharedPtr<FJsonObject>& Arguments);
-    TSharedPtr<FJsonObject> BuildMaterialVerifyToolResult(const TSharedPtr<FJsonObject>& Arguments);
+    TSharedPtr<FJsonObject> BuildMaterialCompileToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildMaterialDescribeToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+    TSharedPtr<FJsonObject> BuildMaterialPaletteToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
 
     // PCG
     TSharedPtr<FJsonObject> BuildPcgListToolResult(const TSharedPtr<FJsonObject>& Arguments) const;

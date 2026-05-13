@@ -103,7 +103,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
         TEXT("context"), TEXT("jobs"), TEXT("profiling"), TEXT("play"), TEXT("editor.open"), TEXT("editor.focus"), TEXT("editor.screenshot"), TEXT("execute"),
         TEXT("blueprint.inspect"), TEXT("blueprint.edit"), TEXT("blueprint.enum.inspect"), TEXT("blueprint.enum.edit"), TEXT("blueprint.member.edit"),
         TEXT("blueprint.graph.list"), TEXT("blueprint.graph.inspect"), TEXT("blueprint.graph.edit"), TEXT("blueprint.verify"), TEXT("blueprint.palette"),
-        TEXT("material.list"), TEXT("material.query"), TEXT("material.mutate"), TEXT("material.verify"), TEXT("material.describe"),
+        TEXT("material.list"), TEXT("material.graph.inspect"), TEXT("material.graph.edit"), TEXT("material.compile"), TEXT("material.node.inspect"), TEXT("material.palette"),
         TEXT("pcg.list"), TEXT("pcg.query"), TEXT("pcg.mutate"), TEXT("pcg.verify"), TEXT("pcg.describe"), TEXT("pcg.palette"),
         TEXT("pcg.parameter.inspect"), TEXT("pcg.parameter.edit"),
         TEXT("diagnostic.tail"), TEXT("log.tail"),
@@ -311,7 +311,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     {
         Payload = BuildMaterialListToolResult(Arguments);
     }
-    else if (Name.Equals(TEXT("material.query")))
+    else if (Name.Equals(TEXT("material.graph.inspect")) || Name.Equals(TEXT("material.query")))
     {
         Payload = BuildMaterialQueryToolResult(Arguments);
     }
@@ -319,13 +319,21 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     {
         Payload = BuildMaterialMutateToolResult(Arguments);
     }
-    else if (Name.Equals(TEXT("material.verify")))
+    else if (Name.Equals(TEXT("material.graph.edit")))
     {
-        Payload = BuildMaterialVerifyToolResult(Arguments);
+        Payload = BuildMaterialMutateToolResult(Arguments);
     }
-    else if (Name.Equals(TEXT("material.describe")))
+    else if (Name.Equals(TEXT("material.compile")) || Name.Equals(TEXT("material.verify")))
+    {
+        Payload = BuildMaterialCompileToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("material.node.inspect")) || Name.Equals(TEXT("material.describe")))
     {
         Payload = BuildMaterialDescribeToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("material.palette")))
+    {
+        Payload = BuildMaterialPaletteToolResult(Arguments);
     }
     else if (Name.Equals(TEXT("pcg.list")))
     {

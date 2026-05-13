@@ -119,6 +119,7 @@
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "Misc/ScopeLock.h"
+#include "Misc/SecureHash.h"
 #include "Misc/OutputDevice.h"
 #include "Stats/StatsData.h"
 #include "Subsystems/AssetEditorSubsystem.h"

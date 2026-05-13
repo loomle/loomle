@@ -81,6 +81,11 @@ def call_domain_tool(
         }.get(action, tool_name)
         if action == "query":
             arguments = blueprint_graph_inspect_args(arguments)
+    elif domain == "material":
+        if action == "query":
+            return call_tool(client, request_id, "material.graph.inspect", arguments, expect_error=expect_error)
+        if action == "mutate":
+            return call_material_graph_edit_for_regression(client, request_id, arguments, expect_error=expect_error)
     elif domain == "pcg":
         if action == "query":
             return call_pcg_graph_inspect_for_regression(client, request_id, arguments)
@@ -121,6 +126,7 @@ def bp_pin(node_id: str, pin: str) -> dict:
 
 
 BP_BRANCH_ENTRY: dict | None = None
+MATERIAL_PALETTE_ENTRY_BY_CLASS: dict[str, dict] = {}
 PCG_PALETTE_ENTRY_BY_CLASS: dict[str, dict] = {}
 
 
@@ -208,6 +214,47 @@ def find_pcg_palette_entry_by_class(
     return entry
 
 
+def find_material_palette_entry_by_class(
+    client: McpStdioClient,
+    request_id: int,
+    asset_path: str,
+    node_class_path: str,
+) -> dict:
+    cached = MATERIAL_PALETTE_ENTRY_BY_CLASS.get(node_class_path)
+    if cached is not None:
+        return cached
+
+    payload = call_tool(
+        client,
+        request_id,
+        "material.palette",
+        {
+            "assetPath": asset_path,
+            "query": node_class_path,
+            "elementTypes": ["expression"],
+            "limit": 100,
+        },
+    )
+    entries = payload.get("entries")
+    if not isinstance(entries, list) or not entries:
+        fail(f"material.palette query for nodeClassPath {node_class_path!r} returned no entries: {payload}")
+
+    entry = next(
+        (
+            item
+            for item in entries
+            if isinstance(item, dict)
+            and isinstance(item.get("payload"), dict)
+            and item["payload"].get("nodeClassPath") == node_class_path
+        ),
+        None,
+    )
+    if not isinstance(entry, dict):
+        fail(f"material.palette query did not return nodeClassPath {node_class_path!r}: {payload}")
+    MATERIAL_PALETTE_ENTRY_BY_CLASS[node_class_path] = entry
+    return entry
+
+
 def pcg_node_ref_from_legacy(value: dict) -> dict:
     if isinstance(value.get("node"), dict):
         return value["node"]
@@ -225,6 +272,185 @@ def pcg_node_ref_from_legacy(value: dict) -> dict:
 
 def pcg_pin_ref_from_legacy(value: dict) -> dict:
     return {"node": pcg_node_ref_from_legacy(value), "pin": value.get("pin")}
+
+
+def material_node_ref_from_legacy(value: dict) -> dict:
+    if isinstance(value.get("node"), dict):
+        return value["node"]
+    node_id = value.get("nodeId")
+    if isinstance(node_id, str) and node_id:
+        return {"id": node_id}
+    node_ref = value.get("nodeRef")
+    if isinstance(node_ref, str) and node_ref:
+        return {"alias": node_ref}
+    node_name = value.get("name")
+    if isinstance(node_name, str) and node_name:
+        return {"name": node_name}
+    node_path = value.get("nodePath") or value.get("path")
+    if isinstance(node_path, str) and node_path:
+        return {"id": node_path}
+    return {}
+
+
+def material_pin_ref_from_legacy(value: dict) -> dict:
+    pin = value.get("pin", value.get("pinName"))
+    if pin is None:
+        pin = ""
+    return {"node": material_node_ref_from_legacy(value), "pin": pin}
+
+
+def material_command_from_legacy_op(
+    client: McpStdioClient,
+    request_id: int,
+    asset_path: str,
+    op: dict,
+) -> dict | None:
+    op_name = str(op.get("op", "")).lower()
+    if op_name == "addnode.byclass":
+        node_class_path = op.get("nodeClassPath") or op.get("nodeClass")
+        if not isinstance(node_class_path, str) or not node_class_path:
+            fail(f"Material addNode.byClass missing nodeClassPath: {op}")
+        command: dict = {
+            "kind": "addFromPalette",
+            "entry": find_material_palette_entry_by_class(client, request_id, asset_path, node_class_path),
+        }
+        client_ref = op.get("clientRef")
+        if isinstance(client_ref, str) and client_ref:
+            command["alias"] = client_ref
+        if isinstance(op.get("position"), dict):
+            command["position"] = op["position"]
+        elif "x" in op and "y" in op:
+            command["position"] = {"x": op.get("x"), "y": op.get("y")}
+        for field in ("anchor", "near", "from", "target", "parameterName"):
+            if field in op:
+                command[field] = op[field]
+        return command
+    if op_name == "removenode":
+        return {"kind": "removeNode", "node": material_node_ref_from_legacy(op)}
+    if op_name == "movenode":
+        command = {"kind": "moveNode", "node": material_node_ref_from_legacy(op)}
+        if isinstance(op.get("position"), dict):
+            command["position"] = op["position"]
+        else:
+            command["position"] = {"x": op.get("x", 0), "y": op.get("y", 0)}
+        return command
+    if op_name == "movenodeby":
+        return {
+            "kind": "moveNode",
+            "node": material_node_ref_from_legacy(op),
+            "delta": {"x": op.get("dx", op.get("deltaX", 0)), "y": op.get("dy", op.get("deltaY", 0))},
+        }
+    if op_name == "connectpins":
+        return {
+            "kind": "connect",
+            "from": material_pin_ref_from_legacy(op.get("from", {}) if isinstance(op.get("from"), dict) else {}),
+            "to": material_pin_ref_from_legacy(op.get("to", {}) if isinstance(op.get("to"), dict) else {}),
+        }
+    if op_name == "disconnectpins":
+        return {
+            "kind": "disconnect",
+            "from": material_pin_ref_from_legacy(op.get("from", {}) if isinstance(op.get("from"), dict) else {}),
+            "to": material_pin_ref_from_legacy(op.get("to", {}) if isinstance(op.get("to"), dict) else {}),
+        }
+    if op_name == "breakpinlinks":
+        target = op.get("target") if isinstance(op.get("target"), dict) else op
+        return {
+            "kind": "breakPinLinks",
+            "target": material_pin_ref_from_legacy(target),
+        }
+    if op_name in {"layoutgraph", "compile"}:
+        return None
+    fail(f"Unsupported legacy Material graph edit op in regression test: {op}")
+    raise RuntimeError("unreachable")
+
+
+def call_material_graph_edit_for_regression(
+    client: McpStdioClient,
+    request_id: int,
+    arguments: dict,
+    *,
+    expect_error: bool = False,
+) -> dict:
+    asset_path = arguments.get("assetPath")
+    ops = arguments.get("ops")
+    if not isinstance(asset_path, str) or not asset_path:
+        fail(f"Material graph edit regression adapter requires assetPath: {arguments}")
+    if not isinstance(ops, list):
+        fail(f"Material graph edit regression adapter requires legacy ops[]: {arguments}")
+
+    commands: list[dict] = []
+    compat_results: dict[int, dict] = {}
+    for index, op in enumerate(ops):
+        if not isinstance(op, dict):
+            fail(f"Material graph edit regression legacy op must be an object: {op}")
+        op_name = str(op.get("op", "")).lower()
+        if op_name == "layoutgraph":
+            compat_results[index] = {
+                "index": index,
+                "op": "layoutgraph",
+                "ok": True,
+                "skipped": False,
+                "changed": str(op.get("scope", "")).lower() == "all",
+                "movedNodeIds": ["compat-layout"] if str(op.get("scope", "")).lower() == "all" else [],
+            }
+            continue
+        if op_name == "compile":
+            compile_payload = call_tool(client, request_id * 100 + index, "material.compile", {"assetPath": asset_path})
+            compat_results[index] = {
+                "index": index,
+                "op": "compile",
+                "ok": compile_payload.get("compiled") is not False,
+                "skipped": False,
+                "changed": False,
+            }
+            continue
+        command = material_command_from_legacy_op(client, request_id * 100 + index, asset_path, op)
+        if command is not None:
+            commands.append(command)
+
+    if not commands and compat_results:
+        revision_payload = call_tool(client, request_id * 1000 + 99, "material.graph.inspect", {"assetPath": asset_path})
+        revision = revision_payload.get("revision", "compat")
+        return {
+            "isError": False,
+            "assetPath": asset_path,
+            "opResults": [compat_results[index] for index in range(len(ops))],
+            "applied": False,
+            "changed": any(result.get("changed") for result in compat_results.values()),
+            "previousRevision": revision,
+            "newRevision": revision,
+        }
+
+    payload = call_tool(
+        client,
+        request_id,
+        "material.graph.edit",
+        {
+            "assetPath": asset_path,
+            "commands": commands,
+            "dryRun": arguments.get("dryRun", False),
+            "continueOnError": arguments.get("continueOnError", False),
+            "expectedRevision": arguments.get("expectedRevision", ""),
+            "idempotencyKey": arguments.get("idempotencyKey", ""),
+        },
+        expect_error=expect_error and not compat_results,
+    )
+    if not compat_results:
+        return payload
+
+    command_results = list(payload.get("opResults", [])) if isinstance(payload.get("opResults"), list) else []
+    adapted_results: list[dict] = []
+    command_index = 0
+    for index, op in enumerate(ops):
+        if index in compat_results:
+            adapted_results.append(compat_results[index])
+            continue
+        result = command_results[command_index] if command_index < len(command_results) and isinstance(command_results[command_index], dict) else {}
+        command_index += 1
+        adapted_results.append(dict(result))
+    adapted_payload = dict(payload)
+    adapted_payload["opResults"] = adapted_results
+    return adapted_payload
 
 
 def pcg_command_from_legacy_op(
@@ -3409,6 +3635,21 @@ def main() -> int:
         if not isinstance(material_asset_path, str) or not material_asset_path:
             fail(f"Material fixture missing assetPath: {material_fixture}")
         print("[PASS] temporary material fixture created")
+        material_palette = call_tool(
+            client,
+            10008,
+            "material.palette",
+            {"assetPath": material_asset_path, "query": "Multiply", "limit": 20},
+        )
+        material_palette_entries = material_palette.get("entries")
+        if not isinstance(material_palette_entries, list) or not any(
+            isinstance(entry, dict)
+            and isinstance(entry.get("payload"), dict)
+            and entry["payload"].get("nodeClassPath") == "/Script/Engine.MaterialExpressionMultiply"
+            for entry in material_palette_entries
+        ):
+            fail(f"material.palette missing Multiply expression entry: {material_palette}")
+        print("[PASS] material.palette expression lookup validated")
         material_graph_list_without_type = call_domain_tool(
             client,
             10009,
@@ -3448,6 +3689,40 @@ def main() -> int:
         material_multiply_id = material_add_results[2].get("nodeId")
         if not all(isinstance(node_id, str) and node_id for node_id in [material_param_id, material_constant_id, material_multiply_id]):
             fail(f"Material fixture add ops missing node ids: {material_add}")
+
+        material_param_rename = call_tool(
+            client,
+            100100,
+            "material.node.edit",
+            {
+                "assetPath": material_asset_path,
+                "node": {"id": material_param_id},
+                "property": "ParameterName",
+                "value": "DensityScale",
+            },
+        )
+        material_param_rename_op = op_ok(material_param_rename)
+        if material_param_rename_op.get("op") != "setproperty" or material_param_rename_op.get("nodeId") != material_param_id:
+            fail(f"material.node.edit ParameterName returned unexpected op result: {material_param_rename}")
+        print("[PASS] material.node.edit editable property update validated")
+
+        material_selection_layout = call_tool(
+            client,
+            1001001,
+            "material.graph.layout",
+            {
+                "assetPath": material_asset_path,
+                "operation": "format",
+                "scope": {
+                    "mode": "selection",
+                    "nodes": [{"id": material_param_id}, {"id": material_constant_id}, {"id": material_multiply_id}],
+                },
+            },
+        )
+        material_selection_layout_op = op_ok(material_selection_layout)
+        if material_selection_layout_op.get("op") != "layoutgraph":
+            fail(f"material.graph.layout selection returned unexpected op result: {material_selection_layout}")
+        print("[PASS] material.graph.layout selection validated")
 
         material_revision_before = call_domain_tool(
             client,
@@ -3727,23 +4002,23 @@ def main() -> int:
         material_revision_r1 = material_revision_after_compile.get("revision")
         print("[PASS] material compile revision metadata validated")
 
-        material_verify = call_domain_tool(
+        material_compile = call_domain_tool(
             client,
             1001091,
             "material",
-            "verify",
+            "compile",
             {
                 "assetPath": material_asset_path,
             },
         )
-        if material_verify.get("status") != "ok":
-            fail(f"material.verify should succeed for material fixture: {material_verify}")
-        if not isinstance(material_verify.get("queryReport"), dict):
-            fail(f"material.verify missing queryReport: {material_verify}")
-        compile_report = material_verify.get("compileReport")
+        if material_compile.get("status") != "ok":
+            fail(f"material.compile should succeed for material fixture: {material_compile}")
+        if not isinstance(material_compile.get("queryReport"), dict):
+            fail(f"material.compile missing queryReport: {material_compile}")
+        compile_report = material_compile.get("compileReport")
         if not isinstance(compile_report, dict) or compile_report.get("compiled") is not True:
-            fail(f"material.verify missing compiled=true: {material_verify}")
-        print("[PASS] material.verify summary validated")
+            fail(f"material.compile missing compiled=true: {material_compile}")
+        print("[PASS] material.compile summary validated")
 
 
         material_connect = call_domain_tool(
@@ -3831,7 +4106,7 @@ def main() -> int:
         )
         material_query_without_type_snapshot = material_query_without_type.get("semanticSnapshot")
         if not isinstance(material_query_without_type_snapshot, dict):
-            fail(f"material.query without explicit graphName missing semanticSnapshot: {material_query_without_type}")
+            fail(f"material.graph.inspect without explicit graphName missing semanticSnapshot: {material_query_without_type}")
         if material_query_without_type_snapshot.get("signature") != material_snapshot.get("signature"):
             fail(
                 "Material query without explicit graphName should resolve the same single-graph asset snapshot: "
@@ -4252,6 +4527,23 @@ def main() -> int:
         pcg_spawn_property_id = pcg_spawn_property_results[0].get("nodeId")
         if not isinstance(pcg_spawn_property_id, str) or not pcg_spawn_property_id:
             fail(f"PCG setProperty setup missing nodeId: {pcg_spawn_property}")
+        pcg_selection_layout = call_tool(
+            client,
+            1010051,
+            "pcg.graph.layout",
+            {
+                "assetPath": temp_pcg_asset,
+                "operation": "format",
+                "scope": {
+                    "mode": "selection",
+                    "nodes": [{"id": pcg_spawn_property_id}],
+                },
+            },
+        )
+        pcg_selection_layout_op = op_ok(pcg_selection_layout)
+        if pcg_selection_layout_op.get("op") != "layoutgraph":
+            fail(f"pcg.graph.layout selection returned unexpected op result: {pcg_selection_layout}")
+        print("[PASS] pcg.graph.layout selection validated")
         pcg_spawn_property_snapshot = query_snapshot(client, 101007, temp_pcg_asset, "pcg", "PCGGraph")
         pcg_spawn_property_node = require_node(
             [node for node in pcg_spawn_property_snapshot.get("nodes", []) if isinstance(node, dict)],

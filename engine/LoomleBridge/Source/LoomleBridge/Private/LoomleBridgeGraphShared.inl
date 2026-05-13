@@ -3645,6 +3645,16 @@ bool FLoomleBridgeModule::ApplyMaterialLayout(
             }
         }
     }
+    else if (Scope.Equals(TEXT("selection")))
+    {
+        for (const FString& NodeId : RequestedNodeIds)
+        {
+            if (UMaterialExpression* Expression = ResolveExpressionToken(NodeId))
+            {
+                MovableExpressions.Add(Expression);
+            }
+        }
+    }
     else if (Scope.Equals(TEXT("touched")))
     {
         for (const FString& NodeId : RequestedNodeIds)
@@ -3695,7 +3705,9 @@ bool FLoomleBridgeModule::ApplyMaterialLayout(
     {
         OutError = Scope.Equals(TEXT("touched"))
             ? TEXT("No touched nodes are pending for layout.")
-            : TEXT("No material expressions available for layout.");
+            : Scope.Equals(TEXT("selection"))
+                ? TEXT("No selected material expressions resolved for layout.")
+                : TEXT("No material expressions available for layout.");
         return false;
     }
 
@@ -4083,6 +4095,16 @@ bool FLoomleBridgeModule::ApplyPcgLayout(
             }
         }
     }
+    else if (Scope.Equals(TEXT("selection")))
+    {
+        for (const FString& NodeId : RequestedNodeIds)
+        {
+            if (UPCGNode* Node = ResolveNodeToken(NodeId))
+            {
+                MovableNodes.Add(Node);
+            }
+        }
+    }
     else if (Scope.Equals(TEXT("touched")))
     {
         for (const FString& NodeId : RequestedNodeIds)
@@ -4132,7 +4154,9 @@ bool FLoomleBridgeModule::ApplyPcgLayout(
     {
         OutError = Scope.Equals(TEXT("touched"))
             ? TEXT("No touched nodes are pending for layout.")
-            : TEXT("No PCG nodes available for layout.");
+            : Scope.Equals(TEXT("selection"))
+                ? TEXT("No selected PCG nodes resolved for layout.")
+                : TEXT("No PCG nodes available for layout.");
         return false;
     }
 

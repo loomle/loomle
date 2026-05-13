@@ -1,6 +1,68 @@
 // Material-domain tool adapters.
 namespace
 {
+void EnsureMaterialGraphReady(UMaterial* Material);
+
+FString MaterialPaletteTextToString(const FText& Text)
+{
+    return Text.IsEmpty() ? FString() : Text.ToString();
+}
+
+TArray<TSharedPtr<FJsonValue>> MaterialPaletteStringArrayToJson(const TArray<FString>& Values)
+{
+    TArray<TSharedPtr<FJsonValue>> Out;
+    for (const FString& Value : Values)
+    {
+        Out.Add(MakeShared<FJsonValueString>(Value));
+    }
+    return Out;
+}
+
+bool IsMaterialPaletteExpressionClassAllowed(UClass* Class, const UObject* MaterialOrFunction)
+{
+    if (Class == nullptr
+        || !Class->IsChildOf(UMaterialExpression::StaticClass())
+        || Class->HasAnyClassFlags(CLASS_Abstract | CLASS_Deprecated | CLASS_Hidden)
+        || Class->HasMetaData(TEXT("Private")))
+    {
+        return false;
+    }
+
+    const FString ClassName = Class->GetName();
+    if (ClassName == TEXT("MaterialExpressionComment")
+        || ClassName == TEXT("MaterialExpressionParameter")
+        || ClassName == TEXT("MaterialExpressionNamedRerouteUsage")
+        || ClassName == TEXT("MaterialExpressionMaterialLayerOutput")
+        || ClassName == TEXT("MaterialExpressionComposite"))
+    {
+        return false;
+    }
+
+    const UMaterialExpression* DefaultExpression = Cast<UMaterialExpression>(Class->GetDefaultObject());
+    return DefaultExpression != nullptr && DefaultExpression->IsAllowedIn(MaterialOrFunction);
+}
+
+FString MaterialPaletteExpressionLabel(UClass* Class, const UMaterialExpression* DefaultExpression)
+{
+    if (DefaultExpression != nullptr && !DefaultExpression->GetCreationName().IsEmpty())
+    {
+        return DefaultExpression->GetCreationName().ToString();
+    }
+
+    if (Class != nullptr && Class->HasMetaData(TEXT("DisplayName")))
+    {
+        return Class->GetDisplayNameText().ToString();
+    }
+
+    FString Label = Class != nullptr ? Class->GetName() : FString();
+    static const FString Prefix = TEXT("MaterialExpression");
+    if (Label.StartsWith(Prefix, ESearchCase::CaseSensitive))
+    {
+        Label.MidInline(Prefix.Len(), MAX_int32, EAllowShrinking::No);
+    }
+    return Label;
+}
+
 UClass* ResolveMaterialExpressionDescribeClass(const FString& ClassToken)
 {
     const FString TrimmedToken = ClassToken.TrimStartAndEnd();
@@ -55,6 +117,124 @@ bool ShouldDescribeMaterialProperty(const FProperty* Property)
         && CastField<FArrayProperty>(Property) == nullptr
         && CastField<FSetProperty>(Property) == nullptr
         && CastField<FMapProperty>(Property) == nullptr;
+}
+
+bool TryMaterialJsonValueToImportText(const TSharedPtr<FJsonValue>& Value, FString& OutText, FString& OutError)
+{
+    OutText.Reset();
+    OutError.Reset();
+    if (!Value.IsValid() || Value->IsNull())
+    {
+        OutText = TEXT("");
+        return true;
+    }
+
+    FString StringValue;
+    if (Value->TryGetString(StringValue))
+    {
+        OutText = StringValue;
+        return true;
+    }
+
+    bool BoolValue = false;
+    if (Value->TryGetBool(BoolValue))
+    {
+        OutText = BoolValue ? TEXT("true") : TEXT("false");
+        return true;
+    }
+
+    double NumberValue = 0.0;
+    if (Value->TryGetNumber(NumberValue))
+    {
+        OutText = FString::SanitizeFloat(NumberValue);
+        return true;
+    }
+
+    const TSharedPtr<FJsonObject>* ObjectValue = nullptr;
+    if (Value->TryGetObject(ObjectValue) && ObjectValue != nullptr && (*ObjectValue).IsValid())
+    {
+        if ((*ObjectValue)->TryGetStringField(TEXT("importText"), OutText)
+            || (*ObjectValue)->TryGetStringField(TEXT("text"), OutText))
+        {
+            return true;
+        }
+    }
+
+    OutError = TEXT("Unsupported value shape. Pass a string, number, boolean, null, or {importText:string}.");
+    return false;
+}
+
+bool SetMaterialExpressionEditableProperty(
+    UMaterial* MaterialAsset,
+    UMaterialExpression* Expression,
+    const FString& PropertyName,
+    const TSharedPtr<FJsonValue>& Value,
+    FString& OutError)
+{
+    OutError.Reset();
+    if (MaterialAsset == nullptr || Expression == nullptr)
+    {
+        OutError = TEXT("Material expression not found.");
+        return false;
+    }
+    if (PropertyName.TrimStartAndEnd().IsEmpty())
+    {
+        OutError = TEXT("setProperty requires property.");
+        return false;
+    }
+
+    FProperty* Property = FindFProperty<FProperty>(Expression->GetClass(), *PropertyName);
+    if (Property == nullptr || !ShouldDescribeMaterialProperty(Property))
+    {
+        OutError = FString::Printf(TEXT("Editable Material property not found: %s"), *PropertyName);
+        return false;
+    }
+
+    FString ImportText;
+    if (!TryMaterialJsonValueToImportText(Value, ImportText, OutError))
+    {
+        return false;
+    }
+
+    Expression->Modify();
+    MaterialAsset->Modify();
+
+    if (FNameProperty* NameProperty = CastField<FNameProperty>(Property))
+    {
+        NameProperty->SetPropertyValue_InContainer(Expression, FName(*ImportText));
+    }
+    else if (FStrProperty* StringProperty = CastField<FStrProperty>(Property))
+    {
+        StringProperty->SetPropertyValue_InContainer(Expression, ImportText);
+    }
+    else if (FTextProperty* TextProperty = CastField<FTextProperty>(Property))
+    {
+        TextProperty->SetPropertyValue_InContainer(Expression, FText::FromString(ImportText));
+    }
+    else if (FBoolProperty* BoolProperty = CastField<FBoolProperty>(Property))
+    {
+        const bool bBoolValue = ImportText.Equals(TEXT("true"), ESearchCase::IgnoreCase)
+            || ImportText == TEXT("1")
+            || ImportText.Equals(TEXT("yes"), ESearchCase::IgnoreCase);
+        BoolProperty->SetPropertyValue_InContainer(Expression, bBoolValue);
+    }
+    else
+    {
+        void* PropertyValue = Property->ContainerPtrToValuePtr<void>(Expression);
+        const TCHAR* ImportEnd = Property->ImportText_Direct(*ImportText, PropertyValue, Expression, PPF_None);
+        if (ImportEnd == nullptr)
+        {
+            OutError = FString::Printf(TEXT("Failed to import value for Material property: %s"), *PropertyName);
+            return false;
+        }
+    }
+
+    FPropertyChangedEvent ChangeEvent(Property, EPropertyChangeType::ValueSet);
+    Expression->PostEditChangeProperty(ChangeEvent);
+    MaterialAsset->PostEditChange();
+    MaterialAsset->MarkPackageDirty();
+    EnsureMaterialGraphReady(MaterialAsset);
+    return true;
 }
 
 TSharedPtr<FJsonObject> MakeMaterialDescribePropertyType(const FProperty* Property)
@@ -1892,6 +2072,53 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialMutateToolResult(const
                 }
             }
         }
+        else if (OpName.Equals(TEXT("setproperty")))
+        {
+            FString TargetNodeId;
+            FString PropertyName;
+            const TSharedPtr<FJsonValue>* Value = SingleOp->Values.Find(TEXT("value"));
+            if (!ResolveSingleNodeToken(SingleOp, TargetNodeId))
+            {
+                SingleResult = BuildDirectSingleResult(false, false, TEXT("TARGET_NOT_FOUND"), TEXT("setProperty requires a target node reference."));
+            }
+            else if (!SingleOp->TryGetStringField(TEXT("property"), PropertyName) || PropertyName.TrimStartAndEnd().IsEmpty())
+            {
+                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("setProperty requires property."));
+            }
+            else if (Value == nullptr)
+            {
+                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("setProperty requires value."));
+            }
+            else if (bDryRun)
+            {
+                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""), TargetNodeId);
+            }
+            else
+            {
+                UMaterial* MaterialAsset = LoadMaterialByAssetPath(AssetPath);
+                UMaterialExpression* Expression = MaterialAsset ? FindMaterialExpressionById(MaterialAsset, TargetNodeId) : nullptr;
+                if (MaterialAsset == nullptr)
+                {
+                    SingleResult = BuildDirectSingleResult(false, false, TEXT("ASSET_NOT_FOUND"), TEXT("Material asset not found."));
+                }
+                else if (Expression == nullptr)
+                {
+                    SingleResult = BuildDirectSingleResult(false, false, TEXT("NODE_NOT_FOUND"), TEXT("Material expression not found."), TargetNodeId);
+                }
+                else
+                {
+                    FString Error;
+                    if (!SetMaterialExpressionEditableProperty(MaterialAsset, Expression, PropertyName, *Value, Error))
+                    {
+                        SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), Error, TargetNodeId);
+                    }
+                    else
+                    {
+                        SingleResult = BuildDirectSingleResult(true, true, TEXT(""), TEXT(""), TargetNodeId);
+                    }
+                }
+            }
+        }
         else if (OpName.Equals(TEXT("layoutgraph")))
         {
             if (bDryRun)
@@ -2122,7 +2349,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialMutateToolResult(const
     return Result;
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialVerifyToolResult(const TSharedPtr<FJsonObject>& Arguments)
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialCompileToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 
@@ -2133,7 +2360,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialVerifyToolResult(const
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Result->SetStringField(TEXT("message"), TEXT("material.verify requires assetPath."));
+        Result->SetStringField(TEXT("message"), TEXT("material.compile requires assetPath."));
         return Result;
     }
 
@@ -2167,8 +2394,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialVerifyToolResult(const
     Result->SetStringField(
         TEXT("summary"),
         bMutateError
-            ? TEXT("Material verification failed during compile-backed confirmation.")
-            : TEXT("Material verification succeeded with compile-backed confirmation."));
+            ? TEXT("Material compile failed during compile-backed confirmation.")
+            : TEXT("Material compile succeeded with compile-backed confirmation."));
 
     TSharedPtr<FJsonObject> QueryReport = MakeShared<FJsonObject>();
     CopyBlueprintOptionalStringField(QueryResult, QueryReport, TEXT("revision"));
@@ -2277,5 +2504,233 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialDescribeToolResult(con
     Result->SetBoolField(TEXT("isError"), true);
     Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
     Result->SetStringField(TEXT("message"), TEXT("material.describe requires assetPath+nodeId for instance mode or nodeClass for class mode."));
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialPaletteToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+{
+    FString AssetPath;
+    FString Query;
+    int32 Limit = 50;
+    int32 Offset = 0;
+
+    if (Arguments.IsValid())
+    {
+        Arguments->TryGetStringField(TEXT("assetPath"), AssetPath);
+        if (AssetPath.IsEmpty())
+        {
+            const TSharedPtr<FJsonObject>* GraphObj = nullptr;
+            if ((Arguments->TryGetObjectField(TEXT("graph"), GraphObj) || Arguments->TryGetObjectField(TEXT("graphRef"), GraphObj))
+                && GraphObj != nullptr
+                && (*GraphObj).IsValid())
+            {
+                (*GraphObj)->TryGetStringField(TEXT("assetPath"), AssetPath);
+            }
+        }
+        Arguments->TryGetStringField(TEXT("query"), Query);
+        double LimitNumber = 0.0;
+        if (Arguments->TryGetNumberField(TEXT("limit"), LimitNumber))
+        {
+            Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, 500);
+        }
+        double OffsetNumber = 0.0;
+        if (Arguments->TryGetNumberField(TEXT("offset"), OffsetNumber))
+        {
+            Offset = FMath::Max(0, static_cast<int32>(OffsetNumber));
+        }
+    }
+
+    AssetPath = NormalizeAssetPath(AssetPath);
+    if (AssetPath.IsEmpty())
+    {
+        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("material.palette requires assetPath or graph.assetPath."));
+        return Result;
+    }
+
+    UMaterial* Material = LoadMaterialByAssetPath(AssetPath);
+    UMaterialFunction* MaterialFunction = nullptr;
+    if (Material == nullptr)
+    {
+        MaterialFunction = Cast<UMaterialFunction>(LoadObjectByAssetPath(AssetPath));
+    }
+    UObject* MaterialOrFunction = Material != nullptr ? static_cast<UObject*>(Material) : static_cast<UObject*>(MaterialFunction);
+    if (MaterialOrFunction == nullptr)
+    {
+        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("ASSET_NOT_FOUND"));
+        Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Material or MaterialFunction asset was not found: %s"), *AssetPath));
+        return Result;
+    }
+
+    TSet<FString> ElementTypes;
+    const TArray<TSharedPtr<FJsonValue>>* ElementTypeValues = nullptr;
+    if (Arguments.IsValid() && Arguments->TryGetArrayField(TEXT("elementTypes"), ElementTypeValues) && ElementTypeValues != nullptr)
+    {
+        for (const TSharedPtr<FJsonValue>& Value : *ElementTypeValues)
+        {
+            FString Text;
+            if (Value.IsValid() && Value->TryGetString(Text))
+            {
+                ElementTypes.Add(Text.ToLower());
+            }
+        }
+    }
+    const bool bIncludeExpressions = ElementTypes.IsEmpty() || ElementTypes.Contains(TEXT("expression"));
+
+    TArray<TSharedPtr<FJsonObject>> AllEntries;
+    int32 EntryIndex = 0;
+    auto AddEntry = [&AllEntries, &EntryIndex](const FString& Kind, const FString& Label, const FString& Category, const FString& Tooltip, const TSharedPtr<FJsonObject>& Payload, const TArray<FString>& Keywords = {})
+    {
+        const FString StableText = FString::Printf(
+            TEXT("%s|%s|%s|%s|%s|%d"),
+            *Kind,
+            *Category,
+            *Label,
+            *Tooltip,
+            *SerializeBlueprintJsonObjectCondensed(Payload),
+            EntryIndex);
+        TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+        Entry->SetStringField(TEXT("id"), FString::Printf(TEXT("material.palette:%s"), *FMD5::HashAnsiString(*StableText)));
+        Entry->SetStringField(TEXT("kind"), Kind);
+        Entry->SetStringField(TEXT("label"), Label);
+        Entry->SetStringField(TEXT("category"), Category);
+        Entry->SetStringField(TEXT("tooltip"), Tooltip);
+        Entry->SetBoolField(TEXT("requiresContext"), true);
+        Entry->SetBoolField(TEXT("executable"), true);
+        Entry->SetArrayField(TEXT("keywords"), MaterialPaletteStringArrayToJson(Keywords));
+        Entry->SetObjectField(TEXT("payload"), Payload);
+        AllEntries.Add(Entry);
+        ++EntryIndex;
+    };
+
+    if (bIncludeExpressions)
+    {
+        TArray<UClass*> ExpressionClasses;
+        for (TObjectIterator<UClass> It; It; ++It)
+        {
+            UClass* Class = *It;
+            if (IsMaterialPaletteExpressionClassAllowed(Class, MaterialOrFunction))
+            {
+                ExpressionClasses.Add(Class);
+            }
+        }
+        ExpressionClasses.Sort([](const UClass& Left, const UClass& Right)
+        {
+            return Left.GetPathName() < Right.GetPathName();
+        });
+
+        for (UClass* Class : ExpressionClasses)
+        {
+            const UMaterialExpression* DefaultExpression = Cast<UMaterialExpression>(Class->GetDefaultObject());
+            const FString Label = MaterialPaletteExpressionLabel(Class, DefaultExpression);
+            FString Tooltip = FString::Printf(TEXT("Adds a %s node here"), *Label);
+            if (DefaultExpression != nullptr && !DefaultExpression->GetCreationDescription().IsEmpty())
+            {
+                Tooltip = DefaultExpression->GetCreationDescription().ToString();
+            }
+
+            TArray<FString> Categories;
+            if (DefaultExpression != nullptr)
+            {
+                for (const FText& CategoryText : DefaultExpression->MenuCategories)
+                {
+                    const FString Category = MaterialPaletteTextToString(CategoryText);
+                    if (!Category.IsEmpty())
+                    {
+                        Categories.AddUnique(Category);
+                    }
+                }
+            }
+            if (Categories.IsEmpty())
+            {
+                Categories.Add(TEXT(""));
+            }
+
+            TArray<FString> Keywords;
+            if (DefaultExpression != nullptr && !DefaultExpression->GetKeywords().IsEmpty())
+            {
+                Keywords.Add(DefaultExpression->GetKeywords().ToString());
+            }
+            if (Class != nullptr)
+            {
+                Keywords.Add(Class->GetName());
+                Keywords.Add(Class->GetPathName());
+            }
+
+            for (const FString& Category : Categories)
+            {
+                TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+                Payload->SetStringField(TEXT("nodeClassPath"), Class->GetPathName());
+                Payload->SetStringField(TEXT("className"), Class->GetName());
+                AddEntry(TEXT("expression"), Label, Category, Tooltip, Payload, Keywords);
+            }
+        }
+    }
+
+    auto EntryMatchesQuery = [&Query](const TSharedPtr<FJsonObject>& Entry)
+    {
+        if (Query.IsEmpty())
+        {
+            return true;
+        }
+        const FString QueryLower = Query.ToLower();
+        for (const TCHAR* Field : { TEXT("label"), TEXT("category"), TEXT("tooltip"), TEXT("kind") })
+        {
+            FString Value;
+            if (Entry->TryGetStringField(Field, Value) && Value.ToLower().Contains(QueryLower))
+            {
+                return true;
+            }
+        }
+        return SerializeBlueprintJsonObjectCondensed(Entry).ToLower().Contains(QueryLower);
+    };
+
+    auto EntryScore = [&Query](const TSharedPtr<FJsonObject>& Entry)
+    {
+        if (Query.IsEmpty())
+        {
+            return 0;
+        }
+        FString Label;
+        Entry->TryGetStringField(TEXT("label"), Label);
+        const FString QueryLower = Query.ToLower();
+        const FString LabelLower = Label.ToLower();
+        if (LabelLower.Equals(QueryLower, ESearchCase::CaseSensitive)) { return 0; }
+        if (LabelLower.StartsWith(QueryLower)) { return 10; }
+        if (LabelLower.Contains(QueryLower)) { return 20; }
+        return 30;
+    };
+
+    AllEntries = AllEntries.FilterByPredicate(EntryMatchesQuery);
+    AllEntries.Sort([&EntryScore](const TSharedPtr<FJsonObject>& Left, const TSharedPtr<FJsonObject>& Right)
+    {
+        return EntryScore(Left) < EntryScore(Right);
+    });
+
+    TArray<TSharedPtr<FJsonValue>> Entries;
+    for (int32 MatchIndex = Offset; MatchIndex < AllEntries.Num() && Entries.Num() < Limit; ++MatchIndex)
+    {
+        Entries.Add(MakeShared<FJsonValueObject>(AllEntries[MatchIndex]));
+    }
+
+    TSharedPtr<FJsonObject> Source = MakeShared<FJsonObject>();
+    Source->SetStringField(TEXT("ueSchema"), TEXT("MaterialEditorUtilities::GetMaterialExpressionActions"));
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+    Result->SetStringField(TEXT("assetPath"), AssetPath);
+    Result->SetObjectField(TEXT("graphRef"), MakeMaterialGraphAssetRef(AssetPath));
+    Result->SetArrayField(TEXT("entries"), Entries);
+    Result->SetNumberField(TEXT("total"), AllEntries.Num());
+    Result->SetNumberField(TEXT("offset"), Offset);
+    Result->SetNumberField(TEXT("limit"), Limit);
+    Result->SetArrayField(TEXT("elementTypes"), Arguments.IsValid() && Arguments->HasTypedField<EJson::Array>(TEXT("elementTypes"))
+        ? Arguments->GetArrayField(TEXT("elementTypes"))
+        : MaterialPaletteStringArrayToJson({ TEXT("expression") }));
+    Result->SetObjectField(TEXT("source"), Source);
     return Result;
 }
