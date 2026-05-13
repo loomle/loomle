@@ -1,78 +1,114 @@
 {
-  "tool": "pcg.mutate",
-  "ops": [
+  "tool": "pcg.graph.edit",
+  "commands": [
     {
-      "op": "addNode.byClass",
-      "clientRef": "create_points_a",
-      "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGCreatePointsSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGCreatePointsSettings"
+        }
+      },
+      "alias": "create_points_a"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "create_points_b",
-      "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGCreatePointsSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGCreatePointsSettings"
+        }
+      },
+      "alias": "create_points_b"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "select_node",
-      "nodeClassPath": "/Script/PCG.PCGBooleanSelectSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGBooleanSelectSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGBooleanSelectSettings"
+        }
+      },
+      "alias": "select_node"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "tag_selected",
-      "nodeClassPath": "/Script/PCG.PCGAddTagSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGAddTagSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGAddTagSettings"
+        }
+      },
+      "alias": "tag_selected"
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "create_points_a",
+        "node": {
+          "alias": "create_points_a"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "select_node",
+        "node": {
+          "alias": "select_node"
+        },
         "pin": "Input A"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "create_points_b",
+        "node": {
+          "alias": "create_points_b"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "select_node",
+        "node": {
+          "alias": "select_node"
+        },
         "pin": "Input B"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "select_node",
+        "node": {
+          "alias": "select_node"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "tag_selected",
+        "node": {
+          "alias": "tag_selected"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "setPinDefault",
+      "kind": "setPinDefault",
       "target": {
-        "nodeRef": "select_node",
+        "node": {
+          "alias": "select_node"
+        },
         "pin": "bUseInputB"
       },
       "value": true
     },
     {
-      "op": "setPinDefault",
+      "kind": "setPinDefault",
       "target": {
-        "nodeRef": "tag_selected",
+        "node": {
+          "alias": "tag_selected"
+        },
         "pin": "TagsToAdd"
       },
       "value": "Gameplay.Selected"
-    },
-    {
-      "op": "layoutGraph",
-      "scope": "touched"
     }
   ]
 }

@@ -1,54 +1,78 @@
 {
-  "tool": "pcg.mutate",
-  "ops": [
+  "tool": "pcg.graph.edit",
+  "commands": [
     {
-      "op": "addNode.byClass",
-      "clientRef": "actor_surface",
-      "nodeClassPath": "/Script/PCG.PCGDataFromActorSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGDataFromActorSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGDataFromActorSettings"
+        }
+      },
+      "alias": "actor_surface"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "surface_sampler",
-      "nodeClassPath": "/Script/PCG.PCGSurfaceSamplerSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGSurfaceSamplerSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGSurfaceSamplerSettings"
+        }
+      },
+      "alias": "surface_sampler"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "static_mesh_spawner",
-      "nodeClassPath": "/Script/PCG.PCGStaticMeshSpawnerSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGStaticMeshSpawnerSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGStaticMeshSpawnerSettings"
+        }
+      },
+      "alias": "static_mesh_spawner"
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "actor_surface",
+        "node": {
+          "alias": "actor_surface"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "surface_sampler",
+        "node": {
+          "alias": "surface_sampler"
+        },
         "pin": "Surface"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "surface_sampler",
+        "node": {
+          "alias": "surface_sampler"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "static_mesh_spawner",
+        "node": {
+          "alias": "static_mesh_spawner"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "setPinDefault",
+      "kind": "setPinDefault",
       "target": {
-        "nodeRef": "surface_sampler",
+        "node": {
+          "alias": "surface_sampler"
+        },
         "pin": "PointsPerSquaredMeter"
       },
       "value": 0.2
-    },
-    {
-      "op": "layoutGraph",
-      "scope": "touched"
     }
   ]
 }

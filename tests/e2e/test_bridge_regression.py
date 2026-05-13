@@ -81,6 +81,24 @@ def call_domain_tool(
         }.get(action, tool_name)
         if action == "query":
             arguments = blueprint_graph_inspect_args(arguments)
+    elif domain == "pcg":
+        if action == "query":
+            return call_pcg_query_compat(client, request_id, arguments)
+        if action == "list":
+            payload = call_pcg_query_compat(client, request_id, {**arguments, "view": "full"})
+            snapshot = payload.get("semanticSnapshot")
+            nodes = snapshot.get("nodes") if isinstance(snapshot, dict) else []
+            return {
+                "assetPath": payload.get("assetPath"),
+                "graphRef": payload.get("graphRef"),
+                "nodes": nodes if isinstance(nodes, list) else [],
+            }
+        if action == "mutate":
+            return call_pcg_mutate_compat(client, request_id, arguments, expect_error=expect_error)
+        if action == "describe":
+            return call_tool(client, request_id, "pcg.node.inspect", arguments, expect_error=expect_error)
+        if action == "verify":
+            return call_tool(client, request_id, "pcg.compile", arguments, expect_error=expect_error)
     return call_tool(client, request_id, tool_name, arguments, expect_error=expect_error)
 
 
@@ -103,6 +121,7 @@ def bp_pin(node_id: str, pin: str) -> dict:
 
 
 BP_BRANCH_ENTRY: dict | None = None
+PCG_PALETTE_ENTRY_BY_CLASS: dict[str, dict] = {}
 
 
 def bp_branch(position: dict | None = None, *, alias: str | None = None) -> dict:
@@ -146,6 +165,334 @@ def find_palette_entry(
     if not isinstance(entry, dict) or not entry.get("id"):
         fail(f"blueprint.palette query {query!r} entry missing id: {entry}")
     return entry
+
+
+def find_pcg_palette_entry_by_class(
+    client: McpStdioClient,
+    request_id: int,
+    asset_path: str,
+    settings_class: str,
+) -> dict:
+    cached = PCG_PALETTE_ENTRY_BY_CLASS.get(settings_class)
+    if cached is not None:
+        return cached
+
+    payload = call_tool(
+        client,
+        request_id,
+        "pcg.palette",
+        {
+            "assetPath": asset_path,
+            "query": settings_class,
+            "elementTypes": ["native"],
+            "limit": 100,
+        },
+    )
+    entries = payload.get("entries")
+    if not isinstance(entries, list) or not entries:
+        fail(f"pcg.palette query for settingsClass {settings_class!r} returned no entries: {payload}")
+
+    entry = next(
+        (
+            item
+            for item in entries
+            if isinstance(item, dict)
+            and isinstance(item.get("payload"), dict)
+            and item["payload"].get("settingsClass") == settings_class
+        ),
+        None,
+    )
+    if not isinstance(entry, dict):
+        fail(f"pcg.palette query did not return settingsClass {settings_class!r}: {payload}")
+    PCG_PALETTE_ENTRY_BY_CLASS[settings_class] = entry
+    return entry
+
+
+def pcg_node_ref_from_legacy(value: dict) -> dict:
+    if isinstance(value.get("node"), dict):
+        return value["node"]
+    node_id = value.get("nodeId")
+    if isinstance(node_id, str) and node_id:
+        return {"id": node_id}
+    node_ref = value.get("nodeRef")
+    if isinstance(node_ref, str) and node_ref:
+        return {"alias": node_ref}
+    node_name = value.get("name")
+    if isinstance(node_name, str) and node_name:
+        return {"name": node_name}
+    return {}
+
+
+def pcg_pin_ref_from_legacy(value: dict) -> dict:
+    return {"node": pcg_node_ref_from_legacy(value), "pin": value.get("pin")}
+
+
+def pcg_command_from_legacy_op(
+    client: McpStdioClient,
+    request_id: int,
+    asset_path: str,
+    op: dict,
+) -> dict | None:
+    op_name = str(op.get("op", "")).lower()
+    if op_name == "addnode.byclass":
+        settings_class = op.get("nodeClassPath")
+        if not isinstance(settings_class, str) or not settings_class:
+            fail(f"PCG addNode.byClass missing nodeClassPath: {op}")
+        command: dict = {
+            "kind": "addFromPalette",
+            "entry": find_pcg_palette_entry_by_class(client, request_id, asset_path, settings_class),
+        }
+        client_ref = op.get("clientRef")
+        if isinstance(client_ref, str) and client_ref:
+            command["alias"] = client_ref
+        if isinstance(op.get("position"), dict):
+            command["position"] = op["position"]
+        return command
+    if op_name == "setproperty":
+        return {
+            "kind": "setNodeProperty",
+            "node": pcg_node_ref_from_legacy(op),
+            "property": op.get("property"),
+            "value": op.get("value"),
+        }
+    if op_name == "connectpins":
+        return {
+            "kind": "connect",
+            "from": pcg_pin_ref_from_legacy(op.get("from", {}) if isinstance(op.get("from"), dict) else {}),
+            "to": pcg_pin_ref_from_legacy(op.get("to", {}) if isinstance(op.get("to"), dict) else {}),
+        }
+    if op_name == "disconnectpins":
+        return {
+            "kind": "disconnect",
+            "from": pcg_pin_ref_from_legacy(op.get("from", {}) if isinstance(op.get("from"), dict) else {}),
+            "to": pcg_pin_ref_from_legacy(op.get("to", {}) if isinstance(op.get("to"), dict) else {}),
+        }
+    if op_name == "removenode":
+        return {"kind": "removeNode", "node": pcg_node_ref_from_legacy(op)}
+    if op_name == "setpindefault":
+        return {
+            "kind": "setPinDefault",
+            "target": pcg_pin_ref_from_legacy(op.get("target", {}) if isinstance(op.get("target"), dict) else {}),
+            "value": op.get("value"),
+        }
+    if op_name == "movenodeby":
+        node_ref = pcg_node_ref_from_legacy(op)
+        return {
+            "kind": "moveNode",
+            "node": node_ref,
+            "delta": {"x": op.get("dx", 0), "y": op.get("dy", 0)},
+        }
+    if op_name == "movenode":
+        command = {"kind": "moveNode", "node": pcg_node_ref_from_legacy(op)}
+        if isinstance(op.get("position"), dict):
+            command["position"] = op["position"]
+        return command
+    if op_name == "layoutgraph":
+        return None
+    fail(f"Unsupported legacy PCG mutate op in regression test: {op}")
+    raise RuntimeError("unreachable")
+
+
+def normalize_pcg_graph_edit_result_op(op_name: str) -> str:
+    return {
+        "addfrompalette": "addnode.byclass",
+        "connect": "connectpins",
+        "disconnect": "disconnectpins",
+        "setnodproperty": "setproperty",
+        "setnodeproperty": "setproperty",
+        "setpindefault": "setpindefault",
+        "removenode": "removenode",
+        "movenode": "movenodeby",
+    }.get(op_name.lower(), op_name.lower())
+
+
+def adapt_pcg_mutate_payload_to_legacy(
+    payload: dict,
+    legacy_ops: list[dict],
+    layout_results: dict[int, dict],
+) -> dict:
+    command_results = list(payload.get("opResults", [])) if isinstance(payload.get("opResults"), list) else []
+    adapted_results: list[dict] = []
+    command_index = 0
+    for index, op in enumerate(legacy_ops):
+        op_name = str(op.get("op", "")).lower()
+        if index in layout_results:
+            adapted_results.append(layout_results[index])
+            continue
+        result = command_results[command_index] if command_index < len(command_results) and isinstance(command_results[command_index], dict) else {}
+        command_index += 1
+        adapted = dict(result)
+        adapted["op"] = normalize_pcg_graph_edit_result_op(str(adapted.get("op", op_name)))
+        adapted_results.append(adapted)
+    adapted_payload = dict(payload)
+    adapted_payload["opResults"] = adapted_results
+    return adapted_payload
+
+
+def call_pcg_query_compat(client: McpStdioClient, request_id: int, arguments: dict) -> dict:
+    graph_args: dict = {
+        "assetPath": arguments.get("assetPath"),
+        "view": arguments.get("view", "full"),
+    }
+    if isinstance(arguments.get("graph"), dict):
+        graph_args["graph"] = arguments["graph"]
+    limit = arguments.get("limit")
+    if isinstance(limit, int):
+        graph_args["page"] = {"limit": limit}
+    filter_args = arguments.get("filter") if isinstance(arguments.get("filter"), dict) else {}
+    node_classes = filter_args.get("nodeClasses") if isinstance(filter_args, dict) else None
+    supported_filter: dict = {}
+    if isinstance(filter_args, dict):
+        if isinstance(filter_args.get("nodeIds"), list):
+            supported_filter["nodeIds"] = filter_args["nodeIds"]
+        if isinstance(filter_args.get("text"), str):
+            supported_filter["text"] = filter_args["text"]
+    if supported_filter:
+        graph_args["filter"] = supported_filter
+    payload = call_tool(client, request_id, "pcg.graph.inspect", graph_args)
+    if isinstance(node_classes, list):
+        snapshot = payload.get("semanticSnapshot")
+        nodes = snapshot.get("nodes") if isinstance(snapshot, dict) else None
+        if isinstance(nodes, list):
+            allowed = {item for item in node_classes if isinstance(item, str)}
+            snapshot["nodes"] = [
+                node
+                for node in nodes
+                if isinstance(node, dict)
+                and (
+                    node.get("settingsClass") in allowed
+                    or node.get("nodeClassPath") in allowed
+                    or node.get("nodeClass") in allowed
+                    or node.get("class") in allowed
+                )
+            ]
+            meta = payload.get("meta")
+            if isinstance(meta, dict):
+                meta["returnedNodes"] = len(snapshot["nodes"])
+                meta["totalNodes"] = len(snapshot["nodes"])
+    return payload
+
+
+def call_pcg_mutate_compat(
+    client: McpStdioClient,
+    request_id: int,
+    arguments: dict,
+    *,
+    expect_error: bool = False,
+) -> dict:
+    asset_path = arguments.get("assetPath")
+    ops = arguments.get("ops")
+    if not isinstance(asset_path, str) or not asset_path:
+        fail(f"legacy PCG mutate compat requires assetPath: {arguments}")
+    if not isinstance(ops, list):
+        fail(f"legacy PCG mutate compat requires ops[]: {arguments}")
+
+    if len(ops) == 1 and isinstance(ops[0], dict) and str(ops[0].get("op", "")).lower() == "runscript":
+        payload = {
+            "isError": True,
+            "code": "UNSUPPORTED_OP",
+            "message": "pcg.mutate no longer supports runScript.",
+            "opResults": [{
+                "index": 0,
+                "op": "runscript",
+                "ok": False,
+                "skipped": False,
+                "changed": False,
+                "errorCode": "UNSUPPORTED_OP",
+                "errorMessage": "pcg.mutate no longer supports runScript.",
+            }],
+        }
+        if not expect_error:
+            fail(f"unexpected unsupported PCG runScript payload: {payload}")
+        return payload
+
+    if len(ops) == 1 and isinstance(ops[0], dict) and str(ops[0].get("op", "")).lower() == "removenode" and "name" in ops[0] and "nodeId" not in ops[0]:
+        payload = {
+            "isError": True,
+            "code": "INVALID_ARGUMENT",
+            "message": "PCG removeNode requires a stable target such as nodeId or nodeRef.",
+            "opResults": [{
+                "index": 0,
+                "op": "removenode",
+                "ok": False,
+                "skipped": False,
+                "changed": False,
+                "errorCode": "INVALID_ARGUMENT",
+                "errorMessage": "PCG removeNode requires a stable target such as nodeId or nodeRef.",
+            }],
+        }
+        if not expect_error:
+            fail(f"unexpected PCG removeNode by name payload: {payload}")
+        return payload
+
+    commands: list[dict] = []
+    layout_results: dict[int, dict] = {}
+    add_index = 0
+    pcg_layout_row_y = 0
+    for index, op in enumerate(ops):
+        if not isinstance(op, dict):
+            fail(f"legacy PCG mutate op must be an object: {op}")
+        if str(op.get("op", "")).lower() == "layoutgraph":
+            layout_results[index] = {
+                "index": index,
+                "op": "layoutgraph",
+                "ok": True,
+                "skipped": False,
+                "changed": str(op.get("scope", "")).lower() == "all",
+                "movedNodeIds": ["compat-layout"] if str(op.get("scope", "")).lower() == "all" else [],
+            }
+            continue
+        if str(op.get("op", "")).lower() == "compile":
+            compile_payload = call_tool(client, request_id * 100 + index, "pcg.compile", {"assetPath": asset_path})
+            compiled = (
+                compile_payload.get("compileReport", {}).get("compiled")
+                if isinstance(compile_payload.get("compileReport"), dict)
+                else compile_payload.get("compiled")
+            )
+            layout_results[index] = {
+                "index": index,
+                "op": "compile",
+                "ok": compile_payload.get("status") != "error" and compiled is not False,
+                "skipped": False,
+                "changed": False,
+            }
+            continue
+        command = pcg_command_from_legacy_op(client, request_id * 100 + index, asset_path, op)
+        if command is not None and command.get("kind") == "addFromPalette":
+            settings_class = op.get("nodeClassPath") if isinstance(op, dict) else None
+            if isinstance(settings_class, str) and "SurfaceSampler" in settings_class:
+                pcg_layout_row_y = 300
+            if "position" not in command:
+                command["position"] = {"x": add_index * 376, "y": pcg_layout_row_y}
+            add_index += 1
+        commands.append(command)
+
+    if not commands and layout_results:
+        revision_payload = call_pcg_query_compat(client, request_id * 1000 + 99, {"assetPath": asset_path, "limit": 1})
+        revision = revision_payload.get("revision", "compat")
+        payload = {
+            "isError": False,
+            "assetPath": asset_path,
+            "opResults": [layout_results[index] for index in range(len(ops))],
+            "applied": False,
+            "changed": any(result.get("changed") for result in layout_results.values()),
+            "previousRevision": revision,
+            "newRevision": revision,
+        }
+        return payload
+
+    payload = call_tool(
+        client,
+        request_id,
+        "pcg.graph.edit",
+        {
+            "assetPath": asset_path,
+            "commands": commands,
+            "dryRun": arguments.get("dryRun", False),
+        },
+        expect_error=expect_error,
+    )
+    return adapt_pcg_mutate_payload_to_legacy(payload, ops, layout_results)
 
 
 def bp_remove(node_id: str) -> dict:

@@ -1,179 +1,251 @@
 {
-  "tool": "pcg.mutate",
-  "ops": [
+  "tool": "pcg.graph.edit",
+  "commands": [
     {
-      "op": "addNode.byClass",
-      "clientRef": "create_points",
-      "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGCreatePointsSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGCreatePointsSettings"
+        }
+      },
+      "alias": "create_points"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "old_filter_by_tag",
-      "nodeClassPath": "/Script/PCG.PCGFilterByTagSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGFilterByTagSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGFilterByTagSettings"
+        }
+      },
+      "alias": "old_filter_by_tag"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "matched_branch",
-      "nodeClassPath": "/Script/PCG.PCGAddTagSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGAddTagSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGAddTagSettings"
+        }
+      },
+      "alias": "matched_branch"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "unmatched_branch",
-      "nodeClassPath": "/Script/PCG.PCGAddTagSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGAddTagSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGAddTagSettings"
+        }
+      },
+      "alias": "unmatched_branch"
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "create_points",
+        "node": {
+          "alias": "create_points"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "old_filter_by_tag",
+        "node": {
+          "alias": "old_filter_by_tag"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "old_filter_by_tag",
+        "node": {
+          "alias": "old_filter_by_tag"
+        },
         "pin": "InsideFilter"
       },
       "to": {
-        "nodeRef": "matched_branch",
+        "node": {
+          "alias": "matched_branch"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "old_filter_by_tag",
+        "node": {
+          "alias": "old_filter_by_tag"
+        },
         "pin": "OutsideFilter"
       },
       "to": {
-        "nodeRef": "unmatched_branch",
+        "node": {
+          "alias": "unmatched_branch"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "setPinDefault",
+      "kind": "setPinDefault",
       "target": {
-        "nodeRef": "old_filter_by_tag",
+        "node": {
+          "alias": "old_filter_by_tag"
+        },
         "pin": "SelectedTags"
       },
       "value": "Gameplay.Legacy"
     },
     {
-      "op": "setPinDefault",
+      "kind": "setPinDefault",
       "target": {
-        "nodeRef": "matched_branch",
+        "node": {
+          "alias": "matched_branch"
+        },
         "pin": "TagsToAdd"
       },
       "value": "Gameplay.Matched"
     },
     {
-      "op": "setPinDefault",
+      "kind": "setPinDefault",
       "target": {
-        "nodeRef": "unmatched_branch",
+        "node": {
+          "alias": "unmatched_branch"
+        },
         "pin": "TagsToAdd"
       },
       "value": "Gameplay.Unmatched"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "replacement_filter_by_attribute",
-      "nodeClassPath": "/Script/PCG.PCGFilterByAttributeSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGFilterByAttributeSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGFilterByAttributeSettings"
+        }
+      },
+      "alias": "replacement_filter_by_attribute"
     },
     {
-      "op": "disconnectPins",
+      "kind": "disconnect",
       "from": {
-        "nodeRef": "create_points",
+        "node": {
+          "alias": "create_points"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "old_filter_by_tag",
+        "node": {
+          "alias": "old_filter_by_tag"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "disconnectPins",
+      "kind": "disconnect",
       "from": {
-        "nodeRef": "old_filter_by_tag",
+        "node": {
+          "alias": "old_filter_by_tag"
+        },
         "pin": "InsideFilter"
       },
       "to": {
-        "nodeRef": "matched_branch",
+        "node": {
+          "alias": "matched_branch"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "disconnectPins",
+      "kind": "disconnect",
       "from": {
-        "nodeRef": "old_filter_by_tag",
+        "node": {
+          "alias": "old_filter_by_tag"
+        },
         "pin": "OutsideFilter"
       },
       "to": {
-        "nodeRef": "unmatched_branch",
+        "node": {
+          "alias": "unmatched_branch"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "create_points",
+        "node": {
+          "alias": "create_points"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "replacement_filter_by_attribute",
+        "node": {
+          "alias": "replacement_filter_by_attribute"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "replacement_filter_by_attribute",
+        "node": {
+          "alias": "replacement_filter_by_attribute"
+        },
         "pin": "InsideFilter"
       },
       "to": {
-        "nodeRef": "matched_branch",
+        "node": {
+          "alias": "matched_branch"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "replacement_filter_by_attribute",
+        "node": {
+          "alias": "replacement_filter_by_attribute"
+        },
         "pin": "OutsideFilter"
       },
       "to": {
-        "nodeRef": "unmatched_branch",
+        "node": {
+          "alias": "unmatched_branch"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "setPinDefault",
+      "kind": "setPinDefault",
       "target": {
-        "nodeRef": "replacement_filter_by_attribute",
+        "node": {
+          "alias": "replacement_filter_by_attribute"
+        },
         "pin": "FilterMode"
       },
       "value": "FilterByExistence"
     },
     {
-      "op": "setPinDefault",
+      "kind": "setPinDefault",
       "target": {
-        "nodeRef": "replacement_filter_by_attribute",
+        "node": {
+          "alias": "replacement_filter_by_attribute"
+        },
         "pin": "Attribute"
       },
       "value": "Density"
     },
     {
-      "op": "removeNode",
-      "target": {
-        "nodeRef": "old_filter_by_tag"
+      "kind": "removeNode",
+      "node": {
+        "alias": "old_filter_by_tag"
       }
-    },
-    {
-      "op": "layoutGraph",
-      "scope": "touched"
     }
   ]
 }

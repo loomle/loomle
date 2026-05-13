@@ -1,70 +1,104 @@
 {
-  "tool": "pcg.mutate",
-  "ops": [
+  "tool": "pcg.graph.edit",
+  "commands": [
     {
-      "op": "addNode.byClass",
-      "clientRef": "source_points",
-      "nodeClassPath": "/Script/PCG.PCGDataFromActorSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGDataFromActorSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGDataFromActorSettings"
+        }
+      },
+      "alias": "source_points"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "projection_target",
-      "nodeClassPath": "/Script/PCG.PCGDataFromActorSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGDataFromActorSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGDataFromActorSettings"
+        }
+      },
+      "alias": "projection_target"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "project_surface",
-      "nodeClassPath": "/Script/PCG.PCGProjectionSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGProjectionSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGProjectionSettings"
+        }
+      },
+      "alias": "project_surface"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "tag_projected",
-      "nodeClassPath": "/Script/PCG.PCGAddTagSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGAddTagSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGAddTagSettings"
+        }
+      },
+      "alias": "tag_projected"
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "source_points",
+        "node": {
+          "alias": "source_points"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "project_surface",
+        "node": {
+          "alias": "project_surface"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "projection_target",
+        "node": {
+          "alias": "projection_target"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "project_surface",
+        "node": {
+          "alias": "project_surface"
+        },
         "pin": "Projection Target"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "project_surface",
+        "node": {
+          "alias": "project_surface"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "tag_projected",
+        "node": {
+          "alias": "tag_projected"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "setPinDefault",
+      "kind": "setPinDefault",
       "target": {
-        "nodeRef": "tag_projected",
+        "node": {
+          "alias": "tag_projected"
+        },
         "pin": "TagsToAdd"
       },
       "value": "Gameplay.Projected"
-    },
-    {
-      "op": "layoutGraph",
-      "scope": "touched"
     }
   ]
 }

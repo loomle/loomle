@@ -1,84 +1,118 @@
 {
-  "tool": "pcg.mutate",
-  "ops": [
+  "tool": "pcg.graph.edit",
+  "commands": [
     {
-      "op": "addNode.byClass",
-      "clientRef": "create_points",
-      "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGCreatePointsSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGCreatePointsSettings"
+        }
+      },
+      "alias": "create_points"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "static_mesh_spawner",
-      "nodeClassPath": "/Script/PCG.PCGStaticMeshSpawnerSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGStaticMeshSpawnerSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGStaticMeshSpawnerSettings"
+        }
+      },
+      "alias": "static_mesh_spawner"
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "create_points",
+        "node": {
+          "alias": "create_points"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "static_mesh_spawner",
+        "node": {
+          "alias": "static_mesh_spawner"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "density_filter",
-      "nodeClassPath": "/Script/PCG.PCGDensityFilterSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGDensityFilterSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGDensityFilterSettings"
+        }
+      },
+      "alias": "density_filter"
     },
     {
-      "op": "disconnectPins",
+      "kind": "disconnect",
       "from": {
-        "nodeRef": "create_points",
+        "node": {
+          "alias": "create_points"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "static_mesh_spawner",
+        "node": {
+          "alias": "static_mesh_spawner"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "create_points",
+        "node": {
+          "alias": "create_points"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "density_filter",
+        "node": {
+          "alias": "density_filter"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "density_filter",
+        "node": {
+          "alias": "density_filter"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "static_mesh_spawner",
+        "node": {
+          "alias": "static_mesh_spawner"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "setPinDefault",
+      "kind": "setPinDefault",
       "target": {
-        "nodeRef": "density_filter",
+        "node": {
+          "alias": "density_filter"
+        },
         "pin": "LowerBound"
       },
       "value": 0.2
     },
     {
-      "op": "setPinDefault",
+      "kind": "setPinDefault",
       "target": {
-        "nodeRef": "density_filter",
+        "node": {
+          "alias": "density_filter"
+        },
         "pin": "UpperBound"
       },
       "value": 0.8
-    },
-    {
-      "op": "layoutGraph",
-      "scope": "touched"
     }
   ]
 }

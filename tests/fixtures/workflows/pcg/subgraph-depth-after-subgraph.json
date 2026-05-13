@@ -1,67 +1,99 @@
 {
-  "tool": "pcg.mutate",
-  "ops": [
+  "tool": "pcg.graph.edit",
+  "commands": [
     {
-      "op": "addNode.byClass",
-      "clientRef": "create_points",
-      "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGCreatePointsSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGCreatePointsSettings"
+        }
+      },
+      "alias": "create_points"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "subgraph_node",
-      "nodeClassPath": "/Script/PCG.PCGSubgraphSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGSubgraphSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGSubgraphSettings"
+        }
+      },
+      "alias": "subgraph_node"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "depth_node",
-      "nodeClassPath": "/Script/PCG.PCGGetSubgraphDepthSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGGetSubgraphDepthSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGGetSubgraphDepthSettings"
+        }
+      },
+      "alias": "depth_node"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "tag_depth",
-      "nodeClassPath": "/Script/PCG.PCGAddTagSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGAddTagSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGAddTagSettings"
+        }
+      },
+      "alias": "tag_depth"
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "create_points",
+        "node": {
+          "alias": "create_points"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "subgraph_node",
+        "node": {
+          "alias": "subgraph_node"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "subgraph_node",
+        "node": {
+          "alias": "subgraph_node"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "tag_depth",
+        "node": {
+          "alias": "tag_depth"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "setPinDefault",
+      "kind": "setPinDefault",
       "target": {
-        "nodeRef": "depth_node",
+        "node": {
+          "alias": "depth_node"
+        },
         "pin": "DistanceRelativeToUpstreamGraph"
       },
       "value": 2
     },
     {
-      "op": "setPinDefault",
+      "kind": "setPinDefault",
       "target": {
-        "nodeRef": "tag_depth",
+        "node": {
+          "alias": "tag_depth"
+        },
         "pin": "TagsToAdd"
       },
       "value": "Gameplay.StructDepth"
-    },
-    {
-      "op": "layoutGraph",
-      "scope": "touched"
     }
   ]
 }

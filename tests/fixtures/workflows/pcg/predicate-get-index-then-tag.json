@@ -1,62 +1,88 @@
 {
-  "tool": "pcg.mutate",
-  "ops": [
+  "tool": "pcg.graph.edit",
+  "commands": [
     {
-      "op": "addNode.byClass",
-      "clientRef": "create_points",
-      "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGCreatePointsSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGCreatePointsSettings"
+        }
+      },
+      "alias": "create_points"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "get_index",
-      "nodeClassPath": "/Script/PCG.PCGAttributeGetFromIndexSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGAttributeGetFromIndexSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGAttributeGetFromIndexSettings"
+        }
+      },
+      "alias": "get_index"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "tag_indexed",
-      "nodeClassPath": "/Script/PCG.PCGAddTagSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGAddTagSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGAddTagSettings"
+        }
+      },
+      "alias": "tag_indexed"
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "create_points",
+        "node": {
+          "alias": "create_points"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "get_index",
+        "node": {
+          "alias": "get_index"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "get_index",
+        "node": {
+          "alias": "get_index"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "tag_indexed",
+        "node": {
+          "alias": "tag_indexed"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "setPinDefault",
+      "kind": "setPinDefault",
       "target": {
-        "nodeRef": "get_index",
+        "node": {
+          "alias": "get_index"
+        },
         "pin": "Index"
       },
       "value": 2
     },
     {
-      "op": "setPinDefault",
+      "kind": "setPinDefault",
       "target": {
-        "nodeRef": "tag_indexed",
+        "node": {
+          "alias": "tag_indexed"
+        },
         "pin": "TagsToAdd"
       },
       "value": "Gameplay.Predicate"
-    },
-    {
-      "op": "layoutGraph",
-      "scope": "touched"
     }
   ]
 }

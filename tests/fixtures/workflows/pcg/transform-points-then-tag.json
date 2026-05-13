@@ -1,62 +1,88 @@
 {
-  "tool": "pcg.mutate",
-  "ops": [
+  "tool": "pcg.graph.edit",
+  "commands": [
     {
-      "op": "addNode.byClass",
-      "clientRef": "create_points",
-      "nodeClassPath": "/Script/PCG.PCGCreatePointsSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGCreatePointsSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGCreatePointsSettings"
+        }
+      },
+      "alias": "create_points"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "transform_points",
-      "nodeClassPath": "/Script/PCG.PCGTransformPointsSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGTransformPointsSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGTransformPointsSettings"
+        }
+      },
+      "alias": "transform_points"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "tag_transformed",
-      "nodeClassPath": "/Script/PCG.PCGAddTagSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGAddTagSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGAddTagSettings"
+        }
+      },
+      "alias": "tag_transformed"
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "create_points",
+        "node": {
+          "alias": "create_points"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "transform_points",
+        "node": {
+          "alias": "transform_points"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "transform_points",
+        "node": {
+          "alias": "transform_points"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "tag_transformed",
+        "node": {
+          "alias": "tag_transformed"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "setPinDefault",
+      "kind": "setPinDefault",
       "target": {
-        "nodeRef": "transform_points",
+        "node": {
+          "alias": "transform_points"
+        },
         "pin": "bAbsoluteRotation"
       },
       "value": true
     },
     {
-      "op": "setPinDefault",
+      "kind": "setPinDefault",
       "target": {
-        "nodeRef": "tag_transformed",
+        "node": {
+          "alias": "tag_transformed"
+        },
         "pin": "TagsToAdd"
       },
       "value": "Gameplay.Transformed"
-    },
-    {
-      "op": "layoutGraph",
-      "scope": "touched"
     }
   ]
 }

@@ -15,7 +15,7 @@ TESTS_E2E_DIR = REPO_ROOT / "tests" / "e2e"
 if str(TESTS_E2E_DIR) not in sys.path:
     sys.path.insert(0, str(TESTS_E2E_DIR))
 
-from test_bridge_smoke import McpStdioClient, call_tool
+from test_bridge_smoke import McpStdioClient, call_tool, parse_tool_payload as parse_mcp_tool_payload
 
 SMOKE_SCRIPT = REPO_ROOT / "tests" / "e2e" / "test_bridge_smoke.py"
 REGRESSION_SCRIPT = REPO_ROOT / "tests" / "e2e" / "test_bridge_regression.py"
@@ -318,15 +318,18 @@ def wait_for_bridge_runtime_ready(project_root: Path, loomle_binary: Path, timeo
                 time.sleep(2.0)
                 continue
 
-            execute_payload = call_tool(
-                client,
+            execute_response = client.request(
                 101 + attempt * 10,
-                "execute",
+                "tools/call",
                 {
-                    "mode": "exec",
-                    "code": "import unreal\nunreal.log('loomle dev_verify warmup')",
+                    "name": "execute",
+                    "arguments": {
+                        "mode": "exec",
+                        "code": "import unreal\nunreal.log('loomle dev_verify warmup')",
+                    },
                 },
             )
+            execute_payload = parse_mcp_tool_payload(execute_response, "tools/call.execute")
             if is_tool_error_payload(execute_payload):
                 print(
                     f"[WARN] execute warmup not ready yet (attempt {attempt}): {execute_payload}",

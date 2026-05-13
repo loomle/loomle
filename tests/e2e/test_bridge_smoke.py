@@ -38,11 +38,13 @@ REQUIRED_TOOLS = {
     "material.mutate",
     "material.verify",
     "material.describe",
-    "pcg.list",
-    "pcg.query",
-    "pcg.mutate",
-    "pcg.verify",
-    "pcg.describe",
+    "pcg.graph.inspect",
+    "pcg.node.inspect",
+    "pcg.parameter.inspect",
+    "pcg.parameter.edit",
+    "pcg.palette",
+    "pcg.graph.edit",
+    "pcg.compile",
     "diagnostic.tail",
     "log.tail",
     "context",
@@ -388,6 +390,9 @@ def _require_payload_fixture(case: dict[str, Any], expected_tool: str) -> None:
     _require(payload.get("tool") == expected_tool, f"payloadFixture tool mismatch for {fixture}: {payload}")
     _require("graphType" not in payload, f"payloadFixture should not carry legacy graphType: {fixture}")
     _require(payload.get("tool") != "graph.mutate", f"payloadFixture should not use legacy graph.mutate: {fixture}")
+    if expected_tool == "pcg.graph.edit":
+        _require("ops" not in payload, f"pcg.graph.edit payloadFixture should not carry legacy ops: {fixture}")
+        _require(isinstance(payload.get("commands"), list), f"pcg.graph.edit payloadFixture missing commands[]: {fixture}")
 
 
 def _json_contains_key(value: Any, key: str) -> bool:
@@ -2314,7 +2319,7 @@ def validate_generated_pcg_workflow_truth_suite() -> None:
     for case in cases:
         _require(isinstance(case, dict), f"pcg workflow case must be an object: {case}")
         if case.get("payloadFixture") is not None:
-            _require_payload_fixture(case, "pcg.mutate")
+            _require_payload_fixture(case, "pcg.graph.edit")
     case_by_id = {
         case.get("id"): case
         for case in cases
@@ -2323,21 +2328,21 @@ def validate_generated_pcg_workflow_truth_suite() -> None:
 
     actor_route = case_by_id.get("actor_data_tag_route")
     _require(isinstance(actor_route, dict), "pcg workflow suite missing actor_data_tag_route")
-    _require_payload_fixture(actor_route, "pcg.mutate")
+    _require_payload_fixture(actor_route, "pcg.graph.edit")
     _require(actor_route.get("fixture") == "pcg_graph_with_world_actor", f"pcg actor route fixture mismatch: {actor_route}")
     _require(actor_route.get("families") == ["source", "route", "meta"], f"pcg actor route families mismatch: {actor_route}")
     _require(actor_route.get("queryDefaults") == 2, f"pcg actor route queryDefaults mismatch: {actor_route}")
 
     density_insert = case_by_id.get("insert_density_filter_before_static_mesh")
     _require(isinstance(density_insert, dict), "pcg workflow suite missing insert_density_filter_before_static_mesh")
-    _require_payload_fixture(density_insert, "pcg.mutate")
+    _require_payload_fixture(density_insert, "pcg.graph.edit")
     _require(density_insert.get("fixture") == "pcg_graph", f"pcg density insert fixture mismatch: {density_insert}")
     _require(density_insert.get("families") == ["create", "filter", "spawn"], f"pcg density insert families mismatch: {density_insert}")
     _require(density_insert.get("expectedEdges") == 2, f"pcg density insert expectedEdges mismatch: {density_insert}")
 
     attribute_route = case_by_id.get("replace_tag_route_with_attribute_route")
     _require(isinstance(attribute_route, dict), "pcg workflow suite missing replace_tag_route_with_attribute_route")
-    _require_payload_fixture(attribute_route, "pcg.mutate")
+    _require_payload_fixture(attribute_route, "pcg.graph.edit")
     _require(
         attribute_route.get("families") == ["create", "filter", "route", "meta"],
         f"pcg attribute route families mismatch: {attribute_route}",
@@ -3374,17 +3379,17 @@ def main() -> int:
         pcg_describe = call_tool(
             client,
             8,
-            "pcg.describe",
+            "pcg.node.inspect",
             {"nodeClass": "/Script/PCG.PCGTransformPointsSettings"},
         )
         if pcg_describe.get("mode") != "class":
-            fail(f"pcg.describe class mode mismatch: {pcg_describe}")
+            fail(f"pcg.node.inspect class mode mismatch: {pcg_describe}")
         if not isinstance(pcg_describe.get("inputPins"), list):
-            fail(f"pcg.describe missing inputPins[]: {pcg_describe}")
+            fail(f"pcg.node.inspect missing inputPins[]: {pcg_describe}")
         if not isinstance(pcg_describe.get("outputPins"), list):
-            fail(f"pcg.describe missing outputPins[]: {pcg_describe}")
+            fail(f"pcg.node.inspect missing outputPins[]: {pcg_describe}")
         if not isinstance(pcg_describe.get("properties"), list):
-            fail(f"pcg.describe missing properties[]: {pcg_describe}")
+            fail(f"pcg.node.inspect missing properties[]: {pcg_describe}")
         print("[PASS] domain describe class-mode smoke validated")
 
         validate_active_test_fixtures_are_current_contract()

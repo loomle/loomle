@@ -1,62 +1,88 @@
 {
-  "tool": "pcg.mutate",
-  "ops": [
+  "tool": "pcg.graph.edit",
+  "commands": [
     {
-      "op": "addNode.byClass",
-      "clientRef": "actor_data",
-      "nodeClassPath": "/Script/PCG.PCGDataFromActorSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGDataFromActorSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGDataFromActorSettings"
+        }
+      },
+      "alias": "actor_data"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "filter_by_tag",
-      "nodeClassPath": "/Script/PCG.PCGFilterByTagSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGFilterByTagSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGFilterByTagSettings"
+        }
+      },
+      "alias": "filter_by_tag"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "tag_matched_branch",
-      "nodeClassPath": "/Script/PCG.PCGAddTagSettings"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "pcg.palette:/Script/PCG.PCGAddTagSettings",
+        "kind": "native",
+        "payload": {
+          "settingsClass": "/Script/PCG.PCGAddTagSettings"
+        }
+      },
+      "alias": "tag_matched_branch"
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "actor_data",
+        "node": {
+          "alias": "actor_data"
+        },
         "pin": "Out"
       },
       "to": {
-        "nodeRef": "filter_by_tag",
+        "node": {
+          "alias": "filter_by_tag"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "filter_by_tag",
+        "node": {
+          "alias": "filter_by_tag"
+        },
         "pin": "InsideFilter"
       },
       "to": {
-        "nodeRef": "tag_matched_branch",
+        "node": {
+          "alias": "tag_matched_branch"
+        },
         "pin": "In"
       }
     },
     {
-      "op": "setPinDefault",
+      "kind": "setPinDefault",
       "target": {
-        "nodeRef": "filter_by_tag",
+        "node": {
+          "alias": "filter_by_tag"
+        },
         "pin": "SelectedTags"
       },
       "value": "Gameplay.Spawnable"
     },
     {
-      "op": "setPinDefault",
+      "kind": "setPinDefault",
       "target": {
-        "nodeRef": "tag_matched_branch",
+        "node": {
+          "alias": "tag_matched_branch"
+        },
         "pin": "TagsToAdd"
       },
       "value": "Gameplay.Routed"
-    },
-    {
-      "op": "layoutGraph",
-      "scope": "touched"
     }
   ]
 }
