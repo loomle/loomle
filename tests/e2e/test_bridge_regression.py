@@ -83,9 +83,9 @@ def call_domain_tool(
             arguments = blueprint_graph_inspect_args(arguments)
     elif domain == "pcg":
         if action == "query":
-            return call_pcg_query_compat(client, request_id, arguments)
+            return call_pcg_graph_inspect_for_regression(client, request_id, arguments)
         if action == "list":
-            payload = call_pcg_query_compat(client, request_id, {**arguments, "view": "full"})
+            payload = call_pcg_graph_inspect_for_regression(client, request_id, {**arguments, "view": "full"})
             snapshot = payload.get("semanticSnapshot")
             nodes = snapshot.get("nodes") if isinstance(snapshot, dict) else []
             return {
@@ -94,7 +94,7 @@ def call_domain_tool(
                 "nodes": nodes if isinstance(nodes, list) else [],
             }
         if action == "mutate":
-            return call_pcg_mutate_compat(client, request_id, arguments, expect_error=expect_error)
+            return call_pcg_graph_edit_for_regression(client, request_id, arguments, expect_error=expect_error)
         if action == "describe":
             return call_tool(client, request_id, "pcg.node.inspect", arguments, expect_error=expect_error)
         if action == "verify":
@@ -289,7 +289,7 @@ def pcg_command_from_legacy_op(
         return command
     if op_name == "layoutgraph":
         return None
-    fail(f"Unsupported legacy PCG mutate op in regression test: {op}")
+    fail(f"Unsupported legacy PCG graph edit op in regression test: {op}")
     raise RuntimeError("unreachable")
 
 
@@ -306,7 +306,7 @@ def normalize_pcg_graph_edit_result_op(op_name: str) -> str:
     }.get(op_name.lower(), op_name.lower())
 
 
-def adapt_pcg_mutate_payload_to_legacy(
+def adapt_pcg_graph_edit_payload_to_legacy(
     payload: dict,
     legacy_ops: list[dict],
     layout_results: dict[int, dict],
@@ -329,7 +329,7 @@ def adapt_pcg_mutate_payload_to_legacy(
     return adapted_payload
 
 
-def call_pcg_query_compat(client: McpStdioClient, request_id: int, arguments: dict) -> dict:
+def call_pcg_graph_inspect_for_regression(client: McpStdioClient, request_id: int, arguments: dict) -> dict:
     graph_args: dict = {
         "assetPath": arguments.get("assetPath"),
         "view": arguments.get("view", "full"),
@@ -373,7 +373,7 @@ def call_pcg_query_compat(client: McpStdioClient, request_id: int, arguments: di
     return payload
 
 
-def call_pcg_mutate_compat(
+def call_pcg_graph_edit_for_regression(
     client: McpStdioClient,
     request_id: int,
     arguments: dict,
@@ -383,15 +383,15 @@ def call_pcg_mutate_compat(
     asset_path = arguments.get("assetPath")
     ops = arguments.get("ops")
     if not isinstance(asset_path, str) or not asset_path:
-        fail(f"legacy PCG mutate compat requires assetPath: {arguments}")
+        fail(f"PCG graph edit regression adapter requires assetPath: {arguments}")
     if not isinstance(ops, list):
-        fail(f"legacy PCG mutate compat requires ops[]: {arguments}")
+        fail(f"PCG graph edit regression adapter requires legacy ops[]: {arguments}")
 
     if len(ops) == 1 and isinstance(ops[0], dict) and str(ops[0].get("op", "")).lower() == "runscript":
         payload = {
             "isError": True,
             "code": "UNSUPPORTED_OP",
-            "message": "pcg.mutate no longer supports runScript.",
+            "message": "pcg.graph.edit does not support runScript.",
             "opResults": [{
                 "index": 0,
                 "op": "runscript",
@@ -399,7 +399,7 @@ def call_pcg_mutate_compat(
                 "skipped": False,
                 "changed": False,
                 "errorCode": "UNSUPPORTED_OP",
-                "errorMessage": "pcg.mutate no longer supports runScript.",
+                "errorMessage": "pcg.graph.edit does not support runScript.",
             }],
         }
         if not expect_error:
@@ -431,7 +431,7 @@ def call_pcg_mutate_compat(
     pcg_layout_row_y = 0
     for index, op in enumerate(ops):
         if not isinstance(op, dict):
-            fail(f"legacy PCG mutate op must be an object: {op}")
+            fail(f"PCG graph edit regression legacy op must be an object: {op}")
         if str(op.get("op", "")).lower() == "layoutgraph":
             layout_results[index] = {
                 "index": index,
@@ -468,7 +468,7 @@ def call_pcg_mutate_compat(
         commands.append(command)
 
     if not commands and layout_results:
-        revision_payload = call_pcg_query_compat(client, request_id * 1000 + 99, {"assetPath": asset_path, "limit": 1})
+        revision_payload = call_pcg_graph_inspect_for_regression(client, request_id * 1000 + 99, {"assetPath": asset_path, "limit": 1})
         revision = revision_payload.get("revision", "compat")
         payload = {
             "isError": False,
@@ -492,7 +492,7 @@ def call_pcg_mutate_compat(
         },
         expect_error=expect_error,
     )
-    return adapt_pcg_mutate_payload_to_legacy(payload, ops, layout_results)
+    return adapt_pcg_graph_edit_payload_to_legacy(payload, ops, layout_results)
 
 
 def bp_remove(node_id: str) -> dict:
@@ -2262,11 +2262,11 @@ def main() -> int:
         )
         queried_snapshot = queried_pcg.get("semanticSnapshot")
         if not isinstance(queried_snapshot, dict):
-            fail(f"pcg.query missing semanticSnapshot for direct asset read: {queried_pcg}")
+            fail(f"pcg.graph.inspect missing semanticSnapshot for direct asset read: {queried_pcg}")
         queried_graph_ref = queried_pcg.get("graphRef")
         if not isinstance(queried_graph_ref, dict) or queried_graph_ref.get("assetPath") != temp_pcg_asset:
-            fail(f"pcg.query did not echo expected asset graphRef: {queried_pcg}")
-        print("[PASS] pcg.query direct asset addressing validated")
+            fail(f"pcg.graph.inspect did not echo expected asset graphRef: {queried_pcg}")
+        print("[PASS] pcg.graph.inspect direct asset addressing validated")
 
         pcg_class_desc = call_domain_tool(
             client,
@@ -2276,13 +2276,13 @@ def main() -> int:
             {"nodeClass": "/Script/PCG.PCGTransformPointsSettings"},
         )
         if pcg_class_desc.get("mode") != "class":
-            fail(f"pcg.describe class mode mismatch: {pcg_class_desc}")
+            fail(f"pcg.node.inspect class mode mismatch: {pcg_class_desc}")
         if not isinstance(pcg_class_desc.get("inputPins"), list):
-            fail(f"pcg.describe missing inputPins[]: {pcg_class_desc}")
+            fail(f"pcg.node.inspect missing inputPins[]: {pcg_class_desc}")
         if not isinstance(pcg_class_desc.get("outputPins"), list):
-            fail(f"pcg.describe missing outputPins[]: {pcg_class_desc}")
+            fail(f"pcg.node.inspect missing outputPins[]: {pcg_class_desc}")
         if not isinstance(pcg_class_desc.get("properties"), list):
-            fail(f"pcg.describe missing properties[]: {pcg_class_desc}")
+            fail(f"pcg.node.inspect missing properties[]: {pcg_class_desc}")
 
         pcg_dry_run_script = call_domain_tool(
             client,
@@ -4216,11 +4216,11 @@ def main() -> int:
             {"assetPath": temp_pcg_asset},
         )
         if pcg_graph_list_without_type.get("assetPath") != temp_pcg_asset:
-            fail(f"pcg.list assetPath mismatch: {pcg_graph_list_without_type}")
+            fail(f"pcg.graph.inspect list-view assetPath mismatch: {pcg_graph_list_without_type}")
         pcg_list_nodes = pcg_graph_list_without_type.get("nodes")
         if not isinstance(pcg_list_nodes, list) or len(pcg_list_nodes) < 6:
-            fail(f"pcg.list missing nodes[]: {pcg_graph_list_without_type}")
-        print("[PASS] pcg.list validated")
+            fail(f"pcg.graph.inspect list-view missing nodes[]: {pcg_graph_list_without_type}")
+        print("[PASS] pcg.graph.inspect list-view validated")
 
         pcg_spawn_property = call_domain_tool(
             client,
@@ -4264,7 +4264,7 @@ def main() -> int:
         )
         if not isinstance(pcg_spawn_behavior, dict) or pcg_spawn_behavior.get("deleteActorsBeforeGeneration") is not True:
             fail(f"PCG setProperty did not update SpawnActor behavior: {pcg_spawn_property_node}")
-        print("[PASS] pcg.mutate setProperty updates node settings")
+        print("[PASS] pcg.graph.edit setNodeProperty updates node settings")
 
         pcg_connect = call_domain_tool(
             client,
@@ -4305,7 +4305,7 @@ def main() -> int:
         pcg_nodes = pcg_snapshot.get("nodes")
         pcg_edges = pcg_snapshot.get("edges")
         if not isinstance(pcg_nodes, list) or not isinstance(pcg_edges, list):
-            fail(f"PCG graph.query missing nodes/edges: {pcg_snapshot}")
+            fail(f"PCG graph inspect missing nodes/edges: {pcg_snapshot}")
         bad_pcg_connect = call_domain_tool(
             client,
             101021,
@@ -4327,18 +4327,18 @@ def main() -> int:
         bad_pcg_connect_struct = structured_detail_or_payload(bad_pcg_connect)
         bad_pcg_connect_results = bad_pcg_connect_struct.get("opResults")
         if not isinstance(bad_pcg_connect_results, list) or not bad_pcg_connect_results:
-            fail(f"pcg.mutate bad connect missing opResults: {bad_pcg_connect}")
+            fail(f"pcg.graph.edit bad connect missing opResults: {bad_pcg_connect}")
         bad_pcg_connect_first = bad_pcg_connect_results[0] if isinstance(bad_pcg_connect_results[0], dict) else {}
         if bad_pcg_connect_first.get("errorCode") not in {"TARGET_NOT_FOUND", "PIN_NOT_FOUND"}:
-            fail(f"pcg.mutate bad connect wrong errorCode: {bad_pcg_connect_first}")
+            fail(f"pcg.graph.edit bad connect wrong errorCode: {bad_pcg_connect_first}")
         if bad_pcg_connect_first.get("ok") is not False:
-            fail(f"pcg.mutate bad connect should fail explicitly: {bad_pcg_connect_first}")
+            fail(f"pcg.graph.edit bad connect should fail explicitly: {bad_pcg_connect_first}")
         if bad_pcg_connect_first.get("changed") is not False:
-            fail(f"pcg.mutate bad connect should not report changed=true: {bad_pcg_connect_first}")
+            fail(f"pcg.graph.edit bad connect should not report changed=true: {bad_pcg_connect_first}")
         pcg_snapshot_after_bad_connect = query_snapshot(client, 101022, temp_pcg_asset, "pcg", "PCGGraph")
         pcg_edges_after_bad_connect = pcg_snapshot_after_bad_connect.get("edges")
         if not isinstance(pcg_edges_after_bad_connect, list):
-            fail(f"PCG graph.query after bad connect missing edges: {pcg_snapshot_after_bad_connect}")
+            fail(f"PCG graph inspect after bad connect missing edges: {pcg_snapshot_after_bad_connect}")
         if any(
             isinstance(edge, dict)
             and edge.get("fromNodeId") == pcg_filter_id
@@ -4347,12 +4347,12 @@ def main() -> int:
             and edge.get("toPin") == "In"
             for edge in pcg_edges_after_bad_connect
         ):
-            fail(f"PCG graph.query should not contain invalid Out->In edge after failed connect: {pcg_edges_after_bad_connect}")
-        print("[PASS] pcg.mutate invalid connectPins target is rejected")
+            fail(f"PCG graph inspect should not contain invalid Out->In edge after failed connect: {pcg_edges_after_bad_connect}")
+        print("[PASS] pcg.graph.edit invalid connect target is rejected")
         pcg_snapshot_without_graph_name = query_snapshot(client, 10103, temp_pcg_asset, "pcg", None)
         if pcg_snapshot_without_graph_name.get("signature") != pcg_snapshot.get("signature"):
             fail(
-                "PCG graph.query without graphName should resolve the same single-graph asset snapshot: "
+                "PCG graph inspect without graphName should resolve the same single-graph asset snapshot: "
                 f"without={pcg_snapshot_without_graph_name} with={pcg_snapshot}"
             )
         pcg_query_without_type = call_domain_tool(
@@ -4364,10 +4364,10 @@ def main() -> int:
         )
         pcg_query_without_type_snapshot = pcg_query_without_type.get("semanticSnapshot")
         if not isinstance(pcg_query_without_type_snapshot, dict):
-            fail(f"PCG query without explicit graphName missing semanticSnapshot: {pcg_query_without_type}")
+            fail(f"PCG graph.inspect without explicit graphName missing semanticSnapshot: {pcg_query_without_type}")
         if pcg_query_without_type_snapshot.get("signature") != pcg_snapshot.get("signature"):
             fail(
-                "PCG query without explicit graphName should resolve the same single-graph asset snapshot: "
+                "PCG graph.inspect without explicit graphName should resolve the same single-graph asset snapshot: "
                 f"without={pcg_query_without_type} with={pcg_snapshot}"
             )
 
@@ -4400,7 +4400,7 @@ def main() -> int:
         if pcg_compile_second_result.get("changed") is not False:
             fail(f"PCG compile should report changed=false when compiled graph is unchanged: {pcg_compile_second}")
         if pcg_compile_second.get("previousRevision") != pcg_compile_second.get("newRevision"):
-            fail(f"PCG compile mutate should keep previousRevision/newRevision aligned when graph is unchanged: {pcg_compile_second}")
+            fail(f"PCG compile should keep previousRevision/newRevision aligned when graph is unchanged: {pcg_compile_second}")
         pcg_revision_after_compile = call_domain_tool(
             client,
             101033,
@@ -4410,10 +4410,10 @@ def main() -> int:
         )
         if pcg_revision_after_compile.get("revision") != pcg_compile_second.get("newRevision"):
             fail(
-                "PCG compile mutate revision metadata should match graph.query: "
-                f"mutate={pcg_compile_second} query={pcg_revision_after_compile}"
+                "PCG compile revision metadata should match pcg.graph.inspect: "
+                f"compile={pcg_compile_second} inspect={pcg_revision_after_compile}"
             )
-        print("[PASS] pcg compile revision metadata validated")
+        print("[PASS] pcg.compile revision metadata validated")
 
         create_pos = require_layout(require_node(pcg_nodes, pcg_create_id)).get("position", {})
         tag_a_pos = require_layout(require_node(pcg_nodes, pcg_tag_a_id)).get("position", {})
@@ -4464,7 +4464,7 @@ def main() -> int:
         pcg_after_relayout_snapshot = query_snapshot(client, 10111, temp_pcg_asset, "pcg", "PCGGraph")
         pcg_after_relayout_nodes = pcg_after_relayout_snapshot.get("nodes")
         if not isinstance(pcg_after_relayout_nodes, list):
-            fail(f"PCG graph.query after relayout missing nodes: {pcg_after_relayout_snapshot}")
+            fail(f"PCG graph inspect after relayout missing nodes: {pcg_after_relayout_snapshot}")
         pcg_after_relayout_pos = require_layout(require_node(pcg_after_relayout_nodes, pcg_create_id)).get("position", {})
         if pcg_after_relayout_pos == pcg_before_relayout:
             fail(
@@ -4478,7 +4478,7 @@ def main() -> int:
             and edge.get("toNodeId") == pcg_tag_b_id
             for edge in pcg_edges
         ):
-            fail(f"PCG graph.query missing filter branch edge: {pcg_edges}")
+            fail(f"PCG graph inspect missing filter branch edge: {pcg_edges}")
         if skip_pcg_visual_regression:
             print(
                 "[WARN] PCG visual layout regression skipped by "
@@ -4656,7 +4656,7 @@ def main() -> int:
         pcg_settings_snapshot = query_snapshot(client, 10119, temp_pcg_asset, "pcg", "PCGGraph")
         pcg_settings_nodes = pcg_settings_snapshot.get("nodes")
         if not isinstance(pcg_settings_nodes, list):
-            fail(f"PCG settings probe graph.query missing nodes: {pcg_settings_snapshot}")
+            fail(f"PCG settings probe graph inspect missing nodes: {pcg_settings_snapshot}")
 
         get_actor_property_node = require_node(pcg_settings_nodes, pcg_get_actor_property_id)
         get_actor_property_settings = get_actor_property_node.get("effectiveSettings")
@@ -4711,7 +4711,7 @@ def main() -> int:
             fail(f"PCG StaticMeshSpawner attributeName missing from meshSelector: {mesh_selector_settings}")
         if static_mesh_spawner_settings.get("outAttributeName") != "ChosenMesh":
             fail(f"PCG StaticMeshSpawner outAttributeName missing from effectiveSettings: {static_mesh_spawner_settings}")
-        print("[PASS] pcg graph.query settings and diagnostics validated")
+        print("[PASS] pcg.graph.inspect settings and diagnostics validated")
 
         pcg_health_fixture_payload = call_execute_exec_with_retry(
             client=client,
@@ -4766,19 +4766,19 @@ def main() -> int:
         )
         if pcg_verify.get("status") == "error":
             fail(
-                "pcg.verify should not become an error just because a PCG graph is not connected to Output: "
+                "pcg.compile should not become an error just because a PCG graph is not connected to Output: "
                 f"{pcg_verify}"
             )
         if not isinstance(pcg_verify.get("queryReport"), dict):
-            fail(f"pcg.verify missing queryReport for pcg graph: {pcg_verify}")
+            fail(f"pcg.compile missing queryReport for pcg graph: {pcg_verify}")
         pcg_compile_report = pcg_verify.get("compileReport")
         if not isinstance(pcg_compile_report, dict):
-            fail(f"pcg.verify missing compileReport for pcg graph: {pcg_verify}")
+            fail(f"pcg.compile missing compileReport for pcg graph: {pcg_verify}")
         if pcg_compile_report.get("compiled") is not True:
-            fail(f"pcg.verify should preserve compileReport.compiled=true for disconnected-output pcg graph: {pcg_verify}")
+            fail(f"pcg.compile should preserve compileReport.compiled=true for disconnected-output pcg graph: {pcg_verify}")
         pcg_health_diagnostics = pcg_verify.get("diagnostics")
         if not isinstance(pcg_health_diagnostics, list):
-            fail(f"pcg.verify missing diagnostics[]: {pcg_verify}")
+            fail(f"pcg.compile missing diagnostics[]: {pcg_verify}")
         pcg_health_codes = {
             diag.get("code")
             for diag in pcg_health_diagnostics
@@ -4791,8 +4791,8 @@ def main() -> int:
             "PCG_SPAWNER_NOT_CONNECTED_TO_OUTPUT",
         }:
             if unexpected_code in pcg_health_codes:
-                fail(f"pcg.verify should not invent {unexpected_code} for a disconnected-output pcg graph: {pcg_verify}")
-        print("[PASS] pcg.verify no longer invents disconnected-output failures")
+                fail(f"pcg.compile should not invent {unexpected_code} for a disconnected-output pcg graph: {pcg_verify}")
+        print("[PASS] pcg.compile no longer invents disconnected-output failures")
 
         pcg_remove_fixture_payload = call_execute_exec_with_retry(
             client=client,
@@ -4969,7 +4969,7 @@ def main() -> int:
             fail(f"PCG setPinDefault did not update Radius: {pcg_set_default_verify}")
         if pcg_set_default_verify.get("longitudinalSegments") != 8:
             fail(f"PCG setPinDefault did not update LongitudinalSegments: {pcg_set_default_verify}")
-        print("[PASS] pcg.mutate setPinDefault supports overridable inputs")
+        print("[PASS] pcg.graph.edit setPinDefault supports overridable inputs")
 
         pcg_filter_add = call_domain_tool(
             client,
@@ -5003,13 +5003,13 @@ def main() -> int:
         semantic_snapshot = pcg_filter_query.get("semanticSnapshot")
         snapshot_nodes = semantic_snapshot.get("nodes") if isinstance(semantic_snapshot, dict) else None
         if not isinstance(snapshot_nodes, list):
-            fail(f"PCG FilterByAttribute graph.query missing semanticSnapshot.nodes: {pcg_filter_query}")
+            fail(f"PCG FilterByAttribute pcg.graph.inspect missing semanticSnapshot.nodes: {pcg_filter_query}")
         filter_node = next(
             (node for node in snapshot_nodes if isinstance(node, dict) and node.get("id") == pcg_filter_node_id),
             None,
         )
         if not isinstance(filter_node, dict):
-            fail(f"PCG FilterByAttribute node not present in graph.query snapshot: {pcg_filter_query}")
+            fail(f"PCG FilterByAttribute node not present in pcg.graph.inspect snapshot: {pcg_filter_query}")
         filter_pins = filter_node.get("pins")
         if not isinstance(filter_pins, list):
             fail(f"PCG FilterByAttribute node missing pins[]: {filter_node}")
@@ -5024,8 +5024,8 @@ def main() -> int:
             "Threshold/AttributeTypes/DoubleValue",
         }:
             if expected_pin not in filter_pin_names:
-                fail(f"PCG FilterByAttribute query missing writable pin path {expected_pin}: {filter_node}")
-        print("[PASS] PCG FilterByAttribute query exposes writable constant threshold paths")
+                fail(f"PCG FilterByAttribute inspect missing writable pin path {expected_pin}: {filter_node}")
+        print("[PASS] PCG FilterByAttribute inspect exposes writable constant threshold paths")
 
         pcg_filter_mutate = call_domain_tool(
             client,
@@ -5070,10 +5070,10 @@ def main() -> int:
         )
         pcg_filter_mutate_results = pcg_filter_mutate.get("opResults")
         if not isinstance(pcg_filter_mutate_results, list) or len(pcg_filter_mutate_results) != 6:
-            fail(f"PCG FilterByAttribute mutate missing opResults: {pcg_filter_mutate}")
+            fail(f"PCG FilterByAttribute graph edit missing opResults: {pcg_filter_mutate}")
         for index, result in enumerate(pcg_filter_mutate_results):
             if not isinstance(result, dict) or not result.get("ok"):
-                fail(f"PCG FilterByAttribute mutate op[{index}] failed: {pcg_filter_mutate}")
+                fail(f"PCG FilterByAttribute graph edit op[{index}] failed: {pcg_filter_mutate}")
 
         pcg_filter_verify_payload = call_execute_exec_with_retry(
             client=client,
@@ -5113,7 +5113,7 @@ def main() -> int:
             fail(f"PCG FilterByAttribute threshold type did not update to Double: {pcg_filter_verify}")
         if abs(float(pcg_filter_verify.get("thresholdDoubleValue", 0.0)) - 0.5) > 1e-6:
             fail(f"PCG FilterByAttribute threshold constant did not update: {pcg_filter_verify}")
-        print("[PASS] pcg.mutate setPinDefault supports selector and constant threshold paths")
+        print("[PASS] pcg.graph.edit setPinDefault supports selector and constant threshold paths")
 
         if skip_editor_visual_regression:
             print("[WARN] editor.open/editor.focus/editor.screenshot regression skipped by LOOMLE_SKIP_EDITOR_VISUAL_REGRESSION=1")
