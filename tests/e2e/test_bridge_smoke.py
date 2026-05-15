@@ -58,9 +58,11 @@ REQUIRED_TOOLS = {
     "editor.focus",
     "editor.screenshot",
     "execute",
-    "widget.query",
-    "widget.mutate",
-    "widget.verify",
+    "widget.palette",
+    "widget.tree.inspect",
+    "widget.tree.edit",
+    "widget.inspect",
+    "widget.compile",
 }
 
 EXPECTED_ARCHIVED_WORKSPACE_EXAMPLES = {
@@ -3441,40 +3443,68 @@ def main() -> int:
         )
         print(f"[PASS] temporary WidgetBlueprint created: {temp_wbp_asset}")
 
-        wq = call_tool(client, 201, "widget.query", {"assetPath": temp_wbp_asset})
-        if not isinstance(wq.get("assetPath"), str) or wq.get("assetPath") != temp_wbp_asset:
-            fail(f"widget.query missing or wrong assetPath: {wq}")
-        if not isinstance(wq.get("revision"), str) or not wq.get("revision"):
-            fail(f"widget.query missing revision: {wq}")
-        if not isinstance(wq.get("diagnostics"), list):
-            fail(f"widget.query missing diagnostics[]: {wq}")
-        print("[PASS] widget.query structure validated")
+        wp = call_tool(client, 2005, "widget.palette", {"assetPath": temp_wbp_asset, "query": "TextBlock", "limit": 10})
+        widget_entries = wp.get("entries")
+        if not isinstance(widget_entries, list) or not widget_entries:
+            fail(f"widget.palette query TextBlock returned no entries: {wp}")
+        text_entry = next((entry for entry in widget_entries if "Text" in str(entry.get("label", "")) or "TextBlock" in str(entry)), widget_entries[0])
+        if not text_entry.get("executable"):
+            fail(f"widget.palette TextBlock entry should be executable: {text_entry}")
+        payload = text_entry.get("payload")
+        if not isinstance(payload, dict) or not isinstance(payload.get("widgetClass"), str) or not payload.get("widgetClass"):
+            fail(f"widget.palette TextBlock entry missing payload.widgetClass: {text_entry}")
+        print("[PASS] widget.palette TextBlock query validated")
 
-        wm = call_tool(client, 202, "widget.mutate", {
+        canvas_palette = call_tool(client, 2006, "widget.palette", {"assetPath": temp_wbp_asset, "query": "CanvasPanel", "limit": 20})
+        canvas_entries = canvas_palette.get("entries")
+        if not isinstance(canvas_entries, list) or not canvas_entries:
+            fail(f"widget.palette query CanvasPanel returned no entries: {canvas_palette}")
+        canvas_entry = next((entry for entry in canvas_entries if "CanvasPanel" in str(entry.get("payload", {}))), canvas_entries[0])
+
+        wq = call_tool(client, 201, "widget.tree.inspect", {"assetPath": temp_wbp_asset})
+        if not isinstance(wq.get("assetPath"), str) or wq.get("assetPath") != temp_wbp_asset:
+            fail(f"widget.tree.inspect missing or wrong assetPath: {wq}")
+        if not isinstance(wq.get("revision"), str) or not wq.get("revision"):
+            fail(f"widget.tree.inspect missing revision: {wq}")
+        if not isinstance(wq.get("diagnostics"), list):
+            fail(f"widget.tree.inspect missing diagnostics[]: {wq}")
+        print("[PASS] widget.tree.inspect structure validated")
+
+        wm = call_tool(client, 202, "widget.tree.edit", {
             "assetPath": temp_wbp_asset,
-            "ops": [{"op": "addWidget", "args": {
-                "widgetClass": "/Script/UMG.CanvasPanel",
+            "commands": [{"kind": "addFromPalette",
+                "entry": canvas_entry,
                 "name": "SmokeCanvas",
                 "parent": "root",
-            }}],
+            }],
         })
         if not isinstance(wm.get("opResults"), list) or not wm.get("opResults"):
-            fail(f"widget.mutate missing opResults: {wm}")
+            fail(f"widget.tree.edit missing opResults: {wm}")
         first_op = wm["opResults"][0] if isinstance(wm["opResults"][0], dict) else {}
         if not first_op.get("ok"):
-            fail(f"widget.mutate addWidget failed: {first_op}")
+            fail(f"widget.tree.edit addFromPalette failed: {first_op}")
         if wm.get("newRevision") == wm.get("previousRevision"):
-            fail(f"widget.mutate did not update revision: {wm}")
-        print("[PASS] widget.mutate addWidget validated")
+            fail(f"widget.tree.edit did not update revision: {wm}")
+        print("[PASS] widget.tree.edit addFromPalette validated")
 
-        wv = call_tool(client, 203, "widget.verify", {"assetPath": temp_wbp_asset})
+        wi = call_tool(client, 2025, "widget.inspect", {
+            "assetPath": temp_wbp_asset,
+            "widget": {"name": "SmokeCanvas"},
+        })
+        if not isinstance(wi.get("properties"), list) or not wi.get("properties"):
+            fail(f"widget.inspect instance missing properties[]: {wi}")
+        if not isinstance(wi.get("currentValues"), dict):
+            fail(f"widget.inspect instance missing currentValues: {wi}")
+        print("[PASS] widget.inspect instance validated")
+
+        wv = call_tool(client, 203, "widget.compile", {"assetPath": temp_wbp_asset})
         if wv.get("status") not in {"ok", "error"}:
-            fail(f"widget.verify unexpected status: {wv}")
+            fail(f"widget.compile unexpected status: {wv}")
         if wv.get("assetPath") != temp_wbp_asset:
-            fail(f"widget.verify wrong assetPath: {wv}")
+            fail(f"widget.compile wrong assetPath: {wv}")
         if not isinstance(wv.get("diagnostics"), list):
-            fail(f"widget.verify missing diagnostics[]: {wv}")
-        print("[PASS] widget.verify validated")
+            fail(f"widget.compile missing diagnostics[]: {wv}")
+        print("[PASS] widget.compile validated")
 
         print("[PASS] Bridge verification complete")
         return 0

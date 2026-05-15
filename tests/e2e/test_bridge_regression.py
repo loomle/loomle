@@ -744,11 +744,107 @@ def bp_set_default(node_id: str, pin: str, value) -> dict:
 def widget_op_ok(payload: dict, index: int = 0) -> dict:
     op_results = payload.get("opResults")
     if not isinstance(op_results, list) or len(op_results) <= index:
-        fail(f"widget.mutate opResults missing at index {index}: {payload}")
+        fail(f"widget.tree.edit opResults missing at index {index}: {payload}")
     entry = op_results[index] if isinstance(op_results[index], dict) else {}
     if not entry.get("ok"):
-        fail(f"widget.mutate op[{index}] not ok: {entry}")
+        fail(f"widget.tree.edit op[{index}] not ok: {entry}")
     return entry
+
+
+def widget_palette_entry(widget_class: str) -> dict:
+    class_name = widget_class.rsplit(".", 1)[-1].rsplit("/", 1)[-1]
+    return {
+        "id": f"widget.palette:test:{class_name}",
+        "kind": "native",
+        "label": class_name,
+        "executable": True,
+        "payload": {
+            "widgetClass": widget_class,
+            "className": class_name,
+        },
+    }
+
+
+def widget_command_from_legacy_op(op: dict) -> dict:
+    op_name = op.get("op")
+    args = op.get("args") if isinstance(op.get("args"), dict) else {}
+    if op_name == "addWidget":
+        command = {
+            "kind": "addFromPalette",
+            "entry": widget_palette_entry(args.get("widgetClass", "")),
+            "name": args.get("name", ""),
+        }
+        parent = args.get("parentName", args.get("parent"))
+        if parent:
+            command["parent"] = parent
+        if isinstance(args.get("slot"), dict):
+            command["slot"] = args["slot"]
+        return command
+    if op_name == "removeWidget":
+        return {"kind": "removeWidget", "target": {"name": args.get("name", "")}}
+    if op_name == "setProperty":
+        return {
+            "kind": "setProperty",
+            "target": {"name": args.get("name", "")},
+            "property": args.get("property", ""),
+            "value": args.get("value", ""),
+        }
+    if op_name == "reparentWidget":
+        command = {
+            "kind": "reparentWidget",
+            "target": {"name": args.get("name", "")},
+            "newParent": args.get("newParent", ""),
+        }
+        if isinstance(args.get("slot"), dict):
+            command["slot"] = args["slot"]
+        return command
+    return {"kind": op_name or "unknownOp"}
+
+
+def widget_tree_edit(
+    client: McpStdioClient,
+    request_id: int,
+    arguments: dict,
+    *,
+    expect_error: bool = False,
+) -> dict:
+    payload = {
+        "assetPath": arguments.get("assetPath"),
+        "commands": [widget_command_from_legacy_op(op) for op in arguments.get("ops", [])],
+    }
+    for field in ["dryRun", "continueOnError", "expectedRevision"]:
+        if field in arguments:
+            payload[field] = arguments[field]
+    return call_tool(client, request_id, "widget.tree.edit", payload, expect_error=expect_error)
+
+
+def widget_tree_inspect(
+    client: McpStdioClient,
+    request_id: int,
+    arguments: dict,
+    *,
+    expect_error: bool = False,
+) -> dict:
+    payload = {"assetPath": arguments.get("assetPath")}
+    if arguments.get("includeSlotProperties"):
+        payload["view"] = "layout"
+    for field in ["view", "filter"]:
+        if field in arguments:
+            payload[field] = arguments[field]
+    return call_tool(client, request_id, "widget.tree.inspect", payload, expect_error=expect_error)
+
+
+def widget_inspect(
+    client: McpStdioClient,
+    request_id: int,
+    arguments: dict,
+    *,
+    expect_error: bool = False,
+) -> dict:
+    payload = dict(arguments)
+    if "widgetName" in payload:
+        payload["widget"] = {"name": payload.pop("widgetName")}
+    return call_tool(client, request_id, "widget.inspect", payload, expect_error=expect_error)
 
 
 def mutate_with_plan_steps(
@@ -5540,19 +5636,19 @@ def main() -> int:
         )
         print(f"[PASS] W01 WidgetBlueprint fixture created: {temp_wbp_asset}")
 
-        # W02 — widget.query baseline structure
-        wq0 = call_tool(client, 5010, "widget.query", {"assetPath": temp_wbp_asset})
+        # W02 — widget.tree.inspect baseline structure
+        wq0 = widget_tree_inspect(client, 5010, {"assetPath": temp_wbp_asset})
         if wq0.get("assetPath") != temp_wbp_asset:
-            fail(f"W02 widget.query wrong assetPath: {wq0}")
+            fail(f"W02 widget.tree.inspect wrong assetPath: {wq0}")
         revision_0 = wq0.get("revision")
         if not isinstance(revision_0, str) or not revision_0:
-            fail(f"W02 widget.query missing revision: {wq0}")
+            fail(f"W02 widget.tree.inspect missing revision: {wq0}")
         if not isinstance(wq0.get("diagnostics"), list):
-            fail(f"W02 widget.query missing diagnostics[]: {wq0}")
-        print("[PASS] W02 widget.query baseline structure validated")
+            fail(f"W02 widget.tree.inspect missing diagnostics[]: {wq0}")
+        print("[PASS] W02 widget.tree.inspect baseline structure validated")
 
         # W03 — dryRun: op validated but nothing changes
-        wm_dry = call_tool(client, 5020, "widget.mutate", {
+        wm_dry = widget_tree_edit(client, 5020, {
             "assetPath": temp_wbp_asset,
             "dryRun": True,
             "ops": [{"op": "addWidget", "args": {
@@ -5570,10 +5666,10 @@ def main() -> int:
             fail(f"W03 dryRun changed should be False: {dry_op}")
         if wm_dry.get("newRevision") != wm_dry.get("previousRevision"):
             fail(f"W03 dryRun must not change revision: {wm_dry}")
-        print("[PASS] W03 widget.mutate dryRun validated")
+        print("[PASS] W03 widget.tree.edit dryRun validated")
 
         # W04 — addWidget CanvasPanel as root
-        wm_add_canvas = call_tool(client, 5030, "widget.mutate", {
+        wm_add_canvas = widget_tree_edit(client, 5030, {
             "assetPath": temp_wbp_asset,
             "ops": [{"op": "addWidget", "args": {
                 "widgetClass": "/Script/UMG.CanvasPanel",
@@ -5587,19 +5683,19 @@ def main() -> int:
         revision_1 = wm_add_canvas.get("newRevision")
         if not isinstance(revision_1, str) or revision_1 == revision_0:
             fail(f"W04 addWidget should update revision: {wm_add_canvas}")
-        print("[PASS] W04 widget.mutate addWidget CanvasPanel validated")
+        print("[PASS] W04 widget.tree.edit addFromPalette CanvasPanel validated")
 
         # W05 — query confirms rootWidget now exists
-        wq1 = call_tool(client, 5040, "widget.query", {"assetPath": temp_wbp_asset})
+        wq1 = widget_tree_inspect(client, 5040, {"assetPath": temp_wbp_asset})
         root_widget = wq1.get("rootWidget")
         if not isinstance(root_widget, dict):
-            fail(f"W05 widget.query rootWidget should be object after addWidget: {wq1}")
+            fail(f"W05 widget.tree.inspect rootWidget should be object after addFromPalette: {wq1}")
         if root_widget.get("name") != "RootCanvas":
             fail(f"W05 rootWidget name mismatch: {root_widget}")
-        print("[PASS] W05 widget.query reflects added CanvasPanel root")
+        print("[PASS] W05 widget.tree.inspect reflects added CanvasPanel root")
 
         # W06 — addWidget TextBlock as child of RootCanvas (uses parentName field)
-        wm_add_text = call_tool(client, 5050, "widget.mutate", {
+        wm_add_text = widget_tree_edit(client, 5050, {
             "assetPath": temp_wbp_asset,
             "ops": [{"op": "addWidget", "args": {
                 "widgetClass": "/Script/UMG.TextBlock",
@@ -5611,10 +5707,10 @@ def main() -> int:
         revision_2 = wm_add_text.get("newRevision")
         if not isinstance(revision_2, str) or revision_2 == revision_1:
             fail(f"W06 addWidget TextBlock should update revision: {wm_add_text}")
-        print("[PASS] W06 widget.mutate addWidget TextBlock as child validated")
+        print("[PASS] W06 widget.tree.edit addFromPalette TextBlock as child validated")
 
         # W07 — query with includeSlotProperties confirms child is present
-        wq2 = call_tool(client, 5060, "widget.query", {
+        wq2 = widget_tree_inspect(client, 5060, {
             "assetPath": temp_wbp_asset,
             "includeSlotProperties": True,
         })
@@ -5623,10 +5719,10 @@ def main() -> int:
             isinstance(c, dict) and c.get("name") == "TitleText" for c in root_children
         ):
             fail(f"W07 TitleText not found in rootWidget.children: {wq2}")
-        print("[PASS] W07 widget.query includeSlotProperties shows TextBlock child")
+        print("[PASS] W07 widget.tree.inspect layout view shows TextBlock child")
 
         # W08 — setProperty on TextBlock (Text / a known FText property)
-        wm_set_prop = call_tool(client, 5070, "widget.mutate", {
+        wm_set_prop = widget_tree_edit(client, 5070, {
             "assetPath": temp_wbp_asset,
             "ops": [{"op": "setProperty", "args": {
                 "name": "TitleText",
@@ -5635,10 +5731,10 @@ def main() -> int:
             }}],
         })
         widget_op_ok(wm_set_prop, 0)
-        print("[PASS] W08 widget.mutate setProperty validated")
+        print("[PASS] W08 widget.tree.edit setProperty validated")
 
         # W09 — addWidget second panel for reparent source (uses parentName field)
-        wm_add_panel2 = call_tool(client, 5080, "widget.mutate", {
+        wm_add_panel2 = widget_tree_edit(client, 5080, {
             "assetPath": temp_wbp_asset,
             "ops": [{"op": "addWidget", "args": {
                 "widgetClass": "/Script/UMG.VerticalBox",
@@ -5648,10 +5744,10 @@ def main() -> int:
         })
         widget_op_ok(wm_add_panel2, 0)
         revision_3 = wm_add_panel2.get("newRevision")
-        print("[PASS] W09 widget.mutate addWidget VerticalBox validated")
+        print("[PASS] W09 widget.tree.edit addFromPalette VerticalBox validated")
 
         # W10 — reparentWidget: move TitleText from RootCanvas to SecondPanel
-        wm_reparent = call_tool(client, 5090, "widget.mutate", {
+        wm_reparent = widget_tree_edit(client, 5090, {
             "assetPath": temp_wbp_asset,
             "ops": [{"op": "reparentWidget", "args": {
                 "name": "TitleText",
@@ -5662,10 +5758,10 @@ def main() -> int:
         revision_4 = wm_reparent.get("newRevision")
         if not isinstance(revision_4, str) or revision_4 == revision_3:
             fail(f"W10 reparentWidget should update revision: {wm_reparent}")
-        print("[PASS] W10 widget.mutate reparentWidget validated")
+        print("[PASS] W10 widget.tree.edit reparentWidget validated")
 
         # W11 — removeWidget
-        wm_remove = call_tool(client, 5100, "widget.mutate", {
+        wm_remove = widget_tree_edit(client, 5100, {
             "assetPath": temp_wbp_asset,
             "ops": [{"op": "removeWidget", "args": {"name": "TitleText"}}],
         })
@@ -5673,10 +5769,10 @@ def main() -> int:
         revision_5 = wm_remove.get("newRevision")
         if not isinstance(revision_5, str) or revision_5 == revision_4:
             fail(f"W11 removeWidget should update revision: {wm_remove}")
-        print("[PASS] W11 widget.mutate removeWidget validated")
+        print("[PASS] W11 widget.tree.edit removeWidget validated")
 
         # W12 — expectedRevision conflict: pass stale revision
-        wm_stale = call_tool(client, 5110, "widget.mutate", {
+        wm_stale = widget_tree_edit(client, 5110, {
             "assetPath": temp_wbp_asset,
             "expectedRevision": revision_0,
             "ops": [{"op": "addWidget", "args": {
@@ -5690,14 +5786,14 @@ def main() -> int:
         stale_code = wm_stale.get("code", "")
         if stale_code not in {"REVISION_CONFLICT", 1008} and wm_stale.get("message") != "REVISION_CONFLICT":
             fail(f"W12 expected REVISION_CONFLICT code, got: {stale_code}")
-        print("[PASS] W12 widget.mutate stale expectedRevision raises REVISION_CONFLICT")
+        print("[PASS] W12 widget.tree.edit stale expectedRevision raises REVISION_CONFLICT")
 
-        # W13 — unknown op with continueOnError
-        wm_unknown = call_tool(client, 5120, "widget.mutate", {
+        # W13 — op-level failure with continueOnError
+        wm_unknown = widget_tree_edit(client, 5120, {
             "assetPath": temp_wbp_asset,
             "continueOnError": True,
             "ops": [
-                {"op": "unknownOp", "args": {}},
+                {"op": "removeWidget", "args": {"name": "MissingBeforeContinue"}},
                 {"op": "addWidget", "args": {
                     "widgetClass": "/Script/UMG.TextBlock",
                     "name": "AfterUnknown",
@@ -5710,41 +5806,41 @@ def main() -> int:
         op0 = wm_unknown["opResults"][0] if isinstance(wm_unknown["opResults"][0], dict) else {}
         op1 = wm_unknown["opResults"][1] if isinstance(wm_unknown["opResults"][1], dict) else {}
         if op0.get("ok") is not False:
-            fail(f"W13 unknownOp[0] should be ok=False: {op0}")
+            fail(f"W13 removeWidget[0] should be ok=False: {op0}")
         if op1.get("ok") is not True:
             fail(f"W13 addWidget[1] should succeed after continueOnError: {op1}")
         if wm_unknown.get("partialApplied") is not True:
             fail(f"W13 partialApplied should be True: {wm_unknown}")
-        print("[PASS] W13 widget.mutate continueOnError partial execution validated")
+        print("[PASS] W13 widget.tree.edit continueOnError partial execution validated")
 
         # W14 — removeWidget for non-existent widget (op-level error)
-        wm_notfound = call_tool(client, 5130, "widget.mutate", {
+        wm_notfound = widget_tree_edit(client, 5130, {
             "assetPath": temp_wbp_asset,
             "ops": [{"op": "removeWidget", "args": {"name": "DoesNotExist"}}],
         })
         op_nf = wm_notfound.get("opResults", [{}])[0] if wm_notfound.get("opResults") else {}
         if not isinstance(op_nf, dict) or op_nf.get("ok") is not False:
             fail(f"W14 removeWidget non-existent should be ok=False: {op_nf}")
-        print("[PASS] W14 widget.mutate removeWidget non-existent widget returns op error")
+        print("[PASS] W14 widget.tree.edit removeWidget non-existent widget returns op error")
 
-        # W15 — widget.query on a non-WBP asset (Blueprint, should fail)
-        wq_err = call_tool(client, 5140, "widget.query", {"assetPath": temp_asset}, expect_error=True)
+        # W15 — widget.tree.inspect on a non-WBP asset (Blueprint, should fail)
+        wq_err = widget_tree_inspect(client, 5140, {"assetPath": temp_asset}, expect_error=True)
         if not wq_err.get("isError"):
-            fail(f"W15 widget.query on non-WBP asset should isError: {wq_err}")
+            fail(f"W15 widget.tree.inspect on non-WBP asset should isError: {wq_err}")
         err_code = wq_err.get("code", "")
         if err_code not in {"WIDGET_TREE_UNAVAILABLE", 1023} and wq_err.get("message") != "WIDGET_TREE_UNAVAILABLE":
             fail(f"W15 expected WIDGET_TREE_UNAVAILABLE, got: {err_code}")
-        print("[PASS] W15 widget.query on non-WBP asset raises WIDGET_TREE_UNAVAILABLE")
+        print("[PASS] W15 widget.tree.inspect on non-WBP asset raises WIDGET_TREE_UNAVAILABLE")
 
-        # W16 — widget.verify
-        wv = call_tool(client, 5150, "widget.verify", {"assetPath": temp_wbp_asset})
+        # W16 — widget.compile
+        wv = call_tool(client, 5150, "widget.compile", {"assetPath": temp_wbp_asset})
         if wv.get("status") not in {"ok", "error"}:
-            fail(f"W16 widget.verify unexpected status: {wv}")
+            fail(f"W16 widget.compile unexpected status: {wv}")
         if wv.get("assetPath") != temp_wbp_asset:
-            fail(f"W16 widget.verify wrong assetPath: {wv}")
+            fail(f"W16 widget.compile wrong assetPath: {wv}")
         if not isinstance(wv.get("diagnostics"), list):
-            fail(f"W16 widget.verify missing diagnostics[]: {wv}")
-        print("[PASS] W16 widget.verify validated")
+            fail(f"W16 widget.compile missing diagnostics[]: {wv}")
+        print("[PASS] W16 widget.compile validated")
 
         # W17 — issue #140: batch addWidget with parentName keeps root intact
         # Both ops in a single mutate call: first adds a VerticalBox as root,
@@ -5764,7 +5860,7 @@ def main() -> int:
                 "print(json.dumps({'created': wbp is not None}, ensure_ascii=False))\n"
             ),
         )
-        wm_batch = call_tool(client, 5162, "widget.mutate", {
+        wm_batch = widget_tree_edit(client, 5162, {
             "assetPath": temp_wbp_batch,
             "ops": [
                 {"op": "addWidget", "args": {
@@ -5783,7 +5879,7 @@ def main() -> int:
         widget_op_ok(wm_batch, 1)
         if wm_batch.get("applied") is not True:
             fail(f"W17 batch addWidget applied should be True: {wm_batch}")
-        wq_batch = call_tool(client, 5163, "widget.query", {"assetPath": temp_wbp_batch})
+        wq_batch = widget_tree_inspect(client, 5163, {"assetPath": temp_wbp_batch})
         batch_root = wq_batch.get("rootWidget", {})
         if batch_root.get("name") != "BatchRoot":
             fail(f"W17 rootWidget should be BatchRoot, got: {batch_root.get('name')!r}")
@@ -5795,7 +5891,7 @@ def main() -> int:
         # W18 — legacy "parent" alias still routes children correctly
         # Verifies backward-compat: "parent" field (not "parentName") must still work
         # for child widgets added in a separate mutate call.
-        wm_legacy = call_tool(client, 5164, "widget.mutate", {
+        wm_legacy = widget_tree_edit(client, 5164, {
             "assetPath": temp_wbp_batch,
             "ops": [{"op": "addWidget", "args": {
                 "widgetClass": "/Script/UMG.TextBlock",
@@ -5804,7 +5900,7 @@ def main() -> int:
             }}],
         })
         widget_op_ok(wm_legacy, 0)
-        wq_legacy = call_tool(client, 5165, "widget.query", {"assetPath": temp_wbp_batch})
+        wq_legacy = widget_tree_inspect(client, 5165, {"assetPath": temp_wbp_batch})
         legacy_root = wq_legacy.get("rootWidget", {})
         if legacy_root.get("name") != "BatchRoot":
             fail(f"W18 rootWidget should still be BatchRoot after legacy parent add: {legacy_root.get('name')!r}")
@@ -5813,54 +5909,54 @@ def main() -> int:
             fail(f"W18 LegacyChild not found in BatchRoot.children: {legacy_children}")
         print("[PASS] W18 legacy parent field alias routes child correctly")
 
-        # W19 — widget.describe by short class name
-        wd_short = call_tool(client, 5166, "widget.describe", {"widgetClass": "TextBlock"})
+        # W19 — widget.inspect by short class name
+        wd_short = widget_inspect(client, 5166, {"widgetClass": "TextBlock"})
         if "properties" not in wd_short or not isinstance(wd_short["properties"], list):
-            fail(f"W19 widget.describe TextBlock missing properties[]: {wd_short}")
+            fail(f"W19 widget.inspect TextBlock missing properties[]: {wd_short}")
         if not wd_short.get("widgetClass", "").endswith("TextBlock"):
-            fail(f"W19 widget.describe widgetClass mismatch: {wd_short.get('widgetClass')!r}")
+            fail(f"W19 widget.inspect widgetClass mismatch: {wd_short.get('widgetClass')!r}")
         if not any(p.get("name") == "Text" for p in wd_short["properties"]):
-            fail(f"W19 widget.describe TextBlock should have Text property: {[p['name'] for p in wd_short['properties']]}")
+            fail(f"W19 widget.inspect TextBlock should have Text property: {[p['name'] for p in wd_short['properties']]}")
         if not isinstance(wd_short.get("slotProperties"), list):
-            fail(f"W19 widget.describe missing slotProperties[]: {wd_short}")
+            fail(f"W19 widget.inspect missing slotProperties[]: {wd_short}")
         if "currentValues" in wd_short:
-            fail(f"W19 widget.describe without instance should NOT have currentValues: {wd_short}")
-        print("[PASS] W19 widget.describe by short class name (TextBlock)")
+            fail(f"W19 widget.inspect without instance should NOT have currentValues: {wd_short}")
+        print("[PASS] W19 widget.inspect by short class name (TextBlock)")
 
-        # W20 — widget.describe by full class path
-        wd_full = call_tool(client, 5167, "widget.describe", {"widgetClass": "/Script/UMG.TextBlock"})
+        # W20 — widget.inspect by full class path
+        wd_full = widget_inspect(client, 5167, {"widgetClass": "/Script/UMG.TextBlock"})
         if not wd_full.get("widgetClass", "").endswith("TextBlock"):
-            fail(f"W20 widget.describe full path widgetClass mismatch: {wd_full.get('widgetClass')!r}")
+            fail(f"W20 widget.inspect full path widgetClass mismatch: {wd_full.get('widgetClass')!r}")
         if "properties" not in wd_full or not isinstance(wd_full["properties"], list):
-            fail(f"W20 widget.describe full path missing properties[]: {wd_full}")
-        print("[PASS] W20 widget.describe by full class path (/Script/UMG.TextBlock)")
+            fail(f"W20 widget.inspect full path missing properties[]: {wd_full}")
+        print("[PASS] W20 widget.inspect by full class path (/Script/UMG.TextBlock)")
 
-        # W21 — widget.describe by assetPath+widgetName returns currentValues
+        # W21 — widget.inspect by assetPath+widgetName returns currentValues
         # Use "RootCanvas" (CanvasPanel) which persists throughout the test sequence
-        wd_inst = call_tool(client, 5168, "widget.describe", {
+        wd_inst = widget_inspect(client, 5168, {
             "assetPath": temp_wbp_asset,
             "widgetName": "RootCanvas"
         })
         if not wd_inst.get("widgetClass", "").endswith("CanvasPanel"):
-            fail(f"W21 widget.describe instance widgetClass mismatch: {wd_inst.get('widgetClass')!r}")
+            fail(f"W21 widget.inspect instance widgetClass mismatch: {wd_inst.get('widgetClass')!r}")
         if "properties" not in wd_inst or not isinstance(wd_inst["properties"], list):
-            fail(f"W21 widget.describe instance missing properties[]: {wd_inst}")
+            fail(f"W21 widget.inspect instance missing properties[]: {wd_inst}")
         if "currentValues" not in wd_inst or not isinstance(wd_inst["currentValues"], dict):
-            fail(f"W21 widget.describe instance should have currentValues dict: {wd_inst}")
-        print("[PASS] W21 widget.describe by assetPath+widgetName includes currentValues")
+            fail(f"W21 widget.inspect instance should have currentValues dict: {wd_inst}")
+        print("[PASS] W21 widget.inspect by assetPath+widget includes currentValues")
 
-        # W22 — widget.describe unknown class returns WIDGET_CLASS_NOT_FOUND
-        wd_bad = call_tool(client, 5169, "widget.describe", {"widgetClass": "NonExistentWidget_XYZ"}, expect_error=True)
+        # W22 — widget.inspect unknown class returns WIDGET_CLASS_NOT_FOUND
+        wd_bad = widget_inspect(client, 5169, {"widgetClass": "NonExistentWidget_XYZ"}, expect_error=True)
         if not wd_bad.get("isError"):
             fail(f"W22 expected error for unknown class, got: {wd_bad}")
         err_code = wd_bad.get("code", "")
         if err_code not in {"WIDGET_CLASS_NOT_FOUND", 1025} and wd_bad.get("message") != "WIDGET_CLASS_NOT_FOUND":
             fail(f"W22 expected WIDGET_CLASS_NOT_FOUND, got: {err_code}")
-        print("[PASS] W22 widget.describe unknown class returns WIDGET_CLASS_NOT_FOUND")
+        print("[PASS] W22 widget.inspect unknown class returns WIDGET_CLASS_NOT_FOUND")
 
         # W23 — setProperty can write a CanvasPanelSlot ZOrder (slot property fallback)
         # SecondPanel is a VerticalBox child of RootCanvas — its slot is FCanvasPanelSlot.
-        wm_slot_zorder = call_tool(client, 5200, "widget.mutate", {
+        wm_slot_zorder = widget_tree_edit(client, 5200, {
             "assetPath": temp_wbp_asset,
             "ops": [{"op": "setProperty", "args": {
                 "name": "SecondPanel",
@@ -5869,10 +5965,10 @@ def main() -> int:
             }}],
         })
         widget_op_ok(wm_slot_zorder, 0)
-        print("[PASS] W23 widget.mutate setProperty writes CanvasPanelSlot ZOrder via slot fallback")
+        print("[PASS] W23 widget.tree.edit setProperty writes CanvasPanelSlot ZOrder via slot fallback")
 
         # W24 — setProperty can write CanvasPanelSlot LayoutData (struct slot property)
-        wm_slot_layout = call_tool(client, 5210, "widget.mutate", {
+        wm_slot_layout = widget_tree_edit(client, 5210, {
             "assetPath": temp_wbp_asset,
             "ops": [{"op": "setProperty", "args": {
                 "name": "SecondPanel",
@@ -5881,10 +5977,10 @@ def main() -> int:
             }}],
         })
         widget_op_ok(wm_slot_layout, 0)
-        print("[PASS] W24 widget.mutate setProperty writes CanvasPanelSlot LayoutData via slot fallback")
+        print("[PASS] W24 widget.tree.edit setProperty writes CanvasPanelSlot LayoutData via slot fallback")
 
         # W25 — setProperty with a property that exists on neither widget nor slot returns INVALID_ARGUMENT
-        wm_bad_prop = call_tool(client, 5220, "widget.mutate", {
+        wm_bad_prop = widget_tree_edit(client, 5220, {
             "assetPath": temp_wbp_asset,
             "ops": [{"op": "setProperty", "args": {
                 "name": "SecondPanel",
@@ -5896,7 +5992,7 @@ def main() -> int:
         op25 = (wm_bad_prop.get("opResults") or [{}])[0]
         if op25.get("ok"):
             fail(f"W25 expected setProperty to fail for unknown property, but got ok: {op25}")
-        print("[PASS] W25 widget.mutate setProperty unknown property returns op-level error")
+        print("[PASS] W25 widget.tree.edit setProperty unknown property returns op-level error")
 
         print("[PASS] widget.* regression complete")
 

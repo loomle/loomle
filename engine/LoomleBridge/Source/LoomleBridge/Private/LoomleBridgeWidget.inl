@@ -27,6 +27,41 @@ bool ResolveWidgetName(const TSharedPtr<FJsonObject>& Args, FString& OutName)
     return false;
 }
 
+FString WidgetPaletteTextToString(const FText& Text)
+{
+    return Text.IsEmpty() ? FString() : Text.ToString();
+}
+
+TArray<TSharedPtr<FJsonValue>> WidgetPaletteStringArrayToJson(const TArray<FString>& Values)
+{
+    TArray<TSharedPtr<FJsonValue>> Out;
+    for (const FString& Value : Values)
+    {
+        if (!Value.IsEmpty())
+        {
+            Out.Add(MakeShared<FJsonValueString>(Value));
+        }
+    }
+    return Out;
+}
+
+bool IsWidgetPaletteClassAllowed(const UClass* Class)
+{
+    if (Class == nullptr || !Class->IsChildOf(UWidget::StaticClass()))
+    {
+        return false;
+    }
+    if (Class == UWidget::StaticClass() || Class == UUserWidget::StaticClass())
+    {
+        return false;
+    }
+    if (Class->HasAnyClassFlags(CLASS_Abstract | CLASS_Deprecated | CLASS_Hidden | CLASS_HideDropDown))
+    {
+        return false;
+    }
+    return true;
+}
+
 TSharedPtr<FJsonObject> MakeWidgetOpResult(
     int32 Index,
     const FString& Op,
@@ -46,6 +81,221 @@ TSharedPtr<FJsonObject> MakeWidgetOpResult(
 }
 
 } // namespace
+
+// ---------------------------------------------------------------------------
+// widget.palette
+// ---------------------------------------------------------------------------
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetPaletteToolResult(
+    const TSharedPtr<FJsonObject>& Arguments) const
+{
+    FString AssetPath;
+    FString Query;
+    int32 Limit = 50;
+    int32 Offset = 0;
+    if (Arguments.IsValid())
+    {
+        Arguments->TryGetStringField(TEXT("assetPath"), AssetPath);
+        Arguments->TryGetStringField(TEXT("query"), Query);
+        double LimitNumber = 0.0;
+        if (Arguments->TryGetNumberField(TEXT("limit"), LimitNumber))
+        {
+            Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, 500);
+        }
+        double OffsetNumber = 0.0;
+        if (Arguments->TryGetNumberField(TEXT("offset"), OffsetNumber))
+        {
+            Offset = FMath::Max(0, static_cast<int32>(OffsetNumber));
+        }
+    }
+
+    TSet<FString> ElementTypes;
+    const TArray<TSharedPtr<FJsonValue>>* ElementTypeValues = nullptr;
+    if (Arguments.IsValid() && Arguments->TryGetArrayField(TEXT("elementTypes"), ElementTypeValues) && ElementTypeValues != nullptr)
+    {
+        for (const TSharedPtr<FJsonValue>& Value : *ElementTypeValues)
+        {
+            FString Text;
+            if (Value.IsValid() && Value->TryGetString(Text))
+            {
+                ElementTypes.Add(Text.ToLower());
+            }
+        }
+    }
+    auto IncludesElementType = [&ElementTypes](const TCHAR* Type)
+    {
+        return ElementTypes.IsEmpty() || ElementTypes.Contains(FString(Type).ToLower());
+    };
+
+    TArray<UClass*> WidgetClasses;
+    for (TObjectIterator<UClass> It; It; ++It)
+    {
+        UClass* Class = *It;
+        if (IsWidgetPaletteClassAllowed(Class))
+        {
+            WidgetClasses.Add(Class);
+        }
+    }
+    WidgetClasses.Sort([](const UClass& Left, const UClass& Right)
+    {
+        return Left.GetPathName() < Right.GetPathName();
+    });
+
+    TArray<TSharedPtr<FJsonObject>> AllEntries;
+    int32 EntryIndex = 0;
+    auto AddEntry = [&AllEntries, &EntryIndex](const FString& Kind, const FString& Label, const FString& Category, const FString& Tooltip, const TSharedPtr<FJsonObject>& Payload, const TArray<FString>& Keywords)
+    {
+        const FString StableText = FString::Printf(
+            TEXT("%s|%s|%s|%s|%s|%d"),
+            *Kind,
+            *Category,
+            *Label,
+            *Tooltip,
+            *SerializeBlueprintJsonObjectCondensed(Payload),
+            EntryIndex);
+        TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+        Entry->SetStringField(TEXT("id"), FString::Printf(TEXT("widget.palette:%s"), *FMD5::HashAnsiString(*StableText)));
+        Entry->SetStringField(TEXT("kind"), Kind);
+        Entry->SetStringField(TEXT("label"), Label);
+        Entry->SetStringField(TEXT("category"), Category);
+        Entry->SetStringField(TEXT("tooltip"), Tooltip);
+        Entry->SetBoolField(TEXT("requiresContext"), false);
+        Entry->SetBoolField(TEXT("executable"), true);
+        Entry->SetArrayField(TEXT("keywords"), WidgetPaletteStringArrayToJson(Keywords));
+        Entry->SetObjectField(TEXT("payload"), Payload);
+        AllEntries.Add(Entry);
+        ++EntryIndex;
+    };
+
+    for (UClass* Class : WidgetClasses)
+    {
+        UWidget* DefaultWidget = Class ? Class->GetDefaultObject<UWidget>() : nullptr;
+        if (DefaultWidget == nullptr)
+        {
+            continue;
+        }
+
+        const bool bIsUserWidget = Class->IsChildOf(UUserWidget::StaticClass());
+        const FString Kind = bIsUserWidget ? TEXT("user") : TEXT("native");
+        if (!IncludesElementType(*Kind))
+        {
+            continue;
+        }
+
+        FString Label = WidgetPaletteTextToString(Class->GetDisplayNameText());
+        if (Label.IsEmpty())
+        {
+            Label = Class->GetName();
+        }
+        FString Category = WidgetPaletteTextToString(DefaultWidget->GetPaletteCategory());
+        if (Category.IsEmpty())
+        {
+            Category = bIsUserWidget ? TEXT("User Created") : TEXT("Common");
+        }
+
+        TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+        Payload->SetStringField(TEXT("widgetClass"), Class->GetPathName());
+        Payload->SetStringField(TEXT("className"), Class->GetName());
+
+        TArray<FString> Keywords;
+        Keywords.Add(Class->GetName());
+        Keywords.Add(Class->GetPathName());
+        Keywords.Add(Category);
+
+        const FString Tooltip = FString::Printf(TEXT("Adds a %s widget to the WidgetTree."), *Label);
+        AddEntry(Kind, Label, Category, Tooltip, Payload, Keywords);
+    }
+
+    auto EntryMatchesQuery = [&Query](const TSharedPtr<FJsonObject>& Entry)
+    {
+        if (Query.IsEmpty())
+        {
+            return true;
+        }
+        const FString QueryLower = Query.ToLower();
+        for (const TCHAR* Field : { TEXT("label"), TEXT("category"), TEXT("tooltip"), TEXT("kind") })
+        {
+            FString Value;
+            if (Entry->TryGetStringField(Field, Value) && Value.ToLower().Contains(QueryLower))
+            {
+                return true;
+            }
+        }
+        return SerializeBlueprintJsonObjectCondensed(Entry).ToLower().Contains(QueryLower);
+    };
+
+    auto EntryScore = [&Query](const TSharedPtr<FJsonObject>& Entry)
+    {
+        if (Query.IsEmpty())
+        {
+            return 100;
+        }
+        const FString QueryLower = Query.ToLower();
+        FString Label;
+        Entry->TryGetStringField(TEXT("label"), Label);
+        const FString LabelLower = Label.ToLower();
+        if (LabelLower.Equals(QueryLower))
+        {
+            return 0;
+        }
+        if (LabelLower.StartsWith(QueryLower))
+        {
+            return 10;
+        }
+        if (LabelLower.Contains(QueryLower))
+        {
+            return 20;
+        }
+        FString Category;
+        Entry->TryGetStringField(TEXT("category"), Category);
+        if (Category.ToLower().Contains(QueryLower))
+        {
+            return 30;
+        }
+        return 50;
+    };
+
+    TArray<TSharedPtr<FJsonObject>> Filtered;
+    for (const TSharedPtr<FJsonObject>& Entry : AllEntries)
+    {
+        if (Entry.IsValid() && EntryMatchesQuery(Entry))
+        {
+            Filtered.Add(Entry);
+        }
+    }
+    Filtered.Sort([&EntryScore](const TSharedPtr<FJsonObject>& Left, const TSharedPtr<FJsonObject>& Right)
+    {
+        const int32 LeftScore = EntryScore(Left);
+        const int32 RightScore = EntryScore(Right);
+        if (LeftScore != RightScore)
+        {
+            return LeftScore < RightScore;
+        }
+        FString LeftLabel;
+        FString RightLabel;
+        Left->TryGetStringField(TEXT("label"), LeftLabel);
+        Right->TryGetStringField(TEXT("label"), RightLabel);
+        return LeftLabel < RightLabel;
+    });
+
+    TArray<TSharedPtr<FJsonValue>> EntriesJson;
+    const int32 Start = FMath::Min(Offset, Filtered.Num());
+    const int32 End = FMath::Min(Start + Limit, Filtered.Num());
+    for (int32 Index = Start; Index < End; ++Index)
+    {
+        EntriesJson.Add(MakeShared<FJsonValueObject>(Filtered[Index]));
+    }
+
+    TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+    Payload->SetStringField(TEXT("assetPath"), NormalizeAssetPath(AssetPath));
+    Payload->SetStringField(TEXT("query"), Query);
+    Payload->SetNumberField(TEXT("total"), Filtered.Num());
+    Payload->SetNumberField(TEXT("limit"), Limit);
+    Payload->SetNumberField(TEXT("offset"), Offset);
+    Payload->SetArrayField(TEXT("entries"), EntriesJson);
+    Payload->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
+    return Payload;
+}
 
 // ---------------------------------------------------------------------------
 // widget.query

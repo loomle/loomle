@@ -107,7 +107,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
         TEXT("pcg.list"), TEXT("pcg.query"), TEXT("pcg.mutate"), TEXT("pcg.verify"), TEXT("pcg.describe"), TEXT("pcg.palette"),
         TEXT("pcg.parameter.inspect"), TEXT("pcg.parameter.edit"),
         TEXT("diagnostic.tail"), TEXT("log.tail"),
-        TEXT("widget.query"), TEXT("widget.mutate"), TEXT("widget.verify"), TEXT("widget.describe")
+        TEXT("widget.palette"), TEXT("widget.query"), TEXT("widget.mutate"), TEXT("widget.verify"), TEXT("widget.describe")
     }));
 
     TSharedPtr<FJsonObject> Features = MakeShared<FJsonObject>();
@@ -398,6 +398,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     else if (Name.Equals(LoomleBridgeConstants::LogTailToolName))
     {
         Payload = BuildLogTailToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("widget.palette")))
+    {
+        Payload = BuildWidgetPaletteToolResult(Arguments);
     }
     else if (Name.Equals(TEXT("widget.query")))
     {

@@ -4,7 +4,7 @@ pub fn schema_inspect_schema() -> JsonObject {
     serde_json::from_value(serde_json::json!({
         "type": "object",
         "properties": {
-            "domain": { "type": "string", "enum": ["blueprint", "material", "pcg"] },
+            "domain": { "type": "string", "enum": ["blueprint", "material", "pcg", "widget"] },
             "tool": { "type": "string", "minLength": 1 },
             "operation": {
                 "type": "string",
@@ -29,12 +29,12 @@ pub fn call_schema_inspect(args: &JsonObject) -> CallToolResult {
     let Some(domain) = args.get("domain").and_then(|value| value.as_str()) else {
         return invalid_argument_result("schema.inspect requires domain.");
     };
-    if domain != "blueprint" && domain != "material" && domain != "pcg" {
+    if domain != "blueprint" && domain != "material" && domain != "pcg" && domain != "widget" {
         return CallToolResult::structured_error(serde_json::json!({
             "isError": true,
             "code": "UNKNOWN_DOMAIN",
             "message": format!("Unknown schema domain: {domain}"),
-            "availableDomains": ["blueprint", "material", "pcg"],
+            "availableDomains": ["blueprint", "material", "pcg", "widget"],
             "retryable": false
         }));
     }
@@ -77,6 +77,22 @@ pub fn call_schema_inspect(args: &JsonObject) -> CallToolResult {
             Err(error) => return error,
         };
         return call_material_graph_edit_schema_inspect(args, &includes);
+    }
+    if domain == "widget" {
+        if tool != "widget.tree.edit" {
+            return CallToolResult::structured_error(serde_json::json!({
+                "isError": true,
+                "code": "UNKNOWN_TOOL",
+                "message": format!("Unknown schema tool for domain widget: {tool}"),
+                "availableTools": ["widget.tree.edit"],
+                "retryable": false
+            }));
+        }
+        let includes = match parse_schema_inspect_includes(args) {
+            Ok(value) => value,
+            Err(error) => return error,
+        };
+        return call_widget_tree_edit_schema_inspect(args, &includes);
     }
 
     if !matches!(tool, "blueprint.graph.edit" | "blueprint.member.edit") {
@@ -203,6 +219,31 @@ fn call_pcg_parameter_edit_schema_inspect(
         "source": {
             "document": "UE PCG graph User Parameters",
             "section": "FInstancedPropertyBag operations"
+        }
+    }))
+}
+
+fn call_widget_tree_edit_schema_inspect(args: &JsonObject, includes: &[String]) -> CallToolResult {
+    if let Some(operation) = args.get("operation").and_then(|value| value.as_str()) {
+        let Some(payload) = widget_tree_edit_operation_schema(operation, includes) else {
+            return CallToolResult::structured_error(serde_json::json!({
+                "isError": true,
+                "code": "UNKNOWN_OPERATION",
+                "message": format!("Unknown operation for widget.tree.edit: {operation}"),
+                "availableOperations": widget_tree_edit_operation_names(),
+                "retryable": false
+            }));
+        };
+        return CallToolResult::structured(payload);
+    }
+
+    CallToolResult::structured(serde_json::json!({
+        "domain": "widget",
+        "tool": "widget.tree.edit",
+        "operations": widget_tree_edit_operation_index(),
+        "source": {
+            "document": "UE UMG WidgetTree and Widget Palette",
+            "section": "WidgetTree edit command set"
         }
     }))
 }
@@ -886,6 +927,127 @@ fn material_graph_edit_operation_index() -> Vec<serde_json::Value> {
         serde_json::json!({"name":"disconnect","category":"core","summary":"Remove one explicit Material expression or root pin link."}),
         serde_json::json!({"name":"breakPinLinks","category":"core","summary":"Remove all links from one Material expression or root pin."}),
     ]
+}
+
+fn widget_tree_edit_operation_names() -> Vec<&'static str> {
+    vec![
+        "addFromPalette",
+        "removeWidget",
+        "setProperty",
+        "reparentWidget",
+    ]
+}
+
+fn widget_tree_edit_operation_index() -> Vec<serde_json::Value> {
+    vec![
+        serde_json::json!({"name":"addFromPalette","category":"core","summary":"Create one UMG widget from a selected widget.palette entry."}),
+        serde_json::json!({"name":"removeWidget","category":"core","summary":"Remove one widget from the WidgetTree."}),
+        serde_json::json!({"name":"setProperty","category":"core","summary":"Set one editable property on a widget instance."}),
+        serde_json::json!({"name":"reparentWidget","category":"core","summary":"Move one widget under a different parent widget."}),
+    ]
+}
+
+fn add_widget_tree_edit_schema_defs(mut schema: serde_json::Value) -> serde_json::Value {
+    if let Some(object) = schema.as_object_mut() {
+        object.insert(
+            "$defs".to_string(),
+            serde_json::json!({
+                "widgetRef": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string", "minLength": 1 }
+                    },
+                    "required": ["name"],
+                    "additionalProperties": false
+                }
+            }),
+        );
+    }
+    schema
+}
+
+fn widget_tree_edit_operation_schema(
+    operation: &str,
+    includes: &[String],
+) -> Option<serde_json::Value> {
+    let (category, summary, schema, examples, errors, notes) = match operation {
+        "addFromPalette" => (
+            "core",
+            "Create one UMG widget from a selected widget.palette entry.",
+            serde_json::json!({
+                "type":"object",
+                "properties":{
+                    "kind":{"const":"addFromPalette"},
+                    "entry":{"type":"object","properties":{"id":{"type":"string","minLength":1},"kind":{"type":"string"},"payload":{"type":"object","properties":{"widgetClass":{"type":"string","minLength":1}},"required":["widgetClass"],"additionalProperties":true},"executable":{"type":"boolean"}},"required":["id","payload"],"additionalProperties":true},
+                    "name":{"type":"string","minLength":1},
+                    "parent":{"oneOf":[{"type":"string","minLength":1},{"$ref":"#/$defs/widgetRef"}]},
+                    "parentName":{"type":"string","minLength":1},
+                    "slot":{"type":"object","additionalProperties":true}
+                },
+                "required":["kind","entry","name"],
+                "additionalProperties":false
+            }),
+            vec![serde_json::json!({"kind":"addFromPalette","entry":{"id":"widget.palette:...","kind":"native","payload":{"widgetClass":"/Script/UMG.TextBlock"}},"name":"TitleText","parent":{"name":"RootCanvas"}})],
+            vec!["PALETTE_ENTRY_NOT_EXECUTABLE", "INVALID_PALETTE_ENTRY"],
+            vec!["Use widget.palette first and pass the full selected entry. Do not guess widget classes in public calls.", "parent may be omitted only when creating the root widget."],
+        ),
+        "removeWidget" => (
+            "core",
+            "Remove one widget from the WidgetTree.",
+            serde_json::json!({"type":"object","properties":{"kind":{"const":"removeWidget"},"target":{"$ref":"#/$defs/widgetRef"},"name":{"type":"string","minLength":1}},"required":["kind"],"additionalProperties":false}),
+            vec![serde_json::json!({"kind":"removeWidget","target":{"name":"TitleText"}})],
+            vec!["WIDGET_NOT_FOUND"],
+            vec!["Removing a panel also removes its child widgets."],
+        ),
+        "setProperty" => (
+            "core",
+            "Set one editable property on a widget instance.",
+            serde_json::json!({"type":"object","properties":{"kind":{"const":"setProperty"},"target":{"$ref":"#/$defs/widgetRef"},"name":{"type":"string","minLength":1},"property":{"type":"string","minLength":1},"value":{"type":"string","description":"UE serialized property value text."}},"required":["kind","property","value"],"additionalProperties":false}),
+            vec![serde_json::json!({"kind":"setProperty","target":{"name":"TitleText"},"property":"Text","value":"Hello"})],
+            vec!["WIDGET_NOT_FOUND", "PROPERTY_NOT_FOUND", "PROPERTY_SET_FAILED"],
+            vec!["Use widget.inspect to discover editable property names and serialized value expectations."],
+        ),
+        "reparentWidget" => (
+            "core",
+            "Move one widget under a different parent widget.",
+            serde_json::json!({"type":"object","properties":{"kind":{"const":"reparentWidget"},"target":{"$ref":"#/$defs/widgetRef"},"name":{"type":"string","minLength":1},"newParent":{"oneOf":[{"type":"string","minLength":1},{"$ref":"#/$defs/widgetRef"}]},"slot":{"type":"object","additionalProperties":true}},"required":["kind","newParent"],"additionalProperties":false}),
+            vec![serde_json::json!({"kind":"reparentWidget","target":{"name":"TitleText"},"newParent":{"name":"ContentBox"}})],
+            vec!["WIDGET_NOT_FOUND", "PARENT_NOT_FOUND", "REPARENT_FAILED"],
+            vec!["slot values are panel-slot properties and depend on the new parent widget type."],
+        ),
+        _ => return None,
+    };
+
+    let mut payload = serde_json::json!({
+        "domain": "widget",
+        "tool": "widget.tree.edit",
+        "operation": operation,
+        "category": category,
+        "source": {
+            "document": "UE UMG WidgetTree and Widget Palette",
+            "section": operation
+        }
+    });
+    let payload_object = payload.as_object_mut()?;
+    if schema_include_requested(includes, "summary") {
+        payload_object.insert("summary".to_string(), serde_json::json!(summary));
+    }
+    if schema_include_requested(includes, "schema") {
+        payload_object.insert(
+            "schema".to_string(),
+            add_widget_tree_edit_schema_defs(schema),
+        );
+    }
+    if schema_include_requested(includes, "examples") {
+        payload_object.insert("examples".to_string(), serde_json::json!(examples));
+    }
+    if schema_include_requested(includes, "errors") {
+        payload_object.insert("errors".to_string(), serde_json::json!(errors));
+    }
+    if schema_include_requested(includes, "notes") {
+        payload_object.insert("notes".to_string(), serde_json::json!(notes));
+    }
+    Some(payload)
 }
 
 fn pcg_parameter_edit_operation_names() -> Vec<&'static str> {

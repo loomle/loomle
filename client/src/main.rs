@@ -387,7 +387,9 @@ impl LoomleProxyServer {
             "widgetBlueprint" => {
                 let mut inspect_args = args;
                 inspect_args.remove("kind");
-                self.runtime_call("widget.query", inspect_args).await
+                self.call_public_widget_tool("widget.tree.inspect", inspect_args)
+                    .await?
+                    .ok_or_else(|| McpError::internal_error("widget.tree.inspect missing", None))
             }
             other => Ok(invalid_argument_result(format!(
                 "Unsupported asset.inspect kind: {other}."
@@ -774,6 +776,15 @@ impl ServerHandler for LoomleProxyServer {
         {
             return Ok(result);
         }
+        if let Some(result) = self
+            .call_public_widget_tool(
+                request.name.as_ref(),
+                request.arguments.clone().unwrap_or_default(),
+            )
+            .await?
+        {
+            return Ok(result);
+        }
         if request.name.as_ref() == "play"
             && request
                 .arguments
@@ -1022,6 +1033,38 @@ impl LoomleProxyServer {
             "pcg.graph.layout" => Ok(Some(self.call_pcg_graph_layout(args).await?)),
             "pcg.graph.edit" => Ok(Some(self.call_pcg_graph_edit(args).await?)),
             "pcg.compile" => Ok(Some(self.call_pcg_compile(args).await?)),
+            _ => Ok(None),
+        }
+    }
+
+    async fn call_public_widget_tool(
+        &self,
+        tool_name: &str,
+        args: rmcp::model::JsonObject,
+    ) -> Result<Option<CallToolResult>, McpError> {
+        match tool_name {
+            "widget.tree.edit" => {
+                let mutate_args = match translate_widget_tree_edit_args(&args) {
+                    Ok(value) => value,
+                    Err(error) => return Ok(Some(error)),
+                };
+                Ok(Some(self.runtime_call("widget.mutate", mutate_args).await?))
+            }
+            "widget.tree.inspect" => {
+                let inspect_args = translate_widget_tree_inspect_args(&args);
+                let result = self.runtime_call("widget.query", inspect_args).await?;
+                Ok(Some(shape_widget_tree_inspect_result(result, &args)))
+            }
+            "widget.inspect" => {
+                let inspect_args = match translate_widget_inspect_args(&args) {
+                    Ok(value) => value,
+                    Err(error) => return Ok(Some(error)),
+                };
+                Ok(Some(
+                    self.runtime_call("widget.describe", inspect_args).await?,
+                ))
+            }
+            "widget.compile" => Ok(Some(self.runtime_call("widget.verify", args).await?)),
             _ => Ok(None),
         }
     }
@@ -2650,6 +2693,333 @@ fn translate_pcg_graph_layout_args(
     args: &rmcp::model::JsonObject,
 ) -> Result<rmcp::model::JsonObject, CallToolResult> {
     translate_selection_graph_layout_args(args, "pcg.graph.layout")
+}
+
+fn widget_parent_name_from_command(
+    command: &serde_json::Map<String, serde_json::Value>,
+) -> Option<String> {
+    if let Some(parent_name) = command.get("parentName").and_then(|value| value.as_str()) {
+        return Some(parent_name.to_owned());
+    }
+    match command.get("parent") {
+        Some(serde_json::Value::String(parent)) => Some(parent.clone()),
+        Some(serde_json::Value::Object(parent)) => parent
+            .get("name")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned),
+        _ => None,
+    }
+}
+
+fn widget_target_name_from_command(
+    command: &serde_json::Map<String, serde_json::Value>,
+) -> Option<String> {
+    if let Some(name) = command.get("name").and_then(|value| value.as_str()) {
+        return Some(name.to_owned());
+    }
+    command
+        .get("target")
+        .and_then(|value| value.as_object())
+        .and_then(|target| target.get("name"))
+        .and_then(|value| value.as_str())
+        .map(str::to_owned)
+}
+
+fn compile_widget_tree_command(
+    command: &serde_json::Map<String, serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    let kind = command
+        .get("kind")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| "widget.tree.edit command requires kind.".to_owned())?;
+
+    let mut op = serde_json::Map::new();
+    let mut op_args = serde_json::Map::new();
+    match kind {
+        "addFromPalette" => {
+            let entry = command
+                .get("entry")
+                .and_then(|value| value.as_object())
+                .ok_or_else(|| "addFromPalette requires entry from widget.palette.".to_owned())?;
+            let entry_id = entry
+                .get("id")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "addFromPalette requires entry.id.".to_owned())?;
+            if entry.get("executable").and_then(|value| value.as_bool()) == Some(false) {
+                return Err(format!(
+                    "widget.palette entry is not executable: {entry_id}"
+                ));
+            }
+            let payload = entry
+                .get("payload")
+                .and_then(|value| value.as_object())
+                .ok_or_else(|| "addFromPalette requires entry.payload.".to_owned())?;
+            let widget_class = payload
+                .get("widgetClass")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "widget.palette entry.payload requires widgetClass.".to_owned())?;
+            let name = command
+                .get("name")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "addFromPalette requires name.".to_owned())?;
+
+            op.insert("op".into(), serde_json::json!("addWidget"));
+            op_args.insert("widgetClass".into(), serde_json::json!(widget_class));
+            op_args.insert("name".into(), serde_json::json!(name));
+            if let Some(parent_name) = widget_parent_name_from_command(command) {
+                op_args.insert("parentName".into(), serde_json::json!(parent_name));
+            }
+            if let Some(slot) = command.get("slot").and_then(|value| value.as_object()) {
+                op_args.insert("slot".into(), serde_json::Value::Object(slot.clone()));
+            }
+        }
+        "removeWidget" => {
+            let name = widget_target_name_from_command(command)
+                .ok_or_else(|| "removeWidget requires name or target.name.".to_owned())?;
+            op.insert("op".into(), serde_json::json!("removeWidget"));
+            op_args.insert("name".into(), serde_json::json!(name));
+        }
+        "setProperty" => {
+            let name = widget_target_name_from_command(command)
+                .ok_or_else(|| "setProperty requires name or target.name.".to_owned())?;
+            let property = command
+                .get("property")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "setProperty requires property.".to_owned())?;
+            let value = command
+                .get("value")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "setProperty requires string value.".to_owned())?;
+            op.insert("op".into(), serde_json::json!("setProperty"));
+            op_args.insert("name".into(), serde_json::json!(name));
+            op_args.insert("property".into(), serde_json::json!(property));
+            op_args.insert("value".into(), serde_json::json!(value));
+        }
+        "reparentWidget" => {
+            let name = widget_target_name_from_command(command)
+                .ok_or_else(|| "reparentWidget requires name or target.name.".to_owned())?;
+            let new_parent = match command.get("newParent") {
+                Some(serde_json::Value::String(parent)) => Some(parent.as_str()),
+                Some(serde_json::Value::Object(parent)) => {
+                    parent.get("name").and_then(|value| value.as_str())
+                }
+                _ => None,
+            }
+            .ok_or_else(|| "reparentWidget requires newParent or newParent.name.".to_owned())?;
+            op.insert("op".into(), serde_json::json!("reparentWidget"));
+            op_args.insert("name".into(), serde_json::json!(name));
+            op_args.insert("newParent".into(), serde_json::json!(new_parent));
+            if let Some(slot) = command.get("slot").and_then(|value| value.as_object()) {
+                op_args.insert("slot".into(), serde_json::Value::Object(slot.clone()));
+            }
+        }
+        other => {
+            return Err(format!(
+                "Unsupported widget.tree.edit command kind: {other}."
+            ));
+        }
+    }
+
+    op.insert("args".into(), serde_json::Value::Object(op_args));
+    Ok(serde_json::Value::Object(op))
+}
+
+fn translate_widget_tree_edit_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let asset_path = args
+        .get("assetPath")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| invalid_argument_result("widget.tree.edit requires assetPath."))?;
+    let commands = args
+        .get("commands")
+        .and_then(|value| value.as_array())
+        .ok_or_else(|| invalid_argument_result("widget.tree.edit requires commands."))?;
+    if commands.is_empty() {
+        return Err(invalid_argument_result(
+            "widget.tree.edit commands must be non-empty.",
+        ));
+    }
+
+    let mut ops = Vec::new();
+    for command in commands {
+        let Some(command_obj) = command.as_object() else {
+            return Err(invalid_argument_result(
+                "widget.tree.edit commands entries must be objects.",
+            ));
+        };
+        match compile_widget_tree_command(command_obj) {
+            Ok(op) => ops.push(op),
+            Err(message) => return Err(invalid_argument_result(message)),
+        }
+    }
+
+    let mut translated = rmcp::model::JsonObject::new();
+    translated.insert("assetPath".into(), serde_json::json!(asset_path));
+    translated.insert("ops".into(), serde_json::Value::Array(ops));
+    copy_mutation_controls(args, &mut translated);
+    copy_if_present(args, &mut translated, "continueOnError");
+    Ok(translated)
+}
+
+fn translate_widget_tree_inspect_args(args: &rmcp::model::JsonObject) -> rmcp::model::JsonObject {
+    let mut translated = rmcp::model::JsonObject::new();
+    copy_if_present(args, &mut translated, "assetPath");
+    let include_slot_properties = args
+        .get("view")
+        .and_then(|value| value.as_str())
+        .is_some_and(|view| matches!(view, "layout" | "details"));
+    translated.insert(
+        "includeSlotProperties".into(),
+        serde_json::json!(include_slot_properties),
+    );
+    translated
+}
+
+fn widget_tree_inspect_view(args: &rmcp::model::JsonObject) -> &str {
+    args.get("view")
+        .and_then(|value| value.as_str())
+        .unwrap_or("outline")
+}
+
+fn widget_tree_filter_names(args: &rmcp::model::JsonObject) -> std::collections::HashSet<String> {
+    args.get("filter")
+        .and_then(|value| value.as_object())
+        .and_then(|filter| filter.get("names"))
+        .and_then(|value| value.as_array())
+        .map(|names| {
+            names
+                .iter()
+                .filter_map(|value| value.as_str())
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn widget_tree_filter_text(args: &rmcp::model::JsonObject) -> Option<String> {
+    args.get("filter")
+        .and_then(|value| value.as_object())
+        .and_then(|filter| filter.get("text"))
+        .and_then(|value| value.as_str())
+        .map(|text| text.to_lowercase())
+}
+
+fn widget_tree_node_matches(
+    node: &serde_json::Map<String, serde_json::Value>,
+    names: &std::collections::HashSet<String>,
+    text: Option<&str>,
+) -> bool {
+    let name_matches = names.is_empty()
+        || node
+            .get("name")
+            .and_then(|value| value.as_str())
+            .is_some_and(|name| names.contains(name));
+    let text_matches = text.is_none_or(|query| {
+        serde_json::to_string(node)
+            .unwrap_or_default()
+            .to_lowercase()
+            .contains(query)
+    });
+    name_matches && text_matches
+}
+
+fn prune_widget_tree_outline(node: &mut serde_json::Value) {
+    let Some(object) = node.as_object_mut() else {
+        return;
+    };
+    object.remove("slot");
+    if let Some(children) = object
+        .get_mut("children")
+        .and_then(|value| value.as_array_mut())
+    {
+        for child in children {
+            prune_widget_tree_outline(child);
+        }
+    }
+}
+
+fn collect_widget_tree_matches(
+    node: &serde_json::Value,
+    names: &std::collections::HashSet<String>,
+    text: Option<&str>,
+    out: &mut Vec<serde_json::Value>,
+) {
+    let Some(object) = node.as_object() else {
+        return;
+    };
+    if widget_tree_node_matches(object, names, text) {
+        out.push(node.clone());
+    }
+    if let Some(children) = object.get("children").and_then(|value| value.as_array()) {
+        for child in children {
+            collect_widget_tree_matches(child, names, text, out);
+        }
+    }
+}
+
+fn shape_widget_tree_inspect_payload(
+    mut payload: serde_json::Value,
+    args: &rmcp::model::JsonObject,
+) -> serde_json::Value {
+    let view = widget_tree_inspect_view(args);
+    let names = widget_tree_filter_names(args);
+    let text = widget_tree_filter_text(args);
+    let has_filter = !names.is_empty() || text.is_some();
+
+    if let Some(object) = payload.as_object_mut() {
+        object.insert("view".into(), serde_json::json!(view));
+        if view == "outline" {
+            if let Some(root_widget) = object.get_mut("rootWidget") {
+                prune_widget_tree_outline(root_widget);
+            }
+        }
+        if has_filter {
+            let mut matches = Vec::new();
+            if let Some(root_widget) = object.get("rootWidget") {
+                collect_widget_tree_matches(root_widget, &names, text.as_deref(), &mut matches);
+            }
+            object.insert("matches".into(), serde_json::Value::Array(matches));
+            if view == "details" {
+                object.remove("rootWidget");
+            }
+        }
+    }
+    payload
+}
+
+fn shape_widget_tree_inspect_result(
+    mut result: CallToolResult,
+    args: &rmcp::model::JsonObject,
+) -> CallToolResult {
+    if let Some(payload) = result.structured_content.take() {
+        result.structured_content = Some(shape_widget_tree_inspect_payload(payload, args));
+    }
+    result
+}
+
+fn translate_widget_inspect_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let mut translated = rmcp::model::JsonObject::new();
+    copy_if_present(args, &mut translated, "widgetClass");
+    copy_if_present(args, &mut translated, "assetPath");
+    if let Some(widget) = args.get("widget").and_then(|value| value.as_object()) {
+        if let Some(name) = widget.get("name").and_then(|value| value.as_str()) {
+            translated.insert("widgetName".into(), serde_json::json!(name));
+        }
+    }
+    copy_if_present(args, &mut translated, "widgetName");
+
+    let has_class = translated.get("widgetClass").is_some();
+    let has_instance =
+        translated.get("assetPath").is_some() && translated.get("widgetName").is_some();
+    if !has_class && !has_instance {
+        return Err(invalid_argument_result(
+            "widget.inspect requires widgetClass, or assetPath plus widget.name.",
+        ));
+    }
+    Ok(translated)
 }
 
 fn translate_blueprint_graph_list_args(
@@ -4764,10 +5134,11 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("pcg.compile", "Validate and compile-confirm a PCG graph after edits.", Arc::new(pcg_compile_schema())),
         Tool::new("diagnostic.tail", "Read persisted structured diagnostics incrementally by sequence cursor.", Arc::new(diagnostic_tail_schema())),
         Tool::new("log.tail", "Read persisted Unreal output log events incrementally by sequence cursor.", Arc::new(log_tail_schema())),
-        Tool::new("widget.query", "Read the UMG WidgetTree of a WidgetBlueprint asset.", Arc::new(widget_query_schema())),
-        Tool::new("widget.mutate", "Apply structural write operations to the UMG WidgetTree of a WidgetBlueprint asset.", Arc::new(widget_mutate_schema())),
-        Tool::new("widget.verify", "Compile a WidgetBlueprint and return diagnostics.", Arc::new(asset_path_only_schema("WidgetBlueprint asset path."))),
-        Tool::new("widget.describe", "Enumerate the editable properties of a UMG widget class, with optional current values from a live instance.", Arc::new(widget_describe_schema())),
+        Tool::new("widget.palette", "Search UE Widget Palette entries for UMG widget creation.", Arc::new(widget_palette_schema())),
+        Tool::new("widget.tree.inspect", "Read the UMG WidgetTree of a WidgetBlueprint asset.", Arc::new(widget_tree_inspect_schema())),
+        Tool::new("widget.tree.edit", "Apply explicit local edit commands to a WidgetBlueprint WidgetTree. Use widget.palette for widget creation.", Arc::new(widget_tree_edit_schema())),
+        Tool::new("widget.inspect", "Inspect one UMG widget class or WidgetTree instance for editable properties.", Arc::new(widget_inspect_schema())),
+        Tool::new("widget.compile", "Compile a WidgetBlueprint and return diagnostics.", Arc::new(asset_path_only_schema("WidgetBlueprint asset path."))),
     ]
 }
 
@@ -5654,14 +6025,15 @@ fn asset_inspect_schema() -> rmcp::model::JsonObject {
             "assetPath":{"type":"string","minLength":1},
             "view":{
                 "type":"string",
-                "enum":["overview","pins","links","defaults","full"],
-                "description":"PCG graph view when kind=pcgGraph."
+                "enum":["overview","pins","links","defaults","full","outline","layout","details"],
+                "description":"PCG graph view when kind=pcgGraph; WidgetTree view when kind=widgetBlueprint."
             },
             "filter":{
                 "type":"object",
-                "description":"PCG graph filter when kind=pcgGraph.",
+                "description":"PCG graph filter when kind=pcgGraph; WidgetTree filter when kind=widgetBlueprint.",
                 "properties":{
                     "nodeIds":{"type":"array","items":{"type":"string"}},
+                    "names":{"type":"array","items":{"type":"string"}},
                     "text":{"type":"string","minLength":1}
                 },
                 "additionalProperties": false
@@ -5675,7 +6047,6 @@ fn asset_inspect_schema() -> rmcp::model::JsonObject {
                 },
                 "additionalProperties": false
             },
-            "includeSlotProperties":{"type":"boolean","default":false,"description":"WidgetTree slot property detail when kind=widgetBlueprint."},
             "includeConnections":{"type":"boolean","default":false,"description":"Material graph connection detail when kind=material or materialFunction."},
             "nodeIds":{"type":"array","items":{"type":"string"},"description":"Optional Material expression ids when kind=material or materialFunction."}
         },
@@ -5981,6 +6352,14 @@ fn blueprint_graph_edit_schema() -> rmcp::model::JsonObject {
         }),
     );
     mutation_control_fields(&mut properties);
+    properties.insert(
+        "continueOnError".into(),
+        serde_json::json!({
+            "type": "boolean",
+            "default": false,
+            "description": "Continue applying later commands after an operation-level failure."
+        }),
+    );
     schema_from_value(serde_json::json!({
         "type":"object",
         "properties": properties,
@@ -6737,65 +7116,130 @@ fn log_tail_schema() -> rmcp::model::JsonObject {
     }))
 }
 
-fn widget_query_schema() -> rmcp::model::JsonObject {
+fn widget_palette_schema() -> rmcp::model::JsonObject {
     schema_from_value(serde_json::json!({
-        "type":"object",
-        "properties":{
-            "assetPath":{"type":"string","minLength":1},
-            "includeSlotProperties":{"type":"boolean","default":false}
+        "type": "object",
+        "properties": {
+            "assetPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional WidgetBlueprint asset path. Widget Palette search is mostly global; this is reserved for context-specific filtering."
+            },
+            "query": {
+                "type": "string",
+                "description": "Case-insensitive fuzzy search over UE Widget Palette label, category, tooltip, keywords, and payload."
+            },
+            "elementTypes": {
+                "type": "array",
+                "description": "Widget Palette entry families to include. Defaults to all.",
+                "items": {
+                    "type": "string",
+                    "enum": ["native", "user"]
+                }
+            },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 500, "default": 50 },
+            "offset": { "type": "integer", "minimum": 0, "default": 0 }
         },
-        "required":["assetPath"],
         "additionalProperties": false
     }))
 }
 
-fn widget_mutate_schema() -> rmcp::model::JsonObject {
+fn widget_tree_inspect_schema() -> rmcp::model::JsonObject {
     schema_from_value(serde_json::json!({
-        "type":"object",
-        "properties":{
-            "assetPath":{"type":"string","minLength":1},
-            "expectedRevision":{"type":"string"},
-            "dryRun":{"type":"boolean","default":false},
-            "continueOnError":{"type":"boolean","default":false},
-            "ops":{
-                "type":"array",
-                "minItems":1,
-                "items":{
-                    "type":"object",
-                    "properties":{
-                        "op":{"type":"string","enum":["addWidget","removeWidget","setProperty","reparentWidget"]},
-                        "args":{
-                            "type":"object",
-                            "properties":{
-                                "widgetClass":{"type":"string"},
-                                "name":{"type":"string"},
-                                "parentName":{"type":"string"},
-                                "parent":{"type":"string"},
-                                "newParent":{"type":"string"},
-                                "property":{"type":"string"},
-                                "value":{"type":"string"},
-                                "slot":{"type":"object","additionalProperties":true}
-                            },
-                            "additionalProperties": false
-                        }
+        "type": "object",
+        "properties": {
+            "assetPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "WidgetBlueprint asset path."
+            },
+            "view": {
+                "type": "string",
+                "enum": ["outline", "layout", "details"],
+                "default": "outline",
+                "description": "outline returns the widget tree without slot/layout details; layout includes slot/layout details; details returns matching widgets from filter."
+            },
+            "filter": {
+                "type": "object",
+                "properties": {
+                    "names": {
+                        "type": "array",
+                        "items": { "type": "string", "minLength": 1 },
+                        "description": "Exact widget names to return in matches/details."
                     },
-                    "required":["op","args"],
-                    "additionalProperties": false
-                }
+                    "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Case-insensitive fuzzy search over serialized widget tree entries."
+                    }
+                },
+                "additionalProperties": false
             }
         },
-        "required":["assetPath","ops"],
+        "required": ["assetPath"],
         "additionalProperties": false
     }))
 }
 
-fn widget_describe_schema() -> rmcp::model::JsonObject {
+fn widget_tree_edit_schema() -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({
+            "type": "string",
+            "minLength": 1,
+            "description": "WidgetBlueprint asset path."
+        }),
+    );
+    properties.insert(
+        "commands".into(),
+        serde_json::json!({
+            "type": "array",
+            "description": "Ordered WidgetTree edit commands. Each command requires kind. Use schema.inspect with domain='widget' and tool='widget.tree.edit' to list supported command kinds. For a command-specific schema, call schema.inspect with operation=<kind>. Use widget.palette first and pass the selected entry to addFromPalette instead of guessing widget classes.",
+            "items": {
+                "type": "object",
+                "description": "Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema.inspect.",
+                "properties": {
+                    "kind": { "type": "string", "minLength": 1 }
+                },
+                "required": ["kind"],
+                "additionalProperties": true
+            },
+            "minItems": 1
+        }),
+    );
+    mutation_control_fields(&mut properties);
     schema_from_value(serde_json::json!({
-        "type":"object",
-        "properties":{
-            "widgetClass":{"type":"string","minLength":1},
-            "assetPath":{"type":"string","minLength":1},
-            "widgetName":{"type":"string","minLength":1}
+        "type": "object",
+        "properties": properties,
+        "required": ["assetPath", "commands"],
+        "additionalProperties": false
+    }))
+}
+
+fn widget_inspect_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "widgetClass": {
+                "type": "string",
+                "minLength": 1,
+                "description": "UMG widget class path or short class name, such as /Script/UMG.TextBlock or TextBlock."
+            },
+            "assetPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "WidgetBlueprint asset path when inspecting a concrete WidgetTree instance."
+            },
+            "widget": {
+                "type": "object",
+                "description": "WidgetTree instance reference.",
+                "properties": {
+                    "name": { "type": "string", "minLength": 1 }
+                },
+                "required": ["name"],
+                "additionalProperties": false
+            }
         },
         "additionalProperties": false
     }))
@@ -8470,16 +8914,18 @@ mod tests {
         play_schema, play_wait_participant_conditions_from_args, read_file_lock_metadata,
         read_plugin_version, runtime_declared_tools, shape_blueprint_graph_inspect_result,
         shape_pcg_compile_result, shape_pcg_graph_inspect_result, shape_pcg_node_inspect_result,
-        switch_to_installed_version, sync_project_support_to_version,
-        sync_registered_project_support, translate_blueprint_graph_edit_args,
-        translate_blueprint_graph_inspect_args, translate_material_graph_edit_args,
-        translate_material_graph_inspect_args, translate_material_graph_layout_args,
-        translate_material_node_edit_args, translate_material_palette_args,
-        translate_pcg_compile_args, translate_pcg_graph_inspect_args,
-        translate_pcg_graph_layout_args, translate_pcg_node_inspect_args,
-        translate_pcg_parameter_edit_args, translate_pcg_query_args,
-        validate_blueprint_graph_inspect_args, validate_pcg_graph_inspect_args, Cli,
-        FileLockMetadata, RuntimeProject, UpdateOptions,
+        shape_widget_tree_inspect_payload, switch_to_installed_version,
+        sync_project_support_to_version, sync_registered_project_support,
+        translate_blueprint_graph_edit_args, translate_blueprint_graph_inspect_args,
+        translate_material_graph_edit_args, translate_material_graph_inspect_args,
+        translate_material_graph_layout_args, translate_material_node_edit_args,
+        translate_material_palette_args, translate_pcg_compile_args,
+        translate_pcg_graph_inspect_args, translate_pcg_graph_layout_args,
+        translate_pcg_node_inspect_args, translate_pcg_parameter_edit_args,
+        translate_pcg_query_args, translate_widget_inspect_args, translate_widget_tree_edit_args,
+        validate_blueprint_graph_inspect_args, validate_pcg_graph_inspect_args,
+        widget_inspect_schema, widget_palette_schema, widget_tree_edit_schema,
+        widget_tree_inspect_schema, Cli, FileLockMetadata, RuntimeProject, UpdateOptions,
     };
     use rmcp::model::JsonObject;
     use std::ffi::OsString;
@@ -9804,7 +10250,6 @@ mod tests {
             .expect("properties");
         assert!(properties.contains_key("view"));
         assert!(properties.contains_key("filter"));
-        assert!(properties.contains_key("includeSlotProperties"));
         assert!(properties.contains_key("includeConnections"));
     }
 
@@ -10242,6 +10687,86 @@ mod tests {
     }
 
     #[test]
+    fn widget_palette_tool_is_declared() {
+        let tool_names = runtime_declared_tools()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        assert!(tool_names.contains("widget.palette"));
+    }
+
+    #[test]
+    fn widget_tree_edit_tool_is_declared() {
+        let tool_names = runtime_declared_tools()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        assert!(tool_names.contains("widget.tree.edit"));
+    }
+
+    #[test]
+    fn widget_tree_inspect_tool_is_declared() {
+        let tool_names = runtime_declared_tools()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        assert!(tool_names.contains("widget.tree.inspect"));
+    }
+
+    #[test]
+    fn widget_inspect_tool_is_declared() {
+        let tool_names = runtime_declared_tools()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        assert!(tool_names.contains("widget.inspect"));
+    }
+
+    #[test]
+    fn widget_compile_tool_is_declared() {
+        let tool_names = runtime_declared_tools()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        assert!(tool_names.contains("widget.compile"));
+    }
+
+    #[test]
+    fn public_widget_surface_is_declared_without_legacy_tools() {
+        let tool_names = runtime_declared_tools()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        for expected in [
+            "widget.palette",
+            "widget.tree.inspect",
+            "widget.tree.edit",
+            "widget.inspect",
+            "widget.compile",
+        ] {
+            assert!(tool_names.contains(expected), "missing tool {expected}");
+        }
+
+        for retired in [
+            "widget.query",
+            "widget.mutate",
+            "widget.verify",
+            "widget.describe",
+        ] {
+            assert!(
+                !tool_names.contains(retired),
+                "retired widget tool should not be declared: {retired}"
+            );
+        }
+    }
+
+    #[test]
     fn material_graph_edit_tool_replaces_public_mutate_tool() {
         let tool_names = runtime_declared_tools()
             .into_iter()
@@ -10433,6 +10958,214 @@ mod tests {
             .expect("properties");
         assert!(properties.contains_key("query"));
         assert!(properties.contains_key("elementTypes"));
+    }
+
+    #[test]
+    fn widget_palette_schema_is_top_level_simple() {
+        let schema = widget_palette_schema();
+        assert_eq!(
+            schema.get("type").and_then(|value| value.as_str()),
+            Some("object")
+        );
+        for keyword in ["oneOf", "anyOf", "allOf", "not"] {
+            assert!(
+                !schema.contains_key(keyword),
+                "widget.palette schema should not expose top-level {keyword}"
+            );
+        }
+        let properties = schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("properties");
+        assert!(properties.contains_key("query"));
+        assert!(properties.contains_key("elementTypes"));
+    }
+
+    #[test]
+    fn widget_tree_edit_schema_points_to_schema_inspect() {
+        let schema = widget_tree_edit_schema();
+        let properties = schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("properties");
+        let commands_description = properties
+            .get("commands")
+            .and_then(|value| value.get("description"))
+            .and_then(|value| value.as_str())
+            .expect("commands description");
+        assert!(commands_description.contains("schema.inspect"));
+        assert!(commands_description.contains("widget.palette"));
+    }
+
+    #[test]
+    fn widget_tree_inspect_schema_is_single_layer() {
+        let schema = widget_tree_inspect_schema();
+        for keyword in ["oneOf", "anyOf", "allOf", "not"] {
+            assert!(
+                !schema.contains_key(keyword),
+                "widget.tree.inspect schema should not expose top-level {keyword}"
+            );
+        }
+        let properties = schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("properties");
+        assert!(properties.contains_key("assetPath"));
+        assert!(properties.contains_key("view"));
+        assert!(properties.contains_key("filter"));
+        assert!(!properties.contains_key("includeSlotProperties"));
+        let schema_text = serde_json::to_string(&schema).expect("schema json");
+        assert!(!schema_text.contains("schema.inspect"));
+    }
+
+    #[test]
+    fn widget_inspect_schema_is_single_layer() {
+        let schema = widget_inspect_schema();
+        for keyword in ["oneOf", "anyOf", "allOf", "not"] {
+            assert!(
+                !schema.contains_key(keyword),
+                "widget.inspect schema should not expose top-level {keyword}"
+            );
+        }
+        let properties = schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("properties");
+        assert!(properties.contains_key("widgetClass"));
+        assert!(properties.contains_key("assetPath"));
+        assert!(properties.contains_key("widget"));
+        let schema_text = serde_json::to_string(&schema).expect("schema json");
+        assert!(!schema_text.contains("schema.inspect"));
+    }
+
+    #[test]
+    fn widget_inspect_translates_widget_ref_to_legacy_describe_args() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/UI/WBP_Menu"));
+        args.insert("widget".into(), serde_json::json!({"name": "TitleText"}));
+
+        let translated = translate_widget_inspect_args(&args).expect("translated args");
+        assert_eq!(
+            translated.get("assetPath").and_then(|value| value.as_str()),
+            Some("/Game/UI/WBP_Menu")
+        );
+        assert_eq!(
+            translated
+                .get("widgetName")
+                .and_then(|value| value.as_str()),
+            Some("TitleText")
+        );
+    }
+
+    #[test]
+    fn widget_tree_inspect_outline_prunes_slot_properties() {
+        let payload = serde_json::json!({
+            "assetPath": "/Game/UI/WBP_Menu",
+            "revision": "abc",
+            "rootWidget": {
+                "name": "RootCanvas",
+                "widgetClass": "/Script/UMG.CanvasPanel",
+                "slot": {"LayoutData": "..."},
+                "children": [{
+                    "name": "TitleText",
+                    "widgetClass": "/Script/UMG.TextBlock",
+                    "slot": {"ZOrder": "2"},
+                    "children": []
+                }]
+            }
+        });
+        let mut args = JsonObject::new();
+        args.insert("view".into(), serde_json::json!("outline"));
+
+        let shaped = shape_widget_tree_inspect_payload(payload, &args);
+        let root = shaped
+            .get("rootWidget")
+            .and_then(|value| value.as_object())
+            .expect("root");
+        assert!(!root.contains_key("slot"));
+        let child = root
+            .get("children")
+            .and_then(|value| value.as_array())
+            .and_then(|children| children.first())
+            .and_then(|value| value.as_object())
+            .expect("child");
+        assert!(!child.contains_key("slot"));
+    }
+
+    #[test]
+    fn widget_tree_inspect_details_returns_filtered_matches() {
+        let payload = serde_json::json!({
+            "assetPath": "/Game/UI/WBP_Menu",
+            "revision": "abc",
+            "rootWidget": {
+                "name": "RootCanvas",
+                "widgetClass": "/Script/UMG.CanvasPanel",
+                "children": [{
+                    "name": "TitleText",
+                    "widgetClass": "/Script/UMG.TextBlock",
+                    "slot": {"ZOrder": "2"},
+                    "children": []
+                }]
+            }
+        });
+        let mut args = JsonObject::new();
+        args.insert("view".into(), serde_json::json!("details"));
+        args.insert("filter".into(), serde_json::json!({"names": ["TitleText"]}));
+
+        let shaped = shape_widget_tree_inspect_payload(payload, &args);
+        assert!(shaped.get("rootWidget").is_none());
+        let matches = shaped
+            .get("matches")
+            .and_then(|value| value.as_array())
+            .expect("matches");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(
+            matches[0].get("name").and_then(|value| value.as_str()),
+            Some("TitleText")
+        );
+    }
+
+    #[test]
+    fn widget_tree_edit_translates_add_from_palette() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/UI/WBP_Menu"));
+        args.insert(
+            "commands".into(),
+            serde_json::json!([{
+                "kind": "addFromPalette",
+                "entry": {
+                    "id": "widget.palette:text",
+                    "kind": "native",
+                    "payload": {"widgetClass": "/Script/UMG.TextBlock"},
+                    "executable": true
+                },
+                "name": "TitleText",
+                "parent": {"name": "RootCanvas"}
+            }]),
+        );
+
+        let translated = translate_widget_tree_edit_args(&args).expect("translated args");
+        let ops = translated
+            .get("ops")
+            .and_then(|value| value.as_array())
+            .expect("ops");
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            ops[0].get("op").and_then(|value| value.as_str()),
+            Some("addWidget")
+        );
+        let op_args = ops[0]
+            .get("args")
+            .and_then(|value| value.as_object())
+            .expect("op args");
+        assert_eq!(
+            op_args.get("widgetClass").and_then(|value| value.as_str()),
+            Some("/Script/UMG.TextBlock")
+        );
+        assert_eq!(
+            op_args.get("parentName").and_then(|value| value.as_str()),
+            Some("RootCanvas")
+        );
     }
 
     #[test]
@@ -10847,6 +11580,66 @@ mod tests {
         }
         assert!(!names.contains("layoutGraph"));
         assert!(!names.contains("compile"));
+    }
+
+    #[test]
+    fn schema_inspect_lists_widget_tree_edit_operations() {
+        let mut args = JsonObject::new();
+        args.insert("domain".into(), serde_json::json!("widget"));
+        args.insert("tool".into(), serde_json::json!("widget.tree.edit"));
+
+        let result = call_schema_inspect(&args);
+        assert_eq!(result.is_error, Some(false));
+        let payload = result.structured_content.expect("structured content");
+        let operations = payload
+            .get("operations")
+            .and_then(|value| value.as_array())
+            .expect("operations");
+        let names = operations
+            .iter()
+            .filter_map(|entry| entry.get("name").and_then(|value| value.as_str()))
+            .collect::<std::collections::HashSet<_>>();
+
+        for expected in [
+            "addFromPalette",
+            "removeWidget",
+            "setProperty",
+            "reparentWidget",
+        ] {
+            assert!(names.contains(expected), "missing operation {expected}");
+        }
+    }
+
+    #[test]
+    fn schema_inspect_returns_widget_add_from_palette_schema() {
+        let mut args = JsonObject::new();
+        args.insert("domain".into(), serde_json::json!("widget"));
+        args.insert("tool".into(), serde_json::json!("widget.tree.edit"));
+        args.insert("operation".into(), serde_json::json!("addFromPalette"));
+        args.insert(
+            "include".into(),
+            serde_json::json!(["summary", "schema", "notes"]),
+        );
+
+        let result = call_schema_inspect(&args);
+        assert_eq!(result.is_error, Some(false));
+        let payload = result.structured_content.expect("structured content");
+        assert_eq!(
+            payload.get("operation").and_then(|value| value.as_str()),
+            Some("addFromPalette")
+        );
+        assert!(payload
+            .get("schema")
+            .and_then(|schema| schema.get("properties"))
+            .and_then(|properties| properties.get("entry"))
+            .is_some());
+        let notes = payload
+            .get("notes")
+            .and_then(|value| value.as_array())
+            .expect("notes");
+        assert!(notes.iter().any(|note| note
+            .as_str()
+            .is_some_and(|text| text.contains("full selected entry"))));
     }
 
     #[test]
