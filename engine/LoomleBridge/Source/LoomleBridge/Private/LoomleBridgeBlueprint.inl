@@ -2184,6 +2184,592 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintQueryToolResult(const
     return ShapeBlueprintQueryResult(BaseResult, Arguments);
 }
 
+namespace
+{
+FString GetBlueprintNodeClassText(const TSharedPtr<FJsonObject>& Node)
+{
+    FString ClassText;
+    FString FieldValue;
+    for (const TCHAR* FieldName : {TEXT("className"), TEXT("classPath"), TEXT("nodeClassPath")})
+    {
+        if (Node.IsValid() && Node->TryGetStringField(FieldName, FieldValue) && !FieldValue.IsEmpty())
+        {
+            if (!ClassText.IsEmpty())
+            {
+                ClassText += TEXT(" ");
+            }
+            ClassText += FieldValue;
+        }
+    }
+    return ClassText;
+}
+
+bool BlueprintNodeClassContains(const TSharedPtr<FJsonObject>& Node, const TCHAR* Needle)
+{
+    return GetBlueprintNodeClassText(Node).Contains(Needle);
+}
+
+void AddBlueprintNodePinEditOperation(
+    TArray<TSharedPtr<FJsonValue>>& Operations,
+    const FString& Operation,
+    const FString& Role,
+    const FString& NameMode,
+    const FString& Summary)
+{
+    TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+    Entry->SetStringField(TEXT("operation"), Operation);
+    Entry->SetStringField(TEXT("role"), Role);
+    Entry->SetStringField(TEXT("nameMode"), NameMode);
+    Entry->SetStringField(TEXT("summary"), Summary);
+    Operations.Add(MakeShared<FJsonValueObject>(Entry));
+}
+
+TArray<TSharedPtr<FJsonValue>> MakeBlueprintNodePinNamesByDirection(
+    const TSharedPtr<FJsonObject>& Node,
+    const FString& Direction,
+    const bool bExecOnly,
+    const bool bExcludeDefault)
+{
+    TArray<TSharedPtr<FJsonValue>> Names;
+    const TArray<TSharedPtr<FJsonValue>>* Pins = nullptr;
+    if (!Node.IsValid() || !Node->TryGetArrayField(TEXT("pins"), Pins) || Pins == nullptr)
+    {
+        return Names;
+    }
+
+    for (const TSharedPtr<FJsonValue>& PinValue : *Pins)
+    {
+        const TSharedPtr<FJsonObject>* Pin = nullptr;
+        if (!PinValue.IsValid() || !PinValue->TryGetObject(Pin) || Pin == nullptr || !(*Pin).IsValid())
+        {
+            continue;
+        }
+
+        FString PinName;
+        FString PinDirection;
+        FString PinCategory;
+        (*Pin)->TryGetStringField(TEXT("name"), PinName);
+        (*Pin)->TryGetStringField(TEXT("direction"), PinDirection);
+        (*Pin)->TryGetStringField(TEXT("category"), PinCategory);
+        if (PinName.IsEmpty() || !PinDirection.Equals(Direction, ESearchCase::IgnoreCase))
+        {
+            continue;
+        }
+        if (bExecOnly && !PinCategory.Equals(TEXT("exec"), ESearchCase::IgnoreCase))
+        {
+            continue;
+        }
+        if (bExcludeDefault && PinName.Equals(TEXT("Default"), ESearchCase::IgnoreCase))
+        {
+            continue;
+        }
+        Names.Add(MakeShared<FJsonValueString>(PinName));
+    }
+    return Names;
+}
+
+TSharedPtr<FJsonObject> BuildBlueprintNodeEditCapabilities(const TSharedPtr<FJsonObject>& Node)
+{
+    TSharedPtr<FJsonObject> Capabilities = MakeShared<FJsonObject>();
+    TArray<TSharedPtr<FJsonValue>> Operations;
+    TArray<TSharedPtr<FJsonValue>> Notes;
+
+    if (BlueprintNodeClassContains(Node, TEXT("K2Node_SwitchName")) || BlueprintNodeClassContains(Node, TEXT("K2Node_SwitchString")))
+    {
+        AddBlueprintNodePinEditOperation(Operations, TEXT("addPin"), TEXT("case"), TEXT("required"), TEXT("Add a named switch case output pin."));
+        AddBlueprintNodePinEditOperation(Operations, TEXT("removePin"), TEXT("case"), TEXT("target"), TEXT("Remove one switch case output pin."));
+        AddBlueprintNodePinEditOperation(Operations, TEXT("renamePin"), TEXT("case"), TEXT("required"), TEXT("Rename one switch case output pin."));
+        Notes.Add(MakeShared<FJsonValueString>(TEXT("SwitchName and SwitchString store editable cases in PinNames.")));
+    }
+    else if (BlueprintNodeClassContains(Node, TEXT("K2Node_SwitchInteger")))
+    {
+        AddBlueprintNodePinEditOperation(Operations, TEXT("addPin"), TEXT("case"), TEXT("generated"), TEXT("Append the next contiguous integer case output pin."));
+        AddBlueprintNodePinEditOperation(Operations, TEXT("removePin"), TEXT("case"), TEXT("target"), TEXT("Remove an integer case output pin subject to UE node rules."));
+        Notes.Add(MakeShared<FJsonValueString>(TEXT("SwitchInteger cases are contiguous from StartIndex; arbitrary case names are not supported.")));
+    }
+    else if (BlueprintNodeClassContains(Node, TEXT("K2Node_SwitchEnum")))
+    {
+        AddBlueprintNodePinEditOperation(Operations, TEXT("addPin"), TEXT("case"), TEXT("generated"), TEXT("Reveal the next hidden enum case output pin."));
+        AddBlueprintNodePinEditOperation(Operations, TEXT("removePin"), TEXT("case"), TEXT("target"), TEXT("Hide one enum case output pin and break its links."));
+        Notes.Add(MakeShared<FJsonValueString>(TEXT("SwitchEnum cases come from the enum; edit shows or hides existing cases.")));
+    }
+    else if (BlueprintNodeClassContains(Node, TEXT("K2Node_ExecutionSequence")) || BlueprintNodeClassContains(Node, TEXT("K2Node_MultiGate")))
+    {
+        AddBlueprintNodePinEditOperation(Operations, TEXT("addPin"), TEXT("exec"), TEXT("generated"), TEXT("Add one execution output pin."));
+        AddBlueprintNodePinEditOperation(Operations, TEXT("insertPin"), TEXT("exec"), TEXT("generated"), TEXT("Insert one execution output pin before or after a target pin when supported."));
+        AddBlueprintNodePinEditOperation(Operations, TEXT("removePin"), TEXT("exec"), TEXT("target"), TEXT("Remove one execution output pin when UE allows it."));
+    }
+    else if (BlueprintNodeClassContains(Node, TEXT("K2Node_DoOnceMultiInput")))
+    {
+        AddBlueprintNodePinEditOperation(Operations, TEXT("addPin"), TEXT("exec"), TEXT("generated"), TEXT("Add one DoOnce input/output execution pair."));
+        AddBlueprintNodePinEditOperation(Operations, TEXT("removePin"), TEXT("exec"), TEXT("target"), TEXT("Remove one DoOnce input/output execution pair."));
+    }
+    else if (BlueprintNodeClassContains(Node, TEXT("K2Node_MakeMap")))
+    {
+        AddBlueprintNodePinEditOperation(Operations, TEXT("addPin"), TEXT("pair"), TEXT("generated"), TEXT("Add one key/value input pair."));
+        AddBlueprintNodePinEditOperation(Operations, TEXT("removePin"), TEXT("pair"), TEXT("target"), TEXT("Remove one key/value input pair."));
+    }
+    else if (BlueprintNodeClassContains(Node, TEXT("K2Node_MakeArray")) || BlueprintNodeClassContains(Node, TEXT("K2Node_MakeSet")))
+    {
+        AddBlueprintNodePinEditOperation(Operations, TEXT("addPin"), TEXT("input"), TEXT("generated"), TEXT("Add one container element input pin."));
+        AddBlueprintNodePinEditOperation(Operations, TEXT("removePin"), TEXT("input"), TEXT("target"), TEXT("Remove one container element input pin."));
+    }
+    else if (BlueprintNodeClassContains(Node, TEXT("K2Node_Select")))
+    {
+        AddBlueprintNodePinEditOperation(Operations, TEXT("addPin"), TEXT("option"), TEXT("generated"), TEXT("Add one selectable option pin."));
+        AddBlueprintNodePinEditOperation(Operations, TEXT("removePin"), TEXT("option"), TEXT("target"), TEXT("Remove one selectable option pin."));
+    }
+    else if (BlueprintNodeClassContains(Node, TEXT("K2Node_PromotableOperator")) || BlueprintNodeClassContains(Node, TEXT("K2Node_CommutativeAssociativeBinaryOperator")))
+    {
+        AddBlueprintNodePinEditOperation(Operations, TEXT("addPin"), TEXT("input"), TEXT("generated"), TEXT("Add one operator input pin."));
+        AddBlueprintNodePinEditOperation(Operations, TEXT("removePin"), TEXT("input"), TEXT("target"), TEXT("Remove one operator input pin."));
+    }
+    else if (BlueprintNodeClassContains(Node, TEXT("K2Node_FormatText")))
+    {
+        AddBlueprintNodePinEditOperation(Operations, TEXT("addPin"), TEXT("argument"), TEXT("optional"), TEXT("Add one Format Text argument pin."));
+        AddBlueprintNodePinEditOperation(Operations, TEXT("removePin"), TEXT("argument"), TEXT("target"), TEXT("Remove one Format Text argument pin."));
+        AddBlueprintNodePinEditOperation(Operations, TEXT("renamePin"), TEXT("argument"), TEXT("required"), TEXT("Rename one Format Text argument pin."));
+        Notes.Add(MakeShared<FJsonValueString>(TEXT("FormatText arguments are node-local argument pins; format-string-derived pins may reconstruct.")));
+    }
+
+    Capabilities->SetArrayField(TEXT("pinOperations"), Operations);
+    Capabilities->SetBoolField(TEXT("hasPinOperations"), Operations.Num() > 0);
+    if (Notes.Num() > 0)
+    {
+        Capabilities->SetArrayField(TEXT("notes"), Notes);
+    }
+    return Capabilities;
+}
+
+TSharedPtr<FJsonObject> BuildBlueprintNodeInspectState(const TSharedPtr<FJsonObject>& Node)
+{
+    TSharedPtr<FJsonObject> State = MakeShared<FJsonObject>();
+    if (BlueprintNodeClassContains(Node, TEXT("K2Node_Switch")))
+    {
+        State->SetArrayField(TEXT("casePins"), MakeBlueprintNodePinNamesByDirection(Node, TEXT("output"), true, true));
+    }
+    else if (BlueprintNodeClassContains(Node, TEXT("K2Node_ExecutionSequence")) || BlueprintNodeClassContains(Node, TEXT("K2Node_MultiGate")))
+    {
+        State->SetArrayField(TEXT("execPins"), MakeBlueprintNodePinNamesByDirection(Node, TEXT("output"), true, false));
+    }
+    else if (BlueprintNodeClassContains(Node, TEXT("K2Node_FormatText")))
+    {
+        State->SetArrayField(TEXT("argumentPins"), MakeBlueprintNodePinNamesByDirection(Node, TEXT("input"), false, false));
+    }
+    else
+    {
+        State->SetArrayField(TEXT("inputPins"), MakeBlueprintNodePinNamesByDirection(Node, TEXT("input"), false, false));
+    }
+    return State;
+}
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeInspectToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+
+    FString AssetPath;
+    FString GraphName;
+    FString InlineNodeGuid;
+    if (!BuildBlueprintQueryAddress(Arguments, AssetPath, GraphName, InlineNodeGuid, Result))
+    {
+        return Result;
+    }
+
+    FString NodeId;
+    if (!Arguments.IsValid() || !Arguments->TryGetStringField(TEXT("nodeId"), NodeId) || NodeId.IsEmpty())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("blueprint.node.inspect requires nodeId."));
+        return Result;
+    }
+
+    TSharedPtr<FJsonObject> QueryArgs = MakeShared<FJsonObject>();
+    if (!InlineNodeGuid.IsEmpty())
+    {
+        QueryArgs->SetObjectField(TEXT("graphRef"), MakeBlueprintInlineGraphRef(InlineNodeGuid, AssetPath));
+    }
+    else
+    {
+        QueryArgs->SetStringField(TEXT("assetPath"), AssetPath);
+        QueryArgs->SetStringField(TEXT("graphName"), GraphName);
+    }
+    TArray<TSharedPtr<FJsonValue>> NodeIds;
+    NodeIds.Add(MakeShared<FJsonValueString>(NodeId));
+    QueryArgs->SetArrayField(TEXT("nodeIds"), NodeIds);
+    QueryArgs->SetNumberField(TEXT("limit"), 1);
+    QueryArgs->SetBoolField(TEXT("includeConnections"), true);
+
+    const TSharedPtr<FJsonObject> QueryResult = BuildBlueprintQueryToolResult(QueryArgs);
+    bool bQueryIsError = false;
+    if (!QueryResult.IsValid() || (QueryResult->TryGetBoolField(TEXT("isError"), bQueryIsError) && bQueryIsError))
+    {
+        return QueryResult.IsValid() ? QueryResult : Result;
+    }
+
+    const TSharedPtr<FJsonObject>* Snapshot = nullptr;
+    const TArray<TSharedPtr<FJsonValue>>* Nodes = nullptr;
+    if (!QueryResult->TryGetObjectField(TEXT("semanticSnapshot"), Snapshot) || Snapshot == nullptr || !(*Snapshot).IsValid()
+        || !(*Snapshot)->TryGetArrayField(TEXT("nodes"), Nodes) || Nodes == nullptr || Nodes->Num() == 0)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("NODE_NOT_FOUND"));
+        Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Node not found in graph: %s"), *NodeId));
+        return Result;
+    }
+
+    const TSharedPtr<FJsonObject>* Node = nullptr;
+    if (!(*Nodes)[0].IsValid() || !(*Nodes)[0]->TryGetObject(Node) || Node == nullptr || !(*Node).IsValid())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+        Result->SetStringField(TEXT("message"), TEXT("blueprint.node.inspect resolved an invalid node payload."));
+        return Result;
+    }
+
+    Result->SetStringField(TEXT("assetPath"), AssetPath);
+    Result->SetStringField(TEXT("graphName"), GraphName);
+    Result->SetObjectField(TEXT("graphRef"), MakeBlueprintEffectiveGraphRef(AssetPath, GraphName, InlineNodeGuid));
+    Result->SetObjectField(TEXT("node"), *Node);
+    const TArray<TSharedPtr<FJsonValue>>* Pins = nullptr;
+    if ((*Node)->TryGetArrayField(TEXT("pins"), Pins) && Pins != nullptr)
+    {
+        Result->SetArrayField(TEXT("pins"), *Pins);
+    }
+    else
+    {
+        Result->SetArrayField(TEXT("pins"), {});
+    }
+    Result->SetObjectField(TEXT("state"), BuildBlueprintNodeInspectState(*Node));
+    Result->SetObjectField(TEXT("editCapabilities"), BuildBlueprintNodeEditCapabilities(*Node));
+    return Result;
+}
+
+namespace
+{
+TSharedPtr<FJsonObject> MakeBlueprintNodeEditResult(bool bOk, bool bChanged, const FString& Operation, const FString& NodeId, const FString& ErrorCode = TEXT(""), const FString& ErrorMessage = TEXT(""))
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), !bOk);
+    if (!bOk)
+    {
+        Result->SetStringField(TEXT("code"), ErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : ErrorCode);
+        Result->SetStringField(TEXT("message"), ErrorMessage.IsEmpty() ? TEXT("blueprint.node.edit failed.") : ErrorMessage);
+    }
+
+    TSharedPtr<FJsonObject> OpResult = MakeShared<FJsonObject>();
+    OpResult->SetNumberField(TEXT("index"), 0);
+    OpResult->SetStringField(TEXT("op"), Operation);
+    OpResult->SetBoolField(TEXT("ok"), bOk);
+    OpResult->SetBoolField(TEXT("skipped"), false);
+    OpResult->SetBoolField(TEXT("changed"), bChanged);
+    OpResult->SetStringField(TEXT("nodeId"), NodeId);
+    OpResult->SetStringField(TEXT("errorCode"), bOk ? TEXT("") : (ErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : ErrorCode));
+    OpResult->SetStringField(TEXT("errorMessage"), bOk ? TEXT("") : ErrorMessage);
+    TArray<TSharedPtr<FJsonValue>> OpResults;
+    OpResults.Add(MakeShared<FJsonValueObject>(OpResult));
+    Result->SetArrayField(TEXT("opResults"), OpResults);
+    Result->SetArrayField(TEXT("commandResults"), OpResults);
+    return Result;
+}
+
+FString ReadBlueprintNodeEditPinName(const TSharedPtr<FJsonObject>& Args)
+{
+    FString PinName;
+    if (!Args.IsValid())
+    {
+        return PinName;
+    }
+    if (Args->TryGetStringField(TEXT("pin"), PinName) && !PinName.IsEmpty())
+    {
+        return PinName;
+    }
+    const TSharedPtr<FJsonObject>* Target = nullptr;
+    if (Args->TryGetObjectField(TEXT("target"), Target) && Target != nullptr && (*Target).IsValid())
+    {
+        (*Target)->TryGetStringField(TEXT("pin"), PinName);
+    }
+    return PinName;
+}
+
+int32 FindFormatTextArgumentIndex(UK2Node_FormatText* FormatTextNode, const FString& PinName)
+{
+    if (FormatTextNode == nullptr)
+    {
+        return INDEX_NONE;
+    }
+    for (int32 Index = 0; Index < FormatTextNode->GetArgumentCount(); ++Index)
+    {
+        if (FormatTextNode->GetArgumentName(Index).ToString().Equals(PinName, ESearchCase::CaseSensitive))
+        {
+            return Index;
+        }
+    }
+    return INDEX_NONE;
+}
+
+void ReconstructBlueprintNodeAfterLocalEdit(UEdGraphNode* Node)
+{
+    if (Node != nullptr)
+    {
+        Node->ReconstructNode();
+    }
+}
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(const TSharedPtr<FJsonObject>& Arguments)
+{
+    FString AssetPath;
+    FString GraphName;
+    FString InlineNodeGuid;
+    TSharedPtr<FJsonObject> AddressResult = MakeShared<FJsonObject>();
+    AddressResult->SetBoolField(TEXT("isError"), false);
+    if (!BuildBlueprintQueryAddress(Arguments, AssetPath, GraphName, InlineNodeGuid, AddressResult))
+    {
+        return AddressResult;
+    }
+
+    FString NodeId;
+    FString Operation;
+    if (!Arguments.IsValid()
+        || !Arguments->TryGetStringField(TEXT("nodeId"), NodeId) || NodeId.IsEmpty()
+        || !Arguments->TryGetStringField(TEXT("operation"), Operation) || Operation.IsEmpty())
+    {
+        return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("INVALID_ARGUMENT"), TEXT("blueprint.node.edit requires nodeId and operation."));
+    }
+
+    const TSharedPtr<FJsonObject>* ArgsPtr = nullptr;
+    TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
+    if (Arguments->TryGetObjectField(TEXT("args"), ArgsPtr) && ArgsPtr != nullptr && (*ArgsPtr).IsValid())
+    {
+        Args = *ArgsPtr;
+    }
+    bool bDryRun = false;
+    Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
+
+    UBlueprint* Blueprint = LoadBlueprintByAssetPath(AssetPath);
+    if (Blueprint == nullptr)
+    {
+        return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("ASSET_NOT_FOUND"), TEXT("Blueprint asset not found."));
+    }
+    UEdGraph* TargetGraph = ResolveBlueprintGraph(Blueprint, GraphName);
+    if (TargetGraph == nullptr)
+    {
+        return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("GRAPH_NOT_FOUND"), TEXT("Blueprint graph not found."));
+    }
+    UEdGraphNode* TargetNode = ResolveBlueprintGraphNodeByToken(TargetGraph, NodeId);
+    if (TargetNode == nullptr)
+    {
+        return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("NODE_NOT_FOUND"), TEXT("Blueprint graph node not found."));
+    }
+
+    if (bDryRun)
+    {
+        return MakeBlueprintNodeEditResult(true, false, Operation, NodeId);
+    }
+
+    auto FinalizeChanged = [&]()
+    {
+        TargetGraph->NotifyGraphChanged();
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        Blueprint->MarkPackageDirty();
+    };
+
+    const FString OperationLower = Operation.ToLower();
+    TargetGraph->Modify();
+    TargetNode->Modify();
+    Blueprint->Modify();
+
+    if (OperationLower.Equals(TEXT("addpin")))
+    {
+        FString Role;
+        Args->TryGetStringField(TEXT("role"), Role);
+        FString Name;
+        Args->TryGetStringField(TEXT("name"), Name);
+
+        if (UK2Node_SwitchName* SwitchNameNode = Cast<UK2Node_SwitchName>(TargetNode))
+        {
+            const FName NewName = Name.IsEmpty() ? FName(*FString::Printf(TEXT("Case_%d"), SwitchNameNode->PinNames.Num())) : FName(*Name);
+            if (SwitchNameNode->PinNames.Contains(NewName))
+            {
+                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("INVALID_ARGUMENT"), TEXT("Switch case already exists."));
+            }
+            SwitchNameNode->PinNames.Add(NewName);
+            ReconstructBlueprintNodeAfterLocalEdit(TargetNode);
+        }
+        else if (UK2Node_SwitchString* SwitchStringNode = Cast<UK2Node_SwitchString>(TargetNode))
+        {
+            const FName NewName = Name.IsEmpty() ? FName(*FString::Printf(TEXT("Case_%d"), SwitchStringNode->PinNames.Num())) : FName(*Name);
+            if (SwitchStringNode->PinNames.Contains(NewName))
+            {
+                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("INVALID_ARGUMENT"), TEXT("Switch case already exists."));
+            }
+            SwitchStringNode->PinNames.Add(NewName);
+            ReconstructBlueprintNodeAfterLocalEdit(TargetNode);
+        }
+        else if (UK2Node_FormatText* FormatTextNode = Cast<UK2Node_FormatText>(TargetNode))
+        {
+            FormatTextNode->AddArgumentPin();
+            if (!Name.IsEmpty() && FormatTextNode->GetArgumentCount() > 0)
+            {
+                FormatTextNode->SetArgumentName(FormatTextNode->GetArgumentCount() - 1, FName(*Name));
+                ReconstructBlueprintNodeAfterLocalEdit(TargetNode);
+            }
+        }
+        else if (UK2Node_Switch* SwitchNode = Cast<UK2Node_Switch>(TargetNode))
+        {
+            SwitchNode->AddPinToSwitchNode();
+            ReconstructBlueprintNodeAfterLocalEdit(TargetNode);
+        }
+        else if (IK2Node_AddPinInterface* AddPinNode = Cast<IK2Node_AddPinInterface>(TargetNode))
+        {
+            if (!AddPinNode->CanAddPin())
+            {
+                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node cannot add another pin."));
+            }
+            AddPinNode->AddInputPin();
+            ReconstructBlueprintNodeAfterLocalEdit(TargetNode);
+        }
+        else
+        {
+            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node does not support addPin."));
+        }
+        FinalizeChanged();
+        return MakeBlueprintNodeEditResult(true, true, Operation, NodeId);
+    }
+
+    if (OperationLower.Equals(TEXT("removepin")))
+    {
+        const FString PinName = ReadBlueprintNodeEditPinName(Args);
+        if (PinName.IsEmpty())
+        {
+            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("INVALID_ARGUMENT"), TEXT("removePin requires args.pin or args.target.pin."));
+        }
+        UEdGraphPin* Pin = FindPinByName(TargetNode, PinName);
+        if (Pin == nullptr)
+        {
+            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("PIN_NOT_FOUND"), TEXT("Pin not found."));
+        }
+
+        if (UK2Node_ExecutionSequence* SequenceNode = Cast<UK2Node_ExecutionSequence>(TargetNode))
+        {
+            if (!SequenceNode->CanRemoveExecutionPin())
+            {
+                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This execution node cannot remove another pin."));
+            }
+            SequenceNode->RemovePinFromExecutionNode(Pin);
+        }
+        else if (UK2Node_Switch* SwitchNode = Cast<UK2Node_Switch>(TargetNode))
+        {
+            if (!SwitchNode->CanRemoveExecutionPin(Pin))
+            {
+                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This switch pin cannot be removed."));
+            }
+            SwitchNode->RemovePinFromSwitchNode(Pin);
+        }
+        else if (UK2Node_FormatText* FormatTextNode = Cast<UK2Node_FormatText>(TargetNode))
+        {
+            const int32 Index = FindFormatTextArgumentIndex(FormatTextNode, PinName);
+            if (Index == INDEX_NONE)
+            {
+                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("PIN_NOT_FOUND"), TEXT("FormatText argument not found."));
+            }
+            FormatTextNode->RemoveArgument(Index);
+        }
+        else if (IK2Node_AddPinInterface* AddPinNode = Cast<IK2Node_AddPinInterface>(TargetNode))
+        {
+            if (!AddPinNode->CanRemovePin(Pin))
+            {
+                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This pin cannot be removed."));
+            }
+            AddPinNode->RemoveInputPin(Pin);
+            ReconstructBlueprintNodeAfterLocalEdit(TargetNode);
+        }
+        else
+        {
+            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node does not support removePin."));
+        }
+        FinalizeChanged();
+        return MakeBlueprintNodeEditResult(true, true, Operation, NodeId);
+    }
+
+    if (OperationLower.Equals(TEXT("insertpin")))
+    {
+        const FString PinName = ReadBlueprintNodeEditPinName(Args);
+        FString Position;
+        Args->TryGetStringField(TEXT("position"), Position);
+        if (PinName.IsEmpty())
+        {
+            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("INVALID_ARGUMENT"), TEXT("insertPin requires args.target.pin."));
+        }
+        UK2Node_ExecutionSequence* SequenceNode = Cast<UK2Node_ExecutionSequence>(TargetNode);
+        UEdGraphPin* Pin = FindPinByName(TargetNode, PinName);
+        if (SequenceNode == nullptr)
+        {
+            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("insertPin is only supported by Sequence-style execution nodes."));
+        }
+        if (Pin == nullptr)
+        {
+            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("PIN_NOT_FOUND"), TEXT("Insert anchor pin not found."));
+        }
+        SequenceNode->InsertPinIntoExecutionNode(Pin, Position.Equals(TEXT("before"), ESearchCase::IgnoreCase) ? EPinInsertPosition::Before : EPinInsertPosition::After);
+        FinalizeChanged();
+        return MakeBlueprintNodeEditResult(true, true, Operation, NodeId);
+    }
+
+    if (OperationLower.Equals(TEXT("renamepin")))
+    {
+        const FString PinName = ReadBlueprintNodeEditPinName(Args);
+        FString Name;
+        Args->TryGetStringField(TEXT("name"), Name);
+        if (PinName.IsEmpty() || Name.IsEmpty())
+        {
+            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("INVALID_ARGUMENT"), TEXT("renamePin requires args.pin and args.name."));
+        }
+
+        if (UK2Node_SwitchName* SwitchNameNode = Cast<UK2Node_SwitchName>(TargetNode))
+        {
+            const int32 Index = SwitchNameNode->PinNames.IndexOfByKey(FName(*PinName));
+            if (Index == INDEX_NONE)
+            {
+                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("PIN_NOT_FOUND"), TEXT("Switch case not found."));
+            }
+            SwitchNameNode->PinNames[Index] = FName(*Name);
+            ReconstructBlueprintNodeAfterLocalEdit(TargetNode);
+        }
+        else if (UK2Node_SwitchString* SwitchStringNode = Cast<UK2Node_SwitchString>(TargetNode))
+        {
+            const int32 Index = SwitchStringNode->PinNames.IndexOfByKey(FName(*PinName));
+            if (Index == INDEX_NONE)
+            {
+                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("PIN_NOT_FOUND"), TEXT("Switch case not found."));
+            }
+            SwitchStringNode->PinNames[Index] = FName(*Name);
+            ReconstructBlueprintNodeAfterLocalEdit(TargetNode);
+        }
+        else if (UK2Node_FormatText* FormatTextNode = Cast<UK2Node_FormatText>(TargetNode))
+        {
+            const int32 Index = FindFormatTextArgumentIndex(FormatTextNode, PinName);
+            if (Index == INDEX_NONE)
+            {
+                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("PIN_NOT_FOUND"), TEXT("FormatText argument not found."));
+            }
+            FormatTextNode->SetArgumentName(Index, FName(*Name));
+            ReconstructBlueprintNodeAfterLocalEdit(TargetNode);
+        }
+        else
+        {
+            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node does not support renamePin."));
+        }
+        FinalizeChanged();
+        return MakeBlueprintNodeEditResult(true, true, Operation, NodeId);
+    }
+
+    return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("INVALID_ARGUMENT"), TEXT("Unsupported blueprint.node.edit operation."));
+}
+
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     TSharedPtr<FJsonObject> AddressResult = MakeShared<FJsonObject>();

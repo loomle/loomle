@@ -978,6 +978,8 @@ impl LoomleProxyServer {
             "blueprint.graph.inspect" => Ok(Some(self.call_blueprint_graph_inspect(args).await?)),
             "blueprint.graph.edit" => Ok(Some(self.call_blueprint_graph_edit(args).await?)),
             "blueprint.graph.layout" => Ok(Some(self.call_blueprint_graph_layout(args).await?)),
+            "blueprint.node.inspect" => Ok(Some(self.call_blueprint_node_inspect(args).await?)),
+            "blueprint.node.edit" => Ok(Some(self.call_blueprint_node_edit(args).await?)),
             "blueprint.compile" => Ok(Some(self.call_blueprint_compile(args).await?)),
             "blueprint.inspect" => Ok(Some(self.call_blueprint_inspect(args).await?)),
             "blueprint.class.inspect" => Ok(Some(self.call_blueprint_class_inspect(args).await?)),
@@ -1305,6 +1307,37 @@ impl LoomleProxyServer {
         };
         let payload = self
             .runtime_payload("blueprint.graph.edit", legacy_args)
+            .await?;
+        Ok(structured_result(augment_blueprint_mutate_result(payload)))
+    }
+
+    async fn call_blueprint_node_inspect(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let translated = match translate_blueprint_node_inspect_args(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        let payload = self
+            .runtime_payload("blueprint.node.inspect", translated)
+            .await?;
+        if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
+            return Ok(CallToolResult::structured_error(payload));
+        }
+        Ok(structured_result(payload))
+    }
+
+    async fn call_blueprint_node_edit(
+        &self,
+        args: rmcp::model::JsonObject,
+    ) -> Result<CallToolResult, McpError> {
+        let translated = match translate_blueprint_node_edit_args(&args) {
+            Ok(value) => value,
+            Err(error) => return Ok(error),
+        };
+        let payload = self
+            .runtime_payload("blueprint.node.edit", translated)
             .await?;
         Ok(structured_result(augment_blueprint_mutate_result(payload)))
     }
@@ -3061,12 +3094,69 @@ fn translate_blueprint_graph_inspect_args(
     }
 
     let view = blueprint_graph_inspect_view(args);
-    if matches!(view, "links" | "defaults" | "full") {
+    if view == "wiring" {
         translated.insert("includeConnections".into(), serde_json::json!(true));
     }
-    if matches!(view, "defaults" | "full") {
-        translated.insert("includePinDefaults".into(), serde_json::json!(true));
-    }
+    Ok(translated)
+}
+
+fn translate_blueprint_node_inspect_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let asset_path = read_required_asset_path(args, "blueprint.node.inspect")?;
+    let mut translated = rmcp::model::JsonObject::new();
+    translated.insert("assetPath".into(), serde_json::json!(asset_path));
+    let graph_address =
+        read_required_graph_object_address(args, &asset_path, "blueprint.node.inspect")?;
+    write_optional_graph_address(&mut translated, Some(graph_address));
+
+    let node = args
+        .get("node")
+        .and_then(|value| value.as_object())
+        .ok_or_else(|| invalid_argument_result("blueprint.node.inspect requires node."))?;
+    let node_id = node
+        .get("id")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| invalid_argument_result("blueprint.node.inspect requires node.id."))?;
+    translated.insert("nodeId".into(), serde_json::json!(node_id));
+    Ok(translated)
+}
+
+fn translate_blueprint_node_edit_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let asset_path = read_required_asset_path(args, "blueprint.node.edit")?;
+    let mut translated = rmcp::model::JsonObject::new();
+    translated.insert("assetPath".into(), serde_json::json!(asset_path));
+    let graph_address =
+        read_required_graph_object_address(args, &asset_path, "blueprint.node.edit")?;
+    write_optional_graph_address(&mut translated, Some(graph_address));
+
+    let node = args
+        .get("node")
+        .and_then(|value| value.as_object())
+        .ok_or_else(|| invalid_argument_result("blueprint.node.edit requires node."))?;
+    let node_id = node
+        .get("id")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| invalid_argument_result("blueprint.node.edit requires node.id."))?;
+    translated.insert("nodeId".into(), serde_json::json!(node_id));
+
+    let operation = args
+        .get("operation")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| invalid_argument_result("blueprint.node.edit requires operation."))?;
+    translated.insert("operation".into(), serde_json::json!(operation));
+    translated.insert(
+        "args".into(),
+        args.get("args")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({})),
+    );
+    copy_mutation_controls(args, &mut translated);
     Ok(translated)
 }
 
@@ -3135,7 +3225,7 @@ fn validate_blueprint_graph_inspect_args(
     }
 
     let view = blueprint_graph_inspect_view(args);
-    if !matches!(view, "overview" | "pins" | "links" | "defaults" | "full") {
+    if !matches!(view, "overview" | "wiring") {
         return Err(invalid_argument_result(format!(
             "Unsupported blueprint.graph.inspect view: {view}."
         )));
@@ -3254,6 +3344,34 @@ fn prune_blueprint_graph_comment_fields(
     }
 }
 
+fn blueprint_node_has_edit_capabilities(node: &serde_json::Map<String, serde_json::Value>) -> bool {
+    let class_text = [
+        node.get("className").and_then(|value| value.as_str()),
+        node.get("classPath").and_then(|value| value.as_str()),
+        node.get("nodeClassPath").and_then(|value| value.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" ");
+
+    [
+        "K2Node_Switch",
+        "K2Node_ExecutionSequence",
+        "K2Node_MultiGate",
+        "K2Node_DoOnceMultiInput",
+        "K2Node_MakeArray",
+        "K2Node_MakeSet",
+        "K2Node_MakeMap",
+        "K2Node_Select",
+        "K2Node_PromotableOperator",
+        "K2Node_CommutativeAssociativeBinaryOperator",
+        "K2Node_FormatText",
+    ]
+    .iter()
+    .any(|needle| class_text.contains(needle))
+}
+
 fn compact_blueprint_graph_node(
     node: &serde_json::Map<String, serde_json::Value>,
     view: &str,
@@ -3261,23 +3379,6 @@ fn compact_blueprint_graph_node(
     include_connections: bool,
     include_comments: bool,
 ) -> serde_json::Value {
-    if view == "full" {
-        let mut full = node.clone();
-        if let Some(pins) = full.get_mut("pins").and_then(|value| value.as_array_mut()) {
-            for pin in pins {
-                if let Some(pin_object) = pin.as_object_mut() {
-                    prune_blueprint_graph_pin(
-                        pin_object,
-                        include_pin_defaults,
-                        include_connections,
-                    );
-                }
-            }
-        }
-        prune_blueprint_graph_comment_fields(&mut full, include_comments);
-        return serde_json::Value::Object(full);
-    }
-
     let mut compact = serde_json::Map::new();
     for field in [
         "id",
@@ -3306,7 +3407,18 @@ fn compact_blueprint_graph_node(
     }
     prune_blueprint_graph_comment_fields(&mut compact, include_comments);
 
-    if matches!(view, "pins" | "links" | "defaults") {
+    if blueprint_node_has_edit_capabilities(node) {
+        compact.insert(
+            "hasNodeEditCapabilities".to_string(),
+            serde_json::json!(true),
+        );
+        compact.insert(
+            "inspectWith".to_string(),
+            serde_json::json!("blueprint.node.inspect"),
+        );
+    }
+
+    if view == "wiring" {
         let pins = node
             .get("pins")
             .and_then(|value| value.as_array())
@@ -3330,9 +3442,9 @@ fn shape_blueprint_graph_inspect_result(
     args: &rmcp::model::JsonObject,
 ) {
     let view = blueprint_graph_inspect_view(args);
-    let include_pin_defaults = matches!(view, "defaults" | "full");
-    let include_connections = matches!(view, "links" | "defaults" | "full");
-    let include_comments = view == "full";
+    let include_pin_defaults = false;
+    let include_connections = view == "wiring";
+    let include_comments = false;
 
     if let Some(snapshot) = result
         .get_mut("semanticSnapshot")
@@ -5114,6 +5226,8 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("blueprint.graph.inspect", "Read graph, node, pin, and link data from a Blueprint graph.", Arc::new(blueprint_graph_inspect_schema())),
         Tool::new("blueprint.graph.edit", "Apply explicit local graph edit commands to a Blueprint graph.", Arc::new(blueprint_graph_edit_schema())),
         Tool::new("blueprint.graph.layout", "Format a selected Blueprint graph region without changing graph semantics.", Arc::new(blueprint_graph_layout_schema())),
+        Tool::new("blueprint.node.inspect", "Inspect one Blueprint graph node for pins, defaults, node-local state, and edit capabilities.", Arc::new(blueprint_node_inspect_schema())),
+        Tool::new("blueprint.node.edit", "Edit node-local Blueprint structure such as switch cases, sequence pins, and format-text arguments. Use schema.inspect for operation-specific args.", Arc::new(blueprint_node_edit_schema())),
         Tool::new("blueprint.palette", "Search UE Blueprint Action Menu entries for graph creation.", Arc::new(blueprint_palette_schema())),
         Tool::new("blueprint.compile", "Compile a Blueprint asset.", Arc::new(blueprint_compile_schema())),
         Tool::new("material.list", "List material expressions in a material asset.", Arc::new(asset_path_only_schema("Material asset path."))),
@@ -6258,7 +6372,7 @@ fn blueprint_graph_inspect_schema() -> rmcp::model::JsonObject {
         "properties":{
             "assetPath":{"type":"string","minLength":1},
             "graph": graph_ref_schema(),
-            "view":{"type":"string","enum":["overview","pins","links","defaults","full"],"default":"overview","description":"Task-oriented result view. overview omits pins and edges; pins adds pin signatures; links adds pins plus edge/link refs; defaults adds pin defaults and link refs for setPinDefault planning; full preserves legacy node fields and comment metadata."},
+            "view":{"type":"string","enum":["overview","wiring"],"default":"overview","description":"Task-oriented result view. overview omits pins and edges and marks nodes that should be inspected with blueprint.node.inspect; wiring adds compact pins and link refs for connection planning. Use blueprint.node.inspect for pin defaults and node-local capabilities."},
             "filter":{
                 "type":"object",
                 "properties":{
@@ -6277,6 +6391,68 @@ fn blueprint_graph_inspect_schema() -> rmcp::model::JsonObject {
             }
         },
         "required":["assetPath","graph"],
+        "additionalProperties": false
+    }))
+}
+
+fn blueprint_node_inspect_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties":{
+            "assetPath":{"type":"string","minLength":1},
+            "graph": graph_ref_schema(),
+            "node":{
+                "type":"object",
+                "description":"Blueprint graph node reference from blueprint.graph.inspect. Use this when a graph node has hasNodeEditCapabilities=true or when full pin/default details are needed for one node.",
+                "properties":{
+                    "id":{"type":"string","minLength":1}
+                },
+                "required":["id"],
+                "additionalProperties": false
+            }
+        },
+        "required":["assetPath","graph","node"],
+        "additionalProperties": false
+    }))
+}
+
+fn blueprint_node_edit_schema() -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert("graph".into(), graph_ref_schema());
+    properties.insert(
+        "node".into(),
+        serde_json::json!({
+            "type":"object",
+            "description":"Blueprint graph node reference. Inspect the node first with blueprint.node.inspect to confirm editCapabilities and current pin names.",
+            "properties":{"id":{"type":"string","minLength":1}},
+            "required":["id"],
+            "additionalProperties": false
+        }),
+    );
+    properties.insert(
+        "operation".into(),
+        serde_json::json!({
+            "type":"string",
+            "enum":["addPin","removePin","insertPin","renamePin"],
+            "description":"Node-local structural edit. Use schema.inspect with domain='blueprint', tool='blueprint.node.edit', and operation='<operation>' for operation-specific args."
+        }),
+    );
+    properties.insert(
+        "args".into(),
+        serde_json::json!({
+            "type":"object",
+            "description":"Operation-specific arguments. The shape is intentionally omitted from tools/list; call schema.inspect for the selected operation."
+        }),
+    );
+    mutation_control_fields(&mut properties);
+    schema_from_value(serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":["assetPath","graph","node","operation","args"],
         "additionalProperties": false
     }))
 }
@@ -8904,6 +9080,7 @@ mod tests {
     use super::{
         acquire_file_lock, all_declared_tools, asset_create_schema, asset_edit_schema,
         asset_inspect_schema, blueprint_graph_inspect_schema, blueprint_graph_layout_schema,
+        blueprint_node_edit_schema, blueprint_node_inspect_schema,
         build_blueprint_graph_layout_plan, build_installer_args, call_schema_inspect,
         compare_semver, compile_blueprint_refactor_request, current_platform_client_binary_name,
         infer_attached_project_root, material_graph_edit_schema, material_graph_inspect_schema,
@@ -8917,6 +9094,7 @@ mod tests {
         shape_widget_tree_inspect_payload, switch_to_installed_version,
         sync_project_support_to_version, sync_registered_project_support,
         translate_blueprint_graph_edit_args, translate_blueprint_graph_inspect_args,
+        translate_blueprint_node_edit_args, translate_blueprint_node_inspect_args,
         translate_material_graph_edit_args, translate_material_graph_inspect_args,
         translate_material_graph_layout_args, translate_material_node_edit_args,
         translate_material_palette_args, translate_pcg_compile_args,
@@ -10011,7 +10189,7 @@ mod tests {
     }
 
     #[test]
-    fn blueprint_graph_inspect_defaults_view_includes_defaults_and_links() {
+    fn blueprint_graph_inspect_wiring_view_includes_links_without_defaults() {
         let mut result = serde_json::json!({
             "semanticSnapshot": {
                 "nodes": [
@@ -10038,7 +10216,7 @@ mod tests {
         .cloned()
         .expect("object");
         let mut args = JsonObject::new();
-        args.insert("view".into(), serde_json::json!("defaults"));
+        args.insert("view".into(), serde_json::json!("wiring"));
 
         shape_blueprint_graph_inspect_result(&mut result, &args);
 
@@ -10052,8 +10230,8 @@ mod tests {
             .and_then(|pins| pins.first())
             .and_then(|value| value.as_object())
             .expect("pin");
-        assert!(pin.contains_key("defaultValue"));
-        assert!(pin.contains_key("default"));
+        assert!(!pin.contains_key("defaultValue"));
+        assert!(!pin.contains_key("default"));
         assert!(pin.contains_key("linkedTo"));
         assert!(pin.contains_key("links"));
         assert_eq!(
@@ -10080,10 +10258,8 @@ mod tests {
             .filter_map(|value| value.as_str())
             .collect::<std::collections::HashSet<_>>();
         assert!(values.contains("overview"));
-        assert!(values.contains("pins"));
-        assert!(values.contains("links"));
-        assert!(values.contains("defaults"));
-        assert!(values.contains("full"));
+        assert!(values.contains("wiring"));
+        assert_eq!(values.len(), 2);
         assert!(schema
             .get("properties")
             .and_then(|value| value.as_object())
@@ -10103,7 +10279,7 @@ mod tests {
         let mut args = JsonObject::new();
         args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
         args.insert("graph".into(), serde_json::json!({"name":"EventGraph"}));
-        args.insert("view".into(), serde_json::json!("defaults"));
+        args.insert("view".into(), serde_json::json!("wiring"));
         args.insert(
             "filter".into(),
             serde_json::json!({"nodeIds":["node-1"],"text":"Print"}),
@@ -10143,7 +10319,48 @@ mod tests {
             translated
                 .get("includePinDefaults")
                 .and_then(|value| value.as_bool()),
+            None
+        );
+    }
+
+    #[test]
+    fn blueprint_graph_inspect_marks_nodes_that_need_node_inspect() {
+        let mut result = serde_json::json!({
+            "semanticSnapshot": {
+                "nodes": [
+                    {
+                        "id": "switch-node",
+                        "className": "K2Node_SwitchName",
+                        "nodeClassPath": "/Script/BlueprintGraph.K2Node_SwitchName",
+                        "title": "Switch on Name"
+                    }
+                ],
+                "edges": []
+            },
+            "meta": {}
+        })
+        .as_object()
+        .cloned()
+        .expect("object");
+        let args = JsonObject::new();
+
+        shape_blueprint_graph_inspect_result(&mut result, &args);
+
+        let node = result
+            .get("semanticSnapshot")
+            .and_then(|value| value.get("nodes"))
+            .and_then(|value| value.as_array())
+            .and_then(|nodes| nodes.first())
+            .and_then(|value| value.as_object())
+            .expect("node");
+        assert_eq!(
+            node.get("hasNodeEditCapabilities")
+                .and_then(|value| value.as_bool()),
             Some(true)
+        );
+        assert_eq!(
+            node.get("inspectWith").and_then(|value| value.as_str()),
+            Some("blueprint.node.inspect")
         );
     }
 
@@ -10160,6 +10377,94 @@ mod tests {
             payload.get("code").and_then(|value| value.as_str()),
             Some("INVALID_ARGUMENT")
         );
+    }
+
+    #[test]
+    fn blueprint_node_inspect_schema_is_single_layer() {
+        let schema = blueprint_node_inspect_schema();
+        let properties = schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("properties");
+        assert!(properties.contains_key("assetPath"));
+        assert!(properties.contains_key("graph"));
+        assert!(properties.contains_key("node"));
+        let schema_text = serde_json::to_string(&schema).expect("schema text");
+        assert!(!schema_text.contains("schema.inspect"));
+    }
+
+    #[test]
+    fn blueprint_node_edit_schema_points_to_schema_inspect() {
+        let schema = blueprint_node_edit_schema();
+        let properties = schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("properties");
+        assert!(properties
+            .get("operation")
+            .and_then(|value| value.get("description"))
+            .and_then(|value| value.as_str())
+            .is_some_and(|description| description.contains("schema.inspect")));
+        assert!(properties
+            .get("args")
+            .and_then(|value| value.get("description"))
+            .and_then(|value| value.as_str())
+            .is_some_and(|description| description.contains("schema.inspect")));
+    }
+
+    #[test]
+    fn blueprint_node_inspect_translates_graph_and_node_ref() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graph".into(), serde_json::json!({"name":"EventGraph"}));
+        args.insert("node".into(), serde_json::json!({"id":"node-1"}));
+
+        let translated = translate_blueprint_node_inspect_args(&args).expect("translated args");
+        assert_eq!(
+            translated.get("assetPath").and_then(|value| value.as_str()),
+            Some("/Game/BP_Test")
+        );
+        assert_eq!(
+            translated.get("graphName").and_then(|value| value.as_str()),
+            Some("EventGraph")
+        );
+        assert_eq!(
+            translated.get("nodeId").and_then(|value| value.as_str()),
+            Some("node-1")
+        );
+    }
+
+    #[test]
+    fn blueprint_node_edit_translates_operation_args_and_controls() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graph".into(), serde_json::json!({"id": "graph-guid"}));
+        args.insert("node".into(), serde_json::json!({"id": "node-guid"}));
+        args.insert("operation".into(), serde_json::json!("addPin"));
+        args.insert(
+            "args".into(),
+            serde_json::json!({"role": "case", "name": "Paused"}),
+        );
+        args.insert("dryRun".into(), serde_json::json!(true));
+
+        let translated = translate_blueprint_node_edit_args(&args).expect("translated args");
+        assert_eq!(
+            translated.get("assetPath").and_then(|value| value.as_str()),
+            Some("/Game/BP_Test")
+        );
+        assert_eq!(
+            translated.get("nodeId").and_then(|value| value.as_str()),
+            Some("node-guid")
+        );
+        assert_eq!(
+            translated.get("operation").and_then(|value| value.as_str()),
+            Some("addPin")
+        );
+        assert_eq!(
+            translated.get("dryRun").and_then(|value| value.as_bool()),
+            Some(true)
+        );
+        assert!(translated.get("graphRef").is_some());
     }
 
     #[test]
@@ -11393,6 +11698,8 @@ mod tests {
             "blueprint.graph.inspect",
             "blueprint.graph.edit",
             "blueprint.graph.layout",
+            "blueprint.node.inspect",
+            "blueprint.node.edit",
             "blueprint.palette",
             "blueprint.compile",
         ] {
@@ -11452,6 +11759,56 @@ mod tests {
         ] {
             assert!(names.contains(expected), "missing operation {expected}");
         }
+    }
+
+    #[test]
+    fn schema_inspect_lists_blueprint_node_edit_operations() {
+        let mut args = JsonObject::new();
+        args.insert("domain".into(), serde_json::json!("blueprint"));
+        args.insert("tool".into(), serde_json::json!("blueprint.node.edit"));
+
+        let result = call_schema_inspect(&args);
+        assert_eq!(result.is_error, Some(false));
+        let payload = result.structured_content.expect("structured content");
+        let operations = payload
+            .get("operations")
+            .and_then(|value| value.as_array())
+            .expect("operations");
+        let names = operations
+            .iter()
+            .filter_map(|entry| entry.get("name").and_then(|value| value.as_str()))
+            .collect::<std::collections::HashSet<_>>();
+
+        for expected in ["addPin", "removePin", "insertPin", "renamePin"] {
+            assert!(names.contains(expected), "missing operation {expected}");
+        }
+    }
+
+    #[test]
+    fn schema_inspect_returns_blueprint_node_edit_operation_schema() {
+        let mut args = JsonObject::new();
+        args.insert("domain".into(), serde_json::json!("blueprint"));
+        args.insert("tool".into(), serde_json::json!("blueprint.node.edit"));
+        args.insert("operation".into(), serde_json::json!("addPin"));
+        args.insert(
+            "include".into(),
+            serde_json::json!(["summary", "schema", "notes"]),
+        );
+
+        let result = call_schema_inspect(&args);
+        assert_eq!(result.is_error, Some(false));
+        let payload = result.structured_content.expect("structured content");
+        assert_eq!(
+            payload.get("operation").and_then(|value| value.as_str()),
+            Some("addPin")
+        );
+        let schema_text =
+            serde_json::to_string(payload.get("schema").expect("schema")).expect("schema json");
+        assert!(schema_text.contains("case"));
+        assert!(schema_text.contains("argument"));
+        let notes_text =
+            serde_json::to_string(payload.get("notes").expect("notes")).expect("notes json");
+        assert!(notes_text.contains("blueprint.node.inspect"));
     }
 
     #[test]
@@ -11780,9 +12137,10 @@ mod tests {
                 .iter()
                 .filter_map(|value| value.as_str())
                 .collect::<std::collections::HashSet<_>>();
-            assert_eq!(names.len(), 2);
+            assert_eq!(names.len(), 3);
             assert!(names.contains("blueprint.graph.edit"));
             assert!(names.contains("blueprint.member.edit"));
+            assert!(names.contains("blueprint.node.edit"));
         }
     }
 

@@ -102,7 +102,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
     Result->SetArrayField(TEXT("tools"), MakeStringArray({
         TEXT("context"), TEXT("jobs"), TEXT("profiling"), TEXT("play"), TEXT("asset.create"), TEXT("asset.edit"), TEXT("editor.open"), TEXT("editor.focus"), TEXT("editor.screenshot"), TEXT("execute"),
         TEXT("blueprint.inspect"), TEXT("blueprint.edit"), TEXT("blueprint.enum.inspect"), TEXT("blueprint.enum.edit"), TEXT("blueprint.member.edit"),
-        TEXT("blueprint.graph.list"), TEXT("blueprint.graph.inspect"), TEXT("blueprint.graph.edit"), TEXT("blueprint.verify"), TEXT("blueprint.palette"),
+        TEXT("blueprint.graph.list"), TEXT("blueprint.graph.inspect"), TEXT("blueprint.graph.edit"), TEXT("blueprint.node.inspect"), TEXT("blueprint.node.edit"), TEXT("blueprint.verify"), TEXT("blueprint.palette"),
         TEXT("material.list"), TEXT("material.graph.inspect"), TEXT("material.graph.edit"), TEXT("material.compile"), TEXT("material.node.inspect"), TEXT("material.palette"),
         TEXT("pcg.list"), TEXT("pcg.query"), TEXT("pcg.mutate"), TEXT("pcg.verify"), TEXT("pcg.describe"), TEXT("pcg.palette"),
         TEXT("pcg.parameter.inspect"), TEXT("pcg.parameter.edit"),
@@ -302,6 +302,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     else if (Name.Equals(TEXT("blueprint.graph.edit")))
     {
         Payload = BuildBlueprintMutateToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("blueprint.node.inspect")))
+    {
+        Payload = BuildBlueprintNodeInspectToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("blueprint.node.edit")))
+    {
+        Payload = BuildBlueprintNodeEditToolResult(Arguments);
     }
     else if (Name.Equals(TEXT("blueprint.verify")))
     {

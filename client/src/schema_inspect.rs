@@ -95,12 +95,15 @@ pub fn call_schema_inspect(args: &JsonObject) -> CallToolResult {
         return call_widget_tree_edit_schema_inspect(args, &includes);
     }
 
-    if !matches!(tool, "blueprint.graph.edit" | "blueprint.member.edit") {
+    if !matches!(
+        tool,
+        "blueprint.graph.edit" | "blueprint.member.edit" | "blueprint.node.edit"
+    ) {
         return CallToolResult::structured_error(serde_json::json!({
             "isError": true,
             "code": "UNKNOWN_TOOL",
             "message": format!("Unknown schema tool for domain blueprint: {tool}"),
-            "availableTools": ["blueprint.graph.edit", "blueprint.member.edit"],
+            "availableTools": ["blueprint.graph.edit", "blueprint.member.edit", "blueprint.node.edit"],
             "retryable": false
         }));
     }
@@ -113,6 +116,7 @@ pub fn call_schema_inspect(args: &JsonObject) -> CallToolResult {
     match tool {
         "blueprint.graph.edit" => call_graph_edit_schema_inspect(args, &includes),
         "blueprint.member.edit" => call_member_edit_schema_inspect(args, &includes),
+        "blueprint.node.edit" => call_node_edit_schema_inspect(args, &includes),
         _ => unreachable!("validated schema.inspect tool"),
     }
 }
@@ -273,6 +277,31 @@ fn call_member_edit_schema_inspect(args: &JsonObject, includes: &[String]) -> Ca
     }))
 }
 
+fn call_node_edit_schema_inspect(args: &JsonObject, includes: &[String]) -> CallToolResult {
+    if let Some(operation) = args.get("operation").and_then(|value| value.as_str()) {
+        let Some(payload) = blueprint_node_edit_operation_schema(operation, includes) else {
+            return CallToolResult::structured_error(serde_json::json!({
+                "isError": true,
+                "code": "UNKNOWN_OPERATION",
+                "message": format!("Unknown operation for blueprint.node.edit: {operation}"),
+                "availableOperations": blueprint_node_edit_operation_names(),
+                "retryable": false
+            }));
+        };
+        return CallToolResult::structured(payload);
+    }
+
+    CallToolResult::structured(serde_json::json!({
+        "domain": "blueprint",
+        "tool": "blueprint.node.edit",
+        "operations": blueprint_node_edit_operation_index(),
+        "source": {
+            "document": "UE K2 node local pin actions",
+            "section": "Switch, Sequence, MakeContainer, Select, FormatText"
+        }
+    }))
+}
+
 fn invalid_argument_result(message: impl Into<String>) -> CallToolResult {
     CallToolResult::structured_error(serde_json::json!({
         "isError": true,
@@ -318,6 +347,221 @@ fn parse_schema_inspect_includes(args: &JsonObject) -> Result<Vec<String>, CallT
 
 fn schema_include_requested(includes: &[String], section: &str) -> bool {
     includes.iter().any(|include| include == section)
+}
+
+fn blueprint_node_edit_operation_names() -> Vec<&'static str> {
+    vec!["addPin", "removePin", "insertPin", "renamePin"]
+}
+
+fn blueprint_node_edit_operation_index() -> Vec<serde_json::Value> {
+    blueprint_node_edit_operation_names()
+        .into_iter()
+        .map(|name| {
+            serde_json::json!({
+                "name": name,
+                "category": "node-local-pin-structure",
+                "summary": node_edit_operation_summary(name)
+            })
+        })
+        .collect()
+}
+
+fn node_edit_operation_summary(operation: &str) -> &'static str {
+    match operation {
+        "addPin" => "Add one node-local pin/case/argument through the node's UE-native add-pin action.",
+        "removePin" => "Remove one removable node-local pin/case/argument by current pin name.",
+        "insertPin" => "Insert one execution pin before or after a Sequence/MultiGate execution output pin.",
+        "renamePin" => "Rename a node-owned case or argument pin when the UE node exposes a stable backing name list.",
+        _ => "Edit node-local Blueprint pin structure.",
+    }
+}
+
+fn blueprint_node_edit_operation_schema(
+    operation: &str,
+    includes: &[String],
+) -> Option<serde_json::Value> {
+    if !blueprint_node_edit_operation_names()
+        .iter()
+        .any(|name| name == &operation)
+    {
+        return None;
+    }
+
+    let schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "assetPath": {"type":"string","minLength":1},
+            "graph": blueprint_graph_ref_schema_fragment(),
+            "node": {
+                "type":"object",
+                "properties":{"id":{"type":"string","minLength":1}},
+                "required":["id"],
+                "additionalProperties":false
+            },
+            "operation": {"const": operation},
+            "args": node_edit_args_schema(operation),
+            "dryRun": {"type":"boolean","default":false},
+            "returnDiff": {"type":"boolean","default":false},
+            "returnDiagnostics": {"type":"boolean","default":true},
+            "expectedRevision": {"type":"string"}
+        },
+        "required": ["assetPath", "graph", "node", "operation", "args"],
+        "additionalProperties": false
+    });
+
+    let mut payload = serde_json::json!({
+        "domain": "blueprint",
+        "tool": "blueprint.node.edit",
+        "operation": operation,
+        "category": "node-local-pin-structure",
+        "source": {
+            "document": "UE K2 node local pin actions",
+            "section": operation
+        }
+    });
+    let payload_object = payload.as_object_mut()?;
+    if schema_include_requested(includes, "summary") {
+        payload_object.insert(
+            "summary".to_string(),
+            serde_json::json!(node_edit_operation_summary(operation)),
+        );
+    }
+    if schema_include_requested(includes, "schema") {
+        payload_object.insert("schema".to_string(), schema);
+    }
+    if schema_include_requested(includes, "examples") {
+        payload_object.insert(
+            "examples".to_string(),
+            serde_json::json!([node_edit_example(operation)]),
+        );
+    }
+    if schema_include_requested(includes, "errors") {
+        payload_object.insert(
+            "errors".to_string(),
+            serde_json::json!([
+                "INVALID_ARGUMENT",
+                "ASSET_NOT_FOUND",
+                "GRAPH_NOT_FOUND",
+                "NODE_NOT_FOUND",
+                "PIN_NOT_FOUND",
+                "UNSUPPORTED_NODE_OPERATION"
+            ]),
+        );
+    }
+    if schema_include_requested(includes, "notes") {
+        payload_object.insert(
+            "notes".to_string(),
+            serde_json::json!([
+                "Call blueprint.node.inspect first. It returns editCapabilities and the current pin names accepted by these operations.",
+                "Use blueprint.graph.edit for graph topology, links, placement, pin defaults, node creation, and node deletion.",
+                "Use blueprint.member.edit for EditablePinBase custom event signature changes; those are Blueprint members, not node-local K2 add-pin actions."
+            ]),
+        );
+    }
+    Some(payload)
+}
+
+fn blueprint_graph_ref_schema_fragment() -> serde_json::Value {
+    serde_json::json!({
+        "type":"object",
+        "properties":{
+            "id":{"type":"string","minLength":1},
+            "name":{"type":"string","minLength":1}
+        },
+        "additionalProperties": false,
+        "anyOf":[{"required":["id"]},{"required":["name"]}]
+    })
+}
+
+fn node_edit_args_schema(operation: &str) -> serde_json::Value {
+    match operation {
+        "addPin" => serde_json::json!({
+            "type":"object",
+            "properties":{
+                "role":{
+                    "type":"string",
+                    "enum":["case","exec","input","pair","option","argument"],
+                    "description":"Semantic role from blueprint.node.inspect editCapabilities. Examples: case for Switch, exec for Sequence/MultiGate, pair for MakeMap, argument for FormatText."
+                },
+                "name":{"type":"string","minLength":1,"description":"Optional desired name when the node supports named cases or arguments, such as Switch on Name/String or FormatText."}
+            },
+            "required":["role"],
+            "additionalProperties":false
+        }),
+        "removePin" => serde_json::json!({
+            "type":"object",
+            "properties":{
+                "pin":{"type":"string","minLength":1,"description":"Current pin name from blueprint.node.inspect pins/state."},
+                "target":{
+                    "type":"object",
+                    "properties":{"pin":{"type":"string","minLength":1}},
+                    "required":["pin"],
+                    "additionalProperties":false
+                }
+            },
+            "additionalProperties":false,
+            "anyOf":[{"required":["pin"]},{"required":["target"]}]
+        }),
+        "insertPin" => serde_json::json!({
+            "type":"object",
+            "properties":{
+                "target":{
+                    "type":"object",
+                    "description":"Existing execution output pin used as the insertion anchor.",
+                    "properties":{"pin":{"type":"string","minLength":1}},
+                    "required":["pin"],
+                    "additionalProperties":false
+                },
+                "position":{"type":"string","enum":["before","after"],"default":"after"}
+            },
+            "required":["target"],
+            "additionalProperties":false
+        }),
+        "renamePin" => serde_json::json!({
+            "type":"object",
+            "properties":{
+                "pin":{"type":"string","minLength":1,"description":"Current pin name from blueprint.node.inspect pins/state."},
+                "name":{"type":"string","minLength":1,"description":"New case or argument name."}
+            },
+            "required":["pin","name"],
+            "additionalProperties":false
+        }),
+        _ => serde_json::json!({"type":"object","additionalProperties":true}),
+    }
+}
+
+fn node_edit_example(operation: &str) -> serde_json::Value {
+    match operation {
+        "addPin" => serde_json::json!({
+            "assetPath": "/Game/BP_Demo",
+            "graph": {"name": "EventGraph"},
+            "node": {"id": "switch-name-guid"},
+            "operation": "addPin",
+            "args": {"role": "case", "name": "Paused"}
+        }),
+        "removePin" => serde_json::json!({
+            "assetPath": "/Game/BP_Demo",
+            "graph": {"name": "EventGraph"},
+            "node": {"id": "sequence-guid"},
+            "operation": "removePin",
+            "args": {"pin": "Then_1"}
+        }),
+        "insertPin" => serde_json::json!({
+            "assetPath": "/Game/BP_Demo",
+            "graph": {"name": "EventGraph"},
+            "node": {"id": "sequence-guid"},
+            "operation": "insertPin",
+            "args": {"target": {"pin": "Then_0"}, "position": "after"}
+        }),
+        "renamePin" => serde_json::json!({
+            "assetPath": "/Game/BP_Demo",
+            "graph": {"name": "EventGraph"},
+            "node": {"id": "format-text-guid"},
+            "operation": "renamePin",
+            "args": {"pin": "Arg0", "name": "PlayerName"}
+        }),
+        _ => serde_json::json!({}),
+    }
 }
 
 fn blueprint_member_edit_operation_names() -> Vec<&'static str> {

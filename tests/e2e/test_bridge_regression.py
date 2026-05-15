@@ -56,7 +56,7 @@ def blueprint_graph_inspect_args(arguments: dict) -> dict:
     normalized.pop("layoutDetail", None)
     normalized.pop("includePinDefaults", None)
     if "view" not in normalized:
-        normalized["view"] = "links" if include_connections is True else "full"
+        normalized["view"] = "wiring" if include_connections is True else "overview"
     return normalized
 
 
@@ -1014,6 +1014,7 @@ def query_snapshot(
     arguments = {"assetPath": asset_path, "limit": 200}
     if domain == "blueprint" and graph_name is not None:
         arguments["graphName"] = graph_name
+        arguments["view"] = "wiring"
     payload = call_domain_tool(
         client,
         request_id,
@@ -1725,7 +1726,7 @@ def main() -> int:
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
                 "limit": 200,
-                "view": "full",
+                "view": "wiring",
             },
         )
         snapshot = graph_query.get("semanticSnapshot")
@@ -2420,19 +2421,19 @@ def main() -> int:
             client,
             6525,
             "blueprint.graph.inspect",
-            {"assetPath": temp_asset, "graph": {"name": "ComputeValueRenamed"}, "view": "full"},
+            {"assetPath": temp_asset, "graph": {"name": "ComputeValueRenamed"}, "view": "wiring"},
         )
         guard_graph_payload = call_tool(
             client,
             6526,
             "blueprint.graph.inspect",
-            {"assetPath": temp_asset, "graph": {"name": "GuardMacroRenamed"}, "view": "full"},
+            {"assetPath": temp_asset, "graph": {"name": "GuardMacroRenamed"}, "view": "wiring"},
         )
         dispatcher_graph_payload = call_tool(
             client,
             6527,
             "blueprint.graph.inspect",
-            {"assetPath": temp_asset, "graph": {"name": "OnReadyChanged"}, "view": "full"},
+            {"assetPath": temp_asset, "graph": {"name": "OnReadyChanged"}, "view": "wiring"},
         )
         deleted_dispatcher_graph = call_tool(
             client,
@@ -2909,7 +2910,7 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graph": {"name": "EventGraph"},
-                "view": "links",
+                "view": "wiring",
                 "filter": {"nodeIds": [self_node_id]},
             },
         )
@@ -3596,6 +3597,89 @@ def main() -> int:
         )
         op_ok(remove_palette_node)
         print("[PASS] blueprint.palette and addFromPalette Branch creation validated")
+
+        switch_name_entry = find_palette_entry(
+            client,
+            18121,
+            temp_asset,
+            "Switch on Name",
+            preferred_node_class="/Script/BlueprintGraph.K2Node_SwitchName",
+        )
+        add_switch_name = call_tool(client, 18122, "blueprint.graph.edit", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "commands": [{
+                "kind": "addFromPalette",
+                "entry": switch_name_entry,
+                "position": {"x": 1100, "y": 520},
+                "alias": "switchNameCases",
+            }],
+        })
+        switch_name_node = op_ok(add_switch_name).get("nodeId")
+        if not isinstance(switch_name_node, str) or not switch_name_node:
+            fail(f"Switch on Name addFromPalette did not return nodeId: {add_switch_name}")
+
+        graph_overview = call_tool(client, 18123, "blueprint.graph.inspect", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "view": "overview",
+            "filter": {"nodeIds": [switch_name_node]},
+        })
+        overview_nodes = graph_overview.get("semanticSnapshot", {}).get("nodes")
+        if not isinstance(overview_nodes, list) or not overview_nodes:
+            fail(f"blueprint.graph.inspect overview missing Switch on Name node: {graph_overview}")
+        overview_node = overview_nodes[0]
+        if overview_node.get("hasNodeEditCapabilities") is not True or overview_node.get("inspectWith") != "blueprint.node.inspect":
+            fail(f"blueprint.graph.inspect should route Switch on Name to blueprint.node.inspect: {overview_node}")
+
+        switch_inspect_before = call_tool(client, 18124, "blueprint.node.inspect", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "node": {"id": switch_name_node},
+        })
+        capabilities = switch_inspect_before.get("editCapabilities")
+        if not isinstance(capabilities, dict) or capabilities.get("hasPinOperations") is not True:
+            fail(f"blueprint.node.inspect missing Switch on Name editCapabilities: {switch_inspect_before}")
+        operations = capabilities.get("pinOperations")
+        operation_names = {item.get("operation") for item in operations if isinstance(item, dict)} if isinstance(operations, list) else set()
+        if "addPin" not in operation_names or "renamePin" not in operation_names:
+            fail(f"blueprint.node.inspect missing Switch on Name pin operations: {switch_inspect_before}")
+
+        add_case_schema = call_tool(client, 18125, "schema.inspect", {
+            "domain": "blueprint",
+            "tool": "blueprint.node.edit",
+            "operation": "addPin",
+            "include": ["summary", "schema"],
+        })
+        if add_case_schema.get("operation") != "addPin" or not isinstance(add_case_schema.get("schema"), dict):
+            fail(f"schema.inspect blueprint.node.edit addPin schema invalid: {add_case_schema}")
+
+        add_case = call_tool(client, 18126, "blueprint.node.edit", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "node": {"id": switch_name_node},
+            "operation": "addPin",
+            "args": {"role": "case", "name": "Paused"},
+        })
+        add_case_result = op_ok(add_case)
+        if add_case_result.get("changed") is not True:
+            fail(f"blueprint.node.edit addPin should change Switch on Name: {add_case}")
+
+        switch_inspect_after = call_tool(client, 18127, "blueprint.node.inspect", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "node": {"id": switch_name_node},
+        })
+        case_pins = switch_inspect_after.get("state", {}).get("casePins")
+        pins_after = switch_inspect_after.get("pins")
+        pin_names_after = {
+            pin.get("name")
+            for pin in pins_after
+            if isinstance(pin, dict) and isinstance(pin.get("name"), str)
+        } if isinstance(pins_after, list) else set()
+        if "Paused" not in pin_names_after and (not isinstance(case_pins, list) or "Paused" not in case_pins):
+            fail(f"blueprint.node.edit addPin did not expose added Switch on Name case: {switch_inspect_after}")
+        print("[PASS] blueprint.node.inspect/edit Switch on Name case pin validated")
 
         palette_schema = call_tool(client, 1813, "blueprint.palette", {
             "assetPath": temp_asset,
