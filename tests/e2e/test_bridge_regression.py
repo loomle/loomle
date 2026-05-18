@@ -159,9 +159,14 @@ def find_palette_entry(
     if not isinstance(entries, list) or not entries:
         fail(f"blueprint.palette query {query!r} returned no entries: {payload}")
     if preferred_node_class is not None:
-        entry = next((item for item in entries if item.get("nodeClass") == preferred_node_class), None)
+        entry = next((
+            item for item in entries
+            if item.get("nodeClass") == preferred_node_class
+            and (preferred_label is None or item.get("label") == preferred_label)
+        ), None)
         if entry is None:
-            fail(f"blueprint.palette query {query!r} did not return nodeClass {preferred_node_class!r}: {payload}")
+            label_suffix = f" with label {preferred_label!r}" if preferred_label is not None else ""
+            fail(f"blueprint.palette query {query!r} did not return nodeClass {preferred_node_class!r}{label_suffix}: {payload}")
     elif preferred_label is None:
         entry = entries[0]
     else:
@@ -1103,11 +1108,13 @@ def query_graph_payload(
     graph_name: str,
     limit: int,
     cursor: str = "",
+    view: str = "overview",
 ) -> dict:
     arguments: dict[str, object] = {
         "assetPath": asset_path,
         "graphName": graph_name,
         "limit": limit,
+        "view": view,
     }
     if cursor:
         arguments["cursor"] = cursor
@@ -2883,6 +2890,7 @@ def main() -> int:
             asset_path=temp_asset,
             graph_name="EventGraph",
             limit=200,
+            view="wiring",
         )
         self_nodes = self_query.get("semanticSnapshot", {}).get("nodes", [])
         if not isinstance(self_nodes, list):
@@ -3680,6 +3688,242 @@ def main() -> int:
         if "Paused" not in pin_names_after and (not isinstance(case_pins, list) or "Paused" not in case_pins):
             fail(f"blueprint.node.edit addPin did not expose added Switch on Name case: {switch_inspect_after}")
         print("[PASS] blueprint.node.inspect/edit Switch on Name case pin validated")
+
+        select_entry = find_palette_entry(
+            client,
+            18128,
+            temp_asset,
+            "Select",
+            preferred_node_class="/Script/BlueprintGraph.K2Node_Select",
+        )
+        add_select = call_tool(client, 18129, "blueprint.graph.edit", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "commands": [{
+                "kind": "addFromPalette",
+                "entry": select_entry,
+                "position": {"x": 1320, "y": 520},
+                "alias": "selectOptions",
+            }],
+        })
+        select_node = op_ok(add_select).get("nodeId")
+        if not isinstance(select_node, str) or not select_node:
+            fail(f"Select addFromPalette did not return nodeId: {add_select}")
+
+        select_inspect_before = call_tool(client, 18130, "blueprint.node.inspect", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "node": {"id": select_node},
+        })
+        select_caps = select_inspect_before.get("editCapabilities")
+        select_ops = select_caps.get("pinOperations") if isinstance(select_caps, dict) else []
+        select_op_names = {item.get("operation") for item in select_ops if isinstance(item, dict)} if isinstance(select_ops, list) else set()
+        if "addPin" not in select_op_names or "removePin" not in select_op_names:
+            fail(f"blueprint.node.inspect missing Select option operations: {select_inspect_before}")
+        select_pins_before = select_inspect_before.get("state", {}).get("optionPins")
+        select_count_before = len(select_pins_before) if isinstance(select_pins_before, list) else -1
+        add_select_option = call_tool(client, 18131, "blueprint.node.edit", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "node": {"id": select_node},
+            "operation": "addPin",
+            "args": {"role": "option"},
+        })
+        if op_ok(add_select_option).get("changed") is not True:
+            fail(f"blueprint.node.edit addPin should change Select options: {add_select_option}")
+        select_inspect_added = call_tool(client, 18132, "blueprint.node.inspect", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "node": {"id": select_node},
+        })
+        select_pins_added = select_inspect_added.get("state", {}).get("optionPins")
+        select_count_added = len(select_pins_added) if isinstance(select_pins_added, list) else -1
+        if select_count_added <= select_count_before:
+            fail(f"blueprint.node.edit addPin did not add Select option pin: {select_inspect_added}")
+        remove_select_option = call_tool(client, 18133, "blueprint.node.edit", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "node": {"id": select_node},
+            "operation": "removePin",
+            "args": {},
+        })
+        if op_ok(remove_select_option).get("changed") is not True:
+            fail(f"blueprint.node.edit removePin should change Select options: {remove_select_option}")
+        select_inspect_removed = call_tool(client, 18134, "blueprint.node.inspect", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "node": {"id": select_node},
+        })
+        select_pins_removed = select_inspect_removed.get("state", {}).get("optionPins")
+        select_count_removed = len(select_pins_removed) if isinstance(select_pins_removed, list) else -1
+        if select_count_removed != select_count_before:
+            fail(f"blueprint.node.edit removePin should remove Select's last option: {select_inspect_removed}")
+        print("[PASS] blueprint.node.edit Select option add/remove validated")
+
+        format_text_entry = find_palette_entry(
+            client,
+            18135,
+            temp_asset,
+            "Format Text",
+            preferred_node_class="/Script/BlueprintGraph.K2Node_FormatText",
+        )
+        add_format_text = call_tool(client, 18136, "blueprint.graph.edit", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "commands": [{
+                "kind": "addFromPalette",
+                "entry": format_text_entry,
+                "position": {"x": 1540, "y": 520},
+                "alias": "formatTextArguments",
+            }],
+        })
+        format_text_node = op_ok(add_format_text).get("nodeId")
+        if not isinstance(format_text_node, str) or not format_text_node:
+            fail(f"Format Text addFromPalette did not return nodeId: {add_format_text}")
+
+        move_arg_schema = call_tool(client, 18137, "schema.inspect", {
+            "domain": "blueprint",
+            "tool": "blueprint.node.edit",
+            "operation": "movePin",
+            "include": ["summary", "schema"],
+        })
+        if move_arg_schema.get("operation") != "movePin" or not isinstance(move_arg_schema.get("schema"), dict):
+            fail(f"schema.inspect blueprint.node.edit movePin schema invalid: {move_arg_schema}")
+
+        for offset, name in enumerate(("PlayerName", "Score")):
+            add_argument = call_tool(client, 18138 + offset, "blueprint.node.edit", {
+                "assetPath": temp_asset,
+                "graph": {"name": "EventGraph"},
+                "node": {"id": format_text_node},
+                "operation": "addPin",
+                "args": {"role": "argument", "name": name},
+            })
+            if op_ok(add_argument).get("changed") is not True:
+                fail(f"blueprint.node.edit addPin should change Format Text arguments: {add_argument}")
+        move_argument = call_tool(client, 18140, "blueprint.node.edit", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "node": {"id": format_text_node},
+            "operation": "movePin",
+            "args": {"pin": "Score", "target": {"pin": "PlayerName"}, "position": "before"},
+        })
+        if op_ok(move_argument).get("changed") is not True:
+            fail(f"blueprint.node.edit movePin should change Format Text arguments: {move_argument}")
+        rename_argument = call_tool(client, 18141, "blueprint.node.edit", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "node": {"id": format_text_node},
+            "operation": "renamePin",
+            "args": {"pin": "Score", "name": "PlayerScore"},
+        })
+        if op_ok(rename_argument).get("changed") is not True:
+            fail(f"blueprint.node.edit renamePin should change Format Text arguments: {rename_argument}")
+        remove_argument = call_tool(client, 18142, "blueprint.node.edit", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "node": {"id": format_text_node},
+            "operation": "removePin",
+            "args": {"pin": "PlayerName"},
+        })
+        if op_ok(remove_argument).get("changed") is not True:
+            fail(f"blueprint.node.edit removePin should change Format Text arguments: {remove_argument}")
+        format_text_inspect = call_tool(client, 18143, "blueprint.node.inspect", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "node": {"id": format_text_node},
+        })
+        argument_pins = format_text_inspect.get("state", {}).get("argumentPins")
+        if not isinstance(argument_pins, list) or "PlayerScore" not in argument_pins or "PlayerName" in argument_pins:
+            fail(f"blueprint.node.edit Format Text argument operations produced unexpected state: {format_text_inspect}")
+        print("[PASS] blueprint.node.edit Format Text argument add/move/rename/remove validated")
+
+        set_fields_entry = find_palette_entry(
+            client,
+            18144,
+            temp_asset,
+            "Set members in Vector Parameter Value",
+            preferred_label="Set members in Vector Parameter Value",
+            preferred_node_class="/Script/BlueprintGraph.K2Node_SetFieldsInStruct",
+        )
+        add_set_fields = call_tool(client, 18145, "blueprint.graph.edit", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "commands": [{
+                "kind": "addFromPalette",
+                "entry": set_fields_entry,
+                "position": {"x": 1760, "y": 520},
+                "alias": "setFieldsVisibility",
+            }],
+        })
+        set_fields_node = op_ok(add_set_fields).get("nodeId")
+        if not isinstance(set_fields_node, str) or not set_fields_node:
+            fail(f"SetFieldsInStruct addFromPalette did not return nodeId: {add_set_fields}")
+
+        restore_fields_schema = call_tool(client, 18146, "schema.inspect", {
+            "domain": "blueprint",
+            "tool": "blueprint.node.edit",
+            "operation": "restorePins",
+            "include": ["summary", "schema"],
+        })
+        if restore_fields_schema.get("operation") != "restorePins" or not isinstance(restore_fields_schema.get("schema"), dict):
+            fail(f"schema.inspect blueprint.node.edit restorePins schema invalid: {restore_fields_schema}")
+        restore_fields_initial = call_tool(client, 18147, "blueprint.node.edit", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "node": {"id": set_fields_node},
+            "operation": "restorePins",
+            "args": {"scope": "all"},
+        })
+        op_ok(restore_fields_initial)
+        set_fields_inspect_restored = call_tool(client, 18148, "blueprint.node.inspect", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "node": {"id": set_fields_node},
+        })
+        restored_field_pins = set_fields_inspect_restored.get("state", {}).get("fieldPins")
+        removable_field = None
+        if isinstance(restored_field_pins, list):
+            for candidate in restored_field_pins:
+                if isinstance(candidate, str) and candidate not in {"execute", "then", "StructRef"}:
+                    removable_field = candidate
+                    break
+        if not removable_field:
+            fail(f"SetFieldsInStruct restorePins did not expose removable field pins: {set_fields_inspect_restored}")
+        remove_field = call_tool(client, 18149, "blueprint.node.edit", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "node": {"id": set_fields_node},
+            "operation": "removePin",
+            "args": {"pin": removable_field},
+        })
+        if op_ok(remove_field).get("changed") is not True:
+            fail(f"blueprint.node.edit removePin should hide SetFieldsInStruct field: {remove_field}")
+        set_fields_inspect_hidden = call_tool(client, 18150, "blueprint.node.inspect", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "node": {"id": set_fields_node},
+        })
+        hidden_field_pins = set_fields_inspect_hidden.get("state", {}).get("fieldPins")
+        if isinstance(hidden_field_pins, list) and removable_field in hidden_field_pins:
+            fail(f"blueprint.node.edit removePin did not hide SetFieldsInStruct field: {set_fields_inspect_hidden}")
+        restore_fields_final = call_tool(client, 18151, "blueprint.node.edit", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "node": {"id": set_fields_node},
+            "operation": "restorePins",
+            "args": {"scope": "all"},
+        })
+        if op_ok(restore_fields_final).get("changed") is not True:
+            fail(f"blueprint.node.edit restorePins should restore SetFieldsInStruct fields: {restore_fields_final}")
+        set_fields_inspect_final = call_tool(client, 18152, "blueprint.node.inspect", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "node": {"id": set_fields_node},
+        })
+        final_field_pins = set_fields_inspect_final.get("state", {}).get("fieldPins")
+        if not isinstance(final_field_pins, list) or removable_field not in final_field_pins:
+            fail(f"blueprint.node.edit restorePins did not restore SetFieldsInStruct field: {set_fields_inspect_final}")
+        print("[PASS] blueprint.node.edit SetFieldsInStruct field hide/restore validated")
 
         palette_schema = call_tool(client, 1813, "blueprint.palette", {
             "assetPath": temp_asset,

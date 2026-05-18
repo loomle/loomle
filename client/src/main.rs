@@ -3367,6 +3367,7 @@ fn blueprint_node_has_edit_capabilities(node: &serde_json::Map<String, serde_jso
         "K2Node_PromotableOperator",
         "K2Node_CommutativeAssociativeBinaryOperator",
         "K2Node_FormatText",
+        "K2Node_SetFieldsInStruct",
     ]
     .iter()
     .any(|needle| class_text.contains(needle))
@@ -6437,7 +6438,7 @@ fn blueprint_node_edit_schema() -> rmcp::model::JsonObject {
         "operation".into(),
         serde_json::json!({
             "type":"string",
-            "enum":["addPin","removePin","insertPin","renamePin"],
+            "enum":["addPin","removePin","insertPin","renamePin","movePin","restorePins"],
             "description":"Node-local structural edit. Use schema.inspect with domain='blueprint', tool='blueprint.node.edit', and operation='<operation>' for operation-specific args."
         }),
     );
@@ -11779,7 +11780,14 @@ mod tests {
             .filter_map(|entry| entry.get("name").and_then(|value| value.as_str()))
             .collect::<std::collections::HashSet<_>>();
 
-        for expected in ["addPin", "removePin", "insertPin", "renamePin"] {
+        for expected in [
+            "addPin",
+            "removePin",
+            "insertPin",
+            "renamePin",
+            "movePin",
+            "restorePins",
+        ] {
             assert!(names.contains(expected), "missing operation {expected}");
         }
     }

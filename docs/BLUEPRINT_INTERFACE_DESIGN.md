@@ -881,6 +881,35 @@ matching is too implementation-oriented for the primary graph inspect surface;
 callers should use `filter.text` for coarse discovery and `filter.nodeIds` for
 precise follow-up inspection.
 
+## blueprint.node.inspect and blueprint.node.edit
+
+`blueprint.node.inspect` is the focused read surface for one graph node after
+`blueprint.graph.inspect` has identified that the node has node-local structure.
+It returns pins, node-local state, and `editCapabilities` so callers know whether
+`blueprint.node.edit` is applicable.
+
+`blueprint.node.edit` is limited to UE-native node-local structural actions. It
+does not replace `blueprint.graph.edit` for graph wiring/layout, and it does not
+replace `blueprint.member.edit` for member signatures.
+
+Supported operation families:
+
+- `addPin`, `removePin`, `insertPin`, and `renamePin` for UE add-pin nodes such
+  as Switch, Sequence, container, operator, and Format Text nodes.
+- `movePin` for Format Text argument ordering.
+- `restorePins` for SetFieldsInStruct field visibility.
+
+Mapping rules:
+
+- Call `blueprint.node.inspect` first and use current pin names from its
+  `pins` or node-specific `state`.
+- Use `schema.inspect` with `tool: "blueprint.node.edit"` and an operation name
+  for the second-layer operation schema.
+- Select node `removePin` follows UE `RemoveOptionPinToNode`: it removes the
+  last removable option rather than an arbitrary named option.
+- SetFieldsInStruct `removePin` hides existing struct field pins; `restorePins`
+  restores hidden fields. These operations do not create new struct schema.
+
 ## blueprint.graph.edit
 
 `blueprint.graph.edit` is the low-level public editing interface.

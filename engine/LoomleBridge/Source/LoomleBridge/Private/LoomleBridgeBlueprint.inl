@@ -2317,7 +2317,8 @@ TSharedPtr<FJsonObject> BuildBlueprintNodeEditCapabilities(const TSharedPtr<FJso
     else if (BlueprintNodeClassContains(Node, TEXT("K2Node_Select")))
     {
         AddBlueprintNodePinEditOperation(Operations, TEXT("addPin"), TEXT("option"), TEXT("generated"), TEXT("Add one selectable option pin."));
-        AddBlueprintNodePinEditOperation(Operations, TEXT("removePin"), TEXT("option"), TEXT("target"), TEXT("Remove one selectable option pin."));
+        AddBlueprintNodePinEditOperation(Operations, TEXT("removePin"), TEXT("option"), TEXT("optional"), TEXT("Remove the last removable selectable option pin, matching UE RemoveOptionPinToNode behavior."));
+        Notes.Add(MakeShared<FJsonValueString>(TEXT("Select removePin reduces the option count; UE does not remove an arbitrary named option pin.")));
     }
     else if (BlueprintNodeClassContains(Node, TEXT("K2Node_PromotableOperator")) || BlueprintNodeClassContains(Node, TEXT("K2Node_CommutativeAssociativeBinaryOperator")))
     {
@@ -2329,7 +2330,14 @@ TSharedPtr<FJsonObject> BuildBlueprintNodeEditCapabilities(const TSharedPtr<FJso
         AddBlueprintNodePinEditOperation(Operations, TEXT("addPin"), TEXT("argument"), TEXT("optional"), TEXT("Add one Format Text argument pin."));
         AddBlueprintNodePinEditOperation(Operations, TEXT("removePin"), TEXT("argument"), TEXT("target"), TEXT("Remove one Format Text argument pin."));
         AddBlueprintNodePinEditOperation(Operations, TEXT("renamePin"), TEXT("argument"), TEXT("required"), TEXT("Rename one Format Text argument pin."));
+        AddBlueprintNodePinEditOperation(Operations, TEXT("movePin"), TEXT("argument"), TEXT("target"), TEXT("Move one Format Text argument before or after another argument."));
         Notes.Add(MakeShared<FJsonValueString>(TEXT("FormatText arguments are node-local argument pins; format-string-derived pins may reconstruct.")));
+    }
+    else if (BlueprintNodeClassContains(Node, TEXT("K2Node_SetFieldsInStruct")))
+    {
+        AddBlueprintNodePinEditOperation(Operations, TEXT("removePin"), TEXT("field"), TEXT("target"), TEXT("Hide one struct field pin or all other visible field pins."));
+        AddBlueprintNodePinEditOperation(Operations, TEXT("restorePins"), TEXT("field"), TEXT("generated"), TEXT("Restore all hidden struct field pins."));
+        Notes.Add(MakeShared<FJsonValueString>(TEXT("SetFieldsInStruct edits field visibility; it does not create new schema fields.")));
     }
 
     Capabilities->SetArrayField(TEXT("pinOperations"), Operations);
@@ -2355,6 +2363,14 @@ TSharedPtr<FJsonObject> BuildBlueprintNodeInspectState(const TSharedPtr<FJsonObj
     else if (BlueprintNodeClassContains(Node, TEXT("K2Node_FormatText")))
     {
         State->SetArrayField(TEXT("argumentPins"), MakeBlueprintNodePinNamesByDirection(Node, TEXT("input"), false, false));
+    }
+    else if (BlueprintNodeClassContains(Node, TEXT("K2Node_Select")))
+    {
+        State->SetArrayField(TEXT("optionPins"), MakeBlueprintNodePinNamesByDirection(Node, TEXT("input"), false, false));
+    }
+    else if (BlueprintNodeClassContains(Node, TEXT("K2Node_SetFieldsInStruct")))
+    {
+        State->SetArrayField(TEXT("fieldPins"), MakeBlueprintNodePinNamesByDirection(Node, TEXT("input"), false, false));
     }
     else
     {
@@ -2510,6 +2526,21 @@ int32 FindFormatTextArgumentIndex(UK2Node_FormatText* FormatTextNode, const FStr
     return INDEX_NONE;
 }
 
+bool ReadBlueprintNodeEditTargetPinName(const TSharedPtr<FJsonObject>& Args, FString& OutPinName)
+{
+    OutPinName.Reset();
+    if (!Args.IsValid())
+    {
+        return false;
+    }
+    const TSharedPtr<FJsonObject>* Target = nullptr;
+    if (Args->TryGetObjectField(TEXT("target"), Target) && Target != nullptr && (*Target).IsValid())
+    {
+        (*Target)->TryGetStringField(TEXT("pin"), OutPinName);
+    }
+    return !OutPinName.IsEmpty();
+}
+
 void ReconstructBlueprintNodeAfterLocalEdit(UEdGraphNode* Node)
 {
     if (Node != nullptr)
@@ -2643,17 +2674,54 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
     if (OperationLower.Equals(TEXT("removepin")))
     {
         const FString PinName = ReadBlueprintNodeEditPinName(Args);
-        if (PinName.IsEmpty())
-        {
-            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("INVALID_ARGUMENT"), TEXT("removePin requires args.pin or args.target.pin."));
-        }
-        UEdGraphPin* Pin = FindPinByName(TargetNode, PinName);
-        if (Pin == nullptr)
-        {
-            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("PIN_NOT_FOUND"), TEXT("Pin not found."));
-        }
+        UEdGraphPin* Pin = !PinName.IsEmpty() ? FindPinByName(TargetNode, PinName) : nullptr;
 
-        if (UK2Node_ExecutionSequence* SequenceNode = Cast<UK2Node_ExecutionSequence>(TargetNode))
+        if (UK2Node_Select* SelectNode = Cast<UK2Node_Select>(TargetNode))
+        {
+            if (!SelectNode->CanRemoveOptionPinToNode())
+            {
+                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This Select node cannot remove another option pin."));
+            }
+            if (!PinName.IsEmpty() && Pin == nullptr)
+            {
+                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("PIN_NOT_FOUND"), TEXT("Pin not found."));
+            }
+            SelectNode->RemoveOptionPinToNode();
+        }
+        else if (UK2Node_SetFieldsInStruct* SetFieldsNode = Cast<UK2Node_SetFieldsInStruct>(TargetNode))
+        {
+            FString Mode;
+            Args->TryGetStringField(TEXT("mode"), Mode);
+            if (PinName.IsEmpty())
+            {
+                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("INVALID_ARGUMENT"), TEXT("SetFieldsInStruct removePin requires args.pin or args.target.pin."));
+            }
+            if (Pin == nullptr)
+            {
+                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("PIN_NOT_FOUND"), TEXT("Pin not found."));
+            }
+            if (!UK2Node_SetFieldsInStruct::ShowCustomPinActions(Pin, false))
+            {
+                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_PIN_OPERATION"), TEXT("This struct field pin cannot be hidden."));
+            }
+            SetFieldsNode->RemoveFieldPins(
+                Pin,
+                Mode.Equals(TEXT("otherPins"), ESearchCase::IgnoreCase)
+                    ? UK2Node_SetFieldsInStruct::EPinsToRemove::AllOtherPins
+                    : UK2Node_SetFieldsInStruct::EPinsToRemove::GivenPin);
+        }
+        else
+        {
+            if (PinName.IsEmpty())
+            {
+                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("INVALID_ARGUMENT"), TEXT("removePin requires args.pin or args.target.pin."));
+            }
+            if (Pin == nullptr)
+            {
+                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("PIN_NOT_FOUND"), TEXT("Pin not found."));
+            }
+
+            if (UK2Node_ExecutionSequence* SequenceNode = Cast<UK2Node_ExecutionSequence>(TargetNode))
         {
             if (!SequenceNode->CanRemoveExecutionPin())
             {
@@ -2687,9 +2755,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
             AddPinNode->RemoveInputPin(Pin);
             ReconstructBlueprintNodeAfterLocalEdit(TargetNode);
         }
-        else
-        {
-            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node does not support removePin."));
+            else
+            {
+                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node does not support removePin."));
+            }
         }
         FinalizeChanged();
         return MakeBlueprintNodeEditResult(true, true, Operation, NodeId);
@@ -2762,6 +2831,78 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
         else
         {
             return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node does not support renamePin."));
+        }
+        FinalizeChanged();
+        return MakeBlueprintNodeEditResult(true, true, Operation, NodeId);
+    }
+
+    if (OperationLower.Equals(TEXT("movepin")))
+    {
+        const FString PinName = ReadBlueprintNodeEditPinName(Args);
+        FString TargetPinName;
+        FString Position;
+        Args->TryGetStringField(TEXT("position"), Position);
+        if (PinName.IsEmpty() || !ReadBlueprintNodeEditTargetPinName(Args, TargetPinName))
+        {
+            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("INVALID_ARGUMENT"), TEXT("movePin requires args.pin and args.target.pin."));
+        }
+
+        if (UK2Node_FormatText* FormatTextNode = Cast<UK2Node_FormatText>(TargetNode))
+        {
+            int32 FromIndex = FindFormatTextArgumentIndex(FormatTextNode, PinName);
+            int32 TargetIndex = FindFormatTextArgumentIndex(FormatTextNode, TargetPinName);
+            if (FromIndex == INDEX_NONE || TargetIndex == INDEX_NONE)
+            {
+                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("PIN_NOT_FOUND"), TEXT("FormatText movePin argument not found."));
+            }
+            if (FromIndex == TargetIndex)
+            {
+                return MakeBlueprintNodeEditResult(true, false, Operation, NodeId);
+            }
+
+            int32 DesiredIndex = TargetIndex;
+            if (Position.Equals(TEXT("after"), ESearchCase::IgnoreCase))
+            {
+                DesiredIndex = TargetIndex + 1;
+            }
+            if (FromIndex < DesiredIndex)
+            {
+                --DesiredIndex;
+            }
+
+            while (FromIndex < DesiredIndex)
+            {
+                FormatTextNode->SwapArguments(FromIndex, FromIndex + 1);
+                ++FromIndex;
+            }
+            while (FromIndex > DesiredIndex)
+            {
+                FormatTextNode->SwapArguments(FromIndex, FromIndex - 1);
+                --FromIndex;
+            }
+            ReconstructBlueprintNodeAfterLocalEdit(TargetNode);
+        }
+        else
+        {
+            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node does not support movePin."));
+        }
+        FinalizeChanged();
+        return MakeBlueprintNodeEditResult(true, true, Operation, NodeId);
+    }
+
+    if (OperationLower.Equals(TEXT("restorepins")))
+    {
+        if (UK2Node_SetFieldsInStruct* SetFieldsNode = Cast<UK2Node_SetFieldsInStruct>(TargetNode))
+        {
+            if (SetFieldsNode->AllPinsAreShown())
+            {
+                return MakeBlueprintNodeEditResult(true, false, Operation, NodeId);
+            }
+            SetFieldsNode->RestoreAllPins();
+        }
+        else
+        {
+            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node does not support restorePins."));
         }
         FinalizeChanged();
         return MakeBlueprintNodeEditResult(true, true, Operation, NodeId);

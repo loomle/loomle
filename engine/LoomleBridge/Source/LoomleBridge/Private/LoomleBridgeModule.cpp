@@ -50,6 +50,8 @@
 #include "K2Node_ExecutionSequence.h"
 #include "K2Node_CustomEvent.h"
 #include "K2Node_FormatText.h"
+#include "K2Node_Select.h"
+#include "K2Node_SetFieldsInStruct.h"
 #include "K2Node_Switch.h"
 #include "K2Node_SwitchName.h"
 #include "K2Node_SwitchString.h"

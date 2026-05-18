@@ -350,7 +350,14 @@ fn schema_include_requested(includes: &[String], section: &str) -> bool {
 }
 
 fn blueprint_node_edit_operation_names() -> Vec<&'static str> {
-    vec!["addPin", "removePin", "insertPin", "renamePin"]
+    vec![
+        "addPin",
+        "removePin",
+        "insertPin",
+        "renamePin",
+        "movePin",
+        "restorePins",
+    ]
 }
 
 fn blueprint_node_edit_operation_index() -> Vec<serde_json::Value> {
@@ -369,9 +376,11 @@ fn blueprint_node_edit_operation_index() -> Vec<serde_json::Value> {
 fn node_edit_operation_summary(operation: &str) -> &'static str {
     match operation {
         "addPin" => "Add one node-local pin/case/argument through the node's UE-native add-pin action.",
-        "removePin" => "Remove one removable node-local pin/case/argument by current pin name.",
+        "removePin" => "Remove or hide one removable node-local pin/case/argument by current pin name.",
         "insertPin" => "Insert one execution pin before or after a Sequence/MultiGate execution output pin.",
         "renamePin" => "Rename a node-owned case or argument pin when the UE node exposes a stable backing name list.",
+        "movePin" => "Move a node-owned pin/argument before or after another node-owned pin when UE exposes ordering.",
+        "restorePins" => "Restore node-local pins hidden by UE node field-visibility actions.",
         _ => "Edit node-local Blueprint pin structure.",
     }
 }
@@ -444,7 +453,8 @@ fn blueprint_node_edit_operation_schema(
                 "GRAPH_NOT_FOUND",
                 "NODE_NOT_FOUND",
                 "PIN_NOT_FOUND",
-                "UNSUPPORTED_NODE_OPERATION"
+                "UNSUPPORTED_NODE_OPERATION",
+                "UNSUPPORTED_PIN_OPERATION"
             ]),
         );
     }
@@ -454,7 +464,9 @@ fn blueprint_node_edit_operation_schema(
             serde_json::json!([
                 "Call blueprint.node.inspect first. It returns editCapabilities and the current pin names accepted by these operations.",
                 "Use blueprint.graph.edit for graph topology, links, placement, pin defaults, node creation, and node deletion.",
-                "Use blueprint.member.edit for EditablePinBase custom event signature changes; those are Blueprint members, not node-local K2 add-pin actions."
+                "Use blueprint.member.edit for EditablePinBase function, macro, event, and dispatcher signature changes; those are Blueprint members, not node-local K2 add-pin actions.",
+                "UK2Node_Select removePin follows UE's RemoveOptionPinToNode behavior: it removes the last removable option, not an arbitrary named option.",
+                "UK2Node_SetFieldsInStruct removePin hides struct field pins; restorePins restores all hidden struct field pins."
             ]),
         );
     }
@@ -491,7 +503,8 @@ fn node_edit_args_schema(operation: &str) -> serde_json::Value {
         "removePin" => serde_json::json!({
             "type":"object",
             "properties":{
-                "pin":{"type":"string","minLength":1,"description":"Current pin name from blueprint.node.inspect pins/state."},
+                "pin":{"type":"string","minLength":1,"description":"Current pin name from blueprint.node.inspect pins/state. Optional only for Select, where UE removes the last option."},
+                "mode":{"type":"string","enum":["pin","otherPins"],"default":"pin","description":"For SetFieldsInStruct only: pin hides the selected field; otherPins hides all other visible fields."},
                 "target":{
                     "type":"object",
                     "properties":{"pin":{"type":"string","minLength":1}},
@@ -499,8 +512,7 @@ fn node_edit_args_schema(operation: &str) -> serde_json::Value {
                     "additionalProperties":false
                 }
             },
-            "additionalProperties":false,
-            "anyOf":[{"required":["pin"]},{"required":["target"]}]
+            "additionalProperties":false
         }),
         "insertPin" => serde_json::json!({
             "type":"object",
@@ -524,6 +536,28 @@ fn node_edit_args_schema(operation: &str) -> serde_json::Value {
                 "name":{"type":"string","minLength":1,"description":"New case or argument name."}
             },
             "required":["pin","name"],
+            "additionalProperties":false
+        }),
+        "movePin" => serde_json::json!({
+            "type":"object",
+            "properties":{
+                "pin":{"type":"string","minLength":1,"description":"Current pin name from blueprint.node.inspect pins/state."},
+                "target":{
+                    "type":"object",
+                    "properties":{"pin":{"type":"string","minLength":1}},
+                    "required":["pin"],
+                    "additionalProperties":false
+                },
+                "position":{"type":"string","enum":["before","after"],"default":"after"}
+            },
+            "required":["pin","target"],
+            "additionalProperties":false
+        }),
+        "restorePins" => serde_json::json!({
+            "type":"object",
+            "properties":{
+                "scope":{"type":"string","enum":["all"],"default":"all"}
+            },
             "additionalProperties":false
         }),
         _ => serde_json::json!({"type":"object","additionalProperties":true}),
@@ -559,6 +593,20 @@ fn node_edit_example(operation: &str) -> serde_json::Value {
             "node": {"id": "format-text-guid"},
             "operation": "renamePin",
             "args": {"pin": "Arg0", "name": "PlayerName"}
+        }),
+        "movePin" => serde_json::json!({
+            "assetPath": "/Game/BP_Demo",
+            "graph": {"name": "EventGraph"},
+            "node": {"id": "format-text-guid"},
+            "operation": "movePin",
+            "args": {"pin": "Score", "target": {"pin": "PlayerName"}, "position": "after"}
+        }),
+        "restorePins" => serde_json::json!({
+            "assetPath": "/Game/BP_Demo",
+            "graph": {"name": "EventGraph"},
+            "node": {"id": "set-members-guid"},
+            "operation": "restorePins",
+            "args": {"scope": "all"}
         }),
         _ => serde_json::json!({}),
     }
