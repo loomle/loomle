@@ -72,6 +72,23 @@ From an MCP host session:
 
 Full quickstart: https://loomle.ai/quickstart.html
 
+## Trying LOOMLE?
+
+The fastest useful test is:
+
+1. Install LOOMLE and configure your MCP host.
+2. Open an Unreal project.
+3. Run `project.install` if the project does not have `Plugins/LoomleBridge`.
+4. Restart Unreal Editor, then call `project.list`, `project.attach`, and
+   `context`.
+5. Try one domain inspect tool, such as `blueprint.graph.inspect`,
+   `material.graph.inspect`, `pcg.graph.inspect`, or `widget.tree.inspect`.
+
+If anything is confusing or fails, open a
+[first user feedback issue](https://github.com/loomle/loomle/issues/new?template=first-user-feedback.yml).
+Early feedback is especially useful when it includes the MCP host, Unreal
+version, the first unclear step, and the tool output.
+
 ## Tool Surface
 
 The public MCP tools are grouped by UE domain:
