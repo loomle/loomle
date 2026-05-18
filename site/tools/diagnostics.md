@@ -2,7 +2,7 @@
 layout: default
 title: Diagnostics and Logs
 parent: Tools
-nav_order: 8
+nav_order: 10
 ---
 
 # Diagnostics and Log Tools
