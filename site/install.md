@@ -36,6 +36,36 @@ loomle mcp
 LOOMLE does not use a daemon. Each MCP host session starts its own stdio
 `loomle mcp` process and attaches to one active Unreal project in that process.
 
+## MCP Host Setup
+
+The installer attempts common MCP host setup automatically:
+
+- Codex: if `~/.codex` exists, the installer writes a `loomle` server entry to
+  `~/.codex/config.toml`.
+- Claude: if the `claude` CLI is available, the installer runs
+  `claude mcp add --scope user loomle -- <loomle> mcp`.
+
+If automatic setup is skipped or you use a different install root, configure the
+host manually with the stable global command path:
+
+```bash
+codex mcp add loomle -- ~/.loomle/bin/loomle mcp
+claude mcp add --scope user loomle -- ~/.loomle/bin/loomle mcp
+```
+
+For other MCP hosts, add a stdio server named `loomle` with:
+
+```json
+{
+  "command": "~/.loomle/bin/loomle",
+  "args": ["mcp"]
+}
+```
+
+After changing MCP configuration, restart the MCP host session. Use
+`loomle doctor` to inspect the global install and print host configuration
+hints.
+
 ## After Install
 
 The installer creates a global install under `~/.loomle` unless
