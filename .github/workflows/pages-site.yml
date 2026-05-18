@@ -31,10 +31,21 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          working-directory: site
+          bundler-cache: true
+
+      - name: Build site
+        working-directory: site
+        run: bundle exec jekyll build --destination _site
+
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: site/_site
 
       - name: Deploy to GitHub Pages
         id: deployment

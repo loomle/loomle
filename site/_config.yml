@@ -1,0 +1,29 @@
+title: LOOMLE
+description: Agent-native Unreal Engine tooling for Blueprint, Material, PCG, and Widget workflows.
+url: "https://loomle.ai"
+baseurl: ""
+
+theme: just-the-docs
+
+search_enabled: true
+heading_anchors: true
+color_scheme: loomle
+
+aux_links:
+  GitHub:
+    - https://github.com/loomle/loomle
+  Releases:
+    - https://github.com/loomle/loomle/releases
+
+callouts:
+  note:
+    title: Note
+    color: blue
+  warning:
+    title: Warning
+    color: yellow
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - README.md

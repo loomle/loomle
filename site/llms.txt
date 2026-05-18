@@ -1,0 +1,32 @@
+# LOOMLE
+
+LOOMLE is agent-native Unreal Engine tooling exposed through MCP.
+
+Canonical documentation:
+
+- Install: https://loomle.ai/install.html
+- Quickstart: https://loomle.ai/quickstart.html
+- Concepts: https://loomle.ai/concepts/
+- Tools: https://loomle.ai/tools/
+- Releases: https://github.com/loomle/loomle/releases
+
+Install:
+
+```bash
+curl -fsSL https://loomle.ai/install.sh | bash
+```
+
+Windows PowerShell:
+
+```powershell
+& ([scriptblock]::Create((irm https://loomle.ai/install.ps1)))
+```
+
+Configure MCP hosts to run:
+
+```bash
+loomle mcp
+```
+
+After attach, inspect before editing, use palettes for creation, and call
+`schema.inspect` when a tool intentionally has operation-specific schemas.
