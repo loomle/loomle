@@ -2,7 +2,7 @@
 layout: default
 title: Assets
 parent: Tools
-nav_order: 0
+nav_order: 2
 ---
 
 # Asset Tools
@@ -11,6 +11,20 @@ Asset tools operate at the Unreal asset boundary.
 
 Use them before choosing a domain-specific tool when the task is about creating,
 inspecting, or editing asset-level metadata.
+
+## Tool List
+
+- `asset.create`: creates supported Unreal assets.
+- `asset.inspect`: inspects an asset through the matching domain surface.
+- `asset.edit`: edits asset-level metadata.
+
+## Schemas
+
+| Tool | Required | Key Fields |
+| --- | --- | --- |
+| `asset.create` | `kind`, `assetPath` | `kind: blueprint/enum/material/materialFunction/pcgGraph/widgetBlueprint`, `parentClassPath`, `entries`, `displayNames`, mutation controls |
+| `asset.inspect` | `kind`, `assetPath` | `view`, `filter`, `page`, `includeConnections`, `nodeIds` |
+| `asset.edit` | `assetPath`, `operation` | `operation: updateMetadata/updateEntries`, `metadata`, `removeKeys`, `clearMetadata`, enum `entries`, mutation controls |
 
 ## `asset.create`
 

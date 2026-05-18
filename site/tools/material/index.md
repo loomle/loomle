@@ -2,7 +2,7 @@
 layout: default
 title: Material
 parent: Tools
-nav_order: 2
+nav_order: 6
 ---
 
 # Material Tools
@@ -10,6 +10,7 @@ nav_order: 2
 Material tools operate on UE Material expression graphs.
 
 - `material.palette`: find expression nodes through UE's Material palette.
+- `material.list`: list expressions in a material asset.
 - `material.graph.inspect`: inspect expression nodes, pins, and links.
 - `material.graph.edit`: apply explicit graph edits.
 - `material.graph.layout`: format an explicit node selection.
@@ -19,6 +20,19 @@ Material tools operate on UE Material expression graphs.
 
 Use `material.palette` before creating expression nodes, and
 `material.node.inspect` before editing expression properties.
+
+## Schemas
+
+| Tool | Required | Key Fields |
+| --- | --- | --- |
+| `material.list` | `assetPath` | Material asset path. |
+| `material.graph.inspect` | `assetPath` | `graph`, `graphRef`, `nodeIds`, `nodeClasses`, `includeConnections` |
+| `material.graph.edit` | `assetPath`, `commands` | `graph`, command envelopes with `kind`; command-specific args through `schema.inspect` |
+| `material.graph.layout` | `assetPath`, selection | Formats explicit node selection only. |
+| `material.compile` | `assetPath` | Material asset path. |
+| `material.node.inspect` | none | `assetPath` plus `nodeId`, or `nodeClass` for class mode. |
+| `material.node.edit` | `assetPath`, `node`, `property`, `value` | `graph`, mutation controls |
+| `material.palette` | none | `assetPath`, `graph`, `query`, `elementTypes`, `limit`, `offset` |
 
 ## Recommended Flow
 

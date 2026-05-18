@@ -2,7 +2,7 @@
 layout: default
 title: Widget
 parent: Tools
-nav_order: 4
+nav_order: 9
 ---
 
 # Widget Tools
@@ -17,6 +17,16 @@ Widget tools operate on UMG WidgetBlueprint assets.
 
 Use `widget.palette` before adding widgets, and `widget.tree.inspect` before
 editing the WidgetTree hierarchy.
+
+## Schemas
+
+| Tool | Required | Key Fields |
+| --- | --- | --- |
+| `widget.palette` | none | `assetPath`, `query`, `elementTypes: native/user`, `limit`, `offset` |
+| `widget.tree.inspect` | `assetPath` | `view: outline/layout/details`, `filter.names`, `filter.text` |
+| `widget.tree.edit` | `assetPath`, `commands` | Command envelopes with `kind`; command-specific args through `schema.inspect` |
+| `widget.inspect` | none | Class mode: `widgetClass`; instance mode: `assetPath`, `widget.name` |
+| `widget.compile` | `assetPath` | WidgetBlueprint asset path. |
 
 ## Recommended Flow
 

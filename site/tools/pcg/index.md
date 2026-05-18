@@ -2,7 +2,7 @@
 layout: default
 title: PCG
 parent: Tools
-nav_order: 3
+nav_order: 7
 ---
 
 # PCG Tools
@@ -20,6 +20,19 @@ PCG tools operate on UE PCG graph assets.
 
 PCG graph parameters are separate from graph nodes. Use parameter tools for the
 graph's user parameters, and graph/node tools for PCG nodes and settings.
+
+## Schemas
+
+| Tool | Required | Key Fields |
+| --- | --- | --- |
+| `pcg.graph.inspect` | `assetPath` | `graph`, `view: overview/pins/links/defaults/full`, `filter.nodeIds`, `filter.text`, `page` |
+| `pcg.palette` | none | `assetPath`, `graph`, `query`, `elementTypes`, `limit`, `offset` |
+| `pcg.node.inspect` | none | Instance mode: `assetPath`, `graph`, `node.id`; class mode: `nodeClass` or `settingsClass` |
+| `pcg.parameter.inspect` | none | `assetPath`, `graph`, optional exact `name` |
+| `pcg.parameter.edit` | `assetPath`, `operation`, `args` | `operation: create/update/rename/delete/setDefault`; operation args through `schema.inspect` |
+| `pcg.graph.edit` | `assetPath`, `commands` | `graph`, command envelopes with `kind`; command-specific args through `schema.inspect` |
+| `pcg.graph.layout` | `assetPath`, selection | Formats explicit node selection only. |
+| `pcg.compile` | `assetPath` | PCG graph asset path. |
 
 ## Recommended Flow
 

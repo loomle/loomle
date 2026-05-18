@@ -2,12 +2,34 @@
 layout: default
 title: Project and Session
 parent: Tools
-nav_order: 0
+nav_order: 1
 ---
 
 # Project and Session Tools
 
 Project tools manage the MCP session's connection to Unreal Editor.
+
+## Tool List
+
+- `loomle.status`: reports whether the MCP session is attached.
+- `project.list`: lists known Unreal projects.
+- `project.attach`: attaches this MCP session to one online project.
+- `project.install`: installs or updates project-local LOOMLE support.
+- `schema.inspect`: returns documented second-level operation schemas.
+- `loomle`: reports bridge health after attach.
+- `context`: reads active editor context and selection after attach.
+
+## Schemas
+
+| Tool | Required | Key Fields |
+| --- | --- | --- |
+| `loomle.status` | none | No arguments. |
+| `project.list` | none | `status: online/offline/all`, `includeDiagnostics` |
+| `project.attach` | `projectId` or `projectRoot` | Attach target from `project.list`. |
+| `project.install` | `projectRoot` | `force` |
+| `schema.inspect` | `domain`, `tool` | `domain: blueprint/material/pcg/widget`, optional `operation`, optional `include` |
+| `loomle` | none | No arguments. |
+| `context` | none | Optional `resolveIds`, `resolveFields`. |
 
 ## `loomle`
 

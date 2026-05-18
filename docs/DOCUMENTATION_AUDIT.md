@@ -30,7 +30,7 @@ publish exploratory design history as if it were current contract.
 | `site/index.md` | publish | Product and concept entrypoint; keep the core project model and usage model here. |
 | `site/install.md` | publish | Keep canonical install page; verify install scripts stay at root URLs. |
 | `site/quickstart.md` | publish | Expand with one complete UE workflow once examples are selected. |
-| `site/tools/*` | rewrite | Current pages are skeletal indexes; expand from audited source docs and live tool schemas. |
+| `site/tools/*` | publish | Tool index is generated against the current public tool list; continue deepening per-tool schema details from live schemas. |
 | `site/workflows/*` | rewrite | Convert into tested, task-oriented examples. |
 | `site/llms.txt` | publish | Keep short and stable for agent ingestion. |
 
