@@ -7,52 +7,95 @@ nav_order: 2
 
 # Asset Tools
 
-Asset tools operate at the Unreal asset boundary.
+Asset tools operate at the Unreal asset boundary: creating assets, inspecting
+asset-level metadata, and editing metadata. After creation, switch to the
+domain-specific tools for graph, member, parameter, or WidgetTree edits.
 
-Use them before choosing a domain-specific tool when the task is about creating,
-inspecting, or editing asset-level metadata.
+## Recommended Flow
 
-## Tool List
+1. Use `asset.create` when the target asset does not exist.
+2. Use `asset.inspect` to confirm the asset kind and asset-level state.
+3. Use `asset.edit` only for metadata or enum-entry compatibility edits.
+4. Continue with Blueprint, Material, PCG, or Widget tools for domain edits.
 
-- `asset.create`: creates supported Unreal assets.
-- `asset.inspect`: inspects an asset through the matching domain surface.
-- `asset.edit`: edits asset-level metadata.
+## Tool Summary
 
-## Schemas
-
-| Tool | Required | Key Fields |
-| --- | --- | --- |
-| `asset.create` | `kind`, `assetPath` | `kind: blueprint/enum/material/materialFunction/pcgGraph/widgetBlueprint`, `parentClassPath`, `entries`, `displayNames`, mutation controls |
-| `asset.inspect` | `kind`, `assetPath` | `view`, `filter`, `page`, `includeConnections`, `nodeIds` |
-| `asset.edit` | `assetPath`, `operation` | `operation: updateMetadata/updateEntries`, `metadata`, `removeKeys`, `clearMetadata`, enum `entries`, mutation controls |
+| Tool | Purpose |
+| --- | --- |
+| `asset.create` | Create supported Unreal assets. |
+| `asset.inspect` | Inspect an asset through the matching public domain surface. |
+| `asset.edit` | Edit asset-level metadata; enum entries are a compatibility case. |
 
 ## `asset.create`
 
-Creates supported Unreal assets.
+Creates a supported Unreal asset.
 
-Supported public categories include:
+### Parameters
 
-- Blueprint
-- enum
-- Material
-- Material Function
-- PCG graph
-- WidgetBlueprint
+| Field | Required | Notes |
+| --- | --- | --- |
+| `kind` | yes | `blueprint`, `enum`, `material`, `materialFunction`, `pcgGraph`, or `widgetBlueprint`. |
+| `assetPath` | yes | Destination Unreal asset path. |
+| `parentClassPath` | no | Blueprint parent class path; Blueprint defaults to Actor, WidgetBlueprint defaults to UserWidget. |
+| `parentClass` | no | Compatibility alias for parent class. |
+| `entries` | no | Enum entries for `kind: enum`. |
+| `displayNames` | no | Enum display names keyed by entry name. |
+| `args` | no | Optional kind-specific argument envelope. |
+| `dryRun` | no | Validate without applying. |
+| `returnDiff` | no | Include diff when supported. |
+| `returnDiagnostics` | no | Defaults to true. |
+| `expectedRevision` | no | Optimistic mutation guard when supported. |
 
-After creating an asset, switch to the domain-specific tools for graph, member,
-parameter, or tree edits.
+### Next Step
+
+Use `asset.inspect`, then switch to the domain tool: `blueprint.*`,
+`material.*`, `pcg.*`, or `widget.*`.
 
 ## `asset.inspect`
 
-Inspects an Unreal asset through the matching public domain surface.
+Inspects an asset through its public domain surface.
 
-Use it when the asset kind is known and the next step depends on asset-level
-metadata.
+### Parameters
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `kind` | yes | Same kind set as `asset.create`. |
+| `assetPath` | yes | Unreal asset path. |
+| `view` | no | PCG or WidgetTree view: `overview`, `pins`, `links`, `defaults`, `full`, `outline`, `layout`, or `details`. |
+| `filter` | no | `nodeIds`, `names`, or fuzzy `text`, depending on asset kind. |
+| `page` | no | `limit` and `cursor` for paged graph results. |
+| `includeConnections` | no | Material connection detail. |
+| `nodeIds` | no | Material expression ids. |
+
+### Use When
+
+Use this when the asset kind is known but the next step depends on asset-level
+metadata or routing to the correct domain tool.
 
 ## `asset.edit`
 
-Edits asset-level metadata.
+Edits asset metadata. `updateEntries` remains for enum entry compatibility, but
+general asset editing should be metadata-only.
 
-Enum entry editing remains supported as a special compatibility case, but the
-general intent of `asset.edit` is metadata editing rather than graph or member
-mutation.
+### Parameters
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `assetPath` | yes | Unreal asset path. |
+| `operation` | yes | `updateMetadata` or `updateEntries`. |
+| `kind` | no | Required only for enum compatibility `updateEntries`. |
+| `metadata` | no | String metadata key/value pairs to set. |
+| `removeKeys` | no | Metadata keys to remove. |
+| `clearMetadata` | no | Remove all current metadata before applying new values. |
+| `entries` | no | Enum entries for `updateEntries`. |
+| `displayNames` | no | Enum display names keyed by entry name. |
+| `args` | no | Optional operation envelope. |
+| `dryRun` | no | Validate without applying. |
+| `returnDiff` | no | Include diff when supported. |
+| `returnDiagnostics` | no | Defaults to true. |
+| `expectedRevision` | no | Optimistic mutation guard when supported. |
+
+### Boundary
+
+Do not use `asset.edit` for graph nodes, Blueprint members, PCG parameters, or
+WidgetTree hierarchy. Use the matching domain tool for those changes.

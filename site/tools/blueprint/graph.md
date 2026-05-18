@@ -7,41 +7,94 @@ nav_order: 2
 
 # Blueprint Graphs
 
-Use these tools for Blueprint graph work:
+Blueprint graph tools own graph-local nodes, pins, links, defaults, comments,
+layout, and node placement. They do not edit Blueprint member signatures.
 
-- `blueprint.graph.list`: list graphs in an asset.
-- `blueprint.graph.inspect`: inspect graph nodes, links, and compact views.
-- `blueprint.graph.edit`: apply explicit local graph edit commands.
-- `blueprint.graph.layout`: format selected graph regions.
+## Tool Summary
 
-`blueprint.graph.inspect` defaults to a compact overview. Use richer views only
-when needed for connection planning.
+| Tool | Purpose |
+| --- | --- |
+| `blueprint.graph.list` | List graphs in a Blueprint asset. |
+| `blueprint.graph.inspect` | Inspect nodes, links, and graph views. |
+| `blueprint.graph.edit` | Apply explicit graph edit commands. |
+| `blueprint.graph.layout` | Format selected graph regions. |
 
-For `blueprint.graph.edit`, call `schema.inspect` for command-specific schemas.
+## `blueprint.graph.list`
 
-## Inspect Views
+### Parameters
 
-- `overview`: compact node summaries. Use this first.
-- `wiring`: adds compact pins and links for connection planning.
+| Field | Required | Notes |
+| --- | --- | --- |
+| `assetPath` | yes | Blueprint asset path. |
+| `includeCompositeSubgraphs` | no | Include composite or inline subgraphs. |
 
-If a node has `hasNodeEditCapabilities: true`, inspect it with
-`blueprint.node.inspect` before editing its local pins.
+Use graph ids from this tool when possible.
 
-## Edit Boundary
+## `blueprint.graph.inspect`
 
-Use `blueprint.graph.edit` for local graph mutations:
+### Parameters
 
-- add a node from a palette entry
-- connect or disconnect explicit pins
-- set a pin default
-- remove or move a node
-- edit a node comment or enabled state
+| Field | Required | Notes |
+| --- | --- | --- |
+| `assetPath` | yes | Blueprint asset path. |
+| `graph` | yes | Preferred graph address: `{id}` or `{name}`. |
+| `view` | no | `overview` or `wiring`; defaults to `overview`. |
+| `filter.nodeIds` | no | Restrict to node ids. |
+| `filter.text` | no | Text filter. |
+| `page.limit` | no | Defaults to 50, maximum 1000. |
+| `page.cursor` | no | Pagination cursor. |
 
-Do not use graph edit for Blueprint member signatures. Use
-`blueprint.member.edit` for variables, functions, macros, dispatchers, events,
-and components.
+Use `overview` first. Use `wiring` when planning connections. If a node has
+`hasNodeEditCapabilities: true`, inspect it with `blueprint.node.inspect` before
+editing local pins.
 
-## Layout
+## `blueprint.graph.edit`
 
-Use `blueprint.graph.layout` after edits when the graph region needs visual
-cleanup. Layout changes positions only; it does not change Blueprint behavior.
+### Parameters
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `assetPath` | yes | Blueprint asset path. |
+| `graph` | no | Preferred graph address. |
+| `graphName` | no | Legacy graph address. Prefer `graph`. |
+| `commands` | yes | Ordered command envelopes with `kind`. |
+| `continueOnError` | no | Continue after operation-level failure. |
+| `dryRun` | no | Validate without applying. |
+| `returnDiff` | no | Include diff when supported. |
+| `returnDiagnostics` | no | Defaults to true. |
+| `expectedRevision` | no | Optimistic mutation guard when supported. |
+
+Command-specific fields are intentionally omitted from `tools/list`. Call
+`schema.inspect` with `domain: blueprint`, `tool: blueprint.graph.edit`, and
+the selected `operation`.
+
+### Edit Boundary
+
+Use graph edit for:
+
+- Adding a node from a palette entry.
+- Connecting or disconnecting explicit pins.
+- Setting pin defaults.
+- Removing or moving a node.
+- Editing node comments or enabled state.
+
+Use `blueprint.member.edit` for member signatures. Use `blueprint.node.edit` for
+node-local structures such as switch cases or Format Text arguments.
+
+## `blueprint.graph.layout`
+
+### Parameters
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `assetPath` | yes | Blueprint asset path. |
+| `graph` | yes | Preferred graph address. |
+| `scope` | yes | `selection` with explicit nodes, or `tree` with root exec node. |
+| `spacing` | no | Layout spacing; defaults to x 360, y 180. |
+| `origin` | no | Optional top-left layout anchor. |
+| `dryRun` | no | Validate without applying. |
+| `returnDiff` | no | Include diff when supported. |
+| `returnDiagnostics` | no | Defaults to true. |
+| `expectedRevision` | no | Optimistic mutation guard when supported. |
+
+Layout changes positions only; it does not change Blueprint behavior.

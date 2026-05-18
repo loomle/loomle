@@ -8,28 +8,38 @@ nav_order: 1
 # Blueprint Palette
 
 `blueprint.palette` searches UE Blueprint Action Menu entries for graph node
-creation.
+creation. It keeps agents aligned with UE's own context-sensitive creation
+model.
 
-Recommended flow:
+## Recommended Flow
 
-1. Call `blueprint.palette` with the asset, graph, query text, and optional
-   context.
-2. Select an executable entry.
-3. Pass the full entry to `blueprint.graph.edit` with `addFromPalette`.
+1. Inspect or list the target graph.
+2. Call `blueprint.palette` with `assetPath`, `graph`, and query text.
+3. Select an executable entry.
+4. Pass the full entry to `blueprint.graph.edit` with `addFromPalette`.
 
 Do not guess K2 node classes for normal creation.
 
-## Why This Matters
+## `blueprint.palette`
 
-UE node creation is contextual. The same search text can return different
-actions depending on the Blueprint, graph, selected pins, and context-sensitive
-filtering.
+### Parameters
 
-Using the palette keeps agents aligned with the same creation model the editor
-uses.
+| Field | Required | Notes |
+| --- | --- | --- |
+| `assetPath` | yes | Blueprint asset path. |
+| `graph` | no | Preferred graph address: `{id}` or `{name}`. |
+| `graphName` | no | Legacy graph address. Prefer `graph`. |
+| `query` | no | Search text. |
+| `contextSensitive` | no | Defaults to true. |
+| `fromPins` | no | Pin context for pin-drag menu behavior. |
+| `limit` | no | Defaults to 50. |
+| `offset` | no | Paging offset. |
 
-## Non-Executable Entries
+## Returned Entries
 
-Some returned entries describe schema actions or context that cannot be spawned
-directly. `blueprint.graph.edit` rejects those entries with a structured error.
-Choose an executable entry for `addFromPalette`.
+Palette entries are context-bound. Use them in the same Blueprint, graph, and
+pin context used for the search.
+
+Some entries describe schema actions or context that cannot be spawned
+directly. `blueprint.graph.edit` rejects non-executable entries with a
+structured error. Choose an executable entry for `addFromPalette`.

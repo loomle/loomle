@@ -42,23 +42,16 @@ Use `blueprint.palette` before graph node creation. Use
 - `blueprint.palette`: search UE Blueprint Action Menu entries.
 - `blueprint.compile`: compile a Blueprint asset.
 
-## Schema Summary
+## API Pages
 
-| Tool | Required | Key Fields |
+| Area | Tools | Page |
 | --- | --- | --- |
-| `blueprint.inspect` | `assetPath` | Blueprint asset path. |
-| `blueprint.class.inspect` | `assetPath` | Blueprint asset path. |
-| `blueprint.class.edit` | `assetPath`, `operation` | `operation: setParent/listInterfaces/addInterface/removeInterface`, mutation controls |
-| `blueprint.member.inspect` | `assetPath` | member kind and filters; see [Blueprint Members](members.html). |
-| `blueprint.member.edit` | `assetPath`, `operation` | Operation-specific args through `schema.inspect`. |
-| `blueprint.graph.list` | `assetPath` | `includeCompositeSubgraphs` |
-| `blueprint.graph.inspect` | `assetPath` | `graph`, `view`, `filter`, `page`; see [Blueprint Graphs](graph.html). |
-| `blueprint.graph.edit` | `assetPath`, `commands` | Command-specific args through `schema.inspect`. |
-| `blueprint.graph.layout` | `assetPath`, selection | Formats selected nodes only. |
-| `blueprint.node.inspect` | `assetPath`, node ref | Reads one node's local edit capability. |
-| `blueprint.node.edit` | `assetPath`, node ref, `operation` | Operation-specific args through `schema.inspect`. |
-| `blueprint.palette` | `assetPath`, `graph` | `query`, `contextSensitive`, `fromPins`, paging. |
-| `blueprint.compile` | `assetPath` | Blueprint asset path. |
+| Palette creation | `blueprint.palette` | [Blueprint Palette](palette.html) |
+| Graphs | `blueprint.graph.list`, `blueprint.graph.inspect`, `blueprint.graph.edit`, `blueprint.graph.layout` | [Blueprint Graphs](graph.html) |
+| Node-local structure | `blueprint.node.inspect`, `blueprint.node.edit` | [Node-Local Edits](node-local.html) |
+| Members | `blueprint.member.inspect`, `blueprint.member.edit` | [Blueprint Members](members.html) |
+| Class contract | `blueprint.inspect`, `blueprint.class.inspect`, `blueprint.class.edit` | [Blueprint Class](class.html) |
+| Compile | `blueprint.compile` | [Blueprint Compile](compile.html) |
 
 ## Recommended Flow
 

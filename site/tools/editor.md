@@ -7,23 +7,60 @@ nav_order: 4
 
 # Editor Tools
 
-Editor tools operate on Unreal Editor windows and panels. They do not mutate UE
-asset data by themselves.
+Editor tools operate on Unreal Editor windows and panels. They help agents get
+the editor into the right visible state, but they do not mutate asset data by
+themselves.
 
-## Tool List
+## Tool Summary
 
-- `editor.open`: open or focus an Unreal asset editor.
-- `editor.focus`: focus a semantic panel in an asset editor.
-- `editor.screenshot`: capture the active editor window to a PNG file.
+| Tool | Purpose |
+| --- | --- |
+| `editor.open` | Open or focus an Unreal asset editor. |
+| `editor.focus` | Focus a semantic panel inside an asset editor. |
+| `editor.screenshot` | Capture the active editor window to a PNG file. |
 
-## Schemas
+## `editor.open`
 
-| Tool | Required | Key Fields |
+Open or focus the editor for a specific asset.
+
+### Parameters
+
+| Field | Required | Notes |
 | --- | --- | --- |
-| `editor.open` | `assetPath` | Unreal asset path to open. |
-| `editor.focus` | `assetPath`, `panel` | `panel` is a semantic editor panel such as graph, viewport, details, palette, or find. |
-| `editor.screenshot` | none | Optional `path` for the PNG output location. |
+| `assetPath` | yes | Unreal asset path to open. |
 
-Use `editor.open` before editor-context-dependent work when the relevant asset
-is not already visible. Use `context` after focusing to confirm the active
-editor state.
+### Next Step
+
+Call `context` after opening if the next operation depends on the active editor
+or current selection.
+
+## `editor.focus`
+
+Focuses a semantic panel inside an asset editor.
+
+### Parameters
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `assetPath` | yes | Asset whose editor should receive focus. |
+| `panel` | yes | Semantic panel name, such as graph, viewport, details, palette, or find. |
+
+### Boundary
+
+Use focus tools for editor navigation only. Use domain tools for asset data
+changes.
+
+## `editor.screenshot`
+
+Captures the active editor window.
+
+### Parameters
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `path` | no | Optional PNG output path. |
+
+### Use When
+
+Use screenshots for visual confirmation, UI debugging, or when a task requires
+evidence from the visible editor state.
