@@ -1,19 +1,27 @@
 # LOOMLE
 
-LOOMLE connects AI coding agents to live Unreal Engine projects through MCP.
-It has two pieces:
+Agent-native Unreal Engine tooling for Blueprint, Material, PCG, and Widget
+workflows.
 
-- a global `loomle` command that runs as the MCP server process for Codex,
-  Claude, or another MCP host
-- `LoomleBridge`, a UE plugin installed into each project that reports the
-  running editor and executes UE-side tools
+LOOMLE helps coding agents operate live Unreal Engine projects through MCP
+tools that match UE semantics. It does not ask agents to guess internal node
+classes, invent graph transformations, or treat UE assets as generic JSON.
 
-There is no per-project client workspace in the current model.
-Projects only receive `Plugins/LoomleBridge/`.
+## What It Provides
+
+- A global `loomle mcp` command for Codex, Claude, and other MCP hosts.
+- A UE editor bridge installed into each project as `Plugins/LoomleBridge`.
+- UE-semantic tools for project/session setup, assets, Blueprint, Material,
+  PCG, UMG widgets, editor focus, runtime execution, diagnostics, logs, and
+  play sessions.
+- Palette-driven creation so agents use UE's own creation model instead of
+  guessing classes.
+- Compact first-level schemas with `schema.inspect` for detailed operation
+  schemas when a tool intentionally has a second layer.
 
 ## Install
 
-Install LOOMLE globally:
+macOS and Linux:
 
 ```bash
 curl -fsSL https://loomle.ai/install.sh | bash
@@ -25,56 +33,76 @@ Windows PowerShell:
 & ([scriptblock]::Create((irm https://loomle.ai/install.ps1)))
 ```
 
-The installer writes the global install under `~/.loomle` by default, creates a
-stable `loomle` command under `~/.loomle/bin/`, and configures Codex/Claude MCP
-when their user config locations or CLIs are available. If a host is not
-configured automatically, the installer prints the manual command in its next
-steps.
-
-MCP hosts should run:
+The installer creates a global install under `~/.loomle` by default and exposes
+a stable command at `~/.loomle/bin/loomle`. MCP hosts should run:
 
 ```bash
 loomle mcp
 ```
 
-LOOMLE does not use a daemon. Each MCP host session starts its own stdio
-`loomle mcp` process and attaches to one active Unreal project in that
-process.
+See the full install guide: https://loomle.ai/install.html
 
-## Project Setup
+## Project Model
 
-Open the target Unreal project with `LoomleBridge` installed. The bridge writes
-an online runtime record under `~/.loomle/state/runtimes/`.
+LOOMLE has two installation scopes:
 
-From an MCP session:
+- Global install: the `loomle` command, active version state, release payloads,
+  plugin cache, and runtime/project registry under `~/.loomle`.
+- Project install: the Unreal project plugin under `Plugins/LoomleBridge` plus
+  required project support settings.
 
-1. Call `project.list` to see active projects.
-2. Call `project.attach` with a listed project.
-3. Use the UE tools exposed by the attached bridge.
+The global install is not tied to one Unreal project. When Unreal Editor starts
+with `LoomleBridge` loaded, the project reports a runtime endpoint. The current
+MCP session then uses `project.list` and `project.attach` to select one online
+project.
 
-To install or update project support:
+If a project does not have LOOMLE support yet, close Unreal Editor for that
+project and run the MCP tool `project.install` with the target `projectRoot`.
 
-```text
-project.install
-```
+## Quickstart
 
-`project.install` copies the cached global plugin into
-`<ProjectRoot>/Plugins/LoomleBridge/`. It is both install and upgrade. Close the
-Unreal Editor for that project before running it.
+From an MCP host session:
+
+1. Call `project.list` to find online projects.
+2. Call `project.attach` with the target `projectId` or `projectRoot`.
+3. Call `context` if the user already has an asset open or selected in UE.
+4. Inspect before editing.
+5. Use palettes for creation.
+6. Compile or verify after meaningful asset changes.
+
+Full quickstart: https://loomle.ai/quickstart.html
+
+## Tool Surface
+
+The public MCP tools are grouped by UE domain:
+
+- Project and session: `loomle.status`, `project.list`, `project.attach`,
+  `project.install`, `schema.inspect`, `loomle`, `context`.
+- Assets: `asset.create`, `asset.inspect`, `asset.edit`.
+- Blueprint: class contract, members, graphs, node-local edits, palette, and
+  compile tools.
+- Material: graph, node, palette, layout, and compile tools.
+- PCG: graph, palette, node settings, graph parameters, layout, and compile
+  tools.
+- Widget: UMG palette, WidgetTree, widget inspect, and compile tools.
+- Runtime/editor/diagnostics: `execute`, `jobs`, `profiling`, `play`,
+  `editor.*`, `diagnostic.tail`, and `log.tail`.
+
+API reference: https://loomle.ai/tools/
 
 ## CLI
 
-The command intentionally stays small:
+The CLI stays intentionally small:
 
-- `loomle mcp`: run the stdio MCP server
-- `loomle update`: update the global LOOMLE install
-- `loomle doctor`: inspect the global install and print MCP configuration hints
+- `loomle mcp`: run the stdio MCP server.
+- `loomle update`: update the global LOOMLE install.
+- `loomle doctor`: inspect the global install and print MCP configuration hints.
 
 MCP tools are not duplicated as CLI subcommands.
 
-## Developer Flow
+## Development
 
-Build and validate the local checkout:
+Build and validate the local checkout against a UE project:
 
 ```bash
 python3 tools/dev_verify.py --project-root /path/to/MyProject
@@ -89,13 +117,16 @@ Release bundles contain only:
 - `loomle` / `loomle.exe`
 - `plugin-cache/LoomleBridge/`
 
-They do not include the repository-internal `docs/archive/workspace/Loomle` reference
-material or any per-project client.
+They do not include archived workspace reference material or a per-project
+client.
 
-## Docs
+## Documentation
 
-- [Global install model](docs/LOOMLE_GLOBAL_INSTALL_MODEL.md)
-- [Repository structure](docs/REPO_STRUCTURE.md)
-- [Packaging contract](packaging/install/INSTALL_CONTRACT.md)
-- [MCP protocol](docs/MCP_PROTOCOL.md)
-- [Graph domain split spec](docs/spec-graph-domain-split.md)
+- Website: https://loomle.ai/
+- Install: https://loomle.ai/install.html
+- Quickstart: https://loomle.ai/quickstart.html
+- Tools API: https://loomle.ai/tools/
+- Releases: https://github.com/loomle/loomle/releases
+
+Current design documents live under `docs/`. Historical notes and obsolete
+specs are under `docs/archive/legacy/` and are not the current public contract.
