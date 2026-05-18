@@ -19,8 +19,9 @@ Use this first when a session appears detached or a UE tool is unavailable.
 
 Lists Unreal Engine projects known to LOOMLE.
 
-By default, use it to find online projects that can be attached to the current
-MCP session.
+Known projects come from the global LOOMLE state directory and from Unreal
+Editor runtimes that are currently reporting online. By default, use it to find
+online projects that can be attached to the current MCP session.
 
 ## `project.attach`
 
@@ -33,7 +34,8 @@ After attach succeeds, the UE-facing tools become usable for that project.
 Installs or updates LOOMLE project support for an Unreal project.
 
 It copies the cached `LoomleBridge` plugin into the project's
-`Plugins/LoomleBridge/` directory and updates required project support files.
+`Plugins/LoomleBridge/` directory, records the project in global LOOMLE state,
+and updates required project support settings.
 
 Close the Unreal Editor for that project before calling `project.install`.
 
