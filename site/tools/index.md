@@ -18,11 +18,15 @@ LOOMLE tools are grouped by UE domain.
 - `project.install`
 - `schema.inspect`
 
+[Project and session tools](project.html)
+
 ## Assets
 
 - `asset.create`
 - `asset.inspect`
 - `asset.edit`
+
+[Asset tools](asset.html)
 
 ## Blueprint
 

@@ -23,3 +23,12 @@ and `editCapabilities`.
 
 Then call `blueprint.node.edit`. Use `schema.inspect` for the selected
 operation schema.
+
+## Boundary
+
+Use `blueprint.node.edit` only for structure owned by one existing node.
+
+Use `blueprint.graph.edit` for links, pin defaults, comments, enabled state,
+node creation, movement, and removal.
+
+Use `blueprint.member.edit` for Blueprint-owned member signatures.

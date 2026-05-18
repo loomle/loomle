@@ -10,5 +10,8 @@ description: Common agent workflows through LOOMLE.
 
 Workflows show the recommended inspect-discover-edit-verify loop.
 
-Initial workflow pages are intentionally short. They should become executable,
-tested examples as the public documentation matures.
+These pages are intentionally short. They describe tool order and boundaries,
+not every argument shape.
+
+Use `schema.inspect` whenever a workflow calls an edit tool with
+operation-specific arguments.

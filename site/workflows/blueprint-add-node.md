@@ -15,3 +15,5 @@ Recommended sequence:
 4. `blueprint.graph.edit` with the selected palette entry.
 5. `blueprint.graph.layout` if the edited region needs formatting.
 6. `blueprint.compile` after meaningful changes.
+
+Do not guess a K2 node class when a palette entry is available.
