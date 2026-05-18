@@ -1,6 +1,8 @@
 // Blueprint-domain tool adapters.
 namespace
 {
+TSharedPtr<FJsonObject> BuildBlueprintNodeEditCapabilities(const TSharedPtr<FJsonObject>& Node);
+
 TSharedPtr<FJsonObject> MakeBlueprintGraphAssetRef(const FString& AssetPath, const FString& GraphName, const FString& GraphId = FString())
 {
     TSharedPtr<FJsonObject> Ref = MakeShared<FJsonObject>();
@@ -1798,6 +1800,18 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintQueryToolResult(const
             if (!NodeValue.IsValid() || !NodeValue->TryGetObject(NodeObj) || NodeObj == nullptr || !(*NodeObj).IsValid())
             {
                 continue;
+            }
+
+            const TSharedPtr<FJsonObject> NodeEditCapabilities = BuildBlueprintNodeEditCapabilities(*NodeObj);
+            bool bHasNodeEditCapabilities = false;
+            if (NodeEditCapabilities.IsValid())
+            {
+                NodeEditCapabilities->TryGetBoolField(TEXT("hasPinOperations"), bHasNodeEditCapabilities);
+            }
+            if (bHasNodeEditCapabilities)
+            {
+                (*NodeObj)->SetBoolField(TEXT("hasNodeEditCapabilities"), true);
+                (*NodeObj)->SetStringField(TEXT("inspectWith"), TEXT("blueprint.node.inspect"));
             }
 
             SnapshotNodes.Add(NodeValue);

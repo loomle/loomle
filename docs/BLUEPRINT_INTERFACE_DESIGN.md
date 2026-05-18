@@ -888,6 +888,11 @@ precise follow-up inspection.
 It returns pins, node-local state, and `editCapabilities` so callers know whether
 `blueprint.node.edit` is applicable.
 
+`blueprint.graph.inspect` marks such nodes with `hasNodeEditCapabilities: true`
+and `inspectWith: "blueprint.node.inspect"`. That routing hint comes from the
+bridge's UE-node capability calculation, not from client-side class-name
+guessing.
+
 `blueprint.node.edit` is limited to UE-native node-local structural actions. It
 does not replace `blueprint.graph.edit` for graph wiring/layout, and it does not
 replace `blueprint.member.edit` for member signatures.

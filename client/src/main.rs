@@ -3344,35 +3344,6 @@ fn prune_blueprint_graph_comment_fields(
     }
 }
 
-fn blueprint_node_has_edit_capabilities(node: &serde_json::Map<String, serde_json::Value>) -> bool {
-    let class_text = [
-        node.get("className").and_then(|value| value.as_str()),
-        node.get("classPath").and_then(|value| value.as_str()),
-        node.get("nodeClassPath").and_then(|value| value.as_str()),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>()
-    .join(" ");
-
-    [
-        "K2Node_Switch",
-        "K2Node_ExecutionSequence",
-        "K2Node_MultiGate",
-        "K2Node_DoOnceMultiInput",
-        "K2Node_MakeArray",
-        "K2Node_MakeSet",
-        "K2Node_MakeMap",
-        "K2Node_Select",
-        "K2Node_PromotableOperator",
-        "K2Node_CommutativeAssociativeBinaryOperator",
-        "K2Node_FormatText",
-        "K2Node_SetFieldsInStruct",
-    ]
-    .iter()
-    .any(|needle| class_text.contains(needle))
-}
-
 fn compact_blueprint_graph_node(
     node: &serde_json::Map<String, serde_json::Value>,
     view: &str,
@@ -3403,21 +3374,12 @@ fn compact_blueprint_graph_node(
         "effectiveSettings",
         "contextSensitiveConstruct",
         "graphBoundarySummary",
+        "hasNodeEditCapabilities",
+        "inspectWith",
     ] {
         copy_json_field(node, &mut compact, field);
     }
     prune_blueprint_graph_comment_fields(&mut compact, include_comments);
-
-    if blueprint_node_has_edit_capabilities(node) {
-        compact.insert(
-            "hasNodeEditCapabilities".to_string(),
-            serde_json::json!(true),
-        );
-        compact.insert(
-            "inspectWith".to_string(),
-            serde_json::json!("blueprint.node.inspect"),
-        );
-    }
 
     if view == "wiring" {
         let pins = node
@@ -10325,7 +10287,7 @@ mod tests {
     }
 
     #[test]
-    fn blueprint_graph_inspect_marks_nodes_that_need_node_inspect() {
+    fn blueprint_graph_inspect_preserves_bridge_node_edit_route() {
         let mut result = serde_json::json!({
             "semanticSnapshot": {
                 "nodes": [
@@ -10333,7 +10295,9 @@ mod tests {
                         "id": "switch-node",
                         "className": "K2Node_SwitchName",
                         "nodeClassPath": "/Script/BlueprintGraph.K2Node_SwitchName",
-                        "title": "Switch on Name"
+                        "title": "Switch on Name",
+                        "hasNodeEditCapabilities": true,
+                        "inspectWith": "blueprint.node.inspect"
                     }
                 ],
                 "edges": []
@@ -10363,6 +10327,40 @@ mod tests {
             node.get("inspectWith").and_then(|value| value.as_str()),
             Some("blueprint.node.inspect")
         );
+    }
+
+    #[test]
+    fn blueprint_graph_inspect_does_not_guess_node_edit_route_from_class_name() {
+        let mut result = serde_json::json!({
+            "semanticSnapshot": {
+                "nodes": [
+                    {
+                        "id": "switch-node",
+                        "className": "K2Node_SwitchName",
+                        "nodeClassPath": "/Script/BlueprintGraph.K2Node_SwitchName",
+                        "title": "Switch on Name"
+                    }
+                ],
+                "edges": []
+            },
+            "meta": {}
+        })
+        .as_object()
+        .cloned()
+        .expect("object");
+        let args = JsonObject::new();
+
+        shape_blueprint_graph_inspect_result(&mut result, &args);
+
+        let node = result
+            .get("semanticSnapshot")
+            .and_then(|value| value.get("nodes"))
+            .and_then(|value| value.as_array())
+            .and_then(|nodes| nodes.first())
+            .and_then(|value| value.as_object())
+            .expect("node");
+        assert!(node.get("hasNodeEditCapabilities").is_none());
+        assert!(node.get("inspectWith").is_none());
     }
 
     #[test]
