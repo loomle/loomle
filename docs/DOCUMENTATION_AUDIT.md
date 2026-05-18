@@ -27,10 +27,9 @@ publish exploratory design history as if it were current contract.
 
 | Path | Status | Action |
 | --- | --- | --- |
-| `site/index.md` | publish | Keep as product entrypoint; expand value proposition after tool docs stabilize. |
+| `site/index.md` | publish | Product and concept entrypoint; keep the core project model and usage model here. |
 | `site/install.md` | publish | Keep canonical install page; verify install scripts stay at root URLs. |
 | `site/quickstart.md` | publish | Expand with one complete UE workflow once examples are selected. |
-| `site/concepts/*` | publish | Keep concise; cross-link into deeper tool docs. |
 | `site/tools/*` | rewrite | Current pages are skeletal indexes; expand from audited source docs and live tool schemas. |
 | `site/workflows/*` | rewrite | Convert into tested, task-oriented examples. |
 | `site/llms.txt` | publish | Keep short and stable for agent ingestion. |
@@ -44,7 +43,7 @@ publish exploratory design history as if it were current contract.
 | `docs/blueprint/palette.md` | publish | Strong candidate for public `tools/blueprint/palette`; trim implementation-heavy sections. |
 | `docs/blueprint/graph-edit.md` | rewrite | Useful boundary and schema material; update legacy `graphName` compatibility references before public use. |
 | `docs/blueprint/graph-layout.md` | rewrite | Useful but has outdated `operation: "format"` and `direction` material; align with current public schema before publication. |
-| `docs/blueprint/schema-inspect.md` | rewrite | Useful concept doc; broaden beyond Blueprint because current `schema.inspect` covers Blueprint, Material, PCG, and Widget second-layer schemas. |
+| `docs/blueprint/schema-inspect.md` | rewrite | Useful schema guidance; broaden beyond Blueprint and fold public-facing essentials into the home page and tool docs. |
 | `docs/UE_SCENE_EDITING_EXECUTE_AUDIT.md` | decide | Untracked local file. Do not publish or edit until ownership is explicit. |
 
 ## Archive Docs
@@ -52,8 +51,8 @@ publish exploratory design history as if it were current contract.
 | Path | Status | Action |
 | --- | --- | --- |
 | `docs/archive/README.md` | archive | Keep as archive marker. |
-| `docs/archive/legacy/ARCHITECTURE.md` | rewrite | Useful architecture source, but tool names are obsolete. Extract into public `concepts/runtime-model` only after updating names. |
-| `docs/archive/legacy/LOOMLE_GLOBAL_INSTALL_MODEL.md` | rewrite | Useful source for install/project model. Extract current parts into `site/concepts/project-model.md` and `site/install.md`. |
+| `docs/archive/legacy/ARCHITECTURE.md` | rewrite | Useful architecture source, but tool names are obsolete. Extract current parts into the home page, install page, and project tools only after updating names. |
+| `docs/archive/legacy/LOOMLE_GLOBAL_INSTALL_MODEL.md` | rewrite | Useful source for install/project model. Extract current parts into `site/index.md` and `site/install.md`. |
 | `docs/archive/legacy/LOOMLE_PERMISSION_MODEL.md` | decide | Potentially public if permission model becomes product-facing; otherwise internal. |
 | `docs/archive/legacy/MCP_PROTOCOL.md` | archive | Obsolete tool catalog and protocol baseline; do not publish as current contract. |
 | `docs/archive/legacy/RPC_INTERFACE.md` | internal | Runtime implementation boundary, not public user documentation. |
@@ -72,7 +71,7 @@ publish exploratory design history as if it were current contract.
 | `docs/archive/legacy/issues/BLUEPRINT_EMBEDDED_TEMPLATE_NODES.md` | rewrite | Potential advanced Blueprint concept after current node docs mature. |
 | `docs/archive/legacy/issues/BLUEPRINT_GAP_PRODUCT_CAPABILITIES.md` | internal | Product planning; not public contract. |
 | `docs/archive/legacy/issues/GRAPH_QUERY_SURFACE_MODEL.md` | rewrite | Mine for graph inspect conceptual docs after current graph inspect pages exist. |
-| `docs/archive/legacy/issues/JOBS_LONG_RUNNING_TASK_RUNTIME.md` | rewrite | Potential public `tools/runtime/jobs` and `concepts/jobs` source. Needs current API verification. |
+| `docs/archive/legacy/issues/JOBS_LONG_RUNNING_TASK_RUNTIME.md` | rewrite | Potential public runtime jobs source. Needs current API verification before adding to tool docs. |
 | `docs/archive/legacy/issues/PCG_GRAPH_QUERY_FULL_COVERAGE_UPGRADE.md` | rewrite | Mine for PCG inspect documentation after current behavior is verified. |
 | `docs/archive/legacy/issues/PIE_PLAY_SESSION_CONTROL.md` | rewrite | Potential public `tools/editor/play` source. Needs current API verification. |
 | `docs/archive/legacy/issues/PROFILING_RUNTIME_ANALYSIS_INTERFACE.md` | decide | Profiling tool exists but is not in smoke required tools. Confirm public readiness before publishing. |

@@ -6,7 +6,6 @@ Canonical documentation:
 
 - Install: https://loomle.ai/install.html
 - Quickstart: https://loomle.ai/quickstart.html
-- Concepts: https://loomle.ai/concepts/
 - Tools: https://loomle.ai/tools/
 - Releases: https://github.com/loomle/loomle/releases
 
