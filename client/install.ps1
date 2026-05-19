@@ -61,6 +61,11 @@ function Copy-FileReplace([string]$Source, [string]$Destination) {
   Copy-Item -LiteralPath $Source -Destination $Destination -Force
 }
 
+function Write-TextUtf8NoBom([string]$Path, [string]$Value) {
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($Path, $Value, $utf8NoBom)
+}
+
 function Write-ActiveState(
   [string]$ActiveStatePath,
   [string]$Version,
@@ -80,7 +85,8 @@ function Write-ActiveState(
     versionsRoot = (Join-Path $InstallRoot "versions")
     pluginCacheRoot = (Join-Path $InstallRoot "versions\$Version\plugin-cache")
   }
-  $payload | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $ActiveStatePath -Encoding UTF8
+  $json = ($payload | ConvertTo-Json -Depth 5) + [Environment]::NewLine
+  Write-TextUtf8NoBom -Path $ActiveStatePath -Value $json
 }
 
 function ConvertTo-TomlBasicString([string]$Value) {
@@ -109,7 +115,7 @@ function Set-CodexMcpConfig([string]$LauncherPath) {
   $escapedLauncher = ConvertTo-TomlBasicString $LauncherPath
   $section = "`n[mcp_servers.loomle]`ncommand = `"$escapedLauncher`"`nargs = [`"mcp`"]`n"
   try {
-    ($text.TrimEnd() + $section) | Set-Content -LiteralPath $configPath -Encoding UTF8
+    Write-TextUtf8NoBom -Path $configPath -Value ($text.TrimEnd() + $section)
     return [pscustomobject]@{
       status = "configured"
       detail = $configPath

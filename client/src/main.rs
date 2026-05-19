@@ -4894,7 +4894,7 @@ fn file_recipe_from_source(
             "retryable": false,
         }))
     })?;
-    serde_json::from_str::<serde_json::Value>(&data).map_err(|error| {
+    serde_json::from_str::<serde_json::Value>(strip_utf8_bom(&data)).map_err(|error| {
         CallToolResult::structured_error(serde_json::json!({
             "code": "INVALID_ARGUMENT",
             "message": format!("Failed to parse recipe JSON: {error}"),
@@ -5731,7 +5731,7 @@ fn call_blueprint_graph_recipe_validate(args: &rmcp::model::JsonObject) -> CallT
         "file" => {
             if let Some(path) = recipe_source.get("path").and_then(|value| value.as_str()) {
                 match fs::read_to_string(path) {
-                    Ok(raw) => match serde_json::from_str::<serde_json::Value>(&raw) {
+                    Ok(raw) => match serde_json::from_str::<serde_json::Value>(strip_utf8_bom(&raw)) {
                         Ok(recipe) => validate_recipe_shape(
                             &recipe,
                             "file",
@@ -7677,7 +7677,7 @@ fn read_runtime_records() -> HashMap<String, RuntimeRecord> {
         let Ok(raw) = std::fs::read_to_string(&path) else {
             continue;
         };
-        let Ok(record) = serde_json::from_str::<RuntimeRecord>(&raw) else {
+        let Ok(record) = serde_json::from_str::<RuntimeRecord>(strip_utf8_bom(&raw)) else {
             continue;
         };
         records.insert(runtime_record_project_id(&record), record);
@@ -7700,7 +7700,7 @@ fn read_project_records() -> Vec<ProjectRecord> {
         let Ok(raw) = std::fs::read_to_string(&path) else {
             continue;
         };
-        let Ok(record) = serde_json::from_str::<ProjectRecord>(&raw) else {
+        let Ok(record) = serde_json::from_str::<ProjectRecord>(strip_utf8_bom(&raw)) else {
             continue;
         };
         records.push(record);
@@ -7847,12 +7847,7 @@ fn read_global_active_version() -> Result<String, String> {
             active_path.display()
         )
     })?;
-    let value: serde_json::Value = serde_json::from_str(&raw).map_err(|error| {
-        format!(
-            "failed to parse global active install state {}: {error}",
-            active_path.display()
-        )
-    })?;
+    let value = parse_active_install_state_json(&raw, &active_path)?;
     for key in ["activeVersion", "installedVersion"] {
         if let Some(version) = value.get(key).and_then(|value| value.as_str()) {
             if !version.trim().is_empty() {
@@ -7877,12 +7872,30 @@ fn read_global_active_install_state() -> Result<Option<loomle::ActiveInstallStat
             active_path.display()
         )
     })?;
-    let value: serde_json::Value = serde_json::from_str(&raw).map_err(|error| {
+    let value = parse_active_install_state_json(&raw, &active_path)?;
+    active_install_state_from_json(value, &active_path).map(Some)
+}
+
+fn parse_active_install_state_json(
+    raw: &str,
+    active_path: &Path,
+) -> Result<serde_json::Value, String> {
+    serde_json::from_str(strip_utf8_bom(raw)).map_err(|error| {
         format!(
             "failed to parse global active install state {}: {error}",
             active_path.display()
         )
-    })?;
+    })
+}
+
+fn strip_utf8_bom(raw: &str) -> &str {
+    raw.strip_prefix('\u{feff}').unwrap_or(raw)
+}
+
+fn active_install_state_from_json(
+    value: serde_json::Value,
+    active_path: &Path,
+) -> Result<loomle::ActiveInstallState, String> {
     let active_version = value
         .get("activeVersion")
         .and_then(|value| value.as_str())
@@ -7914,11 +7927,11 @@ fn read_global_active_install_state() -> Result<Option<loomle::ActiveInstallStat
                 active_path.display()
             )
         })?;
-    Ok(Some(loomle::ActiveInstallState {
+    Ok(loomle::ActiveInstallState {
         active_version,
         launcher_path: PathBuf::from(launcher_path),
         active_client_path: PathBuf::from(active_client_path),
-    }))
+    })
 }
 
 fn check_for_updates() -> serde_json::Value {
@@ -7970,7 +7983,7 @@ fn read_or_fetch_latest_version() -> Result<String, String> {
 
 fn read_cached_latest_version(path: &Path, ttl: Duration) -> Option<String> {
     let raw = fs::read_to_string(path).ok()?;
-    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let value: serde_json::Value = serde_json::from_str(strip_utf8_bom(&raw)).ok()?;
     let checked_at = value.get("checkedAt").and_then(|value| value.as_u64())?;
     let now = unix_timestamp_secs();
     if now.saturating_sub(checked_at) > ttl.as_secs() {
@@ -8046,7 +8059,7 @@ fn parse_semver_core(version: &str) -> Option<(u64, u64, u64)> {
 
 fn read_plugin_version(plugin_root: &Path) -> Option<String> {
     let raw = fs::read_to_string(plugin_root.join("LoomleBridge.uplugin")).ok()?;
-    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let value: serde_json::Value = serde_json::from_str(strip_utf8_bom(&raw)).ok()?;
     value
         .get("VersionName")
         .and_then(|value| value.as_str())
@@ -8238,7 +8251,7 @@ fn write_project_registration(
 
     let previous = fs::read_to_string(&path)
         .ok()
-        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok());
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(strip_utf8_bom(&raw)).ok());
     let registered_at = previous
         .as_ref()
         .and_then(|value| value.get("registeredAt").cloned())
@@ -8806,7 +8819,7 @@ fn active_file_lock_message(path: &Path, busy_message: &str) -> String {
 
 fn read_file_lock_metadata(path: &Path) -> Option<FileLockMetadata> {
     let contents = fs::read_to_string(path).ok()?;
-    serde_json::from_str(&contents).ok()
+    serde_json::from_str(strip_utf8_bom(&contents)).ok()
 }
 
 fn file_lock_is_older_than(path: &Path, age: Duration) -> Result<bool, String> {
@@ -9048,14 +9061,16 @@ mod tests {
         compare_semver, compile_blueprint_refactor_request, current_platform_client_binary_name,
         infer_attached_project_root, material_graph_edit_schema, material_graph_inspect_schema,
         material_graph_layout_schema, material_node_edit_schema, material_palette_schema,
-        parse_blueprint_graph_layout_request, pcg_compile_schema, pcg_graph_inspect_schema,
-        pcg_graph_layout_schema, pcg_node_inspect_schema, pcg_palette_schema,
-        pcg_parameter_edit_schema, pcg_query_schema, play_participant_wait_conditions_met,
-        play_schema, play_wait_participant_conditions_from_args, read_file_lock_metadata,
-        read_plugin_version, runtime_declared_tools, shape_blueprint_graph_inspect_result,
-        shape_pcg_compile_result, shape_pcg_graph_inspect_result, shape_pcg_node_inspect_result,
-        shape_widget_tree_inspect_payload, switch_to_installed_version,
-        sync_project_support_to_version, sync_registered_project_support,
+        parse_active_install_state_json, parse_blueprint_graph_layout_request, pcg_compile_schema,
+        pcg_graph_inspect_schema, pcg_graph_layout_schema, pcg_node_inspect_schema,
+        pcg_palette_schema, pcg_parameter_edit_schema, pcg_query_schema,
+        play_participant_wait_conditions_met, play_schema,
+        play_wait_participant_conditions_from_args, read_cached_latest_version,
+        read_file_lock_metadata, read_plugin_version, runtime_declared_tools,
+        shape_blueprint_graph_inspect_result, shape_pcg_compile_result,
+        shape_pcg_graph_inspect_result, shape_pcg_node_inspect_result,
+        shape_widget_tree_inspect_payload, active_install_state_from_json,
+        switch_to_installed_version, sync_project_support_to_version, sync_registered_project_support,
         translate_blueprint_graph_edit_args, translate_blueprint_graph_inspect_args,
         translate_blueprint_node_edit_args, translate_blueprint_node_inspect_args,
         translate_material_graph_edit_args, translate_material_graph_inspect_args,
@@ -9432,6 +9447,86 @@ mod tests {
         );
         let active = fs::read_to_string(root.join("install").join("active.json")).expect("active");
         assert!(active.contains("\"activeVersion\": \"0.5.7\""));
+        let active_bytes = fs::read(root.join("install").join("active.json")).expect("active bytes");
+        assert_ne!(&active_bytes[..3], &[0xEF, 0xBB, 0xBF]);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn active_install_state_reader_accepts_utf8_bom() {
+        let path = PathBuf::from("active.json");
+        let raw = "\u{feff}{\"activeVersion\":\"0.5.36\",\"launcherPath\":\"/tmp/loomle\",\"activeClientPath\":\"/tmp/loomle-0.5.36\"}";
+
+        let value = parse_active_install_state_json(raw, &path).expect("parse");
+        let state = active_install_state_from_json(value, &path).expect("state");
+
+        assert_eq!(state.active_version, "0.5.36");
+        assert_eq!(state.launcher_path, PathBuf::from("/tmp/loomle"));
+        assert_eq!(
+            state.active_client_path,
+            PathBuf::from("/tmp/loomle-0.5.36")
+        );
+    }
+
+    #[test]
+    fn update_cache_reader_accepts_utf8_bom() {
+        let root = std::env::temp_dir().join(format!(
+            "loomle-test-update-cache-{}-{}",
+            std::process::id(),
+            super::unix_timestamp_secs()
+        ));
+        fs::create_dir_all(&root).expect("cache dir");
+        let path = root.join("update-check.json");
+        fs::write(
+            &path,
+            format!(
+                "\u{feff}{{\"checkedAt\":{},\"latestVersion\":\"0.5.36\"}}\n",
+                super::unix_timestamp_secs()
+            ),
+        )
+        .expect("cache");
+
+        assert_eq!(
+            read_cached_latest_version(&path, std::time::Duration::from_secs(60)).as_deref(),
+            Some("0.5.36")
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn plugin_version_reader_accepts_utf8_bom() {
+        let root = std::env::temp_dir().join(format!(
+            "loomle-test-uplugin-bom-{}-{}",
+            std::process::id(),
+            super::unix_timestamp_secs()
+        ));
+        fs::create_dir_all(&root).expect("plugin dir");
+        fs::write(root.join("LoomleBridge.uplugin"), "\u{feff}{\"VersionName\":\"0.5.36\"}\n")
+            .expect("uplugin");
+
+        assert_eq!(read_plugin_version(&root).as_deref(), Some("0.5.36"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn file_lock_metadata_reader_accepts_utf8_bom() {
+        let root = std::env::temp_dir().join(format!(
+            "loomle-test-lock-bom-{}-{}",
+            std::process::id(),
+            super::unix_timestamp_secs()
+        ));
+        fs::create_dir_all(&root).expect("lock dir");
+        let path = root.join("update.lock");
+        fs::write(
+            &path,
+            "\u{feff}{\"pid\":123,\"startedAtUnixSecs\":456,\"command\":\"loomle update\"}",
+        )
+        .expect("lock");
+
+        let metadata = read_file_lock_metadata(&path).expect("metadata");
+        assert_eq!(metadata.pid, 123);
+        assert_eq!(metadata.started_at_unix_secs, 456);
+        assert_eq!(metadata.command, "loomle update");
         let _ = fs::remove_dir_all(root);
     }
 
