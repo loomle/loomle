@@ -7,7 +7,12 @@
 #include "BlueprintActionMenuBuilder.h"
 #include "BlueprintActionMenuItem.h"
 #include "BlueprintActionMenuUtils.h"
+#include "BlueprintBoundEventNodeSpawner.h"
+#include "BlueprintDelegateNodeSpawner.h"
+#include "BlueprintEventNodeSpawner.h"
+#include "BlueprintFunctionNodeSpawner.h"
 #include "BlueprintNodeSpawner.h"
+#include "BlueprintVariableNodeSpawner.h"
 #include "Components/BoxComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
@@ -6345,6 +6350,197 @@ namespace
             : FString(TEXT("schemaAction"));
     }
 
+    static FString MakePaletteSpawnerError(
+        const FString& Code,
+        const FString& Message,
+        const TSharedPtr<FEdGraphSchemaAction>& Action,
+        const UBlueprintNodeSpawner* Spawner,
+        const TCHAR* FieldKind,
+        const TCHAR* FieldPath,
+        const TCHAR* FieldName,
+        const UClass* OwnerClass)
+    {
+        TSharedPtr<FJsonObject> Error = MakeShared<FJsonObject>();
+        Error->SetStringField(TEXT("code"), Code);
+        Error->SetStringField(TEXT("message"), Message);
+        Error->SetStringField(TEXT("paletteLabel"), Action.IsValid() ? LoomleTextToString(Action->GetMenuDescription()) : TEXT(""));
+        Error->SetStringField(TEXT("paletteCategory"), Action.IsValid() ? LoomleTextToString(Action->GetCategory()) : TEXT(""));
+        Error->SetStringField(TEXT("nodeClass"), Spawner && Spawner->NodeClass ? Spawner->NodeClass->GetPathName() : TEXT(""));
+        Error->SetStringField(TEXT("fieldKind"), FieldKind != nullptr ? FieldKind : TEXT(""));
+        Error->SetStringField(TEXT("fieldPath"), FieldPath != nullptr ? FieldPath : TEXT(""));
+        Error->SetStringField(TEXT("fieldName"), FieldName != nullptr ? FieldName : TEXT(""));
+        Error->SetStringField(TEXT("ownerClass"), OwnerClass != nullptr ? OwnerClass->GetPathName() : TEXT(""));
+        Error->SetStringField(TEXT("suggestion"), TEXT("This palette entry appears stale or unsafe to spawn. Re-query blueprint.palette and choose an executable entry, or use blueprint.node.inspect / blueprint.node.edit for node-local edits."));
+        return LoomleBlueprintAdapterInternal::JsonObjectToCondensedString(Error);
+    }
+
+    static bool ValidatePaletteActionBeforeSpawn(
+        const TSharedPtr<FEdGraphSchemaAction>& Action,
+        FString& OutStructuredError)
+    {
+        OutStructuredError.Empty();
+        if (!Action.IsValid() || Action->GetTypeId() != FBlueprintActionMenuItem::StaticGetTypeId())
+        {
+            return true;
+        }
+
+        const FBlueprintActionMenuItem* MenuItem = static_cast<const FBlueprintActionMenuItem*>(Action.Get());
+        const UBlueprintNodeSpawner* Spawner = MenuItem != nullptr ? MenuItem->GetRawAction() : nullptr;
+        if (Spawner == nullptr || Spawner->NodeClass == nullptr)
+        {
+            TSharedPtr<FJsonObject> Error = MakeShared<FJsonObject>();
+            Error->SetStringField(TEXT("code"), TEXT("PALETTE_SPAWNER_INVALID"));
+            Error->SetStringField(TEXT("message"), TEXT("Palette entry has no valid node spawner or node class."));
+            Error->SetStringField(TEXT("paletteLabel"), Action.IsValid() ? LoomleTextToString(Action->GetMenuDescription()) : TEXT(""));
+            OutStructuredError = LoomleBlueprintAdapterInternal::JsonObjectToCondensedString(Error);
+            return false;
+        }
+
+        const UBlueprintFunctionNodeSpawner* FunctionSpawner = Cast<const UBlueprintFunctionNodeSpawner>(Spawner);
+        if (FunctionSpawner != nullptr)
+        {
+            const UFunction* Function = FunctionSpawner->GetFunction();
+            if (Function == nullptr || !IsValid(Function))
+            {
+                OutStructuredError = MakePaletteSpawnerError(
+                    TEXT("PALETTE_FUNCTION_SPAWNER_INVALID"),
+                    TEXT("Palette function entry resolved to an invalid UFunction; refusing to execute it to avoid an editor crash."),
+                    Action,
+                    Spawner,
+                    TEXT("function"),
+                    TEXT(""),
+                    TEXT(""),
+                    nullptr);
+                return false;
+            }
+
+            const UClass* OwnerClass = Function->GetOwnerClass();
+            if (OwnerClass == nullptr || !IsValid(OwnerClass))
+            {
+                OutStructuredError = MakePaletteSpawnerError(
+                    TEXT("PALETTE_FUNCTION_OWNER_INVALID"),
+                    TEXT("Palette function entry has no valid owning class; Unreal may crash in UK2Node_CallFunction::SetFromFunction for this spawner."),
+                    Action,
+                    Spawner,
+                    TEXT("function"),
+                    *Function->GetPathName(),
+                    *Function->GetName(),
+                    OwnerClass);
+                return false;
+            }
+
+            return true;
+        }
+
+        const UBlueprintBoundEventNodeSpawner* BoundEventSpawner = Cast<const UBlueprintBoundEventNodeSpawner>(Spawner);
+        if (BoundEventSpawner != nullptr)
+        {
+            const FMulticastDelegateProperty* Delegate = BoundEventSpawner->GetEventDelegate();
+            const UClass* OwnerClass = Delegate != nullptr ? Delegate->GetOwnerClass() : nullptr;
+            if (Delegate == nullptr || OwnerClass == nullptr || !IsValid(OwnerClass))
+            {
+                OutStructuredError = MakePaletteSpawnerError(
+                    TEXT("PALETTE_BOUND_EVENT_DELEGATE_INVALID"),
+                    TEXT("Palette bound-event entry has no valid delegate owner; refusing to execute it to avoid an editor crash."),
+                    Action,
+                    Spawner,
+                    TEXT("boundEventDelegate"),
+                    Delegate != nullptr ? *Delegate->GetPathName() : TEXT(""),
+                    Delegate != nullptr ? *Delegate->GetName() : TEXT(""),
+                    OwnerClass);
+                return false;
+            }
+
+            return true;
+        }
+
+        const UBlueprintEventNodeSpawner* EventSpawner = Cast<const UBlueprintEventNodeSpawner>(Spawner);
+        if (EventSpawner != nullptr && !EventSpawner->IsForCustomEvent())
+        {
+            const UFunction* EventFunction = EventSpawner->GetEventFunction();
+            const UClass* OwnerClass = EventFunction != nullptr ? EventFunction->GetOwnerClass() : nullptr;
+            if (EventFunction == nullptr || !IsValid(EventFunction) || OwnerClass == nullptr || !IsValid(OwnerClass))
+            {
+                OutStructuredError = MakePaletteSpawnerError(
+                    TEXT("PALETTE_EVENT_FUNCTION_INVALID"),
+                    TEXT("Palette event entry has no valid event function owner; refusing to execute it to avoid an editor crash."),
+                    Action,
+                    Spawner,
+                    TEXT("eventFunction"),
+                    EventFunction != nullptr ? *EventFunction->GetPathName() : TEXT(""),
+                    EventFunction != nullptr ? *EventFunction->GetName() : TEXT(""),
+                    OwnerClass);
+                return false;
+            }
+
+            return true;
+        }
+
+        const UBlueprintVariableNodeSpawner* VariableSpawner = Cast<const UBlueprintVariableNodeSpawner>(Spawner);
+        if (VariableSpawner != nullptr)
+        {
+            if (VariableSpawner->IsLocalVariable())
+            {
+                if (!VariableSpawner->GetVarOuter())
+                {
+                    OutStructuredError = MakePaletteSpawnerError(
+                        TEXT("PALETTE_LOCAL_VARIABLE_OWNER_INVALID"),
+                        TEXT("Palette local-variable entry has no valid graph owner; refusing to execute it to avoid an editor crash."),
+                        Action,
+                        Spawner,
+                        TEXT("localVariable"),
+                        TEXT(""),
+                        TEXT(""),
+                        nullptr);
+                    return false;
+                }
+                return true;
+            }
+
+            const FProperty* Property = VariableSpawner->GetVarProperty();
+            const UClass* OwnerClass = Property != nullptr ? Property->GetOwnerClass() : nullptr;
+            if (Property == nullptr || OwnerClass == nullptr || !IsValid(OwnerClass))
+            {
+                OutStructuredError = MakePaletteSpawnerError(
+                    TEXT("PALETTE_VARIABLE_PROPERTY_INVALID"),
+                    TEXT("Palette variable entry has no valid property owner; refusing to execute it to avoid an editor crash."),
+                    Action,
+                    Spawner,
+                    TEXT("variableProperty"),
+                    Property != nullptr ? *Property->GetPathName() : TEXT(""),
+                    Property != nullptr ? *Property->GetName() : TEXT(""),
+                    OwnerClass);
+                return false;
+            }
+
+            return true;
+        }
+
+        const UBlueprintDelegateNodeSpawner* DelegateSpawner = Cast<const UBlueprintDelegateNodeSpawner>(Spawner);
+        if (DelegateSpawner != nullptr)
+        {
+            const FMulticastDelegateProperty* Delegate = DelegateSpawner->GetDelegateProperty();
+            const UClass* OwnerClass = Delegate != nullptr ? Delegate->GetOwnerClass() : nullptr;
+            if (Delegate == nullptr || OwnerClass == nullptr || !IsValid(OwnerClass))
+            {
+                OutStructuredError = MakePaletteSpawnerError(
+                    TEXT("PALETTE_DELEGATE_PROPERTY_INVALID"),
+                    TEXT("Palette delegate entry has no valid delegate owner; refusing to execute it to avoid an editor crash."),
+                    Action,
+                    Spawner,
+                    TEXT("delegateProperty"),
+                    Delegate != nullptr ? *Delegate->GetPathName() : TEXT(""),
+                    Delegate != nullptr ? *Delegate->GetName() : TEXT(""),
+                    OwnerClass);
+                return false;
+            }
+
+            return true;
+        }
+
+        return true;
+    }
+
     static FString LoomlePaletteActionStableText(const TSharedPtr<FEdGraphSchemaAction>& Action, int32 Index)
     {
         if (!Action.IsValid())
@@ -6443,7 +6639,18 @@ namespace
         Entry->SetStringField(TEXT("actionType"), ActionType);
         Entry->SetBoolField(TEXT("requiresContext"), true);
         Entry->SetBoolField(TEXT("contextSensitive"), bContextSensitive);
-        Entry->SetBoolField(TEXT("executable"), ActionType.Equals(TEXT("nodeSpawner"), ESearchCase::CaseSensitive));
+        FString SafetyError;
+        const bool bSafeToSpawn = ValidatePaletteActionBeforeSpawn(Action, SafetyError);
+        Entry->SetBoolField(TEXT("executable"), ActionType.Equals(TEXT("nodeSpawner"), ESearchCase::CaseSensitive) && bSafeToSpawn);
+        if (!bSafeToSpawn)
+        {
+            TSharedPtr<FJsonObject> StructuredError;
+            const TSharedRef<TJsonReader<>> ErrorReader = TJsonReaderFactory<>::Create(SafetyError);
+            if (FJsonSerializer::Deserialize(ErrorReader, StructuredError) && StructuredError.IsValid())
+            {
+                Entry->SetObjectField(TEXT("unavailableReason"), StructuredError);
+            }
+        }
         Entry->SetArrayField(TEXT("keywords"), Action.IsValid() ? LoomleStringArrayToJson(Action->GetSearchKeywordsArray()) : TArray<TSharedPtr<FJsonValue>>());
 
         const FString NodeClass = LoomlePaletteActionNodeClass(Action);
@@ -6644,6 +6851,13 @@ bool FLoomleBlueprintAdapter::AddNodeFromPalette(const FString& BlueprintAssetPa
         if (Action->GetTypeId() != FBlueprintActionMenuItem::StaticGetTypeId())
         {
             OutError = TEXT("{\"code\":\"PALETTE_ENTRY_NOT_EXECUTABLE\",\"message\":\"Palette entry is a schema action and cannot be executed with addFromPalette.\"}");
+            return false;
+        }
+
+        FString SafetyError;
+        if (!ValidatePaletteActionBeforeSpawn(Action, SafetyError))
+        {
+            OutError = SafetyError;
             return false;
         }
 

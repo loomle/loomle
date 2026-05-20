@@ -162,6 +162,14 @@ the primary agent-facing path for ordinary Blueprint node creation.
         "requiresContext": {
           "type": "boolean",
           "description": "Whether execution depends on the same Blueprint, graph, or pin context used for search."
+        },
+        "executable": {
+          "type": "boolean",
+          "description": "Whether Loomle can safely execute this entry through addFromPalette in the current context."
+        },
+        "unavailableReason": {
+          "type": "object",
+          "description": "Structured diagnostic when executable is false for a known safety or support reason."
         }
       },
       "required": ["id", "label", "actionType"],
@@ -181,6 +189,7 @@ Common failures should be structured and actionable:
 - source pin not found
 - no matching palette entries
 - palette entry cannot be resolved
+- palette entry is stale or unsafe to spawn
 - UE action cannot be executed in the current context
 
 Errors should tell the agent what to change next: asset path, graph reference,
@@ -276,6 +285,34 @@ the Blueprint Action Menu:
 `addFromPalette` should reconstruct or validate the matching context before
 execution. The entry id is not a permanent global id. It is valid only for the
 context needed to reproduce the selected UE action.
+
+### Spawner Safety
+
+UE's Action Menu spawners are the source of truth for palette behavior, but some
+spawners explicitly assume that their wrapped UE field is still valid. UE's own
+implementation does not fully compatibility-check every spawner at invoke time;
+for example, `UBlueprintFunctionNodeSpawner::Create` documents that callers
+must do viability checks before use, and `Invoke` later passes the function into
+`UK2Node_CallFunction::SetFromFunction`.
+
+Loomle therefore preflights field-backed spawners before listing them as
+executable and again before `addFromPalette` performs the UE action. This is a
+guardrail around the UE execution path, not a separate node database.
+
+The guarded spawner families are:
+
+- function spawners, which require a valid `UFunction` and owner class
+- event spawners, which require a valid event function and owner class unless
+  the entry is a custom event
+- variable spawners, which require a valid member property owner or local graph
+  owner
+- delegate spawners, which require a valid delegate property owner
+- bound-event spawners, which require a valid event delegate owner
+
+When a guarded entry is unsafe, `blueprint.palette` returns it with
+`executable=false` and an `unavailableReason`; `addFromPalette` returns the
+same structured diagnostic instead of calling `FBlueprintActionMenuItem` and
+risking an editor crash.
 
 Within one `blueprint.graph.edit` request, repeated `addFromPalette` commands
 with the same Blueprint action context should reuse the request-local action
