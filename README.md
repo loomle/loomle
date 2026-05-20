@@ -1,15 +1,20 @@
 # LOOMLE
 
-Agent-native Unreal Engine tooling for Blueprint, Material, PCG, and Widget
+Agent-native Unreal Engine MCP server for Blueprint, Material, PCG, and Widget
 workflows.
 
-LOOMLE helps coding agents operate live Unreal Engine projects through MCP
-tools that match UE semantics. It does not ask agents to guess internal node
-classes, invent graph transformations, or treat UE assets as generic JSON.
+LOOMLE helps Claude Code, Codex, and other MCP-compatible coding agents operate
+live Unreal Engine projects through tools that match UE semantics. It does not
+ask agents to guess internal node classes, invent graph transformations, or
+treat UE assets as generic JSON.
+
+Use LOOMLE when you want an AI agent to inspect or edit a real UE project,
+including Blueprint graphs, Material graphs, PCG graphs, UMG WidgetBlueprints,
+asset metadata, editor context, compile diagnostics, and play sessions.
 
 ## What It Provides
 
-- A global `loomle mcp` command for Codex, Claude, and other MCP hosts.
+- A global `loomle mcp` command for Claude Code, Codex, and other MCP hosts.
 - A UE editor bridge installed into each project as `Plugins/LoomleBridge`.
 - UE-semantic tools for project/session setup, assets, Blueprint, Material,
   PCG, UMG widgets, editor focus, runtime execution, diagnostics, logs, and
@@ -18,6 +23,17 @@ classes, invent graph transformations, or treat UE assets as generic JSON.
   guessing classes.
 - Compact first-level schemas with `schema.inspect` for detailed operation
   schemas when a tool intentionally has a second layer.
+
+## Why Not Just Python?
+
+Unreal Python is useful for basic editor automation, but many valuable editor
+workflows sit behind UE's own C++ editor APIs, graph schemas, palette actions,
+K2 nodes, pin reconstruction, compiler behavior, and asset-specific editors.
+LOOMLE exposes those workflows as explicit agent tools instead of treating the
+editor as a generic script box.
+
+The goal is not prompt-to-game magic. The goal is a reliable UE-native control
+surface for agents working inside existing projects.
 
 ## Install
 
@@ -106,6 +122,13 @@ The public MCP tools are grouped by UE domain:
   `editor.*`, `diagnostic.tail`, and `log.tail`.
 
 API reference: https://loomle.ai/tools/
+
+## Search Keywords
+
+LOOMLE is an Unreal Engine MCP server for AI agents, Claude Code, Codex,
+Blueprint MCP workflows, PCG MCP workflows, UMG / WidgetBlueprint automation,
+Material graph tooling, UE editor automation, and local-first Unreal agent
+tooling.
 
 ## CLI
 

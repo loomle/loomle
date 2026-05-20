@@ -2,6 +2,7 @@
 import argparse
 import ast
 import json
+import os
 import queue
 import subprocess
 import sys
@@ -9,6 +10,7 @@ import tempfile
 import threading
 import time
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -2795,18 +2797,65 @@ def is_tool_error_payload(payload: dict[str, Any]) -> bool:
     return False
 
 
+@dataclass(frozen=True)
+class McpServerSpec:
+    command: list[str]
+    cwd: Path
+    env: dict[str, str] | None = None
+    label: str = "loomle"
+
+
+def rust_mcp_server_spec(server_binary: Path, project_root_hint: Path | None = None) -> McpServerSpec:
+    if not server_binary.exists():
+        fail(f"loomle binary not found: {server_binary}")
+    if not server_binary.is_file():
+        fail(f"loomle binary path is not a file: {server_binary}")
+    command = [str(server_binary), "mcp"]
+    if project_root_hint is not None:
+        command.extend(["--project-root", str(project_root_hint)])
+    return McpServerSpec(command=command, cwd=REPO_ROOT, label="loomle-rust")
+
+
+def python_mcp_server_spec() -> McpServerSpec:
+    server_script = REPO_ROOT / "mcp" / "python" / "loomle_mcp_server.py"
+    if not server_script.is_file():
+        fail(f"python MCP server script not found: {server_script}")
+    env = dict(os.environ)
+    python_path = str(REPO_ROOT / "mcp" / "python")
+    existing = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = python_path if not existing else f"{python_path}{os.pathsep}{existing}"
+    return McpServerSpec(command=[sys.executable, str(server_script)], cwd=REPO_ROOT, env=env, label="loomle-python")
+
+
+def resolve_mcp_server_spec(mcp_server: str, server_binary: Path) -> McpServerSpec:
+    if mcp_server == "rust":
+        return rust_mcp_server_spec(server_binary)
+    if mcp_server == "python":
+        return python_mcp_server_spec()
+    fail(f"unsupported --mcp-server: {mcp_server}")
+    raise RuntimeError("unreachable")
+
+
 class McpStdioClient:
-    def __init__(self, project_root: Path, server_binary: Path, timeout_s: float) -> None:
-        if not server_binary.exists():
-            fail(f"loomle binary not found: {server_binary}")
-        if not server_binary.is_file():
-            fail(f"loomle binary path is not a file: {server_binary}")
+    def __init__(
+        self,
+        project_root: Path,
+        server_binary: Path | None = None,
+        timeout_s: float = 8.0,
+        server_spec: McpServerSpec | None = None,
+    ) -> None:
         if not any(project_root.glob("*.uproject")):
             fail(f"no .uproject found under: {project_root}")
 
+        if server_spec is None:
+            if server_binary is None:
+                fail("McpStdioClient requires server_binary or server_spec")
+            server_spec = rust_mcp_server_spec(server_binary, project_root_hint=project_root)
+
         self.proc = subprocess.Popen(
-            [str(server_binary), "--project-root", str(project_root)],
-            cwd=str(project_root),
+            server_spec.command,
+            cwd=str(server_spec.cwd),
+            env=server_spec.env,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -2827,6 +2876,7 @@ class McpStdioClient:
         self._stderr_thread.start()
         self._pending_responses: dict[int, dict[str, Any]] = {}
         self.protocol_version = ""
+        self.server_label = server_spec.label
         self._initialize_session()
 
     def _stdout_reader(self) -> None:
@@ -3060,6 +3110,8 @@ def call_tool(
     arguments: dict[str, Any],
     expect_error: bool = False,
 ) -> dict[str, Any]:
+    if name == "execute":
+        arguments = normalize_execute_arguments(arguments)
     response = client.request(req_id, "tools/call", {"name": name, "arguments": arguments})
     payload = parse_tool_payload(response, f"tools/call.{name}")
     has_error = is_tool_error_payload(payload)
@@ -3069,6 +3121,28 @@ def call_tool(
         return payload
     if has_error:
         fail(f"{name} failed payload={_compact_json(payload)} raw={_compact_json(response)}")
+    return payload
+
+
+def normalize_execute_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(arguments)
+    normalized.setdefault("language", "python")
+    normalized.setdefault("mode", "exec")
+    return normalized
+
+
+def attach_project(client: McpStdioClient, req_id: int, project_root: Path) -> dict[str, Any]:
+    payload = call_tool(
+        client,
+        req_id,
+        "project.attach",
+        {"projectRoot": str(project_root)},
+    )
+    if payload.get("attached") is not True:
+        fail(f"project.attach did not attach {project_root}: {_compact_json(payload)}")
+    attached_root = payload.get("projectRoot")
+    if attached_root != str(project_root):
+        fail(f"project.attach selected unexpected project root: {_compact_json(payload)}")
     return payload
 
 
@@ -3127,7 +3201,7 @@ def call_execute_exec_with_retry(
         response = client.request(
             req_id,
             "tools/call",
-            {"name": "execute", "arguments": {"mode": "exec", "code": code}},
+            {"name": "execute", "arguments": normalize_execute_arguments({"code": code})},
         )
         payload = parse_tool_payload(response, "tools/call.execute")
         if not is_tool_error_payload(payload):
@@ -3194,16 +3268,21 @@ def main() -> int:
     parser.add_argument(
         "--loomle-bin",
         default="",
-        help="Override path to the loomle client binary. Defaults to client/target/release/loomle(.exe).",
+        help="Override path to the loomle client binary for --mcp-server rust. Defaults to client/target/release/loomle(.exe).",
+    )
+    parser.add_argument(
+        "--mcp-server",
+        choices=["rust", "python"],
+        default="rust",
+        help="MCP server runtime to validate. Both runtimes attach through project.attach.",
     )
     args = parser.parse_args()
 
     project_root = resolve_project_root(args.project_root, args.dev_config)
-    server_binary = (
-        Path(args.loomle_bin).resolve()
-        if args.loomle_bin
-        else resolve_default_loomle_binary(project_root)
-    )
+    server_binary = Path(args.loomle_bin).resolve() if args.loomle_bin else None
+    if args.mcp_server == "rust" and server_binary is None:
+        server_binary = resolve_default_loomle_binary(project_root)
+    server_spec = resolve_mcp_server_spec(args.mcp_server, server_binary or Path())
 
     if not project_root.exists():
         fail(f"project root not found: {project_root}")
@@ -3211,7 +3290,7 @@ def main() -> int:
     if not any(project_root.glob("*.uproject")):
         fail(f"no .uproject found under: {project_root}")
 
-    client = McpStdioClient(project_root=project_root, server_binary=server_binary, timeout_s=args.timeout)
+    client = McpStdioClient(project_root=project_root, server_spec=server_spec, timeout_s=args.timeout)
     temp_asset = make_temp_asset_path(args.asset_prefix)
     temp_wbp_asset = None
 
@@ -3228,7 +3307,10 @@ def main() -> int:
             fail(f"tools/list missing required tools: {', '.join(missing)}")
         print(f"[PASS] tools/list includes required baseline tools ({len(REQUIRED_TOOLS)})")
 
-        loomle_payload = call_tool(client, 3, "loomle", {})
+        attach_project(client, 3, project_root)
+        print(f"[PASS] project.attach selected {project_root}")
+
+        loomle_payload = call_tool(client, 4, "loomle", {})
         if loomle_payload.get("status") not in {"ok", "degraded"}:
             fail(f"loomle unexpected status: {loomle_payload}")
         rpc_health = loomle_payload.get("runtime", {}).get("rpcHealth", {})

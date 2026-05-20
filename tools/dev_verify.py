@@ -15,7 +15,13 @@ TESTS_E2E_DIR = REPO_ROOT / "tests" / "e2e"
 if str(TESTS_E2E_DIR) not in sys.path:
     sys.path.insert(0, str(TESTS_E2E_DIR))
 
-from test_bridge_smoke import McpStdioClient, call_tool, parse_tool_payload as parse_mcp_tool_payload
+from test_bridge_smoke import (
+    McpStdioClient,
+    attach_project,
+    call_tool,
+    parse_tool_payload as parse_mcp_tool_payload,
+    resolve_mcp_server_spec,
+)
 
 SMOKE_SCRIPT = REPO_ROOT / "tests" / "e2e" / "test_bridge_smoke.py"
 REGRESSION_SCRIPT = REPO_ROOT / "tests" / "e2e" / "test_bridge_regression.py"
@@ -296,15 +302,18 @@ def is_tool_error_payload(payload: dict) -> bool:
     return False
 
 
-def wait_for_bridge_runtime_ready(project_root: Path, loomle_binary: Path, timeout_s: float) -> None:
+def wait_for_bridge_runtime_ready(project_root: Path, loomle_binary: Path, mcp_server: str, timeout_s: float) -> None:
     deadline = time.time() + timeout_s
     attempt = 0
     while time.time() < deadline:
         attempt += 1
         client = None
         try:
-            client = McpStdioClient(project_root=project_root, server_binary=loomle_binary, timeout_s=15.0)
-            loomle_payload = call_tool(client, 100 + attempt * 10, "loomle", {})
+            server_spec = resolve_mcp_server_spec(mcp_server, loomle_binary)
+            client = McpStdioClient(project_root=project_root, server_spec=server_spec, timeout_s=15.0)
+            base_req_id = 100 + attempt * 10
+            attach_project(client, base_req_id, project_root)
+            loomle_payload = call_tool(client, base_req_id + 1, "loomle", {})
             status = loomle_payload.get("status")
             rpc_health = loomle_payload.get("runtime", {}).get("rpcHealth", {}) if isinstance(loomle_payload, dict) else {}
             if status not in {"ok", "degraded"} or not isinstance(rpc_health, dict) or rpc_health.get("status") not in {
@@ -319,11 +328,12 @@ def wait_for_bridge_runtime_ready(project_root: Path, loomle_binary: Path, timeo
                 continue
 
             execute_response = client.request(
-                101 + attempt * 10,
+                base_req_id + 2,
                 "tools/call",
                 {
                     "name": "execute",
                     "arguments": {
+                        "language": "python",
                         "mode": "exec",
                         "code": "import unreal\nunreal.log('loomle dev_verify warmup')",
                     },
@@ -354,7 +364,7 @@ def wait_for_bridge_runtime_ready(project_root: Path, loomle_binary: Path, timeo
     fail(f"bridge runtime did not become ready within {timeout_s:.0f}s")
 
 
-def run_smoke_with_retry(project_root: Path, timeout_s: float) -> None:
+def run_smoke_with_retry(project_root: Path, mcp_server: str, timeout_s: float) -> None:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         result = run(
@@ -363,6 +373,8 @@ def run_smoke_with_retry(project_root: Path, timeout_s: float) -> None:
                 str(SMOKE_SCRIPT),
                 "--project-root",
                 str(project_root),
+                "--mcp-server",
+                mcp_server,
                 "--loomle-bin",
                 str(REPO_ROOT / "client" / "target" / "release" / loomle_binary_name(detect_platform())),
             ],
@@ -420,6 +432,12 @@ def main() -> int:
         help="Deprecated compatibility option; regression is skipped unless --run-regression is set.",
     )
     parser.add_argument("--run-latency", action="store_true", help="Run latency validation after smoke and any requested regression.")
+    parser.add_argument(
+        "--mcp-server",
+        choices=["rust", "python"],
+        default="rust",
+        help="MCP server runtime to validate. Both runtimes attach through project.attach.",
+    )
     parser.add_argument("--no-restart", action="store_true", help="Skip Unreal Editor restart after install.")
     parser.add_argument(
         "--skip-editor-build",
@@ -444,6 +462,8 @@ def main() -> int:
     ue_root = resolve_ue_root(platform, args.ue_root)
     uproject = next(path for path in project_root.iterdir() if path.is_file() and path.suffix.lower() == ".uproject")
     should_close_editor = not args.keep_editor_open
+    if args.run_latency and args.mcp_server != "rust":
+        fail("--run-latency currently validates the native loomle binary and only supports --mcp-server rust")
 
     try:
         if not args.no_restart or args.install_only:
@@ -451,7 +471,11 @@ def main() -> int:
             stop_editor(uproject, platform)
             time.sleep(2.0)
 
-        loomle_binary = build_release_loomle_binary(platform)
+        loomle_binary = (
+            build_release_loomle_binary(platform)
+            if args.mcp_server == "rust"
+            else REPO_ROOT / "client" / "target" / "release" / loomle_binary_name(platform)
+        )
         sync_source_plugin_into_project(project_root)
 
         if args.install_only:
@@ -465,10 +489,10 @@ def main() -> int:
             restart_editor(project_root, ue_root, platform)
 
         step("Wait for bridge runtime readiness")
-        wait_for_bridge_runtime_ready(project_root, loomle_binary, args.wait_timeout)
+        wait_for_bridge_runtime_ready(project_root, loomle_binary, args.mcp_server, args.wait_timeout)
 
         step("Run smoke validation")
-        run_smoke_with_retry(project_root, args.wait_timeout)
+        run_smoke_with_retry(project_root, args.mcp_server, args.wait_timeout)
 
         if args.run_regression and not args.skip_regression:
             step("Run regression validation")
@@ -478,6 +502,8 @@ def main() -> int:
                     str(REGRESSION_SCRIPT),
                     "--project-root",
                     str(project_root),
+                    "--mcp-server",
+                    args.mcp_server,
                     "--loomle-bin",
                     str(loomle_binary),
                 ]

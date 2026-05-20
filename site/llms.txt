@@ -1,6 +1,11 @@
 # LOOMLE
 
-LOOMLE is agent-native Unreal Engine tooling exposed through MCP.
+LOOMLE is an agent-native Unreal Engine MCP server for Claude Code, Codex, and
+other MCP-compatible AI agents.
+
+It helps agents inspect and edit live UE projects through UE-native concepts:
+Blueprint graphs, Material graphs, PCG graphs, UMG WidgetBlueprints, asset
+metadata, active editor context, compile diagnostics, and play sessions.
 
 Canonical documentation:
 
@@ -29,3 +34,6 @@ loomle mcp
 
 After attach, inspect before editing, use palettes for creation, and call
 `schema.inspect` when a tool intentionally has operation-specific schemas.
+
+Search terms: Unreal Engine MCP server, UE MCP, Claude Code Unreal, Codex
+Unreal, Blueprint MCP, PCG MCP, UMG MCP, Unreal Editor AI agent tooling.

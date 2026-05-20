@@ -933,14 +933,24 @@ impl LoomleProxyServer {
         }
 
         let projects = discover_runtime_projects(ProjectStatusFilter::Online);
-        let selected = projects.into_iter().find(|project| {
-            project_id
-                .as_ref()
-                .is_some_and(|id| *id == project.project_id)
-                || project_root
+        let selected = projects
+            .into_iter()
+            .find(|project| {
+                project_id
                     .as_ref()
-                    .is_some_and(|root| *root == project.project_root.display().to_string())
-        });
+                    .is_some_and(|id| *id == project.project_id)
+                    || project_root
+                        .as_ref()
+                        .is_some_and(|root| *root == project.project_root.display().to_string())
+            })
+            .or_else(|| {
+                if project_id.is_some() {
+                    return None;
+                }
+                project_root
+                    .as_deref()
+                    .and_then(project_root_online_project)
+            });
 
         let Some(project) = selected else {
             return CallToolResult::error(vec![rmcp::model::Content::text(
@@ -5875,7 +5885,8 @@ fn execute_schema() -> rmcp::model::JsonObject {
                     "mode":{"type":"string","enum":["sync","job"]},
                     "idempotencyKey":{"type":"string"},
                     "label":{"type":"string"},
-                    "waitMs":{"type":"integer"}
+                    "waitMs":{"type":"integer"},
+                    "resultTtlMs":{"type":"integer"}
                 },
                 "additionalProperties": false
             }
@@ -5889,6 +5900,7 @@ fn jobs_schema() -> rmcp::model::JsonObject {
     schema_from_value(serde_json::json!({
         "type":"object",
         "properties":{
+            "action":{"type":"string"},
             "jobId":{"type":"string"},
             "tool":{"type":"string"},
             "status":{"type":"string"},
@@ -7814,6 +7826,28 @@ fn runtime_record_to_project(record: RuntimeRecord) -> RuntimeProject {
         last_seen_at: record.last_seen_at,
         reason,
     }
+}
+
+fn project_root_online_project(project_root_raw: &str) -> Option<RuntimeProject> {
+    let project_root = validate_project_root(Path::new(project_root_raw)).ok()?;
+    let endpoint = Environment::for_project_root(project_root.clone()).runtime_endpoint_path;
+    if !endpoint.exists() {
+        return None;
+    }
+    Some(RuntimeProject {
+        project_id: stable_project_id(&project_root),
+        name: project_name_from_root(&project_root),
+        project_root: project_root.clone(),
+        uproject: find_project_uproject(&project_root),
+        endpoint,
+        status: "online".to_string(),
+        attachable: true,
+        plugin_installed: project_root.join("Plugins").join("LoomleBridge").is_dir(),
+        plugin_version: None,
+        protocol_version: None,
+        last_seen_at: None,
+        reason: None,
+    })
 }
 
 fn project_to_json(project: RuntimeProject, include_diagnostics: bool) -> serde_json::Value {

@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LOOMLE Tool Manifest",
+  "type": "object",
+  "required": ["schemaVersion", "product", "tools"],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "product": {
+      "type": "string",
+      "const": "loomle"
+    },
+    "notes": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "tools": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/tool" },
+      "minItems": 1
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "tool": {
+      "type": "object",
+      "required": [
+        "name",
+        "description",
+        "availability",
+        "requiresBridge",
+        "inputSchema",
+        "dispatch"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "availability": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["native", "python"]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "requiresBridge": {
+          "type": "boolean"
+        },
+        "inputSchema": {
+          "type": "object"
+        },
+        "schemaInspect": {
+          "$ref": "#/$defs/schemaInspect"
+        },
+        "dispatch": {
+          "$ref": "#/$defs/dispatch"
+        },
+        "unavailableIn": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/unavailable" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "schemaInspect": {
+      "type": "object",
+      "required": ["domain", "tool", "operations"],
+      "properties": {
+        "domain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tool": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/operation" }
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "operation": {
+      "type": "object",
+      "required": ["name", "category", "summary", "schema"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schema": {
+          "type": "object"
+        },
+        "examples": {
+          "type": "array"
+        },
+        "errors": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "notes": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "dispatch": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["local", "bridgeRpc", "unavailable"]
+        },
+        "tool": {
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "oneOf": [
+            { "type": "string", "enum": ["identity"] },
+            { "$ref": "#/$defs/transformRef" }
+          ]
+        },
+        "result": {
+          "oneOf": [
+            { "type": "string", "enum": ["structured"] },
+            { "$ref": "#/$defs/transformRef" }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "transformRef": {
+      "type": "object",
+      "required": ["transform"],
+      "properties": {
+        "transform": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "unavailable": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

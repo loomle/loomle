@@ -1,0 +1,14 @@
+[project]
+name = "loomle-mcp-python"
+version = "0.0.0"
+description = "Python MCP server entrypoint for LOOMLE."
+requires-python = ">=3.10"
+dependencies = [
+  "mcp>=1.27.1,<2",
+]
+
+[project.scripts]
+loomle-mcp-python = "loomle_mcp.server:main"
+
+[tool.loomle]
+manifest = "../manifest/manifest.json"

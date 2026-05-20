@@ -11,12 +11,14 @@ from pathlib import Path
 from test_bridge_smoke import (
     REQUIRED_TOOLS,
     McpStdioClient,
+    attach_project,
     call_execute_exec_with_retry,
     call_tool,
     fail,
     make_temp_asset_path,
     parse_execute_json,
     resolve_default_loomle_binary,
+    resolve_mcp_server_spec,
     resolve_project_root,
     submit_execute_job,
 )
@@ -1266,7 +1268,13 @@ def main() -> int:
     parser.add_argument(
         "--loomle-bin",
         default="",
-        help="Override path to the loomle client binary. Defaults to client/target/release/loomle(.exe).",
+        help="Override path to the loomle client binary for --mcp-server rust. Defaults to client/target/release/loomle(.exe).",
+    )
+    parser.add_argument(
+        "--mcp-server",
+        choices=["rust", "python"],
+        default="rust",
+        help="MCP server runtime to validate. Both runtimes attach through project.attach.",
     )
     parser.add_argument(
         "--close-editor-on-success",
@@ -1276,18 +1284,17 @@ def main() -> int:
     args = parser.parse_args()
 
     project_root = resolve_project_root(args.project_root, args.dev_config)
-    server_binary = (
-        Path(args.loomle_bin).resolve()
-        if args.loomle_bin
-        else resolve_default_loomle_binary(project_root)
-    )
+    server_binary = Path(args.loomle_bin).resolve() if args.loomle_bin else None
+    if args.mcp_server == "rust" and server_binary is None:
+        server_binary = resolve_default_loomle_binary(project_root)
+    server_spec = resolve_mcp_server_spec(args.mcp_server, server_binary or Path())
 
     if not project_root.exists():
         fail(f"project root not found: {project_root}")
     if not any(project_root.glob("*.uproject")):
         fail(f"no .uproject found under: {project_root}")
 
-    client = McpStdioClient(project_root=project_root, server_binary=server_binary, timeout_s=args.timeout)
+    client = McpStdioClient(project_root=project_root, server_spec=server_spec, timeout_s=args.timeout)
     temp_asset = make_temp_asset_path(args.asset_prefix)
     temp_interface_asset = make_temp_asset_path("/Game/Codex/BPI_BridgeRegression")
     temp_enum_asset = make_temp_asset_path("/Game/Codex/E_BridgeRegression")
@@ -1309,8 +1316,6 @@ def main() -> int:
     completed_successfully = False
 
     try:
-        wait_for_bridge_ready(client)
-
         print(f"[PASS] initialize protocol={client.protocol_version}")
 
         tools_resp = client.request(2, "tools/list", {})
@@ -1320,6 +1325,11 @@ def main() -> int:
         if missing:
             fail(f"tools/list missing required tools: {', '.join(missing)}")
         print("[PASS] tools/list baseline tools available")
+
+        attach_project(client, 3, project_root)
+        print(f"[PASS] project.attach selected {project_root}")
+
+        wait_for_bridge_ready(client)
 
         initial_play_status = call_tool(client, 3000, "play", {"action": "status"})
         initial_session = initial_play_status.get("session")
