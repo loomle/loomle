@@ -49,12 +49,13 @@ jobs:
           else
             head_sha="${WORKFLOW_RUN_SHA:-}"
             [[ -n "$head_sha" ]] || { echo "workflow_run head_sha is missing" >&2; exit 1; }
-            mapfile -t matching_tags < <(git tag --points-at "$head_sha" | grep '^v' || true)
-            if [[ "${#matching_tags[@]}" -ne 1 ]]; then
-              echo "Expected exactly one v* tag for finalized commit $head_sha, found ${#matching_tags[@]}: ${matching_tags[*]:-}" >&2
+            matching_tags="$(git tag --points-at "$head_sha" | grep '^v' || true)"
+            tag_count="$(printf '%s\n' "$matching_tags" | sed '/^$/d' | wc -l | tr -d ' ')"
+            if [[ "$tag_count" != "1" ]]; then
+              echo "Expected exactly one v* tag for finalized commit $head_sha, found $tag_count: ${matching_tags:-}" >&2
               exit 1
             fi
-            tag="${matching_tags[0]}"
+            tag="$(printf '%s\n' "$matching_tags" | sed -n '1p')"
             tag_commit="$head_sha"
           fi
 
