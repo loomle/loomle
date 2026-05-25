@@ -12793,11 +12793,14 @@ args = ["mcp"]
             super::unix_timestamp_secs()
         ));
         let previous_home = std::env::var_os("HOME");
+        let previous_userprofile = std::env::var_os("USERPROFILE");
         let previous_root = std::env::var_os("LOOMLE_INSTALL_ROOT");
-        std::env::set_var("HOME", root.join("home"));
+        let test_home = root.join("home");
+        std::env::set_var("HOME", &test_home);
+        std::env::set_var("USERPROFILE", &test_home);
         std::env::set_var("LOOMLE_INSTALL_ROOT", root.join(".loomle"));
 
-        let codex_dir = root.join("home").join(".codex");
+        let codex_dir = test_home.join(".codex");
         fs::create_dir_all(&codex_dir).expect("codex dir");
         fs::write(
             codex_dir.join("config.toml"),
@@ -12851,6 +12854,11 @@ args = ["mcp"]
             std::env::set_var("HOME", previous_home);
         } else {
             std::env::remove_var("HOME");
+        }
+        if let Some(previous_userprofile) = previous_userprofile {
+            std::env::set_var("USERPROFILE", previous_userprofile);
+        } else {
+            std::env::remove_var("USERPROFILE");
         }
         if let Some(previous_root) = previous_root {
             std::env::set_var("LOOMLE_INSTALL_ROOT", previous_root);
