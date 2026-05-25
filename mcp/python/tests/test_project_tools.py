@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import site
 import sys
 import tempfile
 import unittest
@@ -58,8 +59,23 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
                 encoding="utf-8",
             )
 
+            python_path_entries = [str(REPO_ROOT / "mcp" / "python")]
+            python_path_entries.extend(
+                entry
+                for entry in os.environ.get("PYTHONPATH", "").split(os.pathsep)
+                if entry
+            )
+            python_path_entries.extend(
+                entry
+                for entry in {
+                    *getattr(site, "getsitepackages", lambda: [])(),
+                    site.getusersitepackages(),
+                }
+                if entry
+            )
+
             env = os.environ.copy()
-            env["PYTHONPATH"] = str(REPO_ROOT / "mcp" / "python")
+            env["PYTHONPATH"] = os.pathsep.join(python_path_entries)
             env["LOOMLE_HOME"] = str(loomle_home)
             env["HOME"] = str(Path(tmp) / "home")
             env["USERPROFILE"] = str(Path(tmp) / "home")
