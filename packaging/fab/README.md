@@ -37,7 +37,8 @@ LoomleBridge/Resources/MCP/tool-manifest/manifest.json
 
 Release automation:
 
-- `.github/workflows/release-loomle-fab.yml` runs on `v*` tags.
+- `.github/workflows/release-loomle-fab.yml` runs after `Finalize LOOMLE Release`
+  completes successfully, or by explicit manual dispatch with a release tag.
 - The workflow checks that native, bridge, and Python MCP versions match the tag.
 - The workflow stages the plugin, runs Unreal `BuildPlugin`, zips the packaged
   `LoomleBridge/` directory, and uploads `loomle-fab-plugin.zip` to the tag release.
