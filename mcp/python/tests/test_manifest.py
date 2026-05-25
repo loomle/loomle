@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from loomle_mcp.manifest import load_manifest
+from loomle_mcp.setup_status import classify_loomle_mcp_entry
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -18,6 +19,8 @@ class ToolManifestTests(unittest.TestCase):
 
         self.assertIn("project.list", names)
         self.assertIn("project.attach", names)
+        self.assertIn("setup.status", names)
+        self.assertIn("setup.configure", names)
         self.assertIn("schema.inspect", names)
         self.assertIn("context", names)
         self.assertIn("blueprint.graph.list", names)
@@ -41,6 +44,34 @@ class ToolManifestTests(unittest.TestCase):
         rust_names.discard("project.install")
 
         self.assertFalse(rust_names - python_names)
+
+    def test_setup_status_ignores_loomle_project_paths_in_host_config(self) -> None:
+        raw = '''
+model = "gpt-5.5"
+
+[mcp_servers.figma]
+url = "https://mcp.figma.com/mcp"
+
+[projects."/Users/xartest/dev/loomle"]
+trust_level = "trusted"
+'''
+
+        present, owner, server_name = classify_loomle_mcp_entry(raw)
+        self.assertFalse(present)
+        self.assertIsNone(owner)
+        self.assertIsNone(server_name)
+
+    def test_setup_status_detects_explicit_loomle_mcp_entry(self) -> None:
+        raw = '''
+[mcp_servers.loomle]
+command = "/Users/xartest/.loomle/bin/loomle"
+args = ["mcp"]
+'''
+
+        present, owner, server_name = classify_loomle_mcp_entry(raw)
+        self.assertTrue(present)
+        self.assertEqual(owner, "native")
+        self.assertEqual(server_name, "loomle")
 
     def test_blueprint_graph_edit_requires_asset_path_and_commands(self) -> None:
         manifest = load_manifest(MANIFEST)

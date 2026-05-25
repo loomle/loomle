@@ -19,6 +19,9 @@ class RuntimeProject:
     status: str
     attachable: bool
     plugin_installed: bool
+    plugin_path: Path | None
+    plugin_install_scope: str | None
+    plugin_managed_by: str | None
     plugin_version: str | None
     protocol_version: int | None
     last_seen_at: str | None
@@ -33,6 +36,9 @@ class RuntimeProject:
             "status": self.status,
             "attachable": self.attachable,
             "pluginInstalled": self.plugin_installed,
+            "pluginPath": str(self.plugin_path) if self.plugin_path is not None else None,
+            "pluginInstallScope": self.plugin_install_scope,
+            "pluginManagedBy": self.plugin_managed_by,
             "pluginVersion": self.plugin_version,
             "protocolVersion": self.protocol_version,
             "lastSeenAt": self.last_seen_at,
@@ -163,6 +169,9 @@ def project_root_online_project(project_root: Path) -> RuntimeProject | None:
         status="online",
         attachable=True,
         plugin_installed=(resolved_root / "Plugins" / "LoomleBridge").is_dir(),
+        plugin_path=resolved_root / "Plugins" / "LoomleBridge",
+        plugin_install_scope="project",
+        plugin_managed_by="native",
         plugin_version=None,
         protocol_version=None,
         last_seen_at=None,
@@ -237,7 +246,13 @@ def project_record_to_project(
         endpoint=endpoint,
         status=status,
         attachable=endpoint_exists,
-        plugin_installed=(project_root / "Plugins" / "LoomleBridge").is_dir(),
+        plugin_installed=(
+            optional_path((runtime or {}).get("pluginPath") or record.get("pluginPath")) or
+            (project_root / "Plugins" / "LoomleBridge")
+        ).is_dir(),
+        plugin_path=optional_path((runtime or {}).get("pluginPath") or record.get("pluginPath")),
+        plugin_install_scope=(runtime or {}).get("pluginInstallScope") or record.get("pluginInstallScope"),
+        plugin_managed_by=(runtime or {}).get("pluginManagedBy") or record.get("pluginManagedBy"),
         plugin_version=(runtime or {}).get("pluginVersion") or record.get("pluginVersion"),
         protocol_version=optional_int((runtime or {}).get("protocolVersion")),
         last_seen_at=(runtime or {}).get("lastSeenAt") or record.get("lastSeenAt"),
@@ -263,7 +278,12 @@ def runtime_record_to_project(record: dict[str, Any]) -> RuntimeProject:
         endpoint=endpoint,
         status=status,
         attachable=endpoint_exists,
-        plugin_installed=True,
+        plugin_installed=(
+            optional_path(record.get("pluginPath")) or (project_root / "Plugins" / "LoomleBridge")
+        ).is_dir(),
+        plugin_path=optional_path(record.get("pluginPath")),
+        plugin_install_scope=record.get("pluginInstallScope"),
+        plugin_managed_by=record.get("pluginManagedBy"),
         plugin_version=record.get("pluginVersion"),
         protocol_version=optional_int(record.get("protocolVersion")),
         last_seen_at=record.get("lastSeenAt"),

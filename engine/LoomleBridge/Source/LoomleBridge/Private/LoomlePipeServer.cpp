@@ -123,6 +123,16 @@ void FLoomlePipeServer::EndInFlight()
     InFlightRequestCount.Decrement();
 }
 
+int32 FLoomlePipeServer::GetActiveConnectionCount() const
+{
+    FScopeLock ScopeLock(&WriteMutex);
+#if PLATFORM_WINDOWS
+    return ActivePipeHandles.Num();
+#else
+    return ActiveClientFds.Num();
+#endif
+}
+
 void FLoomlePipeServer::RegisterConnection(int32 ConnectionSerial, void* NativeHandle)
 {
     FScopeLock ScopeLock(&WriteMutex);

@@ -11,7 +11,7 @@ from mcp import types
 from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 
-from .bridge_rpc import BridgeRpcError, BridgeRpcInvokeError, rpc_health, rpc_invoke
+from .bridge_rpc import BridgeRpcError, BridgeRpcInvokeError, close_all_sessions, rpc_health, rpc_invoke
 from .manifest import ManifestError, ToolManifest, load_manifest
 from .project_registry import (
     RuntimeProject,
@@ -19,6 +19,7 @@ from .project_registry import (
     find_online_project,
     infer_attached_project_root,
 )
+from .setup_status import SetupConfigureError, build_setup_status, configure_setup
 from .transforms import TransformError, apply_args_transform, apply_result_transform
 
 
@@ -142,6 +143,36 @@ def make_server(
                     ]
                 }
             )
+
+        if name == "setup.status":
+            state.try_auto_attach()
+            return structured_result(build_setup_status(state.attached_project))
+
+        if name == "setup.configure":
+            state.try_auto_attach()
+            host = arguments.get("host")
+            server_name = arguments.get("server") or "auto"
+            if not isinstance(host, str):
+                return error_result(
+                    {
+                        "isError": True,
+                        "code": "INVALID_ARGUMENT",
+                        "message": "setup.configure requires host.",
+                        "retryable": False,
+                    }
+                )
+            if not isinstance(server_name, str):
+                server_name = "auto"
+            try:
+                return structured_result(
+                    configure_setup(
+                        host=host,
+                        server=server_name,
+                        attached_project=state.attached_project,
+                    )
+                )
+            except SetupConfigureError as exc:
+                return error_result(exc.to_payload())
 
         if name == "project.attach":
             project_id = arguments.get("projectId")
@@ -370,18 +401,21 @@ async def run_stdio(
         session_cwd=session_cwd,
     )
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            InitializationOptions(
-                server_name="loomle-python",
-                server_version="0.0.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
+        try:
+            await server.run(
+                read_stream,
+                write_stream,
+                InitializationOptions(
+                    server_name="loomle-python",
+                    server_version="0.0.0",
+                    capabilities=server.get_capabilities(
+                        notification_options=NotificationOptions(),
+                        experimental_capabilities={},
+                    ),
                 ),
-            ),
-        )
+            )
+        finally:
+            await close_all_sessions()
 
 
 def main(argv: list[str] | None = None) -> int:

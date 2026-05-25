@@ -18,6 +18,7 @@ public:
 
     bool Start();
     void StopServer();
+    int32 GetActiveConnectionCount() const;
 
     virtual uint32 Run() override;
     virtual void Stop() override;
@@ -52,5 +53,5 @@ private:
     int32 ServerFd = -1;
     TMap<int32, int32> ActiveClientFds;
 #endif
-    FCriticalSection WriteMutex;
+    mutable FCriticalSection WriteMutex;
 };

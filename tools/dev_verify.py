@@ -17,7 +17,6 @@ if str(TESTS_E2E_DIR) not in sys.path:
 
 from test_bridge_smoke import (
     McpStdioClient,
-    attach_project,
     call_tool,
     parse_tool_payload as parse_mcp_tool_payload,
     resolve_mcp_server_spec,
@@ -312,7 +311,22 @@ def wait_for_bridge_runtime_ready(project_root: Path, loomle_binary: Path, mcp_s
             server_spec = resolve_mcp_server_spec(mcp_server, loomle_binary)
             client = McpStdioClient(project_root=project_root, server_spec=server_spec, timeout_s=15.0)
             base_req_id = 100 + attempt * 10
-            attach_project(client, base_req_id, project_root)
+            attach_response = client.request(
+                base_req_id,
+                "tools/call",
+                {
+                    "name": "project.attach",
+                    "arguments": {"projectRoot": str(project_root)},
+                },
+            )
+            attach_payload = parse_mcp_tool_payload(attach_response, "tools/call.project.attach")
+            if is_tool_error_payload(attach_payload) or attach_payload.get("attached") is not True:
+                print(
+                    f"[WARN] project.attach not ready yet (attempt {attempt}): {attach_payload}",
+                    file=sys.stderr,
+                )
+                time.sleep(2.0)
+                continue
             loomle_payload = call_tool(client, base_req_id + 1, "loomle", {})
             status = loomle_payload.get("status")
             rpc_health = loomle_payload.get("runtime", {}).get("rpcHealth", {}) if isinstance(loomle_payload, dict) else {}

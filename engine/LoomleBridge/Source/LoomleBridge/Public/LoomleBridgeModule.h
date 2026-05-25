@@ -3,6 +3,7 @@
 #include "Containers/Ticker.h"
 #include "CoreMinimal.h"
 #include "HAL/CriticalSection.h"
+#include "Input/Reply.h"
 #include "Modules/ModuleManager.h"
 
 class FLoomlePipeServer;
@@ -23,11 +24,18 @@ private:
     void RegisterToolbarStatusWidget();
     void UnregisterToolbarStatusWidget();
     void RegisterToolbarMenus();
+    TSharedRef<class SWidget> CreateToolbarStatusBadge();
+    TSharedRef<class SWidget> CreateSetupStatusPanel();
     FText GetToolbarStatusLabel() const;
     FText GetToolbarStatusTooltip() const;
     FSlateColor GetToolbarStatusColor() const;
     FString GetToolbarStatusKey() const;
     FString GetRuntimeEndpointDisplayString() const;
+    FText GetSetupPanelNextActionText() const;
+    void RecordClientActivity(const FString& Method, const FString& ToolName);
+    bool GetClientActivitySummary(FString& OutStatus, FString& OutDetail, bool& bOutRecent) const;
+    FString GetSetupPanelSetupPrompt() const;
+    FReply CopySetupPrompt();
 
     TSharedPtr<FJsonObject> BuildRpcHealthResult() const;
     TSharedPtr<FJsonObject> BuildRpcCapabilitiesResult() const;
@@ -162,6 +170,12 @@ private:
     FCriticalSection PendingGraphLayoutStatesMutex;
     TMap<FString, FMutateIdempotencyEntry> MutateIdempotencyRegistry;
     FCriticalSection MutateIdempotencyRegistryMutex;
+    mutable FCriticalSection ClientActivityMutex;
+    bool bHasClientActivity = false;
+    FDateTime LastClientActivityAt;
+    FString LastClientMethod;
+    FString LastClientTool;
+    uint64 ClientActivityCount = 0;
 
     struct FJobLogEntry
     {

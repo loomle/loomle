@@ -353,7 +353,8 @@ Python MCP 应暴露 `project.list`，但能力范围比 native CLI 小：
 
 - 支持列出 online/all/offline 项目。
 - 对 online 项目返回 endpoint、pluginVersion、protocolVersion、attachable。
-- 对 Fab-managed project 标记 `managedBy: "fab"` 或等价字段。
+- 对 Fab/Engine-managed project 返回真实 `pluginPath`、`pluginInstallScope`、
+  `pluginManagedBy`，避免 native/project-local ownership 被误判。
 - 不承诺能安装或更新 offline project 的插件。
 
 ### project.attach
@@ -440,7 +441,7 @@ LoomleBridge/
   Resources/
     MCP/
       pyproject.toml
-      loomle_fab_server.py
+      loomle_mcp_server.py
       loomle_mcp/
         __init__.py
         manifest.py
@@ -481,7 +482,7 @@ MCP host 配置类似：
         "--directory",
         "<Project>/Plugins/LoomleBridge/Resources/MCP",
         "run",
-        "loomle_fab_server.py"
+        "loomle_mcp_server.py"
       ]
     }
   }
@@ -507,6 +508,19 @@ MCP host 配置类似：
 
 Python MCP 不应该绕过 Bridge RPC 直接调用 UE Python 或编辑资产。UE 行为只有
 LoomleBridge 拥有。
+
+Python MCP 到 LoomleBridge 的 Bridge RPC transport 应是 session 级长连接：
+
+- MCP host 通过 stdio 长连接启动 Python MCP server。
+- Python MCP server 按 attached runtime endpoint 缓存 Bridge RPC session。
+- 同一 endpoint 上的多次 tool call 应复用同一条 Unix socket / named pipe 连接。
+- Bridge RPC response 通过 request id 分发到对应 pending request。
+- 连接断开时，pending request 应得到明确错误；下一次请求可以重建 session。
+- MCP server 退出或 attach session 被清理时，应显式关闭 Bridge RPC session。
+
+这与 Rust native CLI 的 `RuntimeRpcSession` 模型一致。它也让 UE toolbar 可以根据
+Bridge 的 active connection count 判断 MCP client 是否仍然连接，而不是根据最近
+一次 tool call 时间猜测状态。
 
 ## 设计判断
 

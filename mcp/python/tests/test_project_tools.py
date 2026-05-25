@@ -20,6 +20,8 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmp:
             loomle_home = Path(tmp) / ".loomle"
             project_root = Path(tmp) / "DemoProject"
+            plugin_root = Path(tmp) / "FabPlugin" / "LoomleBridge"
+            mcp_runtime = plugin_root / "Resources" / "MCP"
             endpoint = project_root / "Intermediate" / "loomle.sock"
             runtime_dir = loomle_home / "state" / "runtimes"
             project_dir = loomle_home / "state" / "projects"
@@ -27,6 +29,10 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
             project_dir.mkdir(parents=True)
             endpoint.parent.mkdir(parents=True)
             endpoint.write_text("", encoding="utf-8")
+            mcp_runtime.mkdir(parents=True)
+            (mcp_runtime / "loomle_mcp_server.py").write_text("# test\n", encoding="utf-8")
+            codex_dir = Path(tmp) / "home" / ".codex"
+            codex_dir.mkdir(parents=True)
 
             project_id = "demo-project-id"
             runtime_record = {
@@ -39,6 +45,9 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
                 "endpoint": str(endpoint),
                 "platform": "darwin",
                 "pid": 123,
+                "pluginPath": str(plugin_root),
+                "pluginInstallScope": "engine",
+                "pluginManagedBy": "fab",
                 "pluginVersion": "0.6.0",
                 "protocolVersion": 1,
                 "startedAt": "2026-05-20T00:00:00Z",
@@ -52,6 +61,7 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
             env = os.environ.copy()
             env["PYTHONPATH"] = str(REPO_ROOT / "mcp" / "python")
             env["LOOMLE_HOME"] = str(loomle_home)
+            env["HOME"] = str(Path(tmp) / "home")
             params = StdioServerParameters(
                 command=sys.executable,
                 args=[str(REPO_ROOT / "mcp" / "python" / "loomle_mcp_server.py")],
@@ -84,6 +94,30 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
                     self.assertFalse(status.isError)
                     self.assertTrue(status.structuredContent["attached"])
                     self.assertEqual(status.structuredContent["onlineProjectCount"], 1)
+
+                    setup = await session.call_tool("setup.status", {})
+                    self.assertFalse(setup.isError)
+                    self.assertEqual(setup.structuredContent["channel"], "fab")
+                    self.assertEqual(setup.structuredContent["bridge"]["state"], "ready")
+                    self.assertTrue(setup.structuredContent["fabPythonMcp"]["available"])
+                    self.assertEqual(
+                        setup.structuredContent["recommendation"]["action"],
+                        "configureFabPython",
+                    )
+                    self.assertIn(
+                        "configureCodex",
+                        setup.structuredContent["recommendation"]["safeAutomaticActions"],
+                    )
+
+                    configured = await session.call_tool(
+                        "setup.configure",
+                        {"host": "codex"},
+                    )
+                    self.assertFalse(configured.isError)
+                    self.assertEqual(configured.structuredContent["serverOwner"], "fab")
+                    codex_config = (codex_dir / "config.toml").read_text(encoding="utf-8")
+                    self.assertIn("[mcp_servers.loomle]", codex_config)
+                    self.assertIn("loomle_mcp_server.py", codex_config)
 
     async def test_bridge_rpc_dispatch_uses_manifest_target_tool(self) -> None:
         if not hasattr(asyncio, "start_unix_server"):
@@ -120,26 +154,31 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
                 reader: asyncio.StreamReader,
                 writer: asyncio.StreamWriter,
             ) -> None:
-                line = await reader.readline()
-                request = json.loads(line.decode("utf-8"))
-                seen["method"] = request["method"]
-                seen["tool"] = request["params"]["tool"]
-                response = {
-                    "jsonrpc": "2.0",
-                    "id": request["id"],
-                    "result": {
-                        "ok": True,
-                        "payload": {
-                            "status": "ok",
-                            "tool": request["params"]["tool"],
-                        },
-                        "diagnostics": [],
-                    },
-                }
-                writer.write(json.dumps(response).encode("utf-8") + b"\n")
-                await writer.drain()
-                writer.close()
-                await writer.wait_closed()
+                try:
+                    while True:
+                        line = await reader.readline()
+                        if not line:
+                            break
+                        request = json.loads(line.decode("utf-8"))
+                        seen["method"] = request["method"]
+                        seen["tool"] = request["params"]["tool"]
+                        response = {
+                            "jsonrpc": "2.0",
+                            "id": request["id"],
+                            "result": {
+                                "ok": True,
+                                "payload": {
+                                    "status": "ok",
+                                    "tool": request["params"]["tool"],
+                                },
+                                "diagnostics": [],
+                            },
+                        }
+                        writer.write(json.dumps(response).encode("utf-8") + b"\n")
+                        await writer.drain()
+                finally:
+                    writer.close()
+                    await writer.wait_closed()
 
             try:
                 server = await asyncio.start_unix_server(handle, str(endpoint))
@@ -162,6 +201,7 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
                         result = await session.call_tool(
                             "blueprint.graph.edit",
                             {
+                                "assetPath": "/Game/Test/BP_Test",
                                 "commands": [
                                     {
                                         "kind": "addFromPalette",
@@ -170,8 +210,10 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
                                 ]
                             },
                         )
+                server.close()
+                await server.wait_closed()
 
-            self.assertFalse(result.isError)
+            self.assertFalse(result.isError, result)
             self.assertEqual(result.structuredContent["status"], "ok")
             self.assertEqual(seen["method"], "rpc.invoke")
             self.assertEqual(seen["tool"], "blueprint.graph.edit")

@@ -34,6 +34,7 @@
 #include "Framework/MultiBox/MultiBoxExtender.h"
 #include "GenericPlatform/GenericPlatformMemory.h"
 #include "HAL/PlatformTime.h"
+#include "HAL/PlatformApplicationMisc.h"
 #include "HAL/MemoryBase.h"
 #include "HAL/MemoryMisc.h"
 #include "IPythonScriptPlugin.h"
@@ -155,8 +156,15 @@
 #include "ToolMenus.h"
 #include "Widgets/SWidget.h"
 #include "Widgets/SWindow.h"
+#include "Widgets/SBoxPanel.h"
+#include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SComboButton.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
+#include "Widgets/Layout/SExpandableArea.h"
+#include "Widgets/Layout/SSeparator.h"
+#include "Widgets/Layout/SScrollBox.h"
+#include "Widgets/Layout/SUniformGridPanel.h"
 #include "Widgets/Text/STextBlock.h"
 #include "BlueprintEditor.h"
 #include "BlueprintEditorTabs.h"
@@ -195,6 +203,8 @@ namespace LoomleBridgeConstants
 
 namespace
 {
+FString GetLoomleHomeDirectory();
+
 FString GetLoomleBridgePluginVersion()
 {
     const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("LoomleBridge"));
@@ -205,6 +215,446 @@ FString GetLoomleBridgePluginVersion()
 
     const FString& VersionName = Plugin->GetDescriptor().VersionName;
     return VersionName.IsEmpty() ? TEXT("unknown") : VersionName;
+}
+
+FString GetLoomleBridgePluginBaseDir()
+{
+    const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("LoomleBridge"));
+    if (!Plugin.IsValid())
+    {
+        return FPaths::Combine(FPaths::ProjectPluginsDir(), TEXT("LoomleBridge"));
+    }
+    return FPaths::ConvertRelativePathToFull(Plugin->GetBaseDir());
+}
+
+bool IsPathUnderDirectory(FString Path, FString Directory)
+{
+    FPaths::NormalizeFilename(Path);
+    FPaths::NormalizeFilename(Directory);
+    while (Directory.EndsWith(TEXT("/")))
+    {
+        Directory.LeftChopInline(1, EAllowShrinking::No);
+    }
+    return Path.Equals(Directory) || Path.StartsWith(Directory + TEXT("/"));
+}
+
+FString GetLoomleBridgePluginInstallScope(const FString& ProjectRoot, const FString& PluginBaseDir)
+{
+    const FString ProjectPluginDir = FPaths::Combine(ProjectRoot, TEXT("Plugins"), TEXT("LoomleBridge"));
+    if (IsPathUnderDirectory(PluginBaseDir, ProjectPluginDir))
+    {
+        return TEXT("project");
+    }
+    return TEXT("engine");
+}
+
+FString GetLoomleBridgePluginManagedBy(const FString& ProjectRoot, const FString& PluginBaseDir)
+{
+    const FString FabMarkerPath = FPaths::Combine(PluginBaseDir, TEXT("Resources"), TEXT("Loomle"), TEXT("package.json"));
+    const FString PythonMcpPath = FPaths::Combine(PluginBaseDir, TEXT("Resources"), TEXT("MCP"), TEXT("loomle_mcp_server.py"));
+    if (FPaths::FileExists(FabMarkerPath) || FPaths::FileExists(PythonMcpPath))
+    {
+        return TEXT("fab");
+    }
+
+    const FString Scope = GetLoomleBridgePluginInstallScope(ProjectRoot, PluginBaseDir);
+    if (Scope.Equals(TEXT("project")))
+    {
+        return TEXT("native");
+    }
+    return TEXT("external");
+}
+
+FString GetFabPythonMcpServerPath()
+{
+    return FPaths::Combine(
+        GetLoomleBridgePluginBaseDir(),
+        TEXT("Resources"),
+        TEXT("MCP"),
+        TEXT("loomle_mcp_server.py"));
+}
+
+bool HasFabPythonMcpServer()
+{
+    return FPaths::FileExists(GetFabPythonMcpServerPath());
+}
+
+FString GetCodexConfigPath()
+{
+    return FPaths::Combine(GetLoomleHomeDirectory(), TEXT(".codex"), TEXT("config.toml"));
+}
+
+FString GetClaudeDesktopConfigPath()
+{
+#if PLATFORM_MAC
+    return FPaths::Combine(
+        GetLoomleHomeDirectory(),
+        TEXT("Library"),
+        TEXT("Application Support"),
+        TEXT("Claude"),
+        TEXT("claude_desktop_config.json"));
+#elif PLATFORM_WINDOWS
+    FString AppData = FPlatformMisc::GetEnvironmentVariable(TEXT("APPDATA"));
+    if (AppData.IsEmpty())
+    {
+        AppData = FPaths::Combine(GetLoomleHomeDirectory(), TEXT("AppData"), TEXT("Roaming"));
+    }
+    return FPaths::Combine(AppData, TEXT("Claude"), TEXT("claude_desktop_config.json"));
+#else
+    return FPaths::Combine(GetLoomleHomeDirectory(), TEXT(".config"), TEXT("Claude"), TEXT("claude_desktop_config.json"));
+#endif
+}
+
+bool ConfigLooksLikeLoomleAny(const FString& RawConfig)
+{
+    FString Lower = RawConfig.ToLower();
+    return Lower.Contains(TEXT("[mcp_servers.loomle]"))
+        || Lower.Contains(TEXT("[mcp.servers.loomle]"))
+        || (Lower.Contains(TEXT("mcpservers")) && Lower.Contains(TEXT("\"loomle\"")));
+}
+
+bool ConfigLooksLikeLoomleNative(const FString& RawConfig)
+{
+    FString Lower = RawConfig.ToLower();
+    return ConfigLooksLikeLoomleAny(RawConfig)
+        && (Lower.Contains(TEXT(".loomle/bin/loomle"))
+            || Lower.Contains(TEXT("\\.loomle\\bin\\loomle"))
+            || Lower.Contains(TEXT("loomle mcp")));
+}
+
+bool ConfigLooksLikeLoomleFab(const FString& RawConfig)
+{
+    FString Lower = RawConfig.ToLower();
+    return ConfigLooksLikeLoomleAny(RawConfig)
+        && (Lower.Contains(TEXT("loomle_mcp_server.py")) || Lower.Contains(TEXT("resources/mcp")));
+}
+
+bool IsNativeLoomleConfigured()
+{
+    FString RawCodex;
+    if (FFileHelper::LoadFileToString(RawCodex, *GetCodexConfigPath()) && ConfigLooksLikeLoomleNative(RawCodex))
+    {
+        return true;
+    }
+
+    FString RawClaude;
+    if (FFileHelper::LoadFileToString(RawClaude, *GetClaudeDesktopConfigPath()) && ConfigLooksLikeLoomleNative(RawClaude))
+    {
+        return true;
+    }
+
+    return false;
+}
+
+enum class ELoomleMcpEntryOwner
+{
+    None,
+    Native,
+    Fab,
+    Manual
+};
+
+ELoomleMcpEntryOwner ClassifyLoomleMcpEntryOwner(const FString& RawConfig)
+{
+    if (!ConfigLooksLikeLoomleAny(RawConfig))
+    {
+        return ELoomleMcpEntryOwner::None;
+    }
+    if (ConfigLooksLikeLoomleNative(RawConfig))
+    {
+        return ELoomleMcpEntryOwner::Native;
+    }
+    if (ConfigLooksLikeLoomleFab(RawConfig))
+    {
+        return ELoomleMcpEntryOwner::Fab;
+    }
+    return ELoomleMcpEntryOwner::Manual;
+}
+
+FString LoomleMcpEntryOwnerToString(const ELoomleMcpEntryOwner Owner)
+{
+    switch (Owner)
+    {
+    case ELoomleMcpEntryOwner::Native:
+        return TEXT("native");
+    case ELoomleMcpEntryOwner::Fab:
+        return TEXT("fab");
+    case ELoomleMcpEntryOwner::Manual:
+        return TEXT("manual");
+    case ELoomleMcpEntryOwner::None:
+    default:
+        return TEXT("none");
+    }
+}
+
+struct FLoomleHostSetupResult
+{
+    FString Host;
+    FString ConfigPath;
+    FString Status;
+    FString Message;
+    FString BackupPath;
+    ELoomleMcpEntryOwner ExistingOwner = ELoomleMcpEntryOwner::None;
+    bool bDetected = false;
+    bool bChanged = false;
+    bool bError = false;
+};
+
+FString GetNativeLoomleCliPath()
+{
+    return FPaths::Combine(GetLoomleHomeDirectory(), TEXT(".loomle"), TEXT("bin"), TEXT("loomle"));
+}
+
+FString GetSetupPanelMcpServerOwner()
+{
+    return HasFabPythonMcpServer() ? TEXT("Fab Python MCP") : TEXT("native loomle MCP");
+}
+
+bool HasSetupPanelMcpServerPayload()
+{
+    return HasFabPythonMcpServer() || FPaths::FileExists(GetNativeLoomleCliPath());
+}
+
+bool MakeBackupIfNeeded(const FString& ConfigPath, FString& OutBackupPath, FString& OutError)
+{
+    OutBackupPath.Reset();
+    if (!FPaths::FileExists(ConfigPath))
+    {
+        return true;
+    }
+    OutBackupPath = FString::Printf(TEXT("%s.loomle-backup-%lld"), *ConfigPath, static_cast<long long>(FDateTime::UtcNow().ToUnixTimestamp()));
+    if (IFileManager::Get().Copy(*OutBackupPath, *ConfigPath, true, true) != COPY_OK)
+    {
+        OutError = FString::Printf(TEXT("Failed to back up %s"), *ConfigPath);
+        return false;
+    }
+    return true;
+}
+
+FString TomlQuotedString(const FString& Value)
+{
+    FString Escaped = Value.Replace(TEXT("\\"), TEXT("\\\\")).Replace(TEXT("\""), TEXT("\\\""));
+    return FString::Printf(TEXT("\"%s\""), *Escaped);
+}
+
+bool BuildRecommendedMcpConfig(TSharedPtr<FJsonObject>& OutJsonConfig, FString& OutCodexToml, FString& OutError)
+{
+    FString Command;
+    TArray<FString> Args;
+    if (HasFabPythonMcpServer())
+    {
+        const FString McpDir = FPaths::GetPath(GetFabPythonMcpServerPath());
+        Command = TEXT("uv");
+        Args = { TEXT("--directory"), McpDir, TEXT("run"), TEXT("loomle_mcp_server.py") };
+    }
+    else
+    {
+        Command = GetNativeLoomleCliPath();
+        if (!FPaths::FileExists(Command))
+        {
+            OutError = TEXT("Native loomle CLI was not found and Fab Python MCP is unavailable.");
+            return false;
+        }
+        Args = { TEXT("mcp") };
+    }
+
+    OutJsonConfig = MakeShared<FJsonObject>();
+    OutJsonConfig->SetStringField(TEXT("command"), Command);
+    TArray<TSharedPtr<FJsonValue>> JsonArgs;
+    TArray<FString> TomlArgs;
+    for (const FString& Arg : Args)
+    {
+        JsonArgs.Add(MakeShared<FJsonValueString>(Arg));
+        TomlArgs.Add(TomlQuotedString(Arg));
+    }
+    OutJsonConfig->SetArrayField(TEXT("args"), JsonArgs);
+
+    OutCodexToml = TEXT("\n[mcp_servers.loomle]\n");
+    OutCodexToml += FString::Printf(TEXT("command = %s\n"), *TomlQuotedString(Command));
+    OutCodexToml += FString::Printf(TEXT("args = [%s]\n"), *FString::Join(TomlArgs, TEXT(", ")));
+    return true;
+}
+
+FLoomleHostSetupResult AutoConfigureCodexIfSafe()
+{
+    FLoomleHostSetupResult Result;
+    Result.Host = TEXT("Codex");
+    Result.ConfigPath = GetCodexConfigPath();
+
+    const FString ConfigDir = FPaths::GetPath(Result.ConfigPath);
+    Result.bDetected = FPaths::DirectoryExists(ConfigDir) || FPaths::FileExists(Result.ConfigPath);
+    if (!Result.bDetected)
+    {
+        Result.Status = TEXT("notDetected");
+        Result.Message = TEXT("Codex was not detected.");
+        return Result;
+    }
+
+    FString RawConfig;
+    FFileHelper::LoadFileToString(RawConfig, *Result.ConfigPath);
+    Result.ExistingOwner = ClassifyLoomleMcpEntryOwner(RawConfig);
+    if (Result.ExistingOwner != ELoomleMcpEntryOwner::None)
+    {
+        Result.Status = TEXT("keptExisting");
+        Result.Message = FString::Printf(TEXT("Codex already has a Loomle MCP entry (%s). Keeping it unchanged."), *LoomleMcpEntryOwnerToString(Result.ExistingOwner));
+        return Result;
+    }
+
+    TSharedPtr<FJsonObject> JsonConfig;
+    FString CodexToml;
+    FString Error;
+    if (!BuildRecommendedMcpConfig(JsonConfig, CodexToml, Error))
+    {
+        Result.Status = TEXT("blocked");
+        Result.Message = Error;
+        Result.bError = true;
+        return Result;
+    }
+
+    if (!MakeBackupIfNeeded(Result.ConfigPath, Result.BackupPath, Error))
+    {
+        Result.Status = TEXT("blocked");
+        Result.Message = Error;
+        Result.bError = true;
+        return Result;
+    }
+
+    FString Output = RawConfig;
+    if (!Output.IsEmpty() && !Output.EndsWith(TEXT("\n")))
+    {
+        Output += TEXT("\n");
+    }
+    Output += CodexToml;
+    if (!FFileHelper::SaveStringToFile(Output, *Result.ConfigPath))
+    {
+        Result.Status = TEXT("blocked");
+        Result.Message = FString::Printf(TEXT("Failed to write Codex config: %s"), *Result.ConfigPath);
+        Result.bError = true;
+        return Result;
+    }
+
+    Result.Status = TEXT("configured");
+    Result.Message = FString::Printf(TEXT("Codex was configured automatically using %s."), *GetSetupPanelMcpServerOwner());
+    Result.bChanged = true;
+    return Result;
+}
+
+FLoomleHostSetupResult AutoConfigureClaudeIfSafe()
+{
+    FLoomleHostSetupResult Result;
+    Result.Host = TEXT("Claude");
+    Result.ConfigPath = GetClaudeDesktopConfigPath();
+
+    const FString ConfigDir = FPaths::GetPath(Result.ConfigPath);
+    Result.bDetected = FPaths::DirectoryExists(ConfigDir) || FPaths::FileExists(Result.ConfigPath);
+    if (!Result.bDetected)
+    {
+        Result.Status = TEXT("notDetected");
+        Result.Message = TEXT("Claude was not detected.");
+        return Result;
+    }
+
+    FString RawConfig;
+    FFileHelper::LoadFileToString(RawConfig, *Result.ConfigPath);
+    Result.ExistingOwner = ClassifyLoomleMcpEntryOwner(RawConfig);
+    if (Result.ExistingOwner != ELoomleMcpEntryOwner::None)
+    {
+        Result.Status = TEXT("keptExisting");
+        Result.Message = FString::Printf(TEXT("Claude already has a Loomle MCP entry (%s). Keeping it unchanged."), *LoomleMcpEntryOwnerToString(Result.ExistingOwner));
+        return Result;
+    }
+
+    TSharedPtr<FJsonObject> LoomleConfig;
+    FString CodexToml;
+    FString Error;
+    if (!BuildRecommendedMcpConfig(LoomleConfig, CodexToml, Error))
+    {
+        Result.Status = TEXT("blocked");
+        Result.Message = Error;
+        Result.bError = true;
+        return Result;
+    }
+
+    TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+    if (!RawConfig.TrimStartAndEnd().IsEmpty())
+    {
+        const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(RawConfig);
+        if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+        {
+            Result.Status = TEXT("blocked");
+            Result.Message = FString::Printf(TEXT("Claude config exists but is not valid JSON: %s"), *Result.ConfigPath);
+            Result.bError = true;
+            return Result;
+        }
+    }
+
+    const TSharedPtr<FJsonObject>* ExistingMcpServers = nullptr;
+    TSharedPtr<FJsonObject> McpServers;
+    if (Root->TryGetObjectField(TEXT("mcpServers"), ExistingMcpServers) && ExistingMcpServers != nullptr && (*ExistingMcpServers).IsValid())
+    {
+        McpServers = *ExistingMcpServers;
+    }
+    else if (Root->HasField(TEXT("mcpServers")))
+    {
+        Result.Status = TEXT("blocked");
+        Result.Message = TEXT("Claude config mcpServers exists but is not an object.");
+        Result.bError = true;
+        return Result;
+    }
+    else
+    {
+        McpServers = MakeShared<FJsonObject>();
+        Root->SetObjectField(TEXT("mcpServers"), McpServers);
+    }
+    McpServers->SetObjectField(TEXT("loomle"), LoomleConfig);
+
+    if (!MakeBackupIfNeeded(Result.ConfigPath, Result.BackupPath, Error))
+    {
+        Result.Status = TEXT("blocked");
+        Result.Message = Error;
+        Result.bError = true;
+        return Result;
+    }
+
+    FString Output;
+    const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Output);
+    FJsonSerializer::Serialize(Root.ToSharedRef(), Writer);
+    if (!FFileHelper::SaveStringToFile(Output + TEXT("\n"), *Result.ConfigPath))
+    {
+        Result.Status = TEXT("blocked");
+        Result.Message = FString::Printf(TEXT("Failed to write Claude config: %s"), *Result.ConfigPath);
+        Result.bError = true;
+        return Result;
+    }
+
+    Result.Status = TEXT("configured");
+    Result.Message = FString::Printf(TEXT("Claude was configured automatically using %s."), *GetSetupPanelMcpServerOwner());
+    Result.bChanged = true;
+    return Result;
+}
+
+struct FSetupAutoConfigureSummary
+{
+    TArray<FLoomleHostSetupResult> Hosts;
+    bool bAnyDetected = false;
+    bool bAnyConfigured = false;
+    bool bAnyExisting = false;
+    bool bAnyBlocked = false;
+};
+
+FSetupAutoConfigureSummary AutoConfigureDetectedHostsIfSafe()
+{
+    FSetupAutoConfigureSummary Summary;
+    Summary.Hosts.Add(AutoConfigureCodexIfSafe());
+    Summary.Hosts.Add(AutoConfigureClaudeIfSafe());
+    for (const FLoomleHostSetupResult& Host : Summary.Hosts)
+    {
+        Summary.bAnyDetected = Summary.bAnyDetected || Host.bDetected;
+        Summary.bAnyConfigured = Summary.bAnyConfigured || Host.bChanged;
+        Summary.bAnyExisting = Summary.bAnyExisting || Host.ExistingOwner != ELoomleMcpEntryOwner::None;
+        Summary.bAnyBlocked = Summary.bAnyBlocked || Host.bError;
+    }
+    return Summary;
 }
 
 FString GetLoomlePlatformName()
@@ -3899,33 +4349,255 @@ void FLoomleBridgeModule::RegisterToolbarMenus()
     {
         InSection.AddEntry(FToolMenuEntry::InitWidget(
             TEXT("LoomleBridgeStatusWidget"),
-            SNew(SBox)
-            .VAlign(VAlign_Center)
+            SNew(SComboButton)
+            .HasDownArrow(false)
+            .ButtonStyle(FAppStyle::Get(), TEXT("SimpleButton"))
+            .MenuPlacement(MenuPlacement_BelowAnchor)
+            .OnGetMenuContent_Raw(this, &FLoomleBridgeModule::CreateSetupStatusPanel)
+            .ButtonContent()
             [
-                SNew(SBorder)
-                .Padding(FMargin(8.0f, 3.0f))
-                .BorderImage(FAppStyle::GetBrush(TEXT("WhiteBrush")))
-                .BorderBackgroundColor_Lambda([this]()
-                {
-                    return GetToolbarStatusColor();
-                })
-                .ToolTipText_Lambda([this]()
-                {
-                    return GetToolbarStatusTooltip();
-                })
-                [
-                    SNew(STextBlock)
-                    .Text_Lambda([this]()
-                    {
-                        return GetToolbarStatusLabel();
-                    })
-                    .ColorAndOpacity(FLinearColor::White)
-                    .Font(FAppStyle::GetFontStyle(TEXT("SmallFont")))
-                ]
+                CreateToolbarStatusBadge()
             ],
             FText::GetEmpty(),
             true));
     }));
+}
+
+TSharedRef<SWidget> FLoomleBridgeModule::CreateToolbarStatusBadge()
+{
+    return SNew(SBox)
+        .VAlign(VAlign_Center)
+        [
+            SNew(SBorder)
+            .Padding(FMargin(8.0f, 3.0f))
+            .BorderImage(FAppStyle::GetBrush(TEXT("WhiteBrush")))
+            .BorderBackgroundColor_Lambda([this]()
+            {
+                return GetToolbarStatusColor();
+            })
+            .ToolTipText_Lambda([this]()
+            {
+                return GetToolbarStatusTooltip();
+            })
+            [
+                SNew(STextBlock)
+                .Text_Lambda([this]()
+                {
+                    return GetToolbarStatusLabel();
+                })
+                .ColorAndOpacity(FLinearColor::White)
+                .Font(FAppStyle::GetFontStyle(TEXT("SmallFont")))
+            ]
+        ];
+}
+
+TSharedRef<SWidget> FLoomleBridgeModule::CreateSetupStatusPanel()
+{
+    const FString PluginBaseDir = GetLoomleBridgePluginBaseDir();
+    const FString ProjectRoot = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
+    const FString InstallScope = GetLoomleBridgePluginInstallScope(ProjectRoot, PluginBaseDir);
+    const FString ManagedBy = GetLoomleBridgePluginManagedBy(ProjectRoot, PluginBaseDir);
+    const bool bFabPythonAvailable = HasFabPythonMcpServer();
+    const bool bReady = bBridgeRunningSnapshot.Load() && bPythonReadySnapshot.Load();
+    const int32 ActiveConnectionCount = PipeServer.IsValid() ? PipeServer->GetActiveConnectionCount() : 0;
+    const bool bClientConnected = ActiveConnectionCount > 0;
+    const FString BridgeStatus = GetToolbarStatusKey().ToLower();
+    FString ClientStatus;
+    FString ClientDetail;
+    bool bClientRecent = false;
+    const bool bHasAnyClientActivity = GetClientActivitySummary(ClientStatus, ClientDetail, bClientRecent);
+    if (bClientConnected)
+    {
+        ClientStatus = FString::Printf(TEXT("connected (%d)"), ActiveConnectionCount);
+    }
+    else if (bHasAnyClientActivity)
+    {
+        ClientStatus = TEXT("not connected");
+    }
+    const FString LastActivityText = bHasAnyClientActivity ? ClientDetail : TEXT("none since editor start");
+    const FSetupAutoConfigureSummary SetupSummary = bReady ? AutoConfigureDetectedHostsIfSafe() : FSetupAutoConfigureSummary();
+
+    TArray<FString> ConfiguredHosts;
+    TArray<FString> ExistingHosts;
+    TArray<FString> BlockedMessages;
+    for (const FLoomleHostSetupResult& Host : SetupSummary.Hosts)
+    {
+        if (Host.bChanged)
+        {
+            ConfiguredHosts.Add(Host.Host);
+        }
+        else if (Host.ExistingOwner != ELoomleMcpEntryOwner::None)
+        {
+            ExistingHosts.Add(Host.Host);
+        }
+        else if (Host.bError)
+        {
+            BlockedMessages.AddUnique(Host.Message);
+        }
+    }
+
+    FString PanelTitle = TEXT("Loomle ") + GetToolbarStatusKey();
+    FString MainText = GetSetupPanelNextActionText().ToString();
+    const bool bShowSetupPrompt = bReady && !SetupSummary.bAnyDetected;
+    if (bReady)
+    {
+        if (bClientConnected)
+        {
+            MainText = TEXT("Bridge is ready.\n\nAI client connected to this Unreal project.");
+        }
+        else if (!ConfiguredHosts.IsEmpty())
+        {
+            MainText = FString::Printf(
+                TEXT("Bridge is ready.\n\n%s %s configured. Restart or refresh your AI tool."),
+                *FString::Join(ConfiguredHosts, TEXT(" and ")),
+                ConfiguredHosts.Num() == 1 ? TEXT("was") : TEXT("were"));
+        }
+        else if (!ExistingHosts.IsEmpty())
+        {
+            MainText = TEXT("Bridge is ready.\n\nMCP setup found. No AI client is connected right now.");
+        }
+        else if (SetupSummary.bAnyDetected && SetupSummary.bAnyBlocked)
+        {
+            if (!HasSetupPanelMcpServerPayload())
+            {
+                MainText = TEXT("Bridge is ready.\n\nMCP setup found, but no MCP server payload is available.");
+            }
+            else
+            {
+                MainText = BlockedMessages.IsEmpty()
+                ? TEXT("Bridge is ready.\n\nMCP config found. Loomle did not change it automatically.")
+                : FString::Printf(TEXT("Bridge is ready.\n\n%s"), *FString::Join(BlockedMessages, TEXT("\n")));
+            }
+        }
+        else
+        {
+            MainText = TEXT("Bridge is ready.\n\nNo MCP setup was found. Copy the setup prompt into your AI tool to get started.");
+        }
+    }
+
+    const FString AdvancedText = FString::Printf(
+        TEXT("Bridge: %s\nProject: %s\nEndpoint: %s\n\nMCP setup: %s\nMCP connection: %s\nLast activity: %s\n\nPlugin: %s\nVersion: %s\nScope: %s\nManaged by: %s\nPython MCP: %s\n\nCodex config: %s\nClaude config: %s"),
+        *BridgeStatus,
+        FApp::GetProjectName(),
+        *GetRuntimeEndpointDisplayString(),
+        SetupSummary.bAnyDetected ? TEXT("found") : TEXT("not found"),
+        *ClientStatus,
+        *LastActivityText,
+        *PluginBaseDir,
+        *GetLoomleBridgePluginVersion(),
+        *InstallScope,
+        *ManagedBy,
+        bFabPythonAvailable ? TEXT("available") : TEXT("missing"),
+        *GetCodexConfigPath(),
+        *GetClaudeDesktopConfigPath());
+
+    return SNew(SBox)
+        .WidthOverride(460.0f)
+        [
+            SNew(SBorder)
+            .Padding(12.0f)
+            .BorderImage(FAppStyle::GetBrush(TEXT("ToolPanel.GroupBorder")))
+            [
+                SNew(SVerticalBox)
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                [
+                    SNew(STextBlock)
+                    .Text(FText::FromString(PanelTitle))
+                    .Font(FAppStyle::GetFontStyle(TEXT("HeadingExtraSmall")))
+                ]
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 8.0f, 0.0f, 0.0f)
+                [
+                    SNew(STextBlock)
+                    .Text(FText::FromString(MainText))
+                    .AutoWrapText(true)
+                ]
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 12.0f, 0.0f, 0.0f)
+                [
+                    SNew(SButton)
+                    .Visibility(bShowSetupPrompt ? EVisibility::Visible : EVisibility::Collapsed)
+                    .Text(FText::FromString(TEXT("Copy Setup Prompt")))
+                    .OnClicked_Lambda([this]()
+                    {
+                        return CopySetupPrompt();
+                    })
+                ]
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 12.0f, 0.0f, 0.0f)
+                [
+                    SNew(SExpandableArea)
+                    .InitiallyCollapsed(true)
+                    .HeaderContent()
+                    [
+                        SNew(STextBlock)
+                        .Text(FText::FromString(TEXT("Advanced details")))
+                        .Font(FAppStyle::GetFontStyle(TEXT("SmallFont")))
+                    ]
+                    .BodyContent()
+                    [
+                        SNew(STextBlock)
+                        .Text(FText::FromString(AdvancedText))
+                        .AutoWrapText(true)
+                        .Font(FAppStyle::GetFontStyle(TEXT("SmallFont")))
+                    ]
+                ]
+            ]
+        ];
+}
+
+void FLoomleBridgeModule::RecordClientActivity(const FString& Method, const FString& ToolName)
+{
+    FScopeLock Lock(&ClientActivityMutex);
+    bHasClientActivity = true;
+    LastClientActivityAt = FDateTime::UtcNow();
+    LastClientMethod = Method;
+    LastClientTool = ToolName;
+    ++ClientActivityCount;
+}
+
+bool FLoomleBridgeModule::GetClientActivitySummary(FString& OutStatus, FString& OutDetail, bool& bOutRecent) const
+{
+    FScopeLock Lock(&ClientActivityMutex);
+    if (!bHasClientActivity)
+    {
+        OutStatus = TEXT("no activity yet");
+        OutDetail = TEXT("none since editor start");
+        bOutRecent = false;
+        return false;
+    }
+
+    const FTimespan Age = FDateTime::UtcNow() - LastClientActivityAt;
+    const double AgeSeconds = Age.GetTotalSeconds();
+    bOutRecent = AgeSeconds <= 120.0;
+    OutStatus = bOutRecent ? TEXT("active") : TEXT("idle");
+
+    FString AgeText;
+    if (AgeSeconds < 1.0)
+    {
+        AgeText = TEXT("just now");
+    }
+    else if (AgeSeconds < 60.0)
+    {
+        AgeText = FString::Printf(TEXT("%d seconds ago"), FMath::Max(1, FMath::FloorToInt(AgeSeconds)));
+    }
+    else
+    {
+        AgeText = FString::Printf(TEXT("%d minutes ago"), FMath::Max(1, FMath::FloorToInt(AgeSeconds / 60.0)));
+    }
+
+    FString LastCall = LastClientMethod;
+    if (!LastClientTool.IsEmpty())
+    {
+        LastCall += TEXT(" / ");
+        LastCall += LastClientTool;
+    }
+    OutDetail = FString::Printf(TEXT("%s, %s. Calls since editor start: %llu"), *LastCall, *AgeText, static_cast<unsigned long long>(ClientActivityCount));
+    return true;
 }
 
 FText FLoomleBridgeModule::GetToolbarStatusLabel() const
@@ -3937,15 +4609,12 @@ FText FLoomleBridgeModule::GetToolbarStatusTooltip() const
 {
     const bool bBridgeRunning = bBridgeRunningSnapshot.Load();
     const bool bPythonReady = bPythonReadySnapshot.Load();
-    const bool bIsPIE = bIsPIESnapshot.Load();
 
     return FText::FromString(FString::Printf(
-        TEXT("Loomle Bridge Status\nState: %s\nBridge: %s\nPython: %s\nPIE: %s\nEndpoint: %s"),
+        TEXT("Loomle %s\nBridge %s. Python %s.\nClick for MCP status."),
         *GetToolbarStatusKey(),
         bBridgeRunning ? TEXT("running") : TEXT("stopped"),
-        bPythonReady ? TEXT("ready") : TEXT("not ready"),
-        bIsPIE ? TEXT("active") : TEXT("inactive"),
-        *GetRuntimeEndpointDisplayString()));
+        bPythonReady ? TEXT("ready") : TEXT("not ready")));
 }
 
 FSlateColor FLoomleBridgeModule::GetToolbarStatusColor() const
@@ -4004,6 +4673,42 @@ FString FLoomleBridgeModule::GetRuntimeEndpointDisplayString() const
 #endif
 }
 
+FText FLoomleBridgeModule::GetSetupPanelNextActionText() const
+{
+    if (!bBridgeRunningSnapshot.Load())
+    {
+        return FText::FromString(TEXT("Bridge is offline. Make sure the LoomleBridge plugin is enabled and restart the editor if needed."));
+    }
+    if (!bPythonReadySnapshot.Load())
+    {
+        return FText::FromString(TEXT("Bridge is starting. Wait for Unreal Python to finish initializing, then refresh your MCP host."));
+    }
+    if (IsNativeLoomleConfigured())
+    {
+        return FText::FromString(TEXT("Loomle is ready. Your existing Loomle MCP setup can connect to this Unreal project."));
+    }
+    if (HasFabPythonMcpServer())
+    {
+        return FText::FromString(TEXT("Loomle is ready. I will configure detected AI tools automatically."));
+    }
+    if (!FPaths::FileExists(GetNativeLoomleCliPath()))
+    {
+        return FText::FromString(TEXT("Loomle Bridge is ready, but no MCP server payload is available for automatic setup."));
+    }
+    return FText::FromString(TEXT("Loomle is ready. Install native LOOMLE or use a Fab package with bundled Python MCP to connect an AI tool."));
+}
+
+FString FLoomleBridgeModule::GetSetupPanelSetupPrompt() const
+{
+    return TEXT("Set up Loomle MCP for this machine if needed, then use Loomle to attach to my open Unreal project and read the current project context before making changes. If setup is not complete, follow https://loomle.ai/install.html and configure an MCP server named \"loomle\".");
+}
+
+FReply FLoomleBridgeModule::CopySetupPrompt()
+{
+    FPlatformApplicationMisc::ClipboardCopy(*GetSetupPanelSetupPrompt());
+    return FReply::Handled();
+}
+
 void FLoomleBridgeModule::WriteProjectRegistration(const FString& ProjectRoot, const FString& ProjectId)
 {
     const FString LoomleRoot = FPaths::Combine(GetLoomleHomeDirectory(), TEXT(".loomle"));
@@ -4038,7 +4743,10 @@ void FLoomleBridgeModule::WriteProjectRegistration(const FString& ProjectRoot, c
     Record->SetStringField(TEXT("name"), FApp::GetProjectName());
     Record->SetStringField(TEXT("projectRoot"), ProjectRoot);
     Record->SetStringField(TEXT("uproject"), FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath()));
-    Record->SetStringField(TEXT("pluginPath"), FPaths::Combine(ProjectRoot, TEXT("Plugins"), TEXT("LoomleBridge")));
+    const FString PluginBaseDir = GetLoomleBridgePluginBaseDir();
+    Record->SetStringField(TEXT("pluginPath"), PluginBaseDir);
+    Record->SetStringField(TEXT("pluginInstallScope"), GetLoomleBridgePluginInstallScope(ProjectRoot, PluginBaseDir));
+    Record->SetStringField(TEXT("pluginManagedBy"), GetLoomleBridgePluginManagedBy(ProjectRoot, PluginBaseDir));
     Record->SetStringField(TEXT("pluginVersion"), GetLoomleBridgePluginVersion());
     Record->SetStringField(TEXT("platform"), GetLoomlePlatformName());
     Record->SetStringField(TEXT("registeredAt"), RegisteredAt);
@@ -4099,6 +4807,10 @@ void FLoomleBridgeModule::WriteRuntimeRegistration()
     Record->SetStringField(TEXT("endpoint"), Endpoint);
     Record->SetStringField(TEXT("platform"), GetLoomlePlatformName());
     Record->SetNumberField(TEXT("pid"), static_cast<double>(FPlatformProcess::GetCurrentProcessId()));
+    const FString PluginBaseDir = GetLoomleBridgePluginBaseDir();
+    Record->SetStringField(TEXT("pluginPath"), PluginBaseDir);
+    Record->SetStringField(TEXT("pluginInstallScope"), GetLoomleBridgePluginInstallScope(ProjectRoot, PluginBaseDir));
+    Record->SetStringField(TEXT("pluginManagedBy"), GetLoomleBridgePluginManagedBy(ProjectRoot, PluginBaseDir));
     Record->SetStringField(TEXT("pluginVersion"), GetLoomleBridgePluginVersion());
     Record->SetNumberField(TEXT("protocolVersion"), LoomleBridgeConstants::ProtocolVersion);
     const FString Now = FDateTime::UtcNow().ToIso8601();

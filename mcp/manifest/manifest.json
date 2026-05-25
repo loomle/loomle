@@ -47,6 +47,62 @@
       }
     },
     {
+      "name": "setup.status",
+      "title": "Setup Status",
+      "description": "Return read-only LOOMLE setup status for Fab/native ownership, MCP host configuration, and the recommended next action.",
+      "availability": [
+        "native",
+        "python"
+      ],
+      "requiresBridge": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "dispatch": {
+        "kind": "local"
+      }
+    },
+    {
+      "name": "setup.configure",
+      "title": "Configure MCP Host",
+      "description": "Explicitly configure one MCP host to use LOOMLE after setup.status reports it is safe.",
+      "availability": [
+        "native",
+        "python"
+      ],
+      "requiresBridge": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "string",
+            "enum": [
+              "codex",
+              "claude"
+            ]
+          },
+          "server": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "fabPython",
+              "native"
+            ],
+            "default": "auto"
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "additionalProperties": false
+      },
+      "dispatch": {
+        "kind": "local"
+      }
+    },
+    {
       "name": "project.list",
       "title": "List Projects",
       "description": "List Unreal Engine projects known to LOOMLE. Defaults to online projects.",

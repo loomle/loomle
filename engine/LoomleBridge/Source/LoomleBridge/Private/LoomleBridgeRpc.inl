@@ -24,6 +24,12 @@ FString FLoomleBridgeModule::HandleRequest(int32 ConnectionSerial, const FString
     const TSharedPtr<FJsonObject>* ParamsPtr = nullptr;
     RequestObject->TryGetObjectField(TEXT("params"), ParamsPtr);
     const TSharedPtr<FJsonObject> Params = ParamsPtr ? *ParamsPtr : MakeShared<FJsonObject>();
+    FString ActivityToolName;
+    if (Method.Equals(TEXT("rpc.invoke")))
+    {
+        Params->TryGetStringField(TEXT("tool"), ActivityToolName);
+    }
+    RecordClientActivity(Method, ActivityToolName);
 
     if (Method.Equals(TEXT("ping")))
     {
