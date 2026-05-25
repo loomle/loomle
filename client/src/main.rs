@@ -8117,9 +8117,11 @@ fn project_record_to_project(
     let endpoint = runtime_endpoint.unwrap_or_else(|| {
         Environment::for_project_root(project_root.clone()).runtime_endpoint_path
     });
-    let endpoint_exists = runtime.as_ref().is_some_and(|_| endpoint.exists());
-    let status = if endpoint_exists { "online" } else { "offline" }.to_string();
-    let reason = if endpoint_exists {
+    let endpoint_available = runtime
+        .as_ref()
+        .is_some_and(|_| runtime_endpoint_available(&endpoint));
+    let status = if endpoint_available { "online" } else { "offline" }.to_string();
+    let reason = if endpoint_available {
         None
     } else {
         Some("LOOMLE runtime endpoint is not available".to_string())
@@ -8148,7 +8150,7 @@ fn project_record_to_project(
             .or(record.uproject),
         endpoint,
         status,
-        attachable: endpoint_exists,
+        attachable: endpoint_available,
         plugin_installed: runtime
             .as_ref()
             .and_then(|runtime| runtime.plugin_path.clone())
@@ -8188,9 +8190,9 @@ fn runtime_record_to_project(record: RuntimeRecord) -> RuntimeProject {
     let endpoint = record.endpoint.unwrap_or_else(|| {
         Environment::for_project_root(project_root.clone()).runtime_endpoint_path
     });
-    let endpoint_exists = endpoint.exists();
-    let status = if endpoint_exists { "online" } else { "offline" }.to_string();
-    let reason = if endpoint_exists {
+    let endpoint_available = runtime_endpoint_available(&endpoint);
+    let status = if endpoint_available { "online" } else { "offline" }.to_string();
+    let reason = if endpoint_available {
         None
     } else {
         Some("LOOMLE runtime endpoint is not available".to_string())
@@ -8209,7 +8211,7 @@ fn runtime_record_to_project(record: RuntimeRecord) -> RuntimeProject {
         uproject: record.uproject,
         endpoint,
         status,
-        attachable: endpoint_exists,
+        attachable: endpoint_available,
         plugin_installed: record
             .plugin_path
             .as_ref()
@@ -8228,7 +8230,7 @@ fn runtime_record_to_project(record: RuntimeRecord) -> RuntimeProject {
 fn project_root_online_project(project_root_raw: &str) -> Option<RuntimeProject> {
     let project_root = validate_project_root(Path::new(project_root_raw)).ok()?;
     let endpoint = Environment::for_project_root(project_root.clone()).runtime_endpoint_path;
-    if !endpoint.exists() {
+    if !runtime_endpoint_available(&endpoint) {
         return None;
     }
     Some(RuntimeProject {
@@ -8270,10 +8272,25 @@ fn project_to_json(project: RuntimeProject, include_diagnostics: bool) -> serde_
     if include_diagnostics {
         value["diagnostics"] = serde_json::json!({
             "endpoint": project.endpoint.display().to_string(),
-            "endpointExists": project.endpoint.exists(),
+            "endpointExists": runtime_endpoint_available(&project.endpoint),
         });
     }
     value
+}
+
+fn runtime_endpoint_available(endpoint: &Path) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        match OpenOptions::new().read(true).write(true).open(endpoint) {
+            Ok(_) => true,
+            Err(error) => error.raw_os_error() == Some(231),
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        endpoint.exists()
+    }
 }
 
 fn build_setup_status(project: Option<&RuntimeProject>) -> serde_json::Value {
