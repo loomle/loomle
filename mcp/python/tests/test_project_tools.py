@@ -62,6 +62,8 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
             env["PYTHONPATH"] = str(REPO_ROOT / "mcp" / "python")
             env["LOOMLE_HOME"] = str(loomle_home)
             env["HOME"] = str(Path(tmp) / "home")
+            env["USERPROFILE"] = str(Path(tmp) / "home")
+            env["APPDATA"] = str(Path(tmp) / "home" / "AppData" / "Roaming")
             params = StdioServerParameters(
                 command=sys.executable,
                 args=[str(REPO_ROOT / "mcp" / "python" / "loomle_mcp_server.py")],
