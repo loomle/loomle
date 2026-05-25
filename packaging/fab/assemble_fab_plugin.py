@@ -74,16 +74,30 @@ def ensure_filter_plugin(plugin_root: Path) -> None:
         filter_path.write_text(text, encoding="utf-8")
 
 
+def ensure_fab_structure(plugin_root: Path) -> None:
+    # Fab code plugin submissions expect a Content directory even when the
+    # plugin does not ship game assets.
+    (plugin_root / "Content").mkdir(parents=True, exist_ok=True)
+
+
 def validate_fab_plugin(plugin_root: Path) -> None:
+    required_dirs = [
+        plugin_root / "Config",
+        plugin_root / "Content",
+        plugin_root / "Source",
+        plugin_root / "Resources" / "MCP",
+    ]
     required_files = [
         plugin_root / "LoomleBridge.uplugin",
+        plugin_root / "README.md",
         plugin_root / "Source" / "LoomleBridge" / "LoomleBridge.Build.cs",
         plugin_root / "Resources" / "MCP" / "pyproject.toml",
         plugin_root / "Resources" / "MCP" / "loomle_mcp_server.py",
         plugin_root / "Resources" / "MCP" / "loomle_mcp" / "server.py",
         plugin_root / "Resources" / "MCP" / "tool-manifest" / "manifest.json",
     ]
-    missing = [str(path) for path in required_files if not path.is_file()]
+    missing = [str(path) for path in required_dirs if not path.is_dir()]
+    missing.extend(str(path) for path in required_files if not path.is_file())
     if missing:
         fail("Fab plugin staging is missing required files:\n" + "\n".join(missing))
 
@@ -109,14 +123,17 @@ def main() -> int:
     engine_plugin = repo_root / "engine" / "LoomleBridge"
     python_mcp = repo_root / "mcp" / "python"
     tool_manifest = repo_root / "mcp" / "manifest"
+    fab_readme = repo_root / "packaging" / "fab" / "FAB_PLUGIN_README.md"
 
     reset_dir(output_dir)
     copy_tree(engine_plugin, plugin_root, IGNORE_NAMES)
+    copy_file(fab_readme, plugin_root / "README.md")
 
     resources_mcp = plugin_root / "Resources" / "MCP"
     copy_tree(python_mcp, resources_mcp, IGNORE_NAMES)
     copy_tree(tool_manifest, resources_mcp / "tool-manifest", IGNORE_NAMES)
     copy_file(tool_manifest / "manifest.json", resources_mcp / "tool-manifest" / "manifest.json")
+    ensure_fab_structure(plugin_root)
     ensure_filter_plugin(plugin_root)
     validate_fab_plugin(plugin_root)
 

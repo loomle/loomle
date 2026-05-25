@@ -6,6 +6,9 @@
   "Description": "Local bridge for UE5 Editor via platform-native local RPC transport.",
   "Category": "Editor",
   "CreatedBy": "Loomle",
+  "CreatedByURL": "https://loomle.ai/",
+  "DocsURL": "https://loomle.ai/quickstart.html",
+  "SupportURL": "https://github.com/loomle/loomle/issues",
   "CanContainContent": false,
   "IsBetaVersion": true,
   "Plugins": [

@@ -10,6 +10,12 @@ The staging plugin is assembled from:
 - `engine/LoomleBridge`
 - `mcp/python` copied to `Resources/MCP`
 - `mcp/manifest` copied to `Resources/MCP/tool-manifest`
+- `packaging/fab/FAB_PLUGIN_README.md` copied to `README.md`
+
+`Resources/MCP` is intentionally kept outside `Content/Python`: it is an
+external stdio MCP server launched by the AI host with `uv`, not an Unreal
+Python script executed inside the editor. The Fab package still creates an empty
+`Content/` directory because Fab code plugin submissions expect one.
 
 Build the source plugin package:
 
@@ -23,6 +29,9 @@ The expected source package must keep:
 
 ```text
 LoomleBridge/LoomleBridge.uplugin
+LoomleBridge/README.md
+LoomleBridge/Content/
+LoomleBridge/Config/FilterPlugin.ini
 LoomleBridge/Source/LoomleBridge/LoomleBridge.Build.cs
 LoomleBridge/Resources/MCP/loomle_mcp_server.py
 LoomleBridge/Resources/MCP/tool-manifest/manifest.json

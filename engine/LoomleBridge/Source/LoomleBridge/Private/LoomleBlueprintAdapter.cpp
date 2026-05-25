@@ -4763,61 +4763,100 @@ bool FLoomleBlueprintAdapter::EditComponentMember(const FString& BlueprintAssetP
         || OperationLower.Equals(TEXT("setboxextent"))
         || OperationLower.Equals(TEXT("setgenerateoverlapevents")))
     {
+        const bool bSetStaticMeshAsset = OperationLower.Equals(TEXT("setstaticmeshasset"));
         FString MeshAssetPath;
-        if (OperationLower.Equals(TEXT("setstaticmeshasset"))
-            || LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("meshAssetPath"), TEXT("staticMeshAssetPath")}, MeshAssetPath))
+        const bool bHasMeshAssetPath = LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("meshAssetPath"), TEXT("staticMeshAssetPath")}, MeshAssetPath);
+        if (bSetStaticMeshAsset || bHasMeshAssetPath)
         {
-            if (!MeshAssetPath.IsEmpty())
+            if (!bHasMeshAssetPath)
             {
-                if (!SetStaticMeshComponentAsset(BlueprintAssetPath, Node->GetVariableName().ToString(), MeshAssetPath, OutError))
-                {
-                    return false;
-                }
+                OutError = TEXT("setStaticMeshAsset requires meshAssetPath.");
+                return false;
             }
-        }
-
-        FVector VectorValue;
-        if (OperationLower.Equals(TEXT("setrelativelocation")) || LoomleBlueprintAdapterInternal::TryReadVectorFieldAny(Payload, {TEXT("relativeLocation"), TEXT("location")}, VectorValue))
-        {
-            if (!SetSceneComponentRelativeLocation(BlueprintAssetPath, Node->GetVariableName().ToString(), VectorValue, OutError))
+            if (!SetStaticMeshComponentAsset(BlueprintAssetPath, Node->GetVariableName().ToString(), MeshAssetPath, OutError))
             {
                 return false;
             }
         }
 
-        if (OperationLower.Equals(TEXT("setrelativescale3d")) || LoomleBlueprintAdapterInternal::TryReadVectorFieldAny(Payload, {TEXT("relativeScale3D"), TEXT("scale3D"), TEXT("scale")}, VectorValue))
+        const bool bSetRelativeLocation = OperationLower.Equals(TEXT("setrelativelocation"));
+        FVector RelativeLocation = FVector::ZeroVector;
+        const bool bHasRelativeLocation = LoomleBlueprintAdapterInternal::TryReadVectorFieldAny(Payload, {TEXT("relativeLocation"), TEXT("location")}, RelativeLocation);
+        if (bSetRelativeLocation || bHasRelativeLocation)
         {
-            if (!SetSceneComponentRelativeScale3D(BlueprintAssetPath, Node->GetVariableName().ToString(), VectorValue, OutError))
+            if (!bHasRelativeLocation)
+            {
+                OutError = TEXT("setRelativeLocation requires relativeLocation.");
+                return false;
+            }
+            if (!SetSceneComponentRelativeLocation(BlueprintAssetPath, Node->GetVariableName().ToString(), RelativeLocation, OutError))
             {
                 return false;
             }
         }
 
+        const bool bSetRelativeScale3D = OperationLower.Equals(TEXT("setrelativescale3d"));
+        FVector RelativeScale3D = FVector::ZeroVector;
+        const bool bHasRelativeScale3D = LoomleBlueprintAdapterInternal::TryReadVectorFieldAny(Payload, {TEXT("relativeScale3D"), TEXT("scale3D"), TEXT("scale")}, RelativeScale3D);
+        if (bSetRelativeScale3D || bHasRelativeScale3D)
+        {
+            if (!bHasRelativeScale3D)
+            {
+                OutError = TEXT("setRelativeScale3D requires relativeScale3D.");
+                return false;
+            }
+            if (!SetSceneComponentRelativeScale3D(BlueprintAssetPath, Node->GetVariableName().ToString(), RelativeScale3D, OutError))
+            {
+                return false;
+            }
+        }
+
+        const bool bSetCollisionEnabled = OperationLower.Equals(TEXT("setcollisionenabled"));
         FString CollisionMode;
-        if (OperationLower.Equals(TEXT("setcollisionenabled")) || LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("collisionMode"), TEXT("collisionEnabled")}, CollisionMode))
+        const bool bHasCollisionMode = LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("collisionMode"), TEXT("collisionEnabled")}, CollisionMode);
+        if (bSetCollisionEnabled || bHasCollisionMode)
         {
-            if (!CollisionMode.IsEmpty()
-                && !SetPrimitiveComponentCollisionEnabled(BlueprintAssetPath, Node->GetVariableName().ToString(), CollisionMode, OutError))
+            if (!bHasCollisionMode)
+            {
+                OutError = TEXT("setCollisionEnabled requires collisionMode.");
+                return false;
+            }
+            if (!SetPrimitiveComponentCollisionEnabled(BlueprintAssetPath, Node->GetVariableName().ToString(), CollisionMode, OutError))
             {
                 return false;
             }
         }
 
-        if (OperationLower.Equals(TEXT("setboxextent")) || LoomleBlueprintAdapterInternal::TryReadVectorFieldAny(Payload, {TEXT("boxExtent"), TEXT("extent")}, VectorValue))
+        const bool bSetBoxExtent = OperationLower.Equals(TEXT("setboxextent"));
+        FVector BoxExtent = FVector::ZeroVector;
+        const bool bHasBoxExtent = LoomleBlueprintAdapterInternal::TryReadVectorFieldAny(Payload, {TEXT("boxExtent"), TEXT("extent")}, BoxExtent);
+        if (bSetBoxExtent || bHasBoxExtent)
         {
+            if (!bHasBoxExtent)
+            {
+                OutError = TEXT("setBoxExtent requires boxExtent.");
+                return false;
+            }
             UBoxComponent* BoxComponent = Cast<UBoxComponent>(Node->ComponentTemplate);
             if (BoxComponent != nullptr)
             {
-                if (!SetBoxComponentExtent(BlueprintAssetPath, Node->GetVariableName().ToString(), VectorValue, OutError))
+                if (!SetBoxComponentExtent(BlueprintAssetPath, Node->GetVariableName().ToString(), BoxExtent, OutError))
                 {
                     return false;
                 }
             }
         }
 
+        const bool bSetGenerateOverlapEvents = OperationLower.Equals(TEXT("setgenerateoverlapevents"));
         bool bGenerateOverlap = false;
-        if (OperationLower.Equals(TEXT("setgenerateoverlapevents")) || LoomleBlueprintAdapterInternal::TryGetBoolFieldAny(Payload, {TEXT("generateOverlapEvents")}, bGenerateOverlap))
+        const bool bHasGenerateOverlapEvents = LoomleBlueprintAdapterInternal::TryGetBoolFieldAny(Payload, {TEXT("generateOverlapEvents")}, bGenerateOverlap);
+        if (bSetGenerateOverlapEvents || bHasGenerateOverlapEvents)
         {
+            if (!bHasGenerateOverlapEvents)
+            {
+                OutError = TEXT("setGenerateOverlapEvents requires generateOverlapEvents.");
+                return false;
+            }
             if (!SetPrimitiveComponentGenerateOverlapEvents(BlueprintAssetPath, Node->GetVariableName().ToString(), bGenerateOverlap, OutError))
             {
                 return false;
