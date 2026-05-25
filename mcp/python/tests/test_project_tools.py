@@ -65,14 +65,21 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
                 for entry in os.environ.get("PYTHONPATH", "").split(os.pathsep)
                 if entry
             )
-            python_path_entries.extend(
+            site_package_entries = [
                 entry
                 for entry in {
                     *getattr(site, "getsitepackages", lambda: [])(),
                     site.getusersitepackages(),
                 }
                 if entry
-            )
+            ]
+            python_path_entries.extend(site_package_entries)
+            for entry in site_package_entries:
+                site_path = Path(entry)
+                python_path_entries.extend(
+                    str(site_path / child)
+                    for child in ("win32", "win32/lib", "pywin32_system32")
+                )
 
             env = os.environ.copy()
             env["PYTHONPATH"] = os.pathsep.join(python_path_entries)
