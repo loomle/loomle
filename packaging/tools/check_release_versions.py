@@ -38,6 +38,32 @@ def read_uplugin_version_name(path: Path) -> str:
     return version_name
 
 
+def read_pyproject_version(path: Path) -> str:
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    try:
+        version = data["project"]["version"]
+    except KeyError as exc:
+        raise SystemExit(f"missing project.version in {path}: {exc}") from exc
+    if not isinstance(version, str) or not version:
+        raise SystemExit(f"invalid project.version in {path}: {version!r}")
+    return version
+
+
+def read_python_package_version(path: Path) -> str:
+    namespace: dict[str, object] = {}
+    exec(path.read_text(encoding="utf-8"), namespace)
+    version = namespace.get("__version__")
+    if not isinstance(version, str) or not version:
+        raise SystemExit(f"invalid __version__ in {path}: {version!r}")
+    return version
+
+
+def assert_python_server_uses_package_version(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    if "server_version=__version__" not in text:
+        raise SystemExit(f"Python MCP server does not use package __version__: {path}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Verify LOOMLE release version strings stay in sync."
@@ -64,7 +90,16 @@ def main() -> int:
         "loomle_bridge_uplugin": read_uplugin_version_name(
             repo_root / "engine/LoomleBridge/LoomleBridge.uplugin"
         ),
+        "python_mcp_pyproject": read_pyproject_version(
+            repo_root / "mcp/python/pyproject.toml"
+        ),
+        "python_mcp_package": read_python_package_version(
+            repo_root / "mcp/python/loomle_mcp/__init__.py"
+        ),
     }
+    assert_python_server_uses_package_version(
+        repo_root / "mcp/python/loomle_mcp/server.py"
+    )
 
     distinct_versions = sorted(set(versions.values()))
     if len(distinct_versions) != 1:

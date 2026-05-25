@@ -5,6 +5,7 @@ This directory owns release assembly and global installation rules.
 Current responsibilities:
 - build release manifests
 - assemble the `loomle` binary and `LoomleBridge` plugin cache into a release bundle
+- assemble the Fab plugin package, including the Python MCP server and shared tool manifest
 - install LOOMLE once into the current user's global install root
 
 Canonical release helper paths:
@@ -27,3 +28,5 @@ Current expectations:
 - public install scripts add the global install `bin` directory to the current user's PATH
 - UE project support is installed later through MCP `project.install`
 - GitHub Releases is the canonical host for published bundle and manifest assets; `loomle.ai` serves the install scripts and site content
+- tag releases publish native assets for website installs and a separate `loomle-fab-plugin.zip` asset for Fab review/submission
+- `loomle-latest` remains the website/native installer alias; Fab package review and publication are channel-owned and may lag the tag release

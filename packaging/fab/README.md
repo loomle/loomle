@@ -2,6 +2,7 @@
 
 Fab packaging builds a UE plugin-first payload. It does not include the native
 `loomle` binary and does not replace the website/GitHub release bundle.
+The tag release workflow publishes it as `loomle-fab-plugin.zip`.
 
 The staging plugin is assembled from:
 
@@ -33,3 +34,12 @@ The expected packaged plugin must keep:
 LoomleBridge/Resources/MCP/loomle_mcp_server.py
 LoomleBridge/Resources/MCP/tool-manifest/manifest.json
 ```
+
+Release automation:
+
+- `.github/workflows/release-loomle-fab.yml` runs on `v*` tags.
+- The workflow checks that native, bridge, and Python MCP versions match the tag.
+- The workflow stages the plugin, runs Unreal `BuildPlugin`, zips the packaged
+  `LoomleBridge/` directory, and uploads `loomle-fab-plugin.zip` to the tag release.
+- The Fab asset is intentionally independent from `loomle-latest`; Fab/Epic
+  owns review, installation, and update timing for the plugin channel.

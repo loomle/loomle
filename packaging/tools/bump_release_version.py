@@ -36,6 +36,28 @@ def update_cargo_lock(path: Path, package_name: str, version: str) -> None:
     path.write_text(updated, encoding="utf-8")
 
 
+def update_pyproject(path: Path, version: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    updated = replace_one(
+        r'(^version\s*=\s*)"[^"]+"',
+        rf'\g<1>"{version}"',
+        text,
+        path,
+    )
+    path.write_text(updated, encoding="utf-8")
+
+
+def update_python_package_version(path: Path, version: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    updated = replace_one(
+        r'(^__version__\s*=\s*)"[^"]+"',
+        rf'\g<1>"{version}"',
+        text,
+        path,
+    )
+    path.write_text(updated, encoding="utf-8")
+
+
 def update_uplugin(path: Path, version: str, build_number: int | None) -> int:
     data = json.loads(path.read_text(encoding="utf-8"))
     current_build_number = data.get("Version")
@@ -82,6 +104,10 @@ def main() -> int:
     repo_root = args.repo_root.resolve()
     update_cargo_toml(repo_root / "client/Cargo.toml", args.version)
     update_cargo_lock(repo_root / "client/Cargo.lock", "loomle", args.version)
+    update_pyproject(repo_root / "mcp/python/pyproject.toml", args.version)
+    update_python_package_version(
+        repo_root / "mcp/python/loomle_mcp/__init__.py", args.version
+    )
     uplugin_build = update_uplugin(
         repo_root / "engine/LoomleBridge/LoomleBridge.uplugin",
         args.version,
