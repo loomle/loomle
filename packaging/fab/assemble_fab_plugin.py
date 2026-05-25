@@ -14,10 +14,20 @@ IGNORE_NAMES = {
     ".mypy_cache",
     ".venv",
     "*.egg-info",
+    "Binaries",
     "Intermediate",
     "Saved",
     "tests",
     "uv.lock",
+}
+
+FORBIDDEN_BINARY_SUFFIXES = {
+    ".dll",
+    ".dylib",
+    ".exe",
+    ".lib",
+    ".pdb",
+    ".so",
 }
 
 
@@ -77,6 +87,15 @@ def validate_fab_plugin(plugin_root: Path) -> None:
     if missing:
         fail("Fab plugin staging is missing required files:\n" + "\n".join(missing))
 
+    forbidden = []
+    for path in plugin_root.rglob("*"):
+        if any(part in {"Binaries", "Intermediate", "Saved"} for part in path.parts):
+            forbidden.append(str(path))
+        elif path.is_file() and path.suffix.lower() in FORBIDDEN_BINARY_SUFFIXES:
+            forbidden.append(str(path))
+    if forbidden:
+        fail("Fab plugin source package contains platform binary/build outputs:\n" + "\n".join(forbidden))
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Assemble a Fab-ready LoomleBridge plugin staging directory.")
@@ -105,7 +124,7 @@ def main() -> int:
         "pluginRoot": str(plugin_root),
         "pythonMcp": str(resources_mcp),
         "toolManifest": str(resources_mcp / "tool-manifest" / "manifest.json"),
-        "buildPluginInput": str(plugin_root / "LoomleBridge.uplugin"),
+        "packageKind": "fab-source-plugin",
     }
     print(json.dumps(result, indent=2))
     return 0

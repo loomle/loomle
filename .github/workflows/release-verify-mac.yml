@@ -96,6 +96,15 @@ jobs:
           cd "$GITHUB_WORKSPACE/client"
           cargo test
 
+      - name: Run Python MCP Unit Tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          venv="$RUNNER_TEMP/loomle-python-mcp-venv"
+          python3 -m venv "$venv"
+          "$venv/bin/python" -m pip install -e "$GITHUB_WORKSPACE/mcp/python"
+          "$venv/bin/python" -m unittest discover -s "$GITHUB_WORKSPACE/mcp/python/tests"
+
       - name: Stop Stale AutomationTool Before Plugin Sync
         shell: bash
         run: |

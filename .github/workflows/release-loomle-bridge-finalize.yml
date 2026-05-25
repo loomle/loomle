@@ -1,4 +1,4 @@
-name: Finalize LOOMLE Release
+name: Finalize LOOMLE Native Release
 
 on:
   workflow_dispatch:

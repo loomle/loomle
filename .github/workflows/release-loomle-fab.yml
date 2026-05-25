@@ -9,7 +9,7 @@ on:
         type: string
   workflow_run:
     workflows:
-      - Finalize LOOMLE Release
+      - Finalize LOOMLE Native Release
     types:
       - completed
 
@@ -82,51 +82,23 @@ jobs:
             --repo-root "$GITHUB_WORKSPACE" \
             --expected-version "${{ steps.release_tag.outputs.version }}"
 
-      - name: Resolve Unreal Engine Root (Mac)
-        id: ue_root_mac
-        shell: bash
-        env:
-          UE_FROM_VARS: ${{ vars.UE_5_7_ROOT_MAC }}
-        run: |
-          set -euo pipefail
-          candidate=""
-          if [[ -n "${UE_FROM_VARS:-}" ]]; then
-            candidate="$UE_FROM_VARS"
-          elif [[ -n "${UE_5_7_ROOT_MAC:-}" ]]; then
-            candidate="$UE_5_7_ROOT_MAC"
-          else
-            candidate="/Users/Shared/Epic Games/UE_5.7"
-          fi
-
-          run_uat="$candidate/Engine/Build/BatchFiles/RunUAT.sh"
-          [[ -x "$run_uat" ]] || { echo "RunUAT.sh not found: $run_uat" >&2; exit 1; }
-          echo "run_uat=$run_uat" >> "$GITHUB_OUTPUT"
-
-      - name: Package LOOMLE Fab Plugin
+      - name: Package LOOMLE Fab Source Plugin
         id: package
-        timeout-minutes: 25
+        timeout-minutes: 5
         shell: bash
         run: |
           set -euo pipefail
 
-          staging_dir="$RUNNER_TEMP/loomle-fab-staging"
-          package_root="$RUNNER_TEMP/loomle-fab-package-root"
-          package_dir="$package_root/LoomleBridge"
+          package_root="$RUNNER_TEMP/loomle-fab-source-package"
           release_dir="$RUNNER_TEMP/loomle-release-assets-fab"
           archive_path="$release_dir/loomle-fab-plugin.zip"
 
-          rm -rf "$staging_dir" "$package_root" "$release_dir"
+          rm -rf "$package_root" "$release_dir"
           mkdir -p "$release_dir"
 
           python3 "$GITHUB_WORKSPACE/packaging/fab/assemble_fab_plugin.py" \
             --repo-root "$GITHUB_WORKSPACE" \
-            --output-dir "$staging_dir"
-
-          "${{ steps.ue_root_mac.outputs.run_uat }}" BuildPlugin \
-            -Plugin="$staging_dir/LoomleBridge/LoomleBridge.uplugin" \
-            -Package="$package_dir" \
-            -TargetPlatforms=Mac \
-            -Rocket
+            --output-dir "$package_root"
 
           python3 -c 'import shutil, sys; from pathlib import Path; package_root = Path(sys.argv[1]); archive_path = Path(sys.argv[2]); shutil.make_archive(str(archive_path.with_suffix("")), "zip", package_root, "LoomleBridge")' \
             "$package_root" \
