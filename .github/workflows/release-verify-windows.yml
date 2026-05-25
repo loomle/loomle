@@ -194,19 +194,8 @@ jobs:
         run: |
           $pythonMcpRoot = Join-Path $env:GITHUB_WORKSPACE "mcp\python"
           $pythonMcpTests = Join-Path $pythonMcpRoot "tests"
-          $venv = Join-Path $env:RUNNER_TEMP "loomle-python-mcp-venv"
-          python -m venv $venv
-          if ($LASTEXITCODE -ne 0) {
-            throw "Python MCP venv creation failed with exit code $LASTEXITCODE"
-          }
-          $venvPython = Join-Path $venv "Scripts\python.exe"
-
-          & $venvPython -m pip install -e $pythonMcpRoot
-          if ($LASTEXITCODE -ne 0) {
-            throw "Python MCP editable install failed with exit code $LASTEXITCODE"
-          }
-
-          & $venvPython -m unittest discover -s $pythonMcpTests
+          $env:PYTHONPATH = $pythonMcpRoot
+          python -m unittest discover -s $pythonMcpTests
           if ($LASTEXITCODE -ne 0) {
             throw "Python MCP unit tests failed with exit code $LASTEXITCODE"
           }
