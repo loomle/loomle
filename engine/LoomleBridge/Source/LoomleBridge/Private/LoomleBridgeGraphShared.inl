@@ -1852,11 +1852,18 @@ FString GetPcgEnumName(TEnum Value)
 TSharedPtr<FJsonObject> MakePcgSelectorObject(const FPCGAttributePropertySelector& Selector)
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    const EPCGAttributePropertySelection Selection = Selector.GetSelection();
+    Result->SetStringField(TEXT("kind"), TEXT("pcgSelector"));
     Result->SetStringField(TEXT("text"), Selector.ToString());
-    Result->SetStringField(TEXT("selection"), GetPcgEnumName(Selector.GetSelection()));
+    Result->SetStringField(TEXT("selection"), GetPcgEnumName(Selection));
     Result->SetStringField(TEXT("name"), Selector.GetName().ToString());
     Result->SetStringField(TEXT("domain"), Selector.GetDomainString(false));
     Result->SetStringField(TEXT("attributeOrProperty"), Selector.GetAttributePropertyString(false));
+    Result->SetStringField(TEXT("accessorPath"), Selector.GetAttributePropertyAccessorsString(false));
+    Result->SetBoolField(TEXT("valid"), Selector.IsValid());
+    Result->SetBoolField(TEXT("isAttribute"), Selection == EPCGAttributePropertySelection::Attribute);
+    Result->SetBoolField(TEXT("isProperty"), Selection == EPCGAttributePropertySelection::Property);
+    Result->SetBoolField(TEXT("isExtraProperty"), Selection == EPCGAttributePropertySelection::ExtraProperty);
 
     TArray<TSharedPtr<FJsonValue>> Accessors;
     for (const FString& ExtraName : Selector.GetExtraNames())
@@ -2395,6 +2402,23 @@ TSharedPtr<FJsonObject> BuildPcgNodeSettingsObject(
     }
 
     const FString NodeId = NodeObj->GetPathName();
+
+    if (const UPCGFilterByAttributeSettings* FilterByAttributeSettings = Cast<UPCGFilterByAttributeSettings>(NodeSettings))
+    {
+        TSharedPtr<FJsonObject> Settings = MakeShared<FJsonObject>();
+        Settings->SetStringField(TEXT("settingsClassPath"), FilterByAttributeSettings->GetClass()->GetPathName());
+        Settings->SetStringField(TEXT("filterMode"), GetPcgEnumName(FilterByAttributeSettings->FilterMode));
+        Settings->SetStringField(TEXT("filterByValueMode"), GetPcgEnumName(FilterByAttributeSettings->FilterByValueMode));
+        Settings->SetObjectField(TEXT("targetAttribute"), MakePcgSelectorObject(FilterByAttributeSettings->TargetAttribute));
+        Settings->SetStringField(TEXT("filterOperator"), GetPcgEnumName(FilterByAttributeSettings->FilterOperator));
+        Settings->SetStringField(TEXT("attribute"), FilterByAttributeSettings->Attribute.ToString());
+        Settings->SetStringField(TEXT("metadataDomain"), FilterByAttributeSettings->MetadataDomain.ToString());
+        Settings->SetStringField(TEXT("operator"), GetPcgEnumName(FilterByAttributeSettings->Operator));
+        Settings->SetBoolField(TEXT("ignoreProperties"), FilterByAttributeSettings->bIgnoreProperties);
+        Settings->SetObjectField(TEXT("thresholdAttribute"), MakePcgSelectorObject(FilterByAttributeSettings->Threshold.ThresholdAttribute));
+        Settings->SetBoolField(TEXT("useConstantThreshold"), FilterByAttributeSettings->Threshold.bUseConstantThreshold);
+        return Settings;
+    }
 
     if (const UPCGGetActorPropertySettings* GetActorPropertySettings = Cast<UPCGGetActorPropertySettings>(NodeSettings))
     {

@@ -5919,6 +5919,171 @@ def main() -> int:
             fail(f"PCG FilterByAttribute threshold constant did not update: {pcg_filter_verify}")
         print("[PASS] pcg.graph.edit setPinDefault supports selector and constant threshold paths")
 
+        pcg_filter_component_mutate = call_domain_tool(
+            client,
+            101198,
+            "pcg",
+            "mutate",
+            {
+                "assetPath": temp_pcg_asset,
+                "ops": [
+                    {
+                        "op": "setPinDefault",
+                        "target": {"nodeId": pcg_filter_node_id, "pin": "TargetAttribute"},
+                        "value": "Position.Z",
+                    }
+                ],
+            },
+        )
+        component_results = pcg_filter_component_mutate.get("opResults")
+        if not isinstance(component_results, list) or len(component_results) != 1 or not component_results[0].get("ok"):
+            fail(f"PCG FilterByAttribute Position.Z mutate failed: {pcg_filter_component_mutate}")
+
+        pcg_filter_component_query = call_domain_tool(
+            client,
+            101199,
+            "pcg",
+            "query",
+            {
+                "assetPath": temp_pcg_asset,
+                "filter": {"nodeClasses": ["/Script/PCG.PCGFilterByAttributeSettings"]},
+                "view": "full",
+            },
+        )
+        component_nodes = pcg_filter_component_query.get("semanticSnapshot", {}).get("nodes", [])
+        component_filter_node = next(
+            (node for node in component_nodes if isinstance(node, dict) and node.get("id") == pcg_filter_node_id),
+            None,
+        )
+        if not isinstance(component_filter_node, dict):
+            fail(f"PCG FilterByAttribute Position.Z node not present in inspect output: {pcg_filter_component_query}")
+        target_selector = component_filter_node.get("effectiveSettings", {}).get("targetAttribute")
+        if not isinstance(target_selector, dict):
+            fail(f"PCG FilterByAttribute missing structured targetAttribute readback: {component_filter_node}")
+        if target_selector.get("text") != "Position.Z":
+            fail(f"PCG FilterByAttribute Position.Z text mismatch: {target_selector}")
+        if target_selector.get("selection") != "Attribute":
+            fail(f"PCG FilterByAttribute Position.Z should remain an attribute selector: {target_selector}")
+        if target_selector.get("name") != "Position":
+            fail(f"PCG FilterByAttribute Position.Z name mismatch: {target_selector}")
+        if target_selector.get("accessors") != ["Z"] or target_selector.get("accessorPath") != "Z":
+            fail(f"PCG FilterByAttribute Position.Z accessor decomposition mismatch: {target_selector}")
+
+        pcg_filter_node_describe = call_tool(
+            client,
+            101201,
+            "pcg.node.inspect",
+            {"assetPath": temp_pcg_asset, "node": {"id": pcg_filter_node_id}},
+        )
+        describe_properties = pcg_filter_node_describe.get("properties", [])
+        target_property = next(
+            (
+                prop
+                for prop in describe_properties
+                if isinstance(prop, dict)
+                and prop.get("name") == "TargetAttribute"
+                and prop.get("valueKind") == "pcgSelector"
+            ),
+            None,
+        )
+        if not isinstance(target_property, dict):
+            fail(f"pcg.node.inspect did not expose TargetAttribute as a selector property: {pcg_filter_node_describe}")
+        accepted_input = target_property.get("acceptedInput", [])
+        if "string" not in accepted_input or "pcgSelector" not in accepted_input:
+            fail(f"pcg.node.inspect TargetAttribute acceptedInput mismatch: {target_property}")
+        node_inspect_value = target_property.get("value")
+        if not isinstance(node_inspect_value, dict):
+            fail(f"pcg.node.inspect TargetAttribute missing structured current value: {target_property}")
+        if node_inspect_value.get("kind") != "pcgSelector" or node_inspect_value.get("text") != "Position.Z":
+            fail(f"pcg.node.inspect TargetAttribute selector value mismatch: {target_property}")
+        if node_inspect_value.get("accessors") != ["Z"] or node_inspect_value.get("valid") is not True:
+            fail(f"pcg.node.inspect TargetAttribute selector decomposition mismatch: {target_property}")
+
+        pcg_filter_structured_mutate = call_domain_tool(
+            client,
+            101202,
+            "pcg",
+            "mutate",
+            {
+                "assetPath": temp_pcg_asset,
+                "ops": [
+                    {
+                        "op": "setPinDefault",
+                        "target": {"nodeId": pcg_filter_node_id, "pin": "TargetAttribute"},
+                        "value": {
+                            "kind": "pcgSelector",
+                            "selection": "Attribute",
+                            "name": "Position",
+                            "accessors": ["X"],
+                        },
+                    }
+                ],
+            },
+        )
+        structured_results = pcg_filter_structured_mutate.get("opResults")
+        if not isinstance(structured_results, list) or len(structured_results) != 1 or not structured_results[0].get("ok"):
+            fail(f"PCG FilterByAttribute structured selector mutate failed: {pcg_filter_structured_mutate}")
+
+        pcg_filter_structured_query = call_domain_tool(
+            client,
+            101203,
+            "pcg",
+            "query",
+            {
+                "assetPath": temp_pcg_asset,
+                "filter": {"nodeClasses": ["/Script/PCG.PCGFilterByAttributeSettings"]},
+                "view": "full",
+            },
+        )
+        structured_nodes = pcg_filter_structured_query.get("semanticSnapshot", {}).get("nodes", [])
+        structured_filter_node = next(
+            (node for node in structured_nodes if isinstance(node, dict) and node.get("id") == pcg_filter_node_id),
+            None,
+        )
+        structured_selector = (
+            structured_filter_node.get("effectiveSettings", {}).get("targetAttribute")
+            if isinstance(structured_filter_node, dict)
+            else None
+        )
+        if not isinstance(structured_selector, dict) or structured_selector.get("text") != "Position.X":
+            fail(f"PCG FilterByAttribute structured selector readback mismatch: {structured_selector}")
+
+        pcg_filter_component_verify_payload = call_execute_exec_with_retry(
+            client=client,
+            req_id_base=101204,
+            code=(
+                "import json\n"
+                "import unreal\n"
+                f"node_path = {json.dumps(pcg_filter_node_id, ensure_ascii=False)}\n"
+                "node = unreal.load_object(None, node_path)\n"
+                "if node is None:\n"
+                "    raise RuntimeError(f'failed to load PCG node: {node_path}')\n"
+                "settings = node.get_settings()\n"
+                "helpers = unreal.PCGAttributePropertySelectorBlueprintHelpers\n"
+                "target = settings.get_editor_property('target_attribute')\n"
+                "print(json.dumps({\n"
+                "    'ok': True,\n"
+                "    'selection': str(helpers.get_selection(target)).split('.')[-1],\n"
+                "    'attributeName': str(helpers.get_attribute_name(target)),\n"
+                "    'propertyName': str(helpers.get_property_name(target)),\n"
+                "    'extraNames': list(helpers.get_extra_names(target)),\n"
+                "}, ensure_ascii=False))\n"
+            ),
+        )
+        pcg_filter_component_verify = parse_execute_json(pcg_filter_component_verify_payload)
+        if pcg_filter_component_verify.get("ok") is not True:
+            fail(f"PCG FilterByAttribute Position.Z verification failed: {pcg_filter_component_verify}")
+        component_selection = str(pcg_filter_component_verify.get("selection", "")).lower()
+        if "attribute" not in component_selection:
+            fail(f"PCG FilterByAttribute structured selector engine selection mismatch: {pcg_filter_component_verify}")
+        if pcg_filter_component_verify.get("attributeName") != "Position":
+            fail(f"PCG FilterByAttribute structured selector engine attribute mismatch: {pcg_filter_component_verify}")
+        if pcg_filter_component_verify.get("propertyName") not in {"None", ""}:
+            fail(f"PCG FilterByAttribute structured selector should not be a property selector: {pcg_filter_component_verify}")
+        if pcg_filter_component_verify.get("extraNames") != ["X"]:
+            fail(f"PCG FilterByAttribute structured selector engine accessor mismatch: {pcg_filter_component_verify}")
+        print("[PASS] PCG FilterByAttribute selector readback/editing is structured and engine-matched")
+
         if skip_editor_visual_regression:
             print("[WARN] editor.open/editor.focus/editor.screenshot regression skipped by LOOMLE_SKIP_EDITOR_VISUAL_REGRESSION=1")
         else:

@@ -20,6 +20,8 @@ TSharedPtr<FJsonObject> BuildPcgNodeSettingsObject(
     TArray<TSharedPtr<FJsonValue>>& NodeDiagnostics,
     TArray<TSharedPtr<FJsonValue>>& RootDiagnostics);
 
+TSharedPtr<FJsonObject> MakePcgSelectorObject(const FPCGAttributePropertySelector& Selector);
+
 UClass* ResolvePcgSettingsDescribeClass(const FString& ClassToken)
 {
     const FString TrimmedToken = ClassToken.TrimStartAndEnd();
@@ -124,6 +126,257 @@ TSharedPtr<FJsonObject> MakePcgDescribePropertyType(const FProperty* Property)
     return TypeObject;
 }
 
+void AddPcgPropertyAcceptedInput(TSharedPtr<FJsonObject>& PropertyObject, const TArray<FString>& Inputs)
+{
+    TArray<TSharedPtr<FJsonValue>> AcceptedInput;
+    for (const FString& Input : Inputs)
+    {
+        AcceptedInput.Add(MakeShared<FJsonValueString>(Input));
+    }
+    PropertyObject->SetArrayField(TEXT("acceptedInput"), AcceptedInput);
+}
+
+TSharedPtr<FJsonObject> MakePcgDescribePropertyEntry(
+    void* Container,
+    FProperty* Property,
+    const FString& Path,
+    bool bDefaultValue)
+{
+    if (Container == nullptr || Property == nullptr)
+    {
+        return nullptr;
+    }
+
+    TSharedPtr<FJsonObject> PropertyObject = MakeShared<FJsonObject>();
+    PropertyObject->SetStringField(TEXT("name"), Property->GetName());
+    PropertyObject->SetStringField(TEXT("path"), Path.IsEmpty() ? Property->GetName() : Path);
+    PropertyObject->SetStringField(TEXT("displayName"), Property->GetDisplayNameText().ToString());
+    PropertyObject->SetStringField(TEXT("cppType"), Property->GetCPPType());
+    PropertyObject->SetObjectField(TEXT("type"), MakePcgDescribePropertyType(Property));
+
+    void* ValuePtr = Property->ContainerPtrToValuePtr<void>(Container);
+    if (FStructProperty* StructProperty = CastField<FStructProperty>(Property))
+    {
+        if (ValuePtr != nullptr && IsPcgSelectorStruct(StructProperty->Struct))
+        {
+            const FPCGAttributePropertySelector* Selector = reinterpret_cast<const FPCGAttributePropertySelector*>(ValuePtr);
+            if (Selector != nullptr)
+            {
+                TSharedPtr<FJsonObject> SelectorObject = MakePcgSelectorObject(*Selector);
+                SelectorObject->SetStringField(TEXT("cppType"), Property->GetCPPType());
+                PropertyObject->SetStringField(TEXT("valueKind"), TEXT("pcgSelector"));
+                AddPcgPropertyAcceptedInput(PropertyObject, {TEXT("string"), TEXT("pcgSelector")});
+                PropertyObject->SetObjectField(bDefaultValue ? TEXT("default") : TEXT("value"), SelectorObject);
+                PropertyObject->SetStringField(bDefaultValue ? TEXT("defaultValue") : TEXT("valueString"), Selector->ToString());
+                PropertyObject->SetStringField(bDefaultValue ? TEXT("defaultText") : TEXT("valueText"), Selector->ToString());
+                return PropertyObject;
+            }
+        }
+    }
+
+    FString Value;
+    FString Text;
+    if (TryReadPcgPropertyValueForQuery(Container, Property, Value, Text))
+    {
+        PropertyObject->SetStringField(bDefaultValue ? TEXT("defaultValue") : TEXT("value"), Value);
+        PropertyObject->SetStringField(bDefaultValue ? TEXT("defaultText") : TEXT("valueText"), Text);
+    }
+
+    return PropertyObject;
+}
+
+void GatherPcgDescribePropertiesRecursive(
+    void* Container,
+    UStruct* Struct,
+    const FString& PathPrefix,
+    TArray<TSharedPtr<FJsonValue>>& OutProperties,
+    bool bDefaultValue)
+{
+    if (Container == nullptr || Struct == nullptr)
+    {
+        return;
+    }
+
+    for (TFieldIterator<FProperty> It(Struct, EFieldIteratorFlags::ExcludeSuper); It; ++It)
+    {
+        FProperty* Property = *It;
+        if (Property == nullptr
+            || !Property->HasAnyPropertyFlags(CPF_Edit)
+            || Property->HasAnyPropertyFlags(CPF_EditConst | CPF_Deprecated | CPF_Transient)
+            || Property->GetName().EndsWith(TEXT("_DEPRECATED")))
+        {
+            continue;
+        }
+
+        if (CastField<FArrayProperty>(Property) != nullptr
+            || CastField<FSetProperty>(Property) != nullptr
+            || CastField<FMapProperty>(Property) != nullptr)
+        {
+            continue;
+        }
+
+        const FString PropertyPath = PathPrefix.IsEmpty()
+            ? Property->GetName()
+            : PathPrefix + TEXT("/") + Property->GetName();
+
+        if (ShouldSurfacePcgSyntheticLeafProperty(Property))
+        {
+            if (TSharedPtr<FJsonObject> PropertyObject = MakePcgDescribePropertyEntry(Container, Property, PropertyPath, bDefaultValue))
+            {
+                OutProperties.Add(MakeShared<FJsonValueObject>(PropertyObject));
+            }
+            continue;
+        }
+
+        if (FStructProperty* StructProperty = CastField<FStructProperty>(Property))
+        {
+            void* StructContainer = StructProperty->ContainerPtrToValuePtr<void>(Container);
+            if (StructContainer != nullptr && StructProperty->Struct != nullptr)
+            {
+                GatherPcgDescribePropertiesRecursive(
+                    StructContainer,
+                    StructProperty->Struct,
+                    PropertyPath,
+                    OutProperties,
+                    bDefaultValue);
+            }
+        }
+    }
+}
+
+void GatherPcgDescribeSettingsProperties(
+    UPCGSettings* Settings,
+    TArray<TSharedPtr<FJsonValue>>& OutProperties,
+    bool bDefaultValue)
+{
+    OutProperties.Reset();
+    if (Settings == nullptr)
+    {
+        return;
+    }
+
+    for (UStruct* CurrentStruct = Settings->GetClass();
+         CurrentStruct != nullptr && CurrentStruct != UPCGSettings::StaticClass();
+         CurrentStruct = CurrentStruct->GetSuperStruct())
+    {
+        GatherPcgDescribePropertiesRecursive(Settings, CurrentStruct, FString(), OutProperties, bDefaultValue);
+    }
+}
+
+bool BuildPcgSelectorStringFromJsonObject(const TSharedPtr<FJsonObject>& SelectorObject, FString& OutValue)
+{
+    OutValue.Empty();
+    if (!SelectorObject.IsValid())
+    {
+        return false;
+    }
+
+    FString Name;
+    FString Selection;
+    FString Domain;
+    FString TextValue;
+    SelectorObject->TryGetStringField(TEXT("name"), Name);
+    SelectorObject->TryGetStringField(TEXT("selection"), Selection);
+    SelectorObject->TryGetStringField(TEXT("domain"), Domain);
+    SelectorObject->TryGetStringField(TEXT("text"), TextValue);
+
+    const TArray<TSharedPtr<FJsonValue>>* AccessorValues = nullptr;
+    TArray<FString> Accessors;
+    if (SelectorObject->TryGetArrayField(TEXT("accessors"), AccessorValues) && AccessorValues != nullptr)
+    {
+        for (const TSharedPtr<FJsonValue>& AccessorValue : *AccessorValues)
+        {
+            FString Accessor;
+            if (AccessorValue.IsValid() && AccessorValue->TryGetString(Accessor) && !Accessor.IsEmpty())
+            {
+                Accessors.Add(Accessor);
+            }
+        }
+    }
+    else
+    {
+        FString AccessorPath;
+        if (SelectorObject->TryGetStringField(TEXT("accessorPath"), AccessorPath) && !AccessorPath.IsEmpty())
+        {
+            AccessorPath.ParseIntoArray(Accessors, TEXT("."), true);
+        }
+    }
+
+    if (Name.IsEmpty())
+    {
+        OutValue = TextValue;
+        return !OutValue.IsEmpty();
+    }
+
+    FString BaseName = Name;
+    if (Selection.Equals(TEXT("Property"), ESearchCase::IgnoreCase)
+        || Selection.Equals(TEXT("ExtraProperty"), ESearchCase::IgnoreCase))
+    {
+        if (!BaseName.StartsWith(TEXT("$")))
+        {
+            BaseName = TEXT("$") + BaseName;
+        }
+    }
+
+    FString Result;
+    if (!Domain.IsEmpty())
+    {
+        Result += TEXT("@");
+        Result += Domain;
+        Result += TEXT(".");
+    }
+    Result += BaseName;
+    for (const FString& Accessor : Accessors)
+    {
+        Result += TEXT(".");
+        Result += Accessor;
+    }
+
+    OutValue = Result;
+    return !OutValue.IsEmpty();
+}
+
+bool ReadPcgEditValueAsString(const TSharedPtr<FJsonObject>& Source, const TCHAR* FieldName, FString& OutValue)
+{
+    OutValue.Empty();
+    if (!Source.IsValid() || !Source->HasField(FieldName))
+    {
+        return false;
+    }
+
+    if (Source->TryGetStringField(FieldName, OutValue))
+    {
+        return true;
+    }
+
+    double Number = 0.0;
+    if (Source->TryGetNumberField(FieldName, Number))
+    {
+        OutValue = FMath::IsNearlyEqual(Number, FMath::RoundToDouble(Number))
+            ? FString::Printf(TEXT("%.0f"), Number)
+            : FString::SanitizeFloat(Number);
+        return true;
+    }
+
+    bool bBool = false;
+    if (Source->TryGetBoolField(FieldName, bBool))
+    {
+        OutValue = bBool ? TEXT("true") : TEXT("false");
+        return true;
+    }
+
+    const TSharedPtr<FJsonObject>* ObjectValue = nullptr;
+    if (Source.IsValid()
+        && Source->TryGetObjectField(FieldName, ObjectValue)
+        && ObjectValue != nullptr
+        && (*ObjectValue).IsValid())
+    {
+        return BuildPcgSelectorStringFromJsonObject(*ObjectValue, OutValue);
+    }
+
+    return false;
+}
+
 TSharedPtr<FJsonObject> BuildPcgClassDescribeResult(const FString& NodeClass)
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
@@ -171,34 +424,7 @@ TSharedPtr<FJsonObject> BuildPcgClassDescribeResult(const FString& NodeClass)
     Result->SetArrayField(TEXT("outputPins"), OutputPins);
 
     TArray<TSharedPtr<FJsonValue>> Properties;
-    for (UStruct* CurrentStruct = Settings->GetClass();
-         CurrentStruct != nullptr && CurrentStruct != UPCGSettings::StaticClass();
-         CurrentStruct = CurrentStruct->GetSuperStruct())
-    {
-        for (TFieldIterator<FProperty> It(CurrentStruct, EFieldIteratorFlags::ExcludeSuper); It; ++It)
-        {
-            FProperty* Property = *It;
-            if (!ShouldSurfacePcgSyntheticLeafProperty(Property))
-            {
-                continue;
-            }
-
-            TSharedPtr<FJsonObject> PropertyObject = MakeShared<FJsonObject>();
-            PropertyObject->SetStringField(TEXT("name"), Property->GetName());
-            PropertyObject->SetStringField(TEXT("displayName"), Property->GetDisplayNameText().ToString());
-            PropertyObject->SetObjectField(TEXT("type"), MakePcgDescribePropertyType(Property));
-
-            FString DefaultValue;
-            FString DefaultText;
-            if (TryReadPcgPropertyValueForQuery(Settings, Property, DefaultValue, DefaultText))
-            {
-                PropertyObject->SetStringField(TEXT("defaultValue"), DefaultValue);
-                PropertyObject->SetStringField(TEXT("defaultText"), DefaultText);
-            }
-
-            Properties.Add(MakeShared<FJsonValueObject>(PropertyObject));
-        }
-    }
+    GatherPcgDescribeSettingsProperties(Settings, Properties, true);
     Result->SetArrayField(TEXT("properties"), Properties);
 
     return Result;
@@ -1417,6 +1643,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgQueryToolResult(const TShar
 
             if (TSharedPtr<FJsonObject> Settings = BuildPcgNodeSettingsObject(NodeObj, NodeDiagnostics, Diagnostics))
             {
+                TArray<TSharedPtr<FJsonValue>> Properties;
+                GatherPcgDescribeSettingsProperties(NodeSettings, Properties, false);
+                Settings->SetArrayField(TEXT("properties"), Properties);
                 Node->SetObjectField(TEXT("settings"), Settings);
                 Node->SetObjectField(TEXT("effectiveSettings"), Settings);
             }
@@ -2483,7 +2712,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgMutateToolResult(const TSha
                 {
                     SingleResult = BuildDirectSingleResult(false, false, TEXT("PIN_NOT_FOUND"), TEXT("setPinDefault requires target.pin."));
                 }
-                else if (!ReadJsonFieldAsString(SingleOp, TEXT("value"), Value))
+                else if (!ReadPcgEditValueAsString(SingleOp, TEXT("value"), Value))
                 {
                     SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("setPinDefault requires value."), TargetNodeId);
                 }
@@ -2547,7 +2776,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgMutateToolResult(const TSha
             {
                 SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("setProperty requires property."), TargetNodeId);
             }
-            else if (!ReadJsonFieldAsString(SingleOp, TEXT("value"), Value))
+            else if (!ReadPcgEditValueAsString(SingleOp, TEXT("value"), Value))
             {
                 SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("setProperty requires value."), TargetNodeId);
             }

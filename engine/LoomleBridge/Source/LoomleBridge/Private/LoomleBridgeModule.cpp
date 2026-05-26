@@ -1947,6 +1947,86 @@ bool IsPcgSelectorStruct(const UStruct* Struct)
 bool IsPcgGraphReferenceProperty(const FProperty* Property);
 bool ValidatePcgGraphAssetReferenceValue(const FString& Value, FString& OutError);
 
+bool TryNormalizePcgSelectorJsonString(const FString& Value, FString& OutSelectorText)
+{
+    OutSelectorText.Empty();
+
+    const FString TrimmedValue = Value.TrimStartAndEnd();
+    if (!TrimmedValue.StartsWith(TEXT("{")))
+    {
+        return false;
+    }
+
+    TSharedPtr<FJsonObject> SelectorObject;
+    const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(TrimmedValue);
+    if (!FJsonSerializer::Deserialize(Reader, SelectorObject) || !SelectorObject.IsValid())
+    {
+        return false;
+    }
+
+    FString Name;
+    FString Selection;
+    FString Domain;
+    FString TextValue;
+    SelectorObject->TryGetStringField(TEXT("name"), Name);
+    SelectorObject->TryGetStringField(TEXT("selection"), Selection);
+    SelectorObject->TryGetStringField(TEXT("domain"), Domain);
+    SelectorObject->TryGetStringField(TEXT("text"), TextValue);
+
+    TArray<FString> Accessors;
+    const TArray<TSharedPtr<FJsonValue>>* AccessorValues = nullptr;
+    if (SelectorObject->TryGetArrayField(TEXT("accessors"), AccessorValues) && AccessorValues != nullptr)
+    {
+        for (const TSharedPtr<FJsonValue>& AccessorValue : *AccessorValues)
+        {
+            FString Accessor;
+            if (AccessorValue.IsValid() && AccessorValue->TryGetString(Accessor) && !Accessor.IsEmpty())
+            {
+                Accessors.Add(Accessor);
+            }
+        }
+    }
+    else
+    {
+        FString AccessorPath;
+        if (SelectorObject->TryGetStringField(TEXT("accessorPath"), AccessorPath) && !AccessorPath.IsEmpty())
+        {
+            AccessorPath.ParseIntoArray(Accessors, TEXT("."), true);
+        }
+    }
+
+    if (Name.IsEmpty())
+    {
+        OutSelectorText = TextValue;
+        return !OutSelectorText.IsEmpty();
+    }
+
+    FString BaseName = Name;
+    if (Selection.Equals(TEXT("Property"), ESearchCase::IgnoreCase)
+        || Selection.Equals(TEXT("ExtraProperty"), ESearchCase::IgnoreCase))
+    {
+        if (!BaseName.StartsWith(TEXT("$")))
+        {
+            BaseName = TEXT("$") + BaseName;
+        }
+    }
+
+    if (!Domain.IsEmpty())
+    {
+        OutSelectorText += TEXT("@");
+        OutSelectorText += Domain;
+        OutSelectorText += TEXT(".");
+    }
+    OutSelectorText += BaseName;
+    for (const FString& Accessor : Accessors)
+    {
+        OutSelectorText += TEXT(".");
+        OutSelectorText += Accessor;
+    }
+
+    return !OutSelectorText.IsEmpty();
+}
+
 bool SetPcgSelectorStructValue(FStructProperty* StructProperty, void* ValuePtr, const FString& Value, FString& OutError)
 {
     if (StructProperty == nullptr || ValuePtr == nullptr || !IsPcgSelectorStruct(StructProperty->Struct))
@@ -1963,7 +2043,10 @@ bool SetPcgSelectorStructValue(FStructProperty* StructProperty, void* ValuePtr, 
         return false;
     }
 
-    const FString TrimmedValue = Value.TrimStartAndEnd();
+    FString NormalizedValue;
+    const FString TrimmedValue = TryNormalizePcgSelectorJsonString(Value, NormalizedValue)
+        ? NormalizedValue.TrimStartAndEnd()
+        : Value.TrimStartAndEnd();
     if (TrimmedValue.IsEmpty())
     {
         Selector->Reset();

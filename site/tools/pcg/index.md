@@ -49,6 +49,43 @@ graph structure, node settings, and graph user parameters. Keep those separate.
 Use `overview` first. Move to `pins`, `links`, or `defaults` only when planning
 connections or defaults.
 
+### Readback Limits
+
+`pcg.graph.inspect` is the first stop for topology, pins, links, defaults, and
+known `effectiveSettings`. It is not a guaranteed full Details-panel export for
+every PCG settings object.
+
+For ordinary node inspection, stay inside `pcg.graph.inspect` and
+`pcg.node.inspect` when the needed value appears in pins, defaults, or
+`effectiveSettings`. If a task depends on exact instance-level settings that are
+not surfaced yet, inspect the live settings object with `execute` and cite that
+fallback explicitly.
+
+`Spawn Actor` is a common fallback-prone case. Template actor/class identity,
+spawn options, data-layer settings, HLOD settings, and spawned actor property
+override mappings may require direct settings-object inspection until the PCG
+full-coverage readback work lands. Do not infer property override mappings from
+topology alone.
+
+### Selector Readback
+
+Selector-backed settings follow UE's `FPCGAttributePropertySelector` parsing.
+Compact strings are accepted for edits, but inspect output should be read from
+the structured selector fields. For example, `Position.Z` is read back as an
+attribute selector with `name: "Position"` and `accessors: ["Z"]`; `$Position`
+is the property-selector form.
+
+For `Filter By Attribute`, verify value filters through
+`effectiveSettings.targetAttribute`. It includes `text`, `selection`, `name`,
+`domain`, `attributeOrProperty`, `accessors`, `accessorPath`, `kind`, and
+`valid` so agents can distinguish full-vector targets from component targets
+such as `Position.Z`.
+
+Use `pcg.node.inspect` for detailed selector property discovery. Selector-backed
+settings include `valueKind: "pcgSelector"` and accept both compact UE strings
+and structured selector objects in `pcg.graph.edit` `setPinDefault` or
+`setProperty`.
+
 ## `pcg.palette`
 
 ### Parameters
