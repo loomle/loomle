@@ -48,6 +48,37 @@ Use `overview` first. Use `wiring` when planning connections. If a node has
 `hasNodeEditCapabilities: true`, inspect it with `blueprint.node.inspect` before
 editing local pins.
 
+In `wiring` view, pin-local `linkedTo` is a UE-style reciprocal peer list. For
+flow direction, prefer `links[*].directionNormalized` plus `fromNodeId` /
+`fromPin` and `toNodeId` / `toPin`; normalized links run output pin to input
+pin.
+
+### Readability Tiers
+
+Most nodes are one-shot readable through `blueprint.graph.inspect`: variables,
+function calls, branches, casts, math, and ordinary flow-control nodes expose
+their relevant pins and references directly.
+
+Some nodes need a second graph read. For a local `K2Node_MacroInstance`, inspect
+`k2Extensions.macro.macroGraph`, then call `blueprint.graph.list` on the same
+asset. If that graph exists on the same Blueprint, inspect it to read the macro
+body. If it does not, treat the node as an external or library macro and rely on
+the call surface exposed in the current graph.
+
+`K2Node_Tunnel` nodes are graph boundary/interface nodes for macro or composite
+graphs. They are not a hidden implementation body by themselves.
+
+`K2Node_AsyncAction` nodes expose callable pins and result pins, but their
+implementation is runtime or C++ backed; do not assume there is a Blueprint
+subgraph to inspect.
+
+Timeline nodes expose structural/template summary through
+`embeddedTemplate` / `effectiveSettings` where available, including timeline
+identity and high-level settings. Keyframe-level curve truth is not guaranteed
+by `blueprint.graph.inspect`; use `execute` to inspect Blueprint timeline
+templates or backing curve assets when a task depends on authored key times,
+values, interpolation, or curve samples.
+
 ## `blueprint.graph.edit`
 
 ### Parameters

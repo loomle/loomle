@@ -927,6 +927,156 @@ namespace LoomleBlueprintAdapterInternal
         return LoadObject<UClass>(nullptr, *Normalized);
     }
 
+    static bool ClassMatchesExpectedOwner(const UClass* ResolvedClass, const UClass* ExpectedClass)
+    {
+        if (ResolvedClass == nullptr || ExpectedClass == nullptr)
+        {
+            return false;
+        }
+
+        const UClass* ResolvedAuthoritative = ResolvedClass->GetAuthoritativeClass();
+        const UClass* ExpectedAuthoritative = ExpectedClass->GetAuthoritativeClass();
+        if (ResolvedAuthoritative == ExpectedAuthoritative)
+        {
+            return true;
+        }
+
+        return ResolvedAuthoritative->IsChildOf(ExpectedAuthoritative)
+            || ExpectedAuthoritative->IsChildOf(ResolvedAuthoritative);
+    }
+
+    static bool IsExistingFunctionGraphOverride(UEdGraph* FunctionGraph, UClass* OverrideFunctionClass)
+    {
+        if (FunctionGraph == nullptr || OverrideFunctionClass == nullptr)
+        {
+            return false;
+        }
+
+        TWeakObjectPtr<UK2Node_EditablePinBase> EntryNodeWeak;
+        TWeakObjectPtr<UK2Node_EditablePinBase> ResultNodeWeak;
+        FBlueprintEditorUtils::GetEntryAndResultNodes(FunctionGraph, EntryNodeWeak, ResultNodeWeak);
+        const UK2Node_FunctionEntry* EntryNode = Cast<UK2Node_FunctionEntry>(EntryNodeWeak.Get());
+        if (EntryNode == nullptr)
+        {
+            return false;
+        }
+
+        const UClass* ExistingSignatureClass = EntryNode->FunctionReference.GetMemberParentClass();
+        return ClassMatchesExpectedOwner(ExistingSignatureClass, OverrideFunctionClass);
+    }
+
+    static bool ResolveOverrideFunction(
+        UBlueprint* Blueprint,
+        const FString& FunctionName,
+        const FString& OwnerClassPath,
+        UClass*& OutOverrideFunctionClass,
+        UFunction*& OutOverrideFunction,
+        FString& OutError)
+    {
+        OutOverrideFunctionClass = nullptr;
+        OutOverrideFunction = nullptr;
+        OutError.Empty();
+
+        if (Blueprint == nullptr)
+        {
+            OutError = TEXT("Failed to resolve blueprint.");
+            return false;
+        }
+        if (FunctionName.IsEmpty())
+        {
+            OutError = TEXT("function override requires functionName.");
+            return false;
+        }
+
+        if (!OwnerClassPath.IsEmpty())
+        {
+            UClass* ExpectedOwnerClass = ResolveClass(OwnerClassPath);
+            if (ExpectedOwnerClass == nullptr)
+            {
+                OutError = FString::Printf(TEXT("Failed to resolve ownerClassPath: %s"), *OwnerClassPath);
+                return false;
+            }
+            const bool bOwnerIsInterface = ExpectedOwnerClass->HasAnyClassFlags(CLASS_Interface);
+            const bool bBlueprintCanSeeOwner =
+                (Blueprint->SkeletonGeneratedClass != nullptr && Blueprint->SkeletonGeneratedClass->IsChildOf(ExpectedOwnerClass))
+                || (Blueprint->GeneratedClass != nullptr && Blueprint->GeneratedClass->IsChildOf(ExpectedOwnerClass))
+                || (Blueprint->ParentClass != nullptr && Blueprint->ParentClass->IsChildOf(ExpectedOwnerClass))
+                || (bOwnerIsInterface && Blueprint->SkeletonGeneratedClass != nullptr && Blueprint->SkeletonGeneratedClass->ImplementsInterface(ExpectedOwnerClass))
+                || (bOwnerIsInterface && Blueprint->GeneratedClass != nullptr && Blueprint->GeneratedClass->ImplementsInterface(ExpectedOwnerClass))
+                || (bOwnerIsInterface && Blueprint->ParentClass != nullptr && Blueprint->ParentClass->ImplementsInterface(ExpectedOwnerClass));
+            if (!bBlueprintCanSeeOwner)
+            {
+                OutError = FString::Printf(TEXT("ownerClassPath is not inherited or implemented by this Blueprint: %s"), *OwnerClassPath);
+                return false;
+            }
+
+            UFunction* ExpectedFunction = ExpectedOwnerClass->FindFunctionByName(FName(*FunctionName));
+            if (ExpectedFunction == nullptr)
+            {
+                OutError = FString::Printf(TEXT("Failed to resolve inherited override function: %s"), *FunctionName);
+                return false;
+            }
+
+            OutOverrideFunctionClass = ExpectedFunction->GetOwnerClass()
+                ? ExpectedFunction->GetOwnerClass()->GetAuthoritativeClass()
+                : ExpectedOwnerClass->GetAuthoritativeClass();
+            OutOverrideFunction = ExpectedFunction;
+            return true;
+        }
+
+        UClass* ResolvedClass = FBlueprintEditorUtils::GetOverrideFunctionClass(Blueprint, FName(*FunctionName), &OutOverrideFunction);
+        if (OutOverrideFunction != nullptr && UEdGraphSchema_K2::CanKismetOverrideFunction(OutOverrideFunction))
+        {
+            OutOverrideFunctionClass = ResolvedClass;
+            return OutOverrideFunctionClass != nullptr;
+        }
+
+        UFunction* InterfaceFunction = FBlueprintEditorUtils::GetInterfaceFunction(Blueprint, FName(*FunctionName));
+        if (InterfaceFunction != nullptr && UEdGraphSchema_K2::CanKismetOverrideFunction(InterfaceFunction))
+        {
+            OutOverrideFunction = InterfaceFunction;
+            OutOverrideFunctionClass = InterfaceFunction->GetOwnerClass()
+                ? InterfaceFunction->GetOwnerClass()->GetAuthoritativeClass()
+                : nullptr;
+            return OutOverrideFunctionClass != nullptr;
+        }
+
+        UClass* Iter = nullptr;
+        if (Blueprint->SkeletonGeneratedClass != nullptr)
+        {
+            Iter = Blueprint->SkeletonGeneratedClass->GetSuperClass();
+        }
+        else if (Blueprint->ParentClass != nullptr)
+        {
+            Iter = Blueprint->ParentClass.Get();
+        }
+        while (Iter != nullptr)
+        {
+            if (UFunction* ParentFunction = Iter->FindFunctionByName(FName(*FunctionName)))
+            {
+                if (UEdGraphSchema_K2::CanKismetOverrideFunction(ParentFunction))
+                {
+                    OutOverrideFunction = ParentFunction;
+                    OutOverrideFunctionClass = ParentFunction->GetOwnerClass()
+                        ? ParentFunction->GetOwnerClass()->GetAuthoritativeClass()
+                        : Iter->GetAuthoritativeClass();
+                    return OutOverrideFunctionClass != nullptr;
+                }
+            }
+            Iter = Iter->GetSuperClass();
+        }
+
+        if (OutOverrideFunction == nullptr)
+        {
+            OutError = FString::Printf(TEXT("Failed to resolve inherited override function: %s"), *FunctionName);
+        }
+        else
+        {
+            OutError = FString::Printf(TEXT("Function is not Blueprint-overridable: %s"), *FunctionName);
+        }
+        return false;
+    }
+
     static FString NormalizeAssetObjectPath(const FString& PathOrPackage)
     {
         if (PathOrPackage.IsEmpty() || PathOrPackage.Contains(TEXT(".")) || PathOrPackage.StartsWith(TEXT("/Script/")))
@@ -2897,14 +3047,16 @@ namespace LoomleBlueprintAdapterInternal
         TArray<TSharedPtr<FJsonValue>> Links;
         TArray<TSharedPtr<FJsonValue>> SemanticLinks;
         TSet<FString> SeenLinks;
-        auto AddLinkedPin = [&Links, &SemanticLinks, &SeenLinks](const UEdGraphPin* LinkedPin)
+        auto AddLinkedPin = [Pin, &Links, &SemanticLinks, &SeenLinks](const UEdGraphPin* LinkedPin)
         {
             if (!LinkedPin)
             {
                 return;
             }
 
+            const UEdGraphNode* OwningNode = Pin ? Pin->GetOwningNodeUnchecked() : nullptr;
             const UEdGraphNode* LinkedNode = LinkedPin->GetOwningNodeUnchecked();
+            const FString OwningNodeGuid = OwningNode ? OwningNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens) : TEXT("");
             const FString LinkedNodeGuid = LinkedNode ? LinkedNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens) : TEXT("");
             const FString LinkKey = LinkedNodeGuid + TEXT("|") + LinkedPin->PinName.ToString();
             if (SeenLinks.Contains(LinkKey))
@@ -2915,6 +3067,7 @@ namespace LoomleBlueprintAdapterInternal
 
             TSharedPtr<FJsonObject> LinkObject = MakeShared<FJsonObject>();
             LinkObject->SetStringField(TEXT("pin"), LinkedPin->PinName.ToString());
+            LinkObject->SetStringField(TEXT("direction"), PinDirectionToString(LinkedPin->Direction));
 
             if (LinkedNode)
             {
@@ -2926,8 +3079,41 @@ namespace LoomleBlueprintAdapterInternal
             Links.Add(MakeShared<FJsonValueObject>(LinkObject));
 
             TSharedPtr<FJsonObject> SemanticLinkObject = MakeShared<FJsonObject>();
-            SemanticLinkObject->SetStringField(TEXT("toPin"), LinkedPin->PinName.ToString());
-            SemanticLinkObject->SetStringField(TEXT("toNodeId"), LinkedNodeGuid);
+            SemanticLinkObject->SetStringField(TEXT("peerPin"), LinkedPin->PinName.ToString());
+            SemanticLinkObject->SetStringField(TEXT("peerNodeId"), LinkedNodeGuid);
+            SemanticLinkObject->SetStringField(TEXT("peerPinDirection"), PinDirectionToString(LinkedPin->Direction));
+
+            const UEdGraphPin* FromPin = Pin;
+            const UEdGraphNode* FromNode = OwningNode;
+            FString FromNodeGuid = OwningNodeGuid;
+            const UEdGraphPin* ToPin = LinkedPin;
+            const UEdGraphNode* ToNode = LinkedNode;
+            FString ToNodeGuid = LinkedNodeGuid;
+            bool bDirectionNormalized = false;
+            if (Pin && Pin->Direction == EGPD_Output && LinkedPin->Direction == EGPD_Input)
+            {
+                bDirectionNormalized = true;
+            }
+            else if (Pin && Pin->Direction == EGPD_Input && LinkedPin->Direction == EGPD_Output)
+            {
+                FromPin = LinkedPin;
+                FromNode = LinkedNode;
+                FromNodeGuid = LinkedNodeGuid;
+                ToPin = Pin;
+                ToNode = OwningNode;
+                ToNodeGuid = OwningNodeGuid;
+                bDirectionNormalized = true;
+            }
+
+            SemanticLinkObject->SetBoolField(TEXT("directionNormalized"), bDirectionNormalized);
+            SemanticLinkObject->SetStringField(TEXT("fromPin"), FromPin ? FromPin->PinName.ToString() : TEXT(""));
+            SemanticLinkObject->SetStringField(TEXT("fromNodeId"), FromNodeGuid);
+            SemanticLinkObject->SetStringField(TEXT("fromNodeName"), FromNode ? FromNode->GetName() : TEXT(""));
+            SemanticLinkObject->SetStringField(TEXT("fromPinDirection"), FromPin ? PinDirectionToString(FromPin->Direction) : TEXT("unknown"));
+            SemanticLinkObject->SetStringField(TEXT("toPin"), ToPin ? ToPin->PinName.ToString() : TEXT(""));
+            SemanticLinkObject->SetStringField(TEXT("toNodeId"), ToNodeGuid);
+            SemanticLinkObject->SetStringField(TEXT("toNodeName"), ToNode ? ToNode->GetName() : TEXT(""));
+            SemanticLinkObject->SetStringField(TEXT("toPinDirection"), ToPin ? PinDirectionToString(ToPin->Direction) : TEXT("unknown"));
             SemanticLinks.Add(MakeShared<FJsonValueObject>(SemanticLinkObject));
         };
 
@@ -4276,6 +4462,7 @@ bool FLoomleBlueprintAdapter::ValidateMemberEditOperation(const FString& MemberK
             OperationLower,
             {
                 TEXT("create"),
+                TEXT("override"),
                 TEXT("rename"),
                 TEXT("delete"),
                 TEXT("updatesignature"),
@@ -4508,15 +4695,47 @@ bool FLoomleBlueprintAdapter::ValidateMemberEditRequest(
             : TEXT("dispatcherName");
         FString GraphName;
         LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {NameFieldForMessage, TEXT("name")}, GraphName);
-        if (OperationLower.Equals(TEXT("create")))
+        if (OperationLower.Equals(TEXT("create")) || OperationLower.Equals(TEXT("override")))
         {
             if (GraphName.IsEmpty())
             {
-                OutError = FString::Printf(TEXT("%s create requires %s."), *MemberKindLower, NameFieldForMessage);
+                if (OperationLower.Equals(TEXT("override")))
+                {
+                    OutError = TEXT("function override requires functionName.");
+                }
+                else
+                {
+                    OutError = FString::Printf(TEXT("%s create requires %s."), *MemberKindLower, NameFieldForMessage);
+                }
                 return false;
             }
             if (MemberKindLower.Equals(TEXT("dispatcher"), ESearchCase::CaseSensitive))
             {
+                return true;
+            }
+            if (MemberKindLower.Equals(TEXT("function"), ESearchCase::CaseSensitive) && OperationLower.Equals(TEXT("override")))
+            {
+                UFunction* OverrideFunction = nullptr;
+                UClass* OverrideFunctionClass = nullptr;
+                FString OwnerClassPath;
+                LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("ownerClassPath"), TEXT("classPath")}, OwnerClassPath);
+                if (!LoomleBlueprintAdapterInternal::ResolveOverrideFunction(Blueprint, GraphName, OwnerClassPath, OverrideFunctionClass, OverrideFunction, OutError))
+                {
+                    return false;
+                }
+                if (!UEdGraphSchema_K2::CanKismetOverrideFunction(OverrideFunction))
+                {
+                    OutError = FString::Printf(TEXT("Function is not Blueprint-overridable: %s"), *GraphName);
+                    return false;
+                }
+                if (UEdGraph* ExistingGraph = LoomleBlueprintAdapterInternal::FindGraphByName(Blueprint, GraphName))
+                {
+                    if (!LoomleBlueprintAdapterInternal::IsExistingFunctionGraphOverride(ExistingGraph, OverrideFunctionClass))
+                    {
+                        OutError = TEXT("Graph already exists but does not represent the requested override.");
+                        return false;
+                    }
+                }
                 return true;
             }
         }
@@ -5205,6 +5424,14 @@ bool FLoomleBlueprintAdapter::EditFunctionMember(const FString& BlueprintAssetPa
             return false;
         }
         Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    }
+    else if (OperationLower.Equals(TEXT("override")))
+    {
+        FString FunctionName;
+        FString OwnerClassPath;
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("functionName"), TEXT("name")}, FunctionName);
+        LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("ownerClassPath"), TEXT("classPath")}, OwnerClassPath);
+        return AddFunctionOverrideGraph(BlueprintAssetPath, FunctionName, OwnerClassPath, OutError);
     }
 
     FString FunctionName;
@@ -7610,6 +7837,65 @@ bool FLoomleBlueprintAdapter::AddFunctionGraph(const FString& AssetPath, const F
     }
 
     FBlueprintEditorUtils::AddFunctionGraph(Blueprint, NewGraph, true, static_cast<UClass*>(nullptr));
+    Blueprint->MarkPackageDirty();
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::AddFunctionOverrideGraph(const FString& AssetPath, const FString& FunctionName, const FString& OwnerClassPath, FString& OutError)
+{
+    OutError.Empty();
+
+    if (FunctionName.IsEmpty())
+    {
+        OutError = TEXT("function override requires functionName.");
+        return false;
+    }
+
+    UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(AssetPath);
+    if (Blueprint == nullptr)
+    {
+        OutError = TEXT("Failed to resolve blueprint.");
+        return false;
+    }
+
+    UFunction* OverrideFunction = nullptr;
+    UClass* OverrideFunctionClass = nullptr;
+    if (!LoomleBlueprintAdapterInternal::ResolveOverrideFunction(Blueprint, FunctionName, OwnerClassPath, OverrideFunctionClass, OverrideFunction, OutError))
+    {
+        return false;
+    }
+
+    if (!UEdGraphSchema_K2::CanKismetOverrideFunction(OverrideFunction))
+    {
+        OutError = FString::Printf(TEXT("Function is not Blueprint-overridable: %s"), *FunctionName);
+        return false;
+    }
+
+    if (UEdGraph* ExistingGraph = LoomleBlueprintAdapterInternal::FindGraphByName(Blueprint, FunctionName))
+    {
+        if (LoomleBlueprintAdapterInternal::IsExistingFunctionGraphOverride(ExistingGraph, OverrideFunctionClass))
+        {
+            return true;
+        }
+
+        OutError = TEXT("Graph already exists but does not represent the requested override.");
+        return false;
+    }
+
+    Blueprint->Modify();
+    UEdGraph* NewGraph = FBlueprintEditorUtils::CreateNewGraph(
+        Blueprint,
+        *FunctionName,
+        UEdGraph::StaticClass(),
+        UEdGraphSchema_K2::StaticClass());
+    if (NewGraph == nullptr)
+    {
+        OutError = TEXT("Failed to create override function graph.");
+        return false;
+    }
+
+    FBlueprintEditorUtils::AddFunctionGraph(Blueprint, NewGraph, false, OverrideFunctionClass);
+    NewGraph->Modify();
     Blueprint->MarkPackageDirty();
     return true;
 }

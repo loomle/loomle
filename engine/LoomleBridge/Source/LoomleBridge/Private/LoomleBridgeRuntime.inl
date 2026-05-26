@@ -4524,6 +4524,29 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildExecutePythonToolResult(const 
     if (Mode.Equals(TEXT("exec")))
     {
         WrappedCode += TEXT("import signal, platform\n");
+        WrappedCode += TEXT("try:\n");
+        WrappedCode += TEXT("    import unreal as _loomle_unreal\n");
+        WrappedCode += TEXT("    def _loomle_validate_asset_load_path(_loomle_path):\n");
+        WrappedCode += TEXT("        if isinstance(_loomle_path, str) and _loomle_path.startswith('/') and '//' in _loomle_path:\n");
+        WrappedCode += TEXT("            raise ValueError('LOOMLE_INVALID_PACKAGE_PATH: asset package paths must not contain double slashes: ' + _loomle_path)\n");
+        WrappedCode += TEXT("        return _loomle_path\n");
+        WrappedCode += TEXT("    if hasattr(_loomle_unreal, 'load_asset'):\n");
+        WrappedCode += TEXT("        _loomle_original_load_asset = _loomle_unreal.load_asset\n");
+        WrappedCode += TEXT("        def _loomle_safe_load_asset(_loomle_path, *args, **kwargs):\n");
+        WrappedCode += TEXT("            _loomle_validate_asset_load_path(_loomle_path)\n");
+        WrappedCode += TEXT("            return _loomle_original_load_asset(_loomle_path, *args, **kwargs)\n");
+        WrappedCode += TEXT("        _loomle_unreal.load_asset = _loomle_safe_load_asset\n");
+        WrappedCode += TEXT("    if hasattr(_loomle_unreal, 'EditorAssetLibrary') and hasattr(_loomle_unreal.EditorAssetLibrary, 'load_asset'):\n");
+        WrappedCode += TEXT("        _loomle_original_editor_load_asset = _loomle_unreal.EditorAssetLibrary.load_asset\n");
+        WrappedCode += TEXT("        def _loomle_safe_editor_load_asset(_loomle_path, *args, **kwargs):\n");
+        WrappedCode += TEXT("            _loomle_validate_asset_load_path(_loomle_path)\n");
+        WrappedCode += TEXT("            return _loomle_original_editor_load_asset(_loomle_path, *args, **kwargs)\n");
+        WrappedCode += TEXT("        try:\n");
+        WrappedCode += TEXT("            _loomle_unreal.EditorAssetLibrary.load_asset = staticmethod(_loomle_safe_editor_load_asset)\n");
+        WrappedCode += TEXT("        except Exception:\n");
+        WrappedCode += TEXT("            pass\n");
+        WrappedCode += TEXT("except Exception:\n");
+        WrappedCode += TEXT("    pass\n");
         WrappedCode += FString::Printf(TEXT("_LOOMLE_TIMEOUT = %d\n"), ExecuteTimeoutSeconds);
         WrappedCode += TEXT("def _loomle_timeout_handler(signum, frame):\n");
         WrappedCode += TEXT("    raise TimeoutError(f'execute exceeded {_LOOMLE_TIMEOUT}s timeout')\n");

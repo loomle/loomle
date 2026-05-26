@@ -18,9 +18,12 @@ interface contract.
 ## Current Documents
 
 - `BLUEPRINT_INTERFACE_DESIGN.md`: current Blueprint interface design.
+- `blueprint/member-edit.md`: Blueprint member edit operation design.
 - `blueprint/palette.md`: Blueprint palette and `addFromPalette` design.
 - `blueprint/graph-edit.md`: Blueprint graph edit command design.
 - `blueprint/schema-inspect.md`: Blueprint second-level schema inspection design.
+- `pcg-graph-inspect.md`: PCG graph inspect readback boundary and fallback model.
+- `runtime-execute.md`: Runtime `execute` boundary, asset-load guard, and recovery model.
 
 ## Planned Documents
 

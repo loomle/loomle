@@ -5788,19 +5788,21 @@ fn call_blueprint_graph_recipe_validate(args: &rmcp::model::JsonObject) -> CallT
         "file" => {
             if let Some(path) = recipe_source.get("path").and_then(|value| value.as_str()) {
                 match fs::read_to_string(path) {
-                    Ok(raw) => match serde_json::from_str::<serde_json::Value>(strip_utf8_bom(&raw)) {
-                        Ok(recipe) => validate_recipe_shape(
-                            &recipe,
-                            "file",
-                            serde_json::json!({"kind":"file","path":path}),
-                        ),
-                        Err(error) => CallToolResult::structured_error(serde_json::json!({
-                            "code": "RECIPE_PARSE_FAILED",
-                            "message": format!("Failed to parse recipe JSON: {error}"),
-                            "suggestion": "Ensure the file contains valid JSON.",
-                            "retryable": false
-                        })),
-                    },
+                    Ok(raw) => {
+                        match serde_json::from_str::<serde_json::Value>(strip_utf8_bom(&raw)) {
+                            Ok(recipe) => validate_recipe_shape(
+                                &recipe,
+                                "file",
+                                serde_json::json!({"kind":"file","path":path}),
+                            ),
+                            Err(error) => CallToolResult::structured_error(serde_json::json!({
+                                "code": "RECIPE_PARSE_FAILED",
+                                "message": format!("Failed to parse recipe JSON: {error}"),
+                                "suggestion": "Ensure the file contains valid JSON.",
+                                "retryable": false
+                            })),
+                        }
+                    }
                     Err(error) => CallToolResult::structured_error(serde_json::json!({
                         "code": "RECIPE_READ_FAILED",
                         "message": format!("Failed to read recipe file: {error}"),
@@ -6409,7 +6411,7 @@ fn blueprint_graph_inspect_schema() -> rmcp::model::JsonObject {
         "properties":{
             "assetPath":{"type":"string","minLength":1},
             "graph": graph_ref_schema(),
-            "view":{"type":"string","enum":["overview","wiring"],"default":"overview","description":"Task-oriented result view. overview omits pins and edges and marks nodes that should be inspected with blueprint.node.inspect; wiring adds compact pins and link refs for connection planning. Use blueprint.node.inspect for pin defaults and node-local capabilities."},
+            "view":{"type":"string","enum":["overview","wiring"],"default":"overview","description":"Task-oriented result view. overview omits pins and edges and marks nodes that should be inspected with blueprint.node.inspect; wiring adds compact pins and link refs for connection planning. Pin-local linkedTo is reciprocal UE peer data; links carries normalized from/output -> to/input fields when possible. Use blueprint.node.inspect for pin defaults and node-local capabilities."},
             "filter":{
                 "type":"object",
                 "properties":{
@@ -8120,7 +8122,12 @@ fn project_record_to_project(
     let endpoint_available = runtime
         .as_ref()
         .is_some_and(|_| runtime_endpoint_available(&endpoint));
-    let status = if endpoint_available { "online" } else { "offline" }.to_string();
+    let status = if endpoint_available {
+        "online"
+    } else {
+        "offline"
+    }
+    .to_string();
     let reason = if endpoint_available {
         None
     } else {
@@ -8191,7 +8198,12 @@ fn runtime_record_to_project(record: RuntimeRecord) -> RuntimeProject {
         Environment::for_project_root(project_root.clone()).runtime_endpoint_path
     });
     let endpoint_available = runtime_endpoint_available(&endpoint);
-    let status = if endpoint_available { "online" } else { "offline" }.to_string();
+    let status = if endpoint_available {
+        "online"
+    } else {
+        "offline"
+    }
+    .to_string();
     let reason = if endpoint_available {
         None
     } else {
@@ -9875,9 +9887,9 @@ fn print_usage_stderr() {
 #[cfg(test)]
 mod tests {
     use super::{
-        acquire_file_lock, all_declared_tools, asset_create_schema, asset_edit_schema,
-        asset_inspect_schema, blueprint_graph_inspect_schema, blueprint_graph_layout_schema,
-        blueprint_node_edit_schema, blueprint_node_inspect_schema,
+        acquire_file_lock, active_install_state_from_json, all_declared_tools, asset_create_schema,
+        asset_edit_schema, asset_inspect_schema, blueprint_graph_inspect_schema,
+        blueprint_graph_layout_schema, blueprint_node_edit_schema, blueprint_node_inspect_schema,
         build_blueprint_graph_layout_plan, build_installer_args, call_schema_inspect,
         call_setup_configure, classify_loomle_mcp_entry, compare_semver,
         compile_blueprint_refactor_request, current_platform_client_binary_name,
@@ -9888,11 +9900,11 @@ mod tests {
         pcg_palette_schema, pcg_parameter_edit_schema, pcg_query_schema,
         play_participant_wait_conditions_met, play_schema,
         play_wait_participant_conditions_from_args, read_cached_latest_version,
-        read_file_lock_metadata, read_plugin_version, runtime_declared_tools,
-        setup_recommendation, shape_blueprint_graph_inspect_result, shape_pcg_compile_result,
+        read_file_lock_metadata, read_plugin_version, runtime_declared_tools, setup_recommendation,
+        shape_blueprint_graph_inspect_result, shape_pcg_compile_result,
         shape_pcg_graph_inspect_result, shape_pcg_node_inspect_result,
-        shape_widget_tree_inspect_payload, active_install_state_from_json,
-        switch_to_installed_version, sync_project_support_to_version, sync_registered_project_support,
+        shape_widget_tree_inspect_payload, switch_to_installed_version,
+        sync_project_support_to_version, sync_registered_project_support,
         translate_blueprint_graph_edit_args, translate_blueprint_graph_inspect_args,
         translate_blueprint_node_edit_args, translate_blueprint_node_inspect_args,
         translate_material_graph_edit_args, translate_material_graph_inspect_args,
@@ -10270,7 +10282,8 @@ mod tests {
         );
         let active = fs::read_to_string(root.join("install").join("active.json")).expect("active");
         assert!(active.contains("\"activeVersion\": \"0.5.7\""));
-        let active_bytes = fs::read(root.join("install").join("active.json")).expect("active bytes");
+        let active_bytes =
+            fs::read(root.join("install").join("active.json")).expect("active bytes");
         assert_ne!(&active_bytes[..3], &[0xEF, 0xBB, 0xBF]);
         let _ = fs::remove_dir_all(root);
     }
@@ -10324,8 +10337,11 @@ mod tests {
             super::unix_timestamp_secs()
         ));
         fs::create_dir_all(&root).expect("plugin dir");
-        fs::write(root.join("LoomleBridge.uplugin"), "\u{feff}{\"VersionName\":\"0.5.36\"}\n")
-            .expect("uplugin");
+        fs::write(
+            root.join("LoomleBridge.uplugin"),
+            "\u{feff}{\"VersionName\":\"0.5.36\"}\n",
+        )
+        .expect("uplugin");
 
         assert_eq!(read_plugin_version(&root).as_deref(), Some("0.5.36"));
         let _ = fs::remove_dir_all(root);

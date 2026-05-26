@@ -69,6 +69,7 @@ public:
     static bool SetNodeComment(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, const FString& Comment, FString& OutError);
     static bool SetNodeEnabled(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, bool bEnabled, FString& OutError);
     static bool AddFunctionGraph(const FString& AssetPath, const FString& GraphName, FString& OutError);
+    static bool AddFunctionOverrideGraph(const FString& AssetPath, const FString& FunctionName, const FString& OwnerClassPath, FString& OutError);
     static bool AddMacroGraph(const FString& AssetPath, const FString& GraphName, FString& OutError);
     static bool RenameGraph(const FString& AssetPath, const FString& OldGraphName, const FString& NewGraphName, FString& OutError);
     static bool DeleteGraph(const FString& AssetPath, const FString& GraphName, FString& OutError);

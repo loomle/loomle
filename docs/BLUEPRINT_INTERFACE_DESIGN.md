@@ -526,6 +526,11 @@ Notes:
 - `type` should be structured, not a single display string.
 - `linkedTo` should only be returned when callers request connection detail.
   Otherwise top-level `semanticSnapshot.edges` is the connection surface.
+- `linkedTo` mirrors UE's reciprocal `UEdGraphPin::LinkedTo` storage. It is a
+  peer list, not a flow-direction edge list. Direction-oriented responses should
+  use `links[*].directionNormalized`, `fromNodeId` / `fromPin`, and
+  `toNodeId` / `toPin`; when a link is between an output and an input pin,
+  `from` must be the output pin and `to` must be the input pin.
 
 ### PinType
 
@@ -862,13 +867,22 @@ Recommended views:
 
 - `overview` returns graph metadata and compact node summaries. This is the
   default and omits pins, pin defaults, comments, and links.
-- `pins` adds pruned pin data for node-local edit preparation.
-- `links` adds pins, top-level `semanticSnapshot.edges`, and pin-local link
-  arrays for connection-oriented edits.
-- `defaults` adds pin defaults and link refs for `setPinDefault` planning,
-  because linked pins cannot accept defaults directly.
-- `full` preserves the legacy node payload shape, pin defaults, link refs, and
-  comment metadata for debugging.
+- `wiring` adds compact pins, top-level `semanticSnapshot.edges`, and pin-local
+  `linkedTo` / `links` arrays for connection-oriented edits.
+
+Readability notes:
+
+- Local `K2Node_MacroInstance` nodes are two-hop readable when their macro graph
+  exists on the same Blueprint asset. The caller should use the macro extension
+  fields and then inspect the matching graph from `blueprint.graph.list`.
+- External macro instances expose their call surface in the current graph, but
+  their body is not same-asset readback.
+- `K2Node_Tunnel` nodes are graph boundary/interface nodes, not hidden bodies.
+- `K2Node_AsyncAction` nodes expose their Blueprint-callable interface while
+  the implementation remains runtime or C++ backed.
+- `UK2Node_Timeline` exposes template-level summary where available, but
+  authored curve keyframes and interpolation remain a separate deeper readback
+  concern until Timeline curve serialization is added.
 
 Recommended filters:
 

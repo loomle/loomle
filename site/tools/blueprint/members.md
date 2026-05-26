@@ -49,6 +49,11 @@ to member tools or graph tools.
 Call `schema.inspect` with `domain: blueprint`, `tool: blueprint.member.edit`,
 and `operation: <memberKind>.<operation>` before editing.
 
+For inherited native Blueprint events/functions, use `memberKind: "function"`
+with `operation: "override"` instead of `function.create`. Override graphs are
+created from UE's inherited function signature so native dispatch reaches the
+Blueprint implementation.
+
 ## Boundary
 
 Use member tools for Blueprint-owned definitions. Use graph tools only for graph

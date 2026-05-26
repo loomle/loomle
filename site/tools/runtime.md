@@ -41,6 +41,12 @@ Runs Python inside the Unreal Editor process.
 Use public semantic tools when available. Use `execute` for one-off editor
 operations, investigation, or gaps that do not yet have a dedicated tool.
 
+In `exec` mode, Loomle preflights common asset-load helper calls for package
+paths that start with `/` and contain `//`. Those paths can hit a UE fatal
+package-name assertion, so Loomle raises `LOOMLE_INVALID_PACKAGE_PATH` before
+calling `unreal.load_asset` or `unreal.EditorAssetLibrary.load_asset` when the
+Python APIs can be wrapped.
+
 ## `jobs`
 
 Inspects long-running job state, results, and logs.

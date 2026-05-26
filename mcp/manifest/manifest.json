@@ -1679,6 +1679,101 @@
             ]
           },
           {
+            "name": "function.override",
+            "category": "function",
+            "summary": "Create or confirm an inherited Blueprint override function graph.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "assetPath": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "memberKind": {
+                  "const": "function"
+                },
+                "operation": {
+                  "const": "override"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "functionName": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "ownerClassPath": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "classPath": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "anyOf": [
+                    {
+                      "required": [
+                        "functionName"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "name"
+                      ]
+                    }
+                  ],
+                  "additionalProperties": false
+                },
+                "dryRun": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "returnDiff": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "returnDiagnostics": {
+                  "type": "boolean",
+                  "default": true
+                },
+                "expectedRevision": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "assetPath",
+                "memberKind",
+                "operation",
+                "args"
+              ]
+            },
+            "examples": [
+              {
+                "assetPath": "/Game/BP_Test",
+                "memberKind": "function",
+                "operation": "override",
+                "args": {
+                  "functionName": "GetBodyMesh",
+                  "ownerClassPath": "/Script/MyModule.MyAvatarBase"
+                }
+              }
+            ],
+            "errors": [
+              "INVALID_ARGUMENT",
+              "ASSET_NOT_FOUND",
+              "MEMBER_EDIT_FAILED"
+            ],
+            "notes": [
+              "Creates an inherited Blueprint override graph using UE's override function class lookup. Do not use function.create for inherited BlueprintNativeEvent overrides."
+            ]
+          },
+          {
             "name": "function.rename",
             "category": "function",
             "summary": "Rename one Blueprint function.",

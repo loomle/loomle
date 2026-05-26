@@ -621,6 +621,7 @@ fn blueprint_member_edit_operation_names() -> Vec<&'static str> {
         "variable.setDefault",
         "variable.delete",
         "function.create",
+        "function.override",
         "function.rename",
         "function.setFlags",
         "function.delete",
@@ -677,6 +678,9 @@ fn member_edit_operation_summary(member_kind: &str, operation: &str) -> &'static
         ("variable", "setDefault") => "Set one Blueprint variable default value.",
         ("variable", "delete") => "Delete one Blueprint variable.",
         ("function", "create") => "Create one Blueprint function graph and signature.",
+        ("function", "override") => {
+            "Create or confirm an inherited Blueprint override function graph."
+        }
         ("function", "rename") => "Rename one Blueprint function.",
         ("function", "setFlags") => "Update Blueprint function flags and metadata.",
         ("function", "delete") => "Delete one Blueprint function.",
@@ -742,7 +746,7 @@ fn blueprint_member_edit_operation_schema(
         "memberKind": member_kind,
         "category": member_kind,
         "source": {
-            "document": "docs/BLUEPRINT_INTERFACE_DESIGN.md",
+            "document": "docs/blueprint/member-edit.md",
             "section": format!("{member_kind}.{operation}")
         }
     });
@@ -799,6 +803,17 @@ fn member_edit_args_schema(member_kind: &str, operation: &str) -> serde_json::Va
         }),
         ("variable", "update") => object_with_required_name("variableName"),
         ("function", "create") => function_like_create_schema("functionName"),
+        ("function", "override") => serde_json::json!({
+            "type":"object",
+            "properties":{
+                "functionName":{"type":"string","minLength":1},
+                "name":{"type":"string","minLength":1},
+                "ownerClassPath":{"type":"string","minLength":1},
+                "classPath":{"type":"string","minLength":1}
+            },
+            "anyOf":[{"required":["functionName"]},{"required":["name"]}],
+            "additionalProperties":false
+        }),
         ("function", "rename") => name_schema("functionName"),
         ("function", "setFlags") => object_with_required_name("functionName"),
         ("function", "delete") => single_name_schema("functionName"),
@@ -928,6 +943,9 @@ fn member_edit_example(member_kind: &str, operation: &str) -> serde_json::Value 
     match (member_kind, operation) {
         ("variable", "create") => {
             serde_json::json!({"assetPath":"/Game/BP_Test","memberKind":"variable","operation":"create","args":{"variableName":"bIsReady","type":{"category":"bool"},"defaultValue":"false"}})
+        }
+        ("function", "override") => {
+            serde_json::json!({"assetPath":"/Game/BP_Test","memberKind":"function","operation":"override","args":{"functionName":"GetBodyMesh","ownerClassPath":"/Script/MyModule.MyAvatarBase"}})
         }
         ("event", "addInput") => {
             serde_json::json!({"assetPath":"/Game/BP_Test","memberKind":"event","operation":"addInput","args":{"name":"OnReady","inputName":"Count","type":{"category":"int"}}})
