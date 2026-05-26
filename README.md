@@ -123,6 +123,10 @@ The public MCP tools are grouped by UE domain:
 
 API reference: https://loomle.ai/tools/
 
+## License
+
+LOOMLE is open source under the MIT License. See [LICENSE](LICENSE).
+
 ## Search Keywords
 
 LOOMLE is an Unreal Engine MCP server for AI agents, Claude Code, Codex,
