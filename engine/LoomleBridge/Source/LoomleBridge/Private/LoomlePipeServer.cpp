@@ -1,3 +1,5 @@
+// Copyright 2026 Loomle contributors.
+
 #include "LoomlePipeServer.h"
 
 #include "Async/Async.h"

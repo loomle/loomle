@@ -1,3 +1,5 @@
+// Copyright 2026 Loomle contributors.
+
 #include "LoomleWidgetAdapter.h"
 
 #include "Blueprint/WidgetBlueprintLibrary.h"

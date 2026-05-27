@@ -461,6 +461,25 @@ Before Fab submission:
    installer.
 6. Verify the package with UE `BuildPlugin` for each supported engine/platform.
 
+## Fab Technical Review Rules
+
+The first Fab technical review made the package rules more concrete:
+
+- Do not ship an empty `Content` directory when `CanContainContent` is false.
+  Fab treats an empty content folder as unused content and expects real content
+  to live under a named pack folder.
+- `FilterPlugin.ini` must explicitly include every custom non-standard file or
+  folder that should be distributed. Loomle includes `/Resources/MCP/...` and
+  `/README.md`.
+- `.uplugin` must include the intended `EngineVersion`.
+- Every module entry must include a platform allow/deny list that matches the
+  listing's supported target platforms.
+- Source files must carry a copyright notice with publisher name and year.
+- Any enabled Unreal plugin dependency that is visible in `.uplugin` must be
+  either removed if unused or mentioned in the product page/technical details.
+  Loomle uses `PythonScriptPlugin` for the editor-side `execute` runtime bridge
+  and `PCG` for PCG graph tooling, so both should remain documented.
+
 ## Open Risks
 
 - Fab may require additional review clarification for Python source and

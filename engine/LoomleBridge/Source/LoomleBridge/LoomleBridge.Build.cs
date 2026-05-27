@@ -1,3 +1,5 @@
+// Copyright 2026 Loomle contributors.
+
 using UnrealBuildTool;
 
 public class LoomleBridge : ModuleRules

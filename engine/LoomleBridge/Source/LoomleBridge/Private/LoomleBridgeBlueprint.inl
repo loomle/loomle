@@ -1,3 +1,5 @@
+// Copyright 2026 Loomle contributors.
+
 // Blueprint-domain tool adapters.
 namespace
 {

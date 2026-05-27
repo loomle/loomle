@@ -1,3 +1,5 @@
+// Copyright 2026 Loomle contributors.
+
 #include "LoomleBlueprintAdapter.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"

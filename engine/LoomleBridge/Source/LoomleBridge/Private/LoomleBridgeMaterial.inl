@@ -1,3 +1,5 @@
+// Copyright 2026 Loomle contributors.
+
 // Material-domain tool adapters.
 namespace
 {

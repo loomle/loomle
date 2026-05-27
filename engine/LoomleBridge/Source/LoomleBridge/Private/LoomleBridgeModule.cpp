@@ -1,3 +1,5 @@
+// Copyright 2026 Loomle contributors.
+
 #include "LoomleBridgeModule.h"
 
 #include "Async/Async.h"

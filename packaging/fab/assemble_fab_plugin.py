@@ -66,24 +66,28 @@ def ensure_filter_plugin(plugin_root: Path) -> None:
         text = filter_path.read_text(encoding="utf-8")
     else:
         text = "[FilterPlugin]\n"
-    line = "/Resources/MCP/...\n"
-    if line.strip() not in {entry.strip() for entry in text.splitlines()}:
-        if not text.endswith("\n"):
-            text += "\n"
-        text += line
+    required_lines = [
+        "/Resources/MCP/...",
+        "/README.md",
+    ]
+    existing = {entry.strip() for entry in text.splitlines()}
+    for line in required_lines:
+        if line not in existing:
+            if not text.endswith("\n"):
+                text += "\n"
+            text += f"{line}\n"
         filter_path.write_text(text, encoding="utf-8")
 
 
 def ensure_fab_structure(plugin_root: Path) -> None:
-    # Fab code plugin submissions expect a Content directory even when the
-    # plugin does not ship game assets.
-    (plugin_root / "Content").mkdir(parents=True, exist_ok=True)
+    content_dir = plugin_root / "Content"
+    if content_dir.exists():
+        shutil.rmtree(content_dir)
 
 
 def validate_fab_plugin(plugin_root: Path) -> None:
     required_dirs = [
         plugin_root / "Config",
-        plugin_root / "Content",
         plugin_root / "Source",
         plugin_root / "Resources" / "MCP",
     ]
@@ -100,6 +104,8 @@ def validate_fab_plugin(plugin_root: Path) -> None:
     missing.extend(str(path) for path in required_files if not path.is_file())
     if missing:
         fail("Fab plugin staging is missing required files:\n" + "\n".join(missing))
+    if (plugin_root / "Content").exists():
+        fail("Fab plugin source package must not include an empty Content directory.")
 
     forbidden = []
     for path in plugin_root.rglob("*"):

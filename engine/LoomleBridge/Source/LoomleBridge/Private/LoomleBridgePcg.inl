@@ -1,3 +1,5 @@
+// Copyright 2026 Loomle contributors.
+
 // PCG-domain tool adapters.
 namespace
 {

@@ -1,3 +1,5 @@
+// Copyright 2026 Loomle contributors.
+
 // RPC entrypoints and tool dispatch for Loomle Bridge.
 FString FLoomleBridgeModule::HandleRequest(int32 ConnectionSerial, const FString& RequestLine)
 {

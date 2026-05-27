@@ -1,3 +1,5 @@
+// Copyright 2026 Loomle contributors.
+
 // Widget tool handlers for Loomle Bridge.
 // Included by LoomleBridgeModule.cpp after shared graph-domain helpers.
 

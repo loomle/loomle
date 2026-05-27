@@ -1,3 +1,5 @@
+// Copyright 2026 Loomle contributors.
+
 #pragma once
 
 #include "Containers/Ticker.h"

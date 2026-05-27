@@ -8,11 +8,15 @@ project to local AI coding agents through LOOMLE's MCP tools.
 - `Source/LoomleBridge`: Unreal Editor C++ bridge module.
 - `Config/FilterPlugin.ini`: keeps non-UAsset runtime support files in the
   packaged plugin.
-- `Content/`: intentionally empty in this release. The plugin does not ship
-  gameplay assets, but Fab code plugin submissions expect the directory.
 - `Resources/MCP`: external Python MCP server source used by Codex, Claude,
   and other MCP hosts. This code is launched by the AI host through stdio; it
   is not an Unreal Python script executed inside the editor.
+
+## Unreal Plugin Dependencies
+
+Loomle Bridge enables Unreal's `PCG` plugin for PCG graph tooling and
+`PythonScriptPlugin` for the `execute` runtime bridge. The Python MCP server in
+`Resources/MCP` is separate from Unreal Python and is launched by the MCP host.
 
 ## Python MCP Server
 

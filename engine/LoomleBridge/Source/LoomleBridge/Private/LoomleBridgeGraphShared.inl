@@ -1,3 +1,5 @@
+// Copyright 2026 Loomle contributors.
+
 // Graph runtime handlers for Loomle Bridge.
 namespace
 {

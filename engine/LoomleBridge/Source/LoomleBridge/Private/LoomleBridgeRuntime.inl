@@ -1,3 +1,5 @@
+// Copyright 2026 Loomle contributors.
+
 // Runtime tool handlers (context / selection / execute / diagnostics / logs).
 namespace
 {
