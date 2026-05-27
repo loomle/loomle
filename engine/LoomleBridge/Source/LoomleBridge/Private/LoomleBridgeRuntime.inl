@@ -4526,6 +4526,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildExecutePythonToolResult(const 
     if (Mode.Equals(TEXT("exec")))
     {
         WrappedCode += TEXT("import signal, platform\n");
+        WrappedCode += TEXT("_loomle_original_load_asset = None\n");
+        WrappedCode += TEXT("_loomle_original_editor_load_asset = None\n");
+        WrappedCode += TEXT("_loomle_patched_load_asset = False\n");
+        WrappedCode += TEXT("_loomle_patched_editor_load_asset = False\n");
         WrappedCode += TEXT("try:\n");
         WrappedCode += TEXT("    import unreal as _loomle_unreal\n");
         WrappedCode += TEXT("    def _loomle_validate_asset_load_path(_loomle_path):\n");
@@ -4538,6 +4542,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildExecutePythonToolResult(const 
         WrappedCode += TEXT("            _loomle_validate_asset_load_path(_loomle_path)\n");
         WrappedCode += TEXT("            return _loomle_original_load_asset(_loomle_path, *args, **kwargs)\n");
         WrappedCode += TEXT("        _loomle_unreal.load_asset = _loomle_safe_load_asset\n");
+        WrappedCode += TEXT("        _loomle_patched_load_asset = True\n");
         WrappedCode += TEXT("    if hasattr(_loomle_unreal, 'EditorAssetLibrary') and hasattr(_loomle_unreal.EditorAssetLibrary, 'load_asset'):\n");
         WrappedCode += TEXT("        _loomle_original_editor_load_asset = _loomle_unreal.EditorAssetLibrary.load_asset\n");
         WrappedCode += TEXT("        def _loomle_safe_editor_load_asset(_loomle_path, *args, **kwargs):\n");
@@ -4545,14 +4550,17 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildExecutePythonToolResult(const 
         WrappedCode += TEXT("            return _loomle_original_editor_load_asset(_loomle_path, *args, **kwargs)\n");
         WrappedCode += TEXT("        try:\n");
         WrappedCode += TEXT("            _loomle_unreal.EditorAssetLibrary.load_asset = staticmethod(_loomle_safe_editor_load_asset)\n");
+        WrappedCode += TEXT("            _loomle_patched_editor_load_asset = True\n");
         WrappedCode += TEXT("        except Exception:\n");
         WrappedCode += TEXT("            pass\n");
         WrappedCode += TEXT("except Exception:\n");
         WrappedCode += TEXT("    pass\n");
         WrappedCode += FString::Printf(TEXT("_LOOMLE_TIMEOUT = %d\n"), ExecuteTimeoutSeconds);
+        WrappedCode += TEXT("_LOOMLE_PREV_SIGALRM = None\n");
         WrappedCode += TEXT("def _loomle_timeout_handler(signum, frame):\n");
         WrappedCode += TEXT("    raise TimeoutError(f'execute exceeded {_LOOMLE_TIMEOUT}s timeout')\n");
         WrappedCode += TEXT("if platform.system() != 'Windows' and hasattr(signal, 'SIGALRM'):\n");
+        WrappedCode += TEXT("    _LOOMLE_PREV_SIGALRM = signal.getsignal(signal.SIGALRM)\n");
         WrappedCode += TEXT("    signal.signal(signal.SIGALRM, _loomle_timeout_handler)\n");
         WrappedCode += TEXT("    signal.alarm(_LOOMLE_TIMEOUT)\n");
         WrappedCode += TEXT("try:\n");
@@ -4563,8 +4571,20 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildExecutePythonToolResult(const 
             WrappedCode += TEXT("    ") + Line + TEXT("\n");
         }
         WrappedCode += TEXT("finally:\n");
+        WrappedCode += TEXT("    try:\n");
+        WrappedCode += TEXT("        if _loomle_patched_load_asset:\n");
+        WrappedCode += TEXT("            _loomle_unreal.load_asset = _loomle_original_load_asset\n");
+        WrappedCode += TEXT("        if _loomle_patched_editor_load_asset:\n");
+        WrappedCode += TEXT("            _loomle_unreal.EditorAssetLibrary.load_asset = _loomle_original_editor_load_asset\n");
+        WrappedCode += TEXT("    except Exception:\n");
+        WrappedCode += TEXT("        pass\n");
         WrappedCode += TEXT("    if platform.system() != 'Windows' and hasattr(signal, 'SIGALRM'):\n");
-        WrappedCode += TEXT("        signal.alarm(0)\n");
+        WrappedCode += TEXT("        try:\n");
+        WrappedCode += TEXT("            signal.alarm(0)\n");
+        WrappedCode += TEXT("            if _LOOMLE_PREV_SIGALRM is not None:\n");
+        WrappedCode += TEXT("                signal.signal(signal.SIGALRM, _LOOMLE_PREV_SIGALRM)\n");
+        WrappedCode += TEXT("        except Exception:\n");
+        WrappedCode += TEXT("            pass\n");
     }
 
     FPythonCommandEx PythonCommand;
