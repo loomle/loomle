@@ -12,6 +12,7 @@ class FLoomlePipeServer;
 class FJsonObject;
 class FJsonValue;
 class FOutputDevice;
+class FSlateStyleSet;
 
 class FLoomleBridgeModule : public IModuleInterface
 {
@@ -23,10 +24,12 @@ private:
     FString HandleRequest(int32 ConnectionSerial, const FString& RequestLine);
     bool TickHealthSnapshot(float DeltaTime);
     void UpdateHealthSnapshot();
-    void RegisterToolbarStatusWidget();
-    void UnregisterToolbarStatusWidget();
-    void RegisterToolbarMenus();
-    TSharedRef<class SWidget> CreateToolbarStatusBadge();
+    void RegisterStatusBarWidget();
+    void UnregisterStatusBarWidget();
+    void RegisterStatusBarMenus();
+    void RegisterLoomleSlateStyle();
+    void UnregisterLoomleSlateStyle();
+    TSharedRef<class SWidget> CreateStatusBarButtonContent();
     TSharedRef<class SWidget> CreateSetupStatusPanel();
     FText GetToolbarStatusLabel() const;
     FText GetToolbarStatusTooltip() const;
@@ -167,7 +170,8 @@ private:
 
 private:
     TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> PipeServer;
-    FDelegateHandle ToolbarStartupHandle;
+    TSharedPtr<FSlateStyleSet> LoomleSlateStyle;
+    FDelegateHandle StatusBarStartupHandle;
     TMap<FString, FPendingGraphLayoutState> PendingGraphLayoutStates;
     FCriticalSection PendingGraphLayoutStatesMutex;
     TMap<FString, FMutateIdempotencyEntry> MutateIdempotencyRegistry;

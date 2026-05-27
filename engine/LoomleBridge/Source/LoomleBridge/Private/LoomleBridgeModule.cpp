@@ -145,7 +145,10 @@
 #include "UObject/MetaData.h"
 #include "UObject/UnrealType.h"
 #include "Misc/TransactionObjectEvent.h"
+#include "Brushes/SlateImageBrush.h"
 #include "Styling/AppStyle.h"
+#include "Styling/SlateStyle.h"
+#include "Styling/SlateStyleRegistry.h"
 #include "Slate/WidgetRenderer.h"
 #include "DynamicRHI.h"
 #include "GPUProfiler.h"
@@ -161,6 +164,7 @@
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SComboButton.h"
+#include "Widgets/Images/SImage.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SExpandableArea.h"
@@ -198,6 +202,8 @@ namespace LoomleBridgeConstants
     static const TCHAR* PcgQueryToolName = TEXT("pcg.query");
     static const TCHAR* DiagnosticTailToolName = TEXT("diagnostic.tail");
     static const TCHAR* LogTailToolName = TEXT("log.tail");
+    static const FName SlateStyleSetName(TEXT("LoomleBridgeStyle"));
+    static const FName StatusBarIconBrushName(TEXT("LoomleBridge.StatusBarIcon"));
     constexpr int32 ProtocolVersion = 1;
     constexpr double MutateIdempotencyTtlSeconds = 1800.0;
     constexpr int32 MaxMutateIdempotencyEntries = 2048;
@@ -4397,17 +4403,17 @@ void FLoomleBridgeModule::UpdateHealthSnapshot()
     bIsPIESnapshot.Store(bIsPIE);
 }
 
-void FLoomleBridgeModule::RegisterToolbarStatusWidget()
+void FLoomleBridgeModule::RegisterStatusBarWidget()
 {
     if (!UToolMenus::IsToolMenuUIEnabled())
     {
         return;
     }
 
-    RegisterToolbarMenus();
+    RegisterStatusBarMenus();
 }
 
-void FLoomleBridgeModule::UnregisterToolbarStatusWidget()
+void FLoomleBridgeModule::UnregisterStatusBarWidget()
 {
     if (UToolMenus::IsToolMenuUIEnabled())
     {
@@ -4415,7 +4421,42 @@ void FLoomleBridgeModule::UnregisterToolbarStatusWidget()
     }
 }
 
-void FLoomleBridgeModule::RegisterToolbarMenus()
+void FLoomleBridgeModule::RegisterLoomleSlateStyle()
+{
+    if (LoomleSlateStyle.IsValid())
+    {
+        return;
+    }
+
+    const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("LoomleBridge"));
+    if (!Plugin.IsValid())
+    {
+        UE_LOG(LogLoomleBridge, Warning, TEXT("Unable to register Loomle status bar icon: plugin descriptor not found."));
+        return;
+    }
+
+    LoomleSlateStyle = MakeShared<FSlateStyleSet>(LoomleBridgeConstants::SlateStyleSetName);
+    LoomleSlateStyle->SetContentRoot(FPaths::Combine(Plugin->GetBaseDir(), TEXT("Resources")));
+    LoomleSlateStyle->Set(
+        LoomleBridgeConstants::StatusBarIconBrushName,
+        new FSlateImageBrush(
+            LoomleSlateStyle->RootToContentDir(TEXT("LoomleToolbarIcon"), TEXT(".png")),
+            FVector2D(16.0f, 16.0f)));
+    FSlateStyleRegistry::RegisterSlateStyle(*LoomleSlateStyle);
+}
+
+void FLoomleBridgeModule::UnregisterLoomleSlateStyle()
+{
+    if (!LoomleSlateStyle.IsValid())
+    {
+        return;
+    }
+
+    FSlateStyleRegistry::UnRegisterSlateStyle(*LoomleSlateStyle);
+    LoomleSlateStyle.Reset();
+}
+
+void FLoomleBridgeModule::RegisterStatusBarMenus()
 {
     if (!UToolMenus::IsToolMenuUIEnabled())
     {
@@ -4423,56 +4464,75 @@ void FLoomleBridgeModule::RegisterToolbarMenus()
     }
 
     FToolMenuOwnerScoped OwnerScoped(TEXT("LoomleBridge"));
-    UToolMenu* UserToolbar = UToolMenus::Get()->ExtendMenu(TEXT("LevelEditor.LevelEditorToolBar.User"));
-    if (UserToolbar == nullptr)
+    UToolMenu* StatusBar = UToolMenus::Get()->ExtendMenu(TEXT("LevelEditor.StatusBar.ToolBar"));
+    if (StatusBar == nullptr)
     {
         return;
     }
 
-    FToolMenuSection& Section = UserToolbar->FindOrAddSection(TEXT("LoomleBridgeStatus"));
+    FToolMenuSection& Section = StatusBar->FindOrAddSection(TEXT("LoomleBridgeStatus"));
     Section.AddDynamicEntry(TEXT("LoomleBridgeStatusEntry"), FNewToolMenuSectionDelegate::CreateLambda([this](FToolMenuSection& InSection)
     {
         InSection.AddEntry(FToolMenuEntry::InitWidget(
             TEXT("LoomleBridgeStatusWidget"),
             SNew(SComboButton)
             .HasDownArrow(false)
-            .ButtonStyle(FAppStyle::Get(), TEXT("SimpleButton"))
-            .MenuPlacement(MenuPlacement_BelowAnchor)
+            .ContentPadding(FMargin(6.0f, 0.0f))
+            .ComboButtonStyle(&FAppStyle::Get().GetWidgetStyle<FComboButtonStyle>(TEXT("SimpleComboButton")))
+            .MenuPlacement(MenuPlacement_AboveAnchor)
             .OnGetMenuContent_Raw(this, &FLoomleBridgeModule::CreateSetupStatusPanel)
             .ButtonContent()
             [
-                CreateToolbarStatusBadge()
+                CreateStatusBarButtonContent()
             ],
             FText::GetEmpty(),
-            true));
+            true,
+            false));
     }));
 }
 
-TSharedRef<SWidget> FLoomleBridgeModule::CreateToolbarStatusBadge()
+TSharedRef<SWidget> FLoomleBridgeModule::CreateStatusBarButtonContent()
 {
-    return SNew(SBox)
+    return SNew(SHorizontalBox)
+        .ToolTipText_Lambda([this]()
+        {
+            return GetToolbarStatusTooltip();
+        })
+        + SHorizontalBox::Slot()
+        .AutoWidth()
         .VAlign(VAlign_Center)
+        .Padding(0.0f, 0.0f, 4.0f, 0.0f)
         [
-            SNew(SBorder)
-            .Padding(FMargin(8.0f, 3.0f))
-            .BorderImage(FAppStyle::GetBrush(TEXT("WhiteBrush")))
-            .BorderBackgroundColor_Lambda([this]()
-            {
-                return GetToolbarStatusColor();
-            })
+            SNew(SBox)
+            .WidthOverride(16.0f)
+            .HeightOverride(16.0f)
+            [
+                SNew(SImage)
+                .Image_Lambda([this]() -> const FSlateBrush*
+                {
+                    if (LoomleSlateStyle.IsValid())
+                    {
+                        return LoomleSlateStyle->GetBrush(LoomleBridgeConstants::StatusBarIconBrushName);
+                    }
+                    return FAppStyle::GetBrush(TEXT("Icons.Warning"));
+                })
+                .ColorAndOpacity_Lambda([this]()
+                {
+                    return GetToolbarStatusColor();
+                })
+            ]
+        ]
+        + SHorizontalBox::Slot()
+        .AutoWidth()
+        .VAlign(VAlign_Center)
+        .Padding(0.0f, 0.0f, 6.0f, 0.0f)
+        [
+            SNew(STextBlock)
+            .Text(FText::FromString(TEXT("Loomle")))
             .ToolTipText_Lambda([this]()
             {
                 return GetToolbarStatusTooltip();
             })
-            [
-                SNew(STextBlock)
-                .Text_Lambda([this]()
-                {
-                    return GetToolbarStatusLabel();
-                })
-                .ColorAndOpacity(FLinearColor::White)
-                .Font(FAppStyle::GetFontStyle(TEXT("SmallFont")))
-            ]
         ];
 }
 
@@ -4692,14 +4752,9 @@ FText FLoomleBridgeModule::GetToolbarStatusLabel() const
 
 FText FLoomleBridgeModule::GetToolbarStatusTooltip() const
 {
-    const bool bBridgeRunning = bBridgeRunningSnapshot.Load();
-    const bool bPythonReady = bPythonReadySnapshot.Load();
-
     return FText::FromString(FString::Printf(
-        TEXT("Loomle %s\nBridge %s. Python %s.\nClick for MCP status."),
-        *GetToolbarStatusKey(),
-        bBridgeRunning ? TEXT("running") : TEXT("stopped"),
-        bPythonReady ? TEXT("ready") : TEXT("not ready")));
+        TEXT("Loomle %s - Click for MCP status."),
+        *GetToolbarStatusKey()));
 }
 
 FSlateColor FLoomleBridgeModule::GetToolbarStatusColor() const
@@ -4933,6 +4988,8 @@ void FLoomleBridgeModule::RemoveRuntimeRegistration()
 
 void FLoomleBridgeModule::StartupModule()
 {
+    RegisterLoomleSlateStyle();
+
 #if PLATFORM_WINDOWS
     const FString PipeName = GetRpcPipeNameForCurrentProject();
 #endif
@@ -4954,6 +5011,7 @@ void FLoomleBridgeModule::StartupModule()
         bBridgeRunningSnapshot.Store(false);
         bPythonReadySnapshot.Store(false);
         bIsPIESnapshot.Store(false);
+        UnregisterLoomleSlateStyle();
         return;
     }
 
@@ -4976,12 +5034,12 @@ void FLoomleBridgeModule::StartupModule()
     HealthSnapshotTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
         FTickerDelegate::CreateRaw(this, &FLoomleBridgeModule::TickHealthSnapshot),
         0.1f);
-    if (!ToolbarStartupHandle.IsValid())
+    if (!StatusBarStartupHandle.IsValid())
     {
-        ToolbarStartupHandle = UToolMenus::RegisterStartupCallback(
-            FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FLoomleBridgeModule::RegisterToolbarMenus));
+        StatusBarStartupHandle = UToolMenus::RegisterStartupCallback(
+            FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FLoomleBridgeModule::RegisterStatusBarMenus));
     }
-    RegisterToolbarStatusWidget();
+    RegisterStatusBarWidget();
     WriteRuntimeRegistration();
 
 #if PLATFORM_WINDOWS
@@ -4997,12 +5055,13 @@ void FLoomleBridgeModule::ShutdownModule()
 {
     RemoveRuntimeRegistration();
 
-    if (ToolbarStartupHandle.IsValid())
+    if (StatusBarStartupHandle.IsValid())
     {
-        UToolMenus::UnRegisterStartupCallback(ToolbarStartupHandle);
-        ToolbarStartupHandle.Reset();
+        UToolMenus::UnRegisterStartupCallback(StatusBarStartupHandle);
+        StatusBarStartupHandle.Reset();
     }
-    UnregisterToolbarStatusWidget();
+    UnregisterStatusBarWidget();
+    UnregisterLoomleSlateStyle();
 
     if (BlueprintCompiledHandle.IsValid())
     {
