@@ -404,17 +404,17 @@ def verify_graph(client: McpStdioClient, request_id: int, asset_path: str) -> di
     payload = call_tool(
         client,
         request_id,
-        "pcg.verify",
+        "pcg.compile",
         {"assetPath": asset_path},
     )
     if payload.get("status") == "error":
-        raise WorkflowSuiteError("verify_gap", f"workflow pcg.verify returned error: {compact_json(payload)}")
+        raise WorkflowSuiteError("verify_gap", f"workflow pcg.compile returned error: {compact_json(payload)}")
     compile_report = payload.get("compileReport")
     if not isinstance(compile_report, dict) or compile_report.get("compiled") is not True:
-        raise WorkflowSuiteError("verify_gap", f"workflow pcg.verify missing compiled=true: {compact_json(payload)}")
+        raise WorkflowSuiteError("verify_gap", f"workflow pcg.compile missing compiled=true: {compact_json(payload)}")
     diagnostics = payload.get("diagnostics")
     if not isinstance(diagnostics, list):
-        raise WorkflowSuiteError("verify_gap", f"workflow pcg.verify missing diagnostics[]: {compact_json(payload)}")
+        raise WorkflowSuiteError("verify_gap", f"workflow pcg.compile missing diagnostics[]: {compact_json(payload)}")
     return {
         "status": payload.get("status"),
         "compiled": True,
@@ -452,7 +452,7 @@ def run_workflow_case(
         payload = load_case_payload(case)
         payload["assetPath"] = asset_path
         mutate_args = {key: value for key, value in payload.items() if key != "tool"}
-        mutate_result = call_tool(client, request_id_base + 10, "pcg.mutate", mutate_args)
+        mutate_result = call_tool(client, request_id_base + 10, "pcg.graph.edit", mutate_args)
         surface_matrix["mutate"] = "pass"
         ref_map = build_client_ref_map(mutate_args, mutate_result)
         snapshot = query_pcg_snapshot(client, request_id_base + 20, asset_path)

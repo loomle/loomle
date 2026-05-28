@@ -1017,7 +1017,7 @@
       },
       "dispatch": {
         "kind": "bridgeRpc",
-        "tool": "blueprint.edit",
+        "tool": "blueprint.class.edit",
         "args": "identity",
         "result": "structured"
       }
@@ -4679,7 +4679,7 @@
       },
       "dispatch": {
         "kind": "bridgeRpc",
-        "tool": "blueprint.verify",
+        "tool": "blueprint.compile",
         "args": {
           "transform": "blueprint.compile.args.v1"
         },
@@ -5570,7 +5570,7 @@
       },
       "dispatch": {
         "kind": "bridgeRpc",
-        "tool": "material.query",
+        "tool": "material.graph.inspect",
         "args": {
           "transform": "material.graph.inspect.args.v1"
         },
@@ -6478,7 +6478,7 @@
       },
       "dispatch": {
         "kind": "bridgeRpc",
-        "tool": "material.verify",
+        "tool": "material.compile",
         "args": "identity",
         "result": "structured"
       }
@@ -6831,7 +6831,7 @@
       },
       "dispatch": {
         "kind": "bridgeRpc",
-        "tool": "pcg.query",
+        "tool": "pcg.graph.inspect",
         "args": {
           "transform": "pcg.graph.inspect.args.v1"
         },
@@ -6886,7 +6886,7 @@
       },
       "dispatch": {
         "kind": "bridgeRpc",
-        "tool": "pcg.describe",
+        "tool": "pcg.node.inspect",
         "args": {
           "transform": "pcg.node.inspect.args.v1"
         },
@@ -7265,7 +7265,7 @@
       },
       "dispatch": {
         "kind": "bridgeRpc",
-        "tool": "pcg.verify",
+        "tool": "pcg.compile",
         "args": {
           "transform": "pcg.compile.args.v1"
         },
@@ -8051,7 +8051,7 @@
       },
       "dispatch": {
         "kind": "bridgeRpc",
-        "tool": "pcg.mutate",
+        "tool": "pcg.graph.edit",
         "args": {
           "transform": "pcg.graph.edit.args.v1"
         },
@@ -8127,7 +8127,7 @@
       },
       "dispatch": {
         "kind": "bridgeRpc",
-        "tool": "pcg.mutate",
+        "tool": "pcg.graph.edit",
         "args": {
           "transform": "pcg.graph.layout.args.v1"
         },
@@ -8349,7 +8349,7 @@
       },
       "dispatch": {
         "kind": "bridgeRpc",
-        "tool": "widget.query",
+        "tool": "widget.tree.inspect",
         "args": {
           "transform": "widget.tree.inspect.args.v1"
         },
@@ -8744,7 +8744,7 @@
       },
       "dispatch": {
         "kind": "bridgeRpc",
-        "tool": "widget.mutate",
+        "tool": "widget.tree.edit",
         "args": {
           "transform": "widget.tree.edit.args.v1"
         },
@@ -8792,7 +8792,7 @@
       },
       "dispatch": {
         "kind": "bridgeRpc",
-        "tool": "widget.describe",
+        "tool": "widget.inspect",
         "args": {
           "transform": "widget.inspect.args.v1"
         },
@@ -8824,7 +8824,7 @@
       },
       "dispatch": {
         "kind": "bridgeRpc",
-        "tool": "widget.verify",
+        "tool": "widget.compile",
         "args": "identity",
         "result": "structured"
       }

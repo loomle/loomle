@@ -400,9 +400,9 @@ def _require_payload_fixture(case: dict[str, Any], expected_tool: str) -> None:
     _require(payload.get("tool") == expected_tool, f"payloadFixture tool mismatch for {fixture}: {payload}")
     _require("graphType" not in payload, f"payloadFixture should not carry legacy graphType: {fixture}")
     _require(payload.get("tool") != "graph.mutate", f"payloadFixture should not use legacy graph.mutate: {fixture}")
-    if expected_tool == "pcg.graph.edit":
-        _require("ops" not in payload, f"pcg.graph.edit payloadFixture should not carry legacy ops: {fixture}")
-        _require(isinstance(payload.get("commands"), list), f"pcg.graph.edit payloadFixture missing commands[]: {fixture}")
+    if expected_tool in {"material.graph.edit", "pcg.graph.edit"}:
+        _require("ops" not in payload, f"{expected_tool} payloadFixture should not carry legacy ops: {fixture}")
+        _require(isinstance(payload.get("commands"), list), f"{expected_tool} payloadFixture missing commands[]: {fixture}")
 
 
 def _json_contains_key(value: Any, key: str) -> bool:
@@ -2102,7 +2102,7 @@ def validate_generated_material_workflow_truth_suite() -> None:
     _require(isinstance(cases, list) and len(cases) == EXPECTED_MATERIAL_WORKFLOW_SUITE_SUMMARY["totalCases"], f"material workflow suite cases mismatch: {suite}")
     for case in cases:
         _require(isinstance(case, dict), f"material workflow case must be an object: {case}")
-        _require_payload_fixture(case, "material.mutate")
+        _require_payload_fixture(case, "material.graph.edit")
     case_by_id = {
         case.get("id"): case
         for case in cases
@@ -2111,13 +2111,13 @@ def validate_generated_material_workflow_truth_suite() -> None:
 
     replace_lerp = case_by_id.get("replace_multiply_with_lerp")
     _require(isinstance(replace_lerp, dict), "material workflow suite missing replace_multiply_with_lerp")
-    _require_payload_fixture(replace_lerp, "material.mutate")
+    _require_payload_fixture(replace_lerp, "material.graph.edit")
     _require(replace_lerp.get("expectedNodes") == 4, f"material replace_multiply_with_lerp expectedNodes mismatch: {replace_lerp}")
     _require(replace_lerp.get("expectedEdges") == 4, f"material replace_multiply_with_lerp expectedEdges mismatch: {replace_lerp}")
 
     root_sink = case_by_id.get("root_sink_then_layout")
     _require(isinstance(root_sink, dict), "material workflow suite missing root_sink_then_layout")
-    _require_payload_fixture(root_sink, "material.mutate")
+    _require_payload_fixture(root_sink, "material.graph.edit")
     _require(root_sink.get("expectedNodes") == 3, f"material root_sink_then_layout expectedNodes mismatch: {root_sink}")
     _require(root_sink.get("expectedEdges") == 3, f"material root_sink_then_layout expectedEdges mismatch: {root_sink}")
 

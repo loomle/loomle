@@ -1,39 +1,57 @@
 {
-  "tool": "material.mutate",
-  "ops": [
+  "tool": "material.graph.edit",
+  "commands": [
     {
-      "op": "addNode.byClass",
-      "clientRef": "roughness_scalar",
-      "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "material.palette:/Script/Engine.MaterialExpressionScalarParameter",
+        "kind": "expression",
+        "payload": {
+          "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"
+        }
+      },
+      "alias": "roughness_scalar"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "one_minus_roughness",
-      "nodeClassPath": "/Script/Engine.MaterialExpressionOneMinus"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "material.palette:/Script/Engine.MaterialExpressionOneMinus",
+        "kind": "expression",
+        "payload": {
+          "nodeClassPath": "/Script/Engine.MaterialExpressionOneMinus"
+        }
+      },
+      "alias": "one_minus_roughness"
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "roughness_scalar"
+        "node": {
+          "alias": "roughness_scalar"
+        },
+        "pin": "Result"
       },
       "to": {
-        "nodeRef": "one_minus_roughness",
+        "node": {
+          "alias": "one_minus_roughness"
+        },
         "pin": "Input"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "one_minus_roughness"
+        "node": {
+          "alias": "one_minus_roughness"
+        },
+        "pin": "Result"
       },
       "to": {
-        "nodeId": "__material_root__",
+        "node": {
+          "id": "__material_root__"
+        },
         "pin": "Roughness"
       }
-    },
-    {
-      "op": "layoutGraph",
-      "scope": "touched"
     }
   ]
 }

@@ -158,6 +158,7 @@ def asset_or_graph_args(
     if asset_path is None:
         raise TransformError(f"{tool_name} requires assetPath or graph.")
     transformed: dict[str, Any] = {"assetPath": asset_path}
+    copy_if_present(arguments, transformed, "__bridgeTool")
     for field in copy_fields:
         copy_if_present(arguments, transformed, field)
     return transformed
@@ -208,7 +209,7 @@ def asset_create_args(arguments: dict[str, Any]) -> dict[str, Any]:
     if asset_path is None:
         raise TransformError("asset.create requires assetPath.")
     if kind == "blueprint":
-        args: dict[str, Any] = {"__bridgeTool": "blueprint.edit", "assetPath": asset_path, "operation": "create"}
+        args: dict[str, Any] = {"__bridgeTool": "blueprint.class.edit", "assetPath": asset_path, "operation": "create"}
         op_args: dict[str, Any] = {}
         parent_class = string_field(arguments, "parentClassPath") or string_field(arguments, "parentClass")
         if parent_class is not None:
@@ -238,15 +239,15 @@ def asset_inspect_args(arguments: dict[str, Any]) -> dict[str, Any]:
         return args
     args.pop("kind", None)
     if kind in ("material", "materialFunction"):
-        args["__bridgeTool"] = "material.query"
+        args["__bridgeTool"] = "material.graph.inspect"
         return asset_or_graph_args(args, "asset.inspect", copy_fields=["nodeIds", "nodeClasses", "includeConnections"])
     if kind == "pcgGraph":
         transformed = pcg_graph_inspect_args(args)
-        transformed["__bridgeTool"] = "pcg.query"
+        transformed["__bridgeTool"] = "pcg.graph.inspect"
         return transformed
     if kind == "widgetBlueprint":
         transformed = apply_args_transform({"transform": "widget.tree.inspect.args.v1"}, args)
-        transformed["__bridgeTool"] = "widget.query"
+        transformed["__bridgeTool"] = "widget.tree.inspect"
         return transformed
     raise TransformError(f"Unsupported asset.inspect kind: {kind}.")
 

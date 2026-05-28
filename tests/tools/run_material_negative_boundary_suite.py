@@ -21,7 +21,12 @@ from test_bridge_smoke import (  # noqa: E402
 )
 
 sys.path.insert(0, str(REPO_ROOT / "tests" / "tools"))
-from domain_test_helpers import blank_surface_matrix, compact_json, wait_for_bridge_ready  # noqa: E402
+from domain_test_helpers import (  # noqa: E402
+    blank_surface_matrix,
+    compact_json,
+    material_edit_args_from_legacy_payload,
+    wait_for_bridge_ready,
+)
 from run_material_workflow_truth_suite import cleanup_material_fixture, create_material_fixture  # noqa: E402
 
 
@@ -125,15 +130,15 @@ def call_tool_allow_error(
 
 
 def material_mutate_args(payload: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in payload.items() if key != "tool"}
+    return material_edit_args_from_legacy_payload(payload)
 
 
 def call_material_mutate(client: McpStdioClient, req_id: int, payload: dict[str, Any]) -> dict[str, Any]:
-    return call_tool(client, req_id, "material.mutate", material_mutate_args(payload))
+    return call_tool(client, req_id, "material.graph.edit", material_mutate_args(payload))
 
 
 def call_material_mutate_allow_error(client: McpStdioClient, req_id: int, payload: dict[str, Any]) -> tuple[dict[str, Any], bool]:
-    return call_tool_allow_error(client, req_id, "material.mutate", material_mutate_args(payload))
+    return call_tool_allow_error(client, req_id, "material.graph.edit", material_mutate_args(payload))
 
 
 def add_node_by_class(client: McpStdioClient, request_id: int, *, asset_path: str, node_class_path: str) -> str:
@@ -165,7 +170,7 @@ def query_material_revision_and_node_count(client: McpStdioClient, request_id: i
     payload = call_tool(
         client,
         request_id,
-        "material.query",
+        "material.graph.inspect",
         {"assetPath": asset_path, "includeConnections": True},
     )
     revision = payload.get("revision")
@@ -319,29 +324,7 @@ def run_set_pin_default_unsupported(client: McpStdioClient, request_id_base: int
             f"setPinDefault was accepted for material: {compact_json(payload)}",
             details={"surfaceMatrix": surface_matrix, "unexpectedPayload": payload},
         )
-    detail = payload.get("detail")
-    parsed_detail = None
-    if isinstance(detail, str) and detail.strip():
-        try:
-            parsed = json.loads(detail)
-        except Exception:
-            parsed = None
-        if isinstance(parsed, dict):
-            parsed_detail = parsed
-    op_results = extract_error_op_results(payload)
-    if parsed_detail is not None and parsed_detail.get("code") != "UNSUPPORTED_OP":
-        raise MaterialNegativeSuiteError(
-            "contract_surface_gap",
-            f"setPinDefault unsupported detail missing UNSUPPORTED_OP code: {compact_json(parsed_detail)}",
-            details={"surfaceMatrix": surface_matrix, "errorPayload": payload},
-        )
-    if not op_results or op_results[0].get("errorCode") != "UNSUPPORTED_OP":
-        raise MaterialNegativeSuiteError(
-            "contract_surface_gap",
-            f"setPinDefault unsupported opResults missing UNSUPPORTED_OP: {compact_json(payload)}",
-            details={"surfaceMatrix": surface_matrix, "errorPayload": payload},
-        )
-    expect_error_contains(payload, "Unsupported op for material: setpindefault", kind="contract_surface_gap")
+    expect_error_contains(payload, "Unsupported material.graph.edit command kind: setPinDefault", kind="contract_surface_gap")
     return {
         "surfaceMatrix": surface_matrix,
         "errorPayload": payload,

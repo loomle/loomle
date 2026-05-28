@@ -137,12 +137,12 @@ def _query_graph_by_ref(client: McpStdioClient, request_id: int, *, graph_ref: d
     payload = call_tool(
         client,
         request_id,
-        "material.query",
+        "material.graph.inspect",
         {"graph": graph_ref, "includeConnections": True},
     )
     snapshot = payload.get("semanticSnapshot")
     if not isinstance(snapshot, dict):
-        raise MaterialChildGraphRefSuiteError("child_graph_ref_unqueryable", f"material.query(graph) missing semanticSnapshot: {compact_json(payload)}")
+        raise MaterialChildGraphRefSuiteError("child_graph_ref_unqueryable", f"material.graph.inspect(graph) missing semanticSnapshot: {compact_json(payload)}")
     return snapshot
 
 
@@ -150,12 +150,12 @@ def _query_graph_by_name(client: McpStdioClient, request_id: int, *, asset_path:
     payload = call_tool(
         client,
         request_id,
-        "material.query",
+        "material.graph.inspect",
         {"assetPath": asset_path, "graphName": graph_name, "includeConnections": True},
     )
     snapshot = payload.get("semanticSnapshot")
     if not isinstance(snapshot, dict):
-        raise MaterialChildGraphRefSuiteError("child_graph_ref_unqueryable", f"material.query(graphName) missing semanticSnapshot: {compact_json(payload)}")
+        raise MaterialChildGraphRefSuiteError("child_graph_ref_unqueryable", f"material.graph.inspect(graphName) missing semanticSnapshot: {compact_json(payload)}")
     return snapshot
 
 
@@ -225,7 +225,7 @@ def execute_case_with_fresh_client(
 
         child_graph_ref = node.get("childGraphRef")
         if not isinstance(child_graph_ref, dict):
-            raise MaterialChildGraphRefSuiteError("child_graph_ref_unsurfaced", f"material.query missing childGraphRef: {compact_json(node)}")
+            raise MaterialChildGraphRefSuiteError("child_graph_ref_unsurfaced", f"material.graph.inspect missing childGraphRef: {compact_json(node)}")
         if child_graph_ref.get("assetPath") != function_asset_path:
             raise MaterialChildGraphRefSuiteError(
                 "child_graph_ref_second_hop_mismatch",

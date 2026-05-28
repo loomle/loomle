@@ -166,3 +166,162 @@ def blueprint_edit_args_from_legacy_payload(payload: dict[str, Any]) -> dict[str
     }
     edit_args["commands"] = blueprint_commands_from_legacy_payload(payload)
     return edit_args
+
+
+def graph_node_ref_from_legacy(token: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(token.get("nodeId"), str):
+        return {"id": token["nodeId"]}
+    if isinstance(token.get("nodeRef"), str):
+        return {"alias": token["nodeRef"]}
+    if isinstance(token.get("id"), str):
+        return {"id": token["id"]}
+    if isinstance(token.get("alias"), str):
+        return {"alias": token["alias"]}
+    return dict(token)
+
+
+def graph_pin_ref_from_legacy(endpoint: dict[str, Any], *, default_pin: str | None = None) -> dict[str, Any]:
+    pin = endpoint.get("pin") if isinstance(endpoint.get("pin"), str) else endpoint.get("pinName")
+    if (not isinstance(pin, str) or not pin) and default_pin is not None:
+        pin = default_pin
+    if not isinstance(pin, str):
+        raise ValueError(f"Graph pin reference requires pin or pinName: {compact_json(endpoint)}")
+    return {"node": graph_node_ref_from_legacy(endpoint), "pin": pin}
+
+
+def material_palette_entry_from_class(node_class_path: str) -> dict[str, Any]:
+    return {
+        "id": f"material.palette:{node_class_path}",
+        "kind": "expression",
+        "payload": {"nodeClassPath": node_class_path},
+    }
+
+
+def pcg_palette_entry_from_class(settings_class: str) -> dict[str, Any]:
+    return {
+        "id": f"pcg.palette:{settings_class}",
+        "kind": "native",
+        "payload": {"settingsClass": settings_class},
+    }
+
+
+def material_command_from_legacy_op(op: dict[str, Any]) -> dict[str, Any] | None:
+    op_name = op.get("op")
+    if op_name == "layoutGraph":
+        return None
+    if op_name == "addNode.byClass":
+        node_class_path = op.get("nodeClassPath")
+        if not isinstance(node_class_path, str) or not node_class_path:
+            raise ValueError(f"Material addNode.byClass requires nodeClassPath: {compact_json(op)}")
+        command: dict[str, Any] = {
+            "kind": "addFromPalette",
+            "entry": material_palette_entry_from_class(node_class_path),
+        }
+        if isinstance(op.get("clientRef"), str):
+            command["alias"] = op["clientRef"]
+        return command
+    if op_name == "removeNode":
+        target = op.get("target")
+        if not isinstance(target, dict):
+            raise ValueError(f"Material removeNode requires target: {compact_json(op)}")
+        return {"kind": "removeNode", "node": graph_node_ref_from_legacy(target)}
+    if op_name in {"connectPins", "disconnectPins"}:
+        from_endpoint = op.get("from")
+        to_endpoint = op.get("to")
+        if not isinstance(from_endpoint, dict) or not isinstance(to_endpoint, dict):
+            raise ValueError(f"Material {op_name} requires from/to endpoints: {compact_json(op)}")
+        return {
+            "kind": "connect" if op_name == "connectPins" else "disconnect",
+            "from": graph_pin_ref_from_legacy(from_endpoint, default_pin="Result"),
+            "to": graph_pin_ref_from_legacy(to_endpoint),
+        }
+    if op_name == "setPinDefault":
+        command = {"kind": "setPinDefault", "value": op.get("value")}
+        target = op.get("target")
+        if isinstance(target, dict):
+            command["target"] = graph_pin_ref_from_legacy(target)
+        return command
+    raise ValueError(f"Unsupported Material legacy op in test payload: {op_name}")
+
+
+def material_edit_args_from_legacy_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    edit_args = {key: value for key, value in payload.items() if key not in {"tool", "ops"}}
+    if isinstance(payload.get("commands"), list):
+        return edit_args
+    ops = payload.get("ops")
+    if not isinstance(ops, list):
+        raise ValueError(f"Material edit payload requires commands[]: {compact_json(payload)}")
+    edit_args["commands"] = [
+        command
+        for op in ops
+        if isinstance(op, dict)
+        for command in [material_command_from_legacy_op(op)]
+        if command is not None
+    ]
+    return edit_args
+
+
+def pcg_command_from_legacy_op(op: dict[str, Any]) -> dict[str, Any] | None:
+    op_name = op.get("op")
+    if op_name == "layoutGraph":
+        return None
+    if op_name == "addNode.byClass":
+        settings_class = op.get("nodeClassPath")
+        if not isinstance(settings_class, str) or not settings_class:
+            raise ValueError(f"PCG addNode.byClass requires nodeClassPath: {compact_json(op)}")
+        command: dict[str, Any] = {
+            "kind": "addFromPalette",
+            "entry": pcg_palette_entry_from_class(settings_class),
+        }
+        if isinstance(op.get("clientRef"), str):
+            command["alias"] = op["clientRef"]
+        return command
+    if op_name == "removeNode":
+        target = op.get("target")
+        if not isinstance(target, dict):
+            raise ValueError(f"PCG removeNode requires target: {compact_json(op)}")
+        return {"kind": "removeNode", "node": graph_node_ref_from_legacy(target)}
+    if op_name in {"connectPins", "disconnectPins"}:
+        from_endpoint = op.get("from")
+        to_endpoint = op.get("to")
+        if not isinstance(from_endpoint, dict) or not isinstance(to_endpoint, dict):
+            raise ValueError(f"PCG {op_name} requires from/to endpoints: {compact_json(op)}")
+        return {
+            "kind": "connect" if op_name == "connectPins" else "disconnect",
+            "from": graph_pin_ref_from_legacy(from_endpoint),
+            "to": graph_pin_ref_from_legacy(to_endpoint),
+        }
+    if op_name == "setPinDefault":
+        command = {"kind": "setPinDefault", "value": op.get("value")}
+        target = op.get("target")
+        if isinstance(target, dict):
+            command["target"] = graph_pin_ref_from_legacy(target)
+        return command
+    if op_name == "setProperty":
+        target = op.get("target")
+        if not isinstance(target, dict):
+            raise ValueError(f"PCG setProperty requires target: {compact_json(op)}")
+        return {
+            "kind": "setNodeProperty",
+            "node": graph_node_ref_from_legacy(target),
+            "property": op.get("property"),
+            "value": op.get("value"),
+        }
+    raise ValueError(f"Unsupported PCG legacy op in test payload: {op_name}")
+
+
+def pcg_edit_args_from_legacy_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    edit_args = {key: value for key, value in payload.items() if key not in {"tool", "ops"}}
+    if isinstance(payload.get("commands"), list):
+        return edit_args
+    ops = payload.get("ops")
+    if not isinstance(ops, list):
+        raise ValueError(f"PCG edit payload requires commands[]: {compact_json(payload)}")
+    edit_args["commands"] = [
+        command
+        for op in ops
+        if isinstance(op, dict)
+        for command in [pcg_command_from_legacy_op(op)]
+        if command is not None
+    ]
+    return edit_args

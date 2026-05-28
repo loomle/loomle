@@ -10,6 +10,35 @@ from loomle_mcp.transforms import (
 
 
 class TransformTests(unittest.TestCase):
+    def test_asset_create_blueprint_dispatches_current_bridge_tool(self) -> None:
+        payload = apply_args_transform(
+            {"transform": "asset.create.args.v1"},
+            {
+                "kind": "blueprint",
+                "assetPath": "/Game/BP_Test",
+                "parentClass": "/Script/Engine.Actor",
+            },
+        )
+
+        self.assertEqual(payload["__bridgeTool"], "blueprint.class.edit")
+        self.assertEqual(payload["operation"], "create")
+
+    def test_asset_inspect_dispatches_current_bridge_tools(self) -> None:
+        cases = [
+            ("material", "material.graph.inspect"),
+            ("materialFunction", "material.graph.inspect"),
+            ("pcgGraph", "pcg.graph.inspect"),
+            ("widgetBlueprint", "widget.tree.inspect"),
+        ]
+        for kind, bridge_tool in cases:
+            with self.subTest(kind=kind):
+                payload = apply_args_transform(
+                    {"transform": "asset.inspect.args.v1"},
+                    {"kind": kind, "assetPath": "/Game/TestAsset"},
+                )
+
+                self.assertEqual(payload["__bridgeTool"], bridge_tool)
+
     def test_asset_or_graph_transform_prefers_graph_asset_path(self) -> None:
         payload = apply_args_transform(
             {"transform": "pcg.palette.args.v1"},

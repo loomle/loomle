@@ -341,7 +341,7 @@ impl LoomleProxyServer {
                 }
                 edit_args.insert("args".into(), serde_json::Value::Object(operation_args));
                 copy_mutation_controls(&args, &mut edit_args);
-                self.runtime_call("blueprint.edit", edit_args).await
+                self.runtime_call("blueprint.class.edit", edit_args).await
             }
             "enum" => {
                 let mut edit_args = rmcp::model::JsonObject::new();
@@ -377,7 +377,8 @@ impl LoomleProxyServer {
                     Ok(value) => value,
                     Err(error) => return Ok(error),
                 };
-                self.runtime_call("material.graph.inspect", query_args).await
+                self.runtime_call("material.graph.inspect", query_args)
+                    .await
             }
             "pcgGraph" => {
                 let mut inspect_args = args;
@@ -1050,7 +1051,10 @@ impl LoomleProxyServer {
                     Ok(value) => value,
                     Err(error) => return Ok(Some(error)),
                 };
-                Ok(Some(self.runtime_call("material.graph.inspect", query_args).await?))
+                Ok(Some(
+                    self.runtime_call("material.graph.inspect", query_args)
+                        .await?,
+                ))
             }
             "material.graph.edit" => Ok(Some(self.call_material_graph_edit(args).await?)),
             "material.graph.layout" => Ok(Some(self.call_material_graph_layout(args).await?)),
@@ -1066,13 +1070,6 @@ impl LoomleProxyServer {
     ) -> Result<Option<CallToolResult>, McpError> {
         match tool_name {
             "pcg.graph.inspect" => Ok(Some(self.call_pcg_graph_inspect(args).await?)),
-            "pcg.query" => {
-                let query_args = match translate_pcg_query_args(&args) {
-                    Ok(value) => value,
-                    Err(error) => return Ok(Some(error)),
-                };
-                Ok(Some(self.runtime_call("pcg.graph.inspect", query_args).await?))
-            }
             "pcg.palette" => Ok(Some(self.call_pcg_palette(args).await?)),
             "pcg.node.inspect" => Ok(Some(self.call_pcg_node_inspect(args).await?)),
             "pcg.parameter.inspect" => Ok(Some(self.call_pcg_parameter_inspect(args).await?)),
@@ -1095,11 +1092,15 @@ impl LoomleProxyServer {
                     Ok(value) => value,
                     Err(error) => return Ok(Some(error)),
                 };
-                Ok(Some(self.runtime_call("widget.tree.edit", mutate_args).await?))
+                Ok(Some(
+                    self.runtime_call("widget.tree.edit", mutate_args).await?,
+                ))
             }
             "widget.tree.inspect" => {
                 let inspect_args = translate_widget_tree_inspect_args(&args);
-                let result = self.runtime_call("widget.tree.inspect", inspect_args).await?;
+                let result = self
+                    .runtime_call("widget.tree.inspect", inspect_args)
+                    .await?;
                 Ok(Some(shape_widget_tree_inspect_result(result, &args)))
             }
             "widget.inspect" => {
@@ -1614,7 +1615,9 @@ impl LoomleProxyServer {
             Ok(value) => value,
             Err(error) => return Ok(error),
         };
-        let payload = self.runtime_payload("pcg.graph.inspect", translated).await?;
+        let payload = self
+            .runtime_payload("pcg.graph.inspect", translated)
+            .await?;
         if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
             return Ok(CallToolResult::structured_error(payload));
         }
@@ -2251,12 +2254,6 @@ fn translate_material_graph_layout_args(
     args: &rmcp::model::JsonObject,
 ) -> Result<rmcp::model::JsonObject, CallToolResult> {
     translate_selection_graph_layout_args(args, "material.graph.layout")
-}
-
-fn translate_pcg_query_args(
-    args: &rmcp::model::JsonObject,
-) -> Result<rmcp::model::JsonObject, CallToolResult> {
-    translate_asset_query_args(args, "pcg.graph.inspect")
 }
 
 fn translate_pcg_graph_inspect_args(
@@ -6515,7 +6512,7 @@ fn pcg_graph_inspect_schema() -> rmcp::model::JsonObject {
         "properties":{
             "assetPath":{"type":"string","minLength":1},
             "graph": pcg_graph_ref_schema(),
-            "view":{"type":"string","enum":["overview","pins","links","defaults","full"],"default":"overview","description":"Task-oriented PCG graph view. overview omits pins and edges; pins adds pin signatures; links adds pins plus edge/link refs; defaults adds pin defaults and link refs; full preserves the legacy pcg.query node payload."},
+            "view":{"type":"string","enum":["overview","pins","links","defaults","full"],"default":"overview","description":"Task-oriented PCG graph view. overview omits pins and edges; pins adds pin signatures; links adds pins plus edge/link refs; defaults adds pin defaults and link refs; full preserves the legacy full node payload."},
             "filter":{
                 "type":"object",
                 "properties":{
@@ -7108,35 +7105,6 @@ fn material_palette_schema() -> rmcp::model::JsonObject {
             },
             "limit": { "type": "integer", "minimum": 1, "maximum": 500, "default": 50 },
             "offset": { "type": "integer", "minimum": 0, "default": 0 }
-        },
-        "additionalProperties": false
-    }))
-}
-
-#[cfg(test)]
-fn pcg_query_schema() -> rmcp::model::JsonObject {
-    schema_from_value(serde_json::json!({
-        "type": "object",
-        "properties": {
-            "assetPath": { "type": "string", "minLength": 1, "description": "PCG graph asset path." },
-            "graphName": { "type": "string", "minLength": 1 },
-            "graph": { "$ref": "#/$defs/pcgGraphRef" },
-            "graphRef": { "$ref": "#/$defs/pcgGraphRef" },
-            "nodeIds": { "type": "array", "items": { "type": "string" } },
-            "nodeClasses": { "type": "array", "items": { "type": "string" } },
-            "includeConnections": { "type": "boolean", "default": false }
-        },
-        "$defs": {
-            "pcgGraphRef": {
-                "type": "object",
-                "properties": {
-                    "kind": { "type": "string", "enum": ["asset"] },
-                    "assetPath": { "type": "string", "minLength": 1 },
-                    "graphName": { "type": "string" }
-                },
-                "required": ["assetPath"],
-                "additionalProperties": true
-            }
         },
         "additionalProperties": false
     }))
@@ -9897,9 +9865,8 @@ mod tests {
         material_graph_layout_schema, material_node_edit_schema, material_palette_schema,
         parse_active_install_state_json, parse_blueprint_graph_layout_request, pcg_compile_schema,
         pcg_graph_inspect_schema, pcg_graph_layout_schema, pcg_node_inspect_schema,
-        pcg_palette_schema, pcg_parameter_edit_schema, pcg_query_schema,
-        play_participant_wait_conditions_met, play_schema,
-        play_wait_participant_conditions_from_args, read_cached_latest_version,
+        pcg_palette_schema, pcg_parameter_edit_schema, play_participant_wait_conditions_met,
+        play_schema, play_wait_participant_conditions_from_args, read_cached_latest_version,
         read_file_lock_metadata, read_plugin_version, runtime_declared_tools, setup_recommendation,
         shape_blueprint_graph_inspect_result, shape_pcg_compile_result,
         shape_pcg_graph_inspect_result, shape_pcg_node_inspect_result,
@@ -9912,7 +9879,7 @@ mod tests {
         translate_material_palette_args, translate_pcg_compile_args,
         translate_pcg_graph_inspect_args, translate_pcg_graph_layout_args,
         translate_pcg_node_inspect_args, translate_pcg_parameter_edit_args,
-        translate_pcg_query_args, translate_widget_inspect_args, translate_widget_tree_edit_args,
+        translate_widget_inspect_args, translate_widget_tree_edit_args,
         validate_blueprint_graph_inspect_args, validate_pcg_graph_inspect_args,
         widget_inspect_schema, widget_palette_schema, widget_tree_edit_schema,
         widget_tree_inspect_schema, Cli, FileLockMetadata, McpHostStatus, RuntimeProject,
@@ -11622,7 +11589,7 @@ mod tests {
     }
 
     #[test]
-    fn pcg_query_accepts_child_graph_ref_as_graph() {
+    fn pcg_graph_inspect_accepts_child_graph_ref_as_graph() {
         let mut args = JsonObject::new();
         args.insert(
             "graph".into(),
@@ -11631,9 +11598,9 @@ mod tests {
                 "assetPath": "/Game/PCG_Child"
             }),
         );
-        args.insert("includeConnections".into(), serde_json::json!(true));
+        args.insert("view".into(), serde_json::json!("links"));
 
-        let translated = translate_pcg_query_args(&args).expect("translated args");
+        let translated = translate_pcg_graph_inspect_args(&args).expect("translated args");
         assert_eq!(
             translated.get("assetPath").and_then(|value| value.as_str()),
             Some("/Game/PCG_Child")
@@ -11647,7 +11614,7 @@ mod tests {
     }
 
     #[test]
-    fn pcg_query_rejects_inline_graph_ref() {
+    fn pcg_graph_inspect_rejects_inline_graph_ref() {
         let mut args = JsonObject::new();
         args.insert(
             "graph".into(),
@@ -11658,12 +11625,12 @@ mod tests {
             }),
         );
 
-        assert!(translate_pcg_query_args(&args).is_err());
+        assert!(translate_pcg_graph_inspect_args(&args).is_err());
     }
 
     #[test]
-    fn pcg_query_schema_has_openai_compatible_top_level() {
-        let schema = pcg_query_schema();
+    fn pcg_graph_inspect_schema_has_openai_compatible_top_level() {
+        let schema = pcg_graph_inspect_schema();
         assert_eq!(
             schema.get("type").and_then(|value| value.as_str()),
             Some("object")
@@ -11671,7 +11638,7 @@ mod tests {
         for keyword in ["oneOf", "anyOf", "allOf", "enum", "not"] {
             assert!(
                 !schema.contains_key(keyword),
-                "pcg.query schema should not expose top-level {keyword}"
+                "pcg.graph.inspect schema should not expose top-level {keyword}"
             );
         }
     }

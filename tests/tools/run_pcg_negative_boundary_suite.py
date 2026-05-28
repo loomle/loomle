@@ -26,6 +26,7 @@ from run_pcg_graph_test_plan import (  # noqa: E402
     cleanup_pcg_fixture,
     compact_json,
     create_pcg_fixture,
+    pcg_edit_args_from_legacy_payload,
     wait_for_bridge_ready,
 )
 
@@ -149,15 +150,15 @@ def call_tool_allow_error(client: McpStdioClient, req_id: int, name: str, argume
 
 
 def pcg_mutate_args(payload: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in payload.items() if key != "tool"}
+    return pcg_edit_args_from_legacy_payload(payload)
 
 
 def call_pcg_mutate(client: McpStdioClient, req_id: int, payload: dict[str, Any], *, expect_error: bool = False) -> dict[str, Any]:
-    return call_tool(client, req_id, "pcg.mutate", pcg_mutate_args(payload), expect_error=expect_error)
+    return call_tool(client, req_id, "pcg.graph.edit", pcg_mutate_args(payload), expect_error=expect_error)
 
 
 def call_pcg_mutate_allow_error(client: McpStdioClient, req_id: int, payload: dict[str, Any]) -> tuple[dict[str, Any], bool]:
-    return call_tool_allow_error(client, req_id, "pcg.mutate", pcg_mutate_args(payload))
+    return call_tool_allow_error(client, req_id, "pcg.graph.edit", pcg_mutate_args(payload))
 
 
 def add_node_by_class(client: McpStdioClient, request_id: int, *, asset_path: str, node_class_path: str) -> str:
@@ -370,7 +371,7 @@ def run_remove_node_requires_stable_target(
         expect_error=True,
     )
     surface_matrix["mutate"] = "pass"
-    expect_error_contains(payload, "stable target", kind="contract_surface_gap")
+    expect_error_contains(payload, "requires id or alias", kind="contract_surface_gap")
     return {
         "surfaceMatrix": surface_matrix,
         "errorPayload": payload,

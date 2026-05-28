@@ -211,16 +211,16 @@ def query_material_snapshot(client: McpStdioClient, request_id: int, asset_path:
     payload = call_tool(
         client,
         request_id,
-        "material.query",
+        "material.graph.inspect",
         {"assetPath": asset_path, "includeConnections": True},
     )
     snapshot = payload.get("semanticSnapshot")
     if not isinstance(snapshot, dict):
-        raise MaterialWorkflowSuiteError("query_gap", f"material.query missing semanticSnapshot: {compact_json(payload)}")
+        raise MaterialWorkflowSuiteError("query_gap", f"material.graph.inspect missing semanticSnapshot: {compact_json(payload)}")
     nodes = snapshot.get("nodes")
     edges = snapshot.get("edges")
     if not isinstance(nodes, list) or not isinstance(edges, list):
-        raise MaterialWorkflowSuiteError("query_gap", f"material.query missing nodes/edges: {compact_json(payload)}")
+        raise MaterialWorkflowSuiteError("query_gap", f"material.graph.inspect missing nodes/edges: {compact_json(payload)}")
     return snapshot
 
 
@@ -228,17 +228,17 @@ def verify_material_graph(client: McpStdioClient, request_id: int, asset_path: s
     payload = call_tool(
         client,
         request_id,
-        "material.verify",
+        "material.compile",
         {"assetPath": asset_path},
     )
     if payload.get("status") == "error":
-        raise MaterialWorkflowSuiteError("verify_gap", f"material.verify returned error: {compact_json(payload)}")
+        raise MaterialWorkflowSuiteError("verify_gap", f"material.compile returned error: {compact_json(payload)}")
     compile_report = payload.get("compileReport")
     if not isinstance(compile_report, dict) or compile_report.get("compiled") is not True:
-        raise MaterialWorkflowSuiteError("verify_gap", f"material.verify missing compiled=true: {compact_json(payload)}")
+        raise MaterialWorkflowSuiteError("verify_gap", f"material.compile missing compiled=true: {compact_json(payload)}")
     diagnostics = payload.get("diagnostics")
     if not isinstance(diagnostics, list):
-        raise MaterialWorkflowSuiteError("verify_gap", f"material.verify missing diagnostics[]: {compact_json(payload)}")
+        raise MaterialWorkflowSuiteError("verify_gap", f"material.compile missing diagnostics[]: {compact_json(payload)}")
     return {
         "status": payload.get("status"),
         "compiled": True,
@@ -248,19 +248,19 @@ def verify_material_graph(client: McpStdioClient, request_id: int, asset_path: s
 
 def build_client_ref_map(payload: dict[str, Any], mutate_result: dict[str, Any]) -> dict[str, str]:
     ref_map: dict[str, str] = {"__material_root__": "__material_root__"}
-    ops = payload.get("ops")
+    commands = payload.get("commands")
     op_results = mutate_result.get("opResults")
-    if not isinstance(ops, list) or not isinstance(op_results, list) or len(ops) != len(op_results):
+    if not isinstance(commands, list) or not isinstance(op_results, list) or len(commands) != len(op_results):
         raise MaterialWorkflowSuiteError(
             "mutate_result_gap",
-            f"material workflow mutate result missing aligned ops/opResults: {compact_json(mutate_result)}",
+            f"material workflow mutate result missing aligned commands/opResults: {compact_json(mutate_result)}",
         )
-    for op, result in zip(ops, op_results):
-        if not isinstance(op, dict) or not isinstance(result, dict):
+    for command, result in zip(commands, op_results):
+        if not isinstance(command, dict) or not isinstance(result, dict):
             continue
-        if op.get("op") != "addNode.byClass":
+        if command.get("kind") != "addFromPalette":
             continue
-        client_ref = op.get("clientRef")
+        client_ref = command.get("alias")
         node_id = result.get("nodeId")
         if isinstance(client_ref, str) and client_ref and isinstance(node_id, str) and node_id:
             ref_map[client_ref] = node_id
@@ -402,7 +402,7 @@ def run_workflow_case(client: McpStdioClient, *, request_id_base: int, case_inde
         payload = load_case_payload(case)
         payload["assetPath"] = asset_path
         mutate_args = {key: value for key, value in payload.items() if key != "tool"}
-        mutate_result = call_tool(client, request_id_base + 10, "material.mutate", mutate_args)
+        mutate_result = call_tool(client, request_id_base + 10, "material.graph.edit", mutate_args)
         surface_matrix["mutate"] = "pass"
         ref_map = build_client_ref_map(mutate_args, mutate_result)
         snapshot = query_material_snapshot(client, request_id_base + 20, asset_path)

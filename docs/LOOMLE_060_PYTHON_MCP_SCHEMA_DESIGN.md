@@ -152,15 +152,15 @@ Manifest 中的 dispatch 应表达 public tool 到 Bridge RPC 的关系。
 }
 ```
 
-但当前 Rust CLI 里有不少 public tool 会转发到旧的 Bridge tool 名，或者做轻量
-参数/结果整形。例如：
+Rust CLI 和 Python MCP 都应转发到当前 Bridge tool 名；参数/结果整形只用于
+public schema 与 bridge 内部参数形状的差异。例如：
 
-- `widget.tree.inspect` -> `widget.query`
-- `widget.tree.edit` -> `widget.mutate`
-- `widget.compile` -> `widget.verify`
-- `material.graph.inspect` -> `material.query`
-- `pcg.compile` -> `pcg.verify`
-- `blueprint.compile` -> `blueprint.verify`
+- `widget.tree.inspect` -> `widget.tree.inspect`
+- `widget.tree.edit` -> `widget.tree.edit`
+- `widget.compile` -> `widget.compile`
+- `material.graph.inspect` -> `material.graph.inspect`
+- `pcg.compile` -> `pcg.compile`
+- `blueprint.compile` -> `blueprint.compile`
 
 因此 manifest 需要支持：
 
@@ -168,7 +168,7 @@ Manifest 中的 dispatch 应表达 public tool 到 Bridge RPC 的关系。
 {
   "dispatch": {
     "kind": "bridgeRpc",
-    "tool": "widget.query",
+    "tool": "widget.tree.inspect",
     "args": {
       "transform": "widget.tree.inspect.args.v1"
     },

@@ -45,6 +45,34 @@ class ToolManifestTests(unittest.TestCase):
 
         self.assertFalse(rust_names - python_names)
 
+    def test_bridge_rpc_dispatch_does_not_use_retired_tool_names(self) -> None:
+        manifest = load_manifest(MANIFEST)
+        retired = {
+            "blueprint.edit",
+            "blueprint.verify",
+            "material.query",
+            "material.mutate",
+            "material.verify",
+            "material.describe",
+            "pcg.list",
+            "pcg.query",
+            "pcg.mutate",
+            "pcg.verify",
+            "pcg.describe",
+            "widget.query",
+            "widget.mutate",
+            "widget.verify",
+            "widget.describe",
+        }
+
+        offenders = {
+            tool["name"]: tool.get("dispatch", {}).get("tool")
+            for tool in manifest.list_tools("python")
+            if tool.get("dispatch", {}).get("tool") in retired
+        }
+
+        self.assertEqual(offenders, {})
+
     def test_setup_status_ignores_loomle_project_paths_in_host_config(self) -> None:
         raw = '''
 model = "gpt-5.5"

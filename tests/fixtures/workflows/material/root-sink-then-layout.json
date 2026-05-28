@@ -1,57 +1,83 @@
 {
-  "tool": "material.mutate",
-  "ops": [
+  "tool": "material.graph.edit",
+  "commands": [
     {
-      "op": "addNode.byClass",
-      "clientRef": "scalar_a",
-      "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "material.palette:/Script/Engine.MaterialExpressionScalarParameter",
+        "kind": "expression",
+        "payload": {
+          "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"
+        }
+      },
+      "alias": "scalar_a"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "scalar_b",
-      "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "material.palette:/Script/Engine.MaterialExpressionScalarParameter",
+        "kind": "expression",
+        "payload": {
+          "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"
+        }
+      },
+      "alias": "scalar_b"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "multiply_ab",
-      "nodeClassPath": "/Script/Engine.MaterialExpressionMultiply"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "material.palette:/Script/Engine.MaterialExpressionMultiply",
+        "kind": "expression",
+        "payload": {
+          "nodeClassPath": "/Script/Engine.MaterialExpressionMultiply"
+        }
+      },
+      "alias": "multiply_ab"
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "scalar_a",
-        "pinName": ""
+        "node": {
+          "alias": "scalar_a"
+        },
+        "pin": "Result"
       },
       "to": {
-        "nodeRef": "multiply_ab",
-        "pinName": "A"
+        "node": {
+          "alias": "multiply_ab"
+        },
+        "pin": "A"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "scalar_b",
-        "pinName": ""
+        "node": {
+          "alias": "scalar_b"
+        },
+        "pin": "Result"
       },
       "to": {
-        "nodeRef": "multiply_ab",
-        "pinName": "B"
+        "node": {
+          "alias": "multiply_ab"
+        },
+        "pin": "B"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "multiply_ab",
-        "pinName": ""
+        "node": {
+          "alias": "multiply_ab"
+        },
+        "pin": "Result"
       },
       "to": {
-        "nodeId": "__material_root__",
-        "pinName": "Base Color"
+        "node": {
+          "id": "__material_root__"
+        },
+        "pin": "Base Color"
       }
-    },
-    {
-      "op": "layoutGraph",
-      "scope": "touched"
     }
   ]
 }

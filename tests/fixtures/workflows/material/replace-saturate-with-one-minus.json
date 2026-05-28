@@ -1,90 +1,134 @@
 {
-  "tool": "material.mutate",
-  "ops": [
+  "tool": "material.graph.edit",
+  "commands": [
     {
-      "op": "addNode.byClass",
-      "clientRef": "roughness_scalar",
-      "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "material.palette:/Script/Engine.MaterialExpressionScalarParameter",
+        "kind": "expression",
+        "payload": {
+          "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"
+        }
+      },
+      "alias": "roughness_scalar"
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "old_saturate",
-      "nodeClassPath": "/Script/Engine.MaterialExpressionSaturate"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "material.palette:/Script/Engine.MaterialExpressionSaturate",
+        "kind": "expression",
+        "payload": {
+          "nodeClassPath": "/Script/Engine.MaterialExpressionSaturate"
+        }
+      },
+      "alias": "old_saturate"
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "roughness_scalar"
+        "node": {
+          "alias": "roughness_scalar"
+        },
+        "pin": "Result"
       },
       "to": {
-        "nodeRef": "old_saturate",
+        "node": {
+          "alias": "old_saturate"
+        },
         "pin": "Input"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "old_saturate"
+        "node": {
+          "alias": "old_saturate"
+        },
+        "pin": "Result"
       },
       "to": {
-        "nodeId": "__material_root__",
+        "node": {
+          "id": "__material_root__"
+        },
         "pin": "Roughness"
       }
     },
     {
-      "op": "addNode.byClass",
-      "clientRef": "replacement_invert",
-      "nodeClassPath": "/Script/Engine.MaterialExpressionOneMinus"
+      "kind": "addFromPalette",
+      "entry": {
+        "id": "material.palette:/Script/Engine.MaterialExpressionOneMinus",
+        "kind": "expression",
+        "payload": {
+          "nodeClassPath": "/Script/Engine.MaterialExpressionOneMinus"
+        }
+      },
+      "alias": "replacement_invert"
     },
     {
-      "op": "disconnectPins",
+      "kind": "disconnect",
       "from": {
-        "nodeRef": "roughness_scalar"
+        "node": {
+          "alias": "roughness_scalar"
+        },
+        "pin": "Result"
       },
       "to": {
-        "nodeRef": "old_saturate",
+        "node": {
+          "alias": "old_saturate"
+        },
         "pin": "Input"
       }
     },
     {
-      "op": "disconnectPins",
+      "kind": "disconnect",
       "from": {
-        "nodeRef": "old_saturate"
+        "node": {
+          "alias": "old_saturate"
+        },
+        "pin": "Result"
       },
       "to": {
-        "nodeId": "__material_root__",
+        "node": {
+          "id": "__material_root__"
+        },
         "pin": "Roughness"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "roughness_scalar"
+        "node": {
+          "alias": "roughness_scalar"
+        },
+        "pin": "Result"
       },
       "to": {
-        "nodeRef": "replacement_invert",
+        "node": {
+          "alias": "replacement_invert"
+        },
         "pin": "Input"
       }
     },
     {
-      "op": "connectPins",
+      "kind": "connect",
       "from": {
-        "nodeRef": "replacement_invert"
+        "node": {
+          "alias": "replacement_invert"
+        },
+        "pin": "Result"
       },
       "to": {
-        "nodeId": "__material_root__",
+        "node": {
+          "id": "__material_root__"
+        },
         "pin": "Roughness"
       }
     },
     {
-      "op": "removeNode",
-      "target": {
-        "nodeRef": "old_saturate"
+      "kind": "removeNode",
+      "node": {
+        "alias": "old_saturate"
       }
-    },
-    {
-      "op": "layoutGraph",
-      "scope": "touched"
     }
   ]
 }

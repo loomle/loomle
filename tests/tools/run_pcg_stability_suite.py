@@ -24,6 +24,7 @@ from run_pcg_graph_test_plan import (  # noqa: E402
     cleanup_pcg_fixture,
     compact_json,
     create_pcg_fixture,
+    pcg_edit_args_from_legacy_payload,
     property_candidates,
     query_pcg_snapshot,
     read_back_fields,
@@ -51,13 +52,13 @@ STABILITY_CASES = [
         "id": "query_snapshot_repeatability_roundtrip",
         "fixture": "pcg_graph",
         "families": ["create", "transform"],
-        "summary": "Repeated pcg.query and engine readback should stay stable for a simple roundtrip node.",
+        "summary": "Repeated pcg.graph.inspect and engine readback should stay stable for a simple roundtrip node.",
     },
     {
         "id": "verify_repeatability_workflow",
         "fixture": "pcg_graph_with_world_actor",
         "families": ["sample", "source", "spawn"],
-        "summary": "Repeated pcg.verify calls should keep the same compiled surface on a workflow graph.",
+        "summary": "Repeated pcg.compile calls should keep the same compiled surface on a workflow graph.",
         "workflowCaseId": "surface_sample_to_static_mesh",
     },
     {
@@ -135,11 +136,10 @@ def add_node_by_class(client: McpStdioClient, request_id: int, *, asset_path: st
     payload = call_tool(
         client,
         request_id,
-        "pcg.mutate",
-        {
-            "assetPath": asset_path,
-            "ops": [{"op": "addNode.byClass", "nodeClassPath": node_class_path}],
-        },
+        "pcg.graph.edit",
+        pcg_edit_args_from_legacy_payload(
+            {"assetPath": asset_path, "ops": [{"op": "addNode.byClass", "nodeClassPath": node_class_path}]}
+        ),
     )
     op_results = payload.get("opResults")
     if not isinstance(op_results, list) or not op_results:
@@ -219,7 +219,7 @@ def execute_verify_repeatability_workflow(
     payload = load_case_payload(workflow_case)
     payload["assetPath"] = asset_path
     mutate_args = {key: value for key, value in payload.items() if key != "tool"}
-    mutate_result = call_tool(client, request_id_base + 1, "pcg.mutate", mutate_args)
+    mutate_result = call_tool(client, request_id_base + 1, "pcg.graph.edit", mutate_args)
     surface_matrix["mutate"] = "pass"
 
     ref_map = build_client_ref_map(mutate_args, mutate_result)
