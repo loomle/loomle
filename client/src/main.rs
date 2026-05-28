@@ -377,7 +377,7 @@ impl LoomleProxyServer {
                     Ok(value) => value,
                     Err(error) => return Ok(error),
                 };
-                self.runtime_call("material.query", query_args).await
+                self.runtime_call("material.graph.inspect", query_args).await
             }
             "pcgGraph" => {
                 let mut inspect_args = args;
@@ -1050,7 +1050,7 @@ impl LoomleProxyServer {
                     Ok(value) => value,
                     Err(error) => return Ok(Some(error)),
                 };
-                Ok(Some(self.runtime_call("material.query", query_args).await?))
+                Ok(Some(self.runtime_call("material.graph.inspect", query_args).await?))
             }
             "material.graph.edit" => Ok(Some(self.call_material_graph_edit(args).await?)),
             "material.graph.layout" => Ok(Some(self.call_material_graph_layout(args).await?)),
@@ -1071,7 +1071,7 @@ impl LoomleProxyServer {
                     Ok(value) => value,
                     Err(error) => return Ok(Some(error)),
                 };
-                Ok(Some(self.runtime_call("pcg.query", query_args).await?))
+                Ok(Some(self.runtime_call("pcg.graph.inspect", query_args).await?))
             }
             "pcg.palette" => Ok(Some(self.call_pcg_palette(args).await?)),
             "pcg.node.inspect" => Ok(Some(self.call_pcg_node_inspect(args).await?)),
@@ -1095,11 +1095,11 @@ impl LoomleProxyServer {
                     Ok(value) => value,
                     Err(error) => return Ok(Some(error)),
                 };
-                Ok(Some(self.runtime_call("widget.mutate", mutate_args).await?))
+                Ok(Some(self.runtime_call("widget.tree.edit", mutate_args).await?))
             }
             "widget.tree.inspect" => {
                 let inspect_args = translate_widget_tree_inspect_args(&args);
-                let result = self.runtime_call("widget.query", inspect_args).await?;
+                let result = self.runtime_call("widget.tree.inspect", inspect_args).await?;
                 Ok(Some(shape_widget_tree_inspect_result(result, &args)))
             }
             "widget.inspect" => {
@@ -1108,10 +1108,10 @@ impl LoomleProxyServer {
                     Err(error) => return Ok(Some(error)),
                 };
                 Ok(Some(
-                    self.runtime_call("widget.describe", inspect_args).await?,
+                    self.runtime_call("widget.inspect", inspect_args).await?,
                 ))
             }
-            "widget.compile" => Ok(Some(self.runtime_call("widget.verify", args).await?)),
+            "widget.compile" => Ok(Some(self.runtime_call("widget.compile", args).await?)),
             _ => Ok(None),
         }
     }
@@ -1212,7 +1212,7 @@ impl LoomleProxyServer {
                 "Unsupported blueprint.class.edit operation: {operation}."
             )));
         }
-        Ok(self.runtime_call("blueprint.edit", args).await?)
+        Ok(self.runtime_call("blueprint.class.edit", args).await?)
     }
 
     async fn call_blueprint_member_inspect(
@@ -1478,7 +1478,7 @@ impl LoomleProxyServer {
             Err(error) => return Ok(error),
         };
         let payload = self
-            .runtime_payload("blueprint.verify", legacy_args)
+            .runtime_payload("blueprint.compile", legacy_args)
             .await?;
         if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
             return Ok(CallToolResult::structured_error(payload));
@@ -1614,7 +1614,7 @@ impl LoomleProxyServer {
             Ok(value) => value,
             Err(error) => return Ok(error),
         };
-        let payload = self.runtime_payload("pcg.query", translated).await?;
+        let payload = self.runtime_payload("pcg.graph.inspect", translated).await?;
         if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
             return Ok(CallToolResult::structured_error(payload));
         }
@@ -1632,7 +1632,7 @@ impl LoomleProxyServer {
             Ok(value) => value,
             Err(error) => return Ok(error),
         };
-        let payload = self.runtime_payload("pcg.describe", translated).await?;
+        let payload = self.runtime_payload("pcg.node.inspect", translated).await?;
         if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
             return Ok(CallToolResult::structured_error(payload));
         }
@@ -1686,7 +1686,7 @@ impl LoomleProxyServer {
             Ok(value) => value,
             Err(error) => return Ok(error),
         };
-        let payload = self.runtime_payload("pcg.mutate", translated).await?;
+        let payload = self.runtime_payload("pcg.graph.edit", translated).await?;
         Ok(structured_result(augment_blueprint_mutate_result(payload)))
     }
 
@@ -1698,7 +1698,7 @@ impl LoomleProxyServer {
             Ok(value) => value,
             Err(error) => return Ok(error),
         };
-        let payload = self.runtime_payload("pcg.mutate", translated).await?;
+        let payload = self.runtime_payload("pcg.graph.edit", translated).await?;
         if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
             return Ok(CallToolResult::structured_error(payload));
         }
@@ -1713,7 +1713,7 @@ impl LoomleProxyServer {
             Ok(value) => value,
             Err(error) => return Ok(error),
         };
-        let payload = self.runtime_payload("pcg.verify", translated).await?;
+        let payload = self.runtime_payload("pcg.compile", translated).await?;
         if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
             return Ok(CallToolResult::structured_error(payload));
         }
@@ -2256,7 +2256,7 @@ fn translate_material_graph_layout_args(
 fn translate_pcg_query_args(
     args: &rmcp::model::JsonObject,
 ) -> Result<rmcp::model::JsonObject, CallToolResult> {
-    translate_asset_query_args(args, "pcg.query")
+    translate_asset_query_args(args, "pcg.graph.inspect")
 }
 
 fn translate_pcg_graph_inspect_args(

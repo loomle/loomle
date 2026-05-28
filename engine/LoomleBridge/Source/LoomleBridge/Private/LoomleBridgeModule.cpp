@@ -198,8 +198,8 @@ namespace LoomleBridgeConstants
     static const TCHAR* EditorFocusToolName = TEXT("editor.focus");
     static const TCHAR* EditorScreenshotToolName = TEXT("editor.screenshot");
     static const TCHAR* BlueprintQueryToolName = TEXT("blueprint.graph.inspect");
-    static const TCHAR* MaterialQueryToolName = TEXT("material.query");
-    static const TCHAR* PcgQueryToolName = TEXT("pcg.query");
+    static const TCHAR* MaterialQueryToolName = TEXT("material.graph.inspect");
+    static const TCHAR* PcgQueryToolName = TEXT("pcg.graph.inspect");
     static const TCHAR* DiagnosticTailToolName = TEXT("diagnostic.tail");
     static const TCHAR* LogTailToolName = TEXT("log.tail");
     static const FName SlateStyleSetName(TEXT("LoomleBridgeStyle"));
