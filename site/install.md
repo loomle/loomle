@@ -35,7 +35,7 @@ Native install:
 Use the Fab install if you want to install LOOMLE from Epic/Fab and manage the
 Unreal plugin through Epic Launcher.
 
-[Install LOOMLE MCP for Unreal on Fab](https://www.fab.com/listings/3865e6f0-77b9-47bf-bd55-9c7b0b4768e7){: .btn .btn-primary }
+[Install LOOMLE MCP for Unreal on Fab](https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428){: .btn .btn-primary }
 
 Fab install:
 
@@ -138,7 +138,7 @@ state is per MCP session; there is no global active Unreal project.
 ## Fab Install
 
 1. Install
-   [LOOMLE MCP for Unreal](https://www.fab.com/listings/3865e6f0-77b9-47bf-bd55-9c7b0b4768e7)
+   [LOOMLE MCP for Unreal](https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428)
    from Fab.
 2. Enable the `LoomleBridge` plugin in Unreal Editor if needed.
 3. Restart Unreal Editor.

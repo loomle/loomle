@@ -62,7 +62,7 @@ loomle mcp
 
 Fab install:
 
-https://www.fab.com/listings/3865e6f0-77b9-47bf-bd55-9c7b0b4768e7
+https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428
 
 After installing from Fab, open Unreal Editor and use the Loomle toolbar to
 check setup status. Fab installs the Unreal plugin first; the bundled Python
