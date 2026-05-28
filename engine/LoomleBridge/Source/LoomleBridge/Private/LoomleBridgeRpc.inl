@@ -224,8 +224,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
         && !Name.Equals(LoomleBridgeConstants::BlueprintQueryToolName)
         && !Name.Equals(LoomleBridgeConstants::MaterialQueryToolName)
         && !Name.Equals(LoomleBridgeConstants::PcgQueryToolName)
-        && !Name.Equals(TEXT("material.query"))
-        && !Name.Equals(TEXT("pcg.query"))
         && !Name.Equals(LoomleBridgeConstants::JobsToolName))
     {
         struct FDispatchToolResult
@@ -289,7 +287,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     {
         Payload = BuildBlueprintListToolResult(Arguments);
     }
-    else if (Name.Equals(TEXT("blueprint.class.edit")) || Name.Equals(TEXT("blueprint.edit")))
+    else if (Name.Equals(TEXT("blueprint.class.edit")))
     {
         Payload = BuildBlueprintEditToolResult(Arguments);
     }
@@ -321,11 +319,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     {
         Payload = BuildBlueprintNodeEditToolResult(Arguments);
     }
-    else if (Name.Equals(TEXT("blueprint.compile")) || Name.Equals(TEXT("blueprint.verify")))
+    else if (Name.Equals(TEXT("blueprint.compile")))
     {
         Payload = BuildBlueprintVerifyToolResult(Arguments);
     }
-    else if (Name.Equals(TEXT("blueprint.class.inspect")) || Name.Equals(TEXT("blueprint.inspect")))
+    else if (Name.Equals(TEXT("blueprint.inspect")) || Name.Equals(TEXT("blueprint.class.inspect")))
     {
         Payload = BuildBlueprintDescribeToolResult(Arguments);
     }
@@ -337,11 +335,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     {
         Payload = BuildMaterialListToolResult(Arguments);
     }
-    else if (Name.Equals(TEXT("material.graph.inspect")) || Name.Equals(TEXT("material.query")))
+    else if (Name.Equals(TEXT("material.graph.inspect")))
     {
         Payload = BuildMaterialQueryToolResult(Arguments);
     }
-    else if (Name.Equals(TEXT("material.node.edit")) || Name.Equals(TEXT("material.mutate")))
+    else if (Name.Equals(TEXT("material.node.edit")))
     {
         Payload = BuildMaterialMutateToolResult(Arguments);
     }
@@ -349,11 +347,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     {
         Payload = BuildMaterialMutateToolResult(Arguments);
     }
-    else if (Name.Equals(TEXT("material.compile")) || Name.Equals(TEXT("material.verify")))
+    else if (Name.Equals(TEXT("material.compile")))
     {
         Payload = BuildMaterialCompileToolResult(Arguments);
     }
-    else if (Name.Equals(TEXT("material.node.inspect")) || Name.Equals(TEXT("material.describe")))
+    else if (Name.Equals(TEXT("material.node.inspect")))
     {
         Payload = BuildMaterialDescribeToolResult(Arguments);
     }
@@ -361,23 +359,19 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     {
         Payload = BuildMaterialPaletteToolResult(Arguments);
     }
-    else if (Name.Equals(TEXT("pcg.list")))
-    {
-        Payload = BuildPcgListToolResult(Arguments);
-    }
-    else if (Name.Equals(TEXT("pcg.graph.inspect")) || Name.Equals(TEXT("pcg.query")))
+    else if (Name.Equals(TEXT("pcg.graph.inspect")))
     {
         Payload = BuildPcgQueryToolResult(Arguments);
     }
-    else if (Name.Equals(TEXT("pcg.graph.edit")) || Name.Equals(TEXT("pcg.mutate")))
+    else if (Name.Equals(TEXT("pcg.graph.edit")))
     {
         Payload = BuildPcgMutateToolResult(Arguments);
     }
-    else if (Name.Equals(TEXT("pcg.compile")) || Name.Equals(TEXT("pcg.verify")))
+    else if (Name.Equals(TEXT("pcg.compile")))
     {
         Payload = BuildPcgVerifyToolResult(Arguments);
     }
-    else if (Name.Equals(TEXT("pcg.node.inspect")) || Name.Equals(TEXT("pcg.describe")))
+    else if (Name.Equals(TEXT("pcg.node.inspect")))
     {
         Payload = BuildPcgDescribeToolResult(Arguments);
     }
@@ -421,19 +415,19 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     {
         Payload = BuildWidgetPaletteToolResult(Arguments);
     }
-    else if (Name.Equals(TEXT("widget.tree.inspect")) || Name.Equals(TEXT("widget.query")))
+    else if (Name.Equals(TEXT("widget.tree.inspect")))
     {
         Payload = BuildWidgetQueryToolResult(Arguments);
     }
-    else if (Name.Equals(TEXT("widget.tree.edit")) || Name.Equals(TEXT("widget.mutate")))
+    else if (Name.Equals(TEXT("widget.tree.edit")))
     {
         Payload = BuildWidgetMutateToolResult(Arguments);
     }
-    else if (Name.Equals(TEXT("widget.compile")) || Name.Equals(TEXT("widget.verify")))
+    else if (Name.Equals(TEXT("widget.compile")))
     {
         Payload = BuildWidgetVerifyToolResult(Arguments);
     }
-    else if (Name.Equals(TEXT("widget.inspect")) || Name.Equals(TEXT("widget.describe")))
+    else if (Name.Equals(TEXT("widget.inspect")))
     {
         Payload = BuildWidgetDescribeToolResult(Arguments);
     }
