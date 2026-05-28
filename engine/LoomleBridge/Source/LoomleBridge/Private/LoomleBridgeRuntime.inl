@@ -4585,6 +4585,16 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildExecutePythonToolResult(const 
         WrappedCode += TEXT("                signal.signal(signal.SIGALRM, _LOOMLE_PREV_SIGALRM)\n");
         WrappedCode += TEXT("        except Exception:\n");
         WrappedCode += TEXT("            pass\n");
+        WrappedCode += TEXT("    try:\n");
+        WrappedCode += TEXT("        _loomle_original_load_asset = None\n");
+        WrappedCode += TEXT("        _loomle_original_editor_load_asset = None\n");
+        WrappedCode += TEXT("        _loomle_safe_load_asset = None\n");
+        WrappedCode += TEXT("        _loomle_safe_editor_load_asset = None\n");
+        WrappedCode += TEXT("        _loomle_validate_asset_load_path = None\n");
+        WrappedCode += TEXT("        _loomle_timeout_handler = None\n");
+        WrappedCode += TEXT("        _LOOMLE_PREV_SIGALRM = None\n");
+        WrappedCode += TEXT("    except Exception:\n");
+        WrappedCode += TEXT("        pass\n");
     }
 
     FPythonCommandEx PythonCommand;

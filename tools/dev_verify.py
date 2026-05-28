@@ -199,6 +199,77 @@ def stop_editor(uproject: Path, platform: str) -> None:
         run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command], allow_failure=True)
 
 
+def is_editor_running(uproject: Path, platform: str) -> bool:
+    if platform == "darwin":
+        result = subprocess.run(
+            ["ps", "-ax", "-o", "command="],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            errors="replace",
+        )
+        if result.returncode != 0:
+            return False
+        uproject_text = str(uproject)
+        return any(
+            "UnrealEditor" in line and uproject_text in line
+            for line in result.stdout.splitlines()
+        )
+    if platform == "windows":
+        command = (
+            "$uproject = %s; "
+            "$p = Get-CimInstance Win32_Process -Filter \"Name = 'UnrealEditor.exe'\" | "
+            "Where-Object { $_.CommandLine -like \"*$uproject*\" }; "
+            "if ($p) { exit 0 } else { exit 1 }"
+        ) % json.dumps(str(uproject))
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        return result.returncode == 0
+    return False
+
+
+def wait_for_editor_exit(uproject: Path, platform: str, timeout_s: float) -> bool:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if not is_editor_running(uproject, platform):
+            return True
+        time.sleep(1.0)
+    return not is_editor_running(uproject, platform)
+
+
+def close_editor_gracefully(project_root: Path, uproject: Path, loomle_binary: Path, mcp_server: str, platform: str) -> bool:
+    if not is_editor_running(uproject, platform):
+        return True
+
+    client = None
+    try:
+        server_spec = resolve_mcp_server_spec(mcp_server, loomle_binary)
+        client = McpStdioClient(project_root=project_root, server_spec=server_spec, timeout_s=15.0)
+        call_tool(client, 1001, "project.attach", {"projectRoot": str(project_root)})
+        call_tool(
+            client,
+            1002,
+            "execute",
+            {
+                "language": "python",
+                "mode": "exec",
+                "code": "import unreal\nunreal.SystemLibrary.quit_editor()",
+            },
+        )
+    except Exception as exc:
+        print(f"[WARN] graceful Unreal Editor close failed: {exc}", file=sys.stderr)
+        return False
+    finally:
+        if client is not None:
+            client.close()
+
+    return wait_for_editor_exit(uproject, platform, 30.0)
+
+
 def start_editor(editor_binary: Path, uproject: Path, platform: str) -> None:
     if platform == "darwin":
         subprocess.Popen(["open", "-na", str(editor_binary), "--args", str(uproject)])
@@ -533,7 +604,9 @@ def main() -> int:
         if should_close_editor:
             step("Close Unreal Editor")
             try:
-                stop_editor(uproject, platform)
+                if not close_editor_gracefully(project_root, uproject, loomle_binary, args.mcp_server, platform):
+                    print("[WARN] graceful Unreal Editor close timed out; falling back to process signal", file=sys.stderr)
+                    stop_editor(uproject, platform)
             except Exception as exc:
                 print(f"[WARN] failed to close Unreal Editor: {exc}", file=sys.stderr)
 
