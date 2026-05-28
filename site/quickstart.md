@@ -7,10 +7,24 @@ description: A minimal path from install to first successful UE operation.
 
 # Quickstart
 
-This path assumes LOOMLE is installed and the MCP host is configured to run
-`loomle mcp`.
+This path assumes one of these install paths is ready:
 
-## 1. Find an Unreal Project
+- Native install is configured in your MCP host as `loomle mcp`.
+- Fab install has configured the Python MCP server from the Loomle toolbar in
+  Unreal Editor.
+
+After setup, both paths expose the same LOOMLE tools.
+
+## 1. Open Unreal Editor
+
+Open the Unreal project you want the agent to work on. Make sure the
+`LoomleBridge` plugin is enabled and the Loomle toolbar/status panel reports a
+ready state.
+
+If you just changed MCP setup, restart Codex, Claude, or your MCP host before
+continuing.
+
+## 2. Find an Unreal Project
 
 Call:
 
@@ -20,7 +34,7 @@ project.list
 
 Use the returned `projectId` or `projectRoot` for the next step.
 
-## 2. Attach the Session
+## 3. Attach the Session
 
 Call:
 
@@ -31,7 +45,7 @@ project.attach
 After attach succeeds, LOOMLE exposes the UE-facing tool surface for the active
 project.
 
-## 3. Read Editor Context
+## 4. Read Editor Context
 
 If the user already has an asset open or something selected in Unreal Editor,
 call:
@@ -47,7 +61,7 @@ visible UE state instead of guessing asset paths or graph names.
 `context` does not attach the MCP session to a project. Use it after
 `project.attach` succeeds.
 
-## 4. Inspect Before Editing
+## 5. Inspect Before Editing
 
 Use the domain-specific inspect tool before editing:
 
@@ -57,7 +71,7 @@ Use the domain-specific inspect tool before editing:
 - PCG: `pcg.graph.inspect`, `pcg.node.inspect`, or `pcg.parameter.inspect`.
 - Widget: `widget.tree.inspect` or `widget.inspect`.
 
-## 5. Use Palettes for Creation
+## 6. Use Palettes for Creation
 
 When adding graph nodes or widgets, query the relevant palette first:
 
@@ -68,7 +82,7 @@ When adding graph nodes or widgets, query the relevant palette first:
 
 Then pass the selected palette entry to the matching edit tool.
 
-## 6. Edit Explicitly
+## 7. Edit Explicitly
 
 Use explicit local edits:
 
@@ -84,7 +98,7 @@ Use explicit local edits:
 For tools with compact first-level schemas, call `schema.inspect` for the
 specific operation before editing.
 
-## 7. Compile or Verify
+## 8. Compile or Verify
 
 Compile after meaningful asset changes:
 

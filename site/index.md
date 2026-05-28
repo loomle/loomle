@@ -26,8 +26,10 @@ editor context, compile diagnostics, and play sessions.
 
 ## What LOOMLE Provides
 
-- A global `loomle mcp` command for Claude Code, Codex, and other MCP hosts.
-- A UE editor bridge installed into each project as `Plugins/LoomleBridge`.
+- Two install paths: a native global CLI from this website, or an Unreal-first
+  install from Fab.
+- An MCP server for Claude Code, Codex, and other MCP hosts.
+- A UE editor bridge plugin loaded by Unreal Editor.
 - UE-semantic tools for assets, Blueprint, Material, PCG, UMG widgets, editor
   focus, diagnostics, logs, and play sessions.
 - Palette-driven creation so agents use UE's own creation model instead of
@@ -47,17 +49,19 @@ reliable UE-native control surface for agents working inside existing projects.
 
 ## How It Works
 
-LOOMLE has two installation scopes:
+LOOMLE has three moving parts:
 
-- Global install: the `loomle` command, active version state, release payloads,
-  plugin cache, and runtime/project registry under `~/.loomle`.
-- Project install: the Unreal project plugin under `Plugins/LoomleBridge` plus
-  required project support settings.
+- MCP server: the process your AI host starts. The native install provides
+  `loomle mcp`; the Fab install can use the Python MCP server bundled with the
+  Fab plugin.
+- Unreal bridge plugin: `LoomleBridge`, loaded by Unreal Editor through either
+  a project-local plugin install or Fab/Epic Launcher.
+- Project attach: the current MCP session uses `project.list` and
+  `project.attach` to select one online Unreal project.
 
-The global install is not tied to one Unreal project. When Unreal Editor starts
-with `LoomleBridge` loaded, the project reports a runtime endpoint. The current
-MCP session then uses `project.list` and `project.attach` to select one online
-project.
+Both install paths expose the same tool surface after attach. Native install is
+best for CLI-first workflows and direct updates. Fab install is best for
+Unreal-first users who want Epic Launcher to own the plugin install and update.
 
 ## Usage Model
 

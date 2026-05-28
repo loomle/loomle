@@ -16,6 +16,8 @@ Canonical documentation:
 
 Install:
 
+Native install:
+
 ```bash
 curl -fsSL https://loomle.ai/install.sh | bash
 ```
@@ -31,6 +33,14 @@ Configure MCP hosts to run:
 ```bash
 loomle mcp
 ```
+
+Fab install:
+
+https://www.fab.com/listings/3865e6f0-77b9-47bf-bd55-9c7b0b4768e7
+
+After installing from Fab, open Unreal Editor and use the Loomle toolbar to
+check setup status. Native and Fab installs expose the same tools after
+`project.attach`.
 
 After attach, inspect before editing, use palettes for creation, and call
 `schema.inspect` when a tool intentionally has operation-specific schemas.

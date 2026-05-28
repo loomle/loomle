@@ -14,8 +14,10 @@ asset metadata, editor context, compile diagnostics, and play sessions.
 
 ## What It Provides
 
-- A global `loomle mcp` command for Claude Code, Codex, and other MCP hosts.
-- A UE editor bridge installed into each project as `Plugins/LoomleBridge`.
+- Two install paths: native CLI install from the website, or Unreal-first
+  install from Fab.
+- An MCP server for Claude Code, Codex, and other MCP hosts.
+- A UE editor bridge plugin loaded by Unreal Editor.
 - UE-semantic tools for project/session setup, assets, Blueprint, Material,
   PCG, UMG widgets, editor focus, runtime execution, diagnostics, logs, and
   play sessions.
@@ -37,6 +39,8 @@ surface for agents working inside existing projects.
 
 ## Install
 
+Native install:
+
 macOS and Linux:
 
 ```bash
@@ -56,21 +60,27 @@ a stable command at `~/.loomle/bin/loomle`. MCP hosts should run:
 loomle mcp
 ```
 
+Fab install:
+
+https://www.fab.com/listings/3865e6f0-77b9-47bf-bd55-9c7b0b4768e7
+
+After installing from Fab, open Unreal Editor and use the Loomle toolbar to
+check setup status.
+
 See the full install guide: https://loomle.ai/install.html
 
 ## Project Model
 
-LOOMLE has two installation scopes:
+LOOMLE has three moving parts:
 
-- Global install: the `loomle` command, active version state, release payloads,
-  plugin cache, and runtime/project registry under `~/.loomle`.
-- Project install: the Unreal project plugin under `Plugins/LoomleBridge` plus
-  required project support settings.
+- MCP server: either native `loomle mcp`, or the Python MCP server used by the
+  Fab setup flow.
+- Unreal bridge plugin: `LoomleBridge`, loaded by Unreal Editor through either
+  a project-local plugin install or Fab/Epic Launcher.
+- Project attach: the current MCP session uses `project.list` and
+  `project.attach` to select one online Unreal project.
 
-The global install is not tied to one Unreal project. When Unreal Editor starts
-with `LoomleBridge` loaded, the project reports a runtime endpoint. The current
-MCP session then uses `project.list` and `project.attach` to select one online
-project.
+Both install paths expose the same tool surface after attach.
 
 If a project does not have LOOMLE support yet, close Unreal Editor for that
 project and run the MCP tool `project.install` with the target `projectRoot`.
@@ -92,9 +102,11 @@ Full quickstart: https://loomle.ai/quickstart.html
 
 The fastest useful test is:
 
-1. Install LOOMLE and configure your MCP host.
+1. Install LOOMLE through the native installer or Fab, and configure your MCP
+   host.
 2. Open an Unreal project.
-3. Run `project.install` if the project does not have `Plugins/LoomleBridge`.
+3. Run `project.install` if you are using native install and the project does
+   not have `Plugins/LoomleBridge`.
 4. Restart Unreal Editor, then call `project.list`, `project.attach`, and
    `context`.
 5. Try one domain inspect tool, such as `blueprint.graph.inspect`,
