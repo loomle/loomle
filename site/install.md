@@ -154,6 +154,95 @@ updates are owned by Fab/Epic Launcher. If you later install native LOOMLE, the
 native MCP server should use the existing Fab-managed plugin instead of
 overwriting it.
 
+### Fab Python MCP Location
+
+The Python MCP server used by the Fab setup flow is inside the installed Unreal
+plugin:
+
+```text
+<PluginPath>/Resources/MCP/
+  pyproject.toml
+  loomle_mcp_server.py
+  loomle_mcp/
+  tool-manifest/
+```
+
+`<PluginPath>` is the actual `LoomleBridge` plugin folder reported by Unreal.
+Depending on how Fab/Epic Launcher installed the plugin, that can be an Engine
+plugin path or a project plugin path such as:
+
+```text
+<ProjectRoot>/Plugins/LoomleBridge
+```
+
+In the LOOMLE source repository, the same Python MCP server is maintained under
+`mcp/python/`. The Fab package copies that source into
+`LoomleBridge/Resources/MCP/`; users should configure MCP hosts against the
+installed plugin's `Resources/MCP` directory, not the source checkout.
+
+### What Fab Automatic Setup Writes
+
+When the Loomle setup panel can safely configure an MCP host, it does not
+install a daemon and it does not replace unrelated MCP servers. It:
+
+- Detects the installed `LoomleBridge` plugin path.
+- Checks that `<PluginPath>/Resources/MCP/loomle_mcp_server.py` exists.
+- Builds a stdio MCP server entry named `loomle`.
+- Backs up the host config before editing it.
+- Merges only the `loomle` entry.
+- Keeps an existing native `loomle mcp` entry unchanged.
+
+For Codex, the Fab Python MCP entry in `~/.codex/config.toml` is:
+
+```toml
+[mcp_servers.loomle]
+command = "uv"
+args = ["--directory", "<PluginPath>/Resources/MCP", "run", "loomle_mcp_server.py"]
+```
+
+For Claude Desktop-style JSON config, the equivalent entry is:
+
+```json
+{
+  "mcpServers": {
+    "loomle": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "<PluginPath>/Resources/MCP",
+        "run",
+        "loomle_mcp_server.py"
+      ]
+    }
+  }
+}
+```
+
+After editing MCP configuration, restart the AI host so it starts the new stdio
+server.
+
+### Manual Fab MCP Configuration
+
+If automatic setup is not available, add a stdio MCP server named `loomle` with
+the same command:
+
+```json
+{
+  "command": "uv",
+  "args": [
+    "--directory",
+    "<PluginPath>/Resources/MCP",
+    "run",
+    "loomle_mcp_server.py"
+  ]
+}
+```
+
+This runs the Python MCP server from the Fab-installed plugin resources. The
+server discovers online Unreal projects through LOOMLE runtime records, so once
+Unreal Editor is open with `LoomleBridge` loaded, use `project.list` and
+`project.attach` from the MCP host.
+
 ## How the Paths Work Together
 
 - Native CLI can connect to a Fab-installed `LoomleBridge` plugin.

@@ -65,7 +65,21 @@ Fab install:
 https://www.fab.com/listings/3865e6f0-77b9-47bf-bd55-9c7b0b4768e7
 
 After installing from Fab, open Unreal Editor and use the Loomle toolbar to
-check setup status.
+check setup status. Fab installs the Unreal plugin first; the bundled Python
+MCP server lives inside the installed plugin at:
+
+```text
+<PluginPath>/Resources/MCP/loomle_mcp_server.py
+```
+
+The setup flow configures MCP hosts to run:
+
+```bash
+uv --directory <PluginPath>/Resources/MCP run loomle_mcp_server.py
+```
+
+It backs up and merges a `loomle` MCP server entry, and keeps an existing
+native `loomle mcp` entry unchanged.
 
 See the full install guide: https://loomle.ai/install.html
 
