@@ -26,3 +26,11 @@ tests for the current graph edit tools.
   instead of the retired Blueprint mutate name.
 - Retired names may still appear in tests that assert those tools are not
   declared by the public manifest.
+
+## Manifest Consistency
+
+The Python manifest is allowed to expose local setup/project tools in addition
+to the Rust runtime tools. Tests enforce that the local-only set is explicit,
+that every manifest dispatch transform is implemented by the Python MCP
+transform layer, and that `schema.inspect` tools match the Rust
+second-layer schema inspector.

@@ -10,6 +10,14 @@ from loomle_mcp.setup_status import classify_loomle_mcp_entry
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MANIFEST = REPO_ROOT / "mcp" / "manifest" / "manifest.json"
+PYTHON_LOCAL_TOOLS = {
+    "loomle.status",
+    "project.attach",
+    "project.list",
+    "schema.inspect",
+    "setup.configure",
+    "setup.status",
+}
 
 
 class ToolManifestTests(unittest.TestCase):
@@ -44,6 +52,54 @@ class ToolManifestTests(unittest.TestCase):
         rust_names.discard("project.install")
 
         self.assertFalse(rust_names - python_names)
+
+    def test_python_manifest_tool_names_match_rust_plus_local_tools(self) -> None:
+        manifest = load_manifest(MANIFEST)
+        python_names = {tool["name"] for tool in manifest.list_tools("python")}
+        rust_source = (REPO_ROOT / "client" / "src" / "main.rs").read_text()
+        rust_names = set(re.findall(r'Tool::new\("([^"]+)"', rust_source))
+
+        self.assertEqual(python_names - rust_names, PYTHON_LOCAL_TOOLS)
+
+    def test_manifest_dispatch_transforms_are_implemented(self) -> None:
+        manifest = load_manifest(MANIFEST)
+        referenced: set[str] = set()
+        for tool in manifest.tools_for("python"):
+            dispatch = tool.get("dispatch", {})
+            for field in ("args", "result"):
+                value = dispatch.get(field)
+                if isinstance(value, dict) and isinstance(value.get("transform"), str):
+                    referenced.add(value["transform"])
+
+        transform_source = (REPO_ROOT / "mcp" / "python" / "loomle_mcp" / "transforms.py").read_text()
+        implemented = set(re.findall(r'if name == "([^"]+)"', transform_source))
+
+        self.assertFalse(referenced - implemented)
+        self.assertFalse(implemented - referenced)
+
+    def test_schema_inspect_tools_match_rust_dispatch(self) -> None:
+        manifest = load_manifest(MANIFEST)
+        manifest_tools = {
+            tool["name"]
+            for tool in manifest.tools_for("python")
+            if isinstance(tool.get("schemaInspect"), dict)
+        }
+        rust_source = (REPO_ROOT / "client" / "src" / "schema_inspect.rs").read_text()
+        available = set(re.findall(r'"((?:blueprint|material|pcg|widget)\.[^":]+)"', rust_source))
+
+        self.assertEqual(
+            manifest_tools,
+            {
+                "blueprint.graph.edit",
+                "blueprint.member.edit",
+                "blueprint.node.edit",
+                "material.graph.edit",
+                "pcg.graph.edit",
+                "pcg.parameter.edit",
+                "widget.tree.edit",
+            },
+        )
+        self.assertTrue(manifest_tools <= available)
 
     def test_bridge_rpc_dispatch_does_not_use_retired_tool_names(self) -> None:
         manifest = load_manifest(MANIFEST)
