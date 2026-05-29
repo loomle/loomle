@@ -86,13 +86,15 @@ belong on the `asset.*` surface.
 
 Current `asset.*` coverage:
 
-- `asset.create` creates Blueprint, enum, Material, MaterialFunction, PCG graph,
-  and WidgetBlueprint assets.
-- `asset.inspect` reads Blueprint, enum, Material, MaterialFunction, PCG graph,
-  and WidgetBlueprint assets through the requested `kind`.
+- `asset.create` creates Blueprint, enum, UserDefinedStruct, Material,
+  MaterialFunction, PCG graph, and WidgetBlueprint assets.
+- `asset.inspect` reads Blueprint, enum, UserDefinedStruct, Material,
+  MaterialFunction, PCG graph, and WidgetBlueprint assets through the requested
+  `kind`.
 - `asset.edit` edits asset-level metadata through `operation=updateMetadata`.
   Enum entries remain available through `kind=enum` and
-  `operation=updateEntries` as a compatibility special case.
+  `operation=updateEntries` as a compatibility special case. UserDefinedStruct
+  field edits are available through `kind=userDefinedStruct` field operations.
 
 ### Scope
 

@@ -18,6 +18,8 @@ interface contract.
 ## Current Documents
 
 - `BLUEPRINT_INTERFACE_DESIGN.md`: current Blueprint interface design.
+- `BLUEPRINT_USER_DEFINED_STRUCT_DESIGN.md`: planned Blueprint
+  UserDefinedStruct asset create/inspect/edit design.
 - `blueprint/member-edit.md`: Blueprint member edit operation design.
 - `blueprint/palette.md`: Blueprint palette and `addFromPalette` design.
 - `blueprint/graph-edit.md`: Blueprint graph edit command design.

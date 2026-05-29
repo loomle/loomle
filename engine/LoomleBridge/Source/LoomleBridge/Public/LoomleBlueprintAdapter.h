@@ -28,6 +28,9 @@ public:
     static bool DescribeUserDefinedEnum(const FString& EnumAssetPath, FString& OutEnumJson, FString& OutError);
     static bool CreateUserDefinedEnum(const FString& EnumAssetPath, const FString& PayloadJson, FString& OutEnumJson, FString& OutError);
     static bool UpdateUserDefinedEnumEntries(const FString& EnumAssetPath, const FString& PayloadJson, FString& OutEnumJson, FString& OutError);
+    static bool DescribeUserDefinedStruct(const FString& StructAssetPath, FString& OutStructJson, FString& OutError);
+    static bool CreateUserDefinedStruct(const FString& StructAssetPath, const FString& PayloadJson, FString& OutStructJson, FString& OutError);
+    static bool EditUserDefinedStruct(const FString& StructAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutStructJson, FString& OutError, FString& OutErrorCode);
     static bool SetParentClass(const FString& BlueprintAssetPath, const FString& ParentClassPath, FString& OutError);
     static bool ListImplementedInterfaces(const FString& BlueprintAssetPath, FString& OutInterfacesJson, FString& OutError);
     static bool AddInterface(const FString& BlueprintAssetPath, const FString& InterfaceClassPath, FString& OutError);

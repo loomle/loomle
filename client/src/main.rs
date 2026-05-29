@@ -351,6 +351,14 @@ impl LoomleProxyServer {
                 copy_mutation_controls(&args, &mut edit_args);
                 self.runtime_call("blueprint.enum.edit", edit_args).await
             }
+            "userDefinedStruct" => {
+                let mut edit_args = rmcp::model::JsonObject::new();
+                edit_args.insert("assetPath".into(), serde_json::json!(asset_path));
+                edit_args.insert("operation".into(), serde_json::json!("create"));
+                edit_args.insert("args".into(), asset_struct_args_from_top_level(&args));
+                copy_mutation_controls(&args, &mut edit_args);
+                self.runtime_call("blueprint.struct.edit", edit_args).await
+            }
             "material" | "materialFunction" | "pcgGraph" | "widgetBlueprint" => {
                 self.runtime_call("asset.create", args).await
             }
@@ -370,6 +378,7 @@ impl LoomleProxyServer {
         match kind {
             "blueprint" => self.runtime_call("blueprint.inspect", args).await,
             "enum" => self.runtime_call("blueprint.enum.inspect", args).await,
+            "userDefinedStruct" => self.runtime_call("blueprint.struct.inspect", args).await,
             "material" | "materialFunction" => {
                 let mut inspect_args = args;
                 inspect_args.remove("kind");
@@ -428,6 +437,33 @@ impl LoomleProxyServer {
                 edit_args.insert("args".into(), asset_enum_args_from_top_level(&args));
                 copy_mutation_controls(&args, &mut edit_args);
                 self.runtime_call("blueprint.enum.edit", edit_args).await
+            }
+            (
+                "userDefinedStruct",
+                "setTooltip"
+                | "addField"
+                | "removeField"
+                | "renameField"
+                | "changeFieldType"
+                | "setFieldDefault"
+                | "setFieldTooltip"
+                | "setFieldMetadata"
+                | "moveField",
+            ) => {
+                let asset_path = match read_required_asset_path(&args, "asset.edit") {
+                    Ok(value) => value,
+                    Err(error) => return Ok(error),
+                };
+                let mut edit_args = rmcp::model::JsonObject::new();
+                edit_args.insert("assetPath".into(), serde_json::json!(asset_path));
+                edit_args.insert("operation".into(), serde_json::json!(operation));
+                if let Some(operation_args) = args.get("args").cloned() {
+                    edit_args.insert("args".into(), operation_args);
+                } else {
+                    edit_args.insert("args".into(), asset_struct_args_from_top_level(&args));
+                }
+                copy_mutation_controls(&args, &mut edit_args);
+                self.runtime_call("blueprint.struct.edit", edit_args).await
             }
             _ => Ok(invalid_argument_result(format!(
                 "Unsupported asset.edit operation for kind {kind}: {operation}."
@@ -1864,6 +1900,36 @@ fn asset_enum_args_from_top_level(args: &rmcp::model::JsonObject) -> serde_json:
     copy_if_present(args, &mut enum_args, "entries");
     copy_if_present(args, &mut enum_args, "displayNames");
     serde_json::Value::Object(enum_args)
+}
+
+fn asset_struct_args_from_top_level(args: &rmcp::model::JsonObject) -> serde_json::Value {
+    if let Some(args_object) = args.get("args").and_then(|value| value.as_object()) {
+        return serde_json::Value::Object(args_object.clone());
+    }
+
+    let mut struct_args = serde_json::Map::new();
+    for field in [
+        "fields",
+        "tooltip",
+        "toolTip",
+        "fieldId",
+        "id",
+        "name",
+        "fieldName",
+        "newName",
+        "displayName",
+        "type",
+        "defaultValue",
+        "value",
+        "metadata",
+        "removeKeys",
+        "relativeToFieldId",
+        "targetFieldId",
+        "position",
+    ] {
+        copy_if_present(args, &mut struct_args, field);
+    }
+    serde_json::Value::Object(struct_args)
 }
 
 fn extract_query_graph_asset_path(
@@ -5226,8 +5292,8 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("jobs", "Inspect or retrieve long-running job state, results, and logs.", Arc::new(jobs_schema())),
         Tool::new("profiling", "Bridge official Unreal profiling data families such as stat unit, stat groups, ticks, memory reports, and capture workflows.", Arc::new(profiling_schema())),
         Tool::new("play", "Inspect and control Unreal play sessions; supports PIE status, start, stop, and wait.", Arc::new(play_schema())),
-        Tool::new("asset.create", "Create an Unreal asset such as a Blueprint, enum, Material, PCG graph, or WidgetBlueprint.", Arc::new(asset_create_schema())),
-        Tool::new("asset.inspect", "Inspect an Unreal asset through a kind-specific public surface such as Blueprint, enum, Material, PCG graph, or WidgetBlueprint.", Arc::new(asset_inspect_schema())),
+        Tool::new("asset.create", "Create an Unreal asset such as a Blueprint, enum, UserDefinedStruct, Material, PCG graph, or WidgetBlueprint.", Arc::new(asset_create_schema())),
+        Tool::new("asset.inspect", "Inspect an Unreal asset through a kind-specific public surface such as Blueprint, enum, UserDefinedStruct, Material, PCG graph, or WidgetBlueprint.", Arc::new(asset_inspect_schema())),
         Tool::new("asset.edit", "Edit asset-level metadata. Enum entry editing remains as a compatibility special case.", Arc::new(asset_edit_schema())),
         Tool::new("editor.open", "Open or focus the editor for a specific Unreal asset path.", Arc::new(editor_open_schema())),
         Tool::new("editor.focus", "Focus a semantic panel inside an asset editor, such as graph, viewport, details, palette, or find.", Arc::new(editor_focus_schema())),
@@ -6129,7 +6195,7 @@ fn asset_create_schema() -> rmcp::model::JsonObject {
         "kind".into(),
         serde_json::json!({
             "type":"string",
-            "enum":["blueprint","enum","material","materialFunction","pcgGraph","widgetBlueprint"],
+            "enum":["blueprint","enum","userDefinedStruct","material","materialFunction","pcgGraph","widgetBlueprint"],
             "description":"Asset category to create."
         }),
     );
@@ -6153,6 +6219,14 @@ fn asset_create_schema() -> rmcp::model::JsonObject {
         "displayNames".into(),
         serde_json::json!({"type":"object","description":"Optional enum display names keyed by entry name."}),
     );
+    properties.insert(
+        "fields".into(),
+        serde_json::json!({"type":"array","description":"UserDefinedStruct fields for kind=userDefinedStruct. First version requires at least one field.","items":{"type":"object"}}),
+    );
+    properties.insert(
+        "tooltip".into(),
+        serde_json::json!({"type":"string","description":"UserDefinedStruct tooltip for kind=userDefinedStruct."}),
+    );
     properties.insert("args".into(), serde_json::json!({"type":"object"}));
     mutation_control_fields(&mut properties);
     schema_from_value(serde_json::json!({
@@ -6169,8 +6243,8 @@ fn asset_inspect_schema() -> rmcp::model::JsonObject {
         "properties":{
             "kind":{
                 "type":"string",
-                "enum":["blueprint","enum","material","materialFunction","pcgGraph","widgetBlueprint"],
-                "description":"Asset category to inspect. Use material for UMaterial, materialFunction for UMaterialFunction, pcgGraph for UPCGGraph, and widgetBlueprint for UWidgetBlueprint."
+                "enum":["blueprint","enum","userDefinedStruct","material","materialFunction","pcgGraph","widgetBlueprint"],
+                "description":"Asset category to inspect. Use userDefinedStruct for UUserDefinedStruct, material for UMaterial, materialFunction for UMaterialFunction, pcgGraph for UPCGGraph, and widgetBlueprint for UWidgetBlueprint."
             },
             "assetPath":{"type":"string","minLength":1},
             "view":{
@@ -6211,8 +6285,8 @@ fn asset_edit_schema() -> rmcp::model::JsonObject {
         "kind".into(),
         serde_json::json!({
             "type":"string",
-            "enum":["blueprint","enum","material","materialFunction","pcgGraph","widgetBlueprint"],
-            "description":"Optional for operation=updateMetadata. Required only for compatibility operation=updateEntries, where it must be enum."
+            "enum":["blueprint","enum","userDefinedStruct","material","materialFunction","pcgGraph","widgetBlueprint"],
+            "description":"Optional for operation=updateMetadata. Required for enum updateEntries and userDefinedStruct field operations."
         }),
     );
     properties.insert(
@@ -6223,8 +6297,8 @@ fn asset_edit_schema() -> rmcp::model::JsonObject {
         "operation".into(),
         serde_json::json!({
             "type":"string",
-            "enum":["updateMetadata","updateEntries"],
-            "description":"Use updateMetadata for generic asset metadata. updateEntries is an enum-only compatibility special case."
+            "enum":["updateMetadata","updateEntries","setTooltip","addField","removeField","renameField","changeFieldType","setFieldDefault","setFieldTooltip","setFieldMetadata","moveField"],
+            "description":"Use updateMetadata for generic asset metadata. updateEntries is an enum-only compatibility special case. Field operations apply to kind=userDefinedStruct."
         }),
     );
     properties.insert(
@@ -6256,6 +6330,7 @@ fn asset_edit_schema() -> rmcp::model::JsonObject {
         serde_json::json!({"type":"array","description":"Enum entries for enum-only operation=updateEntries.","items":{"oneOf":[{"type":"string"},{"type":"object"}]}}),
     );
     properties.insert("displayNames".into(), serde_json::json!({"type":"object"}));
+    properties.insert("fields".into(), serde_json::json!({"type":"array","items":{"type":"object"},"description":"UserDefinedStruct fields for create-like args forwarding."}));
     properties.insert(
         "args".into(),
         serde_json::json!({
@@ -11507,6 +11582,7 @@ mod tests {
         for expected in [
             "blueprint",
             "enum",
+            "userDefinedStruct",
             "material",
             "materialFunction",
             "pcgGraph",
@@ -11577,6 +11653,8 @@ mod tests {
             .collect::<std::collections::HashSet<_>>();
         assert!(operations.contains("updateMetadata"));
         assert!(operations.contains("updateEntries"));
+        assert!(operations.contains("addField"));
+        assert!(operations.contains("changeFieldType"));
 
         let required = schema
             .get("required")

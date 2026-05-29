@@ -198,9 +198,6 @@ namespace LoomleBridgeConstants
     static const TCHAR* EditorOpenToolName = TEXT("editor.open");
     static const TCHAR* EditorFocusToolName = TEXT("editor.focus");
     static const TCHAR* EditorScreenshotToolName = TEXT("editor.screenshot");
-    static const TCHAR* BlueprintGraphInspectToolName = TEXT("blueprint.graph.inspect");
-    static const TCHAR* MaterialGraphInspectToolName = TEXT("material.graph.inspect");
-    static const TCHAR* PcgGraphInspectToolName = TEXT("pcg.graph.inspect");
     static const TCHAR* DiagnosticTailToolName = TEXT("diagnostic.tail");
     static const TCHAR* LogTailToolName = TEXT("log.tail");
     static const FName SlateStyleSetName(TEXT("LoomleBridgeStyle"));
@@ -5054,6 +5051,205 @@ void FLoomleBridgeModule::HandlePreExit()
     bIsShuttingDown.Store(true);
     StopBridgeRuntime(false);
     CleanupExecutePythonGlobalsForShutdown();
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorMutationLifecycleBlockResult(
+    const FString& ToolName,
+    const TSharedPtr<FJsonObject>& Arguments,
+    const FString& AssetPath,
+    const FString& GraphName)
+{
+    auto ReadStringField = [](const TSharedPtr<FJsonObject>& Object, const TCHAR* FieldName) -> FString
+    {
+        FString Value;
+        if (Object.IsValid())
+        {
+            Object->TryGetStringField(FieldName, Value);
+        }
+        return Value;
+    };
+
+    FString Code;
+    FString Message;
+    if (bIsShuttingDown.Load())
+    {
+        Code = TEXT("EDITOR_SHUTTING_DOWN");
+        Message = TEXT("Editor is shutting down; graph/tree edits are not safe during shutdown.");
+    }
+    else if (GEditor == nullptr)
+    {
+        Code = TEXT("EDITOR_UNAVAILABLE");
+        Message = TEXT("Editor is unavailable; graph/tree edits require an active editor.");
+    }
+    else if (GEditor->ShouldEndPlayMap())
+    {
+        Code = TEXT("PIE_STOPPING");
+        Message = TEXT("Play-in-editor is stopping; retry after the editor returns to edit mode.");
+    }
+    else if (GEditor->IsPlaySessionRequestQueued())
+    {
+        Code = TEXT("PIE_STARTING");
+        Message = TEXT("Play-in-editor is starting; retry after the editor reaches a stable play or edit state.");
+    }
+    else if (GEditor->IsPlaySessionInProgress() || GEditor->IsPlayingSessionInEditor() || GEditor->PlayWorld != nullptr)
+    {
+        Code = TEXT("PIE_ACTIVE");
+        Message = TEXT("Play-in-editor is active; graph/tree edits are only allowed in edit mode.");
+    }
+
+    if (Code.IsEmpty())
+    {
+        return nullptr;
+    }
+
+    TArray<FString> CommandKinds;
+    bool bCompileRequested = false;
+    bool bSaveRequested = false;
+    bool bLayoutRequested = false;
+    auto AddCommandKind = [&](const FString& RawKind)
+    {
+        const FString Kind = RawKind.TrimStartAndEnd();
+        if (Kind.IsEmpty())
+        {
+            return;
+        }
+        CommandKinds.Add(Kind);
+        const FString LowerKind = Kind.ToLower();
+        bCompileRequested = bCompileRequested || LowerKind.Contains(TEXT("compile"));
+        bSaveRequested = bSaveRequested || LowerKind.Contains(TEXT("save"));
+        bLayoutRequested = bLayoutRequested || LowerKind.Contains(TEXT("layout")) || LowerKind.Contains(TEXT("format"));
+    };
+
+    const TArray<TSharedPtr<FJsonValue>>* Ops = nullptr;
+    if (Arguments.IsValid() && Arguments->TryGetArrayField(TEXT("ops"), Ops) && Ops != nullptr)
+    {
+        for (const TSharedPtr<FJsonValue>& OpValue : *Ops)
+        {
+            const TSharedPtr<FJsonObject>* OpObject = nullptr;
+            if (!OpValue.IsValid() || !OpValue->TryGetObject(OpObject) || OpObject == nullptr || !(*OpObject).IsValid())
+            {
+                continue;
+            }
+            FString Op;
+            if ((*OpObject)->TryGetStringField(TEXT("op"), Op) || (*OpObject)->TryGetStringField(TEXT("kind"), Op))
+            {
+                AddCommandKind(Op);
+            }
+        }
+    }
+
+    const TArray<TSharedPtr<FJsonValue>>* Commands = nullptr;
+    if (Arguments.IsValid() && Arguments->TryGetArrayField(TEXT("commands"), Commands) && Commands != nullptr)
+    {
+        for (const TSharedPtr<FJsonValue>& CommandValue : *Commands)
+        {
+            const TSharedPtr<FJsonObject>* CommandObject = nullptr;
+            if (!CommandValue.IsValid() || !CommandValue->TryGetObject(CommandObject) || CommandObject == nullptr || !(*CommandObject).IsValid())
+            {
+                continue;
+            }
+            FString Kind;
+            if ((*CommandObject)->TryGetStringField(TEXT("kind"), Kind) || (*CommandObject)->TryGetStringField(TEXT("op"), Kind))
+            {
+                AddCommandKind(Kind);
+            }
+        }
+    }
+    AddCommandKind(ReadStringField(Arguments, TEXT("operation")));
+
+    FString BatchId = ReadStringField(Arguments, TEXT("idempotencyKey"));
+    if (BatchId.IsEmpty())
+    {
+        BatchId = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
+    }
+
+    FString NormalizedAssetPath = AssetPath;
+    if (!NormalizedAssetPath.IsEmpty())
+    {
+        NormalizedAssetPath = NormalizeAssetPath(NormalizedAssetPath);
+    }
+
+    TSharedPtr<FJsonObject> Runtime = MakeShared<FJsonObject>();
+    Runtime->SetBoolField(TEXT("isShuttingDown"), bIsShuttingDown.Load());
+    Runtime->SetBoolField(TEXT("hasEditor"), GEditor != nullptr);
+    Runtime->SetBoolField(TEXT("isPlaySessionInProgress"), GEditor != nullptr && GEditor->IsPlaySessionInProgress());
+    Runtime->SetBoolField(TEXT("isPlayingSessionInEditor"), GEditor != nullptr && GEditor->IsPlayingSessionInEditor());
+    Runtime->SetBoolField(TEXT("isPlaySessionRequestQueued"), GEditor != nullptr && GEditor->IsPlaySessionRequestQueued());
+    Runtime->SetBoolField(TEXT("shouldEndPlayMap"), GEditor != nullptr && GEditor->ShouldEndPlayMap());
+    Runtime->SetBoolField(TEXT("hasPlayWorld"), GEditor != nullptr && GEditor->PlayWorld != nullptr);
+
+    TSharedPtr<FJsonObject> AssetEditor = MakeShared<FJsonObject>();
+    AssetEditor->SetStringField(TEXT("state"), TEXT("not_checked_during_unsafe_lifecycle"));
+    AssetEditor->SetBoolField(TEXT("known"), false);
+
+    bool bDryRun = false;
+    bool bContinueOnError = false;
+    if (Arguments.IsValid())
+    {
+        Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
+        Arguments->TryGetBoolField(TEXT("continueOnError"), bContinueOnError);
+    }
+
+    TSharedPtr<FJsonObject> Context = MakeShared<FJsonObject>();
+    Context->SetStringField(TEXT("tool"), ToolName);
+    Context->SetStringField(TEXT("batchId"), BatchId);
+    Context->SetStringField(TEXT("assetPath"), NormalizedAssetPath);
+    Context->SetStringField(TEXT("graphName"), GraphName);
+    Context->SetStringField(TEXT("blockCode"), Code);
+    Context->SetStringField(TEXT("blockReason"), Message);
+    Context->SetBoolField(TEXT("dryRun"), bDryRun);
+    Context->SetBoolField(TEXT("continueOnError"), bContinueOnError);
+    Context->SetStringField(TEXT("expectedRevision"), ReadStringField(Arguments, TEXT("expectedRevision")));
+    Context->SetNumberField(TEXT("commandCount"), CommandKinds.Num());
+    Context->SetBoolField(TEXT("compileRequested"), bCompileRequested);
+    Context->SetBoolField(TEXT("saveRequested"), bSaveRequested);
+    Context->SetBoolField(TEXT("layoutRequested"), bLayoutRequested);
+    Context->SetObjectField(TEXT("runtime"), Runtime);
+    Context->SetObjectField(TEXT("assetEditor"), AssetEditor);
+
+    TArray<TSharedPtr<FJsonValue>> CommandKindValues;
+    for (const FString& Kind : CommandKinds)
+    {
+        CommandKindValues.Add(MakeShared<FJsonValueString>(Kind));
+    }
+    Context->SetArrayField(TEXT("commandKinds"), CommandKindValues);
+
+    AppendDiagnosticEvent(TEXT("error"), TEXT("runtime"), ToolName, Message, Context);
+
+    TArray<TSharedPtr<FJsonValue>> OpResults;
+    for (int32 Index = 0; Index < CommandKinds.Num(); ++Index)
+    {
+        TSharedPtr<FJsonObject> OpResult = MakeShared<FJsonObject>();
+        OpResult->SetNumberField(TEXT("index"), Index);
+        OpResult->SetStringField(TEXT("op"), CommandKinds[Index]);
+        OpResult->SetBoolField(TEXT("ok"), false);
+        OpResult->SetBoolField(TEXT("skipped"), true);
+        OpResult->SetBoolField(TEXT("changed"), false);
+        OpResult->SetStringField(TEXT("errorCode"), Code);
+        OpResult->SetStringField(TEXT("errorMessage"), Message);
+        OpResults.Add(MakeShared<FJsonValueObject>(OpResult));
+    }
+
+    TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
+    Diagnostic->SetStringField(TEXT("code"), Code);
+    Diagnostic->SetStringField(TEXT("severity"), TEXT("error"));
+    Diagnostic->SetStringField(TEXT("message"), Message);
+    Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("editor.lifecycle"));
+    Diagnostic->SetObjectField(TEXT("context"), Context);
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), true);
+    Result->SetStringField(TEXT("code"), Code);
+    Result->SetStringField(TEXT("message"), Message);
+    Result->SetBoolField(TEXT("applied"), false);
+    Result->SetBoolField(TEXT("partialApplied"), false);
+    Result->SetStringField(TEXT("assetPath"), NormalizedAssetPath);
+    Result->SetStringField(TEXT("graphName"), GraphName);
+    Result->SetStringField(TEXT("batchId"), BatchId);
+    Result->SetObjectField(TEXT("mutationContext"), Context);
+    Result->SetArrayField(TEXT("opResults"), OpResults);
+    Result->SetArrayField(TEXT("diagnostics"), {MakeShared<FJsonValueObject>(Diagnostic)});
+    return Result;
 }
 
 void FLoomleBridgeModule::StartupModule()

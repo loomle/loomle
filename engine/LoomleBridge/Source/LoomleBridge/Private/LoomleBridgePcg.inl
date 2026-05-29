@@ -1774,6 +1774,15 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgGraphEditToolResult(const T
         return Result;
     }
 
+    if (const TSharedPtr<FJsonObject> Blocked = BuildEditorMutationLifecycleBlockResult(
+            TEXT("pcg.graph.edit"),
+            Arguments,
+            AssetPath,
+            TEXT("")))
+    {
+        return Blocked;
+    }
+
     for (int32 Index = 0; Index < Ops->Num(); ++Index)
     {
         const TSharedPtr<FJsonObject>* OpObj = nullptr;

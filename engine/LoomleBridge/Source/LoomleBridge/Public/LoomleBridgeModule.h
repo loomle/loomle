@@ -53,6 +53,8 @@ private:
     TSharedPtr<FJsonObject> BuildBlueprintEditToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildBlueprintEnumInspectToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildBlueprintEnumEditToolResult(const TSharedPtr<FJsonObject>& Arguments);
+    TSharedPtr<FJsonObject> BuildBlueprintStructInspectToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
+    TSharedPtr<FJsonObject> BuildBlueprintStructEditToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildBlueprintMemberEditToolResult(const TSharedPtr<FJsonObject>& Arguments);
     TSharedPtr<FJsonObject> BuildBlueprintGraphListToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildBlueprintGraphInspectToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
@@ -98,6 +100,11 @@ private:
     TSharedPtr<FJsonObject> BuildWidgetInspectToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> BuildWidgetPaletteToolResult(const TSharedPtr<FJsonObject>& Arguments) const;
     TSharedPtr<FJsonObject> DispatchTool(const FString& Name, const TSharedPtr<FJsonObject>& Arguments, bool& bOutIsError);
+    TSharedPtr<FJsonObject> BuildEditorMutationLifecycleBlockResult(
+        const FString& ToolName,
+        const TSharedPtr<FJsonObject>& Arguments,
+        const FString& AssetPath,
+        const FString& GraphName);
     int32 MapToolErrorCode(const FString& DomainCode) const;
     void InitializeDiagnosticStore();
     void InitializeLogStore();

@@ -230,11 +230,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
         return Payload;
     }
 
-    if (!IsInGameThread()
-        && !Name.Equals(LoomleBridgeConstants::BlueprintGraphInspectToolName)
-        && !Name.Equals(LoomleBridgeConstants::MaterialGraphInspectToolName)
-        && !Name.Equals(LoomleBridgeConstants::PcgGraphInspectToolName)
-        && !Name.Equals(LoomleBridgeConstants::JobsToolName))
+    if (!IsInGameThread() && !Name.Equals(LoomleBridgeConstants::JobsToolName))
     {
         struct FDispatchToolResult
         {
@@ -331,6 +327,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     else if (Name.Equals(TEXT("blueprint.enum.edit")))
     {
         Payload = BuildBlueprintEnumEditToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("blueprint.struct.inspect")))
+    {
+        Payload = BuildBlueprintStructInspectToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("blueprint.struct.edit")))
+    {
+        Payload = BuildBlueprintStructEditToolResult(Arguments);
     }
     else if (Name.Equals(TEXT("blueprint.member.edit")))
     {
@@ -515,6 +519,19 @@ int32 FLoomleBridgeModule::MapToolErrorCode(const FString& DomainCode) const
     {
         return 1007;
     }
+    if (DomainCode.Equals(TEXT("FIELD_NOT_FOUND")))
+    {
+        return 1006;
+    }
+    if (DomainCode.Equals(TEXT("FIELD_NAME_CONFLICT"))
+        || DomainCode.Equals(TEXT("FIELD_TYPE_UNSUPPORTED"))
+        || DomainCode.Equals(TEXT("FIELD_DEFAULT_INVALID"))
+        || DomainCode.Equals(TEXT("STRUCT_VALIDATION_FAILED"))
+        || DomainCode.Equals(TEXT("STRUCT_EDIT_FAILED"))
+        || DomainCode.Equals(TEXT("ALREADY_EXISTS")))
+    {
+        return 1000;
+    }
     if (DomainCode.Equals(TEXT("WORLD_NOT_FOUND")))
     {
         return 1015;
@@ -584,6 +601,14 @@ int32 FLoomleBridgeModule::MapToolErrorCode(const FString& DomainCode) const
         return 1000;
     }
     if (DomainCode.Equals(TEXT("JOB_RUNTIME_UNAVAILABLE")))
+    {
+        return 1011;
+    }
+    if (DomainCode.Equals(TEXT("EDITOR_SHUTTING_DOWN"))
+        || DomainCode.Equals(TEXT("EDITOR_UNAVAILABLE"))
+        || DomainCode.Equals(TEXT("PIE_STARTING"))
+        || DomainCode.Equals(TEXT("PIE_ACTIVE"))
+        || DomainCode.Equals(TEXT("PIE_STOPPING")))
     {
         return 1011;
     }

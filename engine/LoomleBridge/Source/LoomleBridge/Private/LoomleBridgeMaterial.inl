@@ -1130,6 +1130,15 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialGraphEditToolResult(co
         return Result;
     }
 
+    if (const TSharedPtr<FJsonObject> Blocked = BuildEditorMutationLifecycleBlockResult(
+            TEXT("material.graph.edit"),
+            Arguments,
+            AssetPath,
+            TEXT("")))
+    {
+        return Blocked;
+    }
+
     for (int32 Index = 0; Index < Ops->Num(); ++Index)
     {
         const TSharedPtr<FJsonObject>* OpObj = nullptr;

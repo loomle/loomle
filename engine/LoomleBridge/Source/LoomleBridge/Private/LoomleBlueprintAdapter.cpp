@@ -58,11 +58,14 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/EnumEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
+#include "Kismet2/StructureEditorUtils.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "Misc/PackageName.h"
 #include "UObject/Interface.h"
 #include "UObject/UnrealType.h"
+#include "StructUtils/UserDefinedStruct.h"
+#include "UserDefinedStructure/UserDefinedStructEditorData.h"
 
 namespace LoomleBlueprintAdapterInternal
 {
@@ -779,6 +782,483 @@ namespace LoomleBlueprintAdapterInternal
         Result->SetArrayField(TEXT("entries"), Entries);
         Result->SetNumberField(TEXT("entryCount"), EntryCount);
         return Result;
+    }
+
+    static UUserDefinedStruct* LoadUserDefinedStructByAssetPath(const FString& AssetPath)
+    {
+        if (!FPackageName::IsValidLongPackageName(AssetPath))
+        {
+            return nullptr;
+        }
+
+        const FString AssetName = FPackageName::GetLongPackageAssetName(AssetPath);
+        const FString ObjectPath = FString::Printf(TEXT("%s.%s"), *AssetPath, *AssetName);
+        return LoadObject<UUserDefinedStruct>(nullptr, *ObjectPath);
+    }
+
+    static FString StructStatusToString(const EUserDefinedStructureStatus Status)
+    {
+        switch (Status)
+        {
+        case UDSS_UpToDate:
+            return TEXT("UpToDate");
+        case UDSS_Dirty:
+            return TEXT("Dirty");
+        case UDSS_Error:
+            return TEXT("Error");
+        case UDSS_Duplicate:
+            return TEXT("Duplicate");
+        default:
+            return TEXT("Unknown");
+        }
+    }
+
+    static FString PinContainerToString(const EPinContainerType Container)
+    {
+        switch (Container)
+        {
+        case EPinContainerType::Array:
+            return TEXT("array");
+        case EPinContainerType::Set:
+            return TEXT("set");
+        case EPinContainerType::Map:
+            return TEXT("map");
+        case EPinContainerType::None:
+        default:
+            return TEXT("none");
+        }
+    }
+
+    static bool ParsePinContainer(const FString& RawContainer, EPinContainerType& OutContainer)
+    {
+        const FString Lower = RawContainer.TrimStartAndEnd().ToLower();
+        if (Lower.IsEmpty() || Lower.Equals(TEXT("none")))
+        {
+            OutContainer = EPinContainerType::None;
+            return true;
+        }
+        if (Lower.Equals(TEXT("array")))
+        {
+            OutContainer = EPinContainerType::Array;
+            return true;
+        }
+        if (Lower.Equals(TEXT("set")))
+        {
+            OutContainer = EPinContainerType::Set;
+            return true;
+        }
+        if (Lower.Equals(TEXT("map")))
+        {
+            OutContainer = EPinContainerType::Map;
+            return true;
+        }
+        return false;
+    }
+
+    static FName NormalizeStructFieldPinCategory(const FString& RawCategory, FString& OutSubCategory)
+    {
+        const FString Lower = RawCategory.TrimStartAndEnd().ToLower();
+        OutSubCategory.Empty();
+        if (Lower.Equals(TEXT("bool")) || Lower.Equals(TEXT("boolean")))
+        {
+            return UEdGraphSchema_K2::PC_Boolean;
+        }
+        if (Lower.Equals(TEXT("byte")))
+        {
+            return UEdGraphSchema_K2::PC_Byte;
+        }
+        if (Lower.Equals(TEXT("int")) || Lower.Equals(TEXT("int32")) || Lower.Equals(TEXT("integer")))
+        {
+            return UEdGraphSchema_K2::PC_Int;
+        }
+        if (Lower.Equals(TEXT("int64")))
+        {
+            return UEdGraphSchema_K2::PC_Int64;
+        }
+        if (Lower.Equals(TEXT("float")))
+        {
+            OutSubCategory = UEdGraphSchema_K2::PC_Float.ToString();
+            return UEdGraphSchema_K2::PC_Real;
+        }
+        if (Lower.Equals(TEXT("double")) || Lower.Equals(TEXT("real")))
+        {
+            OutSubCategory = UEdGraphSchema_K2::PC_Double.ToString();
+            return UEdGraphSchema_K2::PC_Real;
+        }
+        if (Lower.Equals(TEXT("name")))
+        {
+            return UEdGraphSchema_K2::PC_Name;
+        }
+        if (Lower.Equals(TEXT("string")))
+        {
+            return UEdGraphSchema_K2::PC_String;
+        }
+        if (Lower.Equals(TEXT("text")))
+        {
+            return UEdGraphSchema_K2::PC_Text;
+        }
+        if (Lower.Equals(TEXT("enum")))
+        {
+            return UEdGraphSchema_K2::PC_Byte;
+        }
+        if (Lower.Equals(TEXT("struct")))
+        {
+            return UEdGraphSchema_K2::PC_Struct;
+        }
+        if (Lower.Equals(TEXT("object")))
+        {
+            return UEdGraphSchema_K2::PC_Object;
+        }
+        if (Lower.Equals(TEXT("softobject")) || Lower.Equals(TEXT("soft_object")))
+        {
+            return UEdGraphSchema_K2::PC_SoftObject;
+        }
+        if (Lower.Equals(TEXT("class")))
+        {
+            return UEdGraphSchema_K2::PC_Class;
+        }
+        if (Lower.Equals(TEXT("softclass")) || Lower.Equals(TEXT("soft_class")))
+        {
+            return UEdGraphSchema_K2::PC_SoftClass;
+        }
+        if (Lower.Equals(TEXT("interface")))
+        {
+            return UEdGraphSchema_K2::PC_Interface;
+        }
+        return FName(*Lower);
+    }
+
+    static TSharedPtr<FJsonObject> SerializeStructPinType(const FEdGraphPinType& PinType)
+    {
+        TSharedPtr<FJsonObject> Type = MakeShared<FJsonObject>();
+        Type->SetStringField(TEXT("category"), PinType.PinCategory.ToString());
+        Type->SetStringField(TEXT("subCategory"), PinType.PinSubCategory.ToString());
+        Type->SetStringField(TEXT("object"), PinType.PinSubCategoryObject.IsValid() ? PinType.PinSubCategoryObject->GetPathName() : TEXT(""));
+        Type->SetStringField(TEXT("container"), PinContainerToString(PinType.ContainerType));
+        if (PinType.ContainerType == EPinContainerType::Map)
+        {
+            TSharedPtr<FJsonObject> ValueType = MakeShared<FJsonObject>();
+            ValueType->SetStringField(TEXT("category"), PinType.PinValueType.TerminalCategory.ToString());
+            ValueType->SetStringField(TEXT("subCategory"), PinType.PinValueType.TerminalSubCategory.ToString());
+            ValueType->SetStringField(TEXT("object"), PinType.PinValueType.TerminalSubCategoryObject.IsValid() ? PinType.PinValueType.TerminalSubCategoryObject->GetPathName() : TEXT(""));
+            Type->SetObjectField(TEXT("valueType"), ValueType);
+        }
+        return Type;
+    }
+
+    static bool ParseStructPinTerminalType(const TSharedPtr<FJsonObject>& TypeObject, FEdGraphTerminalType& OutType, FString& OutError)
+    {
+        FString Category;
+        if (!TypeObject.IsValid() || !TryGetStringFieldAny(TypeObject, {TEXT("category"), TEXT("type")}, Category) || Category.TrimStartAndEnd().IsEmpty())
+        {
+            OutError = TEXT("Struct map valueType requires category.");
+            return false;
+        }
+
+        FString SubCategory;
+        FName CategoryName = NormalizeStructFieldPinCategory(Category, SubCategory);
+        TypeObject->TryGetStringField(TEXT("subCategory"), SubCategory);
+        FString ObjectPath;
+        TryGetStringFieldAny(TypeObject, {TEXT("object"), TEXT("typeObject"), TEXT("classPath"), TEXT("structPath"), TEXT("enumPath")}, ObjectPath);
+
+        OutType.TerminalCategory = CategoryName;
+        OutType.TerminalSubCategory = FName(*SubCategory);
+        if (!ObjectPath.IsEmpty())
+        {
+            UObject* TypeObjectValue = LoadObject<UObject>(nullptr, *ObjectPath);
+            if (TypeObjectValue == nullptr)
+            {
+                OutError = FString::Printf(TEXT("Unable to load struct field value type object: %s"), *ObjectPath);
+                return false;
+            }
+            OutType.TerminalSubCategoryObject = TypeObjectValue;
+        }
+        return true;
+    }
+
+    static bool ParseStructPinType(const TSharedPtr<FJsonObject>& TypeObject, FEdGraphPinType& OutType, FString& OutError)
+    {
+        FString Category;
+        if (!TypeObject.IsValid() || !TryGetStringFieldAny(TypeObject, {TEXT("category"), TEXT("type")}, Category) || Category.TrimStartAndEnd().IsEmpty())
+        {
+            OutError = TEXT("Struct field type requires category.");
+            return false;
+        }
+
+        FString SubCategory;
+        FName CategoryName = NormalizeStructFieldPinCategory(Category, SubCategory);
+        TypeObject->TryGetStringField(TEXT("subCategory"), SubCategory);
+
+        FString ContainerString;
+        TypeObject->TryGetStringField(TEXT("container"), ContainerString);
+        EPinContainerType ContainerType = EPinContainerType::None;
+        if (!ParsePinContainer(ContainerString, ContainerType))
+        {
+            OutError = FString::Printf(TEXT("Unsupported struct field container: %s"), *ContainerString);
+            return false;
+        }
+
+        FString ObjectPath;
+        TryGetStringFieldAny(TypeObject, {TEXT("object"), TEXT("typeObject"), TEXT("classPath"), TEXT("structPath"), TEXT("enumPath")}, ObjectPath);
+        UObject* SubCategoryObject = nullptr;
+        if (!ObjectPath.IsEmpty())
+        {
+            SubCategoryObject = LoadObject<UObject>(nullptr, *ObjectPath);
+            if (SubCategoryObject == nullptr)
+            {
+                OutError = FString::Printf(TEXT("Unable to load struct field type object: %s"), *ObjectPath);
+                return false;
+            }
+        }
+
+        FEdGraphTerminalType ValueType;
+        if (ContainerType == EPinContainerType::Map)
+        {
+            const TSharedPtr<FJsonObject> ValueTypeObject = TryGetObjectFieldAny(TypeObject, {TEXT("valueType")});
+            if (!ParseStructPinTerminalType(ValueTypeObject, ValueType, OutError))
+            {
+                return false;
+            }
+        }
+
+        OutType = FEdGraphPinType(CategoryName, FName(*SubCategory), SubCategoryObject, ContainerType, false, ValueType);
+        return true;
+    }
+
+    static TSharedPtr<FJsonObject> SerializeUserDefinedStruct(const UUserDefinedStruct* Struct)
+    {
+        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+        if (Struct == nullptr)
+        {
+            return Result;
+        }
+
+        Result->SetStringField(TEXT("assetPath"), Struct->GetOutermost() ? Struct->GetOutermost()->GetName() : TEXT(""));
+        Result->SetStringField(TEXT("structPath"), Struct->GetPathName());
+        Result->SetStringField(TEXT("name"), Struct->GetName());
+        Result->SetBoolField(TEXT("isUserDefinedStruct"), true);
+        Result->SetStringField(TEXT("guid"), Struct->Guid.ToString(EGuidFormats::DigitsWithHyphensLower));
+        Result->SetStringField(TEXT("status"), StructStatusToString(Struct->Status.GetValue()));
+#if WITH_EDITORONLY_DATA
+        Result->SetStringField(TEXT("errorMessage"), Struct->ErrorMessage);
+#else
+        Result->SetStringField(TEXT("errorMessage"), TEXT(""));
+#endif
+        Result->SetStringField(TEXT("tooltip"), FStructureEditorUtils::GetTooltip(Struct));
+
+        TArray<TSharedPtr<FJsonValue>> Fields;
+        const TArray<FStructVariableDescription>* Descriptions = FStructureEditorUtils::GetVarDescPtr(Struct);
+        if (Descriptions != nullptr)
+        {
+            for (const FStructVariableDescription& Desc : *Descriptions)
+            {
+                const FEdGraphPinType PinType = Desc.ToPinType();
+                TSharedPtr<FJsonObject> Field = MakeShared<FJsonObject>();
+                Field->SetStringField(TEXT("id"), Desc.VarGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
+                Field->SetStringField(TEXT("name"), Desc.FriendlyName);
+                Field->SetStringField(TEXT("internalName"), Desc.VarName.ToString());
+                Field->SetObjectField(TEXT("type"), SerializeStructPinType(PinType));
+                Field->SetStringField(TEXT("cppType"), UEdGraphSchema_K2::TypeToText(PinType).ToString());
+                Field->SetStringField(TEXT("defaultValue"), Desc.DefaultValue);
+                Field->SetStringField(TEXT("tooltip"), Desc.ToolTip);
+
+                TSharedPtr<FJsonObject> Metadata = MakeShared<FJsonObject>();
+                for (const TPair<FName, FString>& Pair : Desc.MetaData)
+                {
+                    Metadata->SetStringField(Pair.Key.ToString(), Pair.Value);
+                }
+                Field->SetObjectField(TEXT("metadata"), Metadata);
+
+                TSharedPtr<FJsonObject> Flags = MakeShared<FJsonObject>();
+                Flags->SetBoolField(TEXT("editableOnInstance"), !Desc.bDontEditOnInstance);
+                Flags->SetBoolField(TEXT("saveGame"), Desc.bEnableSaveGame);
+                Flags->SetBoolField(TEXT("multiLineText"), Desc.bEnableMultiLineText);
+                Flags->SetBoolField(TEXT("makeEditWidget"), Desc.bEnable3dWidget);
+                Flags->SetBoolField(TEXT("invalidMember"), Desc.bInvalidMember);
+                Field->SetObjectField(TEXT("flags"), Flags);
+                Fields.Add(MakeShared<FJsonValueObject>(Field));
+            }
+        }
+        Result->SetArrayField(TEXT("fields"), Fields);
+        Result->SetNumberField(TEXT("fieldCount"), Fields.Num());
+
+        FString ValidationMessage;
+        const FStructureEditorUtils::EStructureError Validation = FStructureEditorUtils::IsStructureValid(Struct, nullptr, &ValidationMessage);
+        TSharedPtr<FJsonObject> ValidationObject = MakeShared<FJsonObject>();
+        ValidationObject->SetBoolField(TEXT("ok"), Validation == FStructureEditorUtils::Ok);
+        ValidationObject->SetStringField(TEXT("code"), Validation == FStructureEditorUtils::Ok ? TEXT("OK") : LexToString(static_cast<int32>(Validation)));
+        ValidationObject->SetStringField(TEXT("message"), ValidationMessage);
+        Result->SetObjectField(TEXT("validation"), ValidationObject);
+        Result->SetStringField(TEXT("revision"), FString::Printf(TEXT("uds:%08x"), GetTypeHash(JsonObjectToCondensedString(Result))));
+        return Result;
+    }
+
+    static bool ResolveStructFieldGuid(const UUserDefinedStruct* Struct, const TSharedPtr<FJsonObject>& Args, FGuid& OutGuid, FString& OutError, FString& OutErrorCode)
+    {
+        OutGuid.Invalidate();
+        FString FieldId;
+        TryGetStringFieldAny(Args, {TEXT("fieldId"), TEXT("id")}, FieldId);
+        if (!FieldId.IsEmpty())
+        {
+            if (!FGuid::Parse(FieldId, OutGuid))
+            {
+                OutErrorCode = TEXT("INVALID_ARGUMENT");
+                OutError = FString::Printf(TEXT("Invalid struct fieldId: %s"), *FieldId);
+                return false;
+            }
+            if (FStructureEditorUtils::GetVarDescByGuid(Struct, OutGuid) == nullptr)
+            {
+                OutErrorCode = TEXT("FIELD_NOT_FOUND");
+                OutError = FString::Printf(TEXT("Struct field not found: %s"), *FieldId);
+                return false;
+            }
+            return true;
+        }
+
+        FString Name;
+        TryGetStringFieldAny(Args, {TEXT("name"), TEXT("fieldName")}, Name);
+        if (Name.IsEmpty())
+        {
+            OutErrorCode = TEXT("INVALID_ARGUMENT");
+            OutError = TEXT("Struct field operation requires args.fieldId or args.name.");
+            return false;
+        }
+
+        int32 MatchCount = 0;
+        const TArray<FStructVariableDescription>* Descriptions = FStructureEditorUtils::GetVarDescPtr(Struct);
+        if (Descriptions != nullptr)
+        {
+            for (const FStructVariableDescription& Desc : *Descriptions)
+            {
+                if (Desc.FriendlyName.Equals(Name, ESearchCase::CaseSensitive))
+                {
+                    OutGuid = Desc.VarGuid;
+                    ++MatchCount;
+                }
+            }
+        }
+        if (MatchCount == 1)
+        {
+            return true;
+        }
+        OutErrorCode = MatchCount == 0 ? TEXT("FIELD_NOT_FOUND") : TEXT("FIELD_NAME_CONFLICT");
+        OutError = MatchCount == 0
+            ? FString::Printf(TEXT("Struct field not found by name: %s"), *Name)
+            : FString::Printf(TEXT("Struct field name is ambiguous: %s"), *Name);
+        return false;
+    }
+
+    static bool ApplyStructFieldSpec(UUserDefinedStruct* Struct, FGuid FieldGuid, const TSharedPtr<FJsonObject>& FieldSpec, FString& OutError, FString& OutErrorCode)
+    {
+        FString Name;
+        TryGetStringFieldAny(FieldSpec, {TEXT("name"), TEXT("fieldName")}, Name);
+        if (!Name.IsEmpty())
+        {
+            const FString CurrentName = FStructureEditorUtils::GetVariableFriendlyName(Struct, FieldGuid);
+            if (!CurrentName.Equals(Name, ESearchCase::CaseSensitive))
+            {
+                if (!FStructureEditorUtils::RenameVariable(Struct, FieldGuid, Name))
+                {
+                    OutErrorCode = TEXT("FIELD_NAME_CONFLICT");
+                    OutError = FString::Printf(TEXT("Unable to rename struct field to: %s"), *Name);
+                    return false;
+                }
+            }
+        }
+
+        const TSharedPtr<FJsonObject> TypeObject = TryGetObjectFieldAny(FieldSpec, {TEXT("type")});
+        if (TypeObject.IsValid())
+        {
+            FEdGraphPinType PinType;
+            if (!ParseStructPinType(TypeObject, PinType, OutError))
+            {
+                OutErrorCode = TEXT("INVALID_ARGUMENT");
+                return false;
+            }
+            FString TypeError;
+            if (!FStructureEditorUtils::CanHaveAMemberVariableOfType(Struct, PinType, &TypeError))
+            {
+                OutErrorCode = TEXT("FIELD_TYPE_UNSUPPORTED");
+                OutError = TypeError.IsEmpty() ? TEXT("Unsupported struct field type.") : TypeError;
+                return false;
+            }
+            if (!FStructureEditorUtils::ChangeVariableType(Struct, FieldGuid, PinType))
+            {
+                const FStructVariableDescription* Desc = FStructureEditorUtils::GetVarDescByGuid(Struct, FieldGuid);
+                if (Desc == nullptr || Desc->ToPinType() != PinType)
+                {
+                    OutErrorCode = TEXT("FIELD_TYPE_UNSUPPORTED");
+                    OutError = TEXT("Unable to change struct field type.");
+                    return false;
+                }
+            }
+        }
+
+        FString DefaultValue;
+        if (TryGetStringFieldAny(FieldSpec, {TEXT("defaultValue"), TEXT("value")}, DefaultValue))
+        {
+            if (!FStructureEditorUtils::ChangeVariableDefaultValue(Struct, FieldGuid, DefaultValue))
+            {
+                const FStructVariableDescription* Desc = FStructureEditorUtils::GetVarDescByGuid(Struct, FieldGuid);
+                if (Desc == nullptr || !Desc->DefaultValue.Equals(DefaultValue, ESearchCase::CaseSensitive))
+                {
+                    OutErrorCode = TEXT("FIELD_DEFAULT_INVALID");
+                    OutError = FString::Printf(TEXT("Invalid default value for struct field: %s"), *DefaultValue);
+                    return false;
+                }
+            }
+        }
+
+        FString Tooltip;
+        if (TryGetStringFieldAny(FieldSpec, {TEXT("tooltip"), TEXT("toolTip")}, Tooltip))
+        {
+            FStructureEditorUtils::ChangeVariableTooltip(Struct, FieldGuid, Tooltip);
+        }
+
+        const TSharedPtr<FJsonObject> MetadataObject = TryGetObjectFieldAny(FieldSpec, {TEXT("metadata")});
+        if (MetadataObject.IsValid())
+        {
+            for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : MetadataObject->Values)
+            {
+                FStructureEditorUtils::SetMetaData(Struct, FieldGuid, FName(*Pair.Key), Pair.Value.IsValid() ? Pair.Value->AsString() : TEXT(""));
+            }
+        }
+        return true;
+    }
+
+    static bool AddStructField(UUserDefinedStruct* Struct, const TSharedPtr<FJsonObject>& FieldSpec, FGuid& OutGuid, FString& OutError, FString& OutErrorCode)
+    {
+        const TSharedPtr<FJsonObject> TypeObject = TryGetObjectFieldAny(FieldSpec, {TEXT("type")});
+        FEdGraphPinType PinType(UEdGraphSchema_K2::PC_Boolean, NAME_None, nullptr, EPinContainerType::None, false, FEdGraphTerminalType());
+        if (TypeObject.IsValid() && !ParseStructPinType(TypeObject, PinType, OutError))
+        {
+            OutErrorCode = TEXT("INVALID_ARGUMENT");
+            return false;
+        }
+        FString TypeError;
+        if (!FStructureEditorUtils::CanHaveAMemberVariableOfType(Struct, PinType, &TypeError))
+        {
+            OutErrorCode = TEXT("FIELD_TYPE_UNSUPPORTED");
+            OutError = TypeError.IsEmpty() ? TEXT("Unsupported struct field type.") : TypeError;
+            return false;
+        }
+
+        const int32 OldCount = FStructureEditorUtils::GetVarDesc(Struct).Num();
+        if (!FStructureEditorUtils::AddVariable(Struct, PinType))
+        {
+            OutErrorCode = TEXT("STRUCT_EDIT_FAILED");
+            OutError = TEXT("Unable to add struct field.");
+            return false;
+        }
+        TArray<FStructVariableDescription>& Descriptions = FStructureEditorUtils::GetVarDesc(Struct);
+        if (Descriptions.Num() <= OldCount)
+        {
+            OutErrorCode = TEXT("STRUCT_EDIT_FAILED");
+            OutError = TEXT("Struct field add did not create a field.");
+            return false;
+        }
+        OutGuid = Descriptions.Last().VarGuid;
+        return ApplyStructFieldSpec(Struct, OutGuid, FieldSpec, OutError, OutErrorCode);
     }
 
     static bool ParseEnumEntrySpecs(
@@ -4055,6 +4535,346 @@ bool FLoomleBlueprintAdapter::UpdateUserDefinedEnumEntries(const FString& EnumAs
 
     OutEnumJson = LoomleBlueprintAdapterInternal::JsonObjectToCondensedString(
         LoomleBlueprintAdapterInternal::SerializeUserDefinedEnum(Enum));
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::DescribeUserDefinedStruct(const FString& StructAssetPath, FString& OutStructJson, FString& OutError)
+{
+    OutStructJson.Empty();
+    OutError.Empty();
+
+    if (!FPackageName::IsValidLongPackageName(StructAssetPath))
+    {
+        OutError = TEXT("Invalid struct assetPath; expected /Game/... long package name.");
+        return false;
+    }
+
+    UUserDefinedStruct* Struct = LoomleBlueprintAdapterInternal::LoadUserDefinedStructByAssetPath(StructAssetPath);
+    if (Struct == nullptr)
+    {
+        OutError = TEXT("Blueprint struct asset not found.");
+        return false;
+    }
+
+    OutStructJson = LoomleBlueprintAdapterInternal::JsonObjectToCondensedString(
+        LoomleBlueprintAdapterInternal::SerializeUserDefinedStruct(Struct));
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::CreateUserDefinedStruct(const FString& StructAssetPath, const FString& PayloadJson, FString& OutStructJson, FString& OutError)
+{
+    OutStructJson.Empty();
+    OutError.Empty();
+
+    if (!FPackageName::IsValidLongPackageName(StructAssetPath))
+    {
+        OutError = TEXT("Invalid struct assetPath; expected /Game/... long package name.");
+        return false;
+    }
+    if (LoomleBlueprintAdapterInternal::LoadUserDefinedStructByAssetPath(StructAssetPath) != nullptr)
+    {
+        OutError = TEXT("Blueprint struct asset already exists.");
+        return false;
+    }
+
+    TSharedPtr<FJsonObject> Payload;
+    if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Payload))
+    {
+        OutError = TEXT("Failed to parse Blueprint struct payload JSON.");
+        return false;
+    }
+
+    const TArray<TSharedPtr<FJsonValue>> Fields = LoomleBlueprintAdapterInternal::TryGetArrayFieldAny(Payload, {TEXT("fields")});
+    if (Fields.Num() == 0)
+    {
+        OutError = TEXT("Blueprint struct create requires at least one field.");
+        return false;
+    }
+
+    const FString AssetName = FPackageName::GetLongPackageAssetName(StructAssetPath);
+    UPackage* Package = CreatePackage(*StructAssetPath);
+    if (Package == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Failed to create package: %s"), *StructAssetPath);
+        return false;
+    }
+
+    UUserDefinedStruct* Struct = FStructureEditorUtils::CreateUserDefinedStruct(Package, FName(*AssetName), RF_Public | RF_Standalone | RF_Transactional);
+    if (Struct == nullptr)
+    {
+        OutError = TEXT("Failed to create Blueprint user-defined struct.");
+        return false;
+    }
+
+    FString Tooltip;
+    if (LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Payload, {TEXT("tooltip"), TEXT("toolTip")}, Tooltip))
+    {
+        FStructureEditorUtils::ChangeTooltip(Struct, Tooltip);
+    }
+
+    FString ErrorCode;
+    for (int32 Index = 0; Index < Fields.Num(); ++Index)
+    {
+        const TSharedPtr<FJsonObject> FieldSpec = Fields[Index].IsValid() ? Fields[Index]->AsObject() : nullptr;
+        if (!FieldSpec.IsValid())
+        {
+            OutError = TEXT("Blueprint struct fields must be objects.");
+            return false;
+        }
+
+        if (Index == 0)
+        {
+            TArray<FStructVariableDescription>& Descriptions = FStructureEditorUtils::GetVarDesc(Struct);
+            if (Descriptions.Num() == 0)
+            {
+                OutError = TEXT("Blueprint struct creation did not create the default field.");
+                return false;
+            }
+            const FGuid FirstGuid = Descriptions[0].VarGuid;
+            if (!LoomleBlueprintAdapterInternal::ApplyStructFieldSpec(Struct, FirstGuid, FieldSpec, OutError, ErrorCode))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            FGuid NewGuid;
+            if (!LoomleBlueprintAdapterInternal::AddStructField(Struct, FieldSpec, NewGuid, OutError, ErrorCode))
+            {
+                return false;
+            }
+        }
+    }
+
+    FStructureEditorUtils::CompileStructure(Struct);
+    FAssetRegistryModule::AssetCreated(Struct);
+    Struct->MarkPackageDirty();
+    OutStructJson = LoomleBlueprintAdapterInternal::JsonObjectToCondensedString(
+        LoomleBlueprintAdapterInternal::SerializeUserDefinedStruct(Struct));
+    return true;
+}
+
+bool FLoomleBlueprintAdapter::EditUserDefinedStruct(const FString& StructAssetPath, const FString& Operation, const FString& PayloadJson, FString& OutStructJson, FString& OutError, FString& OutErrorCode)
+{
+    OutStructJson.Empty();
+    OutError.Empty();
+    OutErrorCode.Empty();
+
+    if (!FPackageName::IsValidLongPackageName(StructAssetPath))
+    {
+        OutErrorCode = TEXT("INVALID_ARGUMENT");
+        OutError = TEXT("Invalid struct assetPath; expected /Game/... long package name.");
+        return false;
+    }
+
+    UUserDefinedStruct* Struct = LoomleBlueprintAdapterInternal::LoadUserDefinedStructByAssetPath(StructAssetPath);
+    if (Struct == nullptr)
+    {
+        OutErrorCode = TEXT("ASSET_NOT_FOUND");
+        OutError = TEXT("Blueprint struct asset not found.");
+        return false;
+    }
+
+    TSharedPtr<FJsonObject> Args;
+    if (!LoomleBlueprintAdapterInternal::ParsePayloadJson(PayloadJson, Args))
+    {
+        OutErrorCode = TEXT("INVALID_ARGUMENT");
+        OutError = TEXT("Failed to parse Blueprint struct edit args JSON.");
+        return false;
+    }
+
+    const FString OperationLower = Operation.ToLower();
+    bool bChanged = false;
+    if (OperationLower.Equals(TEXT("settooltip")))
+    {
+        FString Tooltip;
+        if (!LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Args, {TEXT("tooltip"), TEXT("toolTip"), TEXT("value")}, Tooltip))
+        {
+            OutErrorCode = TEXT("INVALID_ARGUMENT");
+            OutError = TEXT("setTooltip requires args.tooltip.");
+            return false;
+        }
+        bChanged = FStructureEditorUtils::ChangeTooltip(Struct, Tooltip);
+    }
+    else if (OperationLower.Equals(TEXT("addfield")))
+    {
+        FGuid NewGuid;
+        if (!LoomleBlueprintAdapterInternal::AddStructField(Struct, Args, NewGuid, OutError, OutErrorCode))
+        {
+            return false;
+        }
+        bChanged = true;
+    }
+    else if (OperationLower.Equals(TEXT("removefield")))
+    {
+        FGuid FieldGuid;
+        if (!LoomleBlueprintAdapterInternal::ResolveStructFieldGuid(Struct, Args, FieldGuid, OutError, OutErrorCode))
+        {
+            return false;
+        }
+        if (!FStructureEditorUtils::RemoveVariable(Struct, FieldGuid))
+        {
+            OutErrorCode = TEXT("STRUCT_EDIT_FAILED");
+            OutError = TEXT("Unable to remove struct field. UE does not allow removing the final field.");
+            return false;
+        }
+        bChanged = true;
+    }
+    else if (OperationLower.Equals(TEXT("renamefield")))
+    {
+        FGuid FieldGuid;
+        if (!LoomleBlueprintAdapterInternal::ResolveStructFieldGuid(Struct, Args, FieldGuid, OutError, OutErrorCode))
+        {
+            return false;
+        }
+        FString NewName;
+        if (!LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Args, {TEXT("newName"), TEXT("displayName")}, NewName) || NewName.IsEmpty())
+        {
+            OutErrorCode = TEXT("INVALID_ARGUMENT");
+            OutError = TEXT("renameField requires args.newName.");
+            return false;
+        }
+        if (!FStructureEditorUtils::RenameVariable(Struct, FieldGuid, NewName))
+        {
+            OutErrorCode = TEXT("FIELD_NAME_CONFLICT");
+            OutError = FString::Printf(TEXT("Unable to rename struct field to: %s"), *NewName);
+            return false;
+        }
+        bChanged = true;
+    }
+    else if (OperationLower.Equals(TEXT("changefieldtype")))
+    {
+        FGuid FieldGuid;
+        if (!LoomleBlueprintAdapterInternal::ResolveStructFieldGuid(Struct, Args, FieldGuid, OutError, OutErrorCode))
+        {
+            return false;
+        }
+        const TSharedPtr<FJsonObject> TypeObject = LoomleBlueprintAdapterInternal::TryGetObjectFieldAny(Args, {TEXT("type")});
+        FEdGraphPinType PinType;
+        if (!LoomleBlueprintAdapterInternal::ParseStructPinType(TypeObject, PinType, OutError))
+        {
+            OutErrorCode = TEXT("INVALID_ARGUMENT");
+            return false;
+        }
+        FString TypeError;
+        if (!FStructureEditorUtils::CanHaveAMemberVariableOfType(Struct, PinType, &TypeError))
+        {
+            OutErrorCode = TEXT("FIELD_TYPE_UNSUPPORTED");
+            OutError = TypeError.IsEmpty() ? TEXT("Unsupported struct field type.") : TypeError;
+            return false;
+        }
+        bChanged = FStructureEditorUtils::ChangeVariableType(Struct, FieldGuid, PinType);
+    }
+    else if (OperationLower.Equals(TEXT("setfielddefault")))
+    {
+        FGuid FieldGuid;
+        if (!LoomleBlueprintAdapterInternal::ResolveStructFieldGuid(Struct, Args, FieldGuid, OutError, OutErrorCode))
+        {
+            return false;
+        }
+        FString Value;
+        if (!LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Args, {TEXT("defaultValue"), TEXT("value")}, Value))
+        {
+            OutErrorCode = TEXT("INVALID_ARGUMENT");
+            OutError = TEXT("setFieldDefault requires args.defaultValue.");
+            return false;
+        }
+        if (!FStructureEditorUtils::ChangeVariableDefaultValue(Struct, FieldGuid, Value))
+        {
+            OutErrorCode = TEXT("FIELD_DEFAULT_INVALID");
+            OutError = FString::Printf(TEXT("Invalid default value for struct field: %s"), *Value);
+            return false;
+        }
+        bChanged = true;
+    }
+    else if (OperationLower.Equals(TEXT("setfieldtooltip")))
+    {
+        FGuid FieldGuid;
+        if (!LoomleBlueprintAdapterInternal::ResolveStructFieldGuid(Struct, Args, FieldGuid, OutError, OutErrorCode))
+        {
+            return false;
+        }
+        FString Tooltip;
+        if (!LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Args, {TEXT("tooltip"), TEXT("toolTip"), TEXT("value")}, Tooltip))
+        {
+            OutErrorCode = TEXT("INVALID_ARGUMENT");
+            OutError = TEXT("setFieldTooltip requires args.tooltip.");
+            return false;
+        }
+        bChanged = FStructureEditorUtils::ChangeVariableTooltip(Struct, FieldGuid, Tooltip);
+    }
+    else if (OperationLower.Equals(TEXT("setfieldmetadata")))
+    {
+        FGuid FieldGuid;
+        if (!LoomleBlueprintAdapterInternal::ResolveStructFieldGuid(Struct, Args, FieldGuid, OutError, OutErrorCode))
+        {
+            return false;
+        }
+        const TSharedPtr<FJsonObject> MetadataObject = LoomleBlueprintAdapterInternal::TryGetObjectFieldAny(Args, {TEXT("metadata")});
+        if (MetadataObject.IsValid())
+        {
+            for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : MetadataObject->Values)
+            {
+                bChanged = FStructureEditorUtils::SetMetaData(Struct, FieldGuid, FName(*Pair.Key), Pair.Value.IsValid() ? Pair.Value->AsString() : TEXT("")) || bChanged;
+            }
+        }
+        const TArray<TSharedPtr<FJsonValue>> RemoveKeys = LoomleBlueprintAdapterInternal::TryGetArrayFieldAny(Args, {TEXT("removeKeys")});
+        for (const TSharedPtr<FJsonValue>& KeyValue : RemoveKeys)
+        {
+            if (KeyValue.IsValid())
+            {
+                bChanged = FStructureEditorUtils::SetMetaData(Struct, FieldGuid, FName(*KeyValue->AsString()), TEXT("")) || bChanged;
+            }
+        }
+    }
+    else if (OperationLower.Equals(TEXT("movefield")))
+    {
+        FGuid FieldGuid;
+        if (!LoomleBlueprintAdapterInternal::ResolveStructFieldGuid(Struct, Args, FieldGuid, OutError, OutErrorCode))
+        {
+            return false;
+        }
+        FString RelativeId;
+        if (!LoomleBlueprintAdapterInternal::TryGetStringFieldAny(Args, {TEXT("relativeToFieldId"), TEXT("targetFieldId")}, RelativeId))
+        {
+            OutErrorCode = TEXT("INVALID_ARGUMENT");
+            OutError = TEXT("moveField requires args.relativeToFieldId.");
+            return false;
+        }
+        FGuid RelativeGuid;
+        if (!FGuid::Parse(RelativeId, RelativeGuid))
+        {
+            OutErrorCode = TEXT("INVALID_ARGUMENT");
+            OutError = FString::Printf(TEXT("Invalid relative field id: %s"), *RelativeId);
+            return false;
+        }
+        FString Position;
+        Args->TryGetStringField(TEXT("position"), Position);
+        const FStructureEditorUtils::EMovePosition MovePosition = Position.Equals(TEXT("below"), ESearchCase::IgnoreCase)
+            ? FStructureEditorUtils::PositionBelow
+            : FStructureEditorUtils::PositionAbove;
+        if (!FStructureEditorUtils::MoveVariable(Struct, FieldGuid, RelativeGuid, MovePosition))
+        {
+            OutErrorCode = TEXT("STRUCT_EDIT_FAILED");
+            OutError = TEXT("Unable to move struct field.");
+            return false;
+        }
+        bChanged = true;
+    }
+    else
+    {
+        OutErrorCode = TEXT("INVALID_ARGUMENT");
+        OutError = FString::Printf(TEXT("Unsupported blueprint.struct.edit operation: %s"), *Operation);
+        return false;
+    }
+
+    if (bChanged)
+    {
+        FStructureEditorUtils::CompileStructure(Struct);
+        Struct->MarkPackageDirty();
+    }
+    OutStructJson = LoomleBlueprintAdapterInternal::JsonObjectToCondensedString(
+        LoomleBlueprintAdapterInternal::SerializeUserDefinedStruct(Struct));
     return true;
 }
 

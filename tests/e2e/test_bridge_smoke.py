@@ -3482,6 +3482,72 @@ def main() -> int:
             fail(f"pcg.node.inspect missing properties[]: {pcg_describe}")
         print("[PASS] domain describe class-mode smoke validated")
 
+        # --- UserDefinedStruct asset smoke ---
+        temp_struct_asset = make_temp_asset_path("/Game/Codex/ST_BridgeSmoke")
+        struct_create = call_tool(
+            client,
+            90,
+            "asset.create",
+            {
+                "kind": "userDefinedStruct",
+                "assetPath": temp_struct_asset,
+                "tooltip": "Bridge smoke struct.",
+                "fields": [
+                    {
+                        "name": "DisplayName",
+                        "type": {"category": "string"},
+                        "defaultValue": "World",
+                    }
+                ],
+            },
+        )
+        struct_payload = struct_create.get("struct")
+        if not isinstance(struct_payload, dict):
+            fail(f"asset.create userDefinedStruct missing struct payload: {struct_create}")
+        if struct_payload.get("assetPath") != temp_struct_asset:
+            fail(f"asset.create userDefinedStruct assetPath mismatch: {struct_create}")
+        if struct_payload.get("fieldCount") != 1:
+            fail(f"asset.create userDefinedStruct expected one field: {struct_create}")
+        print(f"[PASS] temporary UserDefinedStruct created: {temp_struct_asset}")
+
+        struct_inspect = call_tool(
+            client,
+            91,
+            "asset.inspect",
+            {"kind": "userDefinedStruct", "assetPath": temp_struct_asset},
+        )
+        fields = struct_inspect.get("fields")
+        if not isinstance(fields, list) or not fields:
+            fail(f"asset.inspect userDefinedStruct missing fields: {struct_inspect}")
+        if fields[0].get("name") != "DisplayName":
+            fail(f"asset.inspect userDefinedStruct field name mismatch: {struct_inspect}")
+        if not isinstance(struct_inspect.get("revision"), str) or not struct_inspect.get("revision"):
+            fail(f"asset.inspect userDefinedStruct missing revision: {struct_inspect}")
+        print("[PASS] asset.inspect userDefinedStruct validated")
+
+        struct_edit = call_tool(
+            client,
+            92,
+            "asset.edit",
+            {
+                "kind": "userDefinedStruct",
+                "assetPath": temp_struct_asset,
+                "operation": "addField",
+                "args": {
+                    "name": "Score",
+                    "type": {"category": "int"},
+                    "defaultValue": "7",
+                },
+            },
+        )
+        edited_struct = struct_edit.get("struct")
+        if not isinstance(edited_struct, dict) or edited_struct.get("fieldCount") != 2:
+            fail(f"asset.edit userDefinedStruct addField did not add a field: {struct_edit}")
+        edited_fields = edited_struct.get("fields")
+        if not isinstance(edited_fields, list) or not any(field.get("name") == "Score" for field in edited_fields):
+            fail(f"asset.edit userDefinedStruct missing added Score field: {struct_edit}")
+        print("[PASS] asset.edit userDefinedStruct addField validated")
+
         validate_active_test_fixtures_are_current_contract()
         validate_archived_workspace_catalogs()
         validate_archived_workspace_examples()

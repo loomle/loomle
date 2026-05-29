@@ -221,6 +221,10 @@ def asset_create_args(arguments: dict[str, Any]) -> dict[str, Any]:
         args = {"__bridgeTool": "blueprint.enum.edit", "assetPath": asset_path, "operation": "create", "args": enum_args(arguments)}
         copy_mutation_controls(arguments, args)
         return args
+    if kind == "userDefinedStruct":
+        args = {"__bridgeTool": "blueprint.struct.edit", "assetPath": asset_path, "operation": "create", "args": struct_args(arguments)}
+        copy_mutation_controls(arguments, args)
+        return args
     if kind in ("material", "materialFunction", "pcgGraph", "widgetBlueprint"):
         return dict(arguments)
     raise TransformError(f"Unsupported asset.create kind: {kind}.")
@@ -236,6 +240,9 @@ def asset_inspect_args(arguments: dict[str, Any]) -> dict[str, Any]:
         return args
     if kind == "enum":
         args["__bridgeTool"] = "blueprint.enum.inspect"
+        return args
+    if kind == "userDefinedStruct":
+        args["__bridgeTool"] = "blueprint.struct.inspect"
         return args
     args.pop("kind", None)
     if kind in ("material", "materialFunction"):
@@ -268,6 +275,23 @@ def asset_edit_args(arguments: dict[str, Any]) -> dict[str, Any]:
         args = {"__bridgeTool": "blueprint.enum.edit", "assetPath": asset_path, "operation": "updateEntries", "args": enum_args(arguments)}
         copy_mutation_controls(arguments, args)
         return args
+    if kind == "userDefinedStruct" and operation in {
+        "setTooltip",
+        "addField",
+        "removeField",
+        "renameField",
+        "changeFieldType",
+        "setFieldDefault",
+        "setFieldTooltip",
+        "setFieldMetadata",
+        "moveField",
+    }:
+        asset_path = string_field(arguments, "assetPath")
+        if asset_path is None:
+            raise TransformError("asset.edit requires assetPath.")
+        args = {"__bridgeTool": "blueprint.struct.edit", "assetPath": asset_path, "operation": operation, "args": struct_args(arguments)}
+        copy_mutation_controls(arguments, args)
+        return args
     raise TransformError(f"Unsupported asset.edit operation for kind {kind}: {operation}.")
 
 
@@ -276,6 +300,32 @@ def enum_args(arguments: dict[str, Any]) -> dict[str, Any]:
     out = dict(args) if isinstance(args, dict) else {}
     copy_if_present(arguments, out, "entries")
     copy_if_present(arguments, out, "displayNames")
+    return out
+
+
+def struct_args(arguments: dict[str, Any]) -> dict[str, Any]:
+    args = arguments.get("args")
+    out = dict(args) if isinstance(args, dict) else {}
+    for field in (
+        "fields",
+        "tooltip",
+        "toolTip",
+        "fieldId",
+        "id",
+        "name",
+        "fieldName",
+        "newName",
+        "displayName",
+        "type",
+        "defaultValue",
+        "value",
+        "metadata",
+        "removeKeys",
+        "relativeToFieldId",
+        "targetFieldId",
+        "position",
+    ):
+        copy_if_present(arguments, out, field)
     return out
 
 

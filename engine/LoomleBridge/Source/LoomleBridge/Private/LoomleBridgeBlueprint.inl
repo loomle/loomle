@@ -1557,6 +1557,176 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEnumEditToolResult(co
     return Result;
 }
 
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintStructInspectToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+
+    FString AssetPath;
+    if (!Arguments.IsValid() || !Arguments->TryGetStringField(TEXT("assetPath"), AssetPath) || AssetPath.IsEmpty())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("blueprint.struct.inspect requires assetPath."));
+        return Result;
+    }
+
+    AssetPath = NormalizeAssetPath(AssetPath);
+    FString StructJson;
+    FString Error;
+    if (!FLoomleBlueprintAdapter::DescribeUserDefinedStruct(AssetPath, StructJson, Error))
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), Error.Contains(TEXT("not found")) ? TEXT("ASSET_NOT_FOUND") : TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.struct.inspect failed") : Error);
+        return Result;
+    }
+
+    const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(StructJson);
+    FJsonSerializer::Deserialize(Reader, Result);
+    Result->SetBoolField(TEXT("isError"), false);
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintStructEditToolResult(const TSharedPtr<FJsonObject>& Arguments)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+
+    FString AssetPath;
+    FString Operation;
+    if (!Arguments.IsValid()
+        || !Arguments->TryGetStringField(TEXT("assetPath"), AssetPath)
+        || AssetPath.IsEmpty()
+        || !Arguments->TryGetStringField(TEXT("operation"), Operation)
+        || Operation.IsEmpty())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Result->SetStringField(TEXT("message"), TEXT("blueprint.struct.edit requires assetPath and operation."));
+        return Result;
+    }
+
+    AssetPath = NormalizeAssetPath(AssetPath);
+    Result->SetStringField(TEXT("assetPath"), AssetPath);
+    Result->SetStringField(TEXT("operation"), Operation);
+
+    if (const TSharedPtr<FJsonObject> Blocked = BuildEditorMutationLifecycleBlockResult(
+            TEXT("blueprint.struct.edit"),
+            Arguments,
+            AssetPath,
+            TEXT("")))
+    {
+        return Blocked;
+    }
+
+    const TSharedPtr<FJsonObject>* ArgsObject = nullptr;
+    const TSharedPtr<FJsonObject> EmptyArgs = MakeShared<FJsonObject>();
+    const TSharedPtr<FJsonObject> EffectiveArgs =
+        (Arguments->TryGetObjectField(TEXT("args"), ArgsObject) && ArgsObject != nullptr && (*ArgsObject).IsValid())
+            ? *ArgsObject
+            : EmptyArgs;
+
+    bool bDryRun = false;
+    Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
+    Result->SetBoolField(TEXT("dryRun"), bDryRun);
+    if (bDryRun)
+    {
+        Result->SetBoolField(TEXT("applied"), false);
+        return Result;
+    }
+
+    FString PreviousRevision;
+    if (!Operation.Equals(TEXT("create"), ESearchCase::IgnoreCase))
+    {
+        FString PreviousJson;
+        FString PreviousError;
+        if (!FLoomleBlueprintAdapter::DescribeUserDefinedStruct(AssetPath, PreviousJson, PreviousError))
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), PreviousError.Contains(TEXT("not found")) ? TEXT("ASSET_NOT_FOUND") : TEXT("INVALID_ARGUMENT"));
+            Result->SetStringField(TEXT("message"), PreviousError.IsEmpty() ? TEXT("Failed to resolve current Blueprint struct revision.") : PreviousError);
+            return Result;
+        }
+        TSharedPtr<FJsonObject> PreviousObject;
+        const TSharedRef<TJsonReader<>> PreviousReader = TJsonReaderFactory<>::Create(PreviousJson);
+        FJsonSerializer::Deserialize(PreviousReader, PreviousObject);
+        if (PreviousObject.IsValid())
+        {
+            PreviousObject->TryGetStringField(TEXT("revision"), PreviousRevision);
+        }
+
+        FString ExpectedRevision;
+        if (Arguments->TryGetStringField(TEXT("expectedRevision"), ExpectedRevision) && !ExpectedRevision.IsEmpty() && !ExpectedRevision.Equals(PreviousRevision, ESearchCase::CaseSensitive))
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("REVISION_CONFLICT"));
+            Result->SetStringField(TEXT("message"), FString::Printf(TEXT("expectedRevision mismatch: expected %s but current revision is %s."), *ExpectedRevision, *PreviousRevision));
+            Result->SetStringField(TEXT("previousRevision"), PreviousRevision);
+            return Result;
+        }
+    }
+
+    const FString PayloadJson = SerializeBlueprintJsonObjectCondensed(EffectiveArgs);
+    FString StructJson;
+    FString Error;
+    FString ErrorCode;
+    bool bOk = false;
+    if (Operation.Equals(TEXT("create"), ESearchCase::IgnoreCase))
+    {
+        bOk = FLoomleBlueprintAdapter::CreateUserDefinedStruct(AssetPath, PayloadJson, StructJson, Error);
+        if (!bOk)
+        {
+            ErrorCode = Error.Contains(TEXT("already exists"))
+                ? TEXT("ALREADY_EXISTS")
+                : TEXT("INVALID_ARGUMENT");
+        }
+    }
+    else
+    {
+        bOk = FLoomleBlueprintAdapter::EditUserDefinedStruct(AssetPath, Operation, PayloadJson, StructJson, Error, ErrorCode);
+    }
+
+    if (!bOk)
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        if (ErrorCode.IsEmpty())
+        {
+            ErrorCode = Error.Contains(TEXT("not found")) ? TEXT("ASSET_NOT_FOUND") : TEXT("INVALID_ARGUMENT");
+        }
+        Result->SetStringField(TEXT("code"), ErrorCode);
+        Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.struct.edit failed") : Error);
+        Result->SetBoolField(TEXT("applied"), false);
+        Result->SetStringField(TEXT("previousRevision"), PreviousRevision);
+        return Result;
+    }
+
+    TSharedPtr<FJsonObject> StructObject;
+    const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(StructJson);
+    if (FJsonSerializer::Deserialize(Reader, StructObject) && StructObject.IsValid())
+    {
+        Result->SetObjectField(TEXT("struct"), StructObject);
+        FString StructPath;
+        if (StructObject->TryGetStringField(TEXT("structPath"), StructPath))
+        {
+            Result->SetStringField(TEXT("structPath"), StructPath);
+        }
+        FString NewRevision;
+        StructObject->TryGetStringField(TEXT("revision"), NewRevision);
+        Result->SetStringField(TEXT("previousRevision"), PreviousRevision);
+        Result->SetStringField(TEXT("newRevision"), NewRevision);
+        Result->SetStringField(TEXT("revision"), NewRevision);
+        const TArray<TSharedPtr<FJsonValue>>* Fields = nullptr;
+        if (StructObject->TryGetArrayField(TEXT("fields"), Fields) && Fields != nullptr)
+        {
+            Result->SetArrayField(TEXT("fields"), *Fields);
+        }
+    }
+    Result->SetBoolField(TEXT("applied"), true);
+    Result->SetBoolField(TEXT("changed"), true);
+    return Result;
+}
+
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMemberEditToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
@@ -2568,6 +2738,30 @@ void ReconstructBlueprintNodeAfterLocalEdit(UEdGraphNode* Node)
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
+    FString GuardAssetPath;
+    FString GuardGraphName;
+    if (Arguments.IsValid())
+    {
+        Arguments->TryGetStringField(TEXT("assetPath"), GuardAssetPath);
+        Arguments->TryGetStringField(TEXT("graphName"), GuardGraphName);
+        const TSharedPtr<FJsonObject>* GraphObject = nullptr;
+        if (GuardGraphName.IsEmpty()
+            && Arguments->TryGetObjectField(TEXT("graph"), GraphObject)
+            && GraphObject != nullptr
+            && (*GraphObject).IsValid())
+        {
+            (*GraphObject)->TryGetStringField(TEXT("name"), GuardGraphName);
+        }
+    }
+    if (const TSharedPtr<FJsonObject> Blocked = BuildEditorMutationLifecycleBlockResult(
+            TEXT("blueprint.node.edit"),
+            Arguments,
+            GuardAssetPath,
+            GuardGraphName))
+    {
+        return Blocked;
+    }
+
     FString AssetPath;
     FString GraphName;
     FString InlineNodeGuid;
@@ -2929,6 +3123,30 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
+    FString GuardAssetPath;
+    FString GuardGraphName;
+    if (Arguments.IsValid())
+    {
+        Arguments->TryGetStringField(TEXT("assetPath"), GuardAssetPath);
+        Arguments->TryGetStringField(TEXT("graphName"), GuardGraphName);
+        const TSharedPtr<FJsonObject>* GraphObject = nullptr;
+        if (GuardGraphName.IsEmpty()
+            && Arguments->TryGetObjectField(TEXT("graph"), GraphObject)
+            && GraphObject != nullptr
+            && (*GraphObject).IsValid())
+        {
+            (*GraphObject)->TryGetStringField(TEXT("name"), GuardGraphName);
+        }
+    }
+    if (const TSharedPtr<FJsonObject> Blocked = BuildEditorMutationLifecycleBlockResult(
+            TEXT("blueprint.graph.edit"),
+            Arguments,
+            GuardAssetPath,
+            GuardGraphName))
+    {
+        return Blocked;
+    }
+
     TSharedPtr<FJsonObject> AddressResult = MakeShared<FJsonObject>();
     AddressResult->SetBoolField(TEXT("isError"), false);
 

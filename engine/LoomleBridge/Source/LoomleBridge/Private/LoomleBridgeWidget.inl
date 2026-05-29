@@ -406,6 +406,15 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetTreeEditToolResult(
     bool bContinueOnError = false;
     Arguments->TryGetBoolField(TEXT("continueOnError"), bContinueOnError);
 
+    if (const TSharedPtr<FJsonObject> Blocked = BuildEditorMutationLifecycleBlockResult(
+            TEXT("widget.tree.edit"),
+            Arguments,
+            AssetPath,
+            TEXT("")))
+    {
+        return Blocked;
+    }
+
     // --- Load asset ---
     FString LoadError;
     FString ObjectPath = AssetPath;
