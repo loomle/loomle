@@ -20,9 +20,13 @@ runtime/dev-verify-install/
 runtime/local-release-*/
 
 # Rust test build artifacts
+client/target/
 mcp_server/target/
 mcp/server/target/
 mcp/client/target/
+
+# Local scratch/build output
+.tmp/
 
 # Local developer project-root config
 tools/dev.project-root.local.json
