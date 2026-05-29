@@ -40,6 +40,18 @@ class PythonMcpSdkServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("widget.tree.inspect", tool_names)
                 self.assertIn("widget.tree.edit", tool_names)
                 self.assertNotIn("project.install", tool_names)
+                graph_inspect = next(
+                    tool for tool in tools.tools
+                    if tool.name == "blueprint.graph.inspect"
+                )
+                self.assertIsNotNone(graph_inspect.outputSchema)
+                self.assertEqual(
+                    [
+                        entry["properties"]["view"]["const"]
+                        for entry in graph_inspect.outputSchema["oneOf"]
+                    ],
+                    ["summary", "exec_flow", "data_flow"],
+                )
 
                 result = await session.call_tool(
                     "schema.inspect",

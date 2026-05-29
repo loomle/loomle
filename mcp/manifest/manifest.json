@@ -3,8 +3,8 @@
   "schemaVersion": 1,
   "product": "loomle",
   "notes": [
-    "Initial vertical slice for the shared Rust/Python MCP tool manifest.",
-    "This file is not yet consumed by the Rust client at runtime."
+    "Shared Rust/Python MCP tool manifest.",
+    "Native and Python tools/list declarations are generated from this file."
   ],
   "tools": [
     {
@@ -3527,6 +3527,387 @@
           "graph"
         ],
         "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Structured Blueprint graph inspection result. The shape is selected by the returned view field.",
+        "oneOf": [
+          {
+            "title": "Blueprint Graph Summary",
+            "type": "object",
+            "properties": {
+              "view": {
+                "type": "string",
+                "const": "summary"
+              },
+              "nodes": {
+                "type": "object",
+                "description": "Dictionary of compact node summaries keyed by node id.",
+                "additionalProperties": {
+                  "$ref": "#/$defs/blueprintGraphNodeSummary"
+                }
+              },
+              "boundary": {
+                "type": "object",
+                "properties": {
+                  "entries": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/blueprintNodeRef"
+                    }
+                  },
+                  "outputs": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/blueprintNodeRef"
+                    }
+                  }
+                },
+                "required": [
+                  "entries",
+                  "outputs"
+                ],
+                "additionalProperties": false
+              },
+              "roots": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/blueprintNodeRef"
+                }
+              },
+              "chains": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "root": {
+                      "$ref": "#/$defs/blueprintNodeRef"
+                    },
+                    "nodeCount": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "linkCount": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "branchCount": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "effects": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string"
+                          },
+                          "node": {
+                            "$ref": "#/$defs/blueprintNodeRef"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "node"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "path": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/$defs/blueprintNodeRef"
+                      }
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "root",
+                    "nodeCount",
+                    "linkCount",
+                    "branchCount",
+                    "effects",
+                    "path",
+                    "truncated"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "looseNodes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/blueprintNodeRef"
+                }
+              },
+              "linkCounts": {
+                "type": "object",
+                "properties": {
+                  "exec": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "data": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "exec",
+                  "data"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "view",
+              "nodes",
+              "boundary",
+              "roots",
+              "chains",
+              "looseNodes",
+              "linkCounts"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "title": "Blueprint Exec Flow",
+            "type": "object",
+            "properties": {
+              "view": {
+                "type": "string",
+                "const": "exec_flow"
+              },
+              "rootNode": {
+                "$ref": "#/$defs/blueprintNodeRef"
+              },
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "upstream",
+                  "downstream",
+                  "both"
+                ]
+              },
+              "nodes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/blueprintGraphNodeSummary"
+                }
+              },
+              "links": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/blueprintGraphLink"
+                }
+              },
+              "openExecOutputs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/blueprintPinRef"
+                }
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "view",
+              "rootNode",
+              "direction",
+              "nodes",
+              "links",
+              "openExecOutputs",
+              "truncated"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "title": "Blueprint Data Flow",
+            "type": "object",
+            "properties": {
+              "view": {
+                "type": "string",
+                "const": "data_flow"
+              },
+              "rootPin": {
+                "$ref": "#/$defs/blueprintPinRef"
+              },
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "upstream",
+                  "downstream",
+                  "both"
+                ]
+              },
+              "nodes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/blueprintGraphNodeSummary"
+                }
+              },
+              "links": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/blueprintGraphLink"
+                }
+              },
+              "openInputs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/blueprintPinRef"
+                }
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "view",
+              "rootPin",
+              "direction",
+              "nodes",
+              "links",
+              "openInputs",
+              "truncated"
+            ],
+            "additionalProperties": true
+          }
+        ],
+        "$defs": {
+          "blueprintNodeRef": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "missing": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "blueprintPinRef": {
+            "type": "object",
+            "properties": {
+              "node": {
+                "$ref": "#/$defs/blueprintNodeRef"
+              },
+              "pin": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "node",
+              "pin"
+            ],
+            "additionalProperties": false
+          },
+          "blueprintGraphLink": {
+            "type": "object",
+            "properties": {
+              "fromNodeId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "fromPin": {
+                "type": "string",
+                "minLength": 1
+              },
+              "toNodeId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "toPin": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "exec",
+                  "data"
+                ]
+              }
+            },
+            "required": [
+              "fromNodeId",
+              "fromPin",
+              "toNodeId",
+              "toPin",
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          "blueprintGraphNodeSummary": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "guid": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "className": {
+                "type": "string"
+              },
+              "nodeClassPath": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "nodeTitle": {
+                "type": "string"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "position": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  }
+                },
+                "additionalProperties": true
+              },
+              "childGraphRef": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "graphBoundarySummary": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "hasNodeEditCapabilities": {
+                "type": "boolean"
+              },
+              "inspectWith": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": true
+          }
+        }
       },
       "dispatch": {
         "kind": "bridgeRpc",

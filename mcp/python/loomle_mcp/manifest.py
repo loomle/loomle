@@ -30,14 +30,17 @@ class ToolManifest:
         ]
 
     def list_tools(self, target: str = "python") -> list[dict[str, Any]]:
-        return [
-            {
+        tools = []
+        for tool in self.tools_for(target):
+            listed_tool = {
                 "name": tool["name"],
                 "description": tool["description"],
                 "inputSchema": tool["inputSchema"],
             }
-            for tool in self.tools_for(target)
-        ]
+            if "outputSchema" in tool:
+                listed_tool["outputSchema"] = tool["outputSchema"]
+            tools.append(listed_tool)
+        return tools
 
     def get_tool(self, name: str) -> dict[str, Any] | None:
         for tool in self.tools:

@@ -4,6 +4,9 @@
   "type": "object",
   "required": ["schemaVersion", "product", "tools"],
   "properties": {
+    "$schema": {
+      "type": "string"
+    },
     "schemaVersion": {
       "type": "integer",
       "minimum": 1
@@ -61,6 +64,9 @@
           "type": "boolean"
         },
         "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {
           "type": "object"
         },
         "schemaInspect": {

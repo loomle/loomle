@@ -186,6 +186,12 @@ args = ["mcp"]
         self.assertIn("traversal", properties)
         self.assertNotIn("filter", properties)
         self.assertNotIn("page", properties)
+        output_schema = tool["outputSchema"]
+        self.assertEqual(
+            [entry["properties"]["view"]["const"] for entry in output_schema["oneOf"]],
+            ["summary", "exec_flow", "data_flow"],
+        )
+        self.assertIn("blueprintGraphNodeSummary", output_schema["$defs"])
 
     def test_schema_inspect_operation_comes_from_manifest(self) -> None:
         manifest = load_manifest(MANIFEST)

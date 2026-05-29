@@ -6074,6 +6074,13 @@ fn manifest_declared_tools_for(target: &str) -> Result<Vec<Tool>, String> {
             description.to_string(),
             Arc::new(input_schema),
         );
+        if let Some(output_schema) = tool
+            .get("outputSchema")
+            .and_then(|value| value.as_object())
+            .cloned()
+        {
+            declared_tool.output_schema = Some(Arc::new(output_schema));
+        }
         if let Some(title) = tool.get("title").and_then(|value| value.as_str()) {
             declared_tool.title = Some(title.to_string());
         }
@@ -13684,6 +13691,22 @@ mod tests {
         assert_eq!(view_enum, vec!["summary", "exec_flow", "data_flow"]);
         assert!(!properties.contains_key("filter"));
         assert!(!properties.contains_key("page"));
+
+        let output_schema = graph_inspect
+            .output_schema
+            .as_ref()
+            .expect("blueprint.graph.inspect output schema");
+        let output_views = output_schema
+            .get("oneOf")
+            .and_then(|value| value.as_array())
+            .expect("output oneOf")
+            .iter()
+            .filter_map(|value| value.get("properties"))
+            .filter_map(|properties| properties.get("view"))
+            .filter_map(|view| view.get("const"))
+            .filter_map(|value| value.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(output_views, vec!["summary", "exec_flow", "data_flow"]);
     }
 
     #[test]
