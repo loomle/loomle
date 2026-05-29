@@ -1,0 +1,28 @@
+# Tool Surface Cleanup
+
+## Intent
+
+Loomle's public MCP tool surface now uses UE-domain names such as
+`blueprint.graph.inspect`, `material.graph.edit`, `pcg.compile`, and
+`widget.tree.inspect`. Internal bridge implementation, transform names, tests,
+and diagnostics should use the same terms unless they are explicitly asserting
+that a retired tool name is absent.
+
+## Boundary
+
+This cleanup is naming and diagnostic alignment only. It does not add legacy
+aliases, does not change schemas, and does not reintroduce script execution
+ops. Rejected `runScript` operations remain explicit unsupported-operation
+tests for the current graph edit tools.
+
+## Current Audit
+
+- Bridge dispatch and helper names use current tool names rather than
+  `query`, `mutate`, `describe`, or `verify`.
+- Runtime error messages for Material and PCG graph operations report current
+  tool names.
+- Diagnostic `sourceKind` for graph edit failures is `graph.edit`.
+- Python MCP result transform naming uses `blueprint.graph.edit.result.v1`
+  instead of the retired Blueprint mutate name.
+- Retired names may still appear in tests that assert those tools are not
+  declared by the public manifest.

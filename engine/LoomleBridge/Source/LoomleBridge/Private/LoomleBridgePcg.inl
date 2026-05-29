@@ -1349,7 +1349,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgPaletteToolResult(const TSh
     return Result;
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgListToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgGraphListToolResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
@@ -1361,7 +1361,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgListToolResult(const TShare
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Result->SetStringField(TEXT("message"), TEXT("pcg.list requires assetPath."));
+        Result->SetStringField(TEXT("message"), TEXT("pcg.graph.inspect requires assetPath."));
         return Result;
     }
 
@@ -1405,7 +1405,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgListToolResult(const TShare
     return Result;
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgQueryToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgGraphInspectToolResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
@@ -1417,7 +1417,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgQueryToolResult(const TShar
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Result->SetStringField(TEXT("message"), TEXT("pcg.query requires assetPath."));
+        Result->SetStringField(TEXT("message"), TEXT("pcg.graph.inspect requires assetPath."));
         return Result;
     }
 
@@ -1748,7 +1748,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgQueryToolResult(const TShar
     return Result;
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgMutateToolResult(const TSharedPtr<FJsonObject>& Arguments)
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgGraphEditToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
@@ -1760,7 +1760,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgMutateToolResult(const TSha
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Result->SetStringField(TEXT("message"), TEXT("pcg.mutate requires assetPath."));
+        Result->SetStringField(TEXT("message"), TEXT("pcg.graph.edit requires assetPath."));
         return Result;
     }
     AssetPath = NormalizeAssetPath(AssetPath);
@@ -1788,7 +1788,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgMutateToolResult(const TSha
         {
             Result->SetBoolField(TEXT("isError"), true);
             Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_OP"));
-            Result->SetStringField(TEXT("message"), TEXT("pcg.mutate no longer supports runScript."));
+            Result->SetStringField(TEXT("message"), TEXT("pcg.graph.edit does not support runScript."));
             Result->SetBoolField(TEXT("applied"), false);
             Result->SetBoolField(TEXT("partialApplied"), false);
             Result->SetStringField(TEXT("graphType"), TEXT("pcg"));
@@ -1805,14 +1805,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgMutateToolResult(const TSha
             OpResult->SetBoolField(TEXT("skipped"), false);
             OpResult->SetBoolField(TEXT("changed"), false);
             OpResult->SetStringField(TEXT("errorCode"), TEXT("UNSUPPORTED_OP"));
-            OpResult->SetStringField(TEXT("errorMessage"), TEXT("pcg.mutate no longer supports runScript."));
+            OpResult->SetStringField(TEXT("errorMessage"), TEXT("pcg.graph.edit does not support runScript."));
             Result->SetArrayField(TEXT("opResults"), {MakeShared<FJsonValueObject>(OpResult)});
 
             TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
             Diagnostic->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_OP"));
             Diagnostic->SetStringField(TEXT("severity"), TEXT("error"));
-            Diagnostic->SetStringField(TEXT("message"), TEXT("pcg.mutate no longer supports runScript."));
-            Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("mutate"));
+            Diagnostic->SetStringField(TEXT("message"), TEXT("pcg.graph.edit does not support runScript."));
+            Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("graph.edit"));
             Diagnostic->SetStringField(TEXT("op"), Op);
             Result->SetArrayField(TEXT("diagnostics"), {MakeShared<FJsonValueObject>(Diagnostic)});
             return Result;
@@ -1832,7 +1832,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgMutateToolResult(const TSha
         OutCode.Empty();
         OutMessage.Empty();
 
-        const TSharedPtr<FJsonObject> QueryResult = BuildPcgQueryToolResult(BuildRevisionQueryArgs());
+        const TSharedPtr<FJsonObject> QueryResult = BuildPcgGraphInspectToolResult(BuildRevisionQueryArgs());
         if (!QueryResult.IsValid())
         {
             OutCode = TEXT("INTERNAL_ERROR");
@@ -1860,7 +1860,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgMutateToolResult(const TSha
         if (!QueryResult->TryGetStringField(TEXT("revision"), OutRevision) || OutRevision.IsEmpty())
         {
             OutCode = TEXT("INTERNAL_ERROR");
-            OutMessage = TEXT("pcg.query did not return a revision for pcg.mutate.");
+            OutMessage = TEXT("pcg.graph.inspect did not return a revision for pcg.graph.edit.");
             return false;
         }
 
@@ -1943,7 +1943,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgMutateToolResult(const TSha
             {
                 Result->SetBoolField(TEXT("isError"), true);
                 Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-                Result->SetStringField(TEXT("message"), TEXT("idempotencyKey was already used for a different pcg.mutate request in this graph scope."));
+                Result->SetStringField(TEXT("message"), TEXT("idempotencyKey was already used for a different pcg.graph.edit request in this graph scope."));
                 return Result;
             }
             if (Existing->Result.IsValid())
@@ -2209,7 +2209,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgMutateToolResult(const TSha
             if (!bOk)
             {
                 DirectResult->SetStringField(TEXT("code"), ErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : ErrorCode);
-                DirectResult->SetStringField(TEXT("message"), ErrorMessage.IsEmpty() ? TEXT("pcg.mutate failed") : ErrorMessage);
+                DirectResult->SetStringField(TEXT("message"), ErrorMessage.IsEmpty() ? TEXT("pcg.graph.edit failed") : ErrorMessage);
             }
 
             TSharedPtr<FJsonObject> DirectOpResult = MakeShared<FJsonObject>();
@@ -2233,7 +2233,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgMutateToolResult(const TSha
                 Diagnostic->SetStringField(TEXT("code"), ErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : ErrorCode);
                 Diagnostic->SetStringField(TEXT("severity"), TEXT("error"));
                 Diagnostic->SetStringField(TEXT("message"), ErrorMessage);
-                Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("mutate"));
+                Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("graph.edit"));
                 Diagnostic->SetStringField(TEXT("op"), OpName);
                 if (!NodeId.IsEmpty())
                 {
@@ -3011,14 +3011,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgMutateToolResult(const TSha
             UnsupportedOpResult->SetBoolField(TEXT("skipped"), false);
             UnsupportedOpResult->SetBoolField(TEXT("changed"), false);
             UnsupportedOpResult->SetStringField(TEXT("errorCode"), TEXT("UNSUPPORTED_OP"));
-            UnsupportedOpResult->SetStringField(TEXT("errorMessage"), FString::Printf(TEXT("pcg.mutate does not support op '%s'."), *OpName));
+            UnsupportedOpResult->SetStringField(TEXT("errorMessage"), FString::Printf(TEXT("pcg.graph.edit does not support op '%s'."), *OpName));
             OpResults.Add(MakeShared<FJsonValueObject>(UnsupportedOpResult));
 
             TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
             Diagnostic->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_OP"));
             Diagnostic->SetStringField(TEXT("severity"), TEXT("error"));
-            Diagnostic->SetStringField(TEXT("message"), FString::Printf(TEXT("pcg.mutate does not support op '%s'."), *OpName));
-            Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("mutate"));
+            Diagnostic->SetStringField(TEXT("message"), FString::Printf(TEXT("pcg.graph.edit does not support op '%s'."), *OpName));
+            Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("graph.edit"));
             Diagnostic->SetStringField(TEXT("op"), OpName);
             Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
 
@@ -3026,7 +3026,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgMutateToolResult(const TSha
             if (FirstErrorCode.IsEmpty())
             {
                 FirstErrorCode = TEXT("UNSUPPORTED_OP");
-                FirstErrorMessage = FString::Printf(TEXT("pcg.mutate does not support op '%s'."), *OpName);
+                FirstErrorMessage = FString::Printf(TEXT("pcg.graph.edit does not support op '%s'."), *OpName);
             }
             if (bStopOnError)
             {
@@ -3091,7 +3091,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgMutateToolResult(const TSha
     if (bAnyError)
     {
         Result->SetStringField(TEXT("code"), FirstErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : FirstErrorCode);
-        Result->SetStringField(TEXT("message"), FirstErrorMessage.IsEmpty() ? TEXT("pcg.mutate failed") : FirstErrorMessage);
+        Result->SetStringField(TEXT("message"), FirstErrorMessage.IsEmpty() ? TEXT("pcg.graph.edit failed") : FirstErrorMessage);
     }
     Result->SetBoolField(TEXT("applied"), !bAnyError);
     Result->SetBoolField(TEXT("partialApplied"), bAnyError && bAnyChanged);
@@ -3154,7 +3154,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgMutateToolResult(const TSha
     return Result;
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgVerifyToolResult(const TSharedPtr<FJsonObject>& Arguments)
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgCompileToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 
@@ -3165,7 +3165,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgVerifyToolResult(const TSha
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Result->SetStringField(TEXT("message"), TEXT("pcg.verify requires assetPath."));
+        Result->SetStringField(TEXT("message"), TEXT("pcg.compile requires assetPath."));
         return Result;
     }
 
@@ -3173,7 +3173,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgVerifyToolResult(const TSha
 
     const TSharedPtr<FJsonObject> QueryArgs = MakeShared<FJsonObject>();
     QueryArgs->SetStringField(TEXT("assetPath"), AssetPath);
-    const TSharedPtr<FJsonObject> QueryResult = BuildPcgQueryToolResult(QueryArgs);
+    const TSharedPtr<FJsonObject> QueryResult = BuildPcgGraphInspectToolResult(QueryArgs);
     bool bQueryError = false;
     QueryResult->TryGetBoolField(TEXT("isError"), bQueryError);
     if (bQueryError)
@@ -3189,7 +3189,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgVerifyToolResult(const TSha
     Ops.Add(MakeShared<FJsonValueObject>(CompileOp));
     MutateArgs->SetArrayField(TEXT("ops"), Ops);
 
-    const TSharedPtr<FJsonObject> MutateResult = BuildPcgMutateToolResult(MutateArgs);
+    const TSharedPtr<FJsonObject> MutateResult = BuildPcgGraphEditToolResult(MutateArgs);
     bool bMutateError = false;
     MutateResult->TryGetBoolField(TEXT("isError"), bMutateError);
 
@@ -3234,7 +3234,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgVerifyToolResult(const TSha
     return Result;
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgDescribeToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgNodeInspectToolResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
     FString AssetPath;
     FString NodeId;
@@ -3257,7 +3257,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgDescribeToolResult(const TS
         NodeIds.Add(MakeShared<FJsonValueString>(NodeId));
         QueryArgs->SetArrayField(TEXT("nodeIds"), NodeIds);
 
-        const TSharedPtr<FJsonObject> QueryResult = BuildPcgQueryToolResult(QueryArgs);
+        const TSharedPtr<FJsonObject> QueryResult = BuildPcgGraphInspectToolResult(QueryArgs);
         bool bQueryError = false;
         QueryResult->TryGetBoolField(TEXT("isError"), bQueryError);
         if (bQueryError)
@@ -3308,6 +3308,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildPcgDescribeToolResult(const TS
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), true);
     Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-    Result->SetStringField(TEXT("message"), TEXT("pcg.describe requires assetPath+nodeId for instance mode or nodeClass for class mode."));
+    Result->SetStringField(TEXT("message"), TEXT("pcg.node.inspect requires assetPath+nodeId for instance mode or nodeClass for class mode."));
     return Result;
 }

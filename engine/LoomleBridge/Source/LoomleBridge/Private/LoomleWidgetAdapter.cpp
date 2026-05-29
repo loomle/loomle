@@ -181,7 +181,7 @@ void FLoomleWidgetAdapter::MarkModified(UWidgetBlueprint* WBP)
 namespace
 {
 
-// Return true if this property should be included in widget.describe output.
+// Return true if this property should be included in widget.inspect output.
 bool IsDescribableProperty(FProperty* Prop)
 {
     if (!Prop)

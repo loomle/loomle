@@ -4476,12 +4476,12 @@ def main() -> int:
         material_duplicate_struct = structured_detail_or_payload(material_duplicate_client_ref)
         material_duplicate_results = material_duplicate_struct.get("opResults")
         if not isinstance(material_duplicate_results, list) or len(material_duplicate_results) < 2:
-            fail(f"material.mutate duplicate clientRef missing opResults: {material_duplicate_client_ref}")
+            fail(f"material.graph.edit duplicate clientRef missing opResults: {material_duplicate_client_ref}")
         material_duplicate_second = material_duplicate_results[1] if isinstance(material_duplicate_results[1], dict) else {}
         if material_duplicate_second.get("errorCode") != "INVALID_ARGUMENT":
-            fail(f"material.mutate duplicate clientRef wrong errorCode: {material_duplicate_second}")
+            fail(f"material.graph.edit duplicate clientRef wrong errorCode: {material_duplicate_second}")
         if "Duplicate clientRef" not in str(material_duplicate_second.get("errorMessage", "")):
-            fail(f"material.mutate duplicate clientRef wrong errorMessage: {material_duplicate_second}")
+            fail(f"material.graph.edit duplicate clientRef wrong errorMessage: {material_duplicate_second}")
         print("[PASS] material duplicate clientRef rejected")
 
         material_compile = call_domain_tool(

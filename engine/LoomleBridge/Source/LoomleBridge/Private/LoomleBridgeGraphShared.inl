@@ -192,7 +192,7 @@ TArray<TSharedPtr<FJsonValue>> MakeJsonStringArray(const TArray<FString>& Values
     return Result;
 }
 
-TSharedPtr<FJsonObject> BuildMutateOpResultObject(
+TSharedPtr<FJsonObject> BuildGraphEditOpResultObject(
     int32 Index,
     const FString& Op,
     bool bOk,
@@ -246,7 +246,7 @@ TSharedPtr<FJsonObject> BuildMutateOpResultObject(
     return OpResult;
 }
 
-TSharedPtr<FJsonObject> BuildMutateDiagnosticObject(
+TSharedPtr<FJsonObject> BuildGraphEditDiagnosticObject(
     const FString& ErrorCode,
     const FString& Op,
     const FString& Error,
@@ -259,7 +259,7 @@ TSharedPtr<FJsonObject> BuildMutateDiagnosticObject(
     Diagnostic->SetStringField(TEXT("code"), ErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : ErrorCode);
     Diagnostic->SetStringField(TEXT("severity"), TEXT("error"));
     Diagnostic->SetStringField(TEXT("message"), Error.IsEmpty() ? FString::Printf(TEXT("%s failed."), *Op) : Error);
-    Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("mutate"));
+    Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("graph.edit"));
     Diagnostic->SetStringField(TEXT("op"), Op);
     if (!NodeId.IsEmpty())
     {

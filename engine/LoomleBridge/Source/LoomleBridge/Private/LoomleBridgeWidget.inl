@@ -300,10 +300,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetPaletteToolResult(
 }
 
 // ---------------------------------------------------------------------------
-// widget.query
+// widget.tree.inspect
 // ---------------------------------------------------------------------------
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetQueryToolResult(
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetTreeInspectToolResult(
     const TSharedPtr<FJsonObject>& Arguments) const
 {
     TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
@@ -371,10 +371,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetQueryToolResult(
 }
 
 // ---------------------------------------------------------------------------
-// widget.mutate
+// widget.tree.edit
 // ---------------------------------------------------------------------------
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetMutateToolResult(
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetTreeEditToolResult(
     const TSharedPtr<FJsonObject>& Arguments)
 {
     TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
@@ -642,10 +642,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetMutateToolResult(
 }
 
 // ---------------------------------------------------------------------------
-// widget.describe
+// widget.inspect
 // ---------------------------------------------------------------------------
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetDescribeToolResult(
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetInspectToolResult(
     const TSharedPtr<FJsonObject>& Arguments) const
 {
     TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
@@ -723,10 +723,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetDescribeToolResult(
 }
 
 // ---------------------------------------------------------------------------
-// widget.verify
+// widget.compile
 // ---------------------------------------------------------------------------
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetVerifyToolResult(
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetCompileToolResult(
     const TSharedPtr<FJsonObject>& Arguments) const
 {
     TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();

@@ -703,7 +703,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialListToolResult(const T
     return Result;
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialQueryToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialGraphInspectToolResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
@@ -715,7 +715,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialQueryToolResult(const 
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Result->SetStringField(TEXT("message"), TEXT("material.query requires assetPath."));
+        Result->SetStringField(TEXT("message"), TEXT("material.graph.inspect requires assetPath."));
         return Result;
     }
 
@@ -1104,7 +1104,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialQueryToolResult(const 
     return Result;
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialMutateToolResult(const TSharedPtr<FJsonObject>& Arguments)
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialGraphEditToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
@@ -1116,7 +1116,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialMutateToolResult(const
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Result->SetStringField(TEXT("message"), TEXT("material.mutate requires assetPath."));
+        Result->SetStringField(TEXT("message"), TEXT("material.graph.edit requires assetPath."));
         return Result;
     }
     AssetPath = NormalizeAssetPath(AssetPath);
@@ -1144,7 +1144,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialMutateToolResult(const
         {
             Result->SetBoolField(TEXT("isError"), true);
             Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_OP"));
-            Result->SetStringField(TEXT("message"), TEXT("material.mutate no longer supports runScript."));
+            Result->SetStringField(TEXT("message"), TEXT("material.graph.edit does not support runScript."));
             Result->SetBoolField(TEXT("applied"), false);
             Result->SetBoolField(TEXT("partialApplied"), false);
             Result->SetStringField(TEXT("graphType"), TEXT("material"));
@@ -1161,14 +1161,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialMutateToolResult(const
             OpResult->SetBoolField(TEXT("skipped"), false);
             OpResult->SetBoolField(TEXT("changed"), false);
             OpResult->SetStringField(TEXT("errorCode"), TEXT("UNSUPPORTED_OP"));
-            OpResult->SetStringField(TEXT("errorMessage"), TEXT("material.mutate no longer supports runScript."));
+            OpResult->SetStringField(TEXT("errorMessage"), TEXT("material.graph.edit does not support runScript."));
             Result->SetArrayField(TEXT("opResults"), {MakeShared<FJsonValueObject>(OpResult)});
 
             TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
             Diagnostic->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_OP"));
             Diagnostic->SetStringField(TEXT("severity"), TEXT("error"));
-            Diagnostic->SetStringField(TEXT("message"), TEXT("material.mutate no longer supports runScript."));
-            Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("mutate"));
+            Diagnostic->SetStringField(TEXT("message"), TEXT("material.graph.edit does not support runScript."));
+            Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("graph.edit"));
             Diagnostic->SetStringField(TEXT("op"), Op);
             Result->SetArrayField(TEXT("diagnostics"), {MakeShared<FJsonValueObject>(Diagnostic)});
             return Result;
@@ -1188,7 +1188,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialMutateToolResult(const
         OutCode.Empty();
         OutMessage.Empty();
 
-        const TSharedPtr<FJsonObject> QueryResult = BuildMaterialQueryToolResult(BuildRevisionQueryArgs());
+        const TSharedPtr<FJsonObject> QueryResult = BuildMaterialGraphInspectToolResult(BuildRevisionQueryArgs());
         if (!QueryResult.IsValid())
         {
             OutCode = TEXT("INTERNAL_ERROR");
@@ -1216,7 +1216,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialMutateToolResult(const
         if (!QueryResult->TryGetStringField(TEXT("revision"), OutRevision) || OutRevision.IsEmpty())
         {
             OutCode = TEXT("INTERNAL_ERROR");
-            OutMessage = TEXT("material.query did not return a revision for material.mutate.");
+            OutMessage = TEXT("material.graph.inspect did not return a revision for material.graph.edit.");
             return false;
         }
 
@@ -1299,7 +1299,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialMutateToolResult(const
             {
                 Result->SetBoolField(TEXT("isError"), true);
                 Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-                Result->SetStringField(TEXT("message"), TEXT("idempotencyKey was already used for a different material.mutate request in this graph scope."));
+                Result->SetStringField(TEXT("message"), TEXT("idempotencyKey was already used for a different material.graph.edit request in this graph scope."));
                 return Result;
             }
             if (Existing->Result.IsValid())
@@ -1527,7 +1527,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialMutateToolResult(const
             if (!bOk)
             {
                 DirectResult->SetStringField(TEXT("code"), ErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : ErrorCode);
-                DirectResult->SetStringField(TEXT("message"), ErrorMessage.IsEmpty() ? TEXT("material.mutate failed") : ErrorMessage);
+                DirectResult->SetStringField(TEXT("message"), ErrorMessage.IsEmpty() ? TEXT("material.graph.edit failed") : ErrorMessage);
             }
 
             TSharedPtr<FJsonObject> DirectOpResult = MakeShared<FJsonObject>();
@@ -1551,7 +1551,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialMutateToolResult(const
                 Diagnostic->SetStringField(TEXT("code"), ErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : ErrorCode);
                 Diagnostic->SetStringField(TEXT("severity"), TEXT("error"));
                 Diagnostic->SetStringField(TEXT("message"), ErrorMessage);
-                Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("mutate"));
+                Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("graph.edit"));
                 Diagnostic->SetStringField(TEXT("op"), OpName);
                 if (!NodeId.IsEmpty())
                 {
@@ -2208,14 +2208,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialMutateToolResult(const
             UnsupportedOpResult->SetBoolField(TEXT("skipped"), false);
             UnsupportedOpResult->SetBoolField(TEXT("changed"), false);
             UnsupportedOpResult->SetStringField(TEXT("errorCode"), TEXT("UNSUPPORTED_OP"));
-            UnsupportedOpResult->SetStringField(TEXT("errorMessage"), FString::Printf(TEXT("material.mutate does not support op '%s'."), *OpName));
+            UnsupportedOpResult->SetStringField(TEXT("errorMessage"), FString::Printf(TEXT("material.graph.edit does not support op '%s'."), *OpName));
             OpResults.Add(MakeShared<FJsonValueObject>(UnsupportedOpResult));
 
             TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
             Diagnostic->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_OP"));
             Diagnostic->SetStringField(TEXT("severity"), TEXT("error"));
-            Diagnostic->SetStringField(TEXT("message"), FString::Printf(TEXT("material.mutate does not support op '%s'."), *OpName));
-            Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("mutate"));
+            Diagnostic->SetStringField(TEXT("message"), FString::Printf(TEXT("material.graph.edit does not support op '%s'."), *OpName));
+            Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("graph.edit"));
             Diagnostic->SetStringField(TEXT("op"), OpName);
             Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
 
@@ -2223,7 +2223,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialMutateToolResult(const
             if (FirstErrorCode.IsEmpty())
             {
                 FirstErrorCode = TEXT("UNSUPPORTED_OP");
-                FirstErrorMessage = FString::Printf(TEXT("material.mutate does not support op '%s'."), *OpName);
+                FirstErrorMessage = FString::Printf(TEXT("material.graph.edit does not support op '%s'."), *OpName);
             }
             if (bStopOnError)
             {
@@ -2288,7 +2288,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialMutateToolResult(const
     if (bAnyError)
     {
         Result->SetStringField(TEXT("code"), FirstErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : FirstErrorCode);
-        Result->SetStringField(TEXT("message"), FirstErrorMessage.IsEmpty() ? TEXT("material.mutate failed") : FirstErrorMessage);
+        Result->SetStringField(TEXT("message"), FirstErrorMessage.IsEmpty() ? TEXT("material.graph.edit failed") : FirstErrorMessage);
     }
     Result->SetBoolField(TEXT("applied"), !bAnyError);
     Result->SetBoolField(TEXT("partialApplied"), bAnyError && bAnyChanged);
@@ -2370,7 +2370,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialCompileToolResult(cons
 
     const TSharedPtr<FJsonObject> QueryArgs = MakeShared<FJsonObject>();
     QueryArgs->SetStringField(TEXT("assetPath"), AssetPath);
-    const TSharedPtr<FJsonObject> QueryResult = BuildMaterialQueryToolResult(QueryArgs);
+    const TSharedPtr<FJsonObject> QueryResult = BuildMaterialGraphInspectToolResult(QueryArgs);
     bool bQueryError = false;
     QueryResult->TryGetBoolField(TEXT("isError"), bQueryError);
     if (bQueryError)
@@ -2386,7 +2386,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialCompileToolResult(cons
     Ops.Add(MakeShared<FJsonValueObject>(CompileOp));
     MutateArgs->SetArrayField(TEXT("ops"), Ops);
 
-    const TSharedPtr<FJsonObject> MutateResult = BuildMaterialMutateToolResult(MutateArgs);
+    const TSharedPtr<FJsonObject> MutateResult = BuildMaterialGraphEditToolResult(MutateArgs);
     bool bMutateError = false;
     MutateResult->TryGetBoolField(TEXT("isError"), bMutateError);
 
@@ -2431,7 +2431,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialCompileToolResult(cons
     return Result;
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialDescribeToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialNodeInspectToolResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
     FString AssetPath;
     FString NodeId;
@@ -2454,7 +2454,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialDescribeToolResult(con
         NodeIds.Add(MakeShared<FJsonValueString>(NodeId));
         QueryArgs->SetArrayField(TEXT("nodeIds"), NodeIds);
 
-        const TSharedPtr<FJsonObject> QueryResult = BuildMaterialQueryToolResult(QueryArgs);
+        const TSharedPtr<FJsonObject> QueryResult = BuildMaterialGraphInspectToolResult(QueryArgs);
         bool bQueryError = false;
         QueryResult->TryGetBoolField(TEXT("isError"), bQueryError);
         if (bQueryError)
@@ -2505,7 +2505,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildMaterialDescribeToolResult(con
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), true);
     Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-    Result->SetStringField(TEXT("message"), TEXT("material.describe requires assetPath+nodeId for instance mode or nodeClass for class mode."));
+    Result->SetStringField(TEXT("message"), TEXT("material.node.inspect requires assetPath+nodeId for instance mode or nodeClass for class mode."));
     return Result;
 }
 

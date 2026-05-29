@@ -353,7 +353,7 @@ Owns:
 
 - `blueprint.graph.inspect`
 - `blueprint.graph.edit`
-- `blueprint.validate`
+- `blueprint.compile`
 - exec/data pin semantics
 - variable and function fixtures
 - event/context recipes
@@ -363,9 +363,9 @@ Owns:
 
 Owns:
 
-- `material.query`
-- `material.mutate`
-- `material.verify`
+- `material.graph.inspect`
+- `material.graph.edit`
+- `material.compile`
 - root sink rules
 - expression-chain assertions
 - function call recipes
@@ -376,15 +376,15 @@ Owns:
 
 Owns:
 
-- `pcg.query`
-- `pcg.mutate`
-- `pcg.verify`
+- `pcg.graph.inspect`
+- `pcg.graph.edit`
+- `pcg.compile`
 - pipeline fixtures
 - source/filter/route/spawn recipes
 - selector and synthetic pin validation
 - settings truth vs query truth comparisons
 - selector-truth classification for selector-backed fields such as attribute selectors, actor selectors, and mesh selectors
-- strict query-truth assertions when generated cases can prove Unreal-side truth but `pcg.query` does not surface it
+- strict query-truth assertions when generated cases can prove Unreal-side truth but `pcg.graph.inspect` does not surface it
 - workflow-truth suites that exercise insert/replace/preserve-interface edits over live PCG pipelines
 
 ## Recommended First Priorities

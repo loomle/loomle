@@ -1132,7 +1132,7 @@ TSharedPtr<FJsonObject> MakeBlueprintEffectiveGraphRef(const FString& AssetPath,
 
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintListToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphListToolResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
@@ -1695,7 +1695,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMemberEditToolResult(
     return Result;
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintQueryToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphInspectToolResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
     auto BuildBlueprintQueryBaseResult = [](const TSharedPtr<FJsonObject>& BaseArguments) -> TSharedPtr<FJsonObject>
     {
@@ -2434,7 +2434,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeInspectToolResult
     QueryArgs->SetNumberField(TEXT("limit"), 1);
     QueryArgs->SetBoolField(TEXT("includeConnections"), true);
 
-    const TSharedPtr<FJsonObject> QueryResult = BuildBlueprintQueryToolResult(QueryArgs);
+    const TSharedPtr<FJsonObject> QueryResult = BuildBlueprintGraphInspectToolResult(QueryArgs);
     bool bQueryIsError = false;
     if (!QueryResult.IsValid() || (QueryResult->TryGetBoolField(TEXT("isError"), bQueryIsError) && bQueryIsError))
     {
@@ -2927,7 +2927,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
     return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("INVALID_ARGUMENT"), TEXT("Unsupported blueprint.node.edit operation."));
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(const TSharedPtr<FJsonObject>& Arguments)
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     TSharedPtr<FJsonObject> AddressResult = MakeShared<FJsonObject>();
     AddressResult->SetBoolField(TEXT("isError"), false);
@@ -2971,7 +2971,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
             Result->SetBoolField(TEXT("isError"), true);
             Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_OP"));
-            Result->SetStringField(TEXT("message"), TEXT("blueprint.graph.edit no longer supports runScript."));
+            Result->SetStringField(TEXT("message"), TEXT("blueprint.graph.edit does not support runScript."));
             Result->SetBoolField(TEXT("applied"), false);
             Result->SetBoolField(TEXT("partialApplied"), false);
 
@@ -2998,7 +2998,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             OpResult->SetBoolField(TEXT("ok"), false);
             OpResult->SetBoolField(TEXT("skipped"), false);
             OpResult->SetStringField(TEXT("errorCode"), TEXT("UNSUPPORTED_OP"));
-            OpResult->SetStringField(TEXT("errorMessage"), TEXT("blueprint.graph.edit no longer supports runScript."));
+            OpResult->SetStringField(TEXT("errorMessage"), TEXT("blueprint.graph.edit does not support runScript."));
             OpResults.Add(MakeShared<FJsonValueObject>(OpResult));
             Result->SetArrayField(TEXT("opResults"), OpResults);
 
@@ -3006,8 +3006,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
             Diagnostic->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_OP"));
             Diagnostic->SetStringField(TEXT("severity"), TEXT("error"));
-            Diagnostic->SetStringField(TEXT("message"), TEXT("blueprint.graph.edit no longer supports runScript."));
-            Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("mutate"));
+            Diagnostic->SetStringField(TEXT("message"), TEXT("blueprint.graph.edit does not support runScript."));
+            Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("graph.edit"));
             Diagnostic->SetStringField(TEXT("op"), Op);
             Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
             Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
@@ -3029,7 +3029,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             RevisionQueryArgs->SetStringField(TEXT("graphName"), GraphName);
         }
 
-        const TSharedPtr<FJsonObject> RevisionResult = BuildBlueprintQueryToolResult(RevisionQueryArgs);
+        const TSharedPtr<FJsonObject> RevisionResult = BuildBlueprintGraphInspectToolResult(RevisionQueryArgs);
         if (!RevisionResult.IsValid())
         {
             TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
@@ -3171,7 +3171,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
         OutCode.Empty();
         OutMessage.Empty();
 
-        const TSharedPtr<FJsonObject> RevisionResult = BuildBlueprintQueryToolResult(BuildRevisionQueryArgs(EffectiveGraphName, EffectiveInlineNodeGuid));
+        const TSharedPtr<FJsonObject> RevisionResult = BuildBlueprintGraphInspectToolResult(BuildRevisionQueryArgs(EffectiveGraphName, EffectiveInlineNodeGuid));
         if (!RevisionResult.IsValid())
         {
             OutCode = TEXT("INTERNAL_ERROR");
@@ -3858,7 +3858,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
                 Diagnostic->SetStringField(TEXT("code"), ActualErrorCode);
                 Diagnostic->SetStringField(TEXT("severity"), TEXT("error"));
                 Diagnostic->SetStringField(TEXT("message"), ActualErrorMessage);
-                Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("mutate"));
+                Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("graph.edit"));
                 Diagnostic->SetStringField(TEXT("op"), OpName);
                 if (StructuredError.IsValid())
                 {
@@ -4022,7 +4022,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
             Diagnostic->SetStringField(TEXT("code"), Code);
             Diagnostic->SetStringField(TEXT("severity"), TEXT("info"));
             Diagnostic->SetStringField(TEXT("message"), Message);
-            Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("mutate"));
+            Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("graph.edit"));
             Diagnostic->SetObjectField(TEXT("secondarySurface"), Surface);
             TArray<TSharedPtr<FJsonValue>> Diagnostics = CloneBlueprintJsonArrayField(Result, TEXT("diagnostics"));
             Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
@@ -5481,7 +5481,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMutateToolResult(cons
     return Result;
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintVerifyToolResult(const TSharedPtr<FJsonObject>& Arguments)
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintCompileToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     if (!bDiagnosticStoreInitialized)
     {
@@ -5557,7 +5557,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintVerifyToolResult(cons
         return Items;
     };
 
-    const TSharedPtr<FJsonObject> QueryResult = BuildBlueprintQueryToolResult(Arguments);
+    const TSharedPtr<FJsonObject> QueryResult = BuildBlueprintGraphInspectToolResult(Arguments);
     bool bQueryError = false;
     QueryResult->TryGetBoolField(TEXT("isError"), bQueryError);
     if (bQueryError)
@@ -5572,7 +5572,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintVerifyToolResult(cons
     Ops.Add(MakeShared<FJsonValueObject>(CompileOp));
     MutateArgs->SetArrayField(TEXT("ops"), Ops);
 
-    const TSharedPtr<FJsonObject> MutateResult = BuildBlueprintMutateToolResult(MutateArgs);
+    const TSharedPtr<FJsonObject> MutateResult = BuildBlueprintGraphEditToolResult(MutateArgs);
     bool bMutateError = false;
     MutateResult->TryGetBoolField(TEXT("isError"), bMutateError);
 
@@ -5730,7 +5730,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintVerifyToolResult(cons
     return Result;
 }
 
-TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintDescribeToolResult(const TSharedPtr<FJsonObject>& Arguments) const
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintInspectToolResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
     FString AssetPath;
     FString GraphName;
@@ -5766,7 +5766,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintDescribeToolResult(co
         NodeIds.Add(MakeShared<FJsonValueString>(NodeId));
         QueryArgs->SetArrayField(TEXT("nodeIds"), NodeIds);
 
-        const TSharedPtr<FJsonObject> QueryResult = BuildBlueprintQueryToolResult(QueryArgs);
+        const TSharedPtr<FJsonObject> QueryResult = BuildBlueprintGraphInspectToolResult(QueryArgs);
         bool bQueryError = false;
         QueryResult->TryGetBoolField(TEXT("isError"), bQueryError);
         if (bQueryError)

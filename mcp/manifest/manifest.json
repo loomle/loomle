@@ -3678,7 +3678,7 @@
           "transform": "blueprint.graph.layout.args.v1"
         },
         "result": {
-          "transform": "blueprint.mutate.result.v1"
+          "transform": "blueprint.graph.edit.result.v1"
         }
       }
     },
@@ -4497,7 +4497,7 @@
           "transform": "blueprint.node.edit.args.v1"
         },
         "result": {
-          "transform": "blueprint.mutate.result.v1"
+          "transform": "blueprint.graph.edit.result.v1"
         }
       }
     },
@@ -5450,7 +5450,7 @@
           "transform": "blueprint.graph.edit.args.v1"
         },
         "result": {
-          "transform": "blueprint.mutate.result.v1"
+          "transform": "blueprint.graph.edit.result.v1"
         }
       }
     },

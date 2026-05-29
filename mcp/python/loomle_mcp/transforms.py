@@ -139,8 +139,8 @@ def apply_result_transform(
         return shape_blueprint_member_inspect_result(payload, original_arguments)
     if name == "blueprint.graph.inspect.result.v1":
         return shape_blueprint_graph_inspect_result(payload, original_arguments)
-    if name == "blueprint.mutate.result.v1":
-        return augment_blueprint_mutate_result(payload)
+    if name == "blueprint.graph.edit.result.v1":
+        return augment_blueprint_graph_edit_result(payload)
     if name == "blueprint.compile.result.v1":
         return shape_blueprint_compile_result(payload)
     if name == "widget.tree.inspect.result.v1":
@@ -835,7 +835,7 @@ def shape_blueprint_compile_result(payload: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def augment_blueprint_mutate_result(payload: dict[str, Any]) -> dict[str, Any]:
+def augment_blueprint_graph_edit_result(payload: dict[str, Any]) -> dict[str, Any]:
     result = dict(payload)
     if "opResults" in result and "commandResults" not in result:
         result["commandResults"] = result["opResults"]

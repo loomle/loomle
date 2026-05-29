@@ -256,17 +256,17 @@ def verify_blueprint_graph(client: McpStdioClient, request_id: int, asset_path: 
     payload = safe_call_tool(
         client,
         request_id,
-        "blueprint.validate",
+        "blueprint.compile",
         {"assetPath": asset_path, "graphName": "EventGraph", "limit": 200},
     )
     if payload.get("status") not in {"ok", "warn"}:
-        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint.validate returned error: {compact_json(payload)}")
+        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint.compile returned error: {compact_json(payload)}")
     compile_report = payload.get("compileReport")
     if not isinstance(compile_report, dict) or compile_report.get("compiled") is not True:
-        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint.validate missing compiled=true: {compact_json(payload)}")
+        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint.compile missing compiled=true: {compact_json(payload)}")
     diagnostics = payload.get("diagnostics")
     if not isinstance(diagnostics, list):
-        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint.validate missing diagnostics[]: {compact_json(payload)}")
+        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint.compile missing diagnostics[]: {compact_json(payload)}")
     return {
         "status": payload.get("status"),
         "compiled": True,
