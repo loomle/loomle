@@ -360,6 +360,39 @@ def parse_tool_payload(stdout: str, command_name: str) -> dict:
     return payload
 
 
+def parse_mcp_tool_payload_or_text_error(response: dict, method: str) -> dict:
+    result = response.get("result") if isinstance(response, dict) else None
+    if not isinstance(result, dict):
+        return parse_mcp_tool_payload(response, method)
+
+    structured = result.get("structuredContent")
+    if isinstance(structured, dict):
+        return structured
+
+    content = result.get("content")
+    if not isinstance(content, list) or not content:
+        return parse_mcp_tool_payload(response, method)
+
+    first = content[0]
+    if not isinstance(first, dict):
+        return parse_mcp_tool_payload(response, method)
+
+    text = first.get("text")
+    if not isinstance(text, str):
+        return parse_mcp_tool_payload(response, method)
+
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        if result.get("isError") is True and text.strip():
+            return {"isError": True, "message": text}
+        return parse_mcp_tool_payload(response, method)
+
+    if isinstance(payload, dict):
+        return payload
+    return parse_mcp_tool_payload(response, method)
+
+
 def is_tool_error_payload(payload: dict) -> bool:
     if bool(payload.get("isError")):
         return True
@@ -390,7 +423,7 @@ def wait_for_bridge_runtime_ready(project_root: Path, loomle_binary: Path, mcp_s
                     "arguments": {"projectRoot": str(project_root)},
                 },
             )
-            attach_payload = parse_mcp_tool_payload(attach_response, "tools/call.project.attach")
+            attach_payload = parse_mcp_tool_payload_or_text_error(attach_response, "tools/call.project.attach")
             if is_tool_error_payload(attach_payload) or attach_payload.get("attached") is not True:
                 print(
                     f"[WARN] project.attach not ready yet (attempt {attempt}): {attach_payload}",
