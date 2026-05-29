@@ -167,6 +167,26 @@ args = ["mcp"]
         required = set(tool["inputSchema"]["required"])
         self.assertEqual(required, {"assetPath", "commands"})
 
+    def test_blueprint_graph_inspect_manifest_exposes_flow_views(self) -> None:
+        manifest = load_manifest(MANIFEST)
+        tool = next(
+            tool for tool in manifest.list_tools("python")
+            if tool["name"] == "blueprint.graph.inspect"
+        )
+
+        schema = tool["inputSchema"]
+        properties = schema["properties"]
+        self.assertEqual(
+            properties["view"]["enum"],
+            ["summary", "exec_flow", "data_flow"],
+        )
+        self.assertEqual(properties["view"]["default"], "summary")
+        self.assertIn("rootNode", properties)
+        self.assertIn("rootPin", properties)
+        self.assertIn("traversal", properties)
+        self.assertNotIn("filter", properties)
+        self.assertNotIn("page", properties)
+
     def test_schema_inspect_operation_comes_from_manifest(self) -> None:
         manifest = load_manifest(MANIFEST)
         payload = manifest.inspect_schema(

@@ -3447,38 +3447,76 @@
           "view": {
             "type": "string",
             "enum": [
-              "overview",
-              "wiring"
+              "summary",
+              "exec_flow",
+              "data_flow"
             ],
-            "default": "overview"
+            "default": "summary",
+            "description": "Task-oriented result view. summary returns graph boundary, entry/root refs, chain summaries, and a de-duplicated nodes dictionary. exec_flow traces execution links from rootNode.id and returns lightweight nodes[] plus links[]. data_flow traces data links from rootPin.node.id/rootPin.pin with the same nodes[] plus links[] shape. Use blueprint.node.inspect for exact pins, defaults, and wiring preparation."
           },
-          "filter": {
+          "rootNode": {
             "type": "object",
             "properties": {
-              "nodeIds": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "text": {
+              "id": {
                 "type": "string",
                 "minLength": 1
               }
             },
+            "required": [
+              "id"
+            ],
             "additionalProperties": false
           },
-          "page": {
+          "rootPin": {
             "type": "object",
             "properties": {
-              "limit": {
+              "node": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              },
+              "pin": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "node",
+              "pin"
+            ],
+            "additionalProperties": false
+          },
+          "traversal": {
+            "type": "object",
+            "properties": {
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "upstream",
+                  "downstream",
+                  "both"
+                ],
+                "description": "exec_flow defaults to downstream; data_flow defaults to upstream."
+              },
+              "maxDepth": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 128,
+                "default": 64
+              },
+              "maxNodes": {
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 1000,
-                "default": 50
-              },
-              "cursor": {
-                "type": "string"
+                "default": 250
               }
             },
             "additionalProperties": false
