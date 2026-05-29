@@ -1084,6 +1084,13 @@ def inspect_blueprint_node(
 
 
 def blueprint_summary_nodes(payload: dict) -> list[dict]:
+    node_index = payload.get("nodes")
+    if isinstance(node_index, dict):
+        return [
+            node
+            for node in node_index.values()
+            if isinstance(node, dict)
+        ]
     nodes: list[dict] = []
     for key in ("roots", "looseNodes"):
         value = payload.get(key)

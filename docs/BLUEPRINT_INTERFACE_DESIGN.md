@@ -859,10 +859,15 @@ Recommended request shape:
 Recommended views:
 
 - `summary` is the default graph orientation view. It returns graph boundary,
-  entry/root nodes, chain summaries, loose nodes, and exec/data link counts.
-- `exec_flow` requires `rootNode.id` and traces execution links from that node.
+  entry/root node references, chain summaries, loose node references, exec/data
+  link counts, and a `nodes` dictionary keyed by node id so repeated summary
+  references do not duplicate node details.
+- `exec_flow` requires `rootNode.id` and returns the execution subgraph reachable
+  from that node as lightweight `nodes[]`, `links[]`, `openExecOutputs[]`, and
+  traversal metadata.
 - `data_flow` requires `rootPin.node.id` plus `rootPin.pin` and traces data
-  dependencies for that pin. It defaults to upstream traversal.
+  dependencies for that pin. It defaults to upstream traversal and returns the
+  same lightweight `nodes[]` plus `links[]` shape.
 
 `wiring` is intentionally not a `blueprint.graph.inspect` view. Exact pin
 names, defaults, and link details for connection-oriented edits belong to

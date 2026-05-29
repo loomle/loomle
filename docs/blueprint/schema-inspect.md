@@ -118,6 +118,9 @@ For pin editing:
 
 1. Inspect the graph with `blueprint.graph.inspect` using `view="summary"` or
    `view="exec_flow"` to identify the relevant node.
+   `summary` returns node references plus a de-duplicated `nodes` dictionary;
+   `exec_flow` returns the reachable execution subgraph as lightweight
+   `nodes[]` and `links[]`.
 2. Inspect the node with `blueprint.node.inspect` to read exact pins and link
    details.
 3. Call `schema.inspect` for `connect`, `disconnect`, `breakLinks`, or

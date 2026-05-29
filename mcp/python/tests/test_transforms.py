@@ -114,6 +114,91 @@ class TransformTests(unittest.TestCase):
         self.assertTrue(payload["compiled"])
         self.assertEqual(payload["diagnostics"], [])
 
+    def test_blueprint_graph_summary_uses_node_index_and_refs(self) -> None:
+        payload = apply_result_transform(
+            {"transform": "blueprint.graph.inspect.result.v1"},
+            {
+                "semanticSnapshot": {
+                    "nodes": [
+                        {
+                            "id": "event",
+                            "className": "K2Node_Event",
+                            "title": "Event BeginPlay",
+                            "pins": [
+                                {
+                                    "name": "Then",
+                                    "direction": "output",
+                                    "category": "exec",
+                                    "linkedTo": [{"nodeGuid": "print", "pin": "execute"}],
+                                }
+                            ],
+                        },
+                        {
+                            "id": "print",
+                            "className": "K2Node_CallFunction",
+                            "title": "Print String",
+                            "pins": [
+                                {
+                                    "name": "execute",
+                                    "direction": "input",
+                                    "category": "exec",
+                                    "linkedTo": [{"nodeGuid": "event", "pin": "Then"}],
+                                }
+                            ],
+                        },
+                    ]
+                }
+            },
+            {"view": "summary"},
+        )
+
+        self.assertEqual(payload["roots"], [{"id": "event"}])
+        self.assertIn("event", payload["nodes"])
+        self.assertNotIn("pins", payload["nodes"]["event"])
+        self.assertEqual(payload["chains"][0]["root"], {"id": "event"})
+        self.assertEqual(payload["chains"][0]["path"], [{"id": "event"}, {"id": "print"}])
+
+    def test_blueprint_graph_exec_flow_returns_nodes_and_links(self) -> None:
+        payload = apply_result_transform(
+            {"transform": "blueprint.graph.inspect.result.v1"},
+            {
+                "semanticSnapshot": {
+                    "nodes": [
+                        {
+                            "id": "event",
+                            "className": "K2Node_Event",
+                            "pins": [
+                                {
+                                    "name": "Then",
+                                    "direction": "output",
+                                    "category": "exec",
+                                    "linkedTo": [{"nodeGuid": "print", "pin": "execute"}],
+                                }
+                            ],
+                        },
+                        {
+                            "id": "print",
+                            "className": "K2Node_CallFunction",
+                            "pins": [
+                                {
+                                    "name": "execute",
+                                    "direction": "input",
+                                    "category": "exec",
+                                    "linkedTo": [{"nodeGuid": "event", "pin": "Then"}],
+                                }
+                            ],
+                        },
+                    ]
+                }
+            },
+            {"view": "exec_flow", "rootNode": {"id": "event"}},
+        )
+
+        self.assertEqual(payload["rootNode"], {"id": "event"})
+        self.assertEqual(len(payload["nodes"]), 2)
+        self.assertEqual(len(payload["links"]), 1)
+        self.assertNotIn("flow", payload)
+
     def test_widget_tree_result_prunes_outline_slot_data(self) -> None:
         payload = apply_result_transform(
             {"transform": "widget.tree.inspect.result.v1"},

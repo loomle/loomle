@@ -906,13 +906,12 @@ def shape_blueprint_graph_inspect_result(payload: dict[str, Any], arguments: dic
         ordered, traversed, truncated = trace_exec(root_id, node_map, links, direction)
         result.pop("semanticSnapshot", None)
         result["view"] = "exec_flow"
-        result["rootNode"] = compact_blueprint_graph_node(node_map[root_id]) if root_id in node_map else {"id": root_id, "missing": True}
-        result["flow"] = {
-            "direction": direction,
-            "nodes": [compact_blueprint_graph_node(node_map[item]) for item in ordered if item in node_map],
-            "links": [link_to_json(link) for link in traversed],
-            "truncated": truncated,
-        }
+        result["rootNode"] = node_ref(root_id) if root_id in node_map else {"id": root_id, "missing": True}
+        result["direction"] = direction
+        result["nodes"] = [compact_blueprint_graph_node(node_map[item]) for item in ordered if item in node_map]
+        result["links"] = [link_to_json(link) for link in traversed]
+        result["openExecOutputs"] = []
+        result["truncated"] = truncated
     elif view == "data_flow":
         root_pin = arguments.get("rootPin") if isinstance(arguments.get("rootPin"), dict) else {}
         root_node = root_pin.get("node") if isinstance(root_pin.get("node"), dict) else {}
@@ -923,12 +922,11 @@ def shape_blueprint_graph_inspect_result(payload: dict[str, Any], arguments: dic
         result.pop("semanticSnapshot", None)
         result["view"] = "data_flow"
         result["rootPin"] = {"node": {"id": root_node_id}, "pin": root_pin_name}
-        result["dataFlow"] = {
-            "direction": direction,
-            "nodes": [compact_blueprint_graph_node(node_map[item]) for item in ordered if item in node_map],
-            "links": [link_to_json(link) for link in traversed],
-            "truncated": truncated,
-        }
+        result["direction"] = direction
+        result["nodes"] = [compact_blueprint_graph_node(node_map[item]) for item in ordered if item in node_map]
+        result["links"] = [link_to_json(link) for link in traversed]
+        result["openInputs"] = []
+        result["truncated"] = truncated
     else:
         exec_links = [link for link in links if link["kind"] == "exec"]
         roots = graph_roots(node_map, exec_links)
@@ -938,21 +936,25 @@ def shape_blueprint_graph_inspect_result(payload: dict[str, Any], arguments: dic
             ordered, traversed, truncated = trace_exec(root_id, node_map, links, "downstream")
             covered.update(ordered)
             chains.append({
-                "root": compact_blueprint_graph_node(node_map[root_id]),
+                "root": node_ref(root_id),
                 "nodeCount": len(ordered),
                 "linkCount": len(traversed),
-                "path": [{"id": item, "label": node_label(node_map[item])} for item in ordered[:12] if item in node_map],
+                "path": [node_ref(item) for item in ordered[:12] if item in node_map],
                 "truncated": truncated,
             })
         result.pop("semanticSnapshot", None)
         result["view"] = "summary"
+        result["nodes"] = {
+            key: compact_blueprint_graph_node(node)
+            for key, node in node_map.items()
+        }
         result["boundary"] = {
-            "entries": [compact_blueprint_graph_node(node_map[item]) for item in roots if item in node_map],
+            "entries": [node_ref(item) for item in roots if item in node_map],
             "outputs": [],
         }
-        result["roots"] = [compact_blueprint_graph_node(node_map[item]) for item in roots if item in node_map]
+        result["roots"] = [node_ref(item) for item in roots if item in node_map]
         result["chains"] = chains
-        result["looseNodes"] = [compact_blueprint_graph_node(node) for key, node in node_map.items() if key not in covered]
+        result["looseNodes"] = [node_ref(key) for key in node_map if key not in covered]
         result["linkCounts"] = {
             "exec": len(exec_links),
             "data": len([link for link in links if link["kind"] == "data"]),
@@ -967,10 +969,8 @@ def shape_blueprint_graph_inspect_result(payload: dict[str, Any], arguments: dic
 
 def compact_blueprint_graph_node(node: dict[str, Any]) -> dict[str, Any]:
     fields = [
-        "id", "guid", "name", "className", "classPath", "nodeClassPath", "title",
-        "nodeTitle", "enabled", "isNodeEnabled", "position", "layout", "graphName",
-        "childGraphRef", "memberReference", "functionReference", "k2Extensions",
-        "embeddedTemplate", "effectiveSettings", "contextSensitiveConstruct",
+        "id", "guid", "name", "className", "nodeClassPath", "title",
+        "nodeTitle", "enabled", "position", "childGraphRef",
         "graphBoundarySummary", "hasNodeEditCapabilities", "inspectWith",
     ]
     out = {field: node[field] for field in fields if field in node}
@@ -1088,6 +1088,10 @@ def blueprint_graph_links(nodes: Any) -> list[dict[str, str]]:
 
 def link_to_json(link: dict[str, str]) -> dict[str, str]:
     return dict(link)
+
+
+def node_ref(node_id_value: str) -> dict[str, str]:
+    return {"id": node_id_value}
 
 
 def trace_exec(root_id: str, node_map: dict[str, dict[str, Any]], links: list[dict[str, str]], direction: str) -> tuple[list[str], list[dict[str, str]], bool]:
