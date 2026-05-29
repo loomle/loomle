@@ -6797,17 +6797,7 @@ fn asset_path_only_schema(description: &str) -> rmcp::model::JsonObject {
 fn context_schema() -> rmcp::model::JsonObject {
     schema_from_value(serde_json::json!({
         "type":"object",
-        "properties":{
-            "resolveIds":{"type":"array","items":{"type":"string"}},
-            "resolveFields":{
-                "type":"array",
-                "items":{
-                    "type":"string",
-                    "enum":["activeEditor","activeAsset","activeGraph","selection"]
-                },
-                "description":"Optional editor-context fields to resolve. Blueprint graph selection returns stable graph/node refs when available."
-            }
-        },
+        "properties":{},
         "additionalProperties": false
     }))
 }
@@ -13671,6 +13661,28 @@ mod tests {
             .collect::<std::collections::HashSet<_>>();
 
         assert_eq!(declared_names, manifest_names);
+        let context = declared_tools
+            .iter()
+            .find(|tool| tool.name.as_ref() == "context")
+            .expect("context");
+        let context_properties = context
+            .input_schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("context properties");
+        assert!(context_properties.is_empty());
+        let context_output_properties = context
+            .output_schema
+            .as_ref()
+            .and_then(|schema| schema.get("properties"))
+            .and_then(|value| value.as_object())
+            .expect("context output properties");
+        assert!(context_output_properties.contains_key("activeAsset"));
+        assert!(context_output_properties.contains_key("activeEditor"));
+        assert!(context_output_properties.contains_key("activeGraph"));
+        assert!(context_output_properties.contains_key("selection"));
+        assert!(!context_output_properties.contains_key("context"));
+
         let graph_inspect = declared_tools
             .iter()
             .find(|tool| tool.name.as_ref() == "blueprint.graph.inspect")

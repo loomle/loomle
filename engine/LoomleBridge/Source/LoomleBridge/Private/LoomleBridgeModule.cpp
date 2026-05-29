@@ -4119,31 +4119,6 @@ bool CollectSelectedBlueprintNodes(TArray<UEdGraphNode*>& OutNodes, UBlueprint*&
     return OutNodes.Num() > 0;
 }
 
-bool BuildBlueprintContextSnapshot(TSharedPtr<FJsonObject>& OutContext)
-{
-    OutContext.Reset();
-    UBlueprint* Blueprint = FindEditedBlueprint();
-    if (!Blueprint)
-    {
-        return false;
-    }
-
-    OutContext = MakeShared<FJsonObject>();
-    OutContext->SetBoolField(TEXT("isError"), false);
-    OutContext->SetStringField(TEXT("editorType"), TEXT("blueprint"));
-    OutContext->SetStringField(TEXT("provider"), TEXT("blueprint_adapter"));
-    OutContext->SetStringField(TEXT("assetName"), Blueprint->GetName());
-    OutContext->SetStringField(TEXT("assetPath"), Blueprint->GetPathName());
-    OutContext->SetStringField(TEXT("assetClass"), Blueprint->GetClass()->GetPathName());
-    OutContext->SetStringField(TEXT("status"), TEXT("active"));
-
-    TArray<TSharedPtr<FJsonValue>> ResolvedGraphRefs;
-    TSet<FString> SeenGraphRefs;
-    AppendBlueprintRootGraphRefs(Blueprint, TEXT("context"), ResolvedGraphRefs, SeenGraphRefs);
-    SetResolvedGraphRefsFieldIfAny(OutContext, ResolvedGraphRefs);
-    return true;
-}
-
 bool BuildBlueprintSelectionSnapshot(TSharedPtr<FJsonObject>& OutSelection)
 {
     OutSelection.Reset();
@@ -4803,33 +4778,6 @@ bool CollectSelectedMaterialExpressions(TArray<UMaterialExpression*>& OutExpress
     return OutExpressions.Num() > 0 && OutMaterialAsset != nullptr;
 }
 
-bool BuildMaterialContextSnapshot(TSharedPtr<FJsonObject>& OutContext)
-{
-    OutContext.Reset();
-    UObject* MaterialAsset = FindEditedMaterialAsset();
-    if (!MaterialAsset)
-    {
-        return false;
-    }
-
-    OutContext = MakeShared<FJsonObject>();
-    OutContext->SetBoolField(TEXT("isError"), false);
-    OutContext->SetStringField(TEXT("editorType"), TEXT("material"));
-    OutContext->SetStringField(TEXT("provider"), TEXT("material"));
-    OutContext->SetStringField(TEXT("assetName"), MaterialAsset->GetName());
-    OutContext->SetStringField(TEXT("assetPath"), MaterialAsset->GetPathName());
-    OutContext->SetStringField(
-        TEXT("assetClass"),
-        MaterialAsset->GetClass() ? MaterialAsset->GetClass()->GetPathName() : TEXT(""));
-    OutContext->SetStringField(TEXT("status"), TEXT("active"));
-
-    TArray<TSharedPtr<FJsonValue>> ResolvedGraphRefs;
-    TSet<FString> SeenGraphRefs;
-    AppendMaterialGraphRefs(MaterialAsset, TEXT("context"), ResolvedGraphRefs, SeenGraphRefs);
-    SetResolvedGraphRefsFieldIfAny(OutContext, ResolvedGraphRefs);
-    return true;
-}
-
 bool BuildMaterialSelectionSnapshot(TSharedPtr<FJsonObject>& OutSelection)
 {
     OutSelection.Reset();
@@ -4881,32 +4829,6 @@ bool BuildMaterialSelectionSnapshot(TSharedPtr<FJsonObject>& OutSelection)
     OutSelection->SetArrayField(TEXT("items"), Items);
     OutSelection->SetNumberField(TEXT("count"), Items.Num());
     SetResolvedGraphRefsFieldIfAny(OutSelection, ResolvedGraphRefs);
-    return true;
-}
-
-bool BuildPcgContextSnapshot(TSharedPtr<FJsonObject>& OutContext)
-{
-    OutContext.Reset();
-    UObject* PcgAsset = FindEditedPcgAsset();
-    if (!PcgAsset)
-    {
-        return false;
-    }
-
-    OutContext = MakeShared<FJsonObject>();
-    OutContext->SetBoolField(TEXT("isError"), false);
-    OutContext->SetStringField(TEXT("editorType"), TEXT("pcg"));
-    OutContext->SetStringField(TEXT("provider"), TEXT("pcg"));
-    OutContext->SetStringField(TEXT("assetName"), PcgAsset->GetName());
-    OutContext->SetStringField(TEXT("assetPath"), PcgAsset->GetPathName());
-    OutContext->SetStringField(TEXT("assetClass"), PcgAsset->GetClass() ? PcgAsset->GetClass()->GetPathName() : TEXT(""));
-    OutContext->SetStringField(TEXT("status"), TEXT("active"));
-
-    TArray<TSharedPtr<FJsonValue>> ResolvedGraphRefs;
-    TSet<FString> SeenGraphRefs;
-    AppendPcgGraphRefs(PcgAsset, TEXT("context"), ResolvedGraphRefs, SeenGraphRefs);
-    AppendSupportedGraphRefsFromObjectProperties(PcgAsset, TEXT("source"), ResolvedGraphRefs, SeenGraphRefs);
-    SetResolvedGraphRefsFieldIfAny(OutContext, ResolvedGraphRefs);
     return true;
 }
 

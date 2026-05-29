@@ -264,21 +264,309 @@
       "requiresBridge": true,
       "inputSchema": {
         "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Current Unreal editor location and selection snapshot.",
         "properties": {
-          "resolveIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
+          "isError": {
+            "type": "boolean",
+            "const": false
           },
-          "resolveFields": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
+          "timestamp": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "object",
+            "properties": {
+              "projectName": {
+                "type": "string"
+              },
+              "projectFilePath": {
+                "type": "string"
+              },
+              "engineVersion": {
+                "type": "string"
+              },
+              "isPIE": {
+                "type": "boolean"
+              },
+              "editorWorld": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "projectName",
+              "projectFilePath",
+              "engineVersion",
+              "isPIE",
+              "editorWorld"
+            ],
+            "additionalProperties": true
+          },
+          "activeWindow": {
+            "type": "object",
+            "properties": {
+              "isValid": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "isValid",
+              "title"
+            ],
+            "additionalProperties": true
+          },
+          "activeAsset": {
+            "$ref": "#/$defs/contextActiveAsset"
+          },
+          "activeEditor": {
+            "$ref": "#/$defs/contextActiveEditor"
+          },
+          "activeGraph": {
+            "$ref": "#/$defs/contextGraphRef"
+          },
+          "selection": {
+            "$ref": "#/$defs/contextSelection"
           }
         },
-        "additionalProperties": false
+        "required": [
+          "isError",
+          "timestamp",
+          "runtime",
+          "activeWindow",
+          "selection"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "contextActiveAsset": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "domain": {
+                "type": "string",
+                "enum": [
+                  "blueprint",
+                  "material",
+                  "pcg",
+                  "widget"
+                ]
+              },
+              "assetPath": {
+                "type": "string"
+              },
+              "assetName": {
+                "type": "string"
+              },
+              "assetClass": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": true
+          },
+          "contextActiveEditor": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/contextActiveAsset"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "focusedGraphEditor",
+                      "editedAsset",
+                      "widgetDesigner"
+                    ]
+                  }
+                },
+                "required": [
+                  "source"
+                ],
+                "additionalProperties": true
+              }
+            ]
+          },
+          "contextGraphRef": {
+            "type": "object",
+            "properties": {
+              "assetPath": {
+                "type": "string",
+                "minLength": 1
+              },
+              "graphName": {
+                "type": "string"
+              },
+              "graphId": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "assetPath"
+            ],
+            "additionalProperties": true
+          },
+          "contextPinRef": {
+            "type": "object",
+            "properties": {
+              "node": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "pin": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          },
+          "contextSelectionItem": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "class": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "graph": {
+                "$ref": "#/$defs/contextGraphRef"
+              },
+              "resolvedGraphRefs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            },
+            "additionalProperties": true
+          },
+          "contextSelection": {
+            "type": "object",
+            "properties": {
+              "isError": {
+                "type": "boolean"
+              },
+              "editorType": {
+                "type": "string",
+                "enum": [
+                  "blueprint",
+                  "material",
+                  "pcg",
+                  "widgetBlueprint"
+                ]
+              },
+              "provider": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "graph",
+                  "widgetTree"
+                ]
+              },
+              "selectionKind": {
+                "type": "string",
+                "enum": [
+                  "graph_node",
+                  "widget"
+                ]
+              },
+              "assetPath": {
+                "type": "string"
+              },
+              "activeGraph": {
+                "$ref": "#/$defs/contextGraphRef"
+              },
+              "nodes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/contextSelectionItem"
+                }
+              },
+              "widgets": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/contextSelectionItem"
+                }
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/contextSelectionItem"
+                }
+              },
+              "pins": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/contextPinRef"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "pinSelectionStatus": {
+                "type": "string",
+                "enum": [
+                  "resolved",
+                  "not_available_from_graph_editor_api"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "resolved",
+                  "unavailable"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              },
+              "resolvedGraphRefs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            },
+            "required": [
+              "isError",
+              "selectionKind",
+              "count",
+              "status"
+            ],
+            "additionalProperties": true
+          }
+        }
       },
       "dispatch": {
         "kind": "bridgeRpc",

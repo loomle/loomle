@@ -193,6 +193,22 @@ args = ["mcp"]
         )
         self.assertIn("blueprintGraphNodeSummary", output_schema["$defs"])
 
+    def test_context_manifest_is_empty_input_with_editor_snapshot_output(self) -> None:
+        manifest = load_manifest(MANIFEST)
+        tool = next(
+            tool for tool in manifest.list_tools("python")
+            if tool["name"] == "context"
+        )
+
+        self.assertEqual(tool["inputSchema"]["properties"], {})
+        output_schema = tool["outputSchema"]
+        properties = output_schema["properties"]
+        self.assertIn("activeAsset", properties)
+        self.assertIn("activeEditor", properties)
+        self.assertIn("activeGraph", properties)
+        self.assertIn("selection", properties)
+        self.assertNotIn("context", properties)
+
     def test_schema_inspect_operation_comes_from_manifest(self) -> None:
         manifest = load_manifest(MANIFEST)
         payload = manifest.inspect_schema(

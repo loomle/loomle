@@ -3461,34 +3461,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGetContextToolResult(const TSh
     Result->SetObjectField(TEXT("runtime"), Runtime);
     Result->SetObjectField(TEXT("activeWindow"), BuildActiveWindowJson());
 
-    TSharedPtr<FJsonObject> Context = MakeShared<FJsonObject>();
-    Context->SetStringField(TEXT("source"), TEXT("unified"));
-    TSharedPtr<FJsonObject> BlueprintContext;
-    if (BuildBlueprintContextSnapshot(BlueprintContext) && BlueprintContext.IsValid())
-    {
-        Context = BlueprintContext;
-        Context->SetStringField(TEXT("source"), TEXT("unified"));
-    }
-    else
-    {
-        TSharedPtr<FJsonObject> MaterialContext;
-        if (BuildMaterialContextSnapshot(MaterialContext) && MaterialContext.IsValid())
-        {
-            Context = MaterialContext;
-            Context->SetStringField(TEXT("source"), TEXT("unified"));
-        }
-        else
-        {
-            TSharedPtr<FJsonObject> PcgContext;
-            if (BuildPcgContextSnapshot(PcgContext) && PcgContext.IsValid())
-            {
-                Context = PcgContext;
-                Context->SetStringField(TEXT("source"), TEXT("unified"));
-            }
-        }
-    }
-    Result->SetObjectField(TEXT("context"), Context);
-
     auto ApplyEditorSelectionContext = [&](const TSharedPtr<FJsonObject>& EditorSelectionContext, TSharedPtr<FJsonObject>& InOutSelection)
     {
         if (!EditorSelectionContext.IsValid())
