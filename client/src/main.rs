@@ -5993,7 +5993,14 @@ fn context_schema() -> rmcp::model::JsonObject {
         "type":"object",
         "properties":{
             "resolveIds":{"type":"array","items":{"type":"string"}},
-            "resolveFields":{"type":"array","items":{"type":"string"}}
+            "resolveFields":{
+                "type":"array",
+                "items":{
+                    "type":"string",
+                    "enum":["activeEditor","activeAsset","activeGraph","selection"]
+                },
+                "description":"Optional editor-context fields to resolve. Blueprint graph selection returns stable graph/node refs when available."
+            }
         },
         "additionalProperties": false
     }))

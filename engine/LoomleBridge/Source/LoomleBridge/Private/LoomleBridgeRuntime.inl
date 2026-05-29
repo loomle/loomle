@@ -3489,7 +3489,89 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildGetContextToolResult(const TSh
     }
     Result->SetObjectField(TEXT("context"), Context);
 
-    TSharedPtr<FJsonObject> Selection = BuildSelectionTransformToolResult();
+    auto ApplyEditorSelectionContext = [&](const TSharedPtr<FJsonObject>& EditorSelectionContext, TSharedPtr<FJsonObject>& InOutSelection)
+    {
+        if (!EditorSelectionContext.IsValid())
+        {
+            return;
+        }
+
+        const TSharedPtr<FJsonObject>* ActiveEditor = nullptr;
+        if (EditorSelectionContext->TryGetObjectField(TEXT("activeEditor"), ActiveEditor)
+            && ActiveEditor != nullptr
+            && ActiveEditor->IsValid())
+        {
+            Result->SetObjectField(TEXT("activeEditor"), *ActiveEditor);
+        }
+
+        const TSharedPtr<FJsonObject>* ActiveAsset = nullptr;
+        if (EditorSelectionContext->TryGetObjectField(TEXT("activeAsset"), ActiveAsset)
+            && ActiveAsset != nullptr
+            && ActiveAsset->IsValid())
+        {
+            Result->SetObjectField(TEXT("activeAsset"), *ActiveAsset);
+        }
+
+        const TSharedPtr<FJsonObject>* ActiveGraph = nullptr;
+        if (EditorSelectionContext->TryGetObjectField(TEXT("activeGraph"), ActiveGraph)
+            && ActiveGraph != nullptr
+            && ActiveGraph->IsValid())
+        {
+            Result->SetObjectField(TEXT("activeGraph"), *ActiveGraph);
+        }
+
+        const TSharedPtr<FJsonObject>* EditorSelection = nullptr;
+        if (EditorSelectionContext->TryGetObjectField(TEXT("selection"), EditorSelection)
+            && EditorSelection != nullptr
+            && EditorSelection->IsValid())
+        {
+            InOutSelection = *EditorSelection;
+        }
+    };
+
+    TSharedPtr<FJsonObject> Selection;
+    TSharedPtr<FJsonObject> EditorSelectionContext;
+    if (BuildBlueprintEditorSelectionContextSnapshot(EditorSelectionContext) && EditorSelectionContext.IsValid())
+    {
+        const TSharedPtr<FJsonObject>* ActiveGraph = nullptr;
+        const bool bHasActiveGraph = EditorSelectionContext->TryGetObjectField(TEXT("activeGraph"), ActiveGraph)
+            && ActiveGraph != nullptr
+            && ActiveGraph->IsValid();
+        ApplyEditorSelectionContext(EditorSelectionContext, Selection);
+
+        if (!bHasActiveGraph)
+        {
+            TSharedPtr<FJsonObject> WidgetDesignerSelectionContext;
+            if (BuildWidgetDesignerSelectionContextSnapshot(WidgetDesignerSelectionContext) && WidgetDesignerSelectionContext.IsValid())
+            {
+                ApplyEditorSelectionContext(WidgetDesignerSelectionContext, Selection);
+            }
+        }
+    }
+    else if (BuildWidgetDesignerSelectionContextSnapshot(EditorSelectionContext) && EditorSelectionContext.IsValid())
+    {
+        ApplyEditorSelectionContext(EditorSelectionContext, Selection);
+    }
+    else if (BuildMaterialEditorSelectionContextSnapshot(EditorSelectionContext) && EditorSelectionContext.IsValid())
+    {
+        ApplyEditorSelectionContext(EditorSelectionContext, Selection);
+    }
+    else if (BuildPcgEditorSelectionContextSnapshot(EditorSelectionContext) && EditorSelectionContext.IsValid())
+    {
+        ApplyEditorSelectionContext(EditorSelectionContext, Selection);
+    }
+    else
+    {
+        if (Result->HasField(TEXT("activeGraph")))
+        {
+            Result->RemoveField(TEXT("activeGraph"));
+        }
+    }
+
+    if (!Selection.IsValid())
+    {
+        Selection = BuildSelectionTransformToolResult();
+    }
     Result->SetObjectField(TEXT("selection"), Selection);
 
     return Result;

@@ -11,6 +11,7 @@
 #include "Blueprint/UserWidget.h"
 #include "Components/ActorComponent.h"
 #include "Components/BoxComponent.h"
+#include "Components/PanelSlot.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -176,6 +177,8 @@
 #include "BlueprintEditor.h"
 #include "BlueprintEditorTabs.h"
 #include "Engine/TextureRenderTarget2D.h"
+#include "WidgetBlueprintEditor.h"
+#include "WidgetReference.h"
 #include "WidgetBlueprint.h"
 #include "WidgetBlueprintFactory.h"
 
@@ -186,6 +189,11 @@
 DEFINE_LOG_CATEGORY_STATIC(LogLoomleBridge, Log, All);
 
 using FCondensedJsonWriter = TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>;
+
+namespace
+{
+TSharedPtr<FJsonObject> BuildBlueprintNodeEditCapabilities(const TSharedPtr<FJsonObject>& Node);
+}
 
 namespace LoomleBridgeConstants
 {
@@ -1083,6 +1091,7 @@ UObject* LoadObjectByAssetPath(const FString& InAssetPath)
 UPCGGraph* ResolvePcgGraphFromAsset(UObject* Asset);
 UObject* FindEditedMaterialAsset();
 UObject* FindEditedPcgAsset();
+UWidgetBlueprint* FindEditedWidgetBlueprint();
 
 bool IsLikelyPcgAsset(const UObject* Asset)
 {
@@ -1115,11 +1124,19 @@ bool IsTransientAssetPath(const FString& AssetPath)
     return AssetPath.StartsWith(TEXT("/Engine/Transient"));
 }
 
-TSharedPtr<FJsonObject> MakeAssetGraphRefJson(const FString& InAssetPath, const FString& InGraphName = FString())
+TSharedPtr<FJsonObject> MakeAssetGraphRefJson(
+    const FString& InAssetPath,
+    const FString& InGraphName = FString(),
+    const FString& InGraphId = FString())
 {
     TSharedPtr<FJsonObject> GraphRef = MakeShared<FJsonObject>();
     GraphRef->SetStringField(TEXT("kind"), TEXT("asset"));
     GraphRef->SetStringField(TEXT("assetPath"), NormalizeAssetPath(InAssetPath));
+    if (!InGraphId.IsEmpty())
+    {
+        GraphRef->SetStringField(TEXT("graphId"), InGraphId);
+        GraphRef->SetStringField(TEXT("id"), InGraphId);
+    }
     if (!InGraphName.IsEmpty())
     {
         GraphRef->SetStringField(TEXT("graphName"), InGraphName);
@@ -3738,6 +3755,337 @@ enum class EGraphSelectionDomain : uint8
 };
 
 bool CollectSelectedGraphObjectsFromActiveWindow(TArray<UObject*>& OutSelectedObjects, EGraphSelectionDomain& OutDomain);
+void CollectGraphEditorsFromWidgetTree(const TSharedRef<SWidget>& RootWidget, TArray<TSharedPtr<SGraphEditor>>& OutGraphEditors);
+EGraphSelectionDomain DetectGraphSelectionDomain(const TArray<UObject*>& SelectedObjects);
+
+FString GetBlueprintEditorKind(const UBlueprint* Blueprint)
+{
+    return Blueprint != nullptr && Blueprint->IsA<UWidgetBlueprint>() ? TEXT("widgetBlueprint") : TEXT("blueprint");
+}
+
+FString GetGraphId(const UEdGraph* Graph)
+{
+    return Graph != nullptr ? Graph->GraphGuid.ToString(EGuidFormats::DigitsWithHyphensLower) : FString();
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintGraphSelectionRef(UBlueprint* Blueprint, UEdGraph* Graph)
+{
+    FString AssetPath;
+    if (Blueprint == nullptr || Graph == nullptr || !TryGetAssetPathFromObject(Blueprint, AssetPath))
+    {
+        return nullptr;
+    }
+
+    TSharedPtr<FJsonObject> GraphRef = MakeAssetGraphRefJson(AssetPath, Graph->GetName(), GetGraphId(Graph));
+    GraphRef->SetStringField(TEXT("name"), Graph->GetName());
+    return GraphRef;
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintActiveAssetJson(UBlueprint* Blueprint)
+{
+    TSharedPtr<FJsonObject> ActiveAsset = MakeShared<FJsonObject>();
+    if (Blueprint == nullptr)
+    {
+        ActiveAsset->SetStringField(TEXT("kind"), TEXT("unknown"));
+        return ActiveAsset;
+    }
+
+    FString AssetPath;
+    TryGetAssetPathFromObject(Blueprint, AssetPath);
+    ActiveAsset->SetStringField(TEXT("kind"), GetBlueprintEditorKind(Blueprint));
+    ActiveAsset->SetStringField(TEXT("domain"), TEXT("blueprint"));
+    ActiveAsset->SetStringField(TEXT("assetPath"), AssetPath);
+    ActiveAsset->SetStringField(TEXT("assetName"), Blueprint->GetName());
+    ActiveAsset->SetStringField(TEXT("assetClass"), Blueprint->GetClass() ? Blueprint->GetClass()->GetPathName() : TEXT(""));
+    return ActiveAsset;
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintActiveEditorJson(UBlueprint* Blueprint, const FString& Source)
+{
+    TSharedPtr<FJsonObject> ActiveEditor = MakeBlueprintActiveAssetJson(Blueprint);
+    ActiveEditor->SetStringField(TEXT("source"), Source);
+    return ActiveEditor;
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintSelectedNodeJson(UBlueprint* Blueprint, UEdGraphNode* Node)
+{
+    if (Blueprint == nullptr || Node == nullptr)
+    {
+        return nullptr;
+    }
+
+    TSharedPtr<FJsonObject> Item = MakeShared<FJsonObject>();
+    Item->SetStringField(TEXT("id"), Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
+    Item->SetStringField(TEXT("guid"), Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
+    Item->SetStringField(TEXT("name"), Node->GetName());
+    Item->SetStringField(TEXT("title"), Node->GetNodeTitle(ENodeTitleType::ListView).ToString());
+    Item->SetStringField(TEXT("class"), Node->GetClass() ? Node->GetClass()->GetPathName() : TEXT(""));
+    Item->SetStringField(TEXT("path"), Node->GetPathName());
+    Item->SetNumberField(TEXT("nodePosX"), Node->NodePosX);
+    Item->SetNumberField(TEXT("nodePosY"), Node->NodePosY);
+
+    TSharedPtr<FJsonObject> Position = MakeShared<FJsonObject>();
+    Position->SetNumberField(TEXT("x"), Node->NodePosX);
+    Position->SetNumberField(TEXT("y"), Node->NodePosY);
+    Item->SetObjectField(TEXT("position"), Position);
+
+    if (UEdGraph* Graph = Node->GetGraph())
+    {
+        Item->SetStringField(TEXT("graphName"), Graph->GetName());
+        Item->SetStringField(TEXT("graphPath"), Graph->GetPathName());
+        TSharedPtr<FJsonObject> GraphRef = MakeBlueprintGraphSelectionRef(Blueprint, Graph);
+        if (GraphRef.IsValid())
+        {
+            Item->SetObjectField(TEXT("graph"), GraphRef);
+        }
+    }
+
+    Item->SetObjectField(TEXT("nodeEditCapabilities"), BuildBlueprintNodeEditCapabilities(Item));
+    return Item;
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintPinJson(UBlueprint* Blueprint, UEdGraphPin* Pin, const FString& Source)
+{
+    if (Blueprint == nullptr || Pin == nullptr)
+    {
+        return nullptr;
+    }
+
+    UEdGraphNode* OwningNode = Pin->GetOwningNode();
+    TSharedPtr<FJsonObject> PinObj = MakeShared<FJsonObject>();
+    PinObj->SetStringField(TEXT("id"), Pin->PinId.ToString(EGuidFormats::DigitsWithHyphensLower));
+    PinObj->SetStringField(TEXT("name"), Pin->PinName.ToString());
+    PinObj->SetStringField(TEXT("displayName"), Pin->GetDisplayName().ToString());
+    PinObj->SetStringField(TEXT("direction"), Pin->Direction == EGPD_Input ? TEXT("input") : TEXT("output"));
+    PinObj->SetStringField(TEXT("source"), Source);
+    if (OwningNode != nullptr)
+    {
+        PinObj->SetStringField(TEXT("nodeId"), OwningNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
+        if (UEdGraph* Graph = OwningNode->GetGraph())
+        {
+            TSharedPtr<FJsonObject> GraphRef = MakeBlueprintGraphSelectionRef(Blueprint, Graph);
+            if (GraphRef.IsValid())
+            {
+                PinObj->SetObjectField(TEXT("graph"), GraphRef);
+            }
+        }
+    }
+    return PinObj;
+}
+
+bool ResolveActiveBlueprintGraphEditor(
+    TSharedPtr<SGraphEditor>& OutGraphEditor,
+    UEdGraph*& OutGraph,
+    UBlueprint*& OutBlueprint,
+    FString& OutReason)
+{
+    OutGraphEditor.Reset();
+    OutGraph = nullptr;
+    OutBlueprint = nullptr;
+    OutReason.Empty();
+
+    TSharedPtr<SWindow> ActiveWindow = ResolveActiveTopLevelWindow();
+    if (!ActiveWindow.IsValid())
+    {
+        OutReason = TEXT("NO_ACTIVE_WINDOW");
+        return false;
+    }
+
+    TArray<TSharedPtr<SGraphEditor>> GraphEditors;
+    CollectGraphEditorsFromWidgetTree(ActiveWindow.ToSharedRef(), GraphEditors);
+    if (GraphEditors.Num() == 0)
+    {
+        OutBlueprint = FindEditedBlueprint();
+        OutReason = OutBlueprint != nullptr ? TEXT("FOCUS_NOT_GRAPH_EDITOR") : TEXT("NO_ACTIVE_EDITOR");
+        return false;
+    }
+
+    int32 BestScore = TNumericLimits<int32>::Min();
+    TSharedPtr<SGraphEditor> BestGraphEditor;
+    UEdGraph* BestGraph = nullptr;
+    UBlueprint* BestBlueprint = nullptr;
+
+    for (const TSharedPtr<SGraphEditor>& GraphEditor : GraphEditors)
+    {
+        if (!GraphEditor.IsValid())
+        {
+            continue;
+        }
+
+        UEdGraph* Graph = GraphEditor->GetCurrentGraph();
+        UBlueprint* Blueprint = Graph != nullptr ? FBlueprintEditorUtils::FindBlueprintForGraph(Graph) : nullptr;
+        if (Blueprint == nullptr)
+        {
+            continue;
+        }
+
+        int32 Score = 1000;
+        const FGraphPanelSelectionSet& SelectedNodes = GraphEditor->GetSelectedNodes();
+        Score += SelectedNodes.Num() * 10;
+
+        TArray<UObject*> SelectionObjects;
+        SelectionObjects.Reserve(SelectedNodes.Num());
+        for (UObject* SelectedObject : SelectedNodes)
+        {
+            if (SelectedObject != nullptr)
+            {
+                SelectionObjects.Add(SelectedObject);
+            }
+        }
+        if (DetectGraphSelectionDomain(SelectionObjects) == EGraphSelectionDomain::Blueprint)
+        {
+            Score += 100;
+        }
+
+        if (Score > BestScore)
+        {
+            BestScore = Score;
+            BestGraphEditor = GraphEditor;
+            BestGraph = Graph;
+            BestBlueprint = Blueprint;
+        }
+    }
+
+    if (!BestGraphEditor.IsValid() || BestGraph == nullptr || BestBlueprint == nullptr)
+    {
+        OutReason = TEXT("ACTIVE_EDITOR_NOT_BLUEPRINT");
+        return false;
+    }
+
+    OutGraphEditor = BestGraphEditor;
+    OutGraph = BestGraph;
+    OutBlueprint = BestBlueprint;
+    return true;
+}
+
+bool BuildBlueprintEditorSelectionContextSnapshot(TSharedPtr<FJsonObject>& OutSnapshot)
+{
+    OutSnapshot.Reset();
+
+    TSharedPtr<SGraphEditor> GraphEditor;
+    UEdGraph* ActiveGraph = nullptr;
+    UBlueprint* Blueprint = nullptr;
+    FString Reason;
+    const bool bHasGraphEditor = ResolveActiveBlueprintGraphEditor(GraphEditor, ActiveGraph, Blueprint, Reason);
+    if (!bHasGraphEditor && Blueprint == nullptr)
+    {
+        return false;
+    }
+
+    OutSnapshot = MakeShared<FJsonObject>();
+    OutSnapshot->SetBoolField(TEXT("isError"), false);
+    OutSnapshot->SetObjectField(TEXT("activeEditor"), MakeBlueprintActiveEditorJson(Blueprint, bHasGraphEditor ? TEXT("focusedGraphEditor") : TEXT("editedAsset")));
+    OutSnapshot->SetObjectField(TEXT("activeAsset"), MakeBlueprintActiveAssetJson(Blueprint));
+
+    TSharedPtr<FJsonObject> Selection = MakeShared<FJsonObject>();
+    Selection->SetBoolField(TEXT("isError"), false);
+    Selection->SetStringField(TEXT("editorType"), TEXT("blueprint"));
+    Selection->SetStringField(TEXT("provider"), TEXT("blueprint_adapter"));
+    Selection->SetStringField(TEXT("kind"), TEXT("graph"));
+    Selection->SetStringField(TEXT("selectionKind"), TEXT("graph_node"));
+
+    FString AssetPath;
+    if (Blueprint != nullptr && TryGetAssetPathFromObject(Blueprint, AssetPath))
+    {
+        Selection->SetStringField(TEXT("assetPath"), AssetPath);
+    }
+
+    if (bHasGraphEditor && ActiveGraph != nullptr)
+    {
+        TSharedPtr<FJsonObject> ActiveGraphRef = MakeBlueprintGraphSelectionRef(Blueprint, ActiveGraph);
+        if (ActiveGraphRef.IsValid())
+        {
+            OutSnapshot->SetObjectField(TEXT("activeGraph"), ActiveGraphRef);
+            Selection->SetObjectField(TEXT("activeGraph"), ActiveGraphRef);
+        }
+    }
+
+    TArray<TSharedPtr<FJsonValue>> Nodes;
+    TArray<TSharedPtr<FJsonValue>> Items;
+    TArray<TSharedPtr<FJsonValue>> Pins;
+    TArray<TSharedPtr<FJsonValue>> ResolvedGraphRefs;
+    TSet<FString> SelectionSeenGraphRefs;
+
+    if (bHasGraphEditor && GraphEditor.IsValid())
+    {
+        const FGraphPanelSelectionSet& SelectedNodes = GraphEditor->GetSelectedNodes();
+        for (UObject* SelectedObject : SelectedNodes)
+        {
+            UEdGraphNode* Node = Cast<UEdGraphNode>(SelectedObject);
+            if (Node == nullptr)
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> NodeObj = MakeBlueprintSelectedNodeJson(Blueprint, Node);
+            if (!NodeObj.IsValid())
+            {
+                continue;
+            }
+
+            TArray<TSharedPtr<FJsonValue>> ItemResolvedGraphRefs;
+            TSet<FString> ItemSeenGraphRefs;
+            if (!AssetPath.IsEmpty())
+            {
+                if (UEdGraph* Graph = Node->GetGraph())
+                {
+                    AddResolvedGraphRefEntry(
+                        ItemResolvedGraphRefs,
+                        ItemSeenGraphRefs,
+                        TEXT("blueprint"),
+                        MakeAssetGraphRefJson(AssetPath, Graph->GetName(), GetGraphId(Graph)),
+                        TEXT("selected_graph"),
+                        TEXT("loaded"));
+                }
+
+                FObjectPropertyBase* BoundGraphProp = FindFProperty<FObjectPropertyBase>(Node->GetClass(), TEXT("BoundGraph"));
+                if (BoundGraphProp != nullptr)
+                {
+                    UEdGraph* BoundGraph = Cast<UEdGraph>(BoundGraphProp->GetObjectPropertyValue_InContainer(Node));
+                    if (BoundGraph != nullptr)
+                    {
+                        AddResolvedGraphRefEntry(
+                            ItemResolvedGraphRefs,
+                            ItemSeenGraphRefs,
+                            TEXT("blueprint"),
+                            MakeInlineGraphRefJson(AssetPath, Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower)),
+                            TEXT("child"),
+                            TEXT("loaded"));
+                    }
+                }
+            }
+
+            SetResolvedGraphRefsFieldIfAny(NodeObj, ItemResolvedGraphRefs);
+            CopyResolvedGraphRefEntries(ItemResolvedGraphRefs, ResolvedGraphRefs, SelectionSeenGraphRefs);
+            Nodes.Add(MakeShared<FJsonValueObject>(NodeObj));
+            Items.Add(MakeShared<FJsonValueObject>(NodeObj));
+        }
+
+        if (UEdGraphPin* MenuPin = GraphEditor->GetGraphPinForMenu())
+        {
+            TSharedPtr<FJsonObject> PinObj = MakeBlueprintPinJson(Blueprint, MenuPin, TEXT("graphPinForMenu"));
+            if (PinObj.IsValid())
+            {
+                Pins.Add(MakeShared<FJsonValueObject>(PinObj));
+            }
+        }
+    }
+
+    Selection->SetArrayField(TEXT("nodes"), Nodes);
+    Selection->SetArrayField(TEXT("items"), Items);
+    Selection->SetNumberField(TEXT("count"), Nodes.Num());
+    Selection->SetArrayField(TEXT("pins"), Pins);
+    Selection->SetStringField(TEXT("pinSelectionStatus"), Pins.Num() > 0 ? TEXT("resolved") : TEXT("not_available_from_graph_editor_api"));
+    Selection->SetStringField(TEXT("status"), Nodes.Num() > 0 ? TEXT("resolved") : TEXT("unavailable"));
+    if (Nodes.Num() == 0)
+    {
+        Selection->SetStringField(TEXT("reason"), Reason.IsEmpty() ? TEXT("NO_SELECTED_NODES") : Reason);
+    }
+    SetResolvedGraphRefsFieldIfAny(Selection, ResolvedGraphRefs);
+
+    OutSnapshot->SetObjectField(TEXT("selection"), Selection);
+    return true;
+}
 
 bool CollectSelectedBlueprintNodes(TArray<UEdGraphNode*>& OutNodes, UBlueprint*& OutBlueprint)
 {
@@ -3959,6 +4307,460 @@ UObject* FindEditedPcgAsset()
     }
 
     return ActiveWindowTitle.IsEmpty() ? FallbackAsset : nullptr;
+}
+
+UWidgetBlueprint* FindEditedWidgetBlueprint()
+{
+    return Cast<UWidgetBlueprint>(FindEditedBlueprint());
+}
+
+TSharedPtr<FJsonObject> MakeActiveAssetJson(UObject* Asset, const FString& Kind, const FString& Domain)
+{
+    TSharedPtr<FJsonObject> ActiveAsset = MakeShared<FJsonObject>();
+    ActiveAsset->SetStringField(TEXT("kind"), Asset != nullptr ? Kind : TEXT("unknown"));
+    ActiveAsset->SetStringField(TEXT("domain"), Domain);
+    if (Asset != nullptr)
+    {
+        FString AssetPath;
+        TryGetAssetPathFromObject(Asset, AssetPath);
+        ActiveAsset->SetStringField(TEXT("assetPath"), AssetPath);
+        ActiveAsset->SetStringField(TEXT("assetName"), Asset->GetName());
+        ActiveAsset->SetStringField(TEXT("assetClass"), Asset->GetClass() ? Asset->GetClass()->GetPathName() : TEXT(""));
+    }
+    return ActiveAsset;
+}
+
+TSharedPtr<FJsonObject> MakeActiveEditorJson(UObject* Asset, const FString& Kind, const FString& Domain, const FString& Source)
+{
+    TSharedPtr<FJsonObject> ActiveEditor = MakeActiveAssetJson(Asset, Kind, Domain);
+    ActiveEditor->SetStringField(TEXT("source"), Source);
+    return ActiveEditor;
+}
+
+TSharedPtr<FJsonObject> MakeGraphPositionJson(const double X, const double Y)
+{
+    TSharedPtr<FJsonObject> Position = MakeShared<FJsonObject>();
+    Position->SetNumberField(TEXT("x"), X);
+    Position->SetNumberField(TEXT("y"), Y);
+    return Position;
+}
+
+bool ResolveActiveGraphEditorByDomain(
+    const EGraphSelectionDomain RequestedDomain,
+    TSharedPtr<SGraphEditor>& OutGraphEditor,
+    UEdGraph*& OutGraph,
+    FString& OutReason)
+{
+    OutGraphEditor.Reset();
+    OutGraph = nullptr;
+    OutReason.Empty();
+
+    TSharedPtr<SWindow> ActiveWindow = ResolveActiveTopLevelWindow();
+    if (!ActiveWindow.IsValid())
+    {
+        OutReason = TEXT("NO_ACTIVE_WINDOW");
+        return false;
+    }
+
+    TArray<TSharedPtr<SGraphEditor>> GraphEditors;
+    CollectGraphEditorsFromWidgetTree(ActiveWindow.ToSharedRef(), GraphEditors);
+    if (GraphEditors.Num() == 0)
+    {
+        OutReason = TEXT("FOCUS_NOT_GRAPH_EDITOR");
+        return false;
+    }
+
+    int32 BestScore = TNumericLimits<int32>::Min();
+    TSharedPtr<SGraphEditor> BestGraphEditor;
+    UEdGraph* BestGraph = nullptr;
+    for (const TSharedPtr<SGraphEditor>& GraphEditor : GraphEditors)
+    {
+        if (!GraphEditor.IsValid())
+        {
+            continue;
+        }
+
+        const FGraphPanelSelectionSet& SelectedNodes = GraphEditor->GetSelectedNodes();
+        TArray<UObject*> SelectionObjects;
+        SelectionObjects.Reserve(SelectedNodes.Num());
+        for (UObject* SelectedObject : SelectedNodes)
+        {
+            if (SelectedObject != nullptr)
+            {
+                SelectionObjects.Add(SelectedObject);
+            }
+        }
+
+        const EGraphSelectionDomain CurrentDomain = DetectGraphSelectionDomain(SelectionObjects);
+        int32 Score = 1000 + SelectedNodes.Num();
+        if (CurrentDomain == RequestedDomain)
+        {
+            Score += 1000;
+        }
+        else if (SelectedNodes.Num() > 0)
+        {
+            Score -= 100;
+        }
+
+        if (Score > BestScore)
+        {
+            BestScore = Score;
+            BestGraphEditor = GraphEditor;
+            BestGraph = GraphEditor->GetCurrentGraph();
+        }
+    }
+
+    if (!BestGraphEditor.IsValid() || BestGraph == nullptr)
+    {
+        OutReason = TEXT("ACTIVE_GRAPH_UNRESOLVED");
+        return false;
+    }
+
+    OutGraphEditor = BestGraphEditor;
+    OutGraph = BestGraph;
+    return true;
+}
+
+TSharedPtr<FJsonObject> MakeMaterialSelectedNodeJson(UObject* MaterialAsset, UMaterialExpression* Expression, UEdGraph* Graph)
+{
+    if (MaterialAsset == nullptr || Expression == nullptr)
+    {
+        return nullptr;
+    }
+
+    TSharedPtr<FJsonObject> Item = MakeShared<FJsonObject>();
+    Item->SetStringField(TEXT("id"), Expression->GetPathName());
+    Item->SetStringField(TEXT("name"), Expression->GetName());
+    Item->SetStringField(TEXT("title"), Expression->GetName());
+    Item->SetStringField(TEXT("class"), Expression->GetClass() ? Expression->GetClass()->GetPathName() : TEXT(""));
+    Item->SetStringField(TEXT("path"), Expression->GetPathName());
+    Item->SetNumberField(TEXT("nodePosX"), Expression->MaterialExpressionEditorX);
+    Item->SetNumberField(TEXT("nodePosY"), Expression->MaterialExpressionEditorY);
+    Item->SetObjectField(TEXT("position"), MakeGraphPositionJson(Expression->MaterialExpressionEditorX, Expression->MaterialExpressionEditorY));
+    if (Graph != nullptr)
+    {
+        Item->SetStringField(TEXT("graphName"), Graph->GetName());
+        Item->SetStringField(TEXT("graphPath"), Graph->GetPathName());
+    }
+    FString AssetPath;
+    if (TryGetAssetPathFromObject(MaterialAsset, AssetPath))
+    {
+        Item->SetObjectField(TEXT("graph"), MakeAssetGraphRefJson(AssetPath, Graph != nullptr ? Graph->GetName() : FString()));
+    }
+    return Item;
+}
+
+bool BuildMaterialEditorSelectionContextSnapshot(TSharedPtr<FJsonObject>& OutSnapshot)
+{
+    OutSnapshot.Reset();
+    UObject* MaterialAsset = FindEditedMaterialAsset();
+    if (MaterialAsset == nullptr)
+    {
+        return false;
+    }
+
+    TSharedPtr<SGraphEditor> GraphEditor;
+    UEdGraph* ActiveGraph = nullptr;
+    FString Reason;
+    const bool bHasGraphEditor = ResolveActiveGraphEditorByDomain(EGraphSelectionDomain::Material, GraphEditor, ActiveGraph, Reason);
+
+    OutSnapshot = MakeShared<FJsonObject>();
+    OutSnapshot->SetBoolField(TEXT("isError"), false);
+    OutSnapshot->SetObjectField(TEXT("activeEditor"), MakeActiveEditorJson(MaterialAsset, TEXT("material"), TEXT("material"), bHasGraphEditor ? TEXT("focusedGraphEditor") : TEXT("editedAsset")));
+    OutSnapshot->SetObjectField(TEXT("activeAsset"), MakeActiveAssetJson(MaterialAsset, TEXT("material"), TEXT("material")));
+
+    FString AssetPath;
+    TryGetAssetPathFromObject(MaterialAsset, AssetPath);
+    if (bHasGraphEditor)
+    {
+        TSharedPtr<FJsonObject> ActiveGraphRef = MakeAssetGraphRefJson(AssetPath, ActiveGraph != nullptr ? ActiveGraph->GetName() : FString());
+        OutSnapshot->SetObjectField(TEXT("activeGraph"), ActiveGraphRef);
+    }
+
+    TSharedPtr<FJsonObject> Selection = MakeShared<FJsonObject>();
+    Selection->SetBoolField(TEXT("isError"), false);
+    Selection->SetStringField(TEXT("editorType"), TEXT("material"));
+    Selection->SetStringField(TEXT("provider"), TEXT("material"));
+    Selection->SetStringField(TEXT("kind"), TEXT("graph"));
+    Selection->SetStringField(TEXT("selectionKind"), TEXT("graph_node"));
+    Selection->SetStringField(TEXT("assetPath"), AssetPath);
+    if (bHasGraphEditor)
+    {
+        Selection->SetObjectField(TEXT("activeGraph"), MakeAssetGraphRefJson(AssetPath, ActiveGraph != nullptr ? ActiveGraph->GetName() : FString()));
+    }
+
+    TArray<TSharedPtr<FJsonValue>> Nodes;
+    TArray<TSharedPtr<FJsonValue>> Items;
+    TArray<TSharedPtr<FJsonValue>> ResolvedGraphRefs;
+    TSet<FString> SelectionSeenGraphRefs;
+    if (bHasGraphEditor && GraphEditor.IsValid())
+    {
+        const FGraphPanelSelectionSet& SelectedNodes = GraphEditor->GetSelectedNodes();
+        for (UObject* SelectedObject : SelectedNodes)
+        {
+            UMaterialExpression* Expression = Cast<UMaterialExpression>(SelectedObject);
+            if (Expression == nullptr)
+            {
+                if (UMaterialGraphNode* GraphNode = Cast<UMaterialGraphNode>(SelectedObject))
+                {
+                    Expression = GraphNode->MaterialExpression;
+                }
+            }
+            if (Expression == nullptr)
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> NodeObj = MakeMaterialSelectedNodeJson(MaterialAsset, Expression, ActiveGraph);
+            if (!NodeObj.IsValid())
+            {
+                continue;
+            }
+
+            TArray<TSharedPtr<FJsonValue>> ItemResolvedGraphRefs;
+            TSet<FString> ItemSeenGraphRefs;
+            AppendMaterialGraphRefs(MaterialAsset, TEXT("selected_graph"), ItemResolvedGraphRefs, ItemSeenGraphRefs);
+            if (UMaterialExpressionMaterialFunctionCall* FuncCall = Cast<UMaterialExpressionMaterialFunctionCall>(Expression))
+            {
+                AppendMaterialGraphRefs(FuncCall->MaterialFunction, TEXT("child"), ItemResolvedGraphRefs, ItemSeenGraphRefs);
+            }
+            SetResolvedGraphRefsFieldIfAny(NodeObj, ItemResolvedGraphRefs);
+            CopyResolvedGraphRefEntries(ItemResolvedGraphRefs, ResolvedGraphRefs, SelectionSeenGraphRefs);
+            Nodes.Add(MakeShared<FJsonValueObject>(NodeObj));
+            Items.Add(MakeShared<FJsonValueObject>(NodeObj));
+        }
+    }
+
+    Selection->SetArrayField(TEXT("nodes"), Nodes);
+    Selection->SetArrayField(TEXT("items"), Items);
+    Selection->SetNumberField(TEXT("count"), Nodes.Num());
+    Selection->SetArrayField(TEXT("pins"), TArray<TSharedPtr<FJsonValue>>());
+    Selection->SetStringField(TEXT("pinSelectionStatus"), TEXT("not_available_from_graph_editor_api"));
+    Selection->SetStringField(TEXT("status"), Nodes.Num() > 0 ? TEXT("resolved") : TEXT("unavailable"));
+    if (Nodes.Num() == 0)
+    {
+        Selection->SetStringField(TEXT("reason"), Reason.IsEmpty() ? TEXT("NO_SELECTED_NODES") : Reason);
+    }
+    SetResolvedGraphRefsFieldIfAny(Selection, ResolvedGraphRefs);
+    OutSnapshot->SetObjectField(TEXT("selection"), Selection);
+    return true;
+}
+
+TSharedPtr<FJsonObject> MakePcgSelectedNodeJson(UObject* PcgAsset, UPCGNode* PcgNode, UEdGraphNode* GraphNode)
+{
+    if (PcgAsset == nullptr || PcgNode == nullptr || GraphNode == nullptr)
+    {
+        return nullptr;
+    }
+
+    int32 NodePosX = GraphNode->NodePosX;
+    int32 NodePosY = GraphNode->NodePosY;
+    PcgNode->GetNodePosition(NodePosX, NodePosY);
+
+    const UClass* NodeClass = PcgNode->GetClass();
+    TSharedPtr<FJsonObject> Item = MakeShared<FJsonObject>();
+    Item->SetStringField(TEXT("id"), PcgNode->GetPathName());
+    Item->SetStringField(TEXT("name"), PcgNode->NodeTitle.IsNone() ? PcgNode->GetName() : PcgNode->NodeTitle.ToString());
+    Item->SetStringField(TEXT("title"), PcgNode->NodeTitle.IsNone() ? PcgNode->GetName() : PcgNode->NodeTitle.ToString());
+    Item->SetStringField(TEXT("class"), NodeClass ? NodeClass->GetPathName() : TEXT(""));
+    Item->SetStringField(TEXT("path"), PcgNode->GetPathName());
+    Item->SetNumberField(TEXT("nodePosX"), NodePosX);
+    Item->SetNumberField(TEXT("nodePosY"), NodePosY);
+    Item->SetObjectField(TEXT("position"), MakeGraphPositionJson(NodePosX, NodePosY));
+    if (UEdGraph* Graph = GraphNode->GetGraph())
+    {
+        Item->SetStringField(TEXT("graphName"), Graph->GetName());
+        Item->SetStringField(TEXT("graphPath"), Graph->GetPathName());
+    }
+    FString AssetPath;
+    if (TryGetAssetPathFromObject(PcgAsset, AssetPath))
+    {
+        Item->SetObjectField(TEXT("graph"), MakeAssetGraphRefJson(AssetPath));
+    }
+    return Item;
+}
+
+bool BuildPcgEditorSelectionContextSnapshot(TSharedPtr<FJsonObject>& OutSnapshot)
+{
+    OutSnapshot.Reset();
+    UObject* PcgAsset = FindEditedPcgAsset();
+    if (PcgAsset == nullptr)
+    {
+        return false;
+    }
+
+    TSharedPtr<SGraphEditor> GraphEditor;
+    UEdGraph* ActiveGraph = nullptr;
+    FString Reason;
+    const bool bHasGraphEditor = ResolveActiveGraphEditorByDomain(EGraphSelectionDomain::Pcg, GraphEditor, ActiveGraph, Reason);
+
+    FString AssetPath;
+    TryGetAssetPathFromObject(PcgAsset, AssetPath);
+    OutSnapshot = MakeShared<FJsonObject>();
+    OutSnapshot->SetBoolField(TEXT("isError"), false);
+    OutSnapshot->SetObjectField(TEXT("activeEditor"), MakeActiveEditorJson(PcgAsset, TEXT("pcg"), TEXT("pcg"), bHasGraphEditor ? TEXT("focusedGraphEditor") : TEXT("editedAsset")));
+    OutSnapshot->SetObjectField(TEXT("activeAsset"), MakeActiveAssetJson(PcgAsset, TEXT("pcg"), TEXT("pcg")));
+    if (bHasGraphEditor)
+    {
+        OutSnapshot->SetObjectField(TEXT("activeGraph"), MakeAssetGraphRefJson(AssetPath, ActiveGraph != nullptr ? ActiveGraph->GetName() : FString()));
+    }
+
+    TSharedPtr<FJsonObject> Selection = MakeShared<FJsonObject>();
+    Selection->SetBoolField(TEXT("isError"), false);
+    Selection->SetStringField(TEXT("editorType"), TEXT("pcg"));
+    Selection->SetStringField(TEXT("provider"), TEXT("pcg"));
+    Selection->SetStringField(TEXT("kind"), TEXT("graph"));
+    Selection->SetStringField(TEXT("selectionKind"), TEXT("graph_node"));
+    Selection->SetStringField(TEXT("assetPath"), AssetPath);
+    if (bHasGraphEditor)
+    {
+        Selection->SetObjectField(TEXT("activeGraph"), MakeAssetGraphRefJson(AssetPath, ActiveGraph != nullptr ? ActiveGraph->GetName() : FString()));
+    }
+
+    TArray<TSharedPtr<FJsonValue>> Nodes;
+    TArray<TSharedPtr<FJsonValue>> Items;
+    TArray<TSharedPtr<FJsonValue>> ResolvedGraphRefs;
+    TSet<FString> SelectionSeenGraphRefs;
+    if (bHasGraphEditor && GraphEditor.IsValid())
+    {
+        const FGraphPanelSelectionSet& SelectedNodes = GraphEditor->GetSelectedNodes();
+        for (UObject* SelectedObject : SelectedNodes)
+        {
+            UEdGraphNode* GraphNode = Cast<UEdGraphNode>(SelectedObject);
+            UPCGNode* PcgNode = ResolvePcgNodeFromEditorNode(GraphNode);
+            if (PcgNode == nullptr)
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> NodeObj = MakePcgSelectedNodeJson(PcgAsset, PcgNode, GraphNode);
+            if (!NodeObj.IsValid())
+            {
+                continue;
+            }
+
+            TArray<TSharedPtr<FJsonValue>> ItemResolvedGraphRefs;
+            TSet<FString> ItemSeenGraphRefs;
+            AppendPcgGraphRefs(PcgAsset, TEXT("selected_graph"), ItemResolvedGraphRefs, ItemSeenGraphRefs);
+            AppendPcgSubgraphRefsFromNode(PcgNode, ItemResolvedGraphRefs, ItemSeenGraphRefs);
+            SetResolvedGraphRefsFieldIfAny(NodeObj, ItemResolvedGraphRefs);
+            CopyResolvedGraphRefEntries(ItemResolvedGraphRefs, ResolvedGraphRefs, SelectionSeenGraphRefs);
+            Nodes.Add(MakeShared<FJsonValueObject>(NodeObj));
+            Items.Add(MakeShared<FJsonValueObject>(NodeObj));
+        }
+    }
+
+    Selection->SetArrayField(TEXT("nodes"), Nodes);
+    Selection->SetArrayField(TEXT("items"), Items);
+    Selection->SetNumberField(TEXT("count"), Nodes.Num());
+    Selection->SetArrayField(TEXT("pins"), TArray<TSharedPtr<FJsonValue>>());
+    Selection->SetStringField(TEXT("pinSelectionStatus"), TEXT("not_available_from_graph_editor_api"));
+    Selection->SetStringField(TEXT("status"), Nodes.Num() > 0 ? TEXT("resolved") : TEXT("unavailable"));
+    if (Nodes.Num() == 0)
+    {
+        Selection->SetStringField(TEXT("reason"), Reason.IsEmpty() ? TEXT("NO_SELECTED_NODES") : Reason);
+    }
+    SetResolvedGraphRefsFieldIfAny(Selection, ResolvedGraphRefs);
+    OutSnapshot->SetObjectField(TEXT("selection"), Selection);
+    return true;
+}
+
+FWidgetBlueprintEditor* FindEditedWidgetBlueprintEditor(UWidgetBlueprint* WidgetBlueprint)
+{
+    if (GEditor == nullptr || WidgetBlueprint == nullptr)
+    {
+        return nullptr;
+    }
+
+    UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
+    if (AssetEditorSubsystem == nullptr)
+    {
+        return nullptr;
+    }
+
+    IAssetEditorInstance* EditorInstance = AssetEditorSubsystem->FindEditorForAsset(WidgetBlueprint, true);
+    return static_cast<FWidgetBlueprintEditor*>(EditorInstance);
+}
+
+TSharedPtr<FJsonObject> MakeWidgetSelectionJson(UWidgetBlueprint* WidgetBlueprint, UWidget* Widget)
+{
+    if (WidgetBlueprint == nullptr || Widget == nullptr)
+    {
+        return nullptr;
+    }
+
+    TSharedPtr<FJsonObject> WidgetObj = MakeShared<FJsonObject>();
+    WidgetObj->SetStringField(TEXT("id"), Widget->GetName());
+    WidgetObj->SetStringField(TEXT("name"), Widget->GetName());
+    WidgetObj->SetStringField(TEXT("class"), Widget->GetClass() ? Widget->GetClass()->GetPathName() : TEXT(""));
+    WidgetObj->SetStringField(TEXT("path"), Widget->GetPathName());
+    WidgetObj->SetBoolField(TEXT("isVariable"), Widget->bIsVariable);
+    if (UPanelSlot* Slot = Widget->Slot)
+    {
+        WidgetObj->SetStringField(TEXT("slotClass"), Slot->GetClass() ? Slot->GetClass()->GetPathName() : TEXT(""));
+        WidgetObj->SetStringField(TEXT("slotName"), Slot->GetName());
+    }
+
+    FString AssetPath;
+    if (TryGetAssetPathFromObject(WidgetBlueprint, AssetPath))
+    {
+        WidgetObj->SetStringField(TEXT("assetPath"), AssetPath);
+    }
+    return WidgetObj;
+}
+
+bool BuildWidgetDesignerSelectionContextSnapshot(TSharedPtr<FJsonObject>& OutSnapshot)
+{
+    OutSnapshot.Reset();
+    UWidgetBlueprint* WidgetBlueprint = FindEditedWidgetBlueprint();
+    if (WidgetBlueprint == nullptr)
+    {
+        return false;
+    }
+
+    FWidgetBlueprintEditor* WidgetEditor = FindEditedWidgetBlueprintEditor(WidgetBlueprint);
+    if (WidgetEditor == nullptr)
+    {
+        return false;
+    }
+
+    FString AssetPath;
+    TryGetAssetPathFromObject(WidgetBlueprint, AssetPath);
+
+    OutSnapshot = MakeShared<FJsonObject>();
+    OutSnapshot->SetBoolField(TEXT("isError"), false);
+    OutSnapshot->SetObjectField(TEXT("activeEditor"), MakeActiveEditorJson(WidgetBlueprint, TEXT("widgetBlueprint"), TEXT("widget"), TEXT("widgetDesigner")));
+    OutSnapshot->SetObjectField(TEXT("activeAsset"), MakeActiveAssetJson(WidgetBlueprint, TEXT("widgetBlueprint"), TEXT("widget")));
+
+    TArray<TSharedPtr<FJsonValue>> Widgets;
+    const TSet<FWidgetReference>& SelectedWidgets = WidgetEditor->GetSelectedWidgets();
+    for (const FWidgetReference& WidgetRef : SelectedWidgets)
+    {
+        UWidget* TemplateWidget = WidgetRef.GetTemplate();
+        TSharedPtr<FJsonObject> WidgetObj = MakeWidgetSelectionJson(WidgetBlueprint, TemplateWidget);
+        if (WidgetObj.IsValid())
+        {
+            Widgets.Add(MakeShared<FJsonValueObject>(WidgetObj));
+        }
+    }
+
+    TSharedPtr<FJsonObject> Selection = MakeShared<FJsonObject>();
+    Selection->SetBoolField(TEXT("isError"), false);
+    Selection->SetStringField(TEXT("editorType"), TEXT("widgetBlueprint"));
+    Selection->SetStringField(TEXT("provider"), TEXT("widget"));
+    Selection->SetStringField(TEXT("kind"), TEXT("widgetTree"));
+    Selection->SetStringField(TEXT("selectionKind"), TEXT("widget"));
+    Selection->SetStringField(TEXT("assetPath"), AssetPath);
+    Selection->SetArrayField(TEXT("widgets"), Widgets);
+    Selection->SetArrayField(TEXT("items"), Widgets);
+    Selection->SetNumberField(TEXT("count"), Widgets.Num());
+    Selection->SetStringField(TEXT("status"), Widgets.Num() > 0 ? TEXT("resolved") : TEXT("unavailable"));
+    if (Widgets.Num() == 0)
+    {
+        Selection->SetStringField(TEXT("reason"), TEXT("NO_SELECTED_WIDGETS"));
+    }
+    OutSnapshot->SetObjectField(TEXT("selection"), Selection);
+    return true;
 }
 
 bool CollectSelectedMaterialExpressions(TArray<UMaterialExpression*>& OutExpressions, UObject*& OutMaterialAsset)
