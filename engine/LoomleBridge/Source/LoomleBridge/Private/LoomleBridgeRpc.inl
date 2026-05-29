@@ -220,6 +220,16 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     bOutIsError = false;
     TSharedPtr<FJsonObject> Payload;
 
+    if (bIsShuttingDown.Load())
+    {
+        bOutIsError = true;
+        Payload = MakeShared<FJsonObject>();
+        Payload->SetBoolField(TEXT("isError"), true);
+        Payload->SetStringField(TEXT("code"), TEXT("EDITOR_SHUTTING_DOWN"));
+        Payload->SetStringField(TEXT("message"), TEXT("Unreal Editor is shutting down; LOOMLE runtime is no longer accepting tool calls."));
+        return Payload;
+    }
+
     if (!IsInGameThread()
         && !Name.Equals(LoomleBridgeConstants::BlueprintQueryToolName)
         && !Name.Equals(LoomleBridgeConstants::MaterialQueryToolName)
@@ -242,7 +252,30 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
         });
 
         static constexpr uint32 GameThreadTimeoutMs = 120000;
-        if (PayloadFuture.WaitFor(FTimespan::FromMilliseconds(GameThreadTimeoutMs)))
+        static constexpr uint32 GameThreadPollMs = 100;
+        uint32 WaitedMs = 0;
+        while (WaitedMs < GameThreadTimeoutMs)
+        {
+            if (PayloadFuture.WaitFor(FTimespan::FromMilliseconds(GameThreadPollMs)))
+            {
+                FDispatchToolResult DispatchResult = PayloadFuture.Get();
+                bOutIsError = DispatchResult.bIsError;
+                return DispatchResult.Payload;
+            }
+
+            WaitedMs += GameThreadPollMs;
+            if (bIsShuttingDown.Load())
+            {
+                bOutIsError = true;
+                Payload = MakeShared<FJsonObject>();
+                Payload->SetBoolField(TEXT("isError"), true);
+                Payload->SetStringField(TEXT("code"), TEXT("EDITOR_SHUTTING_DOWN"));
+                Payload->SetStringField(TEXT("message"), TEXT("Unreal Editor is shutting down; queued game-thread tool work was canceled."));
+                return Payload;
+            }
+        }
+
+        if (PayloadFuture.IsReady())
         {
             FDispatchToolResult DispatchResult = PayloadFuture.Get();
             bOutIsError = DispatchResult.bIsError;

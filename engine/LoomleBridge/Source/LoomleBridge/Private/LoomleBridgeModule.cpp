@@ -128,6 +128,7 @@
 #include "ScopedTransaction.h"
 #include "Misc/App.h"
 #include "Misc/Base64.h"
+#include "Misc/CoreDelegates.h"
 #include "Misc/DateTime.h"
 #include "Misc/EngineVersion.h"
 #include "Misc/FileHelper.h"
@@ -4986,9 +4987,82 @@ void FLoomleBridgeModule::RemoveRuntimeRegistration()
     }
 }
 
+void FLoomleBridgeModule::CleanupExecutePythonGlobalsForShutdown()
+{
+    IPythonScriptPlugin* PythonScriptPlugin = IPythonScriptPlugin::Get();
+    if (PythonScriptPlugin == nullptr || !PythonScriptPlugin->IsPythonInitialized())
+    {
+        return;
+    }
+
+    FPythonCommandEx PythonCommand;
+    PythonCommand.ExecutionMode = EPythonCommandExecutionMode::ExecuteFile;
+    PythonCommand.Command =
+        TEXT("import gc, signal\n")
+        TEXT("for _loomle_name in [\n")
+        TEXT("    '_loomle_original_load_asset',\n")
+        TEXT("    '_loomle_original_editor_load_asset',\n")
+        TEXT("    '_loomle_patched_load_asset',\n")
+        TEXT("    '_loomle_patched_editor_load_asset',\n")
+        TEXT("    '_loomle_unreal',\n")
+        TEXT("    '_loomle_safe_load_asset',\n")
+        TEXT("    '_loomle_safe_editor_load_asset',\n")
+        TEXT("    '_loomle_validate_asset_load_path',\n")
+        TEXT("    '_loomle_timeout_handler',\n")
+        TEXT("    '_LOOMLE_TIMEOUT',\n")
+        TEXT("    '_LOOMLE_PREV_SIGALRM',\n")
+        TEXT("]:\n")
+        TEXT("    globals().pop(_loomle_name, None)\n")
+        TEXT("globals().pop('_loomle_name', None)\n")
+        TEXT("try:\n")
+        TEXT("    signal.alarm(0)\n")
+        TEXT("except Exception:\n")
+        TEXT("    pass\n")
+        TEXT("gc.collect()\n");
+    PythonScriptPlugin->ExecPythonCommandEx(PythonCommand);
+}
+
+void FLoomleBridgeModule::StopBridgeRuntime(bool bWaitForWorkers)
+{
+    RemoveRuntimeRegistration();
+
+    {
+        FScopeLock Lock(&JobRegistryMutex);
+        JobQueue.Reset();
+    }
+
+    if (PipeServer.IsValid())
+    {
+        if (bWaitForWorkers)
+        {
+            PipeServer->StopServer();
+            PipeServer.Reset();
+        }
+        else
+        {
+            PipeServer->Stop();
+        }
+    }
+
+    bBridgeRunningSnapshot.Store(false);
+    bPythonReadySnapshot.Store(false);
+    bIsPIESnapshot.Store(false);
+}
+
+void FLoomleBridgeModule::HandlePreExit()
+{
+    bIsShuttingDown.Store(true);
+    StopBridgeRuntime(false);
+    CleanupExecutePythonGlobalsForShutdown();
+}
+
 void FLoomleBridgeModule::StartupModule()
 {
     RegisterLoomleSlateStyle();
+    if (!PreExitHandle.IsValid())
+    {
+        PreExitHandle = FCoreDelegates::OnPreExit.AddRaw(this, &FLoomleBridgeModule::HandlePreExit);
+    }
 
 #if PLATFORM_WINDOWS
     const FString PipeName = GetRpcPipeNameForCurrentProject();
@@ -5008,6 +5082,11 @@ void FLoomleBridgeModule::StartupModule()
     {
         UE_LOG(LogLoomleBridge, Error, TEXT("Failed to start Loomle pipe server."));
         PipeServer.Reset();
+        if (PreExitHandle.IsValid())
+        {
+            FCoreDelegates::OnPreExit.Remove(PreExitHandle);
+            PreExitHandle.Reset();
+        }
         bBridgeRunningSnapshot.Store(false);
         bPythonReadySnapshot.Store(false);
         bIsPIESnapshot.Store(false);
@@ -5053,7 +5132,15 @@ void FLoomleBridgeModule::StartupModule()
 
 void FLoomleBridgeModule::ShutdownModule()
 {
-    RemoveRuntimeRegistration();
+    bIsShuttingDown.Store(true);
+
+    if (PreExitHandle.IsValid())
+    {
+        FCoreDelegates::OnPreExit.Remove(PreExitHandle);
+        PreExitHandle.Reset();
+    }
+
+    StopBridgeRuntime(true);
 
     if (StatusBarStartupHandle.IsValid())
     {
@@ -5087,15 +5174,6 @@ void FLoomleBridgeModule::ShutdownModule()
         HealthSnapshotTickerHandle.Reset();
     }
 
-    if (PipeServer.IsValid())
-    {
-        PipeServer->StopServer();
-        PipeServer.Reset();
-    }
-
-    bBridgeRunningSnapshot.Store(false);
-    bPythonReadySnapshot.Store(false);
-    bIsPIESnapshot.Store(false);
 }
 
 #include "LoomleBridgeRpc.inl"

@@ -2573,7 +2573,7 @@ void FLoomleBridgeModule::StartNextJobIfNeeded()
     FString JobIdToRun;
     {
         FScopeLock Lock(&JobRegistryMutex);
-        if (bJobRunnerActive || JobQueue.IsEmpty())
+        if (bIsShuttingDown.Load() || bJobRunnerActive || JobQueue.IsEmpty())
         {
             return;
         }
@@ -2629,7 +2629,17 @@ void FLoomleBridgeModule::RunQueuedJob(const FString& JobId)
         AsyncTask(ENamedThreads::GameThread, [this, BusinessArguments, Promise = MoveTemp(Promise)]() mutable
         {
             FAsyncExecuteResult ExecuteResult;
-            ExecuteResult.Payload = BuildExecutePythonToolResult(BusinessArguments);
+            if (bIsShuttingDown.Load())
+            {
+                ExecuteResult.Payload = MakeShared<FJsonObject>();
+                ExecuteResult.Payload->SetBoolField(TEXT("isError"), true);
+                ExecuteResult.Payload->SetStringField(TEXT("code"), TEXT("EDITOR_SHUTTING_DOWN"));
+                ExecuteResult.Payload->SetStringField(TEXT("message"), TEXT("Unreal Editor is shutting down; execute jobs are not run during shutdown."));
+            }
+            else
+            {
+                ExecuteResult.Payload = BuildExecutePythonToolResult(BusinessArguments);
+            }
             if (ExecuteResult.Payload.IsValid())
             {
                 ExecuteResult.Payload->TryGetBoolField(TEXT("isError"), ExecuteResult.bIsError);
@@ -4387,6 +4397,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorScreenshotToolResult(con
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildExecutePythonToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+    if (bIsShuttingDown.Load())
+    {
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), TEXT("EDITOR_SHUTTING_DOWN"));
+        Result->SetStringField(TEXT("message"), TEXT("Unreal Editor is shutting down; execute is no longer available."));
+        return Result;
+    }
 
     const TSharedPtr<FJsonObject>* ExecutionPtr = nullptr;
     if (Arguments.IsValid() && Arguments->TryGetObjectField(TEXT("execution"), ExecutionPtr) && ExecutionPtr && (*ExecutionPtr).IsValid())

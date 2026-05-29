@@ -58,9 +58,28 @@ finishes loading. Loomle calls `ForceEnablePythonAtRuntime()` before returning
 that error, so repeated failure means the editor-side Python plugin/runtime is
 not yet recoverable in the current process.
 
+## Shutdown Boundary
+
+UE finalizes the embedded Python interpreter from `PythonScriptPlugin` during
+`FCoreDelegates::OnPreExit`, before normal plugin `ShutdownModule` teardown.
+Loomle therefore stops accepting runtime tool calls at `OnPreExit`, removes the
+runtime registration, closes active pipe connections, and rejects new `execute`
+work with `EDITOR_SHUTTING_DOWN`. The pre-exit path does not wait on worker
+threads because they may already be waiting for game-thread tool execution; the
+blocking server teardown is left to normal module shutdown after queued work has
+observed the shutdown state.
+
+The same pre-exit hook also clears Loomle's temporary execute wrapper globals
+before UE reaches `Py_FinalizeEx`. This keeps Loomle's asset-load guard from
+leaving Python functions or signal handlers in the interpreter namespace during
+final module garbage collection.
+
 ## Audit Notes
 
 - #144 confirmed UE's fatal double-slash package path behavior by reading
   `Runtime/CoreUObject/Private/UObject/UObjectGlobals.cpp`.
 - The implemented guard is defensive preflight around common asset-load helper
   calls, not a sandbox for arbitrary Python.
+- The Py_FinalizeEx shutdown crash audit read UE 5.7
+  `PythonScriptPlugin.cpp`: `ShutdownPython` is registered on `OnPreExit` and
+  calls `Py_Finalize` after plugin-level Python module teardown.

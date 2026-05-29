@@ -167,6 +167,9 @@ private:
     void WriteProjectRegistration(const FString& ProjectRoot, const FString& ProjectId);
     void WriteRuntimeRegistration();
     void RemoveRuntimeRegistration();
+    void HandlePreExit();
+    void StopBridgeRuntime(bool bWaitForWorkers);
+    void CleanupExecutePythonGlobalsForShutdown();
 
 private:
     TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> PipeServer;
@@ -230,12 +233,14 @@ private:
     bool bLogStoreInitialized = false;
     FOutputDevice* LogCaptureOutputDevice = nullptr;
     FDelegateHandle BlueprintCompiledHandle;
+    FDelegateHandle PreExitHandle;
     FString RuntimeRegistrationPath;
     TSet<FString> BlueprintCompileErrorAssets;
     TAtomic<bool> bGraphMutateInProgress { false };
     TAtomic<bool> bBridgeRunningSnapshot { false };
     TAtomic<bool> bPythonReadySnapshot { false };
     TAtomic<bool> bIsPIESnapshot { false };
+    TAtomic<bool> bIsShuttingDown { false };
     TMap<FString, FIntPoint> LastPlayRequestedWindowPositions;
     FIntPoint LastPlayRequestedWindowSize { 0, 0 };
     FTSTicker::FDelegateHandle HealthSnapshotTickerHandle;
