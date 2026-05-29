@@ -16,7 +16,7 @@ use rmcp::{
     transport::stdio,
     ErrorData as McpError, RoleServer, ServerHandler, ServiceExt,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::ffi::OsString;
 use std::fs;
@@ -440,15 +440,8 @@ impl LoomleProxyServer {
             }
             (
                 "userDefinedStruct",
-                "setTooltip"
-                | "addField"
-                | "removeField"
-                | "renameField"
-                | "changeFieldType"
-                | "setFieldDefault"
-                | "setFieldTooltip"
-                | "setFieldMetadata"
-                | "moveField",
+                "setTooltip" | "addField" | "removeField" | "renameField" | "changeFieldType"
+                | "setFieldDefault" | "setFieldTooltip" | "setFieldMetadata" | "moveField",
             ) => {
                 let asset_path = match read_required_asset_path(&args, "asset.edit") {
                     Ok(value) => value,
@@ -3183,28 +3176,8 @@ fn translate_blueprint_graph_inspect_args(
         read_required_graph_object_address(args, &asset_path, "blueprint.graph.inspect")?;
     write_optional_graph_address(&mut translated, Some(graph_address));
 
-    if let Some(filter) = args.get("filter").and_then(|value| value.as_object()) {
-        if let Some(node_ids) = filter.get("nodeIds") {
-            translated.insert("nodeIds".into(), node_ids.clone());
-        }
-        if let Some(text) = filter.get("text") {
-            translated.insert("text".into(), text.clone());
-        }
-    }
-
-    if let Some(page) = args.get("page").and_then(|value| value.as_object()) {
-        if let Some(limit) = page.get("limit") {
-            translated.insert("limit".into(), limit.clone());
-        }
-        if let Some(cursor) = page.get("cursor") {
-            translated.insert("cursor".into(), cursor.clone());
-        }
-    }
-
-    let view = blueprint_graph_inspect_view(args);
-    if view == "wiring" {
-        translated.insert("includeConnections".into(), serde_json::json!(true));
-    }
+    translated.insert("includeConnections".into(), serde_json::json!(true));
+    translated.insert("limit".into(), serde_json::json!(10000));
     Ok(translated)
 }
 
@@ -3307,10 +3280,10 @@ fn validate_blueprint_graph_inspect_args(
     for key in args.keys() {
         if !matches!(
             key.as_str(),
-            "assetPath" | "graph" | "view" | "filter" | "page"
+            "assetPath" | "graph" | "view" | "rootNode" | "rootPin" | "traversal"
         ) {
             return Err(invalid_argument_result(format!(
-                "blueprint.graph.inspect does not support top-level {key}; use assetPath, graph, view, filter, and page."
+                "blueprint.graph.inspect does not support top-level {key}; use assetPath, graph, view, rootNode, rootPin, and traversal."
             )));
         }
     }
@@ -3319,6 +3292,8 @@ fn validate_blueprint_graph_inspect_args(
         "graphRef",
         "nodeIds",
         "nodeClasses",
+        "filter",
+        "page",
         "limit",
         "cursor",
         "detail",
@@ -3327,42 +3302,99 @@ fn validate_blueprint_graph_inspect_args(
     ] {
         if args.contains_key(field) {
             return Err(invalid_argument_result(format!(
-                "blueprint.graph.inspect no longer accepts top-level {field}; use graph, view, filter, and page."
+                "blueprint.graph.inspect no longer accepts top-level {field}; use graph, view, rootNode, rootPin, and traversal."
             )));
         }
     }
 
     let view = blueprint_graph_inspect_view(args);
-    if !matches!(view, "overview" | "wiring") {
+    if !matches!(view, "summary" | "exec_flow" | "data_flow") {
         return Err(invalid_argument_result(format!(
             "Unsupported blueprint.graph.inspect view: {view}."
         )));
     }
 
-    if args.contains_key("filter") && !args.get("filter").is_some_and(|value| value.is_object()) {
-        return Err(invalid_argument_result(
-            "blueprint.graph.inspect filter must be an object.",
-        ));
-    }
-    if let Some(filter) = args.get("filter").and_then(|value| value.as_object()) {
-        for key in filter.keys() {
-            if !matches!(key.as_str(), "nodeIds" | "text") {
+    match view {
+        "summary" => {
+            if args.contains_key("rootNode") || args.contains_key("rootPin") {
                 return Err(invalid_argument_result(format!(
-                    "blueprint.graph.inspect filter does not support {key}."
+                    "blueprint.graph.inspect view=summary does not accept rootNode or rootPin."
                 )));
             }
         }
+        "exec_flow" => {
+            let Some(root_node) = args.get("rootNode").and_then(|value| value.as_object()) else {
+                return Err(invalid_argument_result(
+                    "blueprint.graph.inspect view=exec_flow requires rootNode.id.",
+                ));
+            };
+            if root_node
+                .get("id")
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty())
+                .is_none()
+            {
+                return Err(invalid_argument_result(
+                    "blueprint.graph.inspect view=exec_flow requires rootNode.id.",
+                ));
+            }
+            if args.contains_key("rootPin") {
+                return Err(invalid_argument_result(format!(
+                    "blueprint.graph.inspect view=exec_flow does not accept rootPin."
+                )));
+            }
+        }
+        "data_flow" => {
+            let Some(root_pin) = args.get("rootPin").and_then(|value| value.as_object()) else {
+                return Err(invalid_argument_result(
+                    "blueprint.graph.inspect view=data_flow requires rootPin.node.id and rootPin.pin.",
+                ));
+            };
+            let node_ok = root_pin
+                .get("node")
+                .and_then(|value| value.as_object())
+                .and_then(|node| node.get("id"))
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty())
+                .is_some();
+            let pin_ok = root_pin
+                .get("pin")
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty())
+                .is_some();
+            if !node_ok || !pin_ok {
+                return Err(invalid_argument_result(
+                    "blueprint.graph.inspect view=data_flow requires rootPin.node.id and rootPin.pin.",
+                ));
+            }
+            if args.contains_key("rootNode") {
+                return Err(invalid_argument_result(format!(
+                    "blueprint.graph.inspect view=data_flow does not accept rootNode."
+                )));
+            }
+        }
+        _ => {}
     }
-    if args.contains_key("page") && !args.get("page").is_some_and(|value| value.is_object()) {
+
+    if args.contains_key("traversal")
+        && !args.get("traversal").is_some_and(|value| value.is_object())
+    {
         return Err(invalid_argument_result(
-            "blueprint.graph.inspect page must be an object.",
+            "blueprint.graph.inspect traversal must be an object.",
         ));
     }
-    if let Some(page) = args.get("page").and_then(|value| value.as_object()) {
-        for key in page.keys() {
-            if !matches!(key.as_str(), "limit" | "cursor") {
+    if let Some(traversal) = args.get("traversal").and_then(|value| value.as_object()) {
+        for key in traversal.keys() {
+            if !matches!(key.as_str(), "direction" | "maxDepth" | "maxNodes") {
                 return Err(invalid_argument_result(format!(
-                    "blueprint.graph.inspect page does not support {key}."
+                    "blueprint.graph.inspect traversal does not support {key}."
+                )));
+            }
+        }
+        if let Some(direction) = traversal.get("direction").and_then(|value| value.as_str()) {
+            if !matches!(direction, "upstream" | "downstream" | "both") {
+                return Err(invalid_argument_result(format!(
+                    "Unsupported blueprint.graph.inspect traversal.direction: {direction}."
                 )));
             }
         }
@@ -3373,7 +3405,7 @@ fn validate_blueprint_graph_inspect_args(
 fn blueprint_graph_inspect_view(args: &rmcp::model::JsonObject) -> &str {
     args.get("view")
         .and_then(|value| value.as_str())
-        .unwrap_or("overview")
+        .unwrap_or("summary")
 }
 
 fn copy_json_field(
@@ -3454,10 +3486,10 @@ fn prune_blueprint_graph_comment_fields(
 
 fn compact_blueprint_graph_node(
     node: &serde_json::Map<String, serde_json::Value>,
-    view: &str,
     include_pin_defaults: bool,
     include_connections: bool,
     include_comments: bool,
+    include_pins: bool,
 ) -> serde_json::Value {
     let mut compact = serde_json::Map::new();
     for field in [
@@ -3489,7 +3521,7 @@ fn compact_blueprint_graph_node(
     }
     prune_blueprint_graph_comment_fields(&mut compact, include_comments);
 
-    if view == "wiring" {
+    if include_pins {
         let pins = node
             .get("pins")
             .and_then(|value| value.as_array())
@@ -3508,38 +3540,755 @@ fn compact_blueprint_graph_node(
     serde_json::Value::Object(compact)
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+struct BlueprintGraphLink {
+    from_node_id: String,
+    from_pin: String,
+    to_node_id: String,
+    to_pin: String,
+    kind: String,
+}
+
+impl BlueprintGraphLink {
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "fromNodeId": self.from_node_id,
+            "fromPin": self.from_pin,
+            "toNodeId": self.to_node_id,
+            "toPin": self.to_pin,
+            "kind": self.kind,
+        })
+    }
+
+    fn from_key(&self) -> String {
+        format!("{}:{}", self.from_node_id, self.from_pin)
+    }
+
+    fn to_key(&self) -> String {
+        format!("{}:{}", self.to_node_id, self.to_pin)
+    }
+}
+
+fn json_str<'a>(
+    object: &'a serde_json::Map<String, serde_json::Value>,
+    field: &str,
+) -> Option<&'a str> {
+    object.get(field).and_then(|value| value.as_str())
+}
+
+fn blueprint_node_id(node: &serde_json::Map<String, serde_json::Value>) -> Option<&str> {
+    json_str(node, "id").or_else(|| json_str(node, "guid"))
+}
+
+fn blueprint_node_label(node: &serde_json::Map<String, serde_json::Value>) -> String {
+    for field in ["title", "nodeTitle", "name", "className"] {
+        if let Some(value) = json_str(node, field).filter(|value| !value.is_empty()) {
+            return value.to_string();
+        }
+    }
+    blueprint_node_id(node).unwrap_or("<unknown>").to_string()
+}
+
+fn blueprint_node_text(node: &serde_json::Map<String, serde_json::Value>) -> String {
+    [
+        json_str(node, "className"),
+        json_str(node, "classPath"),
+        json_str(node, "nodeClassPath"),
+        json_str(node, "title"),
+        json_str(node, "nodeTitle"),
+        json_str(node, "name"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" ")
+    .to_ascii_lowercase()
+}
+
+fn is_exec_pin(pin: &serde_json::Map<String, serde_json::Value>) -> bool {
+    json_str(pin, "category")
+        .or_else(|| json_str(pin, "type"))
+        .is_some_and(|value| value.eq_ignore_ascii_case("exec"))
+}
+
+fn pin_direction(pin: &serde_json::Map<String, serde_json::Value>) -> Option<&str> {
+    json_str(pin, "direction")
+}
+
+fn is_output_pin(pin: &serde_json::Map<String, serde_json::Value>) -> bool {
+    pin_direction(pin).is_some_and(|value| value.eq_ignore_ascii_case("output"))
+}
+
+fn is_input_pin(pin: &serde_json::Map<String, serde_json::Value>) -> bool {
+    pin_direction(pin).is_some_and(|value| value.eq_ignore_ascii_case("input"))
+}
+
+fn pin_name(pin: &serde_json::Map<String, serde_json::Value>) -> Option<&str> {
+    json_str(pin, "name").filter(|value| !value.is_empty())
+}
+
+fn peer_node_id(peer: &serde_json::Map<String, serde_json::Value>) -> Option<&str> {
+    json_str(peer, "nodeId")
+        .or_else(|| json_str(peer, "nodeGuid"))
+        .or_else(|| json_str(peer, "guid"))
+}
+
+fn peer_pin_name(peer: &serde_json::Map<String, serde_json::Value>) -> Option<&str> {
+    json_str(peer, "pin")
+        .or_else(|| json_str(peer, "pinName"))
+        .filter(|value| !value.is_empty())
+}
+
+fn pin_lookup_key(node_id: &str, pin: &str) -> String {
+    format!("{node_id}:{pin}")
+}
+
+fn traversal_usize(args: &rmcp::model::JsonObject, field: &str, default: usize) -> usize {
+    args.get("traversal")
+        .and_then(|value| value.as_object())
+        .and_then(|traversal| traversal.get(field))
+        .and_then(|value| value.as_u64())
+        .map(|value| value.clamp(1, usize::MAX as u64) as usize)
+        .unwrap_or(default)
+}
+
+fn traversal_direction<'a>(args: &'a rmcp::model::JsonObject, default: &'a str) -> &'a str {
+    args.get("traversal")
+        .and_then(|value| value.as_object())
+        .and_then(|traversal| traversal.get("direction"))
+        .and_then(|value| value.as_str())
+        .unwrap_or(default)
+}
+
+fn compact_blueprint_node_summary(
+    node: &serde_json::Map<String, serde_json::Value>,
+) -> serde_json::Value {
+    compact_blueprint_graph_node(node, false, false, false, false)
+}
+
+fn blueprint_graph_pin_maps(
+    nodes: &[serde_json::Value],
+) -> (
+    HashMap<String, serde_json::Map<String, serde_json::Value>>,
+    HashMap<String, serde_json::Map<String, serde_json::Value>>,
+) {
+    let mut node_map = HashMap::new();
+    let mut pin_map = HashMap::new();
+    for node in nodes.iter().filter_map(|value| value.as_object()) {
+        let Some(node_id) = blueprint_node_id(node) else {
+            continue;
+        };
+        node_map.insert(node_id.to_string(), node.clone());
+        if let Some(pins) = node.get("pins").and_then(|value| value.as_array()) {
+            for pin in pins.iter().filter_map(|value| value.as_object()) {
+                if let Some(name) = pin_name(pin) {
+                    pin_map.insert(pin_lookup_key(node_id, name), pin.clone());
+                }
+            }
+        }
+    }
+    (node_map, pin_map)
+}
+
+fn build_blueprint_graph_links(
+    nodes: &[serde_json::Value],
+    pin_map: &HashMap<String, serde_json::Map<String, serde_json::Value>>,
+) -> Vec<BlueprintGraphLink> {
+    let mut links = Vec::new();
+    let mut seen = HashSet::new();
+    for node in nodes.iter().filter_map(|value| value.as_object()) {
+        let Some(node_id) = blueprint_node_id(node) else {
+            continue;
+        };
+        let Some(pins) = node.get("pins").and_then(|value| value.as_array()) else {
+            continue;
+        };
+        for pin in pins.iter().filter_map(|value| value.as_object()) {
+            let Some(this_pin) = pin_name(pin) else {
+                continue;
+            };
+            let Some(peers) = pin.get("linkedTo").and_then(|value| value.as_array()) else {
+                continue;
+            };
+            for peer in peers.iter().filter_map(|value| value.as_object()) {
+                let Some(peer_node) = peer_node_id(peer) else {
+                    continue;
+                };
+                let Some(peer_pin) = peer_pin_name(peer) else {
+                    continue;
+                };
+                let peer_key = pin_lookup_key(peer_node, peer_pin);
+                let peer_pin_object = pin_map.get(&peer_key);
+                let kind = if is_exec_pin(pin)
+                    || peer_pin_object.is_some_and(|peer_pin| is_exec_pin(peer_pin))
+                {
+                    "exec"
+                } else {
+                    "data"
+                };
+                let (from_node_id, from_pin, to_node_id, to_pin) = if is_output_pin(pin) {
+                    (node_id, this_pin, peer_node, peer_pin)
+                } else if is_input_pin(pin)
+                    && peer_pin_object.is_some_and(|peer_pin| is_output_pin(peer_pin))
+                {
+                    (peer_node, peer_pin, node_id, this_pin)
+                } else if node_id <= peer_node {
+                    (node_id, this_pin, peer_node, peer_pin)
+                } else {
+                    (peer_node, peer_pin, node_id, this_pin)
+                };
+                let link = BlueprintGraphLink {
+                    from_node_id: from_node_id.to_string(),
+                    from_pin: from_pin.to_string(),
+                    to_node_id: to_node_id.to_string(),
+                    to_pin: to_pin.to_string(),
+                    kind: kind.to_string(),
+                };
+                let key = format!(
+                    "{}:{}>{}:{}:{}",
+                    link.from_node_id, link.from_pin, link.to_node_id, link.to_pin, link.kind
+                );
+                if seen.insert(key) {
+                    links.push(link);
+                }
+            }
+        }
+    }
+    links
+}
+
+fn node_exec_output_pin_names(node: &serde_json::Map<String, serde_json::Value>) -> Vec<String> {
+    node.get("pins")
+        .and_then(|value| value.as_array())
+        .map(|pins| {
+            pins.iter()
+                .filter_map(|value| value.as_object())
+                .filter(|pin| is_exec_pin(pin) && is_output_pin(pin))
+                .filter_map(pin_name)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn is_blueprint_entry_node(node: &serde_json::Map<String, serde_json::Value>) -> bool {
+    let text = blueprint_node_text(node);
+    text.contains("k2node_event")
+        || text.contains("k2node_customevent")
+        || text.contains("functionentry")
+        || text.contains("receivebeginplay")
+        || text.contains("event ")
+}
+
+fn is_blueprint_boundary_output_node(node: &serde_json::Map<String, serde_json::Value>) -> bool {
+    let text = blueprint_node_text(node);
+    text.contains("functionresult") || text.contains("returnnode")
+}
+
+fn is_blueprint_branch_node(
+    node: &serde_json::Map<String, serde_json::Value>,
+    outgoing: usize,
+) -> bool {
+    if outgoing > 1 {
+        return true;
+    }
+    let text = blueprint_node_text(node);
+    text.contains("branch")
+        || text.contains("ifthenelse")
+        || text.contains("switch")
+        || text.contains("select")
+}
+
+fn blueprint_effect_kind(
+    node: &serde_json::Map<String, serde_json::Value>,
+) -> Option<&'static str> {
+    let text = blueprint_node_text(node);
+    if text.contains("variableset") || text.contains("set variable") {
+        Some("variable_write")
+    } else if text.contains("callfunction") {
+        Some("function_call")
+    } else if text.contains("spawn") {
+        Some("spawn")
+    } else if text.contains("delegate") || text.contains("dispatcher") {
+        Some("event_dispatch")
+    } else {
+        None
+    }
+}
+
+fn traverse_exec_flow(
+    root_id: &str,
+    node_map: &HashMap<String, serde_json::Map<String, serde_json::Value>>,
+    links: &[BlueprintGraphLink],
+    direction: &str,
+    max_depth: usize,
+    max_nodes: usize,
+) -> (Vec<String>, Vec<BlueprintGraphLink>, bool) {
+    let mut visited = HashSet::new();
+    let mut ordered = Vec::new();
+    let mut traversed = Vec::new();
+    let mut stack = vec![(root_id.to_string(), 0usize)];
+    let allow_downstream = matches!(direction, "downstream" | "both");
+    let allow_upstream = matches!(direction, "upstream" | "both");
+    let mut truncated = false;
+    while let Some((node_id, depth)) = stack.pop() {
+        if !visited.insert(node_id.clone()) {
+            continue;
+        }
+        ordered.push(node_id.clone());
+        if ordered.len() >= max_nodes || depth >= max_depth {
+            truncated = ordered.len() >= max_nodes;
+            continue;
+        }
+        let mut next_links = Vec::new();
+        if allow_downstream {
+            next_links.extend(
+                links
+                    .iter()
+                    .filter(|link| link.kind == "exec" && link.from_node_id == node_id)
+                    .cloned(),
+            );
+        }
+        if allow_upstream {
+            next_links.extend(
+                links
+                    .iter()
+                    .filter(|link| link.kind == "exec" && link.to_node_id == node_id)
+                    .cloned(),
+            );
+        }
+        for link in next_links {
+            let next_node = if link.from_node_id == node_id {
+                &link.to_node_id
+            } else {
+                &link.from_node_id
+            };
+            if node_map.contains_key(next_node) {
+                traversed.push(link.clone());
+                stack.push((next_node.clone(), depth + 1));
+            }
+        }
+    }
+    (ordered, traversed, truncated)
+}
+
+fn traverse_data_flow(
+    root_node_id: &str,
+    root_pin: &str,
+    node_map: &HashMap<String, serde_json::Map<String, serde_json::Value>>,
+    pin_map: &HashMap<String, serde_json::Map<String, serde_json::Value>>,
+    links: &[BlueprintGraphLink],
+    direction: &str,
+    max_depth: usize,
+    max_nodes: usize,
+) -> (Vec<String>, Vec<BlueprintGraphLink>, bool) {
+    let mut visited_pins = HashSet::new();
+    let mut visited_nodes = HashSet::new();
+    let mut ordered_nodes = Vec::new();
+    let mut traversed = Vec::new();
+    let mut stack = vec![(pin_lookup_key(root_node_id, root_pin), 0usize)];
+    let allow_upstream = matches!(direction, "upstream" | "both");
+    let allow_downstream = matches!(direction, "downstream" | "both");
+    let mut truncated = false;
+
+    while let Some((key, depth)) = stack.pop() {
+        if !visited_pins.insert(key.clone()) {
+            continue;
+        }
+        let Some((node_id, pin)) = key.split_once(':') else {
+            continue;
+        };
+        if visited_nodes.insert(node_id.to_string()) {
+            ordered_nodes.push(node_id.to_string());
+            if ordered_nodes.len() >= max_nodes {
+                truncated = true;
+                continue;
+            }
+        }
+        if depth >= max_depth {
+            continue;
+        }
+
+        if allow_upstream {
+            for link in links
+                .iter()
+                .filter(|link| link.kind == "data" && link.to_key() == key)
+            {
+                traversed.push(link.clone());
+                stack.push((link.from_key(), depth + 1));
+                if let Some(source_node) = node_map.get(&link.from_node_id) {
+                    if let Some(pins) = source_node.get("pins").and_then(|value| value.as_array()) {
+                        for input_pin in pins.iter().filter_map(|value| value.as_object()) {
+                            if !is_exec_pin(input_pin) && is_input_pin(input_pin) {
+                                if let Some(name) = pin_name(input_pin) {
+                                    stack.push((
+                                        pin_lookup_key(&link.from_node_id, name),
+                                        depth + 1,
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if pin_map.get(&key).is_some_and(|pin| is_output_pin(pin))
+                && node_map.contains_key(node_id)
+            {
+                if let Some(owner) = node_map.get(node_id) {
+                    if let Some(pins) = owner.get("pins").and_then(|value| value.as_array()) {
+                        for input_pin in pins.iter().filter_map(|value| value.as_object()) {
+                            if !is_exec_pin(input_pin) && is_input_pin(input_pin) {
+                                if let Some(name) = pin_name(input_pin) {
+                                    stack.push((pin_lookup_key(node_id, name), depth + 1));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if allow_downstream {
+            for link in links
+                .iter()
+                .filter(|link| link.kind == "data" && link.from_key() == key)
+            {
+                traversed.push(link.clone());
+                stack.push((link.to_key(), depth + 1));
+                if let Some(target_node) = node_map.get(&link.to_node_id) {
+                    if let Some(pins) = target_node.get("pins").and_then(|value| value.as_array()) {
+                        for output_pin in pins.iter().filter_map(|value| value.as_object()) {
+                            if !is_exec_pin(output_pin) && is_output_pin(output_pin) {
+                                if let Some(name) = pin_name(output_pin) {
+                                    stack.push((pin_lookup_key(&link.to_node_id, name), depth + 1));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let _ = pin;
+    }
+
+    (ordered_nodes, traversed, truncated)
+}
+
+fn blueprint_graph_boundary_summary(
+    node_map: &HashMap<String, serde_json::Map<String, serde_json::Value>>,
+    exec_links: &[BlueprintGraphLink],
+) -> serde_json::Value {
+    let incoming = exec_links
+        .iter()
+        .map(|link| link.to_node_id.as_str())
+        .collect::<HashSet<_>>();
+    let outgoing = exec_links
+        .iter()
+        .map(|link| link.from_node_id.as_str())
+        .collect::<HashSet<_>>();
+    let entries = node_map
+        .iter()
+        .filter(|(id, node)| {
+            is_blueprint_entry_node(node)
+                || (!incoming.contains(id.as_str()) && outgoing.contains(id.as_str()))
+        })
+        .map(|(_, node)| compact_blueprint_node_summary(node))
+        .collect::<Vec<_>>();
+    let outputs = node_map
+        .iter()
+        .filter(|(id, node)| {
+            is_blueprint_boundary_output_node(node)
+                || (incoming.contains(id.as_str()) && !outgoing.contains(id.as_str()))
+        })
+        .map(|(_, node)| compact_blueprint_node_summary(node))
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "entries": entries,
+        "outputs": outputs,
+    })
+}
+
+fn shape_blueprint_graph_summary(
+    result: &mut serde_json::Map<String, serde_json::Value>,
+    nodes: &[serde_json::Value],
+    args: &rmcp::model::JsonObject,
+) {
+    let (node_map, pin_map) = blueprint_graph_pin_maps(nodes);
+    let links = build_blueprint_graph_links(nodes, &pin_map);
+    let exec_links = links
+        .iter()
+        .filter(|link| link.kind == "exec")
+        .cloned()
+        .collect::<Vec<_>>();
+    let incoming = exec_links
+        .iter()
+        .map(|link| link.to_node_id.as_str())
+        .collect::<HashSet<_>>();
+    let outgoing = exec_links
+        .iter()
+        .map(|link| link.from_node_id.as_str())
+        .collect::<HashSet<_>>();
+    let mut root_ids = node_map
+        .iter()
+        .filter(|(id, node)| {
+            is_blueprint_entry_node(node)
+                || (!incoming.contains(id.as_str()) && outgoing.contains(id.as_str()))
+        })
+        .map(|(id, _)| id.clone())
+        .collect::<Vec<_>>();
+    root_ids.sort();
+    let max_depth = traversal_usize(args, "maxDepth", 64);
+    let max_nodes = traversal_usize(args, "maxNodes", 250);
+    let mut covered = HashSet::new();
+    let chains = root_ids
+        .iter()
+        .filter_map(|root_id| {
+            let root_node = node_map.get(root_id)?;
+            let (ordered, traversed, truncated) = traverse_exec_flow(
+                root_id,
+                &node_map,
+                &exec_links,
+                "downstream",
+                max_depth,
+                max_nodes,
+            );
+            covered.extend(ordered.iter().cloned());
+            let branch_count = ordered
+                .iter()
+                .filter_map(|id| node_map.get(id))
+                .filter(|node| {
+                    let outgoing_count = traversed
+                        .iter()
+                        .filter(|link| link.from_node_id == blueprint_node_id(node).unwrap_or(""))
+                        .count();
+                    is_blueprint_branch_node(node, outgoing_count)
+                })
+                .count();
+            let effects = ordered
+                .iter()
+                .filter_map(|id| node_map.get(id))
+                .filter_map(|node| {
+                    blueprint_effect_kind(node).map(|kind| {
+                        serde_json::json!({
+                            "kind": kind,
+                            "node": compact_blueprint_node_summary(node),
+                        })
+                    })
+                })
+                .collect::<Vec<_>>();
+            let path = ordered
+                .iter()
+                .filter_map(|id| node_map.get(id))
+                .take(12)
+                .map(|node| {
+                    serde_json::json!({
+                        "id": blueprint_node_id(node),
+                        "label": blueprint_node_label(node),
+                    })
+                })
+                .collect::<Vec<_>>();
+            Some(serde_json::json!({
+                "root": compact_blueprint_node_summary(root_node),
+                "nodeCount": ordered.len(),
+                "linkCount": traversed.len(),
+                "branchCount": branch_count,
+                "effects": effects,
+                "path": path,
+                "truncated": truncated,
+            }))
+        })
+        .collect::<Vec<_>>();
+    let loose = node_map
+        .iter()
+        .filter(|(id, _)| !covered.contains(*id))
+        .map(|(_, node)| compact_blueprint_node_summary(node))
+        .collect::<Vec<_>>();
+    result.remove("semanticSnapshot");
+    result.insert("view".into(), serde_json::json!("summary"));
+    result.insert(
+        "boundary".into(),
+        blueprint_graph_boundary_summary(&node_map, &exec_links),
+    );
+    result.insert(
+        "roots".into(),
+        root_ids
+            .iter()
+            .filter_map(|id| node_map.get(id))
+            .map(compact_blueprint_node_summary)
+            .collect::<Vec<_>>()
+            .into(),
+    );
+    result.insert("chains".into(), chains.into());
+    result.insert("looseNodes".into(), loose.into());
+    result.insert(
+        "linkCounts".into(),
+        serde_json::json!({
+            "exec": exec_links.len(),
+            "data": links.iter().filter(|link| link.kind == "data").count(),
+        }),
+    );
+}
+
+fn shape_blueprint_exec_flow(
+    result: &mut serde_json::Map<String, serde_json::Value>,
+    nodes: &[serde_json::Value],
+    args: &rmcp::model::JsonObject,
+) {
+    let (node_map, pin_map) = blueprint_graph_pin_maps(nodes);
+    let links = build_blueprint_graph_links(nodes, &pin_map);
+    let exec_links = links
+        .iter()
+        .filter(|link| link.kind == "exec")
+        .cloned()
+        .collect::<Vec<_>>();
+    let root_id = args
+        .get("rootNode")
+        .and_then(|value| value.as_object())
+        .and_then(|node| node.get("id"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    let direction = traversal_direction(args, "downstream");
+    let (ordered, traversed, truncated) = traverse_exec_flow(
+        root_id,
+        &node_map,
+        &exec_links,
+        direction,
+        traversal_usize(args, "maxDepth", 64),
+        traversal_usize(args, "maxNodes", 250),
+    );
+    let mut open_exec_outputs = Vec::new();
+    for node in ordered.iter().filter_map(|id| node_map.get(id)) {
+        let node_id = blueprint_node_id(node).unwrap_or("").to_string();
+        for pin in node_exec_output_pin_names(node) {
+            if !traversed
+                .iter()
+                .any(|link| link.from_node_id == node_id && link.from_pin == pin)
+            {
+                open_exec_outputs.push(serde_json::json!({"nodeId": node_id, "pin": pin}));
+            }
+        }
+    }
+    result.remove("semanticSnapshot");
+    result.insert("view".into(), serde_json::json!("exec_flow"));
+    result.insert(
+        "rootNode".into(),
+        node_map
+            .get(root_id)
+            .map(compact_blueprint_node_summary)
+            .unwrap_or_else(|| serde_json::json!({"id": root_id, "missing": true})),
+    );
+    result.insert(
+        "flow".into(),
+        serde_json::json!({
+            "direction": direction,
+            "nodes": ordered
+                .iter()
+                .filter_map(|id| node_map.get(id))
+                .map(compact_blueprint_node_summary)
+                .collect::<Vec<_>>(),
+            "links": traversed.iter().map(BlueprintGraphLink::to_json).collect::<Vec<_>>(),
+            "openExecOutputs": open_exec_outputs,
+            "truncated": truncated,
+        }),
+    );
+}
+
+fn shape_blueprint_data_flow(
+    result: &mut serde_json::Map<String, serde_json::Value>,
+    nodes: &[serde_json::Value],
+    args: &rmcp::model::JsonObject,
+) {
+    let (node_map, pin_map) = blueprint_graph_pin_maps(nodes);
+    let links = build_blueprint_graph_links(nodes, &pin_map);
+    let data_links = links
+        .iter()
+        .filter(|link| link.kind == "data")
+        .cloned()
+        .collect::<Vec<_>>();
+    let root_pin_object = args.get("rootPin").and_then(|value| value.as_object());
+    let root_node_id = root_pin_object
+        .and_then(|root| root.get("node"))
+        .and_then(|value| value.as_object())
+        .and_then(|node| node.get("id"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    let root_pin = root_pin_object
+        .and_then(|root| root.get("pin"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    let direction = traversal_direction(args, "upstream");
+    let (ordered, traversed, truncated) = traverse_data_flow(
+        root_node_id,
+        root_pin,
+        &node_map,
+        &pin_map,
+        &data_links,
+        direction,
+        traversal_usize(args, "maxDepth", 64),
+        traversal_usize(args, "maxNodes", 250),
+    );
+    let traversed_to_keys = traversed
+        .iter()
+        .map(BlueprintGraphLink::to_key)
+        .collect::<HashSet<_>>();
+    let mut open_inputs = Vec::new();
+    for node in ordered.iter().filter_map(|id| node_map.get(id)) {
+        let node_id = blueprint_node_id(node).unwrap_or("").to_string();
+        let Some(pins) = node.get("pins").and_then(|value| value.as_array()) else {
+            continue;
+        };
+        for pin in pins.iter().filter_map(|value| value.as_object()) {
+            if is_exec_pin(pin) || !is_input_pin(pin) {
+                continue;
+            }
+            let Some(name) = pin_name(pin) else {
+                continue;
+            };
+            let key = pin_lookup_key(&node_id, name);
+            if !traversed_to_keys.contains(&key) {
+                open_inputs.push(serde_json::json!({"nodeId": node_id, "pin": name}));
+            }
+        }
+    }
+    result.remove("semanticSnapshot");
+    result.insert("view".into(), serde_json::json!("data_flow"));
+    result.insert(
+        "rootPin".into(),
+        serde_json::json!({"node": {"id": root_node_id}, "pin": root_pin}),
+    );
+    result.insert(
+        "dataFlow".into(),
+        serde_json::json!({
+            "direction": direction,
+            "nodes": ordered
+                .iter()
+                .filter_map(|id| node_map.get(id))
+                .map(compact_blueprint_node_summary)
+                .collect::<Vec<_>>(),
+            "links": traversed.iter().map(BlueprintGraphLink::to_json).collect::<Vec<_>>(),
+            "openInputs": open_inputs,
+            "truncated": truncated,
+        }),
+    );
+}
+
 fn shape_blueprint_graph_inspect_result(
     result: &mut serde_json::Map<String, serde_json::Value>,
     args: &rmcp::model::JsonObject,
 ) {
     let view = blueprint_graph_inspect_view(args);
-    let include_pin_defaults = false;
-    let include_connections = view == "wiring";
-    let include_comments = false;
+    let nodes = result
+        .get("semanticSnapshot")
+        .and_then(|value| value.as_object())
+        .and_then(|snapshot| snapshot.get("nodes"))
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
 
-    if let Some(snapshot) = result
-        .get_mut("semanticSnapshot")
-        .and_then(|value| value.as_object_mut())
-    {
-        if let Some(nodes) = snapshot
-            .get_mut("nodes")
-            .and_then(|value| value.as_array_mut())
-        {
-            for node in nodes {
-                if let Some(node_object) = node.as_object() {
-                    *node = compact_blueprint_graph_node(
-                        node_object,
-                        view,
-                        include_pin_defaults,
-                        include_connections,
-                        include_comments,
-                    );
-                }
-            }
-        }
-        if !include_connections {
-            snapshot.insert("edges".to_string(), serde_json::json!([]));
-        }
+    match view {
+        "exec_flow" => shape_blueprint_exec_flow(result, &nodes, args),
+        "data_flow" => shape_blueprint_data_flow(result, &nodes, args),
+        _ => shape_blueprint_graph_summary(result, &nodes, args),
     }
 
     if let Some(meta) = result
@@ -5304,7 +6053,7 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("blueprint.member.inspect", "Inspect Blueprint members such as variables, functions, macros, dispatchers, events, and components.", Arc::new(blueprint_member_inspect_schema())),
         Tool::new("blueprint.member.edit", "Edit Blueprint members such as variables, functions, macros, dispatchers, events, and components.", Arc::new(blueprint_member_edit_schema())),
         Tool::new("blueprint.graph.list", "List Blueprint graphs in an asset.", Arc::new(blueprint_graph_list_schema())),
-        Tool::new("blueprint.graph.inspect", "Read graph, node, pin, and link data from a Blueprint graph.", Arc::new(blueprint_graph_inspect_schema())),
+        Tool::new("blueprint.graph.inspect", "Read Blueprint graph summary, execution-flow, and data-flow views.", Arc::new(blueprint_graph_inspect_schema())),
         Tool::new("blueprint.graph.edit", "Apply explicit local graph edit commands to a Blueprint graph.", Arc::new(blueprint_graph_edit_schema())),
         Tool::new("blueprint.graph.layout", "Format a selected Blueprint graph region without changing graph semantics.", Arc::new(blueprint_graph_layout_schema())),
         Tool::new("blueprint.node.inspect", "Inspect one Blueprint graph node for pins, defaults, node-local state, and edit capabilities.", Arc::new(blueprint_node_inspect_schema())),
@@ -6490,20 +7239,35 @@ fn blueprint_graph_inspect_schema() -> rmcp::model::JsonObject {
         "properties":{
             "assetPath":{"type":"string","minLength":1},
             "graph": graph_ref_schema(),
-            "view":{"type":"string","enum":["overview","wiring"],"default":"overview","description":"Task-oriented result view. overview omits pins and edges and marks nodes that should be inspected with blueprint.node.inspect; wiring adds compact pins and link refs for connection planning. Pin-local linkedTo is reciprocal UE peer data; links carries normalized from/output -> to/input fields when possible. Use blueprint.node.inspect for pin defaults and node-local capabilities."},
-            "filter":{
+            "view":{"type":"string","enum":["summary","exec_flow","data_flow"],"default":"summary","description":"Task-oriented result view. summary returns graph boundary, entry/root nodes, and exec chain summaries. exec_flow traces execution links from rootNode.id. data_flow traces data links from rootPin.node.id/rootPin.pin. Use blueprint.node.inspect for exact pins, defaults, and wiring preparation."},
+            "rootNode":{
                 "type":"object",
                 "properties":{
-                    "nodeIds":{"type":"array","items":{"type":"string"}},
-                    "text":{"type":"string","minLength":1}
+                    "id":{"type":"string","minLength":1}
                 },
+                "required":["id"],
                 "additionalProperties": false
             },
-            "page":{
+            "rootPin":{
                 "type":"object",
                 "properties":{
-                    "limit":{"type":"integer","minimum":1,"maximum":1000,"default":50},
-                    "cursor":{"type":"string"}
+                    "node":{
+                        "type":"object",
+                        "properties":{"id":{"type":"string","minLength":1}},
+                        "required":["id"],
+                        "additionalProperties": false
+                    },
+                    "pin":{"type":"string","minLength":1}
+                },
+                "required":["node","pin"],
+                "additionalProperties": false
+            },
+            "traversal":{
+                "type":"object",
+                "properties":{
+                    "direction":{"type":"string","enum":["upstream","downstream","both"],"description":"exec_flow defaults to downstream; data_flow defaults to upstream."},
+                    "maxDepth":{"type":"integer","minimum":1,"maximum":128,"default":64},
+                    "maxNodes":{"type":"integer","minimum":1,"maximum":1000,"default":250}
                 },
                 "additionalProperties": false
             }
@@ -11135,13 +11899,28 @@ mod tests {
     }
 
     #[test]
-    fn blueprint_graph_inspect_overview_view_prunes_heavy_node_fields() {
+    fn blueprint_graph_inspect_summary_returns_roots_and_chain_summaries() {
         let mut result = serde_json::json!({
             "semanticSnapshot": {
                 "nodes": [
                     {
-                        "id": "node-1",
-                        "guid": "node-1",
+                        "id": "event",
+                        "guid": "event",
+                        "className": "K2Node_Event",
+                        "nodeClassPath": "/Script/BlueprintGraph.K2Node_Event",
+                        "title": "Event BeginPlay",
+                        "pins": [
+                            {
+                                "name": "Then",
+                                "direction": "output",
+                                "category": "exec",
+                                "linkedTo": [{ "nodeGuid": "print", "pin": "execute" }]
+                            }
+                        ]
+                    },
+                    {
+                        "id": "print",
+                        "guid": "print",
                         "className": "K2Node_CallFunction",
                         "classPath": "/Script/BlueprintGraph.K2Node_CallFunction",
                         "nodeClassPath": "/Script/BlueprintGraph.K2Node_CallFunction",
@@ -11152,18 +11931,21 @@ mod tests {
                         "layout": { "x": 10, "y": 20, "source": "model" },
                         "pins": [
                             {
+                                "name": "execute",
+                                "direction": "input",
+                                "category": "exec",
+                                "linkedTo": [{ "nodeGuid": "event", "pin": "Then" }]
+                            },
+                            {
                                 "name": "InString",
                                 "direction": "input",
                                 "category": "string",
-                                "defaultValue": "Hello",
-                                "default": { "value": "Hello" },
-                                "linkedTo": [{ "nodeGuid": "node-2", "pin": "Then" }],
-                                "links": [{ "toNodeId": "node-2", "toPin": "Then" }]
+                                "defaultValue": "Hello"
                             }
                         ]
                     }
                 ],
-                "edges": [{ "fromNodeId": "node-1", "toNodeId": "node-2" }]
+                "edges": []
             },
             "meta": {}
         })
@@ -11174,56 +11956,70 @@ mod tests {
 
         shape_blueprint_graph_inspect_result(&mut result, &args);
 
-        let node = result
-            .get("semanticSnapshot")
-            .and_then(|value| value.get("nodes"))
+        assert!(result.get("semanticSnapshot").is_none());
+        assert_eq!(
+            result.get("view").and_then(|value| value.as_str()),
+            Some("summary")
+        );
+        let root = result
+            .get("roots")
             .and_then(|value| value.as_array())
             .and_then(|nodes| nodes.first())
             .and_then(|value| value.as_object())
-            .expect("node");
-        assert!(node.contains_key("id"));
-        assert!(node.contains_key("position"));
-        assert!(!node.contains_key("pins"));
-        assert!(!node.contains_key("path"));
-        assert!(!node.contains_key("nodeTitleFull"));
+            .expect("root");
         assert_eq!(
-            result
-                .get("semanticSnapshot")
-                .and_then(|value| value.get("edges"))
-                .and_then(|value| value.as_array())
-                .map(Vec::len),
-            Some(0)
+            root.get("id").and_then(|value| value.as_str()),
+            Some("event")
         );
+        assert!(!root.contains_key("pins"));
+        let chain = result
+            .get("chains")
+            .and_then(|value| value.as_array())
+            .and_then(|chains| chains.first())
+            .and_then(|value| value.as_object())
+            .expect("chain");
         assert_eq!(
-            result
-                .get("meta")
-                .and_then(|value| value.get("view"))
-                .and_then(|value| value.as_str()),
-            Some("overview")
+            chain.get("nodeCount").and_then(|value| value.as_u64()),
+            Some(2)
         );
     }
 
     #[test]
-    fn blueprint_graph_inspect_wiring_view_includes_links_without_defaults() {
+    fn blueprint_graph_inspect_exec_flow_traces_from_root_node() {
         let mut result = serde_json::json!({
             "semanticSnapshot": {
                 "nodes": [
                     {
-                        "id": "node-1",
+                        "id": "event",
+                        "guid": "event",
+                        "className": "K2Node_Event",
                         "pins": [
                             {
-                                "name": "InString",
+                                "name": "Then",
+                                "direction": "output",
+                                "category": "exec",
+                                "linkedTo": [{ "nodeGuid": "print", "pin": "execute" }]
+                            }
+                        ]
+                    },
+                    {
+                        "id": "print",
+                        "guid": "print",
+                        "className": "K2Node_CallFunction",
+                        "title": "Print String",
+                        "hasNodeEditCapabilities": true,
+                        "inspectWith": "blueprint.node.inspect",
+                        "pins": [
+                            {
+                                "name": "execute",
                                 "direction": "input",
-                                "category": "string",
-                                "defaultValue": "Hello",
-                                "default": { "value": "Hello" },
-                                "linkedTo": [{ "nodeGuid": "node-2", "pin": "Then" }],
-                                "links": [{ "toNodeId": "node-2", "toPin": "Then" }]
+                                "category": "exec",
+                                "linkedTo": [{ "nodeGuid": "event", "pin": "Then" }]
                             }
                         ]
                     }
                 ],
-                "edges": [{ "fromNodeId": "node-1", "toNodeId": "node-2" }]
+                "edges": []
             },
             "meta": {}
         })
@@ -11231,28 +12027,31 @@ mod tests {
         .cloned()
         .expect("object");
         let mut args = JsonObject::new();
-        args.insert("view".into(), serde_json::json!("wiring"));
+        args.insert("view".into(), serde_json::json!("exec_flow"));
+        args.insert("rootNode".into(), serde_json::json!({"id":"event"}));
 
         shape_blueprint_graph_inspect_result(&mut result, &args);
 
-        let pin = result
-            .get("semanticSnapshot")
+        let nodes = result
+            .get("flow")
             .and_then(|value| value.get("nodes"))
             .and_then(|value| value.as_array())
-            .and_then(|nodes| nodes.first())
-            .and_then(|value| value.get("pins"))
-            .and_then(|value| value.as_array())
-            .and_then(|pins| pins.first())
-            .and_then(|value| value.as_object())
-            .expect("pin");
-        assert!(!pin.contains_key("defaultValue"));
-        assert!(!pin.contains_key("default"));
-        assert!(pin.contains_key("linkedTo"));
-        assert!(pin.contains_key("links"));
+            .expect("flow nodes");
+        assert_eq!(nodes.len(), 2);
+        let print = nodes
+            .iter()
+            .filter_map(|value| value.as_object())
+            .find(|node| node.get("id").and_then(|value| value.as_str()) == Some("print"))
+            .expect("print node");
+        assert_eq!(
+            print.get("inspectWith").and_then(|value| value.as_str()),
+            Some("blueprint.node.inspect")
+        );
+        assert!(print.get("pins").is_none());
         assert_eq!(
             result
-                .get("semanticSnapshot")
-                .and_then(|value| value.get("edges"))
+                .get("flow")
+                .and_then(|value| value.get("links"))
                 .and_then(|value| value.as_array())
                 .map(Vec::len),
             Some(1)
@@ -11260,7 +12059,73 @@ mod tests {
     }
 
     #[test]
-    fn blueprint_graph_inspect_schema_declares_view_filter_and_page() {
+    fn blueprint_graph_inspect_data_flow_traces_pin_sources() {
+        let mut result = serde_json::json!({
+            "semanticSnapshot": {
+                "nodes": [
+                    {
+                        "id": "make",
+                        "guid": "make",
+                        "className": "K2Node_CallFunction",
+                        "title": "Make String",
+                        "pins": [
+                            {
+                                "name": "ReturnValue",
+                                "direction": "output",
+                                "category": "string",
+                                "linkedTo": [{ "nodeGuid": "print", "pin": "InString" }]
+                            }
+                        ]
+                    },
+                    {
+                        "id": "print",
+                        "guid": "print",
+                        "className": "K2Node_CallFunction",
+                        "title": "Print String",
+                        "pins": [
+                            {
+                                "name": "InString",
+                                "direction": "input",
+                                "category": "string",
+                                "linkedTo": [{ "nodeGuid": "make", "pin": "ReturnValue" }]
+                            }
+                        ]
+                    }
+                ],
+                "edges": []
+            },
+            "meta": {}
+        })
+        .as_object()
+        .cloned()
+        .expect("object");
+        let mut args = JsonObject::new();
+        args.insert("view".into(), serde_json::json!("data_flow"));
+        args.insert(
+            "rootPin".into(),
+            serde_json::json!({"node":{"id":"print"},"pin":"InString"}),
+        );
+
+        shape_blueprint_graph_inspect_result(&mut result, &args);
+
+        let links = result
+            .get("dataFlow")
+            .and_then(|value| value.get("links"))
+            .and_then(|value| value.as_array())
+            .expect("data links");
+        assert_eq!(links.len(), 1);
+        assert_eq!(
+            links[0].get("fromNodeId").and_then(|value| value.as_str()),
+            Some("make")
+        );
+        assert_eq!(
+            result.get("view").and_then(|value| value.as_str()),
+            Some("data_flow")
+        );
+    }
+
+    #[test]
+    fn blueprint_graph_inspect_schema_declares_flow_views_and_roots() {
         let schema = blueprint_graph_inspect_schema();
         let view_enum = schema
             .get("properties")
@@ -11272,14 +12137,18 @@ mod tests {
             .iter()
             .filter_map(|value| value.as_str())
             .collect::<std::collections::HashSet<_>>();
-        assert!(values.contains("overview"));
-        assert!(values.contains("wiring"));
-        assert_eq!(values.len(), 2);
+        assert!(values.contains("summary"));
+        assert!(values.contains("exec_flow"));
+        assert!(values.contains("data_flow"));
+        assert_eq!(values.len(), 3);
         assert!(schema
             .get("properties")
             .and_then(|value| value.as_object())
-            .is_some_and(|properties| properties.contains_key("filter")
-                && properties.contains_key("page")
+            .is_some_and(|properties| properties.contains_key("rootNode")
+                && properties.contains_key("rootPin")
+                && properties.contains_key("traversal")
+                && !properties.contains_key("filter")
+                && !properties.contains_key("page")
                 && !properties.contains_key("graphName")
                 && !properties.contains_key("nodeIds")
                 && !properties.contains_key("nodeClasses")
@@ -11290,19 +12159,11 @@ mod tests {
     }
 
     #[test]
-    fn blueprint_graph_inspect_translates_view_filter_and_page() {
+    fn blueprint_graph_inspect_translates_to_full_connected_runtime_snapshot() {
         let mut args = JsonObject::new();
         args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
         args.insert("graph".into(), serde_json::json!({"name":"EventGraph"}));
-        args.insert("view".into(), serde_json::json!("wiring"));
-        args.insert(
-            "filter".into(),
-            serde_json::json!({"nodeIds":["node-1"],"text":"Print"}),
-        );
-        args.insert(
-            "page".into(),
-            serde_json::json!({"limit":10,"cursor":"offset:10"}),
-        );
+        args.insert("view".into(), serde_json::json!("summary"));
 
         let translated = translate_blueprint_graph_inspect_args(&args).expect("translated args");
         assert_eq!(
@@ -11310,19 +12171,8 @@ mod tests {
             Some("EventGraph")
         );
         assert_eq!(
-            translated
-                .get("nodeIds")
-                .and_then(|value| value.as_array())
-                .map(Vec::len),
-            Some(1)
-        );
-        assert_eq!(
-            translated.get("text").and_then(|value| value.as_str()),
-            Some("Print")
-        );
-        assert_eq!(
             translated.get("limit").and_then(|value| value.as_i64()),
-            Some(10)
+            Some(10000)
         );
         assert_eq!(
             translated
@@ -11339,83 +12189,6 @@ mod tests {
     }
 
     #[test]
-    fn blueprint_graph_inspect_preserves_bridge_node_edit_route() {
-        let mut result = serde_json::json!({
-            "semanticSnapshot": {
-                "nodes": [
-                    {
-                        "id": "switch-node",
-                        "className": "K2Node_SwitchName",
-                        "nodeClassPath": "/Script/BlueprintGraph.K2Node_SwitchName",
-                        "title": "Switch on Name",
-                        "hasNodeEditCapabilities": true,
-                        "inspectWith": "blueprint.node.inspect"
-                    }
-                ],
-                "edges": []
-            },
-            "meta": {}
-        })
-        .as_object()
-        .cloned()
-        .expect("object");
-        let args = JsonObject::new();
-
-        shape_blueprint_graph_inspect_result(&mut result, &args);
-
-        let node = result
-            .get("semanticSnapshot")
-            .and_then(|value| value.get("nodes"))
-            .and_then(|value| value.as_array())
-            .and_then(|nodes| nodes.first())
-            .and_then(|value| value.as_object())
-            .expect("node");
-        assert_eq!(
-            node.get("hasNodeEditCapabilities")
-                .and_then(|value| value.as_bool()),
-            Some(true)
-        );
-        assert_eq!(
-            node.get("inspectWith").and_then(|value| value.as_str()),
-            Some("blueprint.node.inspect")
-        );
-    }
-
-    #[test]
-    fn blueprint_graph_inspect_does_not_guess_node_edit_route_from_class_name() {
-        let mut result = serde_json::json!({
-            "semanticSnapshot": {
-                "nodes": [
-                    {
-                        "id": "switch-node",
-                        "className": "K2Node_SwitchName",
-                        "nodeClassPath": "/Script/BlueprintGraph.K2Node_SwitchName",
-                        "title": "Switch on Name"
-                    }
-                ],
-                "edges": []
-            },
-            "meta": {}
-        })
-        .as_object()
-        .cloned()
-        .expect("object");
-        let args = JsonObject::new();
-
-        shape_blueprint_graph_inspect_result(&mut result, &args);
-
-        let node = result
-            .get("semanticSnapshot")
-            .and_then(|value| value.get("nodes"))
-            .and_then(|value| value.as_array())
-            .and_then(|nodes| nodes.first())
-            .and_then(|value| value.as_object())
-            .expect("node");
-        assert!(node.get("hasNodeEditCapabilities").is_none());
-        assert!(node.get("inspectWith").is_none());
-    }
-
-    #[test]
     fn blueprint_graph_inspect_rejects_legacy_top_level_query_args() {
         let mut args = JsonObject::new();
         args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
@@ -11428,6 +12201,29 @@ mod tests {
             payload.get("code").and_then(|value| value.as_str()),
             Some("INVALID_ARGUMENT")
         );
+    }
+
+    #[test]
+    fn blueprint_graph_inspect_requires_roots_for_flow_views() {
+        let mut exec_args = JsonObject::new();
+        exec_args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        exec_args.insert("graph".into(), serde_json::json!({"name":"EventGraph"}));
+        exec_args.insert("view".into(), serde_json::json!("exec_flow"));
+        assert!(validate_blueprint_graph_inspect_args(&exec_args).is_err());
+
+        let mut data_args = JsonObject::new();
+        data_args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        data_args.insert("graph".into(), serde_json::json!({"name":"EventGraph"}));
+        data_args.insert("view".into(), serde_json::json!("data_flow"));
+        assert!(validate_blueprint_graph_inspect_args(&data_args).is_err());
+
+        exec_args.insert("rootNode".into(), serde_json::json!({"id":"event"}));
+        data_args.insert(
+            "rootPin".into(),
+            serde_json::json!({"node":{"id":"print"},"pin":"InString"}),
+        );
+        assert!(validate_blueprint_graph_inspect_args(&exec_args).is_ok());
+        assert!(validate_blueprint_graph_inspect_args(&data_args).is_ok());
     }
 
     #[test]

@@ -128,16 +128,16 @@ def query_blueprint_revision_and_node_count(client: McpStdioClient, request_id: 
         client,
         request_id,
         "blueprint.graph.inspect",
-        {"assetPath": asset_path, "graphName": "EventGraph", "limit": 200},
+        {"assetPath": asset_path, "graph": {"name": "EventGraph"}, "view": "summary"},
     )
     revision = payload.get("revision")
-    snapshot = payload.get("semanticSnapshot")
-    nodes = snapshot.get("nodes") if isinstance(snapshot, dict) else None
+    meta = payload.get("meta")
+    total_nodes = meta.get("totalNodes") if isinstance(meta, dict) else None
     if not isinstance(revision, str) or not revision:
         raise BlueprintNegativeSuiteError("query_gap", f"blueprint query missing revision: {compact_json(payload)}")
-    if not isinstance(nodes, list):
-        raise BlueprintNegativeSuiteError("query_gap", f"blueprint query missing nodes[]: {compact_json(payload)}")
-    return revision, len(nodes)
+    if not isinstance(total_nodes, int):
+        raise BlueprintNegativeSuiteError("query_gap", f"blueprint query missing meta.totalNodes: {compact_json(payload)}")
+    return revision, total_nodes
 
 
 def add_branch_node(client: McpStdioClient, request_id: int, *, asset_path: str, client_ref: str = "branch_node") -> str:

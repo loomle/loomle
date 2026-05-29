@@ -486,12 +486,11 @@ Recommended `kind` values:
 Notes:
 
 - `nodeTypeId` points to the corresponding `NodeType`.
-- `blueprint.graph.inspect` should default to an overview node snapshot. Pins
-  are returned when callers request `view="pins"`, `view="links"`,
-  `view="defaults"`, or `view="full"`.
-- Default graph inspection should optimize for orientation and node selection;
-  targeted edit preparation can request pins, pin defaults, or links explicitly
-  through `view`.
+- `blueprint.graph.inspect` defaults to `view="summary"` for graph
+  orientation. It does not expose a raw node-list view.
+- Exact pin names, pin defaults, and connection details are read through
+  `blueprint.node.inspect` after `blueprint.graph.inspect` identifies the
+  relevant node or flow.
 
 ### GraphPin
 
@@ -853,24 +852,21 @@ Recommended request shape:
 {
   "assetPath": "/Game/Example/BP_Test",
   "graph": { "name": "EventGraph" },
-  "view": "overview",
-  "filter": {
-    "nodeIds": ["..."],
-    "text": "Print"
-  },
-  "page": {
-    "limit": 50,
-    "cursor": "offset:50"
-  }
+  "view": "summary"
 }
 ```
 
 Recommended views:
 
-- `overview` returns graph metadata and compact node summaries. This is the
-  default and omits pins, pin defaults, comments, and links.
-- `wiring` adds compact pins, top-level `semanticSnapshot.edges`, and pin-local
-  `linkedTo` / `links` arrays for connection-oriented edits.
+- `summary` is the default graph orientation view. It returns graph boundary,
+  entry/root nodes, chain summaries, loose nodes, and exec/data link counts.
+- `exec_flow` requires `rootNode.id` and traces execution links from that node.
+- `data_flow` requires `rootPin.node.id` plus `rootPin.pin` and traces data
+  dependencies for that pin. It defaults to upstream traversal.
+
+`wiring` is intentionally not a `blueprint.graph.inspect` view. Exact pin
+names, defaults, and link details for connection-oriented edits belong to
+`blueprint.node.inspect` after the relevant node is known.
 
 Readability notes:
 
@@ -885,17 +881,6 @@ Readability notes:
 - `UK2Node_Timeline` exposes template-level summary where available, but
   authored curve keyframes and interpolation remain a separate deeper readback
   concern until Timeline curve serialization is added.
-
-Recommended filters:
-
-- `filter.nodeIds` selects exact nodes.
-- `filter.text` performs a coarse node text search over title, name, id, and
-  class path.
-
-`nodeClasses` is intentionally not part of the public query model. Class-based
-matching is too implementation-oriented for the primary graph inspect surface;
-callers should use `filter.text` for coarse discovery and `filter.nodeIds` for
-precise follow-up inspection.
 
 ## blueprint.node.inspect and blueprint.node.edit
 

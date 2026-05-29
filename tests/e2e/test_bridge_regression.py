@@ -36,29 +36,19 @@ def blueprint_graph_inspect_args(arguments: dict) -> dict:
     if "graph" not in normalized and isinstance(graph_name, str) and graph_name:
         normalized["graph"] = {"name": graph_name}
 
-    page: dict = {}
     for key in ("limit", "cursor"):
-        value = normalized.pop(key, None)
-        if value not in (None, ""):
-            page[key] = value
-    if page:
-        normalized["page"] = page
-
-    filter_args = dict(normalized.get("filter", {})) if isinstance(normalized.get("filter"), dict) else {}
-    node_ids = normalized.pop("nodeIds", None)
-    if isinstance(node_ids, list) and node_ids:
-        filter_args["nodeIds"] = node_ids
-    text = normalized.pop("text", None)
-    if isinstance(text, str) and text:
-        filter_args["text"] = text
-    if filter_args:
-        normalized["filter"] = filter_args
+        normalized.pop(key, None)
+    normalized.pop("filter", None)
+    normalized.pop("nodeIds", None)
+    normalized.pop("text", None)
 
     include_connections = normalized.pop("includeConnections", None)
     normalized.pop("layoutDetail", None)
     normalized.pop("includePinDefaults", None)
     if "view" not in normalized:
-        normalized["view"] = "wiring" if include_connections is True else "overview"
+        normalized["view"] = "summary"
+    if include_connections is True and normalized.get("view") == "summary":
+        normalized["view"] = "summary"
     return normalized
 
 
@@ -986,13 +976,7 @@ def query_nodes(
     payload: dict | None = None
     for attempt in range(1, max_attempts + 1):
         try:
-            payload = call_domain_tool(
-                client,
-                request_id,
-                "blueprint",
-                "query",
-                {"assetPath": asset_path, "graphName": graph_name, "limit": 200},
-            )
+            payload = query_blueprint_graph_summary(client, request_id, asset_path, graph_name)
             break
         except SystemExit:
             if attempt >= max_attempts:
@@ -1003,11 +987,7 @@ def query_nodes(
     if payload is None:
         fail("blueprint.graph.inspect retry loop ended without payload")
 
-    snapshot = payload.get("semanticSnapshot", {})
-    nodes = snapshot.get("nodes")
-    if not isinstance(nodes, list):
-        fail(f"blueprint.graph.inspect missing nodes[]: {payload}")
-    return [node for node in nodes if isinstance(node, dict)]
+    return blueprint_summary_nodes(payload)
 
 
 def query_snapshot(
@@ -1020,8 +1000,12 @@ def query_snapshot(
     domain = require_graph_domain(graph_type)
     arguments = {"assetPath": asset_path, "limit": 200}
     if domain == "blueprint" and graph_name is not None:
-        arguments["graphName"] = graph_name
-        arguments["view"] = "wiring"
+        payload = query_blueprint_graph_summary(client, request_id, asset_path, graph_name)
+        return {
+            "nodes": blueprint_summary_nodes(payload),
+            "edges": [],
+            "meta": payload.get("meta", {}),
+        }
     payload = call_domain_tool(
         client,
         request_id,
@@ -1049,6 +1033,69 @@ def query_snapshot(
         if meta.get("totalEdges") != len(edges):
             fail(f"{domain}.query totalEdges mismatch for non-truncated response: payload={payload}")
     return snapshot
+
+
+def query_blueprint_graph_summary(
+    client: McpStdioClient,
+    request_id: int,
+    asset_path: str,
+    graph_name: str,
+) -> dict:
+    payload = call_tool(
+        client,
+        request_id,
+        "blueprint.graph.inspect",
+        {"assetPath": asset_path, "graph": {"name": graph_name}, "view": "summary"},
+    )
+    if payload.get("view") != "summary":
+        fail(f"blueprint.graph.inspect summary returned wrong view: {payload}")
+    if not isinstance(payload.get("meta"), dict):
+        fail(f"blueprint.graph.inspect summary missing meta: {payload}")
+    return payload
+
+
+def blueprint_total_nodes(payload: dict) -> int:
+    meta = payload.get("meta")
+    value = meta.get("totalNodes") if isinstance(meta, dict) else None
+    if not isinstance(value, int):
+        fail(f"blueprint.graph.inspect summary missing meta.totalNodes: {payload}")
+    return value
+
+
+def inspect_blueprint_node(
+    client: McpStdioClient,
+    request_id: int,
+    asset_path: str,
+    graph_name: str,
+    node_id: str,
+    *,
+    expect_error: bool = False,
+) -> dict:
+    payload = call_tool(
+        client,
+        request_id,
+        "blueprint.node.inspect",
+        {"assetPath": asset_path, "graph": {"name": graph_name}, "node": {"id": node_id}},
+        expect_error=expect_error,
+    )
+    if not expect_error and not isinstance(payload.get("node"), dict):
+        fail(f"blueprint.node.inspect missing node: {payload}")
+    return payload
+
+
+def blueprint_summary_nodes(payload: dict) -> list[dict]:
+    nodes: list[dict] = []
+    for key in ("roots", "looseNodes"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            nodes.extend(item for item in value if isinstance(item, dict))
+    boundary = payload.get("boundary")
+    if isinstance(boundary, dict):
+        for key in ("entries", "outputs"):
+            value = boundary.get(key)
+            if isinstance(value, list):
+                nodes.extend(item for item in value if isinstance(item, dict))
+    return nodes
 
 
 def wait_for_job_terminal(
@@ -1112,19 +1159,20 @@ def query_graph_payload(
     cursor: str = "",
     view: str = "overview",
 ) -> dict:
+    if view in {"overview", "wiring"}:
+        view = "summary"
     arguments: dict[str, object] = {
         "assetPath": asset_path,
         "graphName": graph_name,
-        "limit": limit,
         "view": view,
     }
-    if cursor:
+    if view == "summary":
+        pass
+    elif cursor:
         arguments["cursor"] = cursor
     payload = call_domain_tool(client, request_id, "blueprint", "query", arguments)
-    if not isinstance(payload.get("semanticSnapshot"), dict):
-        fail(f"blueprint.graph.inspect missing semanticSnapshot for pagination test: {payload}")
     if not isinstance(payload.get("meta"), dict):
-        fail(f"blueprint.graph.inspect missing meta for pagination test: {payload}")
+        fail(f"blueprint.graph.inspect missing meta: {payload}")
     return payload
 
 
@@ -1742,15 +1790,13 @@ def main() -> int:
             {
                 "assetPath": temp_asset,
                 "graphName": "EventGraph",
-                "limit": 200,
-                "view": "wiring",
+                "view": "summary",
             },
         )
-        snapshot = graph_query.get("semanticSnapshot")
-        if not isinstance(snapshot, dict):
-            fail(f"blueprint.graph.inspect missing semanticSnapshot: {graph_query}")
-        if not isinstance(snapshot.get("nodes"), list) or not isinstance(snapshot.get("edges"), list):
-            fail(f"blueprint.graph.inspect invalid semanticSnapshot shape: {snapshot}")
+        if graph_query.get("view") != "summary":
+            fail(f"blueprint.graph.inspect summary view mismatch: {graph_query}")
+        if not isinstance(graph_query.get("roots"), list) or not isinstance(graph_query.get("chains"), list):
+            fail(f"blueprint.graph.inspect invalid summary shape: {graph_query}")
         query_meta = graph_query.get("meta")
         if not isinstance(query_meta, dict):
             fail(f"blueprint.graph.inspect missing meta: {graph_query}")
@@ -2438,19 +2484,19 @@ def main() -> int:
             client,
             6525,
             "blueprint.graph.inspect",
-            {"assetPath": temp_asset, "graph": {"name": "ComputeValueRenamed"}, "view": "wiring"},
+            {"assetPath": temp_asset, "graph": {"name": "ComputeValueRenamed"}, "view": "summary"},
         )
         guard_graph_payload = call_tool(
             client,
             6526,
             "blueprint.graph.inspect",
-            {"assetPath": temp_asset, "graph": {"name": "GuardMacroRenamed"}, "view": "wiring"},
+            {"assetPath": temp_asset, "graph": {"name": "GuardMacroRenamed"}, "view": "summary"},
         )
         dispatcher_graph_payload = call_tool(
             client,
             6527,
             "blueprint.graph.inspect",
-            {"assetPath": temp_asset, "graph": {"name": "OnReadyChanged"}, "view": "wiring"},
+            {"assetPath": temp_asset, "graph": {"name": "OnReadyChanged"}, "view": "summary"},
         )
         deleted_dispatcher_graph = call_tool(
             client,
@@ -2536,11 +2582,13 @@ def main() -> int:
             fail(f"member.edit function graph state mismatch: {graph_list_payload}")
         if "GuardMacroRenamed" not in graph_names or "TempDeleteMacro" in graph_names:
             fail(f"member.edit macro graph state mismatch: {graph_list_payload}")
-        compute_nodes = compute_graph_payload.get("semanticSnapshot", {}).get("nodes", [])
+        compute_nodes = blueprint_summary_nodes(compute_graph_payload)
         compute_entry = next((node for node in compute_nodes if node.get("className") == "K2Node_FunctionEntry"), None)
         compute_result = next((node for node in compute_nodes if node.get("className") == "K2Node_FunctionResult"), None)
         if not isinstance(compute_entry, dict) or not isinstance(compute_result, dict):
             fail(f"member.edit function graph inspect missing entry/result nodes: {compute_graph_payload}")
+        compute_entry = inspect_blueprint_node(client, 65251, temp_asset, "ComputeValueRenamed", compute_entry["id"]).get("node", {})
+        compute_result = inspect_blueprint_node(client, 65252, temp_asset, "ComputeValueRenamed", compute_result["id"]).get("node", {})
         compute_input_pins = [
             pin.get("name")
             for pin in compute_entry.get("pins", [])
@@ -2558,7 +2606,7 @@ def main() -> int:
             fail(f"member.edit pure function flag mismatch: {compute_graph_payload}")
         if compute_boundary.get("isConst") is not True:
             fail(f"member.edit const function flag mismatch: {compute_graph_payload}")
-        guard_nodes = guard_graph_payload.get("semanticSnapshot", {}).get("nodes", [])
+        guard_nodes = blueprint_summary_nodes(guard_graph_payload)
         guard_entry = next(
             (
                 node
@@ -2569,6 +2617,7 @@ def main() -> int:
         )
         if not isinstance(guard_entry, dict):
             fail(f"member.edit macro graph inspect missing input tunnel: {guard_graph_payload}")
+        guard_entry = inspect_blueprint_node(client, 65261, temp_asset, "GuardMacroRenamed", guard_entry["id"]).get("node", {})
         guard_pins = [
             pin.get("name")
             for pin in guard_entry.get("pins", [])
@@ -2576,13 +2625,14 @@ def main() -> int:
         ]
         if guard_pins != ["bGate"]:
             fail(f"member.edit macro signature mismatch: {guard_graph_payload}")
-        dispatcher_nodes = dispatcher_graph_payload.get("semanticSnapshot", {}).get("nodes", [])
+        dispatcher_nodes = blueprint_summary_nodes(dispatcher_graph_payload)
         dispatcher_entry = next(
             (node for node in dispatcher_nodes if node.get("className") == "K2Node_FunctionEntry"),
             None,
         )
         if not isinstance(dispatcher_entry, dict):
             fail(f"member.edit dispatcher graph inspect missing entry node: {dispatcher_graph_payload}")
+        dispatcher_entry = inspect_blueprint_node(client, 65271, temp_asset, "OnReadyChanged", dispatcher_entry["id"]).get("node", {})
         dispatcher_pins = [
             pin.get("name")
             for pin in dispatcher_entry.get("pins", [])
@@ -2814,11 +2864,7 @@ def main() -> int:
         macro_node_id = op_ok(macro_add).get("nodeId")
         if not isinstance(macro_node_id, str) or not macro_node_id:
             fail(f"addFromPalette Gate did not return nodeId: {macro_add}")
-        macro_snapshot = query_snapshot(client, 1013, temp_asset, "blueprint", "EventGraph")
-        macro_node = require_node(
-            [node for node in macro_snapshot.get("nodes", []) if isinstance(node, dict)],
-            macro_node_id,
-        )
+        macro_node = inspect_blueprint_node(client, 1013, temp_asset, "EventGraph", macro_node_id).get("node", {})
         if macro_node.get("className") != "K2Node_MacroInstance":
             fail(f"addFromPalette Gate did not create K2Node_MacroInstance: {macro_node}")
         macro_ext = macro_node.get("k2Extensions", {}).get("macro") if isinstance(macro_node.get("k2Extensions"), dict) else None
@@ -2894,21 +2940,11 @@ def main() -> int:
         if not isinstance(first_op_diff, dict) or not isinstance(first_op_diff.get("nodesAdded"), list):
             fail(f"blueprint.graph.edit opResults diff missing node addition: {self_graph_edit}")
 
-        self_query = query_graph_payload(
-            client,
-            13,
-            asset_path=temp_asset,
-            graph_name="EventGraph",
-            limit=200,
-            view="wiring",
-        )
-        self_nodes = self_query.get("semanticSnapshot", {}).get("nodes", [])
-        if not isinstance(self_nodes, list):
-            fail(f"blueprint.graph.inspect self node missing nodes[]: {self_query}")
-        self_node = require_node([node for node in self_nodes if isinstance(node, dict)], self_node_id)
+        self_query = inspect_blueprint_node(client, 13, temp_asset, "EventGraph", self_node_id)
+        self_node = self_query.get("node", {})
         if self_node.get("className") != "K2Node_Self":
             fail(f"blueprint.graph.inspect self node class mismatch: {self_node}")
-        self_pins = self_node.get("pins")
+        self_pins = self_query.get("pins")
         if not isinstance(self_pins, list) or not any(
             isinstance(pin, dict) and pin.get("name") == "self" and pin.get("direction") == "output"
             for pin in self_pins
@@ -2921,22 +2957,9 @@ def main() -> int:
             for pin in self_pins
         ):
             fail(f"blueprint.graph.inspect self node link to UObject/Actor input missing: {self_node}")
-        self_external_query = call_tool(
-            client,
-            1310,
-            "blueprint.graph.inspect",
-            {
-                "assetPath": temp_asset,
-                "graph": {"name": "EventGraph"},
-                "view": "wiring",
-                "filter": {"nodeIds": [self_node_id]},
-            },
-        )
-        self_external_nodes = self_external_query.get("semanticSnapshot", {}).get("nodes", [])
-        if not isinstance(self_external_nodes, list) or len(self_external_nodes) != 1:
-            fail(f"blueprint.graph.inspect includeConnections nodeIds shape mismatch: {self_external_query}")
-        self_external_node = require_node([node for node in self_external_nodes if isinstance(node, dict)], self_node_id)
-        self_external_pins = self_external_node.get("pins")
+        self_external_query = inspect_blueprint_node(client, 1310, temp_asset, "EventGraph", self_node_id)
+        self_external_node = self_external_query.get("node", {})
+        self_external_pins = self_external_query.get("pins")
         if not isinstance(self_external_pins, list) or not any(
             isinstance(pin, dict)
             and pin.get("name") == "self"
@@ -3009,11 +3032,9 @@ def main() -> int:
             limit=200,
         )
         blueprint_revision_r0 = blueprint_revision_before.get("revision")
-        blueprint_nodes_before = blueprint_revision_before.get("semanticSnapshot", {}).get("nodes", [])
+        blueprint_nodes_before = blueprint_total_nodes(blueprint_revision_before)
         if not isinstance(blueprint_revision_r0, str) or not blueprint_revision_r0:
             fail(f"Blueprint graph.query missing revision before expectedRevision test: {blueprint_revision_before}")
-        if not isinstance(blueprint_nodes_before, list):
-            fail(f"Blueprint graph.query missing nodes before expectedRevision test: {blueprint_revision_before}")
 
         blueprint_revision_apply = call_domain_tool(
             client,
@@ -3036,13 +3057,13 @@ def main() -> int:
             limit=200,
         )
         blueprint_revision_r1 = blueprint_revision_after_apply.get("revision")
-        blueprint_nodes_after_apply = blueprint_revision_after_apply.get("semanticSnapshot", {}).get("nodes", [])
+        blueprint_nodes_after_apply = blueprint_total_nodes(blueprint_revision_after_apply)
         if not isinstance(blueprint_revision_r1, str) or not blueprint_revision_r1 or blueprint_revision_r1 == blueprint_revision_r0:
             fail(
                 "Blueprint expectedRevision control mutate did not advance revision: "
                 f"before={blueprint_revision_before} after={blueprint_revision_after_apply}"
             )
-        if not isinstance(blueprint_nodes_after_apply, list) or len(blueprint_nodes_after_apply) != len(blueprint_nodes_before) + 1:
+        if blueprint_nodes_after_apply != blueprint_nodes_before + 1:
             fail(
                 "Blueprint expectedRevision control mutate did not add exactly one node: "
                 f"before={blueprint_revision_before} after={blueprint_revision_after_apply}"
@@ -3070,13 +3091,13 @@ def main() -> int:
             graph_name="EventGraph",
             limit=200,
         )
-        blueprint_nodes_after_stale = blueprint_revision_after_stale.get("semanticSnapshot", {}).get("nodes", [])
+        blueprint_nodes_after_stale = blueprint_total_nodes(blueprint_revision_after_stale)
         if blueprint_revision_after_stale.get("revision") != blueprint_revision_r1:
             fail(
                 "Blueprint stale expectedRevision should not change revision: "
                 f"expected={blueprint_revision_r1} actual={blueprint_revision_after_stale}"
             )
-        if not isinstance(blueprint_nodes_after_stale, list) or len(blueprint_nodes_after_stale) != len(blueprint_nodes_after_apply):
+        if blueprint_nodes_after_stale != blueprint_nodes_after_apply:
             fail(
                 "Blueprint stale expectedRevision should not change node count: "
                 f"after_apply={blueprint_revision_after_apply} after_stale={blueprint_revision_after_stale}"
@@ -3112,13 +3133,13 @@ def main() -> int:
             graph_name="EventGraph",
             limit=200,
         )
-        blueprint_nodes_after_dry_run = blueprint_after_dry_run.get("semanticSnapshot", {}).get("nodes", [])
+        blueprint_nodes_after_dry_run = blueprint_total_nodes(blueprint_after_dry_run)
         if blueprint_after_dry_run.get("revision") != blueprint_revision_r1:
             fail(
                 "Blueprint dryRun mutate should not change graph revision: "
                 f"expected={blueprint_revision_r1} actual={blueprint_after_dry_run}"
             )
-        if not isinstance(blueprint_nodes_after_dry_run, list) or len(blueprint_nodes_after_dry_run) != len(blueprint_nodes_after_apply):
+        if blueprint_nodes_after_dry_run != blueprint_nodes_after_apply:
             fail(
                 "Blueprint dryRun mutate should not change node count: "
                 f"after_apply={blueprint_revision_after_apply} after_dry_run={blueprint_after_dry_run}"
@@ -3189,15 +3210,10 @@ def main() -> int:
             graph_name="EventGraph",
             limit=200,
         )
-        partial_apply_after_nodes = partial_apply_after.get("semanticSnapshot", {}).get("nodes", [])
         if partial_apply_after.get("revision") != partial_apply_before_revision:
             fail(f"Blueprint invalid command batch should not advance revision: before={partial_apply_before} after={partial_apply_after}")
-        if any(
-            isinstance(node, dict) and node.get("id") == partial_apply_node_id
-            for node in partial_apply_after_nodes or []
-        ):
-            pass
-        else:
+        partial_apply_node_readback = inspect_blueprint_node(client, 10927, temp_asset, "EventGraph", partial_apply_node_id)
+        if partial_apply_node_readback.get("isError") is True:
             fail(f"Blueprint invalid command batch should not remove earlier node: {partial_apply_after}")
         print("[PASS] blueprint.graph.edit invalid command batch preflight validated")
 
@@ -3210,7 +3226,7 @@ def main() -> int:
             limit=200,
         )
         blueprint_idem_before_revision = blueprint_idem_before.get("revision")
-        blueprint_idem_before_nodes = blueprint_idem_before.get("semanticSnapshot", {}).get("nodes", [])
+        blueprint_idem_before_nodes = blueprint_total_nodes(blueprint_idem_before)
         blueprint_idem_first = call_domain_tool(
             client,
             1094,
@@ -3232,15 +3248,13 @@ def main() -> int:
             limit=200,
         )
         blueprint_idem_after_first_revision = blueprint_idem_after_first.get("revision")
-        blueprint_idem_after_first_nodes = blueprint_idem_after_first.get("semanticSnapshot", {}).get("nodes", [])
-        if not isinstance(blueprint_idem_before_nodes, list) or not isinstance(blueprint_idem_after_first_nodes, list):
-            fail("Blueprint idempotency query payload missing nodes")
+        blueprint_idem_after_first_nodes = blueprint_total_nodes(blueprint_idem_after_first)
         if blueprint_idem_after_first_revision == blueprint_idem_before_revision:
             fail(
                 "Blueprint idempotency first mutate should advance revision: "
                 f"before={blueprint_idem_before} after={blueprint_idem_after_first}"
             )
-        if len(blueprint_idem_after_first_nodes) != len(blueprint_idem_before_nodes) + 1:
+        if blueprint_idem_after_first_nodes != blueprint_idem_before_nodes + 1:
             fail(
                 "Blueprint idempotency first mutate should add exactly one node: "
                 f"before={blueprint_idem_before} after={blueprint_idem_after_first}"
@@ -3265,13 +3279,13 @@ def main() -> int:
             graph_name="EventGraph",
             limit=200,
         )
-        blueprint_idem_after_second_nodes = blueprint_idem_after_second.get("semanticSnapshot", {}).get("nodes", [])
+        blueprint_idem_after_second_nodes = blueprint_total_nodes(blueprint_idem_after_second)
         if blueprint_idem_after_second.get("revision") != blueprint_idem_after_first_revision:
             fail(
                 "Blueprint duplicate idempotencyKey should not advance revision: "
                 f"after_first={blueprint_idem_after_first} after_second={blueprint_idem_after_second}"
             )
-        if not isinstance(blueprint_idem_after_second_nodes, list) or len(blueprint_idem_after_second_nodes) != len(blueprint_idem_after_first_nodes):
+        if blueprint_idem_after_second_nodes != blueprint_idem_after_first_nodes:
             fail(
                 "Blueprint duplicate idempotencyKey should not change node count: "
                 f"after_first={blueprint_idem_after_first} after_second={blueprint_idem_after_second}"
@@ -3314,35 +3328,21 @@ def main() -> int:
             fail(f"blueprint.graph.edit duplicate clientRef wrong errorMessage: {duplicate_client_ref_second}")
         print("[PASS] blueprint duplicate clientRef rejected")
 
-        page_one = query_graph_payload(client, 110, asset_path=temp_asset, graph_name="EventGraph", limit=1)
-        page_one_meta = page_one.get("meta", {})
-        page_one_cursor = page_one.get("nextCursor")
-        page_one_nodes = page_one.get("semanticSnapshot", {}).get("nodes", [])
-        if page_one_meta.get("truncated") is not True:
-            fail(f"graph.query pagination expected truncated=true for first page: {page_one}")
-        if not isinstance(page_one_cursor, str) or not page_one_cursor:
-            fail(f"graph.query pagination expected non-empty nextCursor for first page: {page_one}")
-        if not isinstance(page_one_nodes, list) or len(page_one_nodes) != 1:
-            fail(f"graph.query pagination expected one node on first page: {page_one}")
-
-        page_two = query_graph_payload(
+        legacy_page = call_tool(
             client,
-            111,
-            asset_path=temp_asset,
-            graph_name="EventGraph",
-            limit=1,
-            cursor=page_one_cursor,
+            110,
+            "blueprint.graph.inspect",
+            {
+                "assetPath": temp_asset,
+                "graph": {"name": "EventGraph"},
+                "view": "summary",
+                "page": {"limit": 1},
+            },
+            expect_error=True,
         )
-        page_two_nodes = page_two.get("semanticSnapshot", {}).get("nodes", [])
-        if not isinstance(page_two_nodes, list) or len(page_two_nodes) != 1:
-            fail(f"graph.query pagination expected one node on second page: {page_two}")
-        first_page_node_id = page_one_nodes[0].get("guid") if isinstance(page_one_nodes[0], dict) else None
-        second_page_node_id = page_two_nodes[0].get("guid") if isinstance(page_two_nodes[0], dict) else None
-        if not isinstance(first_page_node_id, str) or not isinstance(second_page_node_id, str):
-            fail(f"graph.query pagination pages missing node guids: first={page_one} second={page_two}")
-        if first_page_node_id == second_page_node_id:
-            fail(f"graph.query pagination cursor did not advance to a new page: first={page_one} second={page_two}")
-        print("[PASS] graph.query pagination cursor validated")
+        if legacy_page.get("isError") is not True:
+            fail(f"blueprint.graph.inspect should reject legacy pagination: {legacy_page}")
+        print("[PASS] graph.inspect legacy pagination rejected")
 
         connect_payload = call_domain_tool(
             client,
@@ -3637,16 +3637,8 @@ def main() -> int:
         if not isinstance(switch_name_node, str) or not switch_name_node:
             fail(f"Switch on Name addFromPalette did not return nodeId: {add_switch_name}")
 
-        graph_overview = call_tool(client, 18123, "blueprint.graph.inspect", {
-            "assetPath": temp_asset,
-            "graph": {"name": "EventGraph"},
-            "view": "overview",
-            "filter": {"nodeIds": [switch_name_node]},
-        })
-        overview_nodes = graph_overview.get("semanticSnapshot", {}).get("nodes")
-        if not isinstance(overview_nodes, list) or not overview_nodes:
-            fail(f"blueprint.graph.inspect overview missing Switch on Name node: {graph_overview}")
-        overview_node = overview_nodes[0]
+        graph_overview = inspect_blueprint_node(client, 18123, temp_asset, "EventGraph", switch_name_node)
+        overview_node = graph_overview.get("node", {})
         if overview_node.get("hasNodeEditCapabilities") is not True or overview_node.get("inspectWith") != "blueprint.node.inspect":
             fail(f"blueprint.graph.inspect should route Switch on Name to blueprint.node.inspect: {overview_node}")
 
@@ -4090,38 +4082,21 @@ def main() -> int:
                 "graphName": "EventGraph",
             },
         )
-        default_snapshot = blueprint_default_page.get("semanticSnapshot", {})
-        default_nodes = default_snapshot.get("nodes", [])
+        default_nodes = blueprint_summary_nodes(blueprint_default_page)
         default_meta = blueprint_default_page.get("meta", {})
-        default_cursor = blueprint_default_page.get("nextCursor")
         if not isinstance(default_nodes, list) or not default_nodes:
             fail(
-                "Blueprint graph.query without explicit limit should return nodes[]: "
+                "Blueprint graph.query without explicit limit should return summary nodes: "
                 f"{blueprint_default_page}"
             )
-        if default_meta.get("returnedNodes") != len(default_nodes):
+        if not isinstance(default_meta.get("totalNodes"), int) or default_meta.get("totalNodes", 0) < 1:
             fail(
-                "Blueprint graph.query without explicit limit should report returnedNodes matching nodes[] length: "
+                "Blueprint graph.query without explicit limit should report totalNodes metadata: "
                 f"{blueprint_default_page}"
             )
-        if default_meta.get("truncated") is True:
-            if not isinstance(default_cursor, str) or not default_cursor:
-                fail(
-                    "Blueprint graph.query without explicit limit should provide nextCursor when truncated: "
-                    f"{blueprint_default_page}"
-                )
-        elif default_meta.get("truncated") is False:
-            if default_cursor not in {"", None}:
-                fail(
-                    "Blueprint graph.query without explicit limit should not provide nextCursor when untruncated: "
-                    f"{blueprint_default_page}"
-                )
-        else:
-            fail(
-                "Blueprint graph.query without explicit limit should report truncated metadata: "
-                f"{blueprint_default_page}"
-            )
-        print("[PASS] blueprint graph.query default no-limit behavior validated")
+        if blueprint_default_page.get("view") != "summary":
+            fail(f"Blueprint graph.query without explicit limit should default to summary: {blueprint_default_page}")
+        print("[PASS] blueprint graph.inspect default summary behavior validated")
 
         material_fixture_payload = call_execute_exec_with_retry(
             client=client,

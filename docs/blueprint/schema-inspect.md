@@ -116,10 +116,13 @@ For Blueprint graph node creation:
 
 For pin editing:
 
-1. Inspect the graph with `blueprint.graph.inspect` using `view="wiring"`.
-2. Call `schema.inspect` for `connect`, `disconnect`, `breakLinks`, or
+1. Inspect the graph with `blueprint.graph.inspect` using `view="summary"` or
+   `view="exec_flow"` to identify the relevant node.
+2. Inspect the node with `blueprint.node.inspect` to read exact pins and link
+   details.
+3. Call `schema.inspect` for `connect`, `disconnect`, `breakLinks`, or
    `setPinDefault`.
-3. Call `blueprint.graph.edit`.
+4. Call `blueprint.graph.edit`.
 
 For Blueprint member editing:
 

@@ -15,6 +15,17 @@ UE source code is Loomle's most important context. Any change that touches UE
 behavior, interface semantics, or tool boundaries must start by reading the
 relevant UE source and then designing Loomle's expression of that behavior.
 
+## Public Protocol Naming
+
+Public tool names use dotted domains, such as `blueprint.graph.inspect`.
+Public enum-like protocol values, including `view`, `operation`, `kind`,
+`reason`, and error code fragments, should use readable snake_case, such as
+`exec_flow`, `data_flow`, and `open_exec_output`.
+
+JSON field names should remain consistent with the existing public surface.
+Unreal C++ implementation code should continue to follow Unreal naming
+conventions and UE API names.
+
 ## Workflow
 
 ### 1. Sense Demand

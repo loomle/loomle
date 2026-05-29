@@ -209,16 +209,77 @@ def query_blueprint_snapshot(client: McpStdioClient, request_id: int, asset_path
         client,
         request_id,
         "blueprint.graph.inspect",
-        {"assetPath": asset_path, "graphName": "EventGraph", "limit": 200},
+        {"assetPath": asset_path, "graph": {"name": "EventGraph"}, "view": "summary"},
     )
-    snapshot = payload.get("semanticSnapshot")
-    if not isinstance(snapshot, dict):
-        raise BlueprintWorkflowSuiteError("query_gap", f"blueprint.graph.inspect missing semanticSnapshot: {compact_json(payload)}")
-    nodes = snapshot.get("nodes")
-    edges = snapshot.get("edges")
-    if not isinstance(nodes, list) or not isinstance(edges, list):
-        raise BlueprintWorkflowSuiteError("query_gap", f"blueprint.graph.inspect missing nodes/edges: {compact_json(payload)}")
-    return snapshot
+    if payload.get("view") != "summary":
+        raise BlueprintWorkflowSuiteError("query_gap", f"blueprint.graph.inspect missing summary view: {compact_json(payload)}")
+    node_ids: list[str] = []
+    for key in ("roots", "looseNodes"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            for node in value:
+                node_id = node.get("id") if isinstance(node, dict) else None
+                if isinstance(node_id, str) and node_id not in node_ids:
+                    node_ids.append(node_id)
+    boundary = payload.get("boundary")
+    if isinstance(boundary, dict):
+        for key in ("entries", "outputs"):
+            value = boundary.get(key)
+            if isinstance(value, list):
+                for node in value:
+                    node_id = node.get("id") if isinstance(node, dict) else None
+                    if isinstance(node_id, str) and node_id not in node_ids:
+                        node_ids.append(node_id)
+    chains = payload.get("chains")
+    if isinstance(chains, list):
+        for chain in chains:
+            path = chain.get("path") if isinstance(chain, dict) else None
+            if isinstance(path, list):
+                for node in path:
+                    node_id = node.get("id") if isinstance(node, dict) else None
+                    if isinstance(node_id, str) and node_id not in node_ids:
+                        node_ids.append(node_id)
+
+    nodes: list[dict[str, Any]] = []
+    edges: list[dict[str, Any]] = []
+    seen_edges: set[tuple[str, str, str, str]] = set()
+    for index, node_id in enumerate(node_ids):
+        node_payload = safe_call_tool(
+            client,
+            request_id + 100 + index,
+            "blueprint.node.inspect",
+            {"assetPath": asset_path, "graph": {"name": "EventGraph"}, "node": {"id": node_id}},
+        )
+        node = node_payload.get("node")
+        if not isinstance(node, dict):
+            continue
+        nodes.append(node)
+        pins = node_payload.get("pins")
+        for pin in pins if isinstance(pins, list) else []:
+            if not isinstance(pin, dict):
+                continue
+            from_pin = pin.get("name")
+            if not isinstance(from_pin, str):
+                continue
+            links = pin.get("links")
+            for link in links if isinstance(links, list) else []:
+                if not isinstance(link, dict):
+                    continue
+                from_node = link.get("fromNodeId") or node_id
+                to_node = link.get("toNodeId")
+                to_pin = link.get("toPin")
+                if not all(isinstance(value, str) for value in [from_node, to_node, to_pin]):
+                    continue
+                edge_key = (from_node, str(link.get("fromPin") or from_pin), to_node, to_pin)
+                if edge_key not in seen_edges:
+                    seen_edges.add(edge_key)
+                    edges.append({
+                        "fromNodeId": edge_key[0],
+                        "fromPin": edge_key[1],
+                        "toNodeId": edge_key[2],
+                        "toPin": edge_key[3],
+                    })
+    return {"nodes": nodes, "edges": edges}
 
 
 def find_event_begin_play_node_id(snapshot: dict[str, Any]) -> str:

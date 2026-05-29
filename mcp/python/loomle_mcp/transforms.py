@@ -360,16 +360,8 @@ def blueprint_graph_inspect_args(arguments: dict[str, Any]) -> dict[str, Any]:
     graph_name, graph_ref = blueprint_graph_address(arguments, asset_path, "blueprint.graph.inspect")
     out: dict[str, Any] = {"assetPath": asset_path}
     write_graph_address(out, graph_name, graph_ref)
-    filter_value = arguments.get("filter")
-    if isinstance(filter_value, dict):
-        copy_if_present(filter_value, out, "nodeIds")
-        copy_if_present(filter_value, out, "text")
-    page = arguments.get("page")
-    if isinstance(page, dict):
-        copy_if_present(page, out, "limit")
-        copy_if_present(page, out, "cursor")
-    if arguments.get("view", "overview") == "wiring":
-        out["includeConnections"] = True
+    out["includeConnections"] = True
+    out["limit"] = 10000
     return out
 
 
@@ -902,17 +894,69 @@ def shape_blueprint_graph_inspect_result(payload: dict[str, Any], arguments: dic
                 result["graph"] = {"id": graph_id}
         elif isinstance(result.get("graphName"), str):
             result["graph"] = {"name": result["graphName"]}
-    view = arguments.get("view", "overview")
+    view = arguments.get("view", "summary")
     snapshot = result.get("semanticSnapshot")
-    if isinstance(snapshot, dict):
-        nodes = snapshot.get("nodes")
-        if isinstance(nodes, list):
-            snapshot["nodes"] = [
-                compact_blueprint_graph_node(node, view) if isinstance(node, dict) else node
-                for node in nodes
-            ]
-        if view != "wiring":
-            snapshot["edges"] = []
+    nodes = snapshot.get("nodes") if isinstance(snapshot, dict) and isinstance(snapshot.get("nodes"), list) else []
+    node_map = {node_id(node): node for node in nodes if isinstance(node, dict) and node_id(node)}
+    links = blueprint_graph_links(nodes)
+    if view == "exec_flow":
+        root_node = arguments.get("rootNode") if isinstance(arguments.get("rootNode"), dict) else {}
+        root_id = root_node.get("id") if isinstance(root_node.get("id"), str) else ""
+        direction = traversal_direction(arguments, "downstream")
+        ordered, traversed, truncated = trace_exec(root_id, node_map, links, direction)
+        result.pop("semanticSnapshot", None)
+        result["view"] = "exec_flow"
+        result["rootNode"] = compact_blueprint_graph_node(node_map[root_id]) if root_id in node_map else {"id": root_id, "missing": True}
+        result["flow"] = {
+            "direction": direction,
+            "nodes": [compact_blueprint_graph_node(node_map[item]) for item in ordered if item in node_map],
+            "links": [link_to_json(link) for link in traversed],
+            "truncated": truncated,
+        }
+    elif view == "data_flow":
+        root_pin = arguments.get("rootPin") if isinstance(arguments.get("rootPin"), dict) else {}
+        root_node = root_pin.get("node") if isinstance(root_pin.get("node"), dict) else {}
+        root_node_id = root_node.get("id") if isinstance(root_node.get("id"), str) else ""
+        root_pin_name = root_pin.get("pin") if isinstance(root_pin.get("pin"), str) else ""
+        direction = traversal_direction(arguments, "upstream")
+        ordered, traversed, truncated = trace_data(root_node_id, root_pin_name, node_map, links, direction)
+        result.pop("semanticSnapshot", None)
+        result["view"] = "data_flow"
+        result["rootPin"] = {"node": {"id": root_node_id}, "pin": root_pin_name}
+        result["dataFlow"] = {
+            "direction": direction,
+            "nodes": [compact_blueprint_graph_node(node_map[item]) for item in ordered if item in node_map],
+            "links": [link_to_json(link) for link in traversed],
+            "truncated": truncated,
+        }
+    else:
+        exec_links = [link for link in links if link["kind"] == "exec"]
+        roots = graph_roots(node_map, exec_links)
+        covered: set[str] = set()
+        chains = []
+        for root_id in roots:
+            ordered, traversed, truncated = trace_exec(root_id, node_map, links, "downstream")
+            covered.update(ordered)
+            chains.append({
+                "root": compact_blueprint_graph_node(node_map[root_id]),
+                "nodeCount": len(ordered),
+                "linkCount": len(traversed),
+                "path": [{"id": item, "label": node_label(node_map[item])} for item in ordered[:12] if item in node_map],
+                "truncated": truncated,
+            })
+        result.pop("semanticSnapshot", None)
+        result["view"] = "summary"
+        result["boundary"] = {
+            "entries": [compact_blueprint_graph_node(node_map[item]) for item in roots if item in node_map],
+            "outputs": [],
+        }
+        result["roots"] = [compact_blueprint_graph_node(node_map[item]) for item in roots if item in node_map]
+        result["chains"] = chains
+        result["looseNodes"] = [compact_blueprint_graph_node(node) for key, node in node_map.items() if key not in covered]
+        result["linkCounts"] = {
+            "exec": len(exec_links),
+            "data": len([link for link in links if link["kind"] == "data"]),
+        }
     meta = result.get("meta")
     if not isinstance(meta, dict):
         meta = {}
@@ -921,7 +965,7 @@ def shape_blueprint_graph_inspect_result(payload: dict[str, Any], arguments: dic
     return result
 
 
-def compact_blueprint_graph_node(node: dict[str, Any], view: Any) -> dict[str, Any]:
+def compact_blueprint_graph_node(node: dict[str, Any]) -> dict[str, Any]:
     fields = [
         "id", "guid", "name", "className", "classPath", "nodeClassPath", "title",
         "nodeTitle", "enabled", "isNodeEnabled", "position", "layout", "graphName",
@@ -933,10 +977,181 @@ def compact_blueprint_graph_node(node: dict[str, Any], view: Any) -> dict[str, A
     if isinstance(out.get("k2Extensions"), dict):
         out["k2Extensions"] = dict(out["k2Extensions"])
         out["k2Extensions"].pop("comment", None)
-    if view == "wiring":
-        pins = node.get("pins")
-        out["pins"] = [compact_graph_pin(pin, include_connections=True) for pin in pins] if isinstance(pins, list) else []
     return out
+
+
+def node_id(node: dict[str, Any]) -> str | None:
+    value = node.get("id") or node.get("guid")
+    return value if isinstance(value, str) and value else None
+
+
+def node_label(node: dict[str, Any]) -> str:
+    for field in ["title", "nodeTitle", "name", "className"]:
+        value = node.get(field)
+        if isinstance(value, str) and value:
+            return value
+    return node_id(node) or "<unknown>"
+
+
+def node_text(node: dict[str, Any]) -> str:
+    return " ".join(
+        value
+        for field in ["className", "classPath", "nodeClassPath", "title", "nodeTitle", "name"]
+        if isinstance((value := node.get(field)), str)
+    ).lower()
+
+
+def is_entry_node(node: dict[str, Any]) -> bool:
+    text = node_text(node)
+    return (
+        "k2node_event" in text
+        or "k2node_customevent" in text
+        or "functionentry" in text
+        or "receivebeginplay" in text
+        or "event " in text
+    )
+
+
+def pin_name(pin: dict[str, Any]) -> str | None:
+    value = pin.get("name")
+    return value if isinstance(value, str) and value else None
+
+
+def is_exec_pin(pin: dict[str, Any]) -> bool:
+    value = pin.get("category") or pin.get("type")
+    return isinstance(value, str) and value.lower() == "exec"
+
+
+def is_output_pin(pin: dict[str, Any]) -> bool:
+    return isinstance(pin.get("direction"), str) and pin["direction"].lower() == "output"
+
+
+def pin_key(node: str, pin: str) -> str:
+    return f"{node}:{pin}"
+
+
+def traversal_direction(arguments: dict[str, Any], default: str) -> str:
+    traversal = arguments.get("traversal")
+    value = traversal.get("direction") if isinstance(traversal, dict) else None
+    return value if value in {"upstream", "downstream", "both"} else default
+
+
+def blueprint_graph_links(nodes: Any) -> list[dict[str, str]]:
+    pin_map: dict[str, dict[str, Any]] = {}
+    for node in nodes if isinstance(nodes, list) else []:
+        if not isinstance(node, dict) or not (owner := node_id(node)):
+            continue
+        pins = node.get("pins")
+        for pin in pins if isinstance(pins, list) else []:
+            if isinstance(pin, dict) and (name := pin_name(pin)):
+                pin_map[pin_key(owner, name)] = pin
+
+    links: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str, str, str]] = set()
+    for node in nodes if isinstance(nodes, list) else []:
+        if not isinstance(node, dict) or not (owner := node_id(node)):
+            continue
+        pins = node.get("pins")
+        for pin in pins if isinstance(pins, list) else []:
+            if not isinstance(pin, dict) or not (name := pin_name(pin)):
+                continue
+            peers = pin.get("linkedTo")
+            for peer in peers if isinstance(peers, list) else []:
+                if not isinstance(peer, dict):
+                    continue
+                peer_node = peer.get("nodeId") or peer.get("nodeGuid") or peer.get("guid")
+                peer_pin = peer.get("pin") or peer.get("pinName")
+                if not isinstance(peer_node, str) or not isinstance(peer_pin, str):
+                    continue
+                peer_pin_obj = pin_map.get(pin_key(peer_node, peer_pin))
+                kind = "exec" if is_exec_pin(pin) or (isinstance(peer_pin_obj, dict) and is_exec_pin(peer_pin_obj)) else "data"
+                if is_output_pin(pin):
+                    from_node, from_pin, to_node, to_pin = owner, name, peer_node, peer_pin
+                elif isinstance(peer_pin_obj, dict) and is_output_pin(peer_pin_obj):
+                    from_node, from_pin, to_node, to_pin = peer_node, peer_pin, owner, name
+                elif owner <= peer_node:
+                    from_node, from_pin, to_node, to_pin = owner, name, peer_node, peer_pin
+                else:
+                    from_node, from_pin, to_node, to_pin = peer_node, peer_pin, owner, name
+                key = (from_node, from_pin, to_node, to_pin, kind)
+                if key not in seen:
+                    seen.add(key)
+                    links.append({
+                        "fromNodeId": from_node,
+                        "fromPin": from_pin,
+                        "toNodeId": to_node,
+                        "toPin": to_pin,
+                        "kind": kind,
+                    })
+    return links
+
+
+def link_to_json(link: dict[str, str]) -> dict[str, str]:
+    return dict(link)
+
+
+def trace_exec(root_id: str, node_map: dict[str, dict[str, Any]], links: list[dict[str, str]], direction: str) -> tuple[list[str], list[dict[str, str]], bool]:
+    ordered: list[str] = []
+    visited: set[str] = set()
+    traversed: list[dict[str, str]] = []
+    stack = [(root_id, 0)]
+    max_depth = 64
+    max_nodes = 250
+    while stack:
+        current, depth = stack.pop()
+        if current in visited:
+            continue
+        visited.add(current)
+        ordered.append(current)
+        if len(ordered) >= max_nodes or depth >= max_depth:
+            continue
+        if direction in {"downstream", "both"}:
+            for link in [item for item in links if item["kind"] == "exec" and item["fromNodeId"] == current]:
+                traversed.append(link)
+                stack.append((link["toNodeId"], depth + 1))
+        if direction in {"upstream", "both"}:
+            for link in [item for item in links if item["kind"] == "exec" and item["toNodeId"] == current]:
+                traversed.append(link)
+                stack.append((link["fromNodeId"], depth + 1))
+    return [item for item in ordered if item in node_map], traversed, len(ordered) >= max_nodes
+
+
+def trace_data(root_node: str, root_pin: str, node_map: dict[str, dict[str, Any]], links: list[dict[str, str]], direction: str) -> tuple[list[str], list[dict[str, str]], bool]:
+    ordered: list[str] = []
+    visited_nodes: set[str] = set()
+    visited_pins: set[str] = set()
+    traversed: list[dict[str, str]] = []
+    stack = [(pin_key(root_node, root_pin), 0)]
+    while stack:
+        current, depth = stack.pop()
+        if current in visited_pins:
+            continue
+        visited_pins.add(current)
+        owner, _, _ = current.partition(":")
+        if owner not in visited_nodes:
+            visited_nodes.add(owner)
+            ordered.append(owner)
+        if depth >= 64:
+            continue
+        if direction in {"upstream", "both"}:
+            for link in [item for item in links if item["kind"] == "data" and pin_key(item["toNodeId"], item["toPin"]) == current]:
+                traversed.append(link)
+                stack.append((pin_key(link["fromNodeId"], link["fromPin"]), depth + 1))
+        if direction in {"downstream", "both"}:
+            for link in [item for item in links if item["kind"] == "data" and pin_key(item["fromNodeId"], item["fromPin"]) == current]:
+                traversed.append(link)
+                stack.append((pin_key(link["toNodeId"], link["toPin"]), depth + 1))
+    return [item for item in ordered if item in node_map], traversed, False
+
+
+def graph_roots(node_map: dict[str, dict[str, Any]], exec_links: list[dict[str, str]]) -> list[str]:
+    incoming = {link["toNodeId"] for link in exec_links}
+    outgoing = {link["fromNodeId"] for link in exec_links}
+    return sorted(
+        node
+        for node, value in node_map.items()
+        if is_entry_node(value) or (node not in incoming and node in outgoing)
+    )
 
 
 def compact_graph_pin(pin: Any, *, include_connections: bool) -> Any:
