@@ -1,4 +1,5 @@
 #![recursion_limit = "512"]
+#![allow(dead_code)] // Temporary while tools/list reads the manifest and legacy schema builders remain for schema.inspect/tests.
 
 mod schema_inspect;
 
@@ -755,7 +756,10 @@ impl ServerHandler for LoomleProxyServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
-        Ok(ListToolsResult::with_all_items(all_declared_tools()))
+        let tools = manifest_declared_tools_for("native").map_err(|message| {
+            McpError::internal_error(format!("invalid LOOMLE tool manifest: {message}"), None)
+        })?;
+        Ok(ListToolsResult::with_all_items(tools))
     }
 
     fn get_tool(&self, _name: &str) -> Option<Tool> {
@@ -5982,6 +5986,7 @@ fn compile_blueprint_generate_request(
     Ok(edit_args)
 }
 
+#[allow(dead_code)]
 fn pre_attach_tools() -> Vec<Tool> {
     use std::sync::Arc;
     vec![
@@ -6024,9 +6029,57 @@ fn pre_attach_tools() -> Vec<Tool> {
 }
 
 fn all_declared_tools() -> Vec<Tool> {
-    let mut tools = pre_attach_tools();
-    tools.extend(runtime_declared_tools());
-    tools
+    manifest_declared_tools_for("native").expect("valid embedded LOOMLE tool manifest")
+}
+
+const TOOL_MANIFEST_JSON: &str = include_str!("../../mcp/manifest/manifest.json");
+
+fn manifest_declared_tools_for(target: &str) -> Result<Vec<Tool>, String> {
+    let manifest: serde_json::Value = serde_json::from_str(TOOL_MANIFEST_JSON)
+        .map_err(|error| format!("manifest JSON parse failed: {error}"))?;
+    if manifest.get("product").and_then(|value| value.as_str()) != Some("loomle") {
+        return Err("manifest product must be loomle".to_string());
+    }
+    let tools = manifest
+        .get("tools")
+        .and_then(|value| value.as_array())
+        .ok_or_else(|| "manifest.tools must be an array".to_string())?;
+    let mut declared = Vec::new();
+    for tool in tools {
+        let availability = tool
+            .get("availability")
+            .and_then(|value| value.as_array())
+            .ok_or_else(|| "tool availability must be an array".to_string())?;
+        if !availability
+            .iter()
+            .any(|value| value.as_str() == Some(target))
+        {
+            continue;
+        }
+        let name = tool
+            .get("name")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| "tool name must be a string".to_string())?;
+        let description = tool
+            .get("description")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| format!("{name}.description must be a string"))?;
+        let input_schema = tool
+            .get("inputSchema")
+            .and_then(|value| value.as_object())
+            .cloned()
+            .ok_or_else(|| format!("{name}.inputSchema must be an object"))?;
+        let mut declared_tool = Tool::new(
+            name.to_string(),
+            description.to_string(),
+            Arc::new(input_schema),
+        );
+        if let Some(title) = tool.get("title").and_then(|value| value.as_str()) {
+            declared_tool.title = Some(title.to_string());
+        }
+        declared.push(declared_tool);
+    }
+    Ok(declared)
 }
 
 fn runtime_declared_tools() -> Vec<Tool> {
@@ -13581,6 +13634,56 @@ mod tests {
 
         assert!(tool_names.contains("schema.inspect"));
         assert!(tool_names.contains("setup.status"));
+    }
+
+    #[test]
+    fn native_tools_list_comes_from_manifest() {
+        let declared_tools = all_declared_tools();
+        let declared_names = declared_tools
+            .iter()
+            .map(|tool| tool.name.as_ref().to_string())
+            .collect::<std::collections::HashSet<_>>();
+        let manifest: serde_json::Value =
+            serde_json::from_str(super::TOOL_MANIFEST_JSON).expect("manifest json");
+        let manifest_names = manifest
+            .get("tools")
+            .and_then(|value| value.as_array())
+            .expect("manifest tools")
+            .iter()
+            .filter(|tool| {
+                tool.get("availability")
+                    .and_then(|value| value.as_array())
+                    .is_some_and(|availability| {
+                        availability
+                            .iter()
+                            .any(|value| value.as_str() == Some("native"))
+                    })
+            })
+            .filter_map(|tool| tool.get("name").and_then(|value| value.as_str()))
+            .map(str::to_string)
+            .collect::<std::collections::HashSet<_>>();
+
+        assert_eq!(declared_names, manifest_names);
+        let graph_inspect = declared_tools
+            .iter()
+            .find(|tool| tool.name.as_ref() == "blueprint.graph.inspect")
+            .expect("blueprint.graph.inspect");
+        let properties = graph_inspect
+            .input_schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("properties");
+        let view_enum = properties
+            .get("view")
+            .and_then(|value| value.get("enum"))
+            .and_then(|value| value.as_array())
+            .expect("view enum")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(view_enum, vec!["summary", "exec_flow", "data_flow"]);
+        assert!(!properties.contains_key("filter"));
+        assert!(!properties.contains_key("page"));
     }
 
     #[test]
