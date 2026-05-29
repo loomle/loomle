@@ -14212,7 +14212,7 @@ args = ["mcp"]
         assert_eq!(result.is_error, Some(false));
         let payload = result.structured_content.expect("structured content");
         assert_eq!(
-            payload.get("memberKind").and_then(|value| value.as_str()),
+            payload.get("category").and_then(|value| value.as_str()),
             Some("variable")
         );
         assert_eq!(

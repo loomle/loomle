@@ -1,5 +1,7 @@
 use rmcp::model::{CallToolResult, JsonObject};
 
+const TOOL_MANIFEST_JSON: &str = include_str!("../../mcp/manifest/manifest.json");
+
 pub fn schema_inspect_schema() -> JsonObject {
     serde_json::from_value(serde_json::json!({
         "type": "object",
@@ -42,83 +44,155 @@ pub fn call_schema_inspect(args: &JsonObject) -> CallToolResult {
     let Some(tool) = args.get("tool").and_then(|value| value.as_str()) else {
         return invalid_argument_result("schema.inspect requires tool.");
     };
-    if domain == "pcg" {
-        if !matches!(tool, "pcg.graph.edit" | "pcg.parameter.edit") {
-            return CallToolResult::structured_error(serde_json::json!({
-                "isError": true,
-                "code": "UNKNOWN_TOOL",
-                "message": format!("Unknown schema tool for domain pcg: {tool}"),
-                "availableTools": ["pcg.graph.edit", "pcg.parameter.edit"],
-                "retryable": false
-            }));
-        }
-        let includes = match parse_schema_inspect_includes(args) {
-            Ok(value) => value,
-            Err(error) => return error,
-        };
-        return match tool {
-            "pcg.graph.edit" => call_pcg_graph_edit_schema_inspect(args, &includes),
-            "pcg.parameter.edit" => call_pcg_parameter_edit_schema_inspect(args, &includes),
-            _ => unreachable!("validated pcg schema.inspect tool"),
-        };
-    }
-    if domain == "material" {
-        if tool != "material.graph.edit" {
-            return CallToolResult::structured_error(serde_json::json!({
-                "isError": true,
-                "code": "UNKNOWN_TOOL",
-                "message": format!("Unknown schema tool for domain material: {tool}"),
-                "availableTools": ["material.graph.edit"],
-                "retryable": false
-            }));
-        }
-        let includes = match parse_schema_inspect_includes(args) {
-            Ok(value) => value,
-            Err(error) => return error,
-        };
-        return call_material_graph_edit_schema_inspect(args, &includes);
-    }
-    if domain == "widget" {
-        if tool != "widget.tree.edit" {
-            return CallToolResult::structured_error(serde_json::json!({
-                "isError": true,
-                "code": "UNKNOWN_TOOL",
-                "message": format!("Unknown schema tool for domain widget: {tool}"),
-                "availableTools": ["widget.tree.edit"],
-                "retryable": false
-            }));
-        }
-        let includes = match parse_schema_inspect_includes(args) {
-            Ok(value) => value,
-            Err(error) => return error,
-        };
-        return call_widget_tree_edit_schema_inspect(args, &includes);
-    }
-
-    if !matches!(
-        tool,
-        "blueprint.graph.edit" | "blueprint.member.edit" | "blueprint.node.edit"
-    ) {
-        return CallToolResult::structured_error(serde_json::json!({
-            "isError": true,
-            "code": "UNKNOWN_TOOL",
-            "message": format!("Unknown schema tool for domain blueprint: {tool}"),
-            "availableTools": ["blueprint.graph.edit", "blueprint.member.edit", "blueprint.node.edit"],
-            "retryable": false
-        }));
-    }
-
     let includes = match parse_schema_inspect_includes(args) {
         Ok(value) => value,
         Err(error) => return error,
     };
 
-    match tool {
-        "blueprint.graph.edit" => call_graph_edit_schema_inspect(args, &includes),
-        "blueprint.member.edit" => call_member_edit_schema_inspect(args, &includes),
-        "blueprint.node.edit" => call_node_edit_schema_inspect(args, &includes),
-        _ => unreachable!("validated schema.inspect tool"),
+    manifest_schema_inspect(
+        domain,
+        tool,
+        args.get("operation").and_then(|value| value.as_str()),
+        &includes,
+    )
+}
+
+fn manifest_schema_inspect(
+    domain: &str,
+    tool_name: &str,
+    operation: Option<&str>,
+    includes: &[String],
+) -> CallToolResult {
+    let manifest = match parse_tool_manifest() {
+        Ok(value) => value,
+        Err(message) => {
+            return CallToolResult::structured_error(serde_json::json!({
+                "isError": true,
+                "code": "INVALID_TOOL_MANIFEST",
+                "message": message,
+                "retryable": false
+            }))
+        }
+    };
+    let Some(tools) = manifest.get("tools").and_then(|value| value.as_array()) else {
+        return CallToolResult::structured_error(serde_json::json!({
+            "isError": true,
+            "code": "INVALID_TOOL_MANIFEST",
+            "message": "manifest.tools must be an array.",
+            "retryable": false
+        }));
+    };
+    let schema_tools = tools
+        .iter()
+        .filter_map(|tool| {
+            tool.get("schemaInspect")
+                .and_then(|value| value.as_object())
+                .map(|schema| (tool, schema))
+        })
+        .collect::<Vec<_>>();
+    let available_tools = schema_tools
+        .iter()
+        .filter(|(_, schema)| schema.get("domain").and_then(|value| value.as_str()) == Some(domain))
+        .filter_map(|(tool, _)| tool.get("name").and_then(|value| value.as_str()))
+        .collect::<Vec<_>>();
+    let Some((_, schema_inspect)) = schema_tools.iter().find(|(tool, schema)| {
+        tool.get("name").and_then(|value| value.as_str()) == Some(tool_name)
+            && schema.get("domain").and_then(|value| value.as_str()) == Some(domain)
+    }) else {
+        return CallToolResult::structured_error(serde_json::json!({
+            "isError": true,
+            "code": "UNKNOWN_TOOL",
+            "message": format!("Unknown schema tool for domain {domain}: {tool_name}"),
+            "availableTools": available_tools,
+            "retryable": false
+        }));
+    };
+    let Some(operations) = schema_inspect
+        .get("operations")
+        .and_then(|value| value.as_array())
+    else {
+        return CallToolResult::structured_error(serde_json::json!({
+            "isError": true,
+            "code": "INVALID_TOOL_MANIFEST",
+            "message": format!("{tool_name}.schemaInspect.operations must be an array."),
+            "retryable": false
+        }));
+    };
+
+    if let Some(operation_name) = operation {
+        let available_operations = operations
+            .iter()
+            .filter_map(|operation| operation.get("name").and_then(|value| value.as_str()))
+            .collect::<Vec<_>>();
+        let Some(operation_value) = operations.iter().find(|operation| {
+            operation.get("name").and_then(|value| value.as_str()) == Some(operation_name)
+        }) else {
+            return CallToolResult::structured_error(serde_json::json!({
+                "isError": true,
+                "code": "UNKNOWN_OPERATION",
+                "message": format!("Unknown operation for {tool_name}: {operation_name}"),
+                "availableOperations": available_operations,
+                "retryable": false
+            }));
+        };
+        return CallToolResult::structured(manifest_operation_payload(
+            domain,
+            tool_name,
+            operation_name,
+            operation_value,
+            includes,
+        ));
     }
+
+    CallToolResult::structured(serde_json::json!({
+        "domain": domain,
+        "tool": tool_name,
+        "operations": operations.iter().map(manifest_operation_index_entry).collect::<Vec<_>>(),
+        "source": schema_inspect.get("source").cloned().unwrap_or_else(|| serde_json::json!({}))
+    }))
+}
+
+fn parse_tool_manifest() -> Result<serde_json::Value, String> {
+    let manifest: serde_json::Value = serde_json::from_str(TOOL_MANIFEST_JSON)
+        .map_err(|error| format!("manifest JSON parse failed: {error}"))?;
+    if manifest.get("product").and_then(|value| value.as_str()) != Some("loomle") {
+        return Err("manifest product must be loomle".to_string());
+    }
+    Ok(manifest)
+}
+
+fn manifest_operation_index_entry(operation: &serde_json::Value) -> serde_json::Value {
+    let mut entry = serde_json::Map::new();
+    for field in ["name", "category", "summary"] {
+        if let Some(value) = operation.get(field) {
+            entry.insert(field.to_string(), value.clone());
+        }
+    }
+    serde_json::Value::Object(entry)
+}
+
+fn manifest_operation_payload(
+    domain: &str,
+    tool_name: &str,
+    operation_name: &str,
+    operation: &serde_json::Value,
+    includes: &[String],
+) -> serde_json::Value {
+    let mut payload = serde_json::Map::new();
+    payload.insert("domain".to_string(), serde_json::json!(domain));
+    payload.insert("tool".to_string(), serde_json::json!(tool_name));
+    payload.insert("operation".to_string(), serde_json::json!(operation_name));
+    if let Some(category) = operation.get("category") {
+        payload.insert("category".to_string(), category.clone());
+    }
+    for field in includes {
+        if let Some(value) = operation.get(field) {
+            payload.insert(field.clone(), value.clone());
+        } else if matches!(field.as_str(), "examples" | "errors" | "notes") {
+            payload.insert(field.clone(), serde_json::json!([]));
+        }
+    }
+    serde_json::Value::Object(payload)
 }
 
 fn call_graph_edit_schema_inspect(args: &JsonObject, includes: &[String]) -> CallToolResult {
