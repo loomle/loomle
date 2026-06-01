@@ -32,8 +32,7 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
             endpoint.write_text("", encoding="utf-8")
             mcp_runtime.mkdir(parents=True)
             (mcp_runtime / "loomle_mcp_server.py").write_text("# test\n", encoding="utf-8")
-            codex_dir = Path(tmp) / "home" / ".codex"
-            codex_dir.mkdir(parents=True)
+            (Path(tmp) / "home" / ".codex").mkdir(parents=True)
 
             project_id = "demo-project-id"
             runtime_record = {
@@ -115,34 +114,21 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
                     self.assertTrue(attached.structuredContent["attached"])
                     self.assertEqual(attached.structuredContent["projectId"], project_id)
 
-                    status = await session.call_tool("loomle.status", {})
+                    status = await session.call_tool("status", {})
                     self.assertFalse(status.isError)
-                    self.assertTrue(status.structuredContent["attached"])
-                    self.assertEqual(status.structuredContent["onlineProjectCount"], 1)
-
-                    setup = await session.call_tool("setup.status", {})
-                    self.assertFalse(setup.isError)
-                    self.assertEqual(setup.structuredContent["channel"], "fab")
-                    self.assertEqual(setup.structuredContent["bridge"]["state"], "ready")
-                    self.assertTrue(setup.structuredContent["fabPythonMcp"]["available"])
+                    self.assertEqual(status.structuredContent["schemaVersion"], 1)
+                    self.assertEqual(status.structuredContent["mcp"]["server"], "python")
+                    self.assertTrue(status.structuredContent["project"]["attached"])
                     self.assertEqual(
-                        setup.structuredContent["recommendation"]["action"],
-                        "configureFabPython",
+                        status.structuredContent["project"]["discovered"]["online"],
+                        1,
                     )
                     self.assertIn(
-                        "configureCodex",
-                        setup.structuredContent["recommendation"]["safeAutomaticActions"],
+                        status.structuredContent["runtime"]["state"],
+                        {"ready", "unavailable", "error"},
                     )
-
-                    configured = await session.call_tool(
-                        "setup.configure",
-                        {"host": "codex"},
-                    )
-                    self.assertFalse(configured.isError)
-                    self.assertEqual(configured.structuredContent["serverOwner"], "fab")
-                    codex_config = (codex_dir / "config.toml").read_text(encoding="utf-8")
-                    self.assertIn("[mcp_servers.loomle]", codex_config)
-                    self.assertIn("loomle_mcp_server.py", codex_config)
+                    self.assertNotIn("plugin", status.structuredContent)
+                    self.assertNotIn("hosts", status.structuredContent)
 
     async def test_bridge_rpc_dispatch_uses_manifest_target_tool(self) -> None:
         if not hasattr(asyncio, "start_unix_server"):

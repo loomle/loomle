@@ -34,6 +34,13 @@ async def rpc_health(endpoint: Path) -> dict[str, Any]:
     return value
 
 
+async def rpc_capabilities(endpoint: Path) -> dict[str, Any]:
+    value = await rpc_request(endpoint, "rpc.capabilities", {})
+    if not isinstance(value, dict):
+        raise BridgeRpcError("rpc.capabilities returned a non-object result")
+    return value
+
+
 async def rpc_invoke(endpoint: Path, tool: str, args: dict[str, Any]) -> dict[str, Any]:
     value = await rpc_request(
         endpoint,

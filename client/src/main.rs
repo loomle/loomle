@@ -840,10 +840,7 @@ impl LoomleProxyServer {
     async fn call_pre_attach_tool(&self, request: CallToolRequestParams) -> CallToolResult {
         let args = request.arguments.unwrap_or_default();
         match request.name.as_ref() {
-            "loomle" => self.call_loomle_runtime_status().await,
-            "loomle.status" => self.call_loomle_status().await,
-            "setup.status" => self.call_setup_status().await,
-            "setup.configure" => self.call_setup_configure(&args).await,
+            "status" => self.call_status().await,
             "project.list" => call_project_list(&args),
             "project.attach" => self.call_project_attach(&args).await,
             "project.install" => call_project_install(&args),
@@ -852,103 +849,169 @@ impl LoomleProxyServer {
         }
     }
 
-    async fn call_loomle_status(&self) -> CallToolResult {
+    async fn call_status(&self) -> CallToolResult {
         self.try_auto_attach().await;
         let projects = discover_runtime_projects(ProjectStatusFilter::All);
+        let online_project_count = projects
+            .iter()
+            .filter(|project| project.status == "online")
+            .count();
         let env_info = self.env_info.lock().await.clone();
-        let attached_project_root = env_info
-            .as_ref()
-            .map(|env_info| env_info.project_root.display().to_string());
         let update_check = check_for_updates();
         let observability = if let Some(env_info) = env_info.as_ref() {
             self.observability_state_for_env(env_info).await
         } else {
             None
         };
-        let payload = serde_json::json!({
-            "loomleVersion": env!("CARGO_PKG_VERSION"),
-            "attached": attached_project_root.is_some(),
-            "attachedProject": attached_project_root,
-            "onlineProjectCount": projects.iter().filter(|project| project.status == "online").count(),
-            "projectCount": projects.len(),
-            "update": update_check,
-            "observability": observability,
+        let mut issues = Vec::new();
+        let mut runtime = serde_json::json!({
+            "state": "no_project",
+            "rpcConnected": false,
+            "listenerReady": false,
+            "isPIE": false,
+            "editorBusyReason": "NO_PROJECT_ATTACHED",
+            "health": null,
+            "capabilities": null,
         });
-        structured_result(payload)
-    }
 
-    async fn call_loomle_runtime_status(&self) -> CallToolResult {
-        self.try_auto_attach().await;
-        let Some(env_info) = self.env_info.lock().await.clone() else {
-            return structured_result(serde_json::json!({
-                "status": "error",
-                "domainCode": "",
-                "message": "No project attached",
-                "runtime": {
-                    "rpcConnected": false,
-                    "listenerReady": false,
-                    "isPIE": false,
-                    "editorBusyReason": "NO_PROJECT_ATTACHED"
+        if let Some(env_info) = env_info.as_ref() {
+            match rpc_health(env_info).await {
+                Ok(health) => {
+                    let capabilities = rpc_capabilities(env_info).await.ok();
+                    let is_pie = health
+                        .get("isPIE")
+                        .and_then(|value| value.as_bool())
+                        .unwrap_or(false);
+                    let editor_busy_reason = health
+                        .get("editorBusyReason")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("");
+                    let health_status = health
+                        .get("status")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("ready");
+                    let state = if health_status == "ready" {
+                        "ready"
+                    } else {
+                        "error"
+                    };
+                    runtime = serde_json::json!({
+                        "state": state,
+                        "rpcConnected": true,
+                        "listenerReady": true,
+                        "isPIE": is_pie,
+                        "editorBusyReason": editor_busy_reason,
+                        "health": health,
+                        "capabilities": capabilities,
+                    });
+                    if state != "ready" {
+                        issues.push(serde_json::json!({
+                            "code": "RUNTIME_NOT_READY",
+                            "severity": "warning",
+                            "domain": "runtime",
+                            "message": "The LOOMLE runtime is connected but not ready."
+                        }));
+                    }
                 }
-            }));
-        };
-
-        let health = match rpc_health(&env_info).await {
-            Ok(value) => value,
-            Err(RpcClientError::Startup(err)) => {
-                return structured_result(serde_json::json!({
-                    "status": "error",
-                    "domainCode": "",
-                    "message": err.message,
-                    "runtime": {
+                Err(RpcClientError::Startup(err)) => {
+                    runtime = serde_json::json!({
+                        "state": "unavailable",
                         "rpcConnected": false,
                         "listenerReady": false,
                         "isPIE": false,
-                        "editorBusyReason": "RUNTIME_UNAVAILABLE"
-                    }
-                }));
+                        "editorBusyReason": "RUNTIME_UNAVAILABLE",
+                        "health": null,
+                        "capabilities": null,
+                    });
+                    issues.push(serde_json::json!({
+                        "code": "RUNTIME_UNAVAILABLE",
+                        "severity": "error",
+                        "domain": "runtime",
+                        "message": err.message,
+                    }));
+                }
+                Err(RpcClientError::Invoke(error)) => {
+                    runtime = serde_json::json!({
+                        "state": "error",
+                        "rpcConnected": true,
+                        "listenerReady": false,
+                        "isPIE": false,
+                        "editorBusyReason": "RUNTIME_ERROR",
+                        "health": error.payload,
+                        "capabilities": null,
+                    });
+                    issues.push(serde_json::json!({
+                        "code": error.code.to_string(),
+                        "severity": "error",
+                        "domain": "runtime",
+                        "message": error.message,
+                    }));
+                }
+                Err(RpcClientError::Protocol(message)) => {
+                    runtime = serde_json::json!({
+                        "state": "error",
+                        "rpcConnected": true,
+                        "listenerReady": false,
+                        "isPIE": false,
+                        "editorBusyReason": "PROTOCOL_ERROR",
+                        "health": null,
+                        "capabilities": null,
+                    });
+                    issues.push(serde_json::json!({
+                        "code": "PROTOCOL_ERROR",
+                        "severity": "error",
+                        "domain": "runtime",
+                        "message": message,
+                    }));
+                }
             }
-            Err(RpcClientError::Invoke(error)) => {
-                return CallToolResult::structured_error(serde_json::json!({
-                    "code": error.code,
-                    "message": error.message,
-                    "retryable": error.retryable,
-                    "detail": error.detail,
-                    "payload": error.payload
-                }));
-            }
-            Err(RpcClientError::Protocol(message)) => {
-                return CallToolResult::structured_error(serde_json::json!({
-                    "message": message
-                }));
-            }
-        };
-        let capabilities = rpc_capabilities(&env_info).await.ok();
-        let status = health
-            .get("status")
+        } else {
+            issues.push(serde_json::json!({
+                "code": "NO_PROJECT_ATTACHED",
+                "severity": "error",
+                "domain": "project",
+                "message": "No Unreal project is attached."
+            }));
+        }
+
+        let runtime_state = runtime
+            .get("state")
             .and_then(|value| value.as_str())
             .unwrap_or("error");
-        let is_pie = health
-            .get("isPIE")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(false);
-        let editor_busy_reason = health
-            .get("editorBusyReason")
-            .and_then(|value| value.as_str())
-            .unwrap_or("");
+        let status = if runtime_state == "ready" {
+            "ready"
+        } else if runtime_state == "no_project" || runtime_state == "unavailable" {
+            "offline"
+        } else {
+            "degraded"
+        };
+        let message = match status {
+            "ready" => "Loomle runtime is ready.",
+            "offline" => "Loomle runtime is offline.",
+            _ => "Loomle runtime is degraded.",
+        };
 
         structured_result(serde_json::json!({
+            "schemaVersion": 1,
             "status": status,
-            "domainCode": "",
-            "message": "",
-            "runtime": {
-                "rpcConnected": true,
-                "listenerReady": true,
-                "isPIE": is_pie,
-                "editorBusyReason": editor_busy_reason,
-                "rpcHealth": health,
-                "capabilities": capabilities
-            }
+            "message": message,
+            "mcp": {
+                "server": "native",
+                "version": env!("CARGO_PKG_VERSION"),
+            },
+            "project": {
+                "attached": env_info.is_some(),
+                "root": env_info.as_ref().map(|env_info| env_info.project_root.display().to_string()),
+                "endpoint": env_info.as_ref().map(|env_info| env_info.runtime_endpoint_path.display().to_string()),
+                "discovered": {
+                    "online": online_project_count,
+                    "total": projects.len(),
+                },
+            },
+            "runtime": runtime,
+            "update": update_check,
+            "observability": observability,
+            "issues": issues,
         }))
     }
 
@@ -1012,39 +1075,6 @@ impl LoomleProxyServer {
         });
         self.attach_project(project).await;
         structured_result(payload)
-    }
-
-    async fn call_setup_status(&self) -> CallToolResult {
-        self.try_auto_attach().await;
-        let selected_project = self.current_setup_project().await;
-        structured_result(build_setup_status(selected_project.as_ref()))
-    }
-
-    async fn call_setup_configure(&self, args: &rmcp::model::JsonObject) -> CallToolResult {
-        self.try_auto_attach().await;
-        let selected_project = self.current_setup_project().await;
-        call_setup_configure(args, selected_project)
-    }
-
-    async fn current_setup_project(&self) -> Option<RuntimeProject> {
-        let env_info = self.env_info.lock().await.clone();
-        let projects = discover_runtime_projects(ProjectStatusFilter::All);
-        if let Some(project) = env_info.as_ref().and_then(|env_info| {
-            projects
-                .iter()
-                .find(|project| same_path(&project.project_root, &env_info.project_root))
-        }) {
-            return Some(project.clone());
-        }
-        let online_projects = projects
-            .iter()
-            .filter(|project| project.status == "online")
-            .collect::<Vec<_>>();
-        if online_projects.len() == 1 {
-            online_projects.first().map(|project| (*project).clone())
-        } else {
-            None
-        }
     }
 
     async fn call_public_blueprint_tool(
@@ -5991,19 +6021,9 @@ fn pre_attach_tools() -> Vec<Tool> {
     use std::sync::Arc;
     vec![
         Tool::new(
-            "loomle.status",
-            "Return the current LOOMLE MCP session status, including whether this session is attached to a UE project.",
+            "status",
+            "Return the current Loomle MCP, project, and runtime status.",
             Arc::new(empty_schema()),
-        ),
-        Tool::new(
-            "setup.status",
-            "Return read-only LOOMLE setup status for Fab/native ownership, MCP host configuration, and the recommended next action.",
-            Arc::new(empty_schema()),
-        ),
-        Tool::new(
-            "setup.configure",
-            "Explicitly configure one MCP host to use LOOMLE after setup.status reports it is safe.",
-            Arc::new(setup_configure_schema()),
         ),
         Tool::new(
             "project.list",
@@ -6092,7 +6112,6 @@ fn manifest_declared_tools_for(target: &str) -> Result<Vec<Tool>, String> {
 fn runtime_declared_tools() -> Vec<Tool> {
     use std::sync::Arc;
     vec![
-        Tool::new("loomle", "Bridge health and runtime status.", Arc::new(empty_schema())),
         Tool::new("context", "Read active editor context and selection.", Arc::new(context_schema())),
         Tool::new("execute", "Execute Unreal-side Python inside the editor process.", Arc::new(execute_schema())),
         Tool::new("jobs", "Inspect or retrieve long-running job state, results, and logs.", Arc::new(jobs_schema())),
@@ -6152,14 +6171,7 @@ fn bridge_unavailable_result(reason: &str) -> CallToolResult {
 fn is_local_tool(name: &str) -> bool {
     matches!(
         name,
-        "loomle"
-            | "loomle.status"
-            | "setup.status"
-            | "setup.configure"
-            | "project.list"
-            | "project.attach"
-            | "project.install"
-            | "schema.inspect"
+        "status" | "project.list" | "project.attach" | "project.install" | "schema.inspect"
     )
 }
 
@@ -6719,21 +6731,6 @@ fn call_blueprint_graph_recipe_validate(args: &rmcp::model::JsonObject) -> CallT
 fn empty_schema() -> rmcp::model::JsonObject {
     serde_json::from_str(r#"{"type":"object","properties":{},"additionalProperties":false}"#)
         .expect("valid schema")
-}
-
-fn setup_configure_schema() -> rmcp::model::JsonObject {
-    serde_json::from_str(
-        r#"{
-          "type":"object",
-          "properties":{
-            "host":{"type":"string","enum":["codex","claude"]},
-            "server":{"type":"string","enum":["auto","fabPython","native"],"default":"auto"}
-          },
-          "required":["host"],
-          "additionalProperties":false
-        }"#,
-    )
-    .expect("valid schema")
 }
 
 fn project_list_schema() -> rmcp::model::JsonObject {
@@ -8551,302 +8548,6 @@ fn call_project_install(args: &rmcp::model::JsonObject) -> CallToolResult {
     }
 }
 
-fn call_setup_configure(
-    args: &rmcp::model::JsonObject,
-    project: Option<RuntimeProject>,
-) -> CallToolResult {
-    let Some(host_id) = args.get("host").and_then(|value| value.as_str()) else {
-        return setup_configure_error("INVALID_ARGUMENT", "setup.configure requires host.");
-    };
-    if !matches!(host_id, "codex" | "claude") {
-        return setup_configure_error("INVALID_ARGUMENT", "host must be codex or claude.");
-    }
-    let server = args
-        .get("server")
-        .and_then(|value| value.as_str())
-        .unwrap_or("auto");
-    if !matches!(server, "auto" | "fabPython" | "native") {
-        return setup_configure_error(
-            "INVALID_ARGUMENT",
-            "server must be auto, fabPython, or native.",
-        );
-    }
-
-    let home = home_dir().unwrap_or_else(|| PathBuf::from("."));
-    let hosts = detect_mcp_hosts(&home);
-    if hosts
-        .iter()
-        .any(|host| host.entry_owner.as_deref() == Some("native"))
-    {
-        return setup_configure_error(
-            "NATIVE_CONFIGURED",
-            "Native loomle mcp is already configured; keeping native and not writing Fab Python MCP config.",
-        );
-    }
-    let Some(host) = hosts.iter().find(|host| host.id == host_id) else {
-        return setup_configure_error("HOST_CONFIG_UNAVAILABLE", "Unknown MCP host.");
-    };
-    if !host.can_auto_configure {
-        let code = if host.entry_present {
-            "LOOMLE_ENTRY_EXISTS"
-        } else {
-            "CONFIGURATION_BLOCKED"
-        };
-        return setup_configure_error(
-            code,
-            format!(
-                "setup.configure cannot safely configure {host_id}: {}",
-                host.reason
-                    .as_deref()
-                    .unwrap_or("host config is not safe to edit")
-            ),
-        );
-    }
-
-    let fab_python = detect_fab_python_mcp(project.as_ref());
-    let native_cli = detect_native_cli(&hosts);
-    let selected_server = match server {
-        "fabPython" => "fab",
-        "native" => "native",
-        "auto" => {
-            if fab_python
-                .get("available")
-                .and_then(|value| value.as_bool())
-                .unwrap_or(false)
-            {
-                "fab"
-            } else if native_cli
-                .get("detected")
-                .and_then(|value| value.as_bool())
-                .unwrap_or(false)
-            {
-                "native"
-            } else {
-                return setup_configure_error(
-                    "MANUAL_CONFIG_REQUIRED",
-                    "Neither Fab Python MCP nor native loomle CLI is available for automatic configuration.",
-                );
-            }
-        }
-        _ => unreachable!(),
-    };
-
-    let config = match selected_server {
-        "fab" => {
-            let Some(config) = fab_python.get("config").and_then(|value| value.as_object()) else {
-                return setup_configure_error(
-                    "FAB_PYTHON_UNAVAILABLE",
-                    "Fab Python MCP files are missing.",
-                );
-            };
-            config.clone()
-        }
-        "native" => {
-            let Some(command) = native_cli.get("path").and_then(|value| value.as_str()) else {
-                return setup_configure_error(
-                    "NATIVE_CLI_UNAVAILABLE",
-                    "Native loomle CLI path is missing.",
-                );
-            };
-            serde_json::Map::from_iter([
-                ("command".to_string(), serde_json::json!(command)),
-                ("args".to_string(), serde_json::json!(["mcp"])),
-            ])
-        }
-        _ => unreachable!(),
-    };
-
-    match host_id {
-        "codex" => write_codex_mcp_config(&host.config_path, &config, selected_server),
-        "claude" if selected_server == "fab" => {
-            write_claude_desktop_mcp_config(&host.config_path, &config, selected_server)
-        }
-        "claude" => Err(setup_configure_error_value(
-            "MANUAL_CONFIG_REQUIRED",
-            "Claude native setup should use `claude mcp add --scope user loomle -- <loomle> mcp` outside MCP.",
-        )),
-        _ => unreachable!(),
-    }
-    .map(structured_result)
-    .unwrap_or_else(|error| CallToolResult::structured_error(error))
-}
-
-fn setup_configure_error(code: &str, message: impl Into<String>) -> CallToolResult {
-    CallToolResult::structured_error(setup_configure_error_value(code, message))
-}
-
-fn setup_configure_error_value(code: &str, message: impl Into<String>) -> serde_json::Value {
-    serde_json::json!({
-        "code": code,
-        "message": message.into(),
-        "retryable": false,
-    })
-}
-
-fn write_codex_mcp_config(
-    config_path: &Path,
-    config: &serde_json::Map<String, serde_json::Value>,
-    selected_server: &str,
-) -> Result<serde_json::Value, serde_json::Value> {
-    let raw = fs::read_to_string(config_path).unwrap_or_default();
-    if classify_loomle_mcp_entry(&raw).0 {
-        return Err(setup_configure_error_value(
-            "LOOMLE_ENTRY_EXISTS",
-            "Codex already has a loomle MCP entry.",
-        ));
-    }
-    let backup_path = backup_existing_config(config_path)?;
-    let command = config
-        .get("command")
-        .and_then(|value| value.as_str())
-        .ok_or_else(|| setup_configure_error_value("CONFIG_WRITE_FAILED", "Missing command."))?;
-    let args = config
-        .get("args")
-        .and_then(|value| value.as_array())
-        .ok_or_else(|| setup_configure_error_value("CONFIG_WRITE_FAILED", "Missing args."))?;
-    let args_text =
-        args.iter()
-            .map(|value| {
-                value.as_str().map(toml_string).ok_or_else(|| {
-                    setup_configure_error_value("CONFIG_WRITE_FAILED", "Invalid arg.")
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?
-            .join(", ");
-    let mut next = raw;
-    if !next.is_empty() && !next.ends_with('\n') {
-        next.push('\n');
-    }
-    next.push_str("\n[mcp_servers.loomle]\n");
-    next.push_str(&format!("command = {}\n", toml_string(command)));
-    next.push_str(&format!("args = [{args_text}]\n"));
-    fs::write(config_path, next).map_err(|error| {
-        setup_configure_error_value(
-            "CONFIG_WRITE_FAILED",
-            format!("Failed to write {}: {error}", config_path.display()),
-        )
-    })?;
-    Ok(setup_configure_success(
-        "codex",
-        selected_server,
-        config_path,
-        backup_path.as_ref(),
-    ))
-}
-
-fn write_claude_desktop_mcp_config(
-    config_path: &Path,
-    config: &serde_json::Map<String, serde_json::Value>,
-    selected_server: &str,
-) -> Result<serde_json::Value, serde_json::Value> {
-    let raw = fs::read_to_string(config_path).unwrap_or_default();
-    if classify_loomle_mcp_entry(&raw).0 {
-        return Err(setup_configure_error_value(
-            "LOOMLE_ENTRY_EXISTS",
-            "Claude already has a loomle MCP entry.",
-        ));
-    }
-    let mut root = if raw.trim().is_empty() {
-        serde_json::json!({})
-    } else {
-        serde_json::from_str::<serde_json::Value>(&raw).map_err(|error| {
-            setup_configure_error_value(
-                "CONFIG_WRITE_FAILED",
-                format!("Failed to parse {}: {error}", config_path.display()),
-            )
-        })?
-    };
-    if !root.is_object() {
-        return Err(setup_configure_error_value(
-            "CONFIG_WRITE_FAILED",
-            "Claude config root must be an object.",
-        ));
-    }
-    let backup_path = backup_existing_config(config_path)?;
-    let root_object = root.as_object_mut().expect("object checked");
-    let mcp_servers = root_object
-        .entry("mcpServers")
-        .or_insert_with(|| serde_json::json!({}));
-    if !mcp_servers.is_object() {
-        return Err(setup_configure_error_value(
-            "CONFIG_WRITE_FAILED",
-            "Claude config mcpServers must be an object.",
-        ));
-    }
-    mcp_servers.as_object_mut().expect("object checked").insert(
-        "loomle".to_string(),
-        serde_json::Value::Object(config.clone()),
-    );
-    fs::write(
-        config_path,
-        serde_json::to_string_pretty(&root).map_err(|error| {
-            setup_configure_error_value(
-                "CONFIG_WRITE_FAILED",
-                format!("Failed to encode Claude config: {error}"),
-            )
-        })? + "\n",
-    )
-    .map_err(|error| {
-        setup_configure_error_value(
-            "CONFIG_WRITE_FAILED",
-            format!("Failed to write {}: {error}", config_path.display()),
-        )
-    })?;
-    Ok(setup_configure_success(
-        "claude",
-        selected_server,
-        config_path,
-        backup_path.as_ref(),
-    ))
-}
-
-fn backup_existing_config(config_path: &Path) -> Result<Option<PathBuf>, serde_json::Value> {
-    if !config_path.exists() {
-        return Ok(None);
-    }
-    let backup_path = config_path.with_file_name(format!(
-        "{}.loomle-backup-{}",
-        config_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("config"),
-        unix_timestamp_secs()
-    ));
-    fs::copy(config_path, &backup_path).map_err(|error| {
-        setup_configure_error_value(
-            "BACKUP_FAILED",
-            format!("Failed to back up {}: {error}", config_path.display()),
-        )
-    })?;
-    Ok(Some(backup_path))
-}
-
-fn setup_configure_success(
-    host: &str,
-    selected_server: &str,
-    config_path: &Path,
-    backup_path: Option<&PathBuf>,
-) -> serde_json::Value {
-    let server_owner = if selected_server == "fab" {
-        "fab"
-    } else {
-        "native"
-    };
-    serde_json::json!({
-        "configured": true,
-        "host": host,
-        "serverOwner": server_owner,
-        "configPath": config_path.display().to_string(),
-        "backupPath": backup_path.map(|path| path.display().to_string()),
-        "changed": true,
-        "message": format!("Configured {host} to use LOOMLE {server_owner} MCP."),
-    })
-}
-
-fn toml_string(value: &str) -> String {
-    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
-}
-
 fn infer_attached_project_root(
     explicit_project_root: Option<PathBuf>,
     cwd: Option<PathBuf>,
@@ -9163,304 +8864,6 @@ fn runtime_endpoint_available(endpoint: &Path) -> bool {
     #[cfg(not(target_os = "windows"))]
     {
         endpoint.exists()
-    }
-}
-
-fn build_setup_status(project: Option<&RuntimeProject>) -> serde_json::Value {
-    let home = home_dir().unwrap_or_else(|| PathBuf::from("."));
-    let hosts = detect_mcp_hosts(&home);
-    let native_cli = detect_native_cli(&hosts);
-    let native_configured = hosts
-        .iter()
-        .any(|host| host.entry_owner.as_deref() == Some("native"));
-    let fab_python = detect_fab_python_mcp(project);
-    let bridge_state = match project {
-        Some(project) if project.status == "online" && project.attachable => "ready",
-        Some(project) if project.status == "online" => "degraded",
-        Some(_) => "offline",
-        None => "offline",
-    };
-    let channel = project
-        .and_then(|project| project.plugin_managed_by.as_deref())
-        .and_then(|managed_by| match managed_by {
-            "native" => Some("native"),
-            "fab" => Some("fab"),
-            "external" => Some("unknown"),
-            _ => None,
-        })
-        .unwrap_or("unknown");
-    let recommendation = setup_recommendation(
-        bridge_state,
-        native_configured,
-        fab_python
-            .get("available")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(false),
-        &hosts,
-    );
-
-    serde_json::json!({
-        "schemaVersion": 1,
-        "channel": channel,
-        "bridge": setup_bridge_status(project, bridge_state),
-        "plugin": setup_plugin_status(project),
-        "nativeCli": native_cli,
-        "fabPythonMcp": fab_python,
-        "hosts": hosts.into_iter().map(|host| host.to_json()).collect::<Vec<_>>(),
-        "recommendation": recommendation,
-    })
-}
-
-fn setup_bridge_status(project: Option<&RuntimeProject>, state: &str) -> serde_json::Value {
-    serde_json::json!({
-        "state": state,
-        "endpoint": project.map(|project| project.endpoint.display().to_string()),
-        "runtimeRegistered": project.is_some_and(|project| project.status == "online"),
-        "projectRegistered": project.is_some(),
-        "projectId": project.map(|project| project.project_id.clone()),
-        "projectRoot": project.map(|project| project.project_root.display().to_string()),
-        "uproject": project.and_then(|project| {
-            project.uproject.as_ref().map(|path| path.display().to_string())
-        }),
-    })
-}
-
-fn setup_plugin_status(project: Option<&RuntimeProject>) -> serde_json::Value {
-    let plugin_path = project.and_then(|project| project.plugin_path.as_ref());
-    serde_json::json!({
-        "path": plugin_path.map(|path| path.display().to_string()),
-        "version": project.and_then(|project| project.plugin_version.clone()),
-        "installScope": project.and_then(|project| project.plugin_install_scope.clone()).unwrap_or_else(|| "unknown".to_string()),
-        "managedBy": project.and_then(|project| project.plugin_managed_by.clone()).unwrap_or_else(|| "unknown".to_string()),
-        "hasFabPythonMcp": plugin_path.is_some_and(|path| fab_python_mcp_server_path(path).is_file()),
-    })
-}
-
-fn fab_python_mcp_server_path(plugin_path: &Path) -> PathBuf {
-    plugin_path
-        .join("Resources")
-        .join("MCP")
-        .join("loomle_mcp_server.py")
-}
-
-fn detect_fab_python_mcp(project: Option<&RuntimeProject>) -> serde_json::Value {
-    let server_path = project
-        .and_then(|project| project.plugin_path.as_ref())
-        .map(|path| fab_python_mcp_server_path(path));
-    let available = server_path.as_ref().is_some_and(|path| path.is_file());
-    let mcp_dir = server_path
-        .as_ref()
-        .and_then(|path| path.parent())
-        .map(|path| path.display().to_string());
-    serde_json::json!({
-        "available": available,
-        "path": server_path.as_ref().map(|path| path.display().to_string()),
-        "recommendedCommand": if available { serde_json::json!("uv") } else { serde_json::Value::Null },
-        "config": if let (true, Some(mcp_dir)) = (available, mcp_dir) {
-            serde_json::json!({
-                "command": "uv",
-                "args": ["--directory", mcp_dir, "run", "loomle_mcp_server.py"]
-            })
-        } else {
-            serde_json::Value::Null
-        },
-    })
-}
-
-#[derive(Debug, Clone)]
-struct McpHostStatus {
-    id: &'static str,
-    detected: bool,
-    config_path: PathBuf,
-    entry_present: bool,
-    entry_owner: Option<String>,
-    server_name: Option<String>,
-    can_auto_configure: bool,
-    reason: Option<String>,
-}
-
-impl McpHostStatus {
-    fn to_json(self) -> serde_json::Value {
-        serde_json::json!({
-            "id": self.id,
-            "detected": self.detected,
-            "configPath": self.config_path.display().to_string(),
-            "loomleEntry": {
-                "present": self.entry_present,
-                "owner": self.entry_owner,
-                "serverName": self.server_name,
-            },
-            "canAutoConfigure": self.can_auto_configure,
-            "reason": self.reason,
-        })
-    }
-}
-
-fn detect_mcp_hosts(home: &Path) -> Vec<McpHostStatus> {
-    vec![
-        detect_mcp_host("codex", codex_config_path(home)),
-        detect_mcp_host("claude", claude_config_path(home)),
-    ]
-}
-
-fn codex_config_path(home: &Path) -> PathBuf {
-    home.join(".codex").join("config.toml")
-}
-
-fn claude_config_path(home: &Path) -> PathBuf {
-    #[cfg(target_os = "macos")]
-    {
-        home.join("Library")
-            .join("Application Support")
-            .join("Claude")
-            .join("claude_desktop_config.json")
-    }
-
-    #[cfg(windows)]
-    {
-        if let Some(appdata) = env::var_os("APPDATA") {
-            return PathBuf::from(appdata)
-                .join("Claude")
-                .join("claude_desktop_config.json");
-        }
-        home.join("AppData")
-            .join("Roaming")
-            .join("Claude")
-            .join("claude_desktop_config.json")
-    }
-
-    #[cfg(all(not(target_os = "macos"), not(windows)))]
-    {
-        home.join(".config")
-            .join("Claude")
-            .join("claude_desktop_config.json")
-    }
-}
-
-fn detect_mcp_host(id: &'static str, config_path: PathBuf) -> McpHostStatus {
-    let raw = fs::read_to_string(&config_path).ok();
-    let parent_exists = config_path.parent().is_some_and(|path| path.is_dir());
-    let (entry_present, entry_owner, server_name) = raw
-        .as_deref()
-        .map(classify_loomle_mcp_entry)
-        .unwrap_or((false, None, None));
-    let can_auto_configure = parent_exists && !entry_present;
-    let reason = if entry_owner.as_deref() == Some("native") {
-        Some("nativeConfigured".to_string())
-    } else if entry_present {
-        Some("loomleEntryExists".to_string())
-    } else if !parent_exists {
-        Some("configDirectoryMissing".to_string())
-    } else {
-        None
-    };
-    McpHostStatus {
-        id,
-        detected: config_path.is_file() || parent_exists,
-        config_path,
-        entry_present,
-        entry_owner,
-        server_name,
-        can_auto_configure,
-        reason,
-    }
-}
-
-fn classify_loomle_mcp_entry(raw: &str) -> (bool, Option<String>, Option<String>) {
-    let lower = raw.to_ascii_lowercase();
-    let entry_present = lower.contains("[mcp_servers.loomle]")
-        || lower.contains("[mcp.servers.loomle]")
-        || (lower.contains("mcpservers") && lower.contains("\"loomle\""));
-    if !entry_present {
-        return (false, None, None);
-    }
-    let owner = if lower.contains("loomle_mcp_server.py") || lower.contains("resources/mcp") {
-        "fab"
-    } else if lower.contains(".loomle/bin/loomle")
-        || lower.contains("\\.loomle\\bin\\loomle")
-        || lower.contains("loomle mcp")
-    {
-        "native"
-    } else {
-        "manual"
-    };
-    (true, Some(owner.to_string()), Some("loomle".to_string()))
-}
-
-fn detect_native_cli(hosts: &[McpHostStatus]) -> serde_json::Value {
-    let cli_path = loomle_root()
-        .join("bin")
-        .join(current_platform_client_binary_name());
-    let version = read_global_active_version().ok();
-    let configured_hosts = hosts
-        .iter()
-        .filter(|host| host.entry_owner.as_deref() == Some("native"))
-        .map(|host| host.id)
-        .collect::<Vec<_>>();
-    serde_json::json!({
-        "detected": cli_path.is_file() || version.is_some() || !configured_hosts.is_empty(),
-        "path": if cli_path.exists() { serde_json::json!(cli_path.display().to_string()) } else { serde_json::Value::Null },
-        "version": version,
-        "configuredHosts": configured_hosts,
-    })
-}
-
-fn setup_recommendation(
-    bridge_state: &str,
-    native_configured: bool,
-    fab_python_available: bool,
-    hosts: &[McpHostStatus],
-) -> serde_json::Value {
-    if bridge_state != "ready" {
-        return serde_json::json!({
-            "action": "fixBridge",
-            "message": "LoomleBridge is not ready. Open the Unreal project and make sure the plugin is enabled.",
-            "safeAutomaticActions": [],
-            "warnings": [],
-        });
-    }
-    if native_configured {
-        return serde_json::json!({
-            "action": "keepNative",
-            "message": "Native loomle is already configured and can connect to this project.",
-            "safeAutomaticActions": [],
-            "warnings": [],
-        });
-    }
-    if fab_python_available {
-        let safe_actions = hosts
-            .iter()
-            .filter(|host| host.can_auto_configure)
-            .map(|host| format!("configure{}", capitalize_ascii(host.id)))
-            .collect::<Vec<_>>();
-        if !safe_actions.is_empty() {
-            return serde_json::json!({
-                "action": "configureFabPython",
-                "message": "Fab Python MCP is available. Configure a detected MCP host after explicit confirmation.",
-                "safeAutomaticActions": safe_actions,
-                "warnings": [],
-            });
-        }
-        return serde_json::json!({
-            "action": "showManualConfig",
-            "message": "Fab Python MCP is available, but no MCP host config path was detected unambiguously.",
-            "safeAutomaticActions": [],
-            "warnings": [],
-        });
-    }
-    serde_json::json!({
-        "action": "noAction",
-        "message": "No setup action is currently available.",
-        "safeAutomaticActions": [],
-        "warnings": [],
-    })
-}
-
-fn capitalize_ascii(value: &str) -> String {
-    let mut chars = value.chars();
-    match chars.next() {
-        Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
-        None => String::new(),
     }
 }
 
@@ -10752,15 +10155,14 @@ mod tests {
         asset_edit_schema, asset_inspect_schema, blueprint_graph_inspect_schema,
         blueprint_graph_layout_schema, blueprint_node_edit_schema, blueprint_node_inspect_schema,
         build_blueprint_graph_layout_plan, build_installer_args, call_schema_inspect,
-        call_setup_configure, classify_loomle_mcp_entry, compare_semver,
-        compile_blueprint_refactor_request, current_platform_client_binary_name,
+        compare_semver, compile_blueprint_refactor_request, current_platform_client_binary_name,
         infer_attached_project_root, material_graph_edit_schema, material_graph_inspect_schema,
         material_graph_layout_schema, material_node_edit_schema, material_palette_schema,
         parse_active_install_state_json, parse_blueprint_graph_layout_request, pcg_compile_schema,
         pcg_graph_inspect_schema, pcg_graph_layout_schema, pcg_node_inspect_schema,
         pcg_palette_schema, pcg_parameter_edit_schema, play_participant_wait_conditions_met,
         play_schema, play_wait_participant_conditions_from_args, read_cached_latest_version,
-        read_file_lock_metadata, read_plugin_version, runtime_declared_tools, setup_recommendation,
+        read_file_lock_metadata, read_plugin_version, runtime_declared_tools,
         shape_blueprint_graph_inspect_result, shape_pcg_compile_result,
         shape_pcg_graph_inspect_result, shape_pcg_node_inspect_result,
         shape_widget_tree_inspect_payload, switch_to_installed_version,
@@ -10775,8 +10177,7 @@ mod tests {
         translate_widget_inspect_args, translate_widget_tree_edit_args,
         validate_blueprint_graph_inspect_args, validate_pcg_graph_inspect_args,
         widget_inspect_schema, widget_palette_schema, widget_tree_edit_schema,
-        widget_tree_inspect_schema, Cli, FileLockMetadata, McpHostStatus, RuntimeProject,
-        UpdateOptions,
+        widget_tree_inspect_schema, Cli, FileLockMetadata, RuntimeProject, UpdateOptions,
     };
     use rmcp::model::JsonObject;
     use std::ffi::OsString;
@@ -13629,8 +13030,11 @@ mod tests {
             .map(|tool| tool.name.to_string())
             .collect::<std::collections::HashSet<_>>();
 
+        assert!(tool_names.contains("status"));
         assert!(tool_names.contains("schema.inspect"));
-        assert!(tool_names.contains("setup.status"));
+        assert!(!tool_names.contains("loomle"));
+        assert!(!tool_names.contains("setup.status"));
+        assert!(!tool_names.contains("setup.configure"));
     }
 
     #[test]
@@ -13661,6 +13065,23 @@ mod tests {
             .collect::<std::collections::HashSet<_>>();
 
         assert_eq!(declared_names, manifest_names);
+        let status_tool = declared_tools
+            .iter()
+            .find(|tool| tool.name.as_ref() == "status")
+            .expect("status");
+        let status_tool_output = status_tool
+            .output_schema
+            .as_ref()
+            .and_then(|schema| schema.get("properties"))
+            .and_then(|value| value.as_object())
+            .expect("status output properties");
+        assert!(status_tool_output.contains_key("mcp"));
+        assert!(status_tool_output.contains_key("project"));
+        assert!(status_tool_output.contains_key("runtime"));
+        assert!(status_tool_output.contains_key("issues"));
+        assert!(!status_tool_output.contains_key("plugin"));
+        assert!(!status_tool_output.contains_key("hosts"));
+
         let context = declared_tools
             .iter()
             .find(|tool| tool.name.as_ref() == "context")
@@ -13719,174 +13140,6 @@ mod tests {
             .filter_map(|value| value.as_str())
             .collect::<Vec<_>>();
         assert_eq!(output_views, vec!["summary", "exec_flow", "data_flow"]);
-    }
-
-    #[test]
-    fn setup_status_recommends_keep_native_over_fab_python() {
-        let hosts = vec![McpHostStatus {
-            id: "codex",
-            detected: true,
-            config_path: PathBuf::from("/tmp/codex/config.toml"),
-            entry_present: true,
-            entry_owner: Some("native".to_string()),
-            server_name: Some("loomle".to_string()),
-            can_auto_configure: false,
-            reason: Some("nativeConfigured".to_string()),
-        }];
-
-        let recommendation = setup_recommendation("ready", true, true, &hosts);
-        assert_eq!(
-            recommendation
-                .get("action")
-                .and_then(|value| value.as_str()),
-            Some("keepNative")
-        );
-    }
-
-    #[test]
-    fn setup_status_recommends_configure_fab_python_when_safe() {
-        let hosts = vec![McpHostStatus {
-            id: "codex",
-            detected: true,
-            config_path: PathBuf::from("/tmp/codex/config.toml"),
-            entry_present: false,
-            entry_owner: None,
-            server_name: None,
-            can_auto_configure: true,
-            reason: None,
-        }];
-
-        let recommendation = setup_recommendation("ready", false, true, &hosts);
-        assert_eq!(
-            recommendation
-                .get("action")
-                .and_then(|value| value.as_str()),
-            Some("configureFabPython")
-        );
-        let safe_actions = recommendation
-            .get("safeAutomaticActions")
-            .and_then(|value| value.as_array())
-            .expect("safe actions");
-        assert_eq!(
-            safe_actions.first().and_then(|value| value.as_str()),
-            Some("configureCodex")
-        );
-    }
-
-    #[test]
-    fn setup_status_ignores_loomle_project_paths_in_host_config() {
-        let raw = r#"
-model = "gpt-5.5"
-
-[mcp_servers.figma]
-url = "https://mcp.figma.com/mcp"
-
-[projects."/Users/xartest/dev/loomle"]
-trust_level = "trusted"
-"#;
-
-        let (present, owner, server_name) = classify_loomle_mcp_entry(raw);
-        assert!(!present);
-        assert!(owner.is_none());
-        assert!(server_name.is_none());
-    }
-
-    #[test]
-    fn setup_status_detects_explicit_loomle_mcp_entry() {
-        let raw = r#"
-[mcp_servers.loomle]
-command = "/Users/xartest/.loomle/bin/loomle"
-args = ["mcp"]
-"#;
-
-        let (present, owner, server_name) = classify_loomle_mcp_entry(raw);
-        assert!(present);
-        assert_eq!(owner.as_deref(), Some("native"));
-        assert_eq!(server_name.as_deref(), Some("loomle"));
-    }
-
-    #[test]
-    fn setup_configure_writes_codex_fab_python_without_overwriting() {
-        let _env_lock = loomle_install_root_env_lock();
-        let root = std::env::temp_dir().join(format!(
-            "loomle-test-setup-configure-{}-{}",
-            std::process::id(),
-            super::unix_timestamp_secs()
-        ));
-        let previous_home = std::env::var_os("HOME");
-        let previous_userprofile = std::env::var_os("USERPROFILE");
-        let previous_root = std::env::var_os("LOOMLE_INSTALL_ROOT");
-        let test_home = root.join("home");
-        std::env::set_var("HOME", &test_home);
-        std::env::set_var("USERPROFILE", &test_home);
-        std::env::set_var("LOOMLE_INSTALL_ROOT", root.join(".loomle"));
-
-        let codex_dir = test_home.join(".codex");
-        fs::create_dir_all(&codex_dir).expect("codex dir");
-        fs::write(
-            codex_dir.join("config.toml"),
-            "[profile]\nname = \"test\"\n",
-        )
-        .expect("codex config");
-        let plugin_path = root.join("Fab").join("LoomleBridge");
-        let mcp_dir = plugin_path.join("Resources").join("MCP");
-        fs::create_dir_all(&mcp_dir).expect("mcp dir");
-        fs::write(mcp_dir.join("loomle_mcp_server.py"), "# test\n").expect("server");
-        let project_root = root.join("Project");
-        let project = RuntimeProject {
-            project_id: "project-id".to_string(),
-            name: "Project".to_string(),
-            project_root: project_root.clone(),
-            uproject: Some(project_root.join("Project.uproject")),
-            endpoint: project_root.join("Intermediate").join("loomle.sock"),
-            status: "online".to_string(),
-            attachable: true,
-            plugin_installed: true,
-            plugin_path: Some(plugin_path.clone()),
-            plugin_install_scope: Some("engine".to_string()),
-            plugin_managed_by: Some("fab".to_string()),
-            plugin_version: Some("0.6.0".to_string()),
-            protocol_version: Some(1),
-            last_seen_at: None,
-            reason: None,
-        };
-        let mut args = JsonObject::new();
-        args.insert("host".into(), serde_json::json!("codex"));
-
-        let result = call_setup_configure(&args, Some(project));
-        assert_eq!(result.is_error, Some(false));
-        let payload = result.structured_content.expect("structured content");
-        assert_eq!(
-            payload.get("serverOwner").and_then(|value| value.as_str()),
-            Some("fab")
-        );
-        let config = fs::read_to_string(codex_dir.join("config.toml")).expect("codex config");
-        assert!(config.contains("[profile]"));
-        assert!(config.contains("[mcp_servers.loomle]"));
-        assert!(config.contains("loomle_mcp_server.py"));
-        let backup_path = payload
-            .get("backupPath")
-            .and_then(|value| value.as_str())
-            .map(PathBuf::from)
-            .expect("backup path");
-        assert!(backup_path.exists());
-
-        if let Some(previous_home) = previous_home {
-            std::env::set_var("HOME", previous_home);
-        } else {
-            std::env::remove_var("HOME");
-        }
-        if let Some(previous_userprofile) = previous_userprofile {
-            std::env::set_var("USERPROFILE", previous_userprofile);
-        } else {
-            std::env::remove_var("USERPROFILE");
-        }
-        if let Some(previous_root) = previous_root {
-            std::env::set_var("LOOMLE_INSTALL_ROOT", previous_root);
-        } else {
-            std::env::remove_var("LOOMLE_INSTALL_ROOT");
-        }
-        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

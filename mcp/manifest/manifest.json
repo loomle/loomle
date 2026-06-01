@@ -8,30 +8,9 @@
   ],
   "tools": [
     {
-      "name": "loomle",
-      "title": "LOOMLE Runtime Health",
-      "description": "Bridge health and runtime status.",
-      "availability": [
-        "native",
-        "python"
-      ],
-      "requiresBridge": true,
-      "inputSchema": {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": false
-      },
-      "dispatch": {
-        "kind": "bridgeRpc",
-        "tool": "rpc.health",
-        "args": "identity",
-        "result": "structured"
-      }
-    },
-    {
-      "name": "loomle.status",
-      "title": "LOOMLE Status",
-      "description": "Return the current LOOMLE MCP session status, including whether this session is attached to a UE project.",
+      "name": "status",
+      "title": "Status",
+      "description": "Return the current Loomle MCP, project, and runtime status.",
       "availability": [
         "native",
         "python"
@@ -42,59 +21,200 @@
         "properties": {},
         "additionalProperties": false
       },
-      "dispatch": {
-        "kind": "local"
-      }
-    },
-    {
-      "name": "setup.status",
-      "title": "Setup Status",
-      "description": "Return read-only LOOMLE setup status for Fab/native ownership, MCP host configuration, and the recommended next action.",
-      "availability": [
-        "native",
-        "python"
-      ],
-      "requiresBridge": false,
-      "inputSchema": {
+      "outputSchema": {
         "type": "object",
-        "properties": {},
-        "additionalProperties": false
-      },
-      "dispatch": {
-        "kind": "local"
-      }
-    },
-    {
-      "name": "setup.configure",
-      "title": "Configure MCP Host",
-      "description": "Explicitly configure one MCP host to use LOOMLE after setup.status reports it is safe.",
-      "availability": [
-        "native",
-        "python"
-      ],
-      "requiresBridge": false,
-      "inputSchema": {
-        "type": "object",
+        "description": "Single read-only status snapshot for the MCP process, attached project, and UE runtime bridge.",
         "properties": {
-          "host": {
+          "schemaVersion": {
+            "type": "integer",
+            "const": 1
+          },
+          "status": {
             "type": "string",
             "enum": [
-              "codex",
-              "claude"
+              "ready",
+              "degraded",
+              "offline"
             ]
           },
-          "server": {
-            "type": "string",
-            "enum": [
-              "auto",
-              "fabPython",
-              "native"
+          "message": {
+            "type": "string"
+          },
+          "mcp": {
+            "type": "object",
+            "properties": {
+              "server": {
+                "type": "string",
+                "enum": [
+                  "native",
+                  "python"
+                ]
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "server",
+              "version"
             ],
-            "default": "auto"
+            "additionalProperties": false
+          },
+          "project": {
+            "type": "object",
+            "properties": {
+              "attached": {
+                "type": "boolean"
+              },
+              "root": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endpoint": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "discovered": {
+                "type": "object",
+                "properties": {
+                  "online": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "total": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "online",
+                  "total"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "attached",
+              "root",
+              "endpoint",
+              "discovered"
+            ],
+            "additionalProperties": false
+          },
+          "runtime": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "ready",
+                  "unavailable",
+                  "no_project",
+                  "error"
+                ]
+              },
+              "rpcConnected": {
+                "type": "boolean"
+              },
+              "listenerReady": {
+                "type": "boolean"
+              },
+              "isPIE": {
+                "type": "boolean"
+              },
+              "editorBusyReason": {
+                "type": "string"
+              },
+              "health": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": true
+              },
+              "capabilities": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": true
+              }
+            },
+            "required": [
+              "state",
+              "rpcConnected",
+              "listenerReady",
+              "isPIE",
+              "editorBusyReason",
+              "health",
+              "capabilities"
+            ],
+            "additionalProperties": false
+          },
+          "update": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
+          },
+          "observability": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "error"
+                  ]
+                },
+                "domain": {
+                  "type": "string",
+                  "enum": [
+                    "project",
+                    "runtime"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "domain",
+                "message"
+              ],
+              "additionalProperties": true
+            }
           }
         },
         "required": [
-          "host"
+          "schemaVersion",
+          "status",
+          "message",
+          "mcp",
+          "project",
+          "runtime",
+          "update",
+          "observability",
+          "issues"
         ],
         "additionalProperties": false
       },

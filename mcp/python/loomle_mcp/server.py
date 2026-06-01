@@ -12,7 +12,14 @@ from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 
 from . import __version__
-from .bridge_rpc import BridgeRpcError, BridgeRpcInvokeError, close_all_sessions, rpc_health, rpc_invoke
+from .bridge_rpc import (
+    BridgeRpcError,
+    BridgeRpcInvokeError,
+    close_all_sessions,
+    rpc_capabilities,
+    rpc_health,
+    rpc_invoke,
+)
 from .manifest import ManifestError, ToolManifest, load_manifest
 from .project_registry import (
     RuntimeProject,
@@ -20,7 +27,6 @@ from .project_registry import (
     find_online_project,
     infer_attached_project_root,
 )
-from .setup_status import SetupConfigureError, build_setup_status, configure_setup
 from .transforms import TransformError, apply_args_transform, apply_result_transform
 
 
@@ -49,79 +55,134 @@ def make_server(
 
     @server.call_tool()
     async def call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
-        if name == "loomle.status":
+        if name == "status":
             state.try_auto_attach()
-            online_projects = discover_runtime_projects("online")
-            return structured_result(
-                {
-                    "loomleVersion": f"{__version__}-python",
-                    "channel": "python",
-                    "attached": state.attached_project is not None,
-                    "attachedProject": (
-                        str(state.attached_project.project_root)
-                        if state.attached_project is not None
-                        else None
-                    ),
-                    "onlineProjectCount": len(online_projects),
-                    "projectCount": len(discover_runtime_projects("all")),
-                }
+            projects = discover_runtime_projects("all")
+            online_project_count = len(
+                [project for project in projects if project.status == "online"]
             )
-
-        if name == "loomle":
-            state.try_auto_attach()
+            issues: list[dict[str, Any]] = []
+            runtime: dict[str, Any] = {
+                "state": "no_project",
+                "rpcConnected": False,
+                "listenerReady": False,
+                "isPIE": False,
+                "editorBusyReason": "NO_PROJECT_ATTACHED",
+                "health": None,
+                "capabilities": None,
+            }
             if state.attached_project is None:
-                return structured_result(
+                issues.append(
                     {
-                        "status": "error",
-                        "domainCode": "",
-                        "message": "No project attached",
-                        "runtime": {
-                            "rpcConnected": False,
-                            "listenerReady": False,
-                            "isPIE": False,
-                            "editorBusyReason": "NO_PROJECT_ATTACHED",
-                        },
+                        "code": "NO_PROJECT_ATTACHED",
+                        "severity": "error",
+                        "domain": "project",
+                        "message": "No Unreal project is attached.",
                     }
                 )
-            try:
-                health = await rpc_health(state.attached_project.endpoint)
-            except BridgeRpcInvokeError as exc:
-                return error_result(
-                    {
-                        "isError": True,
-                        "code": exc.code,
-                        "message": exc.message,
-                        "retryable": exc.retryable,
-                        "detail": exc.detail,
-                    }
-                )
-            except BridgeRpcError as exc:
-                return structured_result(
-                    {
-                        "status": "error",
-                        "domainCode": "",
-                        "message": str(exc),
-                        "runtime": {
-                            "rpcConnected": False,
-                            "listenerReady": False,
-                            "isPIE": False,
-                            "editorBusyReason": "RUNTIME_UNAVAILABLE",
-                        },
-                    }
-                )
-
-            return structured_result(
-                {
-                    "status": health.get("status", "error"),
-                    "domainCode": "",
-                    "message": "",
-                    "runtime": {
+            else:
+                try:
+                    health = await rpc_health(state.attached_project.endpoint)
+                    try:
+                        capabilities = await rpc_capabilities(state.attached_project.endpoint)
+                    except (BridgeRpcError, OSError):
+                        capabilities = None
+                    health_status = str(health.get("status") or "ready")
+                    runtime_state = "ready" if health_status == "ready" else "error"
+                    runtime = {
+                        "state": runtime_state,
                         "rpcConnected": True,
                         "listenerReady": True,
                         "isPIE": bool(health.get("isPIE", False)),
                         "editorBusyReason": str(health.get("editorBusyReason", "")),
-                        "rpcHealth": health,
+                        "health": health,
+                        "capabilities": capabilities,
+                    }
+                    if runtime_state != "ready":
+                        issues.append(
+                            {
+                                "code": "RUNTIME_NOT_READY",
+                                "severity": "warning",
+                                "domain": "runtime",
+                                "message": "The LOOMLE runtime is connected but not ready.",
+                            }
+                        )
+                except BridgeRpcInvokeError as exc:
+                    runtime = {
+                        "state": "error",
+                        "rpcConnected": True,
+                        "listenerReady": False,
+                        "isPIE": False,
+                        "editorBusyReason": "RUNTIME_ERROR",
+                        "health": exc.payload,
+                        "capabilities": None,
+                    }
+                    issues.append(
+                        {
+                            "code": str(exc.code),
+                            "severity": "error",
+                            "domain": "runtime",
+                            "message": exc.message,
+                        }
+                    )
+                except (BridgeRpcError, OSError) as exc:
+                    runtime = {
+                        "state": "unavailable",
+                        "rpcConnected": False,
+                        "listenerReady": False,
+                        "isPIE": False,
+                        "editorBusyReason": "RUNTIME_UNAVAILABLE",
+                        "health": None,
+                        "capabilities": None,
+                    }
+                    issues.append(
+                        {
+                            "code": "RUNTIME_UNAVAILABLE",
+                            "severity": "error",
+                            "domain": "runtime",
+                            "message": str(exc),
+                        }
+                    )
+
+            if runtime["state"] == "ready":
+                status = "ready"
+                message = "Loomle runtime is ready."
+            elif runtime["state"] in ("no_project", "unavailable"):
+                status = "offline"
+                message = "Loomle runtime is offline."
+            else:
+                status = "degraded"
+                message = "Loomle runtime is degraded."
+            return structured_result(
+                {
+                    "schemaVersion": 1,
+                    "status": status,
+                    "message": message,
+                    "mcp": {
+                        "server": "python",
+                        "version": __version__,
                     },
+                    "project": {
+                        "attached": state.attached_project is not None,
+                        "root": (
+                            str(state.attached_project.project_root)
+                            if state.attached_project is not None
+                            else None
+                        ),
+                        "endpoint": (
+                            str(state.attached_project.endpoint)
+                            if state.attached_project is not None
+                            else None
+                        ),
+                        "discovered": {
+                            "online": online_project_count,
+                            "total": len(projects),
+                        },
+                    },
+                    "runtime": runtime,
+                    "update": None,
+                    "observability": None,
+                    "issues": issues,
                 }
             )
 
@@ -147,36 +208,6 @@ def make_server(
                     ]
                 }
             )
-
-        if name == "setup.status":
-            state.try_auto_attach()
-            return structured_result(build_setup_status(state.attached_project))
-
-        if name == "setup.configure":
-            state.try_auto_attach()
-            host = arguments.get("host")
-            server_name = arguments.get("server") or "auto"
-            if not isinstance(host, str):
-                return error_result(
-                    {
-                        "isError": True,
-                        "code": "INVALID_ARGUMENT",
-                        "message": "setup.configure requires host.",
-                        "retryable": False,
-                    }
-                )
-            if not isinstance(server_name, str):
-                server_name = "auto"
-            try:
-                return structured_result(
-                    configure_setup(
-                        host=host,
-                        server=server_name,
-                        attached_project=state.attached_project,
-                    )
-                )
-            except SetupConfigureError as exc:
-                return error_result(exc.to_payload())
 
         if name == "project.attach":
             project_id = arguments.get("projectId")

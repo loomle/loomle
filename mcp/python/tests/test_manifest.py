@@ -5,18 +5,15 @@ import re
 from pathlib import Path
 
 from loomle_mcp.manifest import load_manifest
-from loomle_mcp.setup_status import classify_loomle_mcp_entry
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MANIFEST = REPO_ROOT / "mcp" / "manifest" / "manifest.json"
 PYTHON_LOCAL_TOOLS = {
-    "loomle.status",
+    "status",
     "project.attach",
     "project.list",
     "schema.inspect",
-    "setup.configure",
-    "setup.status",
 }
 
 
@@ -27,8 +24,6 @@ class ToolManifestTests(unittest.TestCase):
 
         self.assertIn("project.list", names)
         self.assertIn("project.attach", names)
-        self.assertIn("setup.status", names)
-        self.assertIn("setup.configure", names)
         self.assertIn("schema.inspect", names)
         self.assertIn("context", names)
         self.assertIn("blueprint.graph.list", names)
@@ -42,6 +37,9 @@ class ToolManifestTests(unittest.TestCase):
         self.assertIn("widget.tree.inspect", names)
         self.assertIn("widget.tree.edit", names)
         self.assertIn("widget.compile", names)
+        self.assertNotIn("loomle", names)
+        self.assertNotIn("setup.status", names)
+        self.assertNotIn("setup.configure", names)
         self.assertNotIn("project.install", names)
 
     def test_python_manifest_covers_rust_runtime_tools(self) -> None:
@@ -129,33 +127,26 @@ class ToolManifestTests(unittest.TestCase):
 
         self.assertEqual(offenders, {})
 
-    def test_setup_status_ignores_loomle_project_paths_in_host_config(self) -> None:
-        raw = '''
-model = "gpt-5.5"
+    def test_status_tool_manifest_is_single_runtime_status_entrypoint(self) -> None:
+        manifest = load_manifest(MANIFEST)
+        names = {tool["name"] for tool in manifest.list_tools("python")}
+        self.assertIn("status", names)
+        self.assertNotIn("loomle", names)
+        self.assertNotIn("setup.status", names)
+        self.assertNotIn("setup.configure", names)
 
-[mcp_servers.figma]
-url = "https://mcp.figma.com/mcp"
-
-[projects."/Users/xartest/dev/loomle"]
-trust_level = "trusted"
-'''
-
-        present, owner, server_name = classify_loomle_mcp_entry(raw)
-        self.assertFalse(present)
-        self.assertIsNone(owner)
-        self.assertIsNone(server_name)
-
-    def test_setup_status_detects_explicit_loomle_mcp_entry(self) -> None:
-        raw = '''
-[mcp_servers.loomle]
-command = "/Users/xartest/.loomle/bin/loomle"
-args = ["mcp"]
-'''
-
-        present, owner, server_name = classify_loomle_mcp_entry(raw)
-        self.assertTrue(present)
-        self.assertEqual(owner, "native")
-        self.assertEqual(server_name, "loomle")
+        tool = next(
+            tool for tool in manifest.list_tools("python")
+            if tool["name"] == "status"
+        )
+        self.assertEqual(tool["inputSchema"]["properties"], {})
+        output_properties = tool["outputSchema"]["properties"]
+        self.assertIn("mcp", output_properties)
+        self.assertIn("project", output_properties)
+        self.assertIn("runtime", output_properties)
+        self.assertIn("issues", output_properties)
+        self.assertNotIn("plugin", output_properties)
+        self.assertNotIn("hosts", output_properties)
 
     def test_blueprint_graph_edit_requires_asset_path_and_commands(self) -> None:
         manifest = load_manifest(MANIFEST)
