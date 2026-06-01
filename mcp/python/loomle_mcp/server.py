@@ -355,6 +355,8 @@ async def call_bridge_rpc_tool(
                     "retryable": False,
                 }
             )
+        if payload.get("isError") is True:
+            return error_result(payload)
         return structured_result(payload)
     except BridgeRpcInvokeError as exc:
         return error_result(

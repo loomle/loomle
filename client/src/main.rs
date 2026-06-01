@@ -1414,6 +1414,9 @@ impl LoomleProxyServer {
                 result.insert("graph".into(), serde_json::json!({ "name": graph_name }));
             }
         }
+        if let Some(error) = validate_blueprint_graph_inspect_targets(&result, &args) {
+            return Ok(error);
+        }
         shape_blueprint_graph_inspect_result(&mut result, &args);
         Ok(structured_result(serde_json::Value::Object(result)))
     }
@@ -1800,9 +1803,13 @@ impl LoomleProxyServer {
 }
 
 fn invalid_argument_result(message: impl Into<String>) -> CallToolResult {
+    tool_error_result("INVALID_ARGUMENT", message)
+}
+
+fn tool_error_result(code: &str, message: impl Into<String>) -> CallToolResult {
     CallToolResult::structured_error(serde_json::json!({
         "isError": true,
-        "code": "INVALID_ARGUMENT",
+        "code": code,
         "message": message.into(),
         "retryable": false,
     }))
@@ -3444,6 +3451,8 @@ fn validate_blueprint_graph_inspect_args(
                 )));
             }
         }
+        validate_blueprint_graph_traversal_bound(traversal, "maxDepth", 1, 128)?;
+        validate_blueprint_graph_traversal_bound(traversal, "maxNodes", 1, 1000)?;
     }
     Ok(())
 }
@@ -3452,6 +3461,28 @@ fn blueprint_graph_inspect_view(args: &rmcp::model::JsonObject) -> &str {
     args.get("view")
         .and_then(|value| value.as_str())
         .unwrap_or("summary")
+}
+
+fn validate_blueprint_graph_traversal_bound(
+    traversal: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+    min: i64,
+    max: i64,
+) -> Result<(), CallToolResult> {
+    let Some(value) = traversal.get(field) else {
+        return Ok(());
+    };
+    let Some(number) = value.as_i64() else {
+        return Err(invalid_argument_result(format!(
+            "blueprint.graph.inspect traversal.{field} must be an integer."
+        )));
+    };
+    if number < min || number > max {
+        return Err(invalid_argument_result(format!(
+            "blueprint.graph.inspect traversal.{field} must be between {min} and {max}."
+        )));
+    }
+    Ok(())
 }
 
 fn copy_json_field(
@@ -3675,11 +3706,16 @@ fn pin_lookup_key(node_id: &str, pin: &str) -> String {
 }
 
 fn traversal_usize(args: &rmcp::model::JsonObject, field: &str, default: usize) -> usize {
+    let max = match field {
+        "maxDepth" => 128,
+        "maxNodes" => 1000,
+        _ => usize::MAX,
+    };
     args.get("traversal")
         .and_then(|value| value.as_object())
         .and_then(|traversal| traversal.get(field))
         .and_then(|value| value.as_u64())
-        .map(|value| value.clamp(1, usize::MAX as u64) as usize)
+        .map(|value| value.clamp(1, max as u64) as usize)
         .unwrap_or(default)
 }
 
@@ -3719,6 +3755,69 @@ fn blueprint_graph_pin_maps(
         }
     }
     (node_map, pin_map)
+}
+
+fn validate_blueprint_graph_inspect_targets(
+    result: &serde_json::Map<String, serde_json::Value>,
+    args: &rmcp::model::JsonObject,
+) -> Option<CallToolResult> {
+    let view = blueprint_graph_inspect_view(args);
+    if view == "summary" {
+        return None;
+    }
+
+    let nodes = result
+        .get("semanticSnapshot")
+        .and_then(|value| value.as_object())
+        .and_then(|snapshot| snapshot.get("nodes"))
+        .and_then(|value| value.as_array())?;
+    let (node_map, pin_map) = blueprint_graph_pin_maps(nodes);
+
+    if view == "exec_flow" {
+        let root_id = args
+            .get("rootNode")
+            .and_then(|value| value.as_object())
+            .and_then(|node| node.get("id"))
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        if !node_map.contains_key(root_id) {
+            return Some(tool_error_result(
+                "NODE_NOT_FOUND",
+                format!(
+                    "blueprint.graph.inspect view=exec_flow rootNode.id was not found: {root_id}."
+                ),
+            ));
+        }
+        return None;
+    }
+
+    if view == "data_flow" {
+        let root_pin_object = args.get("rootPin").and_then(|value| value.as_object());
+        let root_node_id = root_pin_object
+            .and_then(|root| root.get("node"))
+            .and_then(|value| value.as_object())
+            .and_then(|node| node.get("id"))
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        let root_pin = root_pin_object
+            .and_then(|root| root.get("pin"))
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        if !node_map.contains_key(root_node_id) {
+            return Some(tool_error_result(
+                "NODE_NOT_FOUND",
+                format!("blueprint.graph.inspect view=data_flow rootPin.node.id was not found: {root_node_id}."),
+            ));
+        }
+        if !pin_map.contains_key(&pin_lookup_key(root_node_id, root_pin)) {
+            return Some(tool_error_result(
+                "PIN_NOT_FOUND",
+                format!("blueprint.graph.inspect view=data_flow rootPin.pin was not found on node {root_node_id}: {root_pin}."),
+            ));
+        }
+    }
+
+    None
 }
 
 fn build_blueprint_graph_links(
@@ -10238,9 +10337,10 @@ mod tests {
         translate_pcg_graph_inspect_args, translate_pcg_graph_layout_args,
         translate_pcg_node_inspect_args, translate_pcg_parameter_edit_args,
         translate_widget_inspect_args, translate_widget_tree_edit_args,
-        validate_blueprint_graph_inspect_args, validate_pcg_graph_inspect_args,
-        widget_inspect_schema, widget_palette_schema, widget_tree_edit_schema,
-        widget_tree_inspect_schema, Cli, FileLockMetadata, RuntimeProject, UpdateOptions,
+        validate_blueprint_graph_inspect_args, validate_blueprint_graph_inspect_targets,
+        validate_pcg_graph_inspect_args, widget_inspect_schema, widget_palette_schema,
+        widget_tree_edit_schema, widget_tree_inspect_schema, Cli, FileLockMetadata, RuntimeProject,
+        UpdateOptions,
     };
     use rmcp::model::JsonObject;
     use std::ffi::OsString;
@@ -11641,6 +11741,57 @@ mod tests {
     }
 
     #[test]
+    fn blueprint_graph_inspect_flow_targets_return_actionable_errors() {
+        let result = serde_json::json!({
+            "semanticSnapshot": {
+                "nodes": [
+                    {
+                        "id": "event",
+                        "guid": "event",
+                        "className": "K2Node_Event",
+                        "pins": [
+                            {"name": "Then", "direction": "output", "category": "exec"}
+                        ]
+                    }
+                ],
+                "edges": []
+            }
+        })
+        .as_object()
+        .cloned()
+        .expect("object");
+
+        let mut exec_args = JsonObject::new();
+        exec_args.insert("view".into(), serde_json::json!("exec_flow"));
+        exec_args.insert("rootNode".into(), serde_json::json!({"id":"missing"}));
+        let exec_error =
+            validate_blueprint_graph_inspect_targets(&result, &exec_args).expect("exec error");
+        assert_eq!(
+            exec_error
+                .structured_content
+                .and_then(|value| value.get("code").cloned())
+                .and_then(|value| value.as_str().map(str::to_string)),
+            Some("NODE_NOT_FOUND".to_string())
+        );
+
+        let mut data_args = JsonObject::new();
+        data_args.insert("view".into(), serde_json::json!("data_flow"));
+        data_args.insert(
+            "rootPin".into(),
+            serde_json::json!({"node":{"id":"event"},"pin":"MissingPin"}),
+        );
+        let data_error =
+            validate_blueprint_graph_inspect_targets(&result, &data_args).expect("pin error");
+        assert_eq!(
+            data_error
+                .structured_content
+                .and_then(|value| value.get("code").cloned())
+                .and_then(|value| value.as_str().map(str::to_string)),
+            Some("PIN_NOT_FOUND".to_string())
+        );
+    }
+
+    #[test]
     fn blueprint_graph_inspect_schema_declares_flow_views_and_roots() {
         let schema = blueprint_graph_inspect_schema();
         let view_enum = schema
@@ -11740,6 +11891,17 @@ mod tests {
         );
         assert!(validate_blueprint_graph_inspect_args(&exec_args).is_ok());
         assert!(validate_blueprint_graph_inspect_args(&data_args).is_ok());
+
+        exec_args.insert("traversal".into(), serde_json::json!({"maxDepth": 129}));
+        let error =
+            validate_blueprint_graph_inspect_args(&exec_args).expect_err("maxDepth rejected");
+        assert_eq!(
+            error
+                .structured_content
+                .and_then(|value| value.get("code").cloned())
+                .and_then(|value| value.as_str().map(str::to_string)),
+            Some("INVALID_ARGUMENT".to_string())
+        );
     }
 
     #[test]
@@ -13316,6 +13478,25 @@ mod tests {
             .filter_map(|value| value.as_str())
             .collect::<Vec<_>>();
         assert_eq!(output_views, vec!["summary", "exec_flow", "data_flow"]);
+        let error_codes = output_schema
+            .get("oneOf")
+            .and_then(|value| value.as_array())
+            .expect("output oneOf")
+            .iter()
+            .find(|entry| {
+                entry.get("title").and_then(|value| value.as_str())
+                    == Some("Blueprint Graph Inspect Error")
+            })
+            .and_then(|entry| entry.get("properties"))
+            .and_then(|properties| properties.get("code"))
+            .and_then(|code| code.get("enum"))
+            .and_then(|value| value.as_array())
+            .expect("error code enum")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        assert!(error_codes.contains("NODE_NOT_FOUND"));
+        assert!(error_codes.contains("PIN_NOT_FOUND"));
     }
 
     #[test]

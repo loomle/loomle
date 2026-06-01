@@ -4987,6 +4987,42 @@
               "truncated"
             ],
             "additionalProperties": true
+          },
+          {
+            "title": "Blueprint Graph Inspect Error",
+            "type": "object",
+            "properties": {
+              "isError": {
+                "type": "boolean",
+                "const": true
+              },
+              "code": {
+                "type": "string",
+                "enum": [
+                  "INVALID_ARGUMENT",
+                  "ASSET_NOT_FOUND",
+                  "GRAPH_NOT_FOUND",
+                  "GRAPH_REF_INVALID",
+                  "GRAPH_REF_NOT_COMPOSITE",
+                  "NODE_NOT_FOUND",
+                  "PIN_NOT_FOUND",
+                  "INTERNAL_ERROR",
+                  "EXECUTION_TIMEOUT"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "retryable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "isError",
+              "code",
+              "message"
+            ],
+            "additionalProperties": true
           }
         ],
         "$defs": {

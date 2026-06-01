@@ -357,12 +357,62 @@ def blueprint_graph_inspect_args(arguments: dict[str, Any]) -> dict[str, Any]:
     asset_path = string_field(arguments, "assetPath")
     if asset_path is None:
         raise TransformError("blueprint.graph.inspect requires assetPath.")
+    validate_blueprint_graph_inspect_view_args(arguments)
     graph_name, graph_ref = blueprint_graph_address(arguments, asset_path, "blueprint.graph.inspect")
     out: dict[str, Any] = {"assetPath": asset_path}
     write_graph_address(out, graph_name, graph_ref)
     out["includeConnections"] = True
     out["limit"] = 10000
     return out
+
+
+def validate_blueprint_graph_inspect_view_args(arguments: dict[str, Any]) -> None:
+    view = arguments.get("view", "summary")
+    if view not in {"summary", "exec_flow", "data_flow"}:
+        raise TransformError(f"Unsupported blueprint.graph.inspect view: {view}.")
+    if view == "summary" and ("rootNode" in arguments or "rootPin" in arguments):
+        raise TransformError("blueprint.graph.inspect view=summary does not accept rootNode or rootPin.")
+    if view == "exec_flow":
+        root_node = arguments.get("rootNode")
+        if not isinstance(root_node, dict) or not isinstance(root_node.get("id"), str) or not root_node["id"]:
+            raise TransformError("blueprint.graph.inspect view=exec_flow requires rootNode.id.")
+        if "rootPin" in arguments:
+            raise TransformError("blueprint.graph.inspect view=exec_flow does not accept rootPin.")
+    if view == "data_flow":
+        root_pin = arguments.get("rootPin")
+        root_node = root_pin.get("node") if isinstance(root_pin, dict) else None
+        if (
+            not isinstance(root_pin, dict)
+            or not isinstance(root_node, dict)
+            or not isinstance(root_node.get("id"), str)
+            or not root_node["id"]
+            or not isinstance(root_pin.get("pin"), str)
+            or not root_pin["pin"]
+        ):
+            raise TransformError("blueprint.graph.inspect view=data_flow requires rootPin.node.id and rootPin.pin.")
+        if "rootNode" in arguments:
+            raise TransformError("blueprint.graph.inspect view=data_flow does not accept rootNode.")
+    traversal = arguments.get("traversal")
+    if traversal is not None and not isinstance(traversal, dict):
+        raise TransformError("blueprint.graph.inspect traversal must be an object.")
+    if isinstance(traversal, dict):
+        for key in traversal:
+            if key not in {"direction", "maxDepth", "maxNodes"}:
+                raise TransformError(f"blueprint.graph.inspect traversal does not support {key}.")
+        if (direction := traversal.get("direction")) is not None and direction not in {"upstream", "downstream", "both"}:
+            raise TransformError(f"Unsupported blueprint.graph.inspect traversal.direction: {direction}.")
+        validate_traversal_bound(traversal, "maxDepth", 1, 128)
+        validate_traversal_bound(traversal, "maxNodes", 1, 1000)
+
+
+def validate_traversal_bound(traversal: dict[str, Any], field: str, minimum: int, maximum: int) -> None:
+    if field not in traversal:
+        return
+    value = traversal[field]
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise TransformError(f"blueprint.graph.inspect traversal.{field} must be an integer.")
+    if value < minimum or value > maximum:
+        raise TransformError(f"blueprint.graph.inspect traversal.{field} must be between {minimum} and {maximum}.")
 
 
 def blueprint_node_inspect_args(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -911,11 +961,18 @@ def shape_blueprint_graph_inspect_result(payload: dict[str, Any], arguments: dic
     if view == "exec_flow":
         root_node = arguments.get("rootNode") if isinstance(arguments.get("rootNode"), dict) else {}
         root_id = root_node.get("id") if isinstance(root_node.get("id"), str) else ""
+        if root_id not in node_map:
+            return {
+                "isError": True,
+                "code": "NODE_NOT_FOUND",
+                "message": f"blueprint.graph.inspect view=exec_flow rootNode.id was not found: {root_id}.",
+                "retryable": False,
+            }
         direction = traversal_direction(arguments, "downstream")
-        ordered, traversed, truncated = trace_exec(root_id, node_map, links, direction)
+        ordered, traversed, truncated = trace_exec(root_id, node_map, links, direction, arguments)
         result.pop("semanticSnapshot", None)
         result["view"] = "exec_flow"
-        result["rootNode"] = node_ref(root_id) if root_id in node_map else {"id": root_id, "missing": True}
+        result["rootNode"] = node_ref(root_id)
         result["direction"] = direction
         result["nodes"] = [compact_blueprint_graph_node(node_map[item]) for item in ordered if item in node_map]
         result["links"] = [link_to_json(link) for link in traversed]
@@ -926,8 +983,22 @@ def shape_blueprint_graph_inspect_result(payload: dict[str, Any], arguments: dic
         root_node = root_pin.get("node") if isinstance(root_pin.get("node"), dict) else {}
         root_node_id = root_node.get("id") if isinstance(root_node.get("id"), str) else ""
         root_pin_name = root_pin.get("pin") if isinstance(root_pin.get("pin"), str) else ""
+        if root_node_id not in node_map:
+            return {
+                "isError": True,
+                "code": "NODE_NOT_FOUND",
+                "message": f"blueprint.graph.inspect view=data_flow rootPin.node.id was not found: {root_node_id}.",
+                "retryable": False,
+            }
+        if not node_has_pin(node_map[root_node_id], root_pin_name):
+            return {
+                "isError": True,
+                "code": "PIN_NOT_FOUND",
+                "message": f"blueprint.graph.inspect view=data_flow rootPin.pin was not found on node {root_node_id}: {root_pin_name}.",
+                "retryable": False,
+            }
         direction = traversal_direction(arguments, "upstream")
-        ordered, traversed, truncated = trace_data(root_node_id, root_pin_name, node_map, links, direction)
+        ordered, traversed, truncated = trace_data(root_node_id, root_pin_name, node_map, links, direction, arguments)
         result.pop("semanticSnapshot", None)
         result["view"] = "data_flow"
         result["rootPin"] = {"node": {"id": root_node_id}, "pin": root_pin_name}
@@ -942,7 +1013,7 @@ def shape_blueprint_graph_inspect_result(payload: dict[str, Any], arguments: dic
         covered: set[str] = set()
         chains = []
         for root_id in roots:
-            ordered, traversed, truncated = trace_exec(root_id, node_map, links, "downstream")
+            ordered, traversed, truncated = trace_exec(root_id, node_map, links, "downstream", arguments)
             covered.update(ordered)
             chains.append({
                 "root": node_ref(root_id),
@@ -1026,6 +1097,16 @@ def pin_name(pin: dict[str, Any]) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def node_has_pin(node: dict[str, Any], name: str) -> bool:
+    pins = node.get("pins")
+    if not isinstance(pins, list):
+        return False
+    return any(
+        isinstance(pin, dict) and pin_name(pin) == name
+        for pin in pins
+    )
+
+
 def is_exec_pin(pin: dict[str, Any]) -> bool:
     value = pin.get("category") or pin.get("type")
     return isinstance(value, str) and value.lower() == "exec"
@@ -1043,6 +1124,14 @@ def traversal_direction(arguments: dict[str, Any], default: str) -> str:
     traversal = arguments.get("traversal")
     value = traversal.get("direction") if isinstance(traversal, dict) else None
     return value if value in {"upstream", "downstream", "both"} else default
+
+
+def traversal_int(arguments: dict[str, Any], field: str, default: int, maximum: int) -> int:
+    traversal = arguments.get("traversal")
+    value = traversal.get(field) if isinstance(traversal, dict) else None
+    if isinstance(value, int) and not isinstance(value, bool):
+        return max(1, min(value, maximum))
+    return default
 
 
 def blueprint_graph_links(nodes: Any) -> list[dict[str, str]]:
@@ -1103,13 +1192,13 @@ def node_ref(node_id_value: str) -> dict[str, str]:
     return {"id": node_id_value}
 
 
-def trace_exec(root_id: str, node_map: dict[str, dict[str, Any]], links: list[dict[str, str]], direction: str) -> tuple[list[str], list[dict[str, str]], bool]:
+def trace_exec(root_id: str, node_map: dict[str, dict[str, Any]], links: list[dict[str, str]], direction: str, arguments: dict[str, Any]) -> tuple[list[str], list[dict[str, str]], bool]:
     ordered: list[str] = []
     visited: set[str] = set()
     traversed: list[dict[str, str]] = []
     stack = [(root_id, 0)]
-    max_depth = 64
-    max_nodes = 250
+    max_depth = traversal_int(arguments, "maxDepth", 64, 128)
+    max_nodes = traversal_int(arguments, "maxNodes", 250, 1000)
     while stack:
         current, depth = stack.pop()
         if current in visited:
@@ -1129,12 +1218,14 @@ def trace_exec(root_id: str, node_map: dict[str, dict[str, Any]], links: list[di
     return [item for item in ordered if item in node_map], traversed, len(ordered) >= max_nodes
 
 
-def trace_data(root_node: str, root_pin: str, node_map: dict[str, dict[str, Any]], links: list[dict[str, str]], direction: str) -> tuple[list[str], list[dict[str, str]], bool]:
+def trace_data(root_node: str, root_pin: str, node_map: dict[str, dict[str, Any]], links: list[dict[str, str]], direction: str, arguments: dict[str, Any]) -> tuple[list[str], list[dict[str, str]], bool]:
     ordered: list[str] = []
     visited_nodes: set[str] = set()
     visited_pins: set[str] = set()
     traversed: list[dict[str, str]] = []
     stack = [(pin_key(root_node, root_pin), 0)]
+    max_nodes = traversal_int(arguments, "maxNodes", 250, 1000)
+    truncated = False
     while stack:
         current, depth = stack.pop()
         if current in visited_pins:
@@ -1144,7 +1235,10 @@ def trace_data(root_node: str, root_pin: str, node_map: dict[str, dict[str, Any]
         if owner not in visited_nodes:
             visited_nodes.add(owner)
             ordered.append(owner)
-        if depth >= 64:
+            if len(ordered) >= max_nodes:
+                truncated = True
+                continue
+        if depth >= traversal_int(arguments, "maxDepth", 64, 128):
             continue
         if direction in {"upstream", "both"}:
             for link in [item for item in links if item["kind"] == "data" and pin_key(item["toNodeId"], item["toPin"]) == current]:
@@ -1154,7 +1248,7 @@ def trace_data(root_node: str, root_pin: str, node_map: dict[str, dict[str, Any]
             for link in [item for item in links if item["kind"] == "data" and pin_key(item["fromNodeId"], item["fromPin"]) == current]:
                 traversed.append(link)
                 stack.append((pin_key(link["toNodeId"], link["toPin"]), depth + 1))
-    return [item for item in ordered if item in node_map], traversed, False
+    return [item for item in ordered if item in node_map], traversed, truncated
 
 
 def graph_roots(node_map: dict[str, dict[str, Any]], exec_links: list[dict[str, str]]) -> list[str]:

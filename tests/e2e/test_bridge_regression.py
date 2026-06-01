@@ -1921,6 +1921,20 @@ def main() -> int:
         query_diagnostics = graph_query.get("diagnostics")
         if not isinstance(query_diagnostics, list):
             fail(f"blueprint.graph.inspect diagnostics missing or invalid: {graph_query}")
+        missing_exec_root = call_tool(
+            client,
+            6410,
+            "blueprint.graph.inspect",
+            {
+                "assetPath": temp_asset,
+                "graph": {"name": "EventGraph"},
+                "view": "exec_flow",
+                "rootNode": {"id": "00000000-0000-0000-0000-000000000000"},
+            },
+            expect_error=True,
+        )
+        if extract_nested_error_code(missing_exec_root) != "NODE_NOT_FOUND":
+            fail(f"blueprint.graph.inspect missing exec root should return NODE_NOT_FOUND: {missing_exec_root}")
         print("[PASS] blueprint.graph.inspect structure validated")
 
         blueprint_compile = call_domain_tool(
@@ -2806,25 +2820,35 @@ def main() -> int:
         if "GuardMacroRenamed" not in graph_names or "TempDeleteMacro" in graph_names:
             fail(f"member.edit macro graph state mismatch: {graph_list_payload}")
         compute_nodes = blueprint_summary_nodes(compute_graph_payload)
-        compute_entry = next((node for node in compute_nodes if node.get("className") == "K2Node_FunctionEntry"), None)
-        compute_result = next((node for node in compute_nodes if node.get("className") == "K2Node_FunctionResult"), None)
-        if not isinstance(compute_entry, dict) or not isinstance(compute_result, dict):
+        compute_entry_summary = next((node for node in compute_nodes if node.get("className") == "K2Node_FunctionEntry"), None)
+        compute_result_summary = next((node for node in compute_nodes if node.get("className") == "K2Node_FunctionResult"), None)
+        if not isinstance(compute_entry_summary, dict) or not isinstance(compute_result_summary, dict):
             fail(f"member.edit function graph inspect missing entry/result nodes: {compute_graph_payload}")
-        compute_entry = inspect_blueprint_node(client, 65251, temp_asset, "ComputeValueRenamed", compute_entry["id"]).get("node", {})
-        compute_result = inspect_blueprint_node(client, 65252, temp_asset, "ComputeValueRenamed", compute_result["id"]).get("node", {})
+        compute_entry = inspect_blueprint_node(client, 65251, temp_asset, "ComputeValueRenamed", compute_entry_summary["id"]).get("node", {})
+        compute_result = inspect_blueprint_node(client, 65252, temp_asset, "ComputeValueRenamed", compute_result_summary["id"]).get("node", {})
+        compute_entry_signature = (
+            compute_entry_summary.get("graphBoundarySummary", {}).get("pinSignature", {})
+            if isinstance(compute_entry_summary.get("graphBoundarySummary"), dict)
+            else {}
+        )
+        compute_result_signature = (
+            compute_result_summary.get("graphBoundarySummary", {}).get("pinSignature", {})
+            if isinstance(compute_result_summary.get("graphBoundarySummary"), dict)
+            else {}
+        )
         compute_input_pins = [
-            pin.get("name")
-            for pin in compute_entry.get("pins", [])
-            if isinstance(pin, dict) and pin.get("direction") == "output" and pin.get("category") != "exec"
+            name
+            for name in compute_entry_signature.get("outputPins", [])
+            if name != "then"
         ]
         compute_output_pins = [
-            pin.get("name")
-            for pin in compute_result.get("pins", [])
-            if isinstance(pin, dict) and pin.get("direction") == "input" and pin.get("category") != "exec"
+            name
+            for name in compute_result_signature.get("inputPins", [])
+            if name != "execute"
         ]
         if compute_input_pins != ["bInput"] or compute_output_pins != ["Value"]:
             fail(f"member.edit function signature mismatch: {compute_graph_payload}")
-        compute_boundary = compute_entry.get("graphBoundarySummary", {})
+        compute_boundary = compute_entry_summary.get("graphBoundarySummary", {})
         if not isinstance(compute_boundary, dict) or compute_boundary.get("isPure") is not True:
             fail(f"member.edit pure function flag mismatch: {compute_graph_payload}")
         if compute_boundary.get("isConst") is not True:
@@ -3047,6 +3071,20 @@ def main() -> int:
         node_a = op_ok(add_a).get("nodeId")
         if not isinstance(node_a, str) or not node_a:
             fail(f"addNode.byClass did not return nodeId: {add_a}")
+        missing_data_pin = call_tool(
+            client,
+            1010,
+            "blueprint.graph.inspect",
+            {
+                "assetPath": temp_asset,
+                "graph": {"name": "EventGraph"},
+                "view": "data_flow",
+                "rootPin": {"node": {"id": node_a}, "pin": "MissingLoomleRegressionPin"},
+            },
+            expect_error=True,
+        )
+        if extract_nested_error_code(missing_data_pin) != "PIN_NOT_FOUND":
+            fail(f"blueprint.graph.inspect missing data root pin should return PIN_NOT_FOUND: {missing_data_pin}")
 
         add_b = call_domain_tool(
             client,

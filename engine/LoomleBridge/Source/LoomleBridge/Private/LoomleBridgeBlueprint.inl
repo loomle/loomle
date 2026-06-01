@@ -1107,244 +1107,6 @@ TSharedPtr<FJsonObject> BuildBlueprintClassDescribeResult(const FString& AssetPa
     return Result;
 }
 
-struct FBlueprintGraphQueryShapeOptions
-{
-    TArray<FString> NodeClasses;
-    TSet<FString> NodeIds;
-    FString Text;
-    int32 Limit = 200;
-    int32 Offset = 0;
-    bool bLimitExplicit = false;
-    bool bIncludeConnections = false;
-    bool bCursorValid = true;
-    FString CursorError;
-};
-
-bool ParseBlueprintGraphQueryCursor(const FString& Cursor, int32& OutOffset, FString& OutError)
-{
-    OutOffset = 0;
-    OutError.Empty();
-
-    const FString TrimmedCursor = Cursor.TrimStartAndEnd();
-    if (TrimmedCursor.IsEmpty())
-    {
-        return true;
-    }
-
-    FString Prefix;
-    FString OffsetText;
-    if (!TrimmedCursor.Split(TEXT(":"), &Prefix, &OffsetText) || !Prefix.Equals(TEXT("offset")))
-    {
-        OutError = TEXT("cursor must use the format offset:<non-negative integer>.");
-        return false;
-    }
-
-    OffsetText = OffsetText.TrimStartAndEnd();
-    if (OffsetText.IsEmpty())
-    {
-        OutError = TEXT("cursor offset is missing.");
-        return false;
-    }
-
-    for (TCHAR Character : OffsetText)
-    {
-        if (!FChar::IsDigit(Character))
-        {
-            OutError = TEXT("cursor offset must be a non-negative integer.");
-            return false;
-        }
-    }
-
-    const int64 ParsedOffset = FCString::Atoi64(*OffsetText);
-    if (ParsedOffset < 0 || ParsedOffset > TNumericLimits<int32>::Max())
-    {
-        OutError = TEXT("cursor offset is out of range.");
-        return false;
-    }
-
-    OutOffset = static_cast<int32>(ParsedOffset);
-    return true;
-}
-
-FString BuildBlueprintGraphQueryCursor(const int32 Offset)
-{
-    return FString::Printf(TEXT("offset:%d"), FMath::Max(Offset, 0));
-}
-
-FBlueprintGraphQueryShapeOptions ParseBlueprintGraphQueryShapeOptions(const TSharedPtr<FJsonObject>& Arguments)
-{
-    FBlueprintGraphQueryShapeOptions Options;
-
-    if (!Arguments.IsValid())
-    {
-        return Options;
-    }
-
-    double LimitNumber = 0.0;
-    if (Arguments->TryGetNumberField(TEXT("limit"), LimitNumber))
-    {
-        Options.Limit = FMath::Clamp(static_cast<int32>(LimitNumber), 1, 1000);
-        Options.bLimitExplicit = true;
-    }
-
-    FString Cursor;
-    if (Arguments->TryGetStringField(TEXT("cursor"), Cursor) && !Cursor.TrimStartAndEnd().IsEmpty())
-    {
-        Options.bCursorValid = ParseBlueprintGraphQueryCursor(Cursor, Options.Offset, Options.CursorError);
-    }
-
-    const TArray<TSharedPtr<FJsonValue>>* NodeIds = nullptr;
-    if (Arguments->TryGetArrayField(TEXT("nodeIds"), NodeIds) && NodeIds != nullptr)
-    {
-        for (const TSharedPtr<FJsonValue>& NodeIdValue : *NodeIds)
-        {
-            FString NodeId;
-            if (NodeIdValue.IsValid() && NodeIdValue->TryGetString(NodeId) && !NodeId.IsEmpty())
-            {
-                Options.NodeIds.Add(NodeId);
-            }
-        }
-    }
-
-    const TArray<TSharedPtr<FJsonValue>>* NodeClasses = nullptr;
-    if (Arguments->TryGetArrayField(TEXT("nodeClasses"), NodeClasses) && NodeClasses != nullptr)
-    {
-        for (const TSharedPtr<FJsonValue>& NodeClassValue : *NodeClasses)
-        {
-            FString NodeClass;
-            if (NodeClassValue.IsValid() && NodeClassValue->TryGetString(NodeClass) && !NodeClass.IsEmpty())
-            {
-                Options.NodeClasses.Add(NodeClass);
-            }
-        }
-    }
-
-    FString Text;
-    if (Arguments->TryGetStringField(TEXT("text"), Text))
-    {
-        Options.Text = Text.TrimStartAndEnd();
-    }
-
-    bool bIncludeConnections = false;
-    if (Arguments->TryGetBoolField(TEXT("includeConnections"), bIncludeConnections))
-    {
-        Options.bIncludeConnections = bIncludeConnections;
-    }
-
-    return Options;
-}
-
-bool BlueprintQueryNodeMatchesShapeOptions(const TSharedPtr<FJsonObject>& NodeObject, const FBlueprintGraphQueryShapeOptions& Options)
-{
-    if (!NodeObject.IsValid())
-    {
-        return false;
-    }
-
-    FString NodeId;
-    NodeObject->TryGetStringField(TEXT("id"), NodeId);
-    FString NodeGuid;
-    NodeObject->TryGetStringField(TEXT("guid"), NodeGuid);
-    if (Options.NodeIds.Num() > 0 && !Options.NodeIds.Contains(NodeId) && !Options.NodeIds.Contains(NodeGuid))
-    {
-        return false;
-    }
-
-    FString NodeClassPath;
-    NodeObject->TryGetStringField(TEXT("nodeClassPath"), NodeClassPath);
-    if (NodeClassPath.IsEmpty())
-    {
-        NodeObject->TryGetStringField(TEXT("classPath"), NodeClassPath);
-    }
-
-    if (Options.NodeClasses.Num() > 0)
-    {
-        bool bClassMatched = false;
-        for (const FString& FilterClass : Options.NodeClasses)
-        {
-            if (NodeClassPath.Equals(FilterClass))
-            {
-                bClassMatched = true;
-                break;
-            }
-        }
-
-        if (!bClassMatched)
-        {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-void PruneBlueprintQueryNodeLinks(const TSharedPtr<FJsonObject>& NodeObject, const TSet<FString>& AllowedNodeIds)
-{
-    if (!NodeObject.IsValid())
-    {
-        return;
-    }
-
-    const TArray<TSharedPtr<FJsonValue>>* Pins = nullptr;
-    if (!NodeObject->TryGetArrayField(TEXT("pins"), Pins) || Pins == nullptr)
-    {
-        return;
-    }
-
-    for (const TSharedPtr<FJsonValue>& PinValue : *Pins)
-    {
-        const TSharedPtr<FJsonObject>* PinObject = nullptr;
-        if (!PinValue.IsValid() || !PinValue->TryGetObject(PinObject) || PinObject == nullptr || !(*PinObject).IsValid())
-        {
-            continue;
-        }
-
-        auto FilterLinks = [&AllowedNodeIds](const TArray<TSharedPtr<FJsonValue>>* Links) -> TArray<TSharedPtr<FJsonValue>>
-        {
-            TArray<TSharedPtr<FJsonValue>> FilteredLinks;
-            if (Links == nullptr)
-            {
-                return FilteredLinks;
-            }
-
-            for (const TSharedPtr<FJsonValue>& LinkValue : *Links)
-            {
-                const TSharedPtr<FJsonObject>* LinkObject = nullptr;
-                if (!LinkValue.IsValid() || !LinkValue->TryGetObject(LinkObject) || LinkObject == nullptr || !(*LinkObject).IsValid())
-                {
-                    continue;
-                }
-
-                FString LinkedNodeId;
-                (*LinkObject)->TryGetStringField(TEXT("toNodeId"), LinkedNodeId);
-                if (LinkedNodeId.IsEmpty())
-                {
-                    (*LinkObject)->TryGetStringField(TEXT("nodeGuid"), LinkedNodeId);
-                }
-
-                if (AllowedNodeIds.Contains(LinkedNodeId))
-                {
-                    FilteredLinks.Add(LinkValue);
-                }
-            }
-
-            return FilteredLinks;
-        };
-
-        const TArray<TSharedPtr<FJsonValue>>* Links = nullptr;
-        if ((*PinObject)->TryGetArrayField(TEXT("links"), Links))
-        {
-            (*PinObject)->SetArrayField(TEXT("links"), FilterLinks(Links));
-        }
-
-        const TArray<TSharedPtr<FJsonValue>>* LinkedTo = nullptr;
-        if ((*PinObject)->TryGetArrayField(TEXT("linkedTo"), LinkedTo))
-        {
-            (*PinObject)->SetArrayField(TEXT("linkedTo"), FilterLinks(LinkedTo));
-        }
-    }
-}
-
 FString BuildBlueprintQueryRevision(const TSharedPtr<FJsonObject>& Result, const FString& Signature)
 {
     if (!Result.IsValid())
@@ -2870,9 +2632,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphInspectToolResul
             return Result;
         }
 
-        const bool bBaseSnapshotRequest = BaseArguments.IsValid() && BaseArguments->HasTypedField<EJson::Boolean>(TEXT("_loomleBaseSnapshot"))
-            && BaseArguments->GetBoolField(TEXT("_loomleBaseSnapshot"));
-
         FString RequestedLayoutDetail = TEXT("basic");
         if (BaseArguments.IsValid())
         {
@@ -2884,18 +2643,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphInspectToolResul
             RequestedLayoutDetail = TEXT("basic");
         }
         const FString AppliedLayoutDetail = RequestedLayoutDetail.Equals(TEXT("measured")) ? TEXT("basic") : RequestedLayoutDetail;
-
-        FLoomleBlueprintNodeListOptions BlueprintListOptions;
-        FLoomleBlueprintNodeListStats BlueprintListStats;
-        if (!bBaseSnapshotRequest && BaseArguments.IsValid())
-        {
-            const FBlueprintGraphQueryShapeOptions QueryShapeOptions = ParseBlueprintGraphQueryShapeOptions(BaseArguments);
-            BlueprintListOptions.NodeClasses = QueryShapeOptions.NodeClasses;
-            BlueprintListOptions.NodeIds = QueryShapeOptions.NodeIds.Array();
-            BlueprintListOptions.Offset = QueryShapeOptions.Offset;
-            BlueprintListOptions.Limit = QueryShapeOptions.bLimitExplicit ? QueryShapeOptions.Limit : 50;
-            BlueprintListOptions.bIncludeConnections = QueryShapeOptions.bIncludeConnections;
-        }
 
         FString NodesJson;
         FString Error;
@@ -2909,15 +2656,17 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphInspectToolResul
                 SubgraphNameOut,
                 NodesJson,
                 Error,
-                !bBaseSnapshotRequest ? &BlueprintListOptions : nullptr,
-                !bBaseSnapshotRequest ? &BlueprintListStats : nullptr);
+                nullptr,
+                nullptr);
             if (bOk && GraphName.IsEmpty())
             {
                 GraphName = SubgraphNameOut;
             }
             if (!bOk)
             {
-                const FString DomainCode = Error.Contains(TEXT("not a composite"))
+                const FString DomainCode = Error.Contains(TEXT("Blueprint not found"))
+                    ? TEXT("ASSET_NOT_FOUND")
+                    : Error.Contains(TEXT("not a composite"))
                     ? TEXT("GRAPH_REF_NOT_COMPOSITE")
                     : (Error.Contains(TEXT("not found")) ? TEXT("NODE_NOT_FOUND") : TEXT("GRAPH_REF_INVALID"));
                 Result->SetBoolField(TEXT("isError"), true);
@@ -2933,12 +2682,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphInspectToolResul
                 GraphName,
                 NodesJson,
                 Error,
-                !bBaseSnapshotRequest ? &BlueprintListOptions : nullptr,
-                !bBaseSnapshotRequest ? &BlueprintListStats : nullptr);
+                nullptr,
+                nullptr);
             if (!bOk)
             {
                 Result->SetBoolField(TEXT("isError"), true);
-                Result->SetStringField(TEXT("code"), Error.Contains(TEXT("Graph not found")) ? TEXT("GRAPH_NOT_FOUND") : TEXT("INTERNAL_ERROR"));
+                Result->SetStringField(TEXT("code"), Error.Contains(TEXT("Blueprint not found")) ? TEXT("ASSET_NOT_FOUND") : (Error.Contains(TEXT("Graph not found")) ? TEXT("GRAPH_NOT_FOUND") : TEXT("INTERNAL_ERROR")));
                 Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.graph.inspect failed") : Error);
                 return Result;
             }
@@ -3124,14 +2873,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphInspectToolResul
         LayoutCapabilities->SetStringField(TEXT("sizeSource"), TEXT("partial"));
 
         TSharedPtr<FJsonObject> Meta = MakeShared<FJsonObject>();
-        const int32 EffectiveTotalNodes = (!bBaseSnapshotRequest && BlueprintListStats.TotalNodes > 0) ? BlueprintListStats.TotalNodes : Nodes.Num();
-        const int32 EffectiveMatchingNodes = (!bBaseSnapshotRequest && BlueprintListStats.MatchingNodes > 0) ? BlueprintListStats.MatchingNodes : SnapshotNodes.Num();
-        const bool bTruncated = EffectiveMatchingNodes > (BlueprintListOptions.Offset + SnapshotNodes.Num());
-        Meta->SetNumberField(TEXT("totalNodes"), EffectiveTotalNodes);
+        Meta->SetNumberField(TEXT("totalNodes"), Nodes.Num());
         Meta->SetNumberField(TEXT("returnedNodes"), SnapshotNodes.Num());
         Meta->SetNumberField(TEXT("totalEdges"), Edges.Num());
         Meta->SetNumberField(TEXT("returnedEdges"), Edges.Num());
-        Meta->SetBoolField(TEXT("truncated"), bTruncated);
+        Meta->SetBoolField(TEXT("truncated"), false);
         Meta->SetObjectField(TEXT("layoutCapabilities"), LayoutCapabilities);
         Meta->SetStringField(TEXT("layoutDetailRequested"), RequestedLayoutDetail);
         Meta->SetStringField(TEXT("layoutDetailApplied"), AppliedLayoutDetail);
@@ -3152,174 +2898,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphInspectToolResul
         Result->SetObjectField(TEXT("graphRef"), MakeBlueprintEffectiveGraphRef(AssetPath, GraphName, InlineNodeGuid));
         Result->SetObjectField(TEXT("semanticSnapshot"), Snapshot);
         Result->SetStringField(TEXT("revision"), BuildBlueprintQueryRevision(Result, Signature));
-        Result->SetStringField(TEXT("nextCursor"), bTruncated ? BuildBlueprintGraphQueryCursor(BlueprintListOptions.Offset + SnapshotNodes.Num()) : TEXT(""));
+        Result->SetStringField(TEXT("nextCursor"), TEXT(""));
         Result->SetObjectField(TEXT("meta"), Meta);
         Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
-        return Result;
-    };
-
-    auto ShapeBlueprintQueryResult = [](const TSharedPtr<FJsonObject>& BaseResult, const TSharedPtr<FJsonObject>& QueryArguments) -> TSharedPtr<FJsonObject>
-    {
-        if (!BaseResult.IsValid())
-        {
-            TSharedPtr<FJsonObject> ErrorResult = MakeShared<FJsonObject>();
-            ErrorResult->SetBoolField(TEXT("isError"), true);
-            ErrorResult->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
-            ErrorResult->SetStringField(TEXT("message"), TEXT("blueprint.graph.inspect produced an invalid result."));
-            return ErrorResult;
-        }
-
-        bool bIsError = false;
-        if (BaseResult->TryGetBoolField(TEXT("isError"), bIsError) && bIsError)
-        {
-            return CloneJsonObject(BaseResult);
-        }
-
-        TSharedPtr<FJsonObject> Result = CloneJsonObject(BaseResult);
-        if (!Result.IsValid())
-        {
-            return BaseResult;
-        }
-
-        const FBlueprintGraphQueryShapeOptions ShapeOptions = ParseBlueprintGraphQueryShapeOptions(QueryArguments);
-        if (!ShapeOptions.bCursorValid)
-        {
-            TSharedPtr<FJsonObject> ErrorResult = MakeShared<FJsonObject>();
-            ErrorResult->SetBoolField(TEXT("isError"), true);
-            ErrorResult->SetStringField(TEXT("code"), TEXT("INVALID_CURSOR"));
-            ErrorResult->SetStringField(TEXT("message"), ShapeOptions.CursorError.IsEmpty() ? TEXT("blueprint.graph.inspect cursor is invalid.") : ShapeOptions.CursorError);
-            return ErrorResult;
-        }
-
-        const TSharedPtr<FJsonObject>* SnapshotObject = nullptr;
-        if (!Result->TryGetObjectField(TEXT("semanticSnapshot"), SnapshotObject) || SnapshotObject == nullptr || !(*SnapshotObject).IsValid())
-        {
-            return Result;
-        }
-
-        const TArray<TSharedPtr<FJsonValue>>* SnapshotNodes = nullptr;
-        const TArray<TSharedPtr<FJsonValue>>* SnapshotEdges = nullptr;
-        (*SnapshotObject)->TryGetArrayField(TEXT("nodes"), SnapshotNodes);
-        (*SnapshotObject)->TryGetArrayField(TEXT("edges"), SnapshotEdges);
-        const int32 OriginalNodeCount = SnapshotNodes ? SnapshotNodes->Num() : 0;
-        const int32 OriginalEdgeCount = SnapshotEdges ? SnapshotEdges->Num() : 0;
-
-        TArray<TSharedPtr<FJsonValue>> ShapedNodes;
-        TArray<TSharedPtr<FJsonValue>> ShapedEdges;
-        TSet<FString> IncludedNodeIds;
-        TArray<FString> SignatureNodeTokens;
-        TArray<FString> SignatureEdgeTokens;
-        int32 MatchingNodeCount = 0;
-
-        if (SnapshotNodes != nullptr)
-        {
-            ShapedNodes.Reserve(FMath::Min(ShapeOptions.Limit, SnapshotNodes->Num()));
-            for (const TSharedPtr<FJsonValue>& NodeValue : *SnapshotNodes)
-            {
-                const TSharedPtr<FJsonObject>* NodeObject = nullptr;
-                if (!NodeValue.IsValid() || !NodeValue->TryGetObject(NodeObject) || NodeObject == nullptr || !(*NodeObject).IsValid())
-                {
-                    continue;
-                }
-
-                if (!BlueprintQueryNodeMatchesShapeOptions(*NodeObject, ShapeOptions))
-                {
-                    continue;
-                }
-
-                ++MatchingNodeCount;
-                if (MatchingNodeCount <= ShapeOptions.Offset)
-                {
-                    continue;
-                }
-                if (ShapedNodes.Num() >= ShapeOptions.Limit)
-                {
-                    continue;
-                }
-
-                FString NodeId;
-                (*NodeObject)->TryGetStringField(TEXT("id"), NodeId);
-                FString NodeGuid;
-                (*NodeObject)->TryGetStringField(TEXT("guid"), NodeGuid);
-                if (NodeId.IsEmpty())
-                {
-                    NodeId = NodeGuid;
-                }
-
-                IncludedNodeIds.Add(NodeId);
-                SignatureNodeTokens.Add(NodeId);
-                ShapedNodes.Add(NodeValue);
-            }
-        }
-
-        for (const TSharedPtr<FJsonValue>& NodeValue : ShapedNodes)
-        {
-            const TSharedPtr<FJsonObject>* NodeObject = nullptr;
-            if (!NodeValue.IsValid() || !NodeValue->TryGetObject(NodeObject) || NodeObject == nullptr || !(*NodeObject).IsValid())
-            {
-                continue;
-            }
-
-            if (!ShapeOptions.bIncludeConnections)
-            {
-                PruneBlueprintQueryNodeLinks(*NodeObject, IncludedNodeIds);
-            }
-        }
-
-        if (SnapshotEdges != nullptr)
-        {
-            for (const TSharedPtr<FJsonValue>& EdgeValue : *SnapshotEdges)
-            {
-                const TSharedPtr<FJsonObject>* EdgeObject = nullptr;
-                if (!EdgeValue.IsValid() || !EdgeValue->TryGetObject(EdgeObject) || EdgeObject == nullptr || !(*EdgeObject).IsValid())
-                {
-                    continue;
-                }
-
-                FString FromNodeId;
-                FString ToNodeId;
-                FString FromPin;
-                FString ToPin;
-                (*EdgeObject)->TryGetStringField(TEXT("fromNodeId"), FromNodeId);
-                (*EdgeObject)->TryGetStringField(TEXT("toNodeId"), ToNodeId);
-                const bool bBothEndpointsIncluded = IncludedNodeIds.Contains(FromNodeId) && IncludedNodeIds.Contains(ToNodeId);
-                const bool bTouchesIncludedNode = IncludedNodeIds.Contains(FromNodeId) || IncludedNodeIds.Contains(ToNodeId);
-                if (!bBothEndpointsIncluded && (!ShapeOptions.bIncludeConnections || !bTouchesIncludedNode))
-                {
-                    continue;
-                }
-
-                (*EdgeObject)->TryGetStringField(TEXT("fromPin"), FromPin);
-                (*EdgeObject)->TryGetStringField(TEXT("toPin"), ToPin);
-                SignatureEdgeTokens.Add(FromNodeId + TEXT("|") + FromPin + TEXT("->") + ToNodeId + TEXT("|") + ToPin);
-                ShapedEdges.Add(EdgeValue);
-            }
-        }
-
-        Algo::Sort(SignatureNodeTokens);
-        Algo::Sort(SignatureEdgeTokens);
-        const FString Signature = FString::Join(SignatureNodeTokens, TEXT(";")) + TEXT("#") + FString::Join(SignatureEdgeTokens, TEXT(";"));
-        const bool bTruncated = (ShapeOptions.Offset + ShapedNodes.Num()) < MatchingNodeCount;
-
-        (*SnapshotObject)->SetStringField(TEXT("signature"), Signature);
-        (*SnapshotObject)->SetArrayField(TEXT("nodes"), ShapedNodes);
-        (*SnapshotObject)->SetArrayField(TEXT("edges"), ShapedEdges);
-        Result->SetStringField(TEXT("revision"), BuildBlueprintQueryRevision(Result, Signature));
-        Result->SetStringField(TEXT("nextCursor"), bTruncated ? BuildBlueprintGraphQueryCursor(ShapeOptions.Offset + ShapedNodes.Num()) : TEXT(""));
-
-        const TSharedPtr<FJsonObject>* MetaObject = nullptr;
-        if (!Result->TryGetObjectField(TEXT("meta"), MetaObject) || MetaObject == nullptr || !(*MetaObject).IsValid())
-        {
-            TSharedPtr<FJsonObject> NewMeta = MakeShared<FJsonObject>();
-            Result->SetObjectField(TEXT("meta"), NewMeta);
-            Result->TryGetObjectField(TEXT("meta"), MetaObject);
-        }
-
-        (*MetaObject)->SetNumberField(TEXT("totalNodes"), OriginalNodeCount);
-        (*MetaObject)->SetNumberField(TEXT("returnedNodes"), ShapedNodes.Num());
-        (*MetaObject)->SetNumberField(TEXT("totalEdges"), OriginalEdgeCount);
-        (*MetaObject)->SetNumberField(TEXT("returnedEdges"), ShapedEdges.Num());
-        (*MetaObject)->SetBoolField(TEXT("truncated"), bTruncated);
         return Result;
     };
 
@@ -3328,7 +2909,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphInspectToolResul
     {
         BaseArguments = MakeShared<FJsonObject>();
     }
-    BaseArguments->SetBoolField(TEXT("_loomleBaseSnapshot"), true);
 
     TSharedPtr<FJsonObject> BaseResult;
     if (!IsInGameThread())
@@ -3357,7 +2937,16 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphInspectToolResul
         BaseResult = BuildBlueprintQueryBaseResult(BaseArguments);
     }
 
-    return ShapeBlueprintQueryResult(BaseResult, Arguments);
+    if (BaseResult.IsValid())
+    {
+        return BaseResult;
+    }
+
+    TSharedPtr<FJsonObject> ErrorResult = MakeShared<FJsonObject>();
+    ErrorResult->SetBoolField(TEXT("isError"), true);
+    ErrorResult->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+    ErrorResult->SetStringField(TEXT("message"), TEXT("blueprint.graph.inspect produced an invalid result."));
+    return ErrorResult;
 }
 
 namespace
@@ -3578,33 +3167,53 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeInspectToolResult
         return Result;
     }
 
-    TSharedPtr<FJsonObject> QueryArgs = MakeShared<FJsonObject>();
+    FLoomleBlueprintNodeListOptions Options;
+    Options.NodeIds.Add(NodeId);
+    Options.Limit = 1;
+    Options.bIncludeConnections = true;
+
+    FString NodesJson;
+    FString Error;
+    bool bOk = false;
     if (!InlineNodeGuid.IsEmpty())
     {
-        QueryArgs->SetObjectField(TEXT("graphRef"), MakeBlueprintInlineGraphRef(InlineNodeGuid, AssetPath));
+        FString SubgraphNameOut;
+        bOk = FLoomleBlueprintAdapter::ListCompositeSubgraphNodes(
+            AssetPath,
+            InlineNodeGuid,
+            SubgraphNameOut,
+            NodesJson,
+            Error,
+            &Options);
+        if (bOk && GraphName.IsEmpty())
+        {
+            GraphName = SubgraphNameOut;
+        }
     }
     else
     {
-        QueryArgs->SetStringField(TEXT("assetPath"), AssetPath);
-        QueryArgs->SetStringField(TEXT("graphName"), GraphName);
+        bOk = FLoomleBlueprintAdapter::ListGraphNodes(
+            AssetPath,
+            GraphName,
+            NodesJson,
+            Error,
+            &Options);
     }
-    TArray<TSharedPtr<FJsonValue>> NodeIds;
-    NodeIds.Add(MakeShared<FJsonValueString>(NodeId));
-    QueryArgs->SetArrayField(TEXT("nodeIds"), NodeIds);
-    QueryArgs->SetNumberField(TEXT("limit"), 1);
-    QueryArgs->SetBoolField(TEXT("includeConnections"), true);
-
-    const TSharedPtr<FJsonObject> QueryResult = BuildBlueprintGraphInspectToolResult(QueryArgs);
-    bool bQueryIsError = false;
-    if (!QueryResult.IsValid() || (QueryResult->TryGetBoolField(TEXT("isError"), bQueryIsError) && bQueryIsError))
+    if (!bOk)
     {
-        return QueryResult.IsValid() ? QueryResult : Result;
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), Error.Contains(TEXT("Blueprint not found")) ? TEXT("ASSET_NOT_FOUND") : (Error.Contains(TEXT("Graph not found")) ? TEXT("GRAPH_NOT_FOUND") : TEXT("INTERNAL_ERROR")));
+        Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.node.inspect failed.") : Error);
+        return Result;
     }
 
-    const TSharedPtr<FJsonObject>* Snapshot = nullptr;
-    const TArray<TSharedPtr<FJsonValue>>* Nodes = nullptr;
-    if (!QueryResult->TryGetObjectField(TEXT("semanticSnapshot"), Snapshot) || Snapshot == nullptr || !(*Snapshot).IsValid()
-        || !(*Snapshot)->TryGetArrayField(TEXT("nodes"), Nodes) || Nodes == nullptr || Nodes->Num() == 0)
+    TArray<TSharedPtr<FJsonValue>> Nodes;
+    {
+        const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(NodesJson);
+        FJsonSerializer::Deserialize(Reader, Nodes);
+    }
+
+    if (Nodes.Num() == 0)
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("NODE_NOT_FOUND"));
@@ -3613,12 +3222,24 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeInspectToolResult
     }
 
     const TSharedPtr<FJsonObject>* Node = nullptr;
-    if (!(*Nodes)[0].IsValid() || !(*Nodes)[0]->TryGetObject(Node) || Node == nullptr || !(*Node).IsValid())
+    if (!Nodes[0].IsValid() || !Nodes[0]->TryGetObject(Node) || Node == nullptr || !(*Node).IsValid())
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
         Result->SetStringField(TEXT("message"), TEXT("blueprint.node.inspect resolved an invalid node payload."));
         return Result;
+    }
+
+    const TSharedPtr<FJsonObject> EditCapabilities = BuildBlueprintNodeEditCapabilities(*Node);
+    bool bHasNodeEditCapabilities = false;
+    if (EditCapabilities.IsValid())
+    {
+        EditCapabilities->TryGetBoolField(TEXT("hasPinOperations"), bHasNodeEditCapabilities);
+    }
+    if (bHasNodeEditCapabilities)
+    {
+        (*Node)->SetBoolField(TEXT("hasNodeEditCapabilities"), true);
+        (*Node)->SetStringField(TEXT("inspectWith"), TEXT("blueprint.node.inspect"));
     }
 
     Result->SetStringField(TEXT("assetPath"), AssetPath);
@@ -3635,7 +3256,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeInspectToolResult
         Result->SetArrayField(TEXT("pins"), {});
     }
     Result->SetObjectField(TEXT("state"), BuildBlueprintNodeInspectState(*Node));
-    Result->SetObjectField(TEXT("editCapabilities"), BuildBlueprintNodeEditCapabilities(*Node));
+    Result->SetObjectField(TEXT("editCapabilities"), EditCapabilities);
     return Result;
 }
 

@@ -1007,6 +1007,12 @@ Recommended views:
 - `data_flow` requires `rootPin.node.id` plus `rootPin.pin` and traces data
   dependencies for that pin. It defaults to upstream traversal and returns the
   same lightweight `nodes[]` plus `links[]` shape.
+- Flow roots are validated against the resolved graph snapshot before a result
+  is shaped. Missing `rootNode.id` or `rootPin.node.id` returns
+  `NODE_NOT_FOUND`; a missing `rootPin.pin` on an existing node returns
+  `PIN_NOT_FOUND`.
+- `traversal.maxDepth` is bounded to `1..128`, and `traversal.maxNodes` is
+  bounded to `1..1000`; out-of-range values return `INVALID_ARGUMENT`.
 
 `wiring` is intentionally not a `blueprint.graph.inspect` view. Exact pin
 names, defaults, and link details for connection-oriented edits belong to

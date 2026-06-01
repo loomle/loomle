@@ -49,6 +49,7 @@ class PythonMcpSdkServerTests(unittest.IsolatedAsyncioTestCase):
                     [
                         entry["properties"]["view"]["const"]
                         for entry in graph_inspect.outputSchema["oneOf"]
+                        if "view" in entry["properties"]
                     ],
                     ["summary", "exec_flow", "data_flow"],
                 )

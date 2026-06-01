@@ -9017,8 +9017,14 @@ bool FLoomleBlueprintAdapter::ListGraphNodes(
     }
 
     UBlueprint* Blueprint = LoomleBlueprintAdapterInternal::LoadBlueprintByAssetPath(BlueprintAssetPath);
+    if (!Blueprint)
+    {
+        OutError = FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintAssetPath);
+        return false;
+    }
+
     UEdGraph* Graph = LoomleBlueprintAdapterInternal::FindGraphByName(Blueprint, GraphName);
-    if (!Blueprint || !Graph)
+    if (!Graph)
     {
         OutError = FString::Printf(TEXT("Graph not found: %s"), *GraphName);
         return false;

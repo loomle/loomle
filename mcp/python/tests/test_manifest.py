@@ -260,9 +260,19 @@ class ToolManifestTests(unittest.TestCase):
         self.assertNotIn("page", properties)
         output_schema = tool["outputSchema"]
         self.assertEqual(
-            [entry["properties"]["view"]["const"] for entry in output_schema["oneOf"]],
+            [
+                entry["properties"]["view"]["const"]
+                for entry in output_schema["oneOf"]
+                if "view" in entry["properties"]
+            ],
             ["summary", "exec_flow", "data_flow"],
         )
+        error_schema = next(
+            entry for entry in output_schema["oneOf"]
+            if entry.get("title") == "Blueprint Graph Inspect Error"
+        )
+        self.assertIn("NODE_NOT_FOUND", error_schema["properties"]["code"]["enum"])
+        self.assertIn("PIN_NOT_FOUND", error_schema["properties"]["code"]["enum"])
         self.assertIn("blueprintGraphNodeSummary", output_schema["$defs"])
 
     def test_context_manifest_is_empty_input_with_editor_snapshot_output(self) -> None:

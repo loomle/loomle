@@ -199,6 +199,41 @@ class TransformTests(unittest.TestCase):
         self.assertEqual(len(payload["links"]), 1)
         self.assertNotIn("flow", payload)
 
+    def test_blueprint_graph_flow_targets_return_errors(self) -> None:
+        payload = apply_result_transform(
+            {"transform": "blueprint.graph.inspect.result.v1"},
+            {
+                "semanticSnapshot": {
+                    "nodes": [
+                        {
+                            "id": "event",
+                            "className": "K2Node_Event",
+                            "pins": [
+                                {"name": "Then", "direction": "output", "category": "exec"},
+                            ],
+                        },
+                    ]
+                }
+            },
+            {"view": "data_flow", "rootPin": {"node": {"id": "event"}, "pin": "Missing"}},
+        )
+
+        self.assertTrue(payload["isError"])
+        self.assertEqual(payload["code"], "PIN_NOT_FOUND")
+
+    def test_blueprint_graph_traversal_bounds_are_enforced(self) -> None:
+        with self.assertRaises(TransformError):
+            apply_args_transform(
+                {"transform": "blueprint.graph.inspect.args.v1"},
+                {
+                    "assetPath": "/Game/BP_Test",
+                    "graph": {"name": "EventGraph"},
+                    "view": "exec_flow",
+                    "rootNode": {"id": "event"},
+                    "traversal": {"maxNodes": 1001},
+                },
+            )
+
     def test_blueprint_member_inspect_custom_event_filters_engine_events(self) -> None:
         payload = apply_result_transform(
             {"transform": "blueprint.member.inspect.result.v1"},
