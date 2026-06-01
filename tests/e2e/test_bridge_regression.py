@@ -109,6 +109,16 @@ def op_ok(payload: dict) -> dict:
     return first
 
 
+def assert_revision_pair(payload: dict, label: str, *, unchanged: bool = False) -> str:
+    previous_revision = payload.get("previousRevision")
+    new_revision = payload.get("newRevision")
+    if not isinstance(previous_revision, str) or not isinstance(new_revision, str):
+        fail(f"{label} missing revision pair: {payload}")
+    if unchanged and previous_revision != new_revision:
+        fail(f"{label} should keep revision unchanged: {payload}")
+    return new_revision
+
+
 def bp_node(node_id: str) -> dict:
     return {"id": node_id}
 
@@ -1747,6 +1757,11 @@ def main() -> int:
             fail(f"blueprint.class.edit addInterface dryRun shape mismatch: {dry_run_interface_payload}")
         if dry_run_interface_payload.get("valid") is not True:
             fail(f"blueprint.class.edit addInterface dryRun should report valid=true: {dry_run_interface_payload}")
+        interface_revision = assert_revision_pair(
+            dry_run_interface_payload,
+            "blueprint.class.edit addInterface dryRun",
+            unchanged=True,
+        )
         if not isinstance(dry_run_interface_payload.get("planned"), dict):
             fail(f"blueprint.class.edit addInterface dryRun planned summary missing: {dry_run_interface_payload}")
         if not isinstance(dry_run_interface_payload.get("resolvedRefs"), dict):
@@ -1789,6 +1804,29 @@ def main() -> int:
         )
         if add_interface_payload.get("applied") is not True:
             fail(f"blueprint.class.edit addInterface did not apply: {add_interface_payload}")
+        assert_revision_pair(add_interface_payload, "blueprint.class.edit addInterface")
+        revision_conflict_payload = call_tool(
+            client,
+            6011,
+            "blueprint.class.edit",
+            {
+                "assetPath": temp_asset,
+                "operation": "removeInterface",
+                "args": {"interfaceClassPath": interface_class_path},
+                "expectedRevision": interface_revision,
+            },
+            expect_error=True,
+        )
+        if (
+            extract_nested_error_code(revision_conflict_payload) != "REVISION_CONFLICT"
+            or revision_conflict_payload.get("applied") is not False
+        ):
+            fail(f"blueprint.class.edit revision conflict mismatch: {revision_conflict_payload}")
+        assert_revision_pair(
+            structured_detail_or_payload(revision_conflict_payload),
+            "blueprint.class.edit revision conflict",
+            unchanged=True,
+        )
         list_interface_payload = call_tool(
             client,
             602,
@@ -1849,6 +1887,7 @@ def main() -> int:
             fail(f"blueprint.class.edit setSettings dryRun shape mismatch: {dry_run_settings_payload}")
         if dry_run_settings_payload.get("valid") is not True or not isinstance(dry_run_settings_payload.get("planned"), dict):
             fail(f"blueprint.class.edit setSettings dryRun plan missing: {dry_run_settings_payload}")
+        assert_revision_pair(dry_run_settings_payload, "blueprint.class.edit setSettings dryRun", unchanged=True)
         dry_run_settings_diff = dry_run_settings_payload.get("diff")
         if (
             not isinstance(dry_run_settings_diff, dict)
@@ -1882,6 +1921,7 @@ def main() -> int:
         )
         if settings_payload.get("applied") is not True:
             fail(f"blueprint.class.edit setSettings did not apply: {settings_payload}")
+        assert_revision_pair(settings_payload, "blueprint.class.edit setSettings")
         inspected_settings_payload = call_tool(client, 610, "blueprint.class.inspect", {"assetPath": temp_asset})
         inspected_settings = inspected_settings_payload.get("settings")
         if not isinstance(inspected_settings, dict):
@@ -2292,6 +2332,7 @@ def main() -> int:
             payload = call_tool(client, 6460 + index, "blueprint.member.edit", request)
             if payload.get("applied") is not True:
                 fail(f"blueprint.member.edit {label} did not apply: {payload}")
+            assert_revision_pair(payload, f"blueprint.member.edit {label}")
 
         event_member_ops = [
             (
@@ -2405,6 +2446,7 @@ def main() -> int:
             payload = call_tool(client, 6510 + index, "blueprint.member.edit", request)
             if payload.get("applied") is not True:
                 fail(f"blueprint.member.edit {label} did not apply: {payload}")
+            assert_revision_pair(payload, f"blueprint.member.edit {label}")
 
         duplicate_event_input = call_tool(
             client,
@@ -2481,6 +2523,11 @@ def main() -> int:
             fail(f"blueprint.member.edit dryRun shape mismatch: {dry_run_member_payload}")
         if dry_run_member_payload.get("valid") is not True:
             fail(f"blueprint.member.edit dryRun should report valid=true: {dry_run_member_payload}")
+        member_revision = assert_revision_pair(
+            dry_run_member_payload,
+            "blueprint.member.edit dryRun",
+            unchanged=True,
+        )
         dry_run_planned = dry_run_member_payload.get("planned")
         if (
             not isinstance(dry_run_planned, dict)
@@ -2506,6 +2553,29 @@ def main() -> int:
             )
         ):
             fail(f"blueprint.member.edit dryRun diff invalid: {dry_run_member_payload}")
+        member_revision_conflict_payload = call_tool(
+            client,
+            65291,
+            "blueprint.member.edit",
+            {
+                "assetPath": temp_asset,
+                "memberKind": "variable",
+                "operation": "create",
+                "args": {"variableName": "RevisionConflictVariable", "type": {"category": "bool"}},
+                "expectedRevision": f"{member_revision}:stale",
+            },
+            expect_error=True,
+        )
+        if (
+            extract_nested_error_code(member_revision_conflict_payload) != "REVISION_CONFLICT"
+            or member_revision_conflict_payload.get("applied") is not False
+        ):
+            fail(f"blueprint.member.edit revision conflict mismatch: {member_revision_conflict_payload}")
+        assert_revision_pair(
+            structured_detail_or_payload(member_revision_conflict_payload),
+            "blueprint.member.edit revision conflict",
+            unchanged=True,
+        )
         dry_run_unsupported_member_payload = call_tool(
             client,
             6530,
@@ -2771,6 +2841,7 @@ def main() -> int:
             fail(f"blueprint.class.edit setDefault dryRun shape mismatch: {dry_run_class_default}")
         if dry_run_class_default.get("valid") is not True or not isinstance(dry_run_class_default.get("planned"), dict):
             fail(f"blueprint.class.edit setDefault dryRun plan missing: {dry_run_class_default}")
+        assert_revision_pair(dry_run_class_default, "blueprint.class.edit setDefault dryRun", unchanged=True)
         dry_run_default_diff = dry_run_class_default.get("diff")
         if (
             not isinstance(dry_run_default_diff, dict)
@@ -2795,6 +2866,7 @@ def main() -> int:
         )
         if set_class_default.get("applied") is not True:
             fail(f"blueprint.class.edit setDefault did not apply: {set_class_default}")
+        assert_revision_pair(set_class_default, "blueprint.class.edit setDefault")
         default_entry = set_class_default.get("default")
         if not isinstance(default_entry, dict) or default_entry.get("name") != "ItemCount" or default_entry.get("value") != "12":
             fail(f"blueprint.class.edit setDefault result mismatch: {set_class_default}")
@@ -3047,7 +3119,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [{"kind": "removeNode", "node": {}}],
             },
             expect_error=True,
@@ -3064,7 +3136,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [bp_branch({"x": 0, "y": 0})],
             },
         )
@@ -3093,7 +3165,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [bp_branch({"x": 320, "y": 0})],
             },
         )
@@ -3111,7 +3183,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [
                     {
                         "kind": "addFromPalette",
@@ -3150,7 +3222,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [
                     {
                         "kind": "addFromPalette",
@@ -3229,34 +3301,28 @@ def main() -> int:
         ):
             fail(f"blueprint.graph.inspect includeConnections pruned external link: {self_external_node}")
 
-        alias_dry_run = call_domain_tool(
+        connect_dry_run = call_domain_tool(
             client,
             1299,
             "blueprint",
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "dryRun": True,
                 "commands": [
-                    bp_branch(alias="dry_alias_source"),
-                    bp_branch(alias="dry_alias_target"),
-                    {
-                        "kind": "connect",
-                        "from": {"node": {"alias": "dry_alias_source"}, "pin": "then"},
-                        "to": {"node": {"alias": "dry_alias_target"}, "pin": "execute"},
-                    },
+                    bp_connect(node_a, "then", node_b, "execute"),
                 ],
             },
         )
-        alias_dry_run_results = alias_dry_run.get("opResults")
-        if not isinstance(alias_dry_run_results, list) or len(alias_dry_run_results) != 3:
-            fail(f"blueprint.graph.edit alias dryRun opResults mismatch: {alias_dry_run}")
-        if not all(isinstance(entry, dict) and entry.get("ok") for entry in alias_dry_run_results):
-            fail(f"blueprint.graph.edit alias dryRun should accept request-local aliases: {alias_dry_run}")
-        if alias_dry_run.get("applied") is not False:
-            fail(f"blueprint.graph.edit alias dryRun should report applied=false: {alias_dry_run}")
-        print("[PASS] blueprint.graph.edit dryRun request-local aliases validated")
+        connect_dry_run_results = connect_dry_run.get("opResults")
+        if not isinstance(connect_dry_run_results, list) or len(connect_dry_run_results) != 1:
+            fail(f"blueprint.graph.edit connect dryRun opResults mismatch: {connect_dry_run}")
+        if connect_dry_run_results[0].get("ok") is not True or connect_dry_run_results[0].get("changed") is not False:
+            fail(f"blueprint.graph.edit connect dryRun should validate existing pins without changing graph: {connect_dry_run}")
+        if connect_dry_run.get("applied") is not False or connect_dry_run.get("valid") is not True:
+            fail(f"blueprint.graph.edit connect dryRun should report applied=false and valid=true: {connect_dry_run}")
+        print("[PASS] blueprint.graph.edit dryRun existing-pin connection validated")
 
         reconstruct_payload = call_domain_tool(
             client,
@@ -3265,7 +3331,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [{"kind": "reconstructNode", "node": {"id": self_node_id}, "preserveLinks": True}],
             },
         )
@@ -3304,7 +3370,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "expectedRevision": blueprint_revision_r0,
                 "commands": [bp_branch({"x": 640, "y": 0})],
             },
@@ -3337,7 +3403,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "expectedRevision": blueprint_revision_r0,
                 "commands": [bp_branch({"x": 960, "y": 0})],
             },
@@ -3372,7 +3438,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "dryRun": True,
                 "commands": [bp_branch({"x": 1120, "y": 0})],
             },
@@ -3414,7 +3480,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "dryRun": True,
                 "commands": [{"kind": "runScript"}],
             },
@@ -3431,7 +3497,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [bp_branch({"x": 1536, "y": 0})],
             },
         )
@@ -3453,7 +3519,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [
                     bp_remove(partial_apply_node_id),
                     {"kind": "unknownCommand"},
@@ -3495,7 +3561,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "idempotencyKey": blueprint_idem_key,
                 "commands": [bp_branch({"x": 1280, "y": 0})],
             },
@@ -3527,7 +3593,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "idempotencyKey": blueprint_idem_key,
                 "commands": [bp_branch({"x": 1280, "y": 0})],
             },
@@ -3570,7 +3636,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [
                     bp_branch({"x": 1440, "y": 0}, alias="dup_ref"),
                     bp_branch({"x": 1600, "y": 0}, alias="dup_ref"),
@@ -3612,7 +3678,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [bp_connect(node_a, "then", node_b, "execute")],
             },
         )
@@ -3625,7 +3691,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [bp_break_links(node_a, "then")],
             },
         )
@@ -3638,7 +3704,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [bp_connect(node_a, "then", node_b, "execute")],
             },
         )
@@ -3651,7 +3717,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [bp_disconnect(node_a, "then", node_b, "execute")],
             },
         )
@@ -3664,7 +3730,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [bp_set_default(node_b, "Condition", "true")],
             },
         )
@@ -3677,7 +3743,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [bp_set_default(node_b, "DefinitelyMissingPin", "true")],
             },
             expect_error=True,
@@ -3717,7 +3783,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [
                     {"kind": "moveNode", "node": bp_node(node_b), "position": {"x": 640, "y": 120}}
                 ],
@@ -3732,7 +3798,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [
                     {"kind": "moveNode", "node": bp_node(node_b), "delta": {"x": 16, "y": 32}}
                 ],
@@ -3747,7 +3813,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [
                     {"kind": "moveNode", "node": bp_node(node_a), "delta": {"x": 16, "y": 0}}
                 ],
@@ -3762,7 +3828,7 @@ def main() -> int:
             "compile",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
             },
         )
         nodes_after_compile = query_nodes(client, 20, temp_asset, "EventGraph")
@@ -3787,7 +3853,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [bp_branch()],
             },
         )
@@ -3807,7 +3873,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [bp_remove(node_e)],
             },
         )
@@ -3832,7 +3898,7 @@ def main() -> int:
             fail(f"blueprint.graph.palette nodeSpawner metadata mismatch: {branch_entry}")
         dry_palette = call_tool(client, 18095, "blueprint.graph.edit", {
             "assetPath": temp_asset,
-            "graphName": "EventGraph",
+            "graph": {"name": "EventGraph"},
             "dryRun": True,
             "commands": [{
                 "kind": "addFromPalette",
@@ -3848,7 +3914,7 @@ def main() -> int:
             fail(f"addFromPalette dryRun should validate without changing graph: {dry_palette}")
         add_from_palette = call_tool(client, 1810, "blueprint.graph.edit", {
             "assetPath": temp_asset,
-            "graphName": "EventGraph",
+            "graph": {"name": "EventGraph"},
             "commands": [{
                 "kind": "addFromPalette",
                 "entry": branch_entry,
@@ -3870,7 +3936,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [bp_remove(palette_node)],
             },
         )
@@ -4204,7 +4270,7 @@ def main() -> int:
             fail(f"blueprint.graph.palette schema action should report executable=false: {schema_entry}")
         schema_dry_run = call_tool(client, 1814, "blueprint.graph.edit", {
             "assetPath": temp_asset,
-            "graphName": "EventGraph",
+            "graph": {"name": "EventGraph"},
             "dryRun": True,
             "commands": [{
                 "kind": "addFromPalette",
@@ -4224,7 +4290,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [bp_remove(node_a)],
             },
         )
@@ -4239,7 +4305,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [bp_remove(node_b)],
             },
         )
@@ -4254,7 +4320,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [bp_branch({"x": 960, "y": 0})],
             },
         )
@@ -4269,7 +4335,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [bp_remove(node_c)],
             },
         )
@@ -4283,13 +4349,14 @@ def main() -> int:
             "blueprint",
             "mutate",
             {
-                "graphRef": {"kind": "asset", "assetPath": temp_asset, "graphName": "EventGraph"},
+                "assetPath": temp_asset,
+                "graph": {"name": "EventGraph"},
                 "commands": [bp_branch({"x": 1280, "y": 0})],
             },
         )
         node_d = op_ok(add_via_graph_ref).get("nodeId")
         if not isinstance(node_d, str) or not node_d:
-            fail(f"graphRef(asset) mutate addNode.byClass did not return nodeId: {add_via_graph_ref}")
+            fail(f"graph-scoped mutate addNode.byClass did not return nodeId: {add_via_graph_ref}")
 
         remove_via_target_graph_ref = call_domain_tool(
             client,
@@ -4298,7 +4365,7 @@ def main() -> int:
             "mutate",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
                 "commands": [bp_remove(node_d)],
             },
         )
@@ -4307,7 +4374,7 @@ def main() -> int:
         require_node_absent(nodes_after_remove_d, node_d)
 
         print("[PASS] blueprint.graph.edit removeNode validated for stable node ids")
-        print("[PASS] blueprint.graph.edit graphRef(asset) validated")
+        print("[PASS] blueprint.graph.edit graph-scoped mutate validated")
 
         bulk_branch_ops = []
         for index in range(60):
@@ -4327,7 +4394,7 @@ def main() -> int:
                 "mutate",
                 {
                     "assetPath": temp_asset,
-                    "graphName": "EventGraph",
+                    "graph": {"name": "EventGraph"},
                     "commands": bulk_branch_ops[chunk_index:chunk_index + 10],
                 },
             )
@@ -4340,7 +4407,7 @@ def main() -> int:
             "query",
             {
                 "assetPath": temp_asset,
-                "graphName": "EventGraph",
+                "graph": {"name": "EventGraph"},
             },
         )
         default_nodes = blueprint_summary_nodes(blueprint_default_page)

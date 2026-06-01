@@ -156,7 +156,11 @@ class ToolManifestTests(unittest.TestCase):
         )
 
         required = set(tool["inputSchema"]["required"])
-        self.assertEqual(required, {"assetPath", "commands"})
+        self.assertEqual(required, {"assetPath", "graph", "commands"})
+        self.assertNotIn("continueOnError", tool["inputSchema"]["properties"])
+        self.assertNotIn("returnDiff", tool["inputSchema"]["properties"])
+        self.assertNotIn("returnDiagnostics", tool["inputSchema"]["properties"])
+        self.assertIn("outputSchema", tool)
 
     def test_blueprint_graph_palette_manifest_is_graph_scoped(self) -> None:
         manifest = load_manifest(MANIFEST)
@@ -257,6 +261,8 @@ class ToolManifestTests(unittest.TestCase):
         self.assertIn("planned", class_edit_tool["outputSchema"]["properties"])
         self.assertIn("diagnostics", class_edit_tool["outputSchema"]["properties"])
         self.assertIn("diff", class_edit_tool["outputSchema"]["properties"])
+        self.assertIn("previousRevision", class_edit_tool["outputSchema"]["properties"])
+        self.assertIn("newRevision", class_edit_tool["outputSchema"]["properties"])
 
     def test_blueprint_graph_inspect_manifest_exposes_flow_views(self) -> None:
         manifest = load_manifest(MANIFEST)
@@ -416,13 +422,15 @@ class ToolManifestTests(unittest.TestCase):
         )
         self.assertNotIn("returnDiff", properties)
         self.assertNotIn("returnDiagnostics", properties)
-        self.assertNotIn("expectedRevision", properties)
+        self.assertIn("expectedRevision", properties)
         self.assertIn("applied", tool["outputSchema"]["properties"])
         self.assertIn("valid", tool["outputSchema"]["properties"])
         self.assertIn("resolvedRefs", tool["outputSchema"]["properties"])
         self.assertIn("planned", tool["outputSchema"]["properties"])
         self.assertIn("diagnostics", tool["outputSchema"]["properties"])
         self.assertIn("diff", tool["outputSchema"]["properties"])
+        self.assertIn("previousRevision", tool["outputSchema"]["properties"])
+        self.assertIn("newRevision", tool["outputSchema"]["properties"])
 
         payload = manifest.inspect_schema(
             domain="blueprint",

@@ -22,13 +22,13 @@ and optional `dryRun`. Operation-specific argument schemas are exposed through
 `memberKind="customEvent"` name is inspect-only.
 
 The current result reports `isError`, `applied`, `valid`, `dryRun`,
-`assetPath`, `memberKind`, `operation`, `resolvedRefs`, `planned`, `diff`,
-`diagnostics`, and structured error fields such as `code`, `message`, `reason`,
-and `details`. `dryRun=true` validates the request, resolves the target member
-where applicable, returns `applied=false`, and includes the planned edit
-summary and structured change set. `returnDiagnostics` and `expectedRevision`
-are not currently implemented by this tool and should not be declared in its
-public schema.
+`assetPath`, `memberKind`, `operation`, `previousRevision`, `newRevision`,
+`resolvedRefs`, `planned`, `diff`, `diagnostics`, and structured error fields
+such as `code`, `message`, `reason`, and `details`. `dryRun=true` validates the
+request, resolves the target member where applicable, returns `applied=false`,
+keeps `previousRevision == newRevision`, and includes the planned edit summary
+and structured change set. `expectedRevision` is enforced as an optimistic
+concurrency guard.
 
 ## Function Operations
 

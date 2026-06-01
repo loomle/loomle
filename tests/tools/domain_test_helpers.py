@@ -176,6 +176,9 @@ def blueprint_edit_args_from_legacy_payload(payload: dict[str, Any]) -> dict[str
         for key, value in payload.items()
         if key not in {"tool", "graphType", "ops"}
     }
+    graph_name = edit_args.pop("graphName", None)
+    if isinstance(graph_name, str) and graph_name:
+        edit_args["graph"] = {"name": graph_name}
     edit_args["commands"] = blueprint_commands_from_legacy_payload(payload)
     return edit_args
 

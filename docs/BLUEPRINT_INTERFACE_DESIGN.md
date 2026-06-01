@@ -459,6 +459,8 @@ applied:
 - `dryRun`
 - `applied`
 - `valid`
+- `previousRevision`
+- `newRevision`
 - `resolvedRefs`
 - `planned`
 - `diff`
@@ -469,12 +471,12 @@ applied:
 - `details`
 
 `dryRun=true` validates the request and resolved UE references, then returns
-`applied=false` with a planned edit summary and structured change set.
+`applied=false` with a planned edit summary and structured change set. It keeps
+`previousRevision == newRevision`.
 
-`returnDiagnostics` and `expectedRevision` are not part of the implemented
-`blueprint.member.edit` contract yet. Those fields remain a broader
-mutation-model goal, but should not be exposed on this tool until the bridge
-actually enforces and returns them.
+`expectedRevision` is part of the implemented contract and returns
+`REVISION_CONFLICT` without applying when it does not match the current
+Blueprint class revision.
 
 ## Domain 9: Graph
 

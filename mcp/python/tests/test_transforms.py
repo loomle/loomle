@@ -347,6 +347,8 @@ class TransformTests(unittest.TestCase):
             {
                 "assetPath": "/Game/BP_Test",
                 "graph": {"name": "EventGraph"},
+                "dryRun": True,
+                "continueOnError": True,
                 "commands": [
                     {
                         "kind": "addFromPalette",
@@ -359,9 +361,21 @@ class TransformTests(unittest.TestCase):
         )
 
         self.assertEqual(payload["graphName"], "EventGraph")
+        self.assertTrue(payload["dryRun"])
+        self.assertNotIn("continueOnError", payload)
         self.assertEqual(payload["ops"][0]["op"], "addFromPalette")
         self.assertEqual(payload["ops"][0]["clientRef"], "branch")
         self.assertEqual(payload["ops"][0]["args"]["entryId"], "palette:branch")
+
+        with self.assertRaises(TransformError):
+            apply_args_transform(
+                {"transform": "blueprint.graph.edit.args.v1"},
+                {
+                    "assetPath": "/Game/BP_Test",
+                    "graphName": "EventGraph",
+                    "commands": [{"kind": "removeNode", "node": {"id": "node-1"}}],
+                },
+            )
 
     def test_blueprint_graph_palette_transform_normalizes_public_pins(self) -> None:
         payload = apply_args_transform(

@@ -535,14 +535,16 @@ def blueprint_graph_edit_args(arguments: dict[str, Any]) -> dict[str, Any]:
     asset_path = string_field(arguments, "assetPath")
     if asset_path is None:
         raise TransformError("blueprint.graph.edit requires assetPath.")
+    if "graphName" in arguments or "graphRef" in arguments:
+        raise TransformError("blueprint.graph.edit uses graph:{id|name}; graphName and graphRef are not public inputs.")
     out: dict[str, Any] = {"assetPath": asset_path}
-    graph_name, graph_ref = blueprint_graph_address(arguments, asset_path, "blueprint.graph.edit", required=False)
+    graph_name, graph_ref = blueprint_graph_address(arguments, asset_path, "blueprint.graph.edit", required=True)
     write_graph_address(out, graph_name, graph_ref)
     commands = arguments.get("commands")
     if not isinstance(commands, list):
         raise TransformError("blueprint.graph.edit requires commands.")
     out["ops"] = [op for command in commands for op in compile_blueprint_graph_command(command)]
-    for field in ["expectedRevision", "idempotencyKey", "dryRun", "continueOnError"]:
+    for field in ["expectedRevision", "idempotencyKey", "dryRun"]:
         copy_if_present(arguments, out, field)
     return out
 

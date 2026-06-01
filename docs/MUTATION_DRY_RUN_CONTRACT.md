@@ -47,6 +47,8 @@ Mutation results should use the same core fields where applicable:
 - `valid`
 - `assetPath`
 - `operation`
+- `previousRevision`
+- `newRevision`
 - `resolvedRefs`
 - `planned`
 - `diff`
@@ -59,6 +61,7 @@ Rules:
   planned edit summary when the tool can produce one.
 - A failed dry run should return `isError=true`, `valid=false`,
   `applied=false`, and structured diagnostics.
+- A dry run that supports revisions must keep `previousRevision == newRevision`.
 - Diagnostics should be returned by default when they exist. Agents should not
   need a separate `returnDiagnostics` flag to get actionable errors.
 - Diff should be returned by default when a tool can produce a reliable
@@ -73,6 +76,16 @@ expected revision.
 
 When supported, revision checks should run before any mutation is applied and
 revision conflicts must return `applied=false`.
+
+Revision-aware mutation tools should return:
+
+- `previousRevision`: the asset revision read before mutation.
+- `newRevision`: the revision after mutation, or the same value as
+  `previousRevision` when nothing was applied.
+
+On `REVISION_CONFLICT`, the result should keep the current revision as both
+`previousRevision` and `newRevision` so the agent can retry from the latest
+state.
 
 `diff` describes the planned or applied state change as a structured change
 set:

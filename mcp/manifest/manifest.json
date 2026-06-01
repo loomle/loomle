@@ -1988,6 +1988,12 @@
           "applied": {
             "type": "boolean"
           },
+          "previousRevision": {
+            "type": "string"
+          },
+          "newRevision": {
+            "type": "string"
+          },
           "parentClassPath": {
             "type": "string"
           },
@@ -2287,6 +2293,9 @@
           "dryRun": {
             "type": "boolean",
             "default": false
+          },
+          "expectedRevision": {
+            "type": "string"
           }
         },
         "required": [
@@ -4531,6 +4540,12 @@
           "applied": {
             "type": "boolean"
           },
+          "previousRevision": {
+            "type": "string"
+          },
+          "newRevision": {
+            "type": "string"
+          },
           "code": {
             "type": "string"
           },
@@ -6533,9 +6548,138 @@
         },
         "required": [
           "assetPath",
+          "graph",
           "commands"
         ],
         "additionalProperties": false
+      },
+      "outputSchema": {
+        "oneOf": [
+          {
+            "type": "object",
+            "title": "Blueprint Graph Edit Result",
+            "properties": {
+              "isError": {
+                "type": "boolean",
+                "const": false
+              },
+              "valid": {
+                "type": "boolean",
+                "const": true
+              },
+              "applied": {
+                "type": "boolean"
+              },
+              "dryRun": {
+                "type": "boolean"
+              },
+              "operation": {
+                "type": "string"
+              },
+              "assetPath": {
+                "type": "string"
+              },
+              "graphName": {
+                "type": "string"
+              },
+              "graphRef": {
+                "type": "object"
+              },
+              "previousRevision": {
+                "type": "string"
+              },
+              "newRevision": {
+                "type": "string"
+              },
+              "planned": {
+                "type": "object"
+              },
+              "diff": {
+                "type": "object"
+              },
+              "diagnostics": {
+                "type": "array"
+              },
+              "opResults": {
+                "type": "array"
+              },
+              "commandResults": {
+                "type": "array"
+              }
+            },
+            "required": [
+              "isError",
+              "valid",
+              "applied",
+              "dryRun",
+              "assetPath",
+              "previousRevision",
+              "newRevision",
+              "planned",
+              "diff",
+              "diagnostics",
+              "opResults"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "title": "Blueprint Graph Edit Error",
+            "properties": {
+              "isError": {
+                "type": "boolean",
+                "const": true
+              },
+              "valid": {
+                "type": "boolean",
+                "const": false
+              },
+              "applied": {
+                "type": "boolean",
+                "const": false
+              },
+              "dryRun": {
+                "type": "boolean"
+              },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "assetPath": {
+                "type": "string"
+              },
+              "graphName": {
+                "type": "string"
+              },
+              "previousRevision": {
+                "type": "string"
+              },
+              "newRevision": {
+                "type": "string"
+              },
+              "planned": {
+                "type": "object"
+              },
+              "diff": {
+                "type": "object"
+              },
+              "diagnostics": {
+                "type": "array"
+              },
+              "opResults": {
+                "type": "array"
+              }
+            },
+            "required": [
+              "isError",
+              "code",
+              "message"
+            ],
+            "additionalProperties": true
+          }
+        ]
       },
       "schemaInspect": {
         "domain": "blueprint",

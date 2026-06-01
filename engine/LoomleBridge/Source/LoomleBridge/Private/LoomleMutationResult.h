@@ -25,6 +25,21 @@ namespace LoomleMutation
         }
     }
 
+    static void SetRevision(const TSharedPtr<FJsonObject>& Result, const FString& PreviousRevision, const FString& NewRevision)
+    {
+        if (!Result.IsValid())
+        {
+            return;
+        }
+        Result->SetStringField(TEXT("previousRevision"), PreviousRevision);
+        Result->SetStringField(TEXT("newRevision"), NewRevision);
+    }
+
+    static void SetUnchangedRevision(const TSharedPtr<FJsonObject>& Result, const FString& Revision)
+    {
+        SetRevision(Result, Revision, Revision);
+    }
+
     static void SetFailure(const TSharedPtr<FJsonObject>& Result, const FString& Code, const FString& Message)
     {
         if (!Result.IsValid())
@@ -39,6 +54,15 @@ namespace LoomleMutation
         TArray<TSharedPtr<FJsonValue>> Diagnostics;
         Diagnostics.Add(MakeDiagnostic(TEXT("error"), Code, Message));
         SetDiagnostics(Result, Diagnostics);
+    }
+
+    static void SetRevisionConflict(const TSharedPtr<FJsonObject>& Result, const FString& ExpectedRevision, const FString& CurrentRevision)
+    {
+        SetFailure(
+            Result,
+            TEXT("REVISION_CONFLICT"),
+            FString::Printf(TEXT("expectedRevision mismatch: expected %s but current revision is %s."), *ExpectedRevision, *CurrentRevision));
+        SetUnchangedRevision(Result, CurrentRevision);
     }
 
     static TSharedPtr<FJsonObject> BuildBasicPlan(
@@ -86,6 +110,65 @@ namespace LoomleMutation
         Result->SetObjectField(TEXT("planned"), Plan);
         Result->SetBoolField(TEXT("valid"), true);
         SetDiagnostics(Result, TArray<TSharedPtr<FJsonValue>>{});
+    }
+
+    static TSharedPtr<FJsonObject> BuildBatchPlan(
+        const FString& Tool,
+        const FString& AssetPath,
+        const FString& Operation,
+        const TArray<TSharedPtr<FJsonValue>>& Commands,
+        const TSharedPtr<FJsonObject>& ExtraResolvedRefs = nullptr)
+    {
+        TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
+        Args->SetArrayField(TEXT("commands"), Commands);
+        TSharedPtr<FJsonObject> Plan = BuildBasicPlan(Tool, AssetPath, Operation, Args, ExtraResolvedRefs);
+        Plan->SetNumberField(TEXT("commandCount"), Commands.Num());
+        Plan->SetArrayField(TEXT("commands"), Commands);
+        return Plan;
+    }
+
+    static TSharedPtr<FJsonObject> MakeOpResult(
+        const int32 Index,
+        const FString& Operation,
+        const bool bOk,
+        const bool bChanged,
+        const FString& ErrorCode = FString(),
+        const FString& ErrorMessage = FString())
+    {
+        TSharedPtr<FJsonObject> OpResult = MakeShared<FJsonObject>();
+        OpResult->SetNumberField(TEXT("index"), Index);
+        OpResult->SetStringField(TEXT("op"), Operation);
+        OpResult->SetBoolField(TEXT("ok"), bOk);
+        OpResult->SetBoolField(TEXT("skipped"), false);
+        OpResult->SetBoolField(TEXT("changed"), bChanged);
+        OpResult->SetStringField(TEXT("errorCode"), bOk ? TEXT("") : ErrorCode);
+        OpResult->SetStringField(TEXT("errorMessage"), bOk ? TEXT("") : ErrorMessage);
+        return OpResult;
+    }
+
+    static void SetMutationEnvelope(
+        const TSharedPtr<FJsonObject>& Result,
+        const FString& Tool,
+        const FString& AssetPath,
+        const FString& Operation,
+        const bool bDryRun,
+        const bool bApplied)
+    {
+        if (!Result.IsValid())
+        {
+            return;
+        }
+        Result->SetBoolField(TEXT("isError"), false);
+        Result->SetBoolField(TEXT("valid"), true);
+        Result->SetBoolField(TEXT("dryRun"), bDryRun);
+        Result->SetBoolField(TEXT("applied"), bApplied);
+        Result->SetStringField(TEXT("tool"), Tool);
+        Result->SetStringField(TEXT("assetPath"), AssetPath);
+        Result->SetStringField(TEXT("operation"), Operation);
+        if (!Result->HasField(TEXT("diagnostics")))
+        {
+            SetDiagnostics(Result, TArray<TSharedPtr<FJsonValue>>{});
+        }
     }
 
     static TSharedPtr<FJsonObject> MakeTarget(const FString& Type, const FString& Name = FString(), const FString& Path = FString())

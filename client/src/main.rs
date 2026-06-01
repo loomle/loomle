@@ -5729,18 +5729,23 @@ fn compile_blueprint_graph_commands(
 fn translate_blueprint_graph_edit_args(
     args: &rmcp::model::JsonObject,
 ) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    if args.contains_key("graphName") || args.contains_key("graphRef") {
+        return Err(invalid_argument_result(
+            "blueprint.graph.edit uses graph:{id|name}; graphName and graphRef are not public inputs.",
+        ));
+    }
+    if !args.contains_key("graph") {
+        return Err(invalid_argument_result(
+            "blueprint.graph.edit requires graph:{id|name}.",
+        ));
+    }
     let asset_path = read_required_asset_path(args, "blueprint.graph.edit")?;
     let graph_address =
         read_optional_graph_address(args, &asset_path, true, "blueprint.graph.edit")?;
     let mut translated = rmcp::model::JsonObject::new();
     translated.insert("assetPath".into(), serde_json::json!(asset_path));
     write_optional_graph_address(&mut translated, graph_address);
-    for field in [
-        "expectedRevision",
-        "idempotencyKey",
-        "dryRun",
-        "continueOnError",
-    ] {
+    for field in ["expectedRevision", "idempotencyKey", "dryRun"] {
         copy_if_present(args, &mut translated, field);
     }
     let commands = args
@@ -7543,6 +7548,10 @@ fn blueprint_member_edit_schema() -> rmcp::model::JsonObject {
         "dryRun".into(),
         serde_json::json!({"type":"boolean","default":false}),
     );
+    properties.insert(
+        "expectedRevision".into(),
+        serde_json::json!({"type":"string"}),
+    );
     schema_from_value(serde_json::json!({
         "type":"object",
         "properties": properties,
@@ -7711,10 +7720,6 @@ fn blueprint_graph_edit_schema() -> rmcp::model::JsonObject {
     );
     properties.insert("graph".into(), graph_ref_schema());
     properties.insert(
-        "graphName".into(),
-        serde_json::json!({"type":"string","minLength":1,"description":"Legacy compatibility graph address. Prefer graph:{id|name} for new calls."}),
-    );
-    properties.insert(
         "commands".into(),
         serde_json::json!({
             "type":"array",
@@ -7731,19 +7736,22 @@ fn blueprint_graph_edit_schema() -> rmcp::model::JsonObject {
             }
         }),
     );
-    mutation_control_fields(&mut properties);
     properties.insert(
-        "continueOnError".into(),
-        serde_json::json!({
-            "type": "boolean",
-            "default": false,
-            "description": "Continue applying later commands after an operation-level failure."
-        }),
+        "dryRun".into(),
+        serde_json::json!({"type":"boolean","default":false}),
+    );
+    properties.insert(
+        "expectedRevision".into(),
+        serde_json::json!({"type":"string"}),
+    );
+    properties.insert(
+        "idempotencyKey".into(),
+        serde_json::json!({"type":"string"}),
     );
     schema_from_value(serde_json::json!({
         "type":"object",
         "properties": properties,
-        "required":["assetPath","commands"],
+        "required":["assetPath","graph","commands"],
         "additionalProperties": false
     }))
 }
@@ -10641,7 +10649,7 @@ mod tests {
     fn blueprint_graph_layout_selection_formats_only_explicit_nodes() {
         let mut args = JsonObject::new();
         args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
-        args.insert("graphName".into(), serde_json::json!("EventGraph"));
+        args.insert("graph".into(), serde_json::json!({ "name": "EventGraph" }));
         args.insert("operation".into(), serde_json::json!("format"));
         args.insert(
             "scope".into(),
@@ -11451,6 +11459,25 @@ mod tests {
     #[test]
     fn blueprint_graph_edit_schema_uses_lightweight_command_envelope() {
         let schema = super::blueprint_graph_edit_schema();
+        let properties = schema
+            .get("properties")
+            .and_then(|properties| properties.as_object())
+            .expect("properties");
+        assert!(properties.contains_key("graph"));
+        assert!(!properties.contains_key("graphName"));
+        assert!(!properties.contains_key("continueOnError"));
+        assert!(!properties.contains_key("returnDiff"));
+        assert!(!properties.contains_key("returnDiagnostics"));
+        assert_eq!(
+            schema
+                .get("required")
+                .and_then(|value| value.as_array())
+                .map(|values| values
+                    .iter()
+                    .filter_map(|value| value.as_str())
+                    .collect::<std::collections::BTreeSet<_>>()),
+            Some(["assetPath", "commands", "graph"].into_iter().collect())
+        );
         let command_properties = schema
             .get("properties")
             .and_then(|properties| properties.get("commands"))
@@ -11464,6 +11491,24 @@ mod tests {
         assert!(!command_properties.contains_key("entry"));
         assert!(!command_properties.contains_key("from"));
         assert!(!command_properties.contains_key("target"));
+    }
+
+    #[test]
+    fn blueprint_graph_edit_rejects_public_legacy_graph_fields() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graphName".into(), serde_json::json!("EventGraph"));
+        args.insert(
+            "commands".into(),
+            serde_json::json!([
+                {
+                    "kind": "removeNode",
+                    "node": { "id": "node-guid" }
+                }
+            ]),
+        );
+
+        assert!(translate_blueprint_graph_edit_args(&args).is_err());
     }
 
     #[test]
@@ -11643,7 +11688,7 @@ mod tests {
     fn blueprint_graph_edit_reconstruct_node_translates_to_op() {
         let mut args = JsonObject::new();
         args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
-        args.insert("graphName".into(), serde_json::json!("EventGraph"));
+        args.insert("graph".into(), serde_json::json!({ "name": "EventGraph" }));
         args.insert(
             "commands".into(),
             serde_json::json!([
@@ -13537,7 +13582,7 @@ mod tests {
             .any(|value| value.as_str() == Some("customEvent")));
         assert!(!blueprint_member_edit_input.contains_key("returnDiff"));
         assert!(!blueprint_member_edit_input.contains_key("returnDiagnostics"));
-        assert!(!blueprint_member_edit_input.contains_key("expectedRevision"));
+        assert!(blueprint_member_edit_input.contains_key("expectedRevision"));
         let blueprint_member_edit_output_properties = blueprint_member_edit
             .output_schema
             .as_ref()
@@ -13550,6 +13595,8 @@ mod tests {
         assert!(blueprint_member_edit_output_properties.contains_key("planned"));
         assert!(blueprint_member_edit_output_properties.contains_key("diagnostics"));
         assert!(blueprint_member_edit_output_properties.contains_key("diff"));
+        assert!(blueprint_member_edit_output_properties.contains_key("previousRevision"));
+        assert!(blueprint_member_edit_output_properties.contains_key("newRevision"));
 
         let blueprint_class_edit = declared_tools
             .iter()
@@ -13584,6 +13631,8 @@ mod tests {
         assert!(blueprint_class_edit_output_properties.contains_key("planned"));
         assert!(blueprint_class_edit_output_properties.contains_key("diagnostics"));
         assert!(blueprint_class_edit_output_properties.contains_key("diff"));
+        assert!(blueprint_class_edit_output_properties.contains_key("previousRevision"));
+        assert!(blueprint_class_edit_output_properties.contains_key("newRevision"));
 
         let context = declared_tools
             .iter()
@@ -13692,6 +13741,20 @@ mod tests {
             "moveNode",
         ] {
             assert!(names.contains(expected), "missing operation {expected}");
+        }
+        for retired in [
+            "layoutGraph",
+            "compile",
+            "addGraph",
+            "addFunctionGraph",
+            "addMacroGraph",
+            "renameGraph",
+            "deleteGraph",
+        ] {
+            assert!(
+                !names.contains(retired),
+                "retired operation {retired} leaked"
+            );
         }
     }
 

@@ -47,11 +47,6 @@ The `tools/list` schema should expose only the stable command envelope:
       "type": "object",
       "description": "Recommended graph address. Prefer {\"id\":\"...\"} after discovery; use {\"name\":\"EventGraph\"} when id is unavailable."
     },
-    "graphName": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Legacy compatibility graph address. Prefer graph:{id|name} for new calls."
-    },
     "commands": {
       "type": "array",
       "items": {
@@ -67,10 +62,9 @@ The `tools/list` schema should expose only the stable command envelope:
     },
     "dryRun": { "type": "boolean" },
     "expectedRevision": { "type": "string" },
-    "returnDiff": { "type": "boolean" },
-    "returnDiagnostics": { "type": "boolean" }
+    "idempotencyKey": { "type": "string" }
   },
-  "required": ["assetPath", "commands"],
+  "required": ["assetPath", "graph", "commands"],
   "additionalProperties": false
 }
 ```
@@ -115,9 +109,10 @@ first-level schema summary:
 They can be documented and returned by schema inspection under their category,
 but they are not part of the core graph construction workflow.
 
-### Internal Or Non-Public Operations
+### Retired Operations
 
-These operations should not be presented as normal public commands:
+These operations are not accepted by `blueprint.graph.edit`. Use the dedicated
+surface instead:
 
 | Operation | Preferred Surface |
 | --- | --- |
@@ -126,9 +121,9 @@ These operations should not be presented as normal public commands:
 | `layoutGraph` | `blueprint.graph.layout` with `operation="format"`. |
 | `compile` | `blueprint.compile`. |
 | `moveNodes` | `blueprint.graph.layout` selection formatting, or explicit `moveNode` commands. |
-| `addGraph` / `addFunctionGraph` / `addMacroGraph` | Graph management surface. |
-| `renameGraph` | Graph management surface. |
-| `deleteGraph` | Graph management surface. |
+| `addGraph` / `addFunctionGraph` / `addMacroGraph` | Future graph management surface. |
+| `renameGraph` | Future graph management surface. |
+| `deleteGraph` | Future graph management surface. |
 
 Keeping these out of the primary public vocabulary prevents
 `blueprint.graph.edit` from becoming a dump of bridge internals.
@@ -355,14 +350,17 @@ Rules:
 The top-level result should include:
 
 - `isError`
+- `valid`
 - `applied`
 - `dryRun`
+- `operation`
 - `partialApplied`
 - `assetPath`
 - `graphName`
 - `graphRef`
 - `previousRevision`
 - `newRevision`
+- `planned`
 - `opResults`
 - `commandResults`
 - `diagnostics`
@@ -374,7 +372,10 @@ is diagnostic data for agent and developer feedback; it must not be used as a
 success criterion.
 
 For `dryRun=true`, `applied` must be `false`, command results must report
-`changed=false`, and graph revision/node count must not change.
+`changed=false`, `previousRevision` must equal `newRevision`, and graph
+revision/node count must not change. A dry run still resolves UE graph, node,
+and pin references and returns `valid=false` with diagnostics when that
+resolution or UE validation fails.
 
 ## UE Implementation Model
 
