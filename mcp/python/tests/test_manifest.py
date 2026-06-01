@@ -161,6 +161,9 @@ class ToolManifestTests(unittest.TestCase):
         self.assertNotIn("returnDiff", tool["inputSchema"]["properties"])
         self.assertNotIn("returnDiagnostics", tool["inputSchema"]["properties"])
         self.assertIn("outputSchema", tool)
+        output_properties = tool["outputSchema"]["oneOf"][0]["properties"]
+        self.assertIn("opResults", output_properties)
+        self.assertNotIn("commandResults", output_properties)
 
     def test_blueprint_graph_palette_manifest_is_graph_scoped(self) -> None:
         manifest = load_manifest(MANIFEST)

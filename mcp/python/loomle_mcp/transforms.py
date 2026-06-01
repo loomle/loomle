@@ -982,10 +982,7 @@ def shape_blueprint_compile_result(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def augment_blueprint_graph_edit_result(payload: dict[str, Any]) -> dict[str, Any]:
-    result = dict(payload)
-    if "opResults" in result and "commandResults" not in result:
-        result["commandResults"] = result["opResults"]
-    return result
+    return dict(payload)
 
 
 def shape_blueprint_graph_inspect_result(payload: dict[str, Any], arguments: dict[str, Any]) -> dict[str, Any]:

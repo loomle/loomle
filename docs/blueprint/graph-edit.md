@@ -116,11 +116,11 @@ surface instead:
 
 | Operation | Preferred Surface |
 | --- | --- |
-| `rebindMatchingPins` | Internal implementation only; public callers should connect pins explicitly. |
-| `moveInputLinks` | Internal implementation only; public callers should disconnect and reconnect explicit pins. |
+| `rebindMatchingPins` | Retired; connect pins explicitly. |
+| `moveInputLinks` | Retired; disconnect and reconnect explicit pins. |
 | `layoutGraph` | `blueprint.graph.layout` with `operation="format"`. |
 | `compile` | `blueprint.compile`. |
-| `moveNodes` | `blueprint.graph.layout` selection formatting, or explicit `moveNode` commands. |
+| `moveNodes` | Retired; use `blueprint.graph.layout` selection formatting, or explicit `moveNode` commands. |
 | `addGraph` / `addFunctionGraph` / `addMacroGraph` | Future graph management surface. |
 | `renameGraph` | Future graph management surface. |
 | `deleteGraph` | Future graph management surface. |
@@ -362,7 +362,6 @@ The top-level result should include:
 - `newRevision`
 - `planned`
 - `opResults`
-- `commandResults`
 - `diagnostics`
 - `diff`
 

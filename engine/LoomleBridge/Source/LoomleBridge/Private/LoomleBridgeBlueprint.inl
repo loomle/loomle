@@ -3464,6 +3464,163 @@ void ReconstructBlueprintNodeAfterLocalEdit(UEdGraphNode* Node)
         Node->ReconstructNode();
     }
 }
+
+TSharedPtr<FJsonObject> MakeBlueprintGraphEditSingleResult(
+    const FString& OpName,
+    bool bOk,
+    bool bChanged,
+    const FString& ErrorCode,
+    const FString& ErrorMessage,
+    const FString& NodeId = TEXT(""))
+{
+    TSharedPtr<FJsonObject> StructuredError;
+    FString StructuredCode;
+    FString StructuredMessage;
+    if (!bOk && !ErrorMessage.IsEmpty())
+    {
+        const TSharedRef<TJsonReader<>> ErrorReader = TJsonReaderFactory<>::Create(ErrorMessage);
+        if (FJsonSerializer::Deserialize(ErrorReader, StructuredError) && StructuredError.IsValid())
+        {
+            StructuredError->TryGetStringField(TEXT("code"), StructuredCode);
+            StructuredError->TryGetStringField(TEXT("message"), StructuredMessage);
+        }
+    }
+    const FString ActualErrorCode = bOk
+        ? TEXT("")
+        : (!ErrorCode.IsEmpty()
+            ? ErrorCode
+            : (!StructuredCode.IsEmpty() ? StructuredCode : TEXT("INTERNAL_ERROR")));
+    const FString ActualErrorMessage = bOk
+        ? TEXT("")
+        : (!StructuredMessage.IsEmpty()
+            ? StructuredMessage
+            : (ErrorMessage.IsEmpty() ? TEXT("blueprint.graph.edit failed") : ErrorMessage));
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), !bOk);
+    if (!bOk)
+    {
+        Result->SetStringField(TEXT("code"), ActualErrorCode);
+        Result->SetStringField(TEXT("message"), ActualErrorMessage);
+        if (StructuredError.IsValid())
+        {
+            Result->SetObjectField(TEXT("details"), StructuredError);
+        }
+    }
+
+    TArray<TSharedPtr<FJsonValue>> OpResults;
+    TSharedPtr<FJsonObject> OpResult = LoomleMutation::MakeOpResult(
+        0,
+        OpName,
+        bOk,
+        bChanged,
+        ActualErrorCode,
+        ActualErrorMessage,
+        NodeId,
+        StructuredError);
+    OpResults.Add(MakeShared<FJsonValueObject>(OpResult));
+    Result->SetArrayField(TEXT("opResults"), OpResults);
+
+    TArray<TSharedPtr<FJsonValue>> Diagnostics;
+    if (!bOk)
+    {
+        TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
+        Diagnostic->SetStringField(TEXT("code"), ActualErrorCode);
+        Diagnostic->SetStringField(TEXT("severity"), TEXT("error"));
+        Diagnostic->SetStringField(TEXT("message"), ActualErrorMessage);
+        Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("graph.edit"));
+        Diagnostic->SetStringField(TEXT("op"), OpName);
+        if (StructuredError.IsValid())
+        {
+            Diagnostic->SetObjectField(TEXT("details"), StructuredError);
+        }
+        if (!NodeId.IsEmpty())
+        {
+            Diagnostic->SetStringField(TEXT("nodeId"), NodeId);
+        }
+        Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
+    }
+    Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
+    return Result;
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintGraphDiff()
+{
+    TSharedPtr<FJsonObject> Diff = MakeShared<FJsonObject>();
+    Diff->SetArrayField(TEXT("nodesAdded"), {});
+    Diff->SetArrayField(TEXT("nodesRemoved"), {});
+    Diff->SetArrayField(TEXT("nodesMoved"), {});
+    Diff->SetArrayField(TEXT("pinDefaultsChanged"), {});
+    Diff->SetArrayField(TEXT("linksAdded"), {});
+    Diff->SetArrayField(TEXT("linksRemoved"), {});
+    Diff->SetArrayField(TEXT("eventReplicationChanged"), {});
+    return Diff;
+}
+
+void AppendBlueprintGraphDiffObject(const TSharedPtr<FJsonObject>& Diff, const TCHAR* FieldName, const TSharedPtr<FJsonObject>& Entry)
+{
+    if (!Diff.IsValid() || !Entry.IsValid())
+    {
+        return;
+    }
+    TArray<TSharedPtr<FJsonValue>> Values = CloneBlueprintJsonArrayField(Diff, FieldName);
+    Values.Add(MakeShared<FJsonValueObject>(Entry));
+    Diff->SetArrayField(FieldName, Values);
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintGraphNodeDiffEntry(const FString& NodeId, const FString& NodeClassPath = TEXT(""), const FString& Title = TEXT(""))
+{
+    TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+    Entry->SetStringField(TEXT("nodeId"), NodeId);
+    if (!NodeClassPath.IsEmpty())
+    {
+        Entry->SetStringField(TEXT("nodeClassPath"), NodeClassPath);
+    }
+    if (!Title.IsEmpty())
+    {
+        Entry->SetStringField(TEXT("title"), Title);
+    }
+    return Entry;
+}
+
+void AttachBlueprintGraphDiffToSingleResult(const TSharedPtr<FJsonObject>& Result, const TSharedPtr<FJsonObject>& Diff)
+{
+    if (!Result.IsValid() || !Diff.IsValid())
+    {
+        return;
+    }
+    const TArray<TSharedPtr<FJsonValue>>* OpResultsArray = nullptr;
+    if (Result->TryGetArrayField(TEXT("opResults"), OpResultsArray) && OpResultsArray != nullptr && OpResultsArray->Num() > 0)
+    {
+        const TSharedPtr<FJsonObject>* OpResultObject = nullptr;
+        if ((*OpResultsArray)[0].IsValid() && (*OpResultsArray)[0]->TryGetObject(OpResultObject) && OpResultObject != nullptr && (*OpResultObject).IsValid())
+        {
+            (*OpResultObject)->SetObjectField(TEXT("diff"), Diff);
+        }
+    }
+}
+
+bool IsSupportedBlueprintGraphEditOp(const FString& OpName)
+{
+    static const TSet<FString> SupportedOps = {
+        TEXT("addnodebyclass"),
+        TEXT("addfrompalette"),
+        TEXT("addcommentbox"),
+        TEXT("addreroute"),
+        TEXT("duplicatenode"),
+        TEXT("connectpins"),
+        TEXT("disconnectpins"),
+        TEXT("breakpinlinks"),
+        TEXT("reconstructnode"),
+        TEXT("setpindefault"),
+        TEXT("removenode"),
+        TEXT("movenode"),
+        TEXT("movenodeby"),
+        TEXT("setnodecomment"),
+        TEXT("setnodeenabled"),
+    };
+    return SupportedOps.Contains(OpName);
+}
 }
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(const TSharedPtr<FJsonObject>& Arguments)
@@ -3899,125 +4056,142 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
     bool bDryRun = false;
     Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
 
-    if (Arguments.IsValid() && Ops != nullptr)
+    auto BuildRevisionQueryArgs = [&](const FString& EffectiveGraphName, const FString& EffectiveInlineNodeGuid) -> TSharedPtr<FJsonObject>
     {
-        for (int32 Index = 0; Index < Ops->Num(); ++Index)
+        TSharedPtr<FJsonObject> QueryArgs = MakeShared<FJsonObject>();
+        if (!EffectiveInlineNodeGuid.IsEmpty())
         {
-            const TSharedPtr<FJsonObject>* OpObj = nullptr;
-            if (!(*Ops)[Index].IsValid() || !(*Ops)[Index]->TryGetObject(OpObj) || OpObj == nullptr || !(*OpObj).IsValid())
-            {
-                continue;
-            }
-
-            FString Op;
-            (*OpObj)->TryGetStringField(TEXT("op"), Op);
-            Op = Op.ToLower();
-            if (!Op.Equals(TEXT("runscript")))
-            {
-                continue;
-            }
-
-            TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-            Result->SetBoolField(TEXT("isError"), true);
-            Result->SetBoolField(TEXT("valid"), false);
-            Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_OP"));
-            Result->SetStringField(TEXT("message"), TEXT("blueprint.graph.edit does not support runScript."));
-            Result->SetBoolField(TEXT("applied"), false);
-            Result->SetBoolField(TEXT("partialApplied"), false);
-
-            FString ErrorAssetPath;
-            if (Arguments->TryGetStringField(TEXT("assetPath"), ErrorAssetPath) && !ErrorAssetPath.IsEmpty())
-            {
-                Result->SetStringField(TEXT("assetPath"), NormalizeAssetPath(ErrorAssetPath));
-            }
-
-            FString ErrorGraphName;
-            if (Arguments->TryGetStringField(TEXT("graphName"), ErrorGraphName) && !ErrorGraphName.IsEmpty())
-            {
-                Result->SetStringField(TEXT("graphName"), ErrorGraphName);
-            }
-
-            Result->SetStringField(TEXT("graphType"), TEXT("blueprint"));
-            Result->SetStringField(TEXT("previousRevision"), TEXT(""));
-            Result->SetStringField(TEXT("newRevision"), TEXT(""));
-
-            TArray<TSharedPtr<FJsonValue>> OpResults;
-            TSharedPtr<FJsonObject> OpResult = LoomleMutation::MakeOpResult(
-                Index,
-                Op,
-                false,
-                false,
-                TEXT("UNSUPPORTED_OP"),
-                TEXT("blueprint.graph.edit does not support runScript."));
-            OpResults.Add(MakeShared<FJsonValueObject>(OpResult));
-            Result->SetArrayField(TEXT("opResults"), OpResults);
-
-            TArray<TSharedPtr<FJsonValue>> Diagnostics;
-            TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
-            Diagnostic->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_OP"));
-            Diagnostic->SetStringField(TEXT("severity"), TEXT("error"));
-            Diagnostic->SetStringField(TEXT("message"), TEXT("blueprint.graph.edit does not support runScript."));
-            Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("graph.edit"));
-            Diagnostic->SetStringField(TEXT("op"), Op);
-            Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
-            Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
-            return Result;
-        }
-    }
-
-    FString ExpectedRevision;
-    if (Arguments->TryGetStringField(TEXT("expectedRevision"), ExpectedRevision) && !ExpectedRevision.IsEmpty())
-    {
-        TSharedPtr<FJsonObject> RevisionQueryArgs = MakeShared<FJsonObject>();
-        if (!InlineNodeGuid.IsEmpty())
-        {
-            RevisionQueryArgs->SetObjectField(TEXT("graphRef"), MakeBlueprintInlineGraphRef(InlineNodeGuid, AssetPath));
+            QueryArgs->SetObjectField(TEXT("graphRef"), MakeBlueprintInlineGraphRef(EffectiveInlineNodeGuid, AssetPath));
         }
         else
         {
-            RevisionQueryArgs->SetStringField(TEXT("assetPath"), AssetPath);
-            RevisionQueryArgs->SetStringField(TEXT("graphName"), GraphName);
+            QueryArgs->SetStringField(TEXT("assetPath"), AssetPath);
+            QueryArgs->SetStringField(TEXT("graphName"), EffectiveGraphName);
         }
+        return QueryArgs;
+    };
 
-        const TSharedPtr<FJsonObject> RevisionResult = BuildBlueprintGraphInspectToolResult(RevisionQueryArgs);
+    auto ResolveRevision = [&](const FString& EffectiveGraphName, const FString& EffectiveInlineNodeGuid, FString& OutRevision, FString& OutCode, FString& OutMessage) -> bool
+    {
+        OutRevision.Empty();
+        OutCode.Empty();
+        OutMessage.Empty();
+
+        const TSharedPtr<FJsonObject> RevisionResult = BuildBlueprintGraphInspectToolResult(BuildRevisionQueryArgs(EffectiveGraphName, EffectiveInlineNodeGuid));
         if (!RevisionResult.IsValid())
         {
-            TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-            Result->SetBoolField(TEXT("isError"), true);
-            Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
-            Result->SetStringField(TEXT("message"), TEXT("Failed to resolve current blueprint revision."));
-            return Result;
+            OutCode = TEXT("INTERNAL_ERROR");
+            OutMessage = TEXT("Failed to resolve current blueprint revision.");
+            return false;
         }
 
         bool bRevisionError = false;
         RevisionResult->TryGetBoolField(TEXT("isError"), bRevisionError);
         if (bRevisionError)
         {
-            return RevisionResult;
+            RevisionResult->TryGetStringField(TEXT("code"), OutCode);
+            RevisionResult->TryGetStringField(TEXT("message"), OutMessage);
+            if (OutCode.IsEmpty())
+            {
+                OutCode = TEXT("INTERNAL_ERROR");
+            }
+            if (OutMessage.IsEmpty())
+            {
+                OutMessage = TEXT("Failed to resolve current blueprint revision.");
+            }
+            return false;
         }
 
-        FString CurrentRevision;
-        if (!RevisionResult->TryGetStringField(TEXT("revision"), CurrentRevision) || CurrentRevision.IsEmpty())
+        if (!RevisionResult->TryGetStringField(TEXT("revision"), OutRevision) || OutRevision.IsEmpty())
         {
-            TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-            Result->SetBoolField(TEXT("isError"), true);
-            Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
-            Result->SetStringField(TEXT("message"), TEXT("blueprint.graph.inspect did not return a revision for blueprint.graph.edit."));
-            return Result;
+            OutCode = TEXT("INTERNAL_ERROR");
+            OutMessage = TEXT("blueprint.graph.inspect did not return a revision for blueprint.graph.edit.");
+            return false;
         }
 
-        if (!ExpectedRevision.Equals(CurrentRevision, ESearchCase::CaseSensitive))
+        return true;
+    };
+
+    auto MakeBatchPreflightError = [&](int32 Index, const FString& Op, const FString& Code, const FString& Message) -> TSharedPtr<FJsonObject>
+    {
+        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+        LoomleMutation::SetMutationEnvelope(Result, TEXT("blueprint.graph.edit"), AssetPath, TEXT("blueprint.graph.edit"), bDryRun, false, false);
+        Result->SetStringField(TEXT("code"), Code);
+        Result->SetStringField(TEXT("message"), Message);
+        Result->SetBoolField(TEXT("partialApplied"), false);
+        Result->SetStringField(TEXT("graphType"), TEXT("blueprint"));
+        Result->SetStringField(TEXT("graphName"), GraphName);
+        Result->SetObjectField(TEXT("graphRef"), MakeBlueprintEffectiveGraphRef(AssetPath, GraphName, InlineNodeGuid));
+
+        TArray<TSharedPtr<FJsonValue>> OpResults;
+        OpResults.Add(MakeShared<FJsonValueObject>(LoomleMutation::MakeOpResult(Index, Op, false, false, Code, Message)));
+        Result->SetArrayField(TEXT("opResults"), OpResults);
+
+        TArray<TSharedPtr<FJsonValue>> Diagnostics;
+        TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
+        Diagnostic->SetStringField(TEXT("code"), Code);
+        Diagnostic->SetStringField(TEXT("severity"), TEXT("error"));
+        Diagnostic->SetStringField(TEXT("message"), Message);
+        Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("graph.edit"));
+        Diagnostic->SetNumberField(TEXT("index"), Index);
+        if (!Op.IsEmpty())
         {
-            TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-            LoomleMutation::SetMutationEnvelope(Result, TEXT("blueprint.graph.edit"), AssetPath, TEXT("blueprint.graph.edit"), bDryRun, false, false);
-            LoomleMutation::SetRevisionConflict(Result, ExpectedRevision, CurrentRevision);
-            Result->SetBoolField(TEXT("partialApplied"), false);
-            Result->SetStringField(TEXT("graphType"), TEXT("blueprint"));
-            Result->SetStringField(TEXT("graphName"), GraphName);
-            Result->SetObjectField(TEXT("graphRef"), MakeBlueprintEffectiveGraphRef(AssetPath, GraphName, InlineNodeGuid));
-            Result->SetArrayField(TEXT("opResults"), TArray<TSharedPtr<FJsonValue>>{});
-            return Result;
+            Diagnostic->SetStringField(TEXT("op"), Op);
         }
+        Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
+        Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
+        return Result;
+    };
+
+    for (int32 Index = 0; Index < Ops->Num(); ++Index)
+    {
+        const TSharedPtr<FJsonObject>* OpObj = nullptr;
+        if (!(*Ops)[Index].IsValid() || !(*Ops)[Index]->TryGetObject(OpObj) || OpObj == nullptr || !(*OpObj).IsValid())
+        {
+            return MakeBatchPreflightError(Index, TEXT(""), TEXT("INVALID_ARGUMENT"), TEXT("blueprint.graph.edit op entry must be an object."));
+        }
+
+        FString Op;
+        (*OpObj)->TryGetStringField(TEXT("op"), Op);
+        Op = Op.ToLower();
+        if (Op.IsEmpty())
+        {
+            return MakeBatchPreflightError(Index, Op, TEXT("INVALID_ARGUMENT"), TEXT("blueprint.graph.edit op entry requires op."));
+        }
+        if (Op.Equals(TEXT("runscript")))
+        {
+            return MakeBatchPreflightError(Index, Op, TEXT("UNSUPPORTED_OP"), TEXT("blueprint.graph.edit does not support runScript."));
+        }
+        if (!IsSupportedBlueprintGraphEditOp(Op))
+        {
+            return MakeBatchPreflightError(Index, Op, TEXT("UNSUPPORTED_OP"), FString::Printf(TEXT("blueprint.graph.edit does not support op: %s"), *Op));
+        }
+    }
+
+    FString PreviousRevision;
+    FString PreviousRevisionCode;
+    FString PreviousRevisionMessage;
+    if (!ResolveRevision(GraphName, InlineNodeGuid, PreviousRevision, PreviousRevisionCode, PreviousRevisionMessage))
+    {
+        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+        Result->SetBoolField(TEXT("isError"), true);
+        Result->SetStringField(TEXT("code"), PreviousRevisionCode);
+        Result->SetStringField(TEXT("message"), PreviousRevisionMessage);
+        return Result;
+    }
+
+    FString ExpectedRevision;
+    if (Arguments->TryGetStringField(TEXT("expectedRevision"), ExpectedRevision) && !ExpectedRevision.IsEmpty() && !ExpectedRevision.Equals(PreviousRevision, ESearchCase::CaseSensitive))
+    {
+        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+        LoomleMutation::SetMutationEnvelope(Result, TEXT("blueprint.graph.edit"), AssetPath, TEXT("blueprint.graph.edit"), bDryRun, false, false);
+        LoomleMutation::SetRevisionConflict(Result, ExpectedRevision, PreviousRevision);
+        Result->SetBoolField(TEXT("partialApplied"), false);
+        Result->SetStringField(TEXT("graphType"), TEXT("blueprint"));
+        Result->SetStringField(TEXT("graphName"), GraphName);
+        Result->SetObjectField(TEXT("graphRef"), MakeBlueprintEffectiveGraphRef(AssetPath, GraphName, InlineNodeGuid));
+        Result->SetArrayField(TEXT("opResults"), TArray<TSharedPtr<FJsonValue>>{});
+        return Result;
     }
 
     FString IdempotencyKey;
@@ -4092,104 +4266,15 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
         }
     }
 
-    auto BuildRevisionQueryArgs = [&](const FString& EffectiveGraphName, const FString& EffectiveInlineNodeGuid) -> TSharedPtr<FJsonObject>
-    {
-        TSharedPtr<FJsonObject> QueryArgs = MakeShared<FJsonObject>();
-        if (!EffectiveInlineNodeGuid.IsEmpty())
-        {
-            QueryArgs->SetObjectField(TEXT("graphRef"), MakeBlueprintInlineGraphRef(EffectiveInlineNodeGuid, AssetPath));
-        }
-        else
-        {
-            QueryArgs->SetStringField(TEXT("assetPath"), AssetPath);
-            QueryArgs->SetStringField(TEXT("graphName"), EffectiveGraphName);
-        }
-        return QueryArgs;
-    };
-
-    auto ResolveRevision = [&](const FString& EffectiveGraphName, const FString& EffectiveInlineNodeGuid, FString& OutRevision, FString& OutCode, FString& OutMessage) -> bool
-    {
-        OutRevision.Empty();
-        OutCode.Empty();
-        OutMessage.Empty();
-
-        const TSharedPtr<FJsonObject> RevisionResult = BuildBlueprintGraphInspectToolResult(BuildRevisionQueryArgs(EffectiveGraphName, EffectiveInlineNodeGuid));
-        if (!RevisionResult.IsValid())
-        {
-            OutCode = TEXT("INTERNAL_ERROR");
-            OutMessage = TEXT("Failed to resolve current blueprint revision.");
-            return false;
-        }
-
-        bool bRevisionError = false;
-        RevisionResult->TryGetBoolField(TEXT("isError"), bRevisionError);
-        if (bRevisionError)
-        {
-            RevisionResult->TryGetStringField(TEXT("code"), OutCode);
-            RevisionResult->TryGetStringField(TEXT("message"), OutMessage);
-            if (OutCode.IsEmpty())
-            {
-                OutCode = TEXT("INTERNAL_ERROR");
-            }
-            if (OutMessage.IsEmpty())
-            {
-                OutMessage = TEXT("Failed to resolve current blueprint revision.");
-            }
-            return false;
-        }
-
-        if (!RevisionResult->TryGetStringField(TEXT("revision"), OutRevision) || OutRevision.IsEmpty())
-        {
-            OutCode = TEXT("INTERNAL_ERROR");
-            OutMessage = TEXT("blueprint.graph.inspect did not return a revision for blueprint.graph.edit.");
-            return false;
-        }
-
-        return true;
-    };
-
-    FString PreviousRevision;
-    FString PreviousRevisionCode;
-    FString PreviousRevisionMessage;
-    if (!ResolveRevision(GraphName, InlineNodeGuid, PreviousRevision, PreviousRevisionCode, PreviousRevisionMessage))
-    {
-        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-        Result->SetBoolField(TEXT("isError"), true);
-        Result->SetStringField(TEXT("code"), PreviousRevisionCode);
-        Result->SetStringField(TEXT("message"), PreviousRevisionMessage);
-        return Result;
-    }
-
-    bool bStopOnError = true;
-    bool bContinueOnError = false;
-    Arguments->TryGetBoolField(TEXT("continueOnError"), bContinueOnError);
-    if (bContinueOnError)
-    {
-        bStopOnError = false;
-    }
-
-    int32 MaxOps = 200;
-    if (const TSharedPtr<FJsonObject>* ExecutionPolicy = nullptr;
-        Arguments->TryGetObjectField(TEXT("executionPolicy"), ExecutionPolicy) && ExecutionPolicy && (*ExecutionPolicy).IsValid())
-    {
-        bool StopOnErrorValue = true;
-        if ((*ExecutionPolicy)->TryGetBoolField(TEXT("stopOnError"), StopOnErrorValue))
-        {
-            bStopOnError = StopOnErrorValue;
-        }
-        double MaxOpsNumber = 0.0;
-        if ((*ExecutionPolicy)->TryGetNumberField(TEXT("maxOps"), MaxOpsNumber))
-        {
-            MaxOps = FMath::Clamp(static_cast<int32>(MaxOpsNumber), 1, 200);
-        }
-    }
+    constexpr int32 MaxOps = 200;
+    constexpr bool bStopOnError = true;
 
     if (Ops->Num() > MaxOps)
     {
         TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("LIMIT_EXCEEDED"));
-        Result->SetStringField(TEXT("message"), FString::Printf(TEXT("arguments.ops exceeds executionPolicy.maxOps (%d)."), MaxOps));
+        Result->SetStringField(TEXT("message"), FString::Printf(TEXT("arguments.ops exceeds blueprint.graph.edit max ops (%d)."), MaxOps));
         return Result;
     }
 
@@ -4733,135 +4818,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
             return true;
         };
 
-        auto BuildDirectSingleResult = [&](bool bOk, bool bChanged, const FString& ErrorCode, const FString& ErrorMessage, const FString& NodeId = TEXT("")) -> TSharedPtr<FJsonObject>
-        {
-            TSharedPtr<FJsonObject> StructuredError;
-            FString StructuredCode;
-            FString StructuredMessage;
-            if (!bOk && !ErrorMessage.IsEmpty())
-            {
-                const TSharedRef<TJsonReader<>> ErrorReader = TJsonReaderFactory<>::Create(ErrorMessage);
-                if (FJsonSerializer::Deserialize(ErrorReader, StructuredError) && StructuredError.IsValid())
-                {
-                    StructuredError->TryGetStringField(TEXT("code"), StructuredCode);
-                    StructuredError->TryGetStringField(TEXT("message"), StructuredMessage);
-                }
-            }
-            const FString ActualErrorCode = bOk
-                ? TEXT("")
-                : (!ErrorCode.IsEmpty()
-                    ? ErrorCode
-                    : (!StructuredCode.IsEmpty() ? StructuredCode : TEXT("INTERNAL_ERROR")));
-            const FString ActualErrorMessage = bOk
-                ? TEXT("")
-                : (!StructuredMessage.IsEmpty()
-                    ? StructuredMessage
-                    : (ErrorMessage.IsEmpty() ? TEXT("blueprint.graph.edit failed") : ErrorMessage));
-
-            TSharedPtr<FJsonObject> DirectResult = MakeShared<FJsonObject>();
-            DirectResult->SetBoolField(TEXT("isError"), !bOk);
-            if (!bOk)
-            {
-                DirectResult->SetStringField(TEXT("code"), ActualErrorCode);
-                DirectResult->SetStringField(TEXT("message"), ActualErrorMessage);
-                if (StructuredError.IsValid())
-                {
-                    DirectResult->SetObjectField(TEXT("details"), StructuredError);
-                }
-            }
-
-            TArray<TSharedPtr<FJsonValue>> DirectOpResults;
-            TSharedPtr<FJsonObject> DirectOpResult = LoomleMutation::MakeOpResult(
-                0,
-                OpName,
-                bOk,
-                bChanged,
-                ActualErrorCode,
-                ActualErrorMessage,
-                NodeId,
-                StructuredError);
-            DirectOpResults.Add(MakeShared<FJsonValueObject>(DirectOpResult));
-            DirectResult->SetArrayField(TEXT("opResults"), DirectOpResults);
-
-            TArray<TSharedPtr<FJsonValue>> DirectDiagnostics;
-            if (!bOk)
-            {
-                TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
-                Diagnostic->SetStringField(TEXT("code"), ActualErrorCode);
-                Diagnostic->SetStringField(TEXT("severity"), TEXT("error"));
-                Diagnostic->SetStringField(TEXT("message"), ActualErrorMessage);
-                Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("graph.edit"));
-                Diagnostic->SetStringField(TEXT("op"), OpName);
-                if (StructuredError.IsValid())
-                {
-                    Diagnostic->SetObjectField(TEXT("details"), StructuredError);
-                }
-                if (!NodeId.IsEmpty())
-                {
-                    Diagnostic->SetStringField(TEXT("nodeId"), NodeId);
-                }
-                DirectDiagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
-            }
-            DirectResult->SetArrayField(TEXT("diagnostics"), DirectDiagnostics);
-            return DirectResult;
-        };
-
-        auto MakeGraphDiff = []() -> TSharedPtr<FJsonObject>
-        {
-            TSharedPtr<FJsonObject> Diff = MakeShared<FJsonObject>();
-            Diff->SetArrayField(TEXT("nodesAdded"), {});
-            Diff->SetArrayField(TEXT("nodesRemoved"), {});
-            Diff->SetArrayField(TEXT("nodesMoved"), {});
-            Diff->SetArrayField(TEXT("pinDefaultsChanged"), {});
-            Diff->SetArrayField(TEXT("linksAdded"), {});
-            Diff->SetArrayField(TEXT("linksRemoved"), {});
-            Diff->SetArrayField(TEXT("eventReplicationChanged"), {});
-            return Diff;
-        };
-
-        auto AppendDiffObject = [](const TSharedPtr<FJsonObject>& Diff, const TCHAR* FieldName, const TSharedPtr<FJsonObject>& Entry)
-        {
-            if (!Diff.IsValid() || !Entry.IsValid())
-            {
-                return;
-            }
-            TArray<TSharedPtr<FJsonValue>> Values = CloneBlueprintJsonArrayField(Diff, FieldName);
-            Values.Add(MakeShared<FJsonValueObject>(Entry));
-            Diff->SetArrayField(FieldName, Values);
-        };
-
-        auto MakeNodeDiffEntry = [](const FString& NodeId, const FString& NodeClassPath = TEXT(""), const FString& Title = TEXT("")) -> TSharedPtr<FJsonObject>
-        {
-            TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
-            Entry->SetStringField(TEXT("nodeId"), NodeId);
-            if (!NodeClassPath.IsEmpty())
-            {
-                Entry->SetStringField(TEXT("nodeClassPath"), NodeClassPath);
-            }
-            if (!Title.IsEmpty())
-            {
-                Entry->SetStringField(TEXT("title"), Title);
-            }
-            return Entry;
-        };
-
-        auto AttachDiffToSingleResult = [](const TSharedPtr<FJsonObject>& Result, const TSharedPtr<FJsonObject>& Diff)
-        {
-            if (!Result.IsValid() || !Diff.IsValid())
-            {
-                return;
-            }
-            const TArray<TSharedPtr<FJsonValue>>* OpResultsArray = nullptr;
-            if (Result->TryGetArrayField(TEXT("opResults"), OpResultsArray) && OpResultsArray != nullptr && OpResultsArray->Num() > 0)
-            {
-                const TSharedPtr<FJsonObject>* OpResultObject = nullptr;
-                if ((*OpResultsArray)[0].IsValid() && (*OpResultsArray)[0]->TryGetObject(OpResultObject) && OpResultObject != nullptr && (*OpResultObject).IsValid())
-                {
-                    (*OpResultObject)->SetObjectField(TEXT("diff"), Diff);
-                }
-            }
-        };
-
         auto MakePinDefaultSummary = [&](const FString& NodeId, const FString& PinName) -> TSharedPtr<FJsonObject>
         {
             TSharedPtr<FJsonObject> Summary = MakeShared<FJsonObject>();
@@ -4890,9 +4846,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
             {
                 return;
             }
-            TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
-            AppendDiffObject(Diff, TEXT("nodesAdded"), MakeNodeDiffEntry(NodeId, NodeClassPath));
-            AttachDiffToSingleResult(Result, Diff);
+            TSharedPtr<FJsonObject> Diff = MakeBlueprintGraphDiff();
+            AppendBlueprintGraphDiffObject(Diff, TEXT("nodesAdded"), MakeBlueprintGraphNodeDiffEntry(NodeId, NodeClassPath));
+            AttachBlueprintGraphDiffToSingleResult(Result, Diff);
         };
 
         auto ErrorCodeFromPrefixedMessage = [](const FString& ErrorMessage) -> FString
@@ -4982,7 +4938,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
         TSharedPtr<FJsonObject> SingleResult;
         if (!ClientRef.IsEmpty() && NodeRefs.Contains(ClientRef))
         {
-            SingleResult = BuildDirectSingleResult(
+            SingleResult = MakeBlueprintGraphEditSingleResult(OpName,
                 false,
                 false,
                 TEXT("INVALID_ARGUMENT"),
@@ -5016,7 +4972,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
 
             if (EntryId.IsEmpty())
             {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("addFromPalette requires entry.id."));
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("INVALID_ARGUMENT"), TEXT("addFromPalette requires entry.id."));
             }
             else
             {
@@ -5037,13 +4993,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                     Error,
                     bDryRun,
                     PaletteRequestCache.CacheId);
-                SingleResult = BuildDirectSingleResult(bOk, bOk && !bDryRun, TEXT(""), Error, NewNodeId);
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, bOk, bOk && !bDryRun, TEXT(""), Error, NewNodeId);
                 if (bOk)
                 {
                     if (bDryRun)
                     {
-                        TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
-                        AttachDiffToSingleResult(SingleResult, Diff);
+                        TSharedPtr<FJsonObject> Diff = MakeBlueprintGraphDiff();
+                        AttachBlueprintGraphDiffToSingleResult(SingleResult, Diff);
                     }
                     else
                     {
@@ -5056,7 +5012,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
         {
             if (bDryRun)
             {
-                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""));
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, true, false, TEXT(""), TEXT(""));
             }
             else
             {
@@ -5079,7 +5035,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                     Height,
                     NewNodeId,
                     Error);
-                SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, bOk, bOk, TEXT(""), Error, NewNodeId);
                 if (bOk)
                 {
                     AttachNodeAddedDiff(SingleResult, NewNodeId, TEXT("/Script/UnrealEd.EdGraphNode_Comment"));
@@ -5090,7 +5046,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
         {
             if (bDryRun)
             {
-                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""));
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, true, false, TEXT(""), TEXT(""));
             }
             else
             {
@@ -5100,7 +5056,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                 FString NewNodeId;
                 FString Error;
                 const bool bOk = FLoomleBlueprintAdapter::AddKnotNode(AssetPath, EffectiveGraphName, X, Y, NewNodeId, Error);
-                SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, NewNodeId);
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, bOk, bOk, TEXT(""), Error, NewNodeId);
                 if (bOk)
                 {
                     AttachNodeAddedDiff(SingleResult, NewNodeId, TEXT("/Script/BlueprintGraph.K2Node_Knot"));
@@ -5112,11 +5068,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
             FString SourceNodeId;
             if (!ResolveSingleNodeToken(SingleArgsObject, SourceNodeId))
             {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("TARGET_NOT_FOUND"), TEXT("duplicateNode requires a target node reference."));
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("TARGET_NOT_FOUND"), TEXT("duplicateNode requires a target node reference."));
             }
             else if (bDryRun)
             {
-                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""));
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, true, false, TEXT(""), TEXT(""));
             }
             else
             {
@@ -5125,7 +5081,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                 FString NewNodeId;
                 FString Error;
                 const bool bOk = FLoomleBlueprintAdapter::DuplicateNode(AssetPath, EffectiveGraphName, SourceNodeId, Dx, Dy, NewNodeId, Error);
-                SingleResult = BuildDirectSingleResult(bOk, bOk && !bDryRun, TEXT(""), Error, NewNodeId);
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, bOk, bOk && !bDryRun, TEXT(""), Error, NewNodeId);
                 if (bOk)
                 {
                     AttachNodeAddedDiff(SingleResult, NewNodeId, TEXT(""));
@@ -5141,7 +5097,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
             if (!ResolvePinEndpoint(SingleArgsObject, TEXT("from"), FromNodeId, FromPinName)
                 || !ResolvePinEndpoint(SingleArgsObject, TEXT("to"), ToNodeId, ToPinName))
             {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), OpName.Equals(TEXT("connectpins"))
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("INVALID_ARGUMENT"), OpName.Equals(TEXT("connectpins"))
                     ? TEXT("connectPins requires from/to node references with pins.")
                     : TEXT("disconnectPins requires from/to node references with pins."));
             }
@@ -5248,17 +5204,17 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                 const FString ErrorCode = ErrorCodeFromPrefixedMessage(Error);
                 const bool bLinkChange = bOk && !bLinkNoOp && !ErrorCode.Equals(TEXT("LINK_NOT_FOUND"));
                 const bool bChanged = bLinkChange && !bDryRun;
-                SingleResult = BuildDirectSingleResult(bOk, bChanged, ErrorCode, Error);
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, bOk, bChanged, ErrorCode, Error);
                 if (bLinkChange)
                 {
-                    TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
+                    TSharedPtr<FJsonObject> Diff = MakeBlueprintGraphDiff();
                     TSharedPtr<FJsonObject> LinkEntry = MakeShared<FJsonObject>();
                     LinkEntry->SetStringField(TEXT("fromNodeId"), FromNodeId);
                     LinkEntry->SetStringField(TEXT("fromPin"), FromPinName);
                     LinkEntry->SetStringField(TEXT("toNodeId"), ToNodeId);
                     LinkEntry->SetStringField(TEXT("toPin"), ToPinName);
-                    AppendDiffObject(Diff, OpName.Equals(TEXT("connectpins")) ? TEXT("linksAdded") : TEXT("linksRemoved"), LinkEntry);
-                    AttachDiffToSingleResult(SingleResult, Diff);
+                    AppendBlueprintGraphDiffObject(Diff, OpName.Equals(TEXT("connectpins")) ? TEXT("linksAdded") : TEXT("linksRemoved"), LinkEntry);
+                    AttachBlueprintGraphDiffToSingleResult(SingleResult, Diff);
                 }
             }
         }
@@ -5268,7 +5224,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
             FString TargetPinName;
             if (!ResolvePinEndpoint(SingleArgsObject, TEXT("target"), TargetNodeId, TargetPinName))
             {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("breakPinLinks requires a target node reference with pin."));
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("INVALID_ARGUMENT"), TEXT("breakPinLinks requires a target node reference with pin."));
             }
             else if (bDryRun)
             {
@@ -5276,14 +5232,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                 FBlueprintGraphEditResolvedGraph Resolved;
                 if (!ResolveCachedGraph(EffectiveGraphName, Resolved, Error))
                 {
-                    SingleResult = BuildDirectSingleResult(false, false, TEXT("GRAPH_NOT_FOUND"), Error, TargetNodeId);
+                    SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("GRAPH_NOT_FOUND"), Error, TargetNodeId);
                 }
                 else if (UEdGraphNode* TargetNode = ResolveBlueprintGraphNodeByToken(Resolved.Graph, TargetNodeId))
                 {
                     if (UEdGraphPin* TargetPin = FindPinByName(TargetNode, TargetPinName))
                     {
-                        SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""), TargetNodeId);
-                        TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
+                        SingleResult = MakeBlueprintGraphEditSingleResult(OpName, true, false, TEXT(""), TEXT(""), TargetNodeId);
+                        TSharedPtr<FJsonObject> Diff = MakeBlueprintGraphDiff();
                         for (UEdGraphPin* LinkedPin : TargetPin->LinkedTo)
                         {
                             if (LinkedPin == nullptr || LinkedPin->GetOwningNode() == nullptr)
@@ -5306,25 +5262,25 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                                 LinkEntry->SetStringField(TEXT("toNodeId"), TargetNodeId);
                                 LinkEntry->SetStringField(TEXT("toPin"), TargetPinName);
                             }
-                            AppendDiffObject(Diff, TEXT("linksRemoved"), LinkEntry);
+                            AppendBlueprintGraphDiffObject(Diff, TEXT("linksRemoved"), LinkEntry);
                         }
-                        AttachDiffToSingleResult(SingleResult, Diff);
+                        AttachBlueprintGraphDiffToSingleResult(SingleResult, Diff);
                     }
                     else
                     {
-                        SingleResult = BuildDirectSingleResult(false, false, TEXT("PIN_REF_NOT_FOUND"), FString::Printf(TEXT("PIN_REF_NOT_FOUND: target pin was not found on node %s: %s"), *TargetNodeId, *TargetPinName), TargetNodeId);
+                        SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("PIN_REF_NOT_FOUND"), FString::Printf(TEXT("PIN_REF_NOT_FOUND: target pin was not found on node %s: %s"), *TargetNodeId, *TargetPinName), TargetNodeId);
                     }
                 }
                 else
                 {
-                    SingleResult = BuildDirectSingleResult(false, false, TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("NODE_REF_NOT_FOUND: target node was not found in graph: %s"), *TargetNodeId), TargetNodeId);
+                    SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("NODE_REF_NOT_FOUND: target node was not found in graph: %s"), *TargetNodeId), TargetNodeId);
                 }
             }
             else
             {
                 FString Error;
                 const bool bOk = FLoomleBlueprintAdapter::BreakPinLinks(AssetPath, EffectiveGraphName, TargetNodeId, TargetPinName, Error);
-                SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, TargetNodeId);
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, bOk, bOk, TEXT(""), Error, TargetNodeId);
                 if (!bOk)
                 {
                     FString DetailsJson;
@@ -5354,7 +5310,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
             FString TargetNodeId;
             if (!ResolveSingleNodeToken(SingleArgsObject, TargetNodeId))
             {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("TARGET_NOT_FOUND"), TEXT("reconstructNode requires a target node reference."));
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("TARGET_NOT_FOUND"), TEXT("reconstructNode requires a target node reference."));
             }
             else if (bDryRun)
             {
@@ -5362,20 +5318,20 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                 FBlueprintGraphEditResolvedGraph Resolved;
                 if (!ResolveCachedGraph(EffectiveGraphName, Resolved, Error))
                 {
-                    SingleResult = BuildDirectSingleResult(false, false, TEXT("GRAPH_NOT_FOUND"), Error, TargetNodeId);
+                    SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("GRAPH_NOT_FOUND"), Error, TargetNodeId);
                 }
                 else if (UEdGraphNode* TargetNode = ResolveBlueprintGraphNodeByToken(Resolved.Graph, TargetNodeId))
                 {
-                    SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""), TargetNodeId);
-                    TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
+                    SingleResult = MakeBlueprintGraphEditSingleResult(OpName, true, false, TEXT(""), TEXT(""), TargetNodeId);
+                    TSharedPtr<FJsonObject> Diff = MakeBlueprintGraphDiff();
                     const FString RemovedNodeClassPath = TargetNode->GetClass() ? TargetNode->GetClass()->GetPathName() : TEXT("");
                     const FString RemovedNodeTitle = TargetNode->GetNodeTitle(ENodeTitleType::ListView).ToString();
-                    AppendDiffObject(Diff, TEXT("nodesRemoved"), MakeNodeDiffEntry(TargetNodeId, RemovedNodeClassPath, RemovedNodeTitle));
-                    AttachDiffToSingleResult(SingleResult, Diff);
+                    AppendBlueprintGraphDiffObject(Diff, TEXT("nodesRemoved"), MakeBlueprintGraphNodeDiffEntry(TargetNodeId, RemovedNodeClassPath, RemovedNodeTitle));
+                    AttachBlueprintGraphDiffToSingleResult(SingleResult, Diff);
                 }
                 else
                 {
-                    SingleResult = BuildDirectSingleResult(false, false, TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("NODE_REF_NOT_FOUND: target node was not found in graph: %s"), *TargetNodeId), TargetNodeId);
+                    SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("NODE_REF_NOT_FOUND: target node was not found in graph: %s"), *TargetNodeId), TargetNodeId);
                 }
             }
             else
@@ -5388,11 +5344,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                 UEdGraphNode* TargetNode = ResolveBlueprintGraphNodeByToken(TargetGraph, TargetNodeId);
                 if (Blueprint == nullptr || TargetGraph == nullptr)
                 {
-                    SingleResult = BuildDirectSingleResult(false, false, TEXT("GRAPH_NOT_FOUND"), TEXT("Failed to resolve target graph."), TargetNodeId);
+                    SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("GRAPH_NOT_FOUND"), TEXT("Failed to resolve target graph."), TargetNodeId);
                 }
                 else if (TargetNode == nullptr)
                 {
-                    SingleResult = BuildDirectSingleResult(false, false, TEXT("TARGET_NOT_FOUND"), TEXT("Failed to resolve reconstructNode target."), TargetNodeId);
+                    SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("TARGET_NOT_FOUND"), TEXT("Failed to resolve reconstructNode target."), TargetNodeId);
                 }
                 else
                 {
@@ -5514,7 +5470,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                     FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
                     Blueprint->MarkPackageDirty();
 
-                    SingleResult = BuildDirectSingleResult(true, true, TEXT(""), TEXT(""), TargetNodeId);
+                    SingleResult = MakeBlueprintGraphEditSingleResult(OpName, true, true, TEXT(""), TEXT(""), TargetNodeId);
                     const TArray<TSharedPtr<FJsonValue>>* OpResultsArray = nullptr;
                     if (SingleResult->TryGetArrayField(TEXT("opResults"), OpResultsArray) && OpResultsArray != nullptr && OpResultsArray->Num() > 0)
                     {
@@ -5530,308 +5486,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                 }
             }
         }
-        else if (OpName.Equals(TEXT("rebindmatchingpins")))
-        {
-            FString FromNodeId;
-            FString ToNodeId;
-            const TSharedPtr<FJsonObject>* FromNodeObj = nullptr;
-            const TSharedPtr<FJsonObject>* ToNodeObj = nullptr;
-            const bool bHasFrom = SingleArgsObject->TryGetObjectField(TEXT("fromNode"), FromNodeObj) && FromNodeObj != nullptr && (*FromNodeObj).IsValid();
-            const bool bHasTo = SingleArgsObject->TryGetObjectField(TEXT("toNode"), ToNodeObj) && ToNodeObj != nullptr && (*ToNodeObj).IsValid();
-            if (!bHasFrom || !bHasTo || !ResolveSingleNodeToken(*FromNodeObj, FromNodeId) || !ResolveSingleNodeToken(*ToNodeObj, ToNodeId))
-            {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("rebindMatchingPins requires fromNode and toNode references."));
-            }
-            else if (bDryRun)
-            {
-                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""), ToNodeId);
-            }
-            else
-            {
-                UBlueprint* Blueprint = LoadBlueprintByAssetPath(AssetPath);
-                UEdGraph* TargetGraph = ResolveBlueprintGraph(Blueprint, EffectiveGraphName);
-                UEdGraphNode* FromNode = ResolveBlueprintGraphNodeByToken(TargetGraph, FromNodeId);
-                UEdGraphNode* ToNode = ResolveBlueprintGraphNodeByToken(TargetGraph, ToNodeId);
-                const UEdGraphSchema* Schema = TargetGraph != nullptr ? TargetGraph->GetSchema() : nullptr;
-                if (Blueprint == nullptr || TargetGraph == nullptr || Schema == nullptr)
-                {
-                    SingleResult = BuildDirectSingleResult(false, false, TEXT("GRAPH_NOT_FOUND"), TEXT("Failed to resolve target graph."), ToNodeId);
-                }
-                else if (FromNode == nullptr || ToNode == nullptr)
-                {
-                    SingleResult = BuildDirectSingleResult(false, false, TEXT("TARGET_NOT_FOUND"), TEXT("Failed to resolve rebindMatchingPins nodes."), ToNodeId);
-                }
-                else
-                {
-                    int32 LinksRebound = 0;
-                    TArray<TSharedPtr<FJsonValue>> PinsMatched;
-                    TArray<TSharedPtr<FJsonValue>> PinsUnmatched;
-                    TArray<TSharedPtr<FJsonValue>> LinksDropped;
-                    TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
-
-                    Blueprint->Modify();
-                    TargetGraph->Modify();
-                    FromNode->Modify();
-                    ToNode->Modify();
-
-                    for (UEdGraphPin* FromPin : FromNode->Pins)
-                    {
-                        if (FromPin == nullptr || FromPin->LinkedTo.Num() == 0)
-                        {
-                            continue;
-                        }
-                        UEdGraphPin* ToPin = FindPinByName(ToNode, FromPin->PinName.ToString());
-                        if (ToPin == nullptr || ToPin->Direction != FromPin->Direction)
-                        {
-                            PinsUnmatched.Add(MakeShared<FJsonValueString>(FromPin->PinName.ToString()));
-                            for (UEdGraphPin* LinkedPin : FromPin->LinkedTo)
-                            {
-                                TSharedPtr<FJsonObject> Drop = MakeShared<FJsonObject>();
-                                Drop->SetStringField(TEXT("pin"), FromPin->PinName.ToString());
-                                Drop->SetStringField(TEXT("reason"), ToPin == nullptr ? TEXT("targetPinMissing") : TEXT("directionMismatch"));
-                                if (LinkedPin != nullptr && LinkedPin->GetOwningNode() != nullptr)
-                                {
-                                    Drop->SetStringField(TEXT("linkedNodeId"), LinkedPin->GetOwningNode()->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
-                                    Drop->SetStringField(TEXT("linkedPin"), LinkedPin->PinName.ToString());
-                                }
-                                LinksDropped.Add(MakeShared<FJsonValueObject>(Drop));
-                            }
-                            continue;
-                        }
-
-                        PinsMatched.Add(MakeShared<FJsonValueString>(FromPin->PinName.ToString()));
-                        TArray<UEdGraphPin*> LinkedPins = FromPin->LinkedTo;
-                        for (UEdGraphPin* LinkedPin : LinkedPins)
-                        {
-                            if (LinkedPin == nullptr)
-                            {
-                                continue;
-                            }
-
-                            UEdGraphPin* OutputPin = ToPin->Direction == EGPD_Output ? ToPin : LinkedPin;
-                            UEdGraphPin* InputPin = ToPin->Direction == EGPD_Input ? ToPin : LinkedPin;
-                            FString DropReason;
-                            if (OutputPin == nullptr || InputPin == nullptr || OutputPin->Direction != EGPD_Output || InputPin->Direction != EGPD_Input)
-                            {
-                                DropReason = TEXT("directionMismatch");
-                            }
-                            else
-                            {
-                                const FPinConnectionResponse Response = Schema->CanCreateConnection(OutputPin, InputPin);
-                                if (Response.Response == CONNECT_RESPONSE_MAKE || Response.Response == CONNECT_RESPONSE_BREAK_OTHERS_A || Response.Response == CONNECT_RESPONSE_BREAK_OTHERS_B || Response.Response == CONNECT_RESPONSE_BREAK_OTHERS_AB)
-                                {
-                                    if (Schema->TryCreateConnection(OutputPin, InputPin))
-                                    {
-                                        if (FromPin->LinkedTo.Contains(LinkedPin) || LinkedPin->LinkedTo.Contains(FromPin))
-                                        {
-                                            FromPin->BreakLinkTo(LinkedPin);
-                                        }
-                                        ++LinksRebound;
-
-                                        TSharedPtr<FJsonObject> Removed = MakeShared<FJsonObject>();
-                                        TSharedPtr<FJsonObject> Added = MakeShared<FJsonObject>();
-                                        if (FromPin->Direction == EGPD_Output)
-                                        {
-                                            Removed->SetStringField(TEXT("fromNodeId"), FromNodeId);
-                                            Removed->SetStringField(TEXT("fromPin"), FromPin->PinName.ToString());
-                                            Removed->SetStringField(TEXT("toNodeId"), LinkedPin->GetOwningNode() ? LinkedPin->GetOwningNode()->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower) : TEXT(""));
-                                            Removed->SetStringField(TEXT("toPin"), LinkedPin->PinName.ToString());
-                                            Added->SetStringField(TEXT("fromNodeId"), ToNodeId);
-                                            Added->SetStringField(TEXT("fromPin"), ToPin->PinName.ToString());
-                                            Added->SetStringField(TEXT("toNodeId"), Removed->GetStringField(TEXT("toNodeId")));
-                                            Added->SetStringField(TEXT("toPin"), LinkedPin->PinName.ToString());
-                                        }
-                                        else
-                                        {
-                                            Removed->SetStringField(TEXT("fromNodeId"), LinkedPin->GetOwningNode() ? LinkedPin->GetOwningNode()->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower) : TEXT(""));
-                                            Removed->SetStringField(TEXT("fromPin"), LinkedPin->PinName.ToString());
-                                            Removed->SetStringField(TEXT("toNodeId"), FromNodeId);
-                                            Removed->SetStringField(TEXT("toPin"), FromPin->PinName.ToString());
-                                            Added->SetStringField(TEXT("fromNodeId"), Removed->GetStringField(TEXT("fromNodeId")));
-                                            Added->SetStringField(TEXT("fromPin"), LinkedPin->PinName.ToString());
-                                            Added->SetStringField(TEXT("toNodeId"), ToNodeId);
-                                            Added->SetStringField(TEXT("toPin"), ToPin->PinName.ToString());
-                                        }
-                                        AppendDiffObject(Diff, TEXT("linksRemoved"), Removed);
-                                        AppendDiffObject(Diff, TEXT("linksAdded"), Added);
-                                        continue;
-                                    }
-                                    DropReason = TEXT("connectionRejected");
-                                }
-                                else
-                                {
-                                    DropReason = Response.Message.ToString();
-                                }
-                            }
-
-                            TSharedPtr<FJsonObject> Drop = MakeShared<FJsonObject>();
-                            Drop->SetStringField(TEXT("pin"), FromPin->PinName.ToString());
-                            Drop->SetStringField(TEXT("reason"), DropReason);
-                            if (LinkedPin->GetOwningNode() != nullptr)
-                            {
-                                Drop->SetStringField(TEXT("linkedNodeId"), LinkedPin->GetOwningNode()->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
-                                Drop->SetStringField(TEXT("linkedPin"), LinkedPin->PinName.ToString());
-                            }
-                            LinksDropped.Add(MakeShared<FJsonValueObject>(Drop));
-                        }
-                    }
-
-                    TargetGraph->NotifyGraphChanged();
-                    FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
-                    Blueprint->MarkPackageDirty();
-
-                    SingleResult = BuildDirectSingleResult(true, LinksRebound > 0, TEXT(""), TEXT(""), ToNodeId);
-                    const TArray<TSharedPtr<FJsonValue>>* OpResultsArray = nullptr;
-                    if (SingleResult->TryGetArrayField(TEXT("opResults"), OpResultsArray) && OpResultsArray != nullptr && OpResultsArray->Num() > 0)
-                    {
-                        const TSharedPtr<FJsonObject>* OpResultObj = nullptr;
-                        if ((*OpResultsArray)[0].IsValid() && (*OpResultsArray)[0]->TryGetObject(OpResultObj) && OpResultObj != nullptr && (*OpResultObj).IsValid())
-                        {
-                            (*OpResultObj)->SetNumberField(TEXT("linksRebound"), LinksRebound);
-                            (*OpResultObj)->SetArrayField(TEXT("pinsMatched"), PinsMatched);
-                            (*OpResultObj)->SetArrayField(TEXT("pinsUnmatched"), PinsUnmatched);
-                            (*OpResultObj)->SetArrayField(TEXT("linksDropped"), LinksDropped);
-                            (*OpResultObj)->SetObjectField(TEXT("diff"), Diff);
-                        }
-                    }
-                }
-            }
-        }
-        else if (OpName.Equals(TEXT("moveinputlinks")))
-        {
-            FString FromNodeId;
-            FString FromPinName;
-            FString ToNodeId;
-            FString ToPinName;
-            if (!ResolvePinEndpoint(SingleArgsObject, TEXT("from"), FromNodeId, FromPinName)
-                || !ResolvePinEndpoint(SingleArgsObject, TEXT("to"), ToNodeId, ToPinName))
-            {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("moveInputLinks requires from/to node references with pins."));
-            }
-            else if (bDryRun)
-            {
-                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""), ToNodeId);
-            }
-            else
-            {
-                UBlueprint* Blueprint = LoadBlueprintByAssetPath(AssetPath);
-                UEdGraph* TargetGraph = ResolveBlueprintGraph(Blueprint, EffectiveGraphName);
-                UEdGraphNode* FromNode = ResolveBlueprintGraphNodeByToken(TargetGraph, FromNodeId);
-                UEdGraphNode* ToNode = ResolveBlueprintGraphNodeByToken(TargetGraph, ToNodeId);
-                const UEdGraphSchema* Schema = TargetGraph != nullptr ? TargetGraph->GetSchema() : nullptr;
-                UEdGraphPin* FromPin = FromNode != nullptr ? FindPinByName(FromNode, FromPinName) : nullptr;
-                UEdGraphPin* ToPin = ToNode != nullptr ? FindPinByName(ToNode, ToPinName) : nullptr;
-                if (Blueprint == nullptr || TargetGraph == nullptr || Schema == nullptr)
-                {
-                    SingleResult = BuildDirectSingleResult(false, false, TEXT("GRAPH_NOT_FOUND"), TEXT("Failed to resolve target graph."), ToNodeId);
-                }
-                else if (FromNode == nullptr || ToNode == nullptr)
-                {
-                    SingleResult = BuildDirectSingleResult(false, false, TEXT("TARGET_NOT_FOUND"), TEXT("Failed to resolve moveInputLinks nodes."), ToNodeId);
-                }
-                else if (FromPin == nullptr || ToPin == nullptr)
-                {
-                    SingleResult = BuildDirectSingleResult(false, false, TEXT("PIN_REF_NOT_FOUND"), TEXT("Failed to resolve moveInputLinks pins."), ToNodeId);
-                }
-                else if (FromPin->Direction != EGPD_Input || ToPin->Direction != EGPD_Input)
-                {
-                    SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("moveInputLinks requires input pins."), ToNodeId);
-                }
-                else
-                {
-                    int32 LinksMoved = 0;
-                    TArray<TSharedPtr<FJsonValue>> LinksDropped;
-                    TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
-                    TArray<UEdGraphPin*> UpstreamPins = FromPin->LinkedTo;
-
-                    Blueprint->Modify();
-                    TargetGraph->Modify();
-                    FromNode->Modify();
-                    ToNode->Modify();
-
-                    for (UEdGraphPin* UpstreamPin : UpstreamPins)
-                    {
-                        if (UpstreamPin == nullptr || UpstreamPin->GetOwningNode() == nullptr)
-                        {
-                            continue;
-                        }
-                        UpstreamPin->GetOwningNode()->Modify();
-                        FString DropReason;
-                        if (UpstreamPin->Direction != EGPD_Output)
-                        {
-                            DropReason = TEXT("upstreamPinNotOutput");
-                        }
-                        else
-                        {
-                            const FPinConnectionResponse Response = Schema->CanCreateConnection(UpstreamPin, ToPin);
-                            if (Response.Response == CONNECT_RESPONSE_MAKE || Response.Response == CONNECT_RESPONSE_BREAK_OTHERS_A || Response.Response == CONNECT_RESPONSE_BREAK_OTHERS_B || Response.Response == CONNECT_RESPONSE_BREAK_OTHERS_AB)
-                            {
-                                if (Schema->TryCreateConnection(UpstreamPin, ToPin))
-                                {
-                                    if (UpstreamPin->LinkedTo.Contains(FromPin) || FromPin->LinkedTo.Contains(UpstreamPin))
-                                    {
-                                        UpstreamPin->BreakLinkTo(FromPin);
-                                    }
-                                    ++LinksMoved;
-
-                                    const FString UpstreamNodeId = UpstreamPin->GetOwningNode()->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower);
-                                    TSharedPtr<FJsonObject> Removed = MakeShared<FJsonObject>();
-                                    Removed->SetStringField(TEXT("fromNodeId"), UpstreamNodeId);
-                                    Removed->SetStringField(TEXT("fromPin"), UpstreamPin->PinName.ToString());
-                                    Removed->SetStringField(TEXT("toNodeId"), FromNodeId);
-                                    Removed->SetStringField(TEXT("toPin"), FromPinName);
-                                    TSharedPtr<FJsonObject> Added = MakeShared<FJsonObject>();
-                                    Added->SetStringField(TEXT("fromNodeId"), UpstreamNodeId);
-                                    Added->SetStringField(TEXT("fromPin"), UpstreamPin->PinName.ToString());
-                                    Added->SetStringField(TEXT("toNodeId"), ToNodeId);
-                                    Added->SetStringField(TEXT("toPin"), ToPinName);
-                                    AppendDiffObject(Diff, TEXT("linksRemoved"), Removed);
-                                    AppendDiffObject(Diff, TEXT("linksAdded"), Added);
-                                    continue;
-                                }
-                                DropReason = TEXT("connectionRejected");
-                            }
-                            else
-                            {
-                                DropReason = Response.Message.ToString();
-                            }
-                        }
-
-                        TSharedPtr<FJsonObject> Drop = MakeShared<FJsonObject>();
-                        Drop->SetStringField(TEXT("fromNodeId"), UpstreamPin->GetOwningNode()->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
-                        Drop->SetStringField(TEXT("fromPin"), UpstreamPin->PinName.ToString());
-                        Drop->SetStringField(TEXT("toNodeId"), ToNodeId);
-                        Drop->SetStringField(TEXT("toPin"), ToPinName);
-                        Drop->SetStringField(TEXT("reason"), DropReason);
-                        LinksDropped.Add(MakeShared<FJsonValueObject>(Drop));
-                    }
-
-                    TargetGraph->NotifyGraphChanged();
-                    FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
-                    Blueprint->MarkPackageDirty();
-
-                    SingleResult = BuildDirectSingleResult(true, LinksMoved > 0, TEXT(""), TEXT(""), ToNodeId);
-                    const TArray<TSharedPtr<FJsonValue>>* OpResultsArray = nullptr;
-                    if (SingleResult->TryGetArrayField(TEXT("opResults"), OpResultsArray) && OpResultsArray != nullptr && OpResultsArray->Num() > 0)
-                    {
-                        const TSharedPtr<FJsonObject>* OpResultObj = nullptr;
-                        if ((*OpResultsArray)[0].IsValid() && (*OpResultsArray)[0]->TryGetObject(OpResultObj) && OpResultObj != nullptr && (*OpResultObj).IsValid())
-                        {
-                            (*OpResultObj)->SetNumberField(TEXT("upstreamLinksMoved"), LinksMoved);
-                            (*OpResultObj)->SetArrayField(TEXT("linksDropped"), LinksDropped);
-                            (*OpResultObj)->SetObjectField(TEXT("diff"), Diff);
-                        }
-                    }
-                }
-            }
-        }
         else if (OpName.Equals(TEXT("setpindefault")))
         {
             FString TargetNodeId;
             FString TargetPinName;
             if (!ResolvePinEndpoint(SingleArgsObject, TEXT("target"), TargetNodeId, TargetPinName))
             {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("setPinDefault requires a target node reference with pin."));
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("INVALID_ARGUMENT"), TEXT("setPinDefault requires a target node reference with pin."));
             }
             else
             {
@@ -5849,7 +5510,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                     FBlueprintGraphEditResolvedGraph Resolved;
                     if (!ResolveCachedGraph(EffectiveGraphName, Resolved, Error))
                     {
-                        SingleResult = BuildDirectSingleResult(false, false, TEXT("GRAPH_NOT_FOUND"), Error, TargetNodeId);
+                        SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("GRAPH_NOT_FOUND"), Error, TargetNodeId);
                     }
                     else if (UEdGraphNode* TargetNode = ResolveBlueprintGraphNodeByToken(Resolved.Graph, TargetNodeId))
                     {
@@ -5857,16 +5518,16 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                         {
                             if (TargetPin->LinkedTo.Num() > 0)
                             {
-                                SingleResult = BuildDirectSingleResult(false, false, TEXT("PIN_DEFAULT_REQUIRES_UNLINKED_PIN"), TEXT("PIN_DEFAULT_REQUIRES_UNLINKED_PIN: cannot set a default on a linked pin."), TargetNodeId);
+                                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("PIN_DEFAULT_REQUIRES_UNLINKED_PIN"), TEXT("PIN_DEFAULT_REQUIRES_UNLINKED_PIN: cannot set a default on a linked pin."), TargetNodeId);
                             }
                             else if (!ObjectPath.IsEmpty() && StaticLoadObject(UObject::StaticClass(), nullptr, *ObjectPath) == nullptr)
                             {
-                                SingleResult = BuildDirectSingleResult(false, false, TEXT("PIN_DEFAULT_OBJECT_NOT_FOUND"), FString::Printf(TEXT("PIN_DEFAULT_OBJECT_NOT_FOUND: object path could not be loaded: %s"), *ObjectPath), TargetNodeId);
+                                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("PIN_DEFAULT_OBJECT_NOT_FOUND"), FString::Printf(TEXT("PIN_DEFAULT_OBJECT_NOT_FOUND: object path could not be loaded: %s"), *ObjectPath), TargetNodeId);
                             }
                             else
                             {
-                                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""), TargetNodeId);
-                                TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
+                                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, true, false, TEXT(""), TEXT(""), TargetNodeId);
+                                TSharedPtr<FJsonObject> Diff = MakeBlueprintGraphDiff();
                                 TSharedPtr<FJsonObject> PinDefaultEntry = MakeShared<FJsonObject>();
                                 PinDefaultEntry->SetStringField(TEXT("nodeId"), TargetNodeId);
                                 PinDefaultEntry->SetStringField(TEXT("pin"), TargetPinName);
@@ -5876,18 +5537,18 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                                 AfterDefault->SetStringField(TEXT("object"), ObjectPath);
                                 AfterDefault->SetStringField(TEXT("text"), TextValue);
                                 PinDefaultEntry->SetObjectField(TEXT("after"), AfterDefault);
-                                AppendDiffObject(Diff, TEXT("pinDefaultsChanged"), PinDefaultEntry);
-                                AttachDiffToSingleResult(SingleResult, Diff);
+                                AppendBlueprintGraphDiffObject(Diff, TEXT("pinDefaultsChanged"), PinDefaultEntry);
+                                AttachBlueprintGraphDiffToSingleResult(SingleResult, Diff);
                             }
                         }
                         else
                         {
-                            SingleResult = BuildDirectSingleResult(false, false, TEXT("PIN_REF_NOT_FOUND"), FString::Printf(TEXT("PIN_REF_NOT_FOUND: target pin was not found on node %s: %s"), *TargetNodeId, *TargetPinName), TargetNodeId);
+                            SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("PIN_REF_NOT_FOUND"), FString::Printf(TEXT("PIN_REF_NOT_FOUND: target pin was not found on node %s: %s"), *TargetNodeId, *TargetPinName), TargetNodeId);
                         }
                     }
                     else
                     {
-                        SingleResult = BuildDirectSingleResult(false, false, TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("NODE_REF_NOT_FOUND: target node was not found in graph: %s"), *TargetNodeId), TargetNodeId);
+                        SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("NODE_REF_NOT_FOUND: target node was not found in graph: %s"), *TargetNodeId), TargetNodeId);
                     }
                 }
                 else
@@ -5897,30 +5558,30 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                     const bool bOk = FLoomleBlueprintAdapter::SetPinDefaultValue(AssetPath, EffectiveGraphName, TargetNodeId, TargetPinName, Value, ObjectPath, TextValue, Error);
                     if (!bOk && Error.StartsWith(TEXT("PIN_DEFAULT_REQUIRES_UNLINKED_PIN")))
                     {
-                        SingleResult = BuildDirectSingleResult(false, false, TEXT("PIN_DEFAULT_REQUIRES_UNLINKED_PIN"), Error, TargetNodeId);
+                        SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("PIN_DEFAULT_REQUIRES_UNLINKED_PIN"), Error, TargetNodeId);
                     }
                     else if (!bOk && Error.StartsWith(TEXT("PIN_DEFAULT_OBJECT_NOT_FOUND")))
                     {
-                        SingleResult = BuildDirectSingleResult(false, false, TEXT("PIN_DEFAULT_OBJECT_NOT_FOUND"), Error, TargetNodeId);
+                        SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("PIN_DEFAULT_OBJECT_NOT_FOUND"), Error, TargetNodeId);
                     }
                     else if (!bOk && Error.StartsWith(TEXT("PIN_DEFAULT_OBJECT_INVALID_FOR_PIN")))
                     {
-                        SingleResult = BuildDirectSingleResult(false, false, TEXT("PIN_DEFAULT_OBJECT_INVALID_FOR_PIN"), Error, TargetNodeId);
+                        SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("PIN_DEFAULT_OBJECT_INVALID_FOR_PIN"), Error, TargetNodeId);
                     }
                     else
                     {
-                        SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, TargetNodeId);
+                        SingleResult = MakeBlueprintGraphEditSingleResult(OpName, bOk, bOk, TEXT(""), Error, TargetNodeId);
                     }
                     if (bOk)
                     {
-                        TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
+                        TSharedPtr<FJsonObject> Diff = MakeBlueprintGraphDiff();
                         TSharedPtr<FJsonObject> PinDefaultEntry = MakeShared<FJsonObject>();
                         PinDefaultEntry->SetStringField(TEXT("nodeId"), TargetNodeId);
                         PinDefaultEntry->SetStringField(TEXT("pin"), TargetPinName);
                         PinDefaultEntry->SetObjectField(TEXT("before"), BeforeDefault);
                         PinDefaultEntry->SetObjectField(TEXT("after"), MakePinDefaultSummary(TargetNodeId, TargetPinName));
-                        AppendDiffObject(Diff, TEXT("pinDefaultsChanged"), PinDefaultEntry);
-                        AttachDiffToSingleResult(SingleResult, Diff);
+                        AppendBlueprintGraphDiffObject(Diff, TEXT("pinDefaultsChanged"), PinDefaultEntry);
+                        AttachBlueprintGraphDiffToSingleResult(SingleResult, Diff);
                     }
                 }
             }
@@ -5930,11 +5591,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
             FString TargetNodeId;
             if (!ResolveSingleNodeToken(SingleArgsObject, TargetNodeId))
             {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("TARGET_NOT_FOUND"), TEXT("removeNode requires a target node reference."));
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("TARGET_NOT_FOUND"), TEXT("removeNode requires a target node reference."));
             }
             else if (bDryRun)
             {
-                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""), TargetNodeId);
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, true, false, TEXT(""), TEXT(""), TargetNodeId);
             }
             else
             {
@@ -5953,12 +5614,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                 }
                 FString Error;
                 const bool bOk = FLoomleBlueprintAdapter::RemoveNode(AssetPath, EffectiveGraphName, TargetNodeId, Error);
-                SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, TargetNodeId);
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, bOk, bOk, TEXT(""), Error, TargetNodeId);
                 if (bOk)
                 {
-                    TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
-                    AppendDiffObject(Diff, TEXT("nodesRemoved"), MakeNodeDiffEntry(TargetNodeId, RemovedNodeClassPath, RemovedNodeTitle));
-                    AttachDiffToSingleResult(SingleResult, Diff);
+                    TSharedPtr<FJsonObject> Diff = MakeBlueprintGraphDiff();
+                    AppendBlueprintGraphDiffObject(Diff, TEXT("nodesRemoved"), MakeBlueprintGraphNodeDiffEntry(TargetNodeId, RemovedNodeClassPath, RemovedNodeTitle));
+                    AttachBlueprintGraphDiffToSingleResult(SingleResult, Diff);
                 }
             }
         }
@@ -5967,7 +5628,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
             FString TargetNodeId;
             if (!ResolveSingleNodeToken(SingleArgsObject, TargetNodeId))
             {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("%s requires a target node reference."), *OpName));
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("%s requires a target node reference."), *OpName));
             }
             else
             {
@@ -5980,7 +5641,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                     UEdGraphNode* TargetNode = ResolveBlueprintGraphNodeByToken(TargetGraph, TargetNodeId);
                     if (TargetNode == nullptr)
                     {
-                        SingleResult = BuildDirectSingleResult(false, false, TEXT("TARGET_NOT_FOUND"), TEXT("Failed to resolve moveNodeBy target."), TargetNodeId);
+                        SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("TARGET_NOT_FOUND"), TEXT("Failed to resolve moveNodeBy target."), TargetNodeId);
                     }
                     else
                     {
@@ -5999,12 +5660,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                         FBlueprintGraphEditResolvedGraph Resolved;
                         if (!ResolveCachedGraph(EffectiveGraphName, Resolved, Error))
                         {
-                            SingleResult = BuildDirectSingleResult(false, false, TEXT("GRAPH_NOT_FOUND"), Error, TargetNodeId);
+                            SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("GRAPH_NOT_FOUND"), Error, TargetNodeId);
                         }
                         else if (UEdGraphNode* TargetNode = ResolveBlueprintGraphNodeByToken(Resolved.Graph, TargetNodeId))
                         {
-                            SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""), TargetNodeId);
-                            TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
+                            SingleResult = MakeBlueprintGraphEditSingleResult(OpName, true, false, TEXT(""), TEXT(""), TargetNodeId);
+                            TSharedPtr<FJsonObject> Diff = MakeBlueprintGraphDiff();
                             TSharedPtr<FJsonObject> MoveEntry = MakeShared<FJsonObject>();
                             MoveEntry->SetStringField(TEXT("nodeId"), TargetNodeId);
                             TSharedPtr<FJsonObject> BeforePosition = MakeShared<FJsonObject>();
@@ -6015,12 +5676,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                             AfterPosition->SetNumberField(TEXT("y"), Y);
                             MoveEntry->SetObjectField(TEXT("before"), BeforePosition);
                             MoveEntry->SetObjectField(TEXT("after"), AfterPosition);
-                            AppendDiffObject(Diff, TEXT("nodesMoved"), MoveEntry);
-                            AttachDiffToSingleResult(SingleResult, Diff);
+                            AppendBlueprintGraphDiffObject(Diff, TEXT("nodesMoved"), MoveEntry);
+                            AttachBlueprintGraphDiffToSingleResult(SingleResult, Diff);
                         }
                         else
                         {
-                            SingleResult = BuildDirectSingleResult(false, false, TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("NODE_REF_NOT_FOUND: target node was not found in graph: %s"), *TargetNodeId), TargetNodeId);
+                            SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("NODE_REF_NOT_FOUND: target node was not found in graph: %s"), *TargetNodeId), TargetNodeId);
                         }
                     }
                     else
@@ -6040,10 +5701,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                         }
                         FString Error;
                         const bool bOk = FLoomleBlueprintAdapter::MoveNode(AssetPath, EffectiveGraphName, TargetNodeId, X, Y, Error);
-                        SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error, TargetNodeId);
+                        SingleResult = MakeBlueprintGraphEditSingleResult(OpName, bOk, bOk, TEXT(""), Error, TargetNodeId);
                         if (bOk)
                         {
-                            TSharedPtr<FJsonObject> Diff = MakeGraphDiff();
+                            TSharedPtr<FJsonObject> Diff = MakeBlueprintGraphDiff();
                             TSharedPtr<FJsonObject> MoveEntry = MakeShared<FJsonObject>();
                             MoveEntry->SetStringField(TEXT("nodeId"), TargetNodeId);
                             TSharedPtr<FJsonObject> BeforePosition = MakeShared<FJsonObject>();
@@ -6054,59 +5715,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                             AfterPosition->SetNumberField(TEXT("y"), Y);
                             MoveEntry->SetObjectField(TEXT("before"), BeforePosition);
                             MoveEntry->SetObjectField(TEXT("after"), AfterPosition);
-                            AppendDiffObject(Diff, TEXT("nodesMoved"), MoveEntry);
-                            AttachDiffToSingleResult(SingleResult, Diff);
+                            AppendBlueprintGraphDiffObject(Diff, TEXT("nodesMoved"), MoveEntry);
+                            AttachBlueprintGraphDiffToSingleResult(SingleResult, Diff);
                         }
                     }
-                }
-            }
-        }
-        else if (OpName.Equals(TEXT("movenodes")))
-        {
-            const TArray<TSharedPtr<FJsonValue>>* NodeIdsArray = nullptr;
-            if (!SingleArgsObject->TryGetArrayField(TEXT("nodeIds"), NodeIdsArray) || NodeIdsArray == nullptr || NodeIdsArray->Num() == 0)
-            {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("moveNodes requires nodeIds."));
-            }
-            else if (bDryRun)
-            {
-                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""));
-            }
-            else
-            {
-                UBlueprint* Blueprint = LoadBlueprintByAssetPath(AssetPath);
-                UEdGraph* TargetGraph = ResolveBlueprintGraph(Blueprint, EffectiveGraphName);
-                if (TargetGraph == nullptr)
-                {
-                    SingleResult = BuildDirectSingleResult(false, false, TEXT("GRAPH_NOT_FOUND"), TEXT("Failed to resolve target graph for moveNodes."));
-                }
-                else
-                {
-                    const int32 Dx = ReadIntField(SingleArgsObject, TEXT("dx"), ReadIntField(SingleArgsObject, TEXT("deltaX"), 0));
-                    const int32 Dy = ReadIntField(SingleArgsObject, TEXT("dy"), ReadIntField(SingleArgsObject, TEXT("deltaY"), 0));
-                    FString Error;
-                    bool bOk = true;
-                    for (const TSharedPtr<FJsonValue>& NodeIdValue : *NodeIdsArray)
-                    {
-                        FString NodeId;
-                        if (!NodeIdValue.IsValid() || !NodeIdValue->TryGetString(NodeId) || NodeId.IsEmpty())
-                        {
-                            continue;
-                        }
-                        UEdGraphNode* TargetNode = ResolveBlueprintGraphNodeByToken(TargetGraph, NodeId);
-                        if (TargetNode == nullptr)
-                        {
-                            bOk = false;
-                            Error = FString::Printf(TEXT("Failed to resolve moveNodes target: %s"), *NodeId);
-                            break;
-                        }
-                        if (!FLoomleBlueprintAdapter::MoveNode(AssetPath, EffectiveGraphName, NodeId, TargetNode->NodePosX + Dx, TargetNode->NodePosY + Dy, Error))
-                        {
-                            bOk = false;
-                            break;
-                        }
-                    }
-                    SingleResult = BuildDirectSingleResult(bOk, bOk, TEXT(""), Error);
                 }
             }
         }
@@ -6115,11 +5727,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
             FString TargetNodeId;
             if (!ResolveSingleNodeToken(SingleArgsObject, TargetNodeId))
             {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("TARGET_NOT_FOUND"), TEXT("setNodeComment requires a target node reference."));
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("TARGET_NOT_FOUND"), TEXT("setNodeComment requires a target node reference."));
             }
             else if (bDryRun)
             {
-                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""), TargetNodeId);
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, true, false, TEXT(""), TEXT(""), TargetNodeId);
             }
             else
             {
@@ -6131,7 +5743,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                 }
                 FString Error;
                 const bool bOk = FLoomleBlueprintAdapter::SetNodeComment(AssetPath, EffectiveGraphName, TargetNodeId, Comment, Error);
-                SingleResult = BuildDirectSingleResult(bOk, bOk && !bDryRun, TEXT(""), Error, TargetNodeId);
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, bOk, bOk && !bDryRun, TEXT(""), Error, TargetNodeId);
             }
         }
         else if (OpName.Equals(TEXT("setnodeenabled")))
@@ -6139,11 +5751,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
             FString TargetNodeId;
             if (!ResolveSingleNodeToken(SingleArgsObject, TargetNodeId))
             {
-                SingleResult = BuildDirectSingleResult(false, false, TEXT("TARGET_NOT_FOUND"), TEXT("setNodeEnabled requires a target node reference."));
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("TARGET_NOT_FOUND"), TEXT("setNodeEnabled requires a target node reference."));
             }
             else if (bDryRun)
             {
-                SingleResult = BuildDirectSingleResult(true, false, TEXT(""), TEXT(""), TargetNodeId);
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, true, false, TEXT(""), TEXT(""), TargetNodeId);
             }
             else
             {
@@ -6151,12 +5763,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                 SingleArgsObject->TryGetBoolField(TEXT("enabled"), bEnabled);
                 FString Error;
                 const bool bOk = FLoomleBlueprintAdapter::SetNodeEnabled(AssetPath, EffectiveGraphName, TargetNodeId, bEnabled, Error);
-                SingleResult = BuildDirectSingleResult(bOk, bOk && !bDryRun, TEXT(""), Error, TargetNodeId);
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, bOk, bOk && !bDryRun, TEXT(""), Error, TargetNodeId);
             }
         }
         if (!SingleResult.IsValid())
         {
-            SingleResult = BuildDirectSingleResult(
+            SingleResult = MakeBlueprintGraphEditSingleResult(OpName, 
                 false,
                 false,
                 TEXT("UNSUPPORTED_OP"),

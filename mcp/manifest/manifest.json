@@ -6602,9 +6602,6 @@
               },
               "opResults": {
                 "type": "array"
-              },
-              "commandResults": {
-                "type": "array"
               }
             },
             "required": [
