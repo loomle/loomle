@@ -158,6 +158,34 @@ class ToolManifestTests(unittest.TestCase):
         required = set(tool["inputSchema"]["required"])
         self.assertEqual(required, {"assetPath", "commands"})
 
+    def test_blueprint_graph_list_manifest_exposes_inventory_contract(self) -> None:
+        manifest = load_manifest(MANIFEST)
+        tool = next(
+            tool for tool in manifest.list_tools("python")
+            if tool["name"] == "blueprint.graph.list"
+        )
+
+        input_props = tool["inputSchema"]["properties"]
+        self.assertIn("includeCompositeSubgraphs", input_props)
+        self.assertFalse(input_props["includeCompositeSubgraphs"]["default"])
+
+        output_schema = tool["outputSchema"]
+        output_props = output_schema["properties"]
+        self.assertIn("graphs", output_props)
+        self.assertIn("diagnostics", output_props)
+        self.assertEqual(
+            output_schema["$defs"]["blueprintGraphListEntry"]["properties"]["graphKind"]["enum"],
+            ["root", "function", "macro", "delegate_signature", "subgraph"],
+        )
+        self.assertEqual(
+            output_schema["$defs"]["blueprintGraphRef"]["properties"]["kind"]["enum"],
+            ["asset", "inline"],
+        )
+        self.assertEqual(
+            output_props["code"]["enum"],
+            ["INVALID_ARGUMENT", "ASSET_NOT_FOUND", "INTERNAL_ERROR"],
+        )
+
     def test_blueprint_inspect_manifest_is_overview_entrypoint(self) -> None:
         manifest = load_manifest(MANIFEST)
         blueprint_tool = next(

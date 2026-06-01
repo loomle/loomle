@@ -8939,6 +8939,7 @@ bool FLoomleBlueprintAdapter::ListBlueprintGraphs(const FString& BlueprintAssetP
     LoomleBlueprintAdapterInternal::AppendGraphListEntries(Blueprint->UbergraphPages, TEXT("Event"), Graphs);
     LoomleBlueprintAdapterInternal::AppendGraphListEntries(Blueprint->FunctionGraphs, TEXT("Function"), Graphs);
     LoomleBlueprintAdapterInternal::AppendGraphListEntries(Blueprint->MacroGraphs, TEXT("Macro"), Graphs);
+    LoomleBlueprintAdapterInternal::AppendGraphListEntries(Blueprint->DelegateSignatureGraphs, TEXT("DelegateSignature"), Graphs);
     for (const FBPInterfaceDescription& InterfaceDesc : Blueprint->ImplementedInterfaces)
     {
         LoomleBlueprintAdapterInternal::AppendGraphListEntries(InterfaceDesc.Graphs, TEXT("Interface"), Graphs);

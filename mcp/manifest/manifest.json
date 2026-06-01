@@ -1306,6 +1306,166 @@
         ],
         "additionalProperties": false
       },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "isError": {
+            "type": "boolean"
+          },
+          "graphType": {
+            "const": "blueprint"
+          },
+          "assetPath": {
+            "type": "string"
+          },
+          "graphs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/blueprintGraphListEntry"
+            }
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/diagnostic"
+            }
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "INVALID_ARGUMENT",
+              "ASSET_NOT_FOUND",
+              "INTERNAL_ERROR"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "isError"
+        ],
+        "$defs": {
+          "blueprintGraphRef": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "asset",
+                  "inline"
+                ]
+              },
+              "assetPath": {
+                "type": "string"
+              },
+              "graphName": {
+                "type": "string"
+              },
+              "graphId": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "nodeGuid": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": true
+          },
+          "blueprintGraphListEntry": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "graphId": {
+                "type": "string"
+              },
+              "graphName": {
+                "type": "string"
+              },
+              "graphKind": {
+                "type": "string",
+                "enum": [
+                  "root",
+                  "function",
+                  "macro",
+                  "delegate_signature",
+                  "subgraph"
+                ]
+              },
+              "graphClassPath": {
+                "type": "string"
+              },
+              "graphRef": {
+                "$ref": "#/$defs/blueprintGraphRef"
+              },
+              "parentGraphName": {
+                "type": "string"
+              },
+              "parentGraphRef": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/blueprintGraphRef"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "ownerNodeId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "loadStatus": {
+                "type": "string",
+                "enum": [
+                  "loaded"
+                ]
+              }
+            },
+            "required": [
+              "graphId",
+              "graphName",
+              "graphKind",
+              "graphRef",
+              "loadStatus"
+            ],
+            "additionalProperties": true
+          },
+          "diagnostic": {
+            "type": "object",
+            "properties": {
+              "severity": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "sourceKind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "severity",
+              "code",
+              "message"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      },
       "dispatch": {
         "kind": "bridgeRpc",
         "tool": "blueprint.graph.list",

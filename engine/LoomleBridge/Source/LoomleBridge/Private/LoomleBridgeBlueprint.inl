@@ -77,9 +77,17 @@ FString NormalizeBlueprintGraphKindForDomain(FString GraphKind)
     {
         return TEXT("macro");
     }
+    if (GraphKind.Equals(TEXT("DelegateSignature"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("delegate_signature");
+    }
     if (GraphKind.Equals(TEXT("Interface"), ESearchCase::IgnoreCase))
     {
         return TEXT("function");
+    }
+    if (GraphKind.Equals(TEXT("subgraph"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("subgraph");
     }
     return GraphKind;
 }
@@ -1515,6 +1523,31 @@ TSharedPtr<FJsonObject> MakeBlueprintEffectiveGraphRef(const FString& AssetPath,
     return MakeBlueprintGraphAssetRef(AssetPath, GraphName, GraphId);
 }
 
+FString ClassifyBlueprintGraphListError(const FString& Error)
+{
+    if (Error.Contains(TEXT("Blueprint not found"), ESearchCase::IgnoreCase)
+        || Error.Contains(TEXT("asset not found"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("ASSET_NOT_FOUND");
+    }
+    if (Error.Contains(TEXT("required"), ESearchCase::IgnoreCase)
+        || Error.Contains(TEXT("invalid"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("INVALID_ARGUMENT");
+    }
+    return TEXT("INTERNAL_ERROR");
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintGraphListDiagnostic(const FString& Severity, const FString& Code, const FString& Message)
+{
+    TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
+    Diagnostic->SetStringField(TEXT("severity"), Severity);
+    Diagnostic->SetStringField(TEXT("code"), Code);
+    Diagnostic->SetStringField(TEXT("message"), Message);
+    Diagnostic->SetStringField(TEXT("sourceKind"), TEXT("blueprint.graph.list"));
+    return Diagnostic;
+}
+
 }
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphListToolResult(const TSharedPtr<FJsonObject>& Arguments) const
@@ -1541,7 +1574,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphListToolResult(c
     if (!FLoomleBlueprintAdapter::ListBlueprintGraphs(AssetPath, GraphsJson, Error))
     {
         Result->SetBoolField(TEXT("isError"), true);
-        Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+        Result->SetStringField(TEXT("code"), ClassifyBlueprintGraphListError(Error));
         Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.graph.list failed") : Error);
         return Result;
     }
@@ -1549,8 +1582,16 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphListToolResult(c
     TArray<TSharedPtr<FJsonValue>> Graphs;
     {
         const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(GraphsJson);
-        FJsonSerializer::Deserialize(Reader, Graphs);
+        if (!FJsonSerializer::Deserialize(Reader, Graphs))
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+            Result->SetStringField(TEXT("message"), TEXT("blueprint.graph.list returned malformed graph data."));
+            return Result;
+        }
     }
+
+    TArray<TSharedPtr<FJsonValue>> Diagnostics;
 
     for (TSharedPtr<FJsonValue>& GraphValue : Graphs)
     {
@@ -1620,13 +1661,27 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphListToolResult(c
                     Graphs.Add(MakeShared<FJsonValueObject>(SubEntry));
                 }
             }
+            else
+            {
+                Diagnostics.Add(MakeShared<FJsonValueObject>(MakeBlueprintGraphListDiagnostic(
+                    TEXT("warning"),
+                    TEXT("COMPOSITE_SUBGRAPHS_MALFORMED"),
+                    TEXT("Composite subgraph enumeration returned malformed graph data."))));
+            }
+        }
+        else
+        {
+            Diagnostics.Add(MakeShared<FJsonValueObject>(MakeBlueprintGraphListDiagnostic(
+                TEXT("warning"),
+                TEXT("COMPOSITE_SUBGRAPHS_UNAVAILABLE"),
+                SubgraphError.IsEmpty() ? TEXT("Composite subgraphs could not be enumerated.") : SubgraphError)));
         }
     }
 
     Result->SetStringField(TEXT("graphType"), TEXT("blueprint"));
     Result->SetStringField(TEXT("assetPath"), AssetPath);
     Result->SetArrayField(TEXT("graphs"), Graphs);
-    Result->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
+    Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
     return Result;
 }
 

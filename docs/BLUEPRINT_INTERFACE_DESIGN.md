@@ -510,6 +510,19 @@ Conceptually required graph-level operations:
 ### Notes
 
 - Graphs are child resources inside the Blueprint asset.
+- `blueprint.graph.list` inventories Blueprint-owned top-level graphs from the
+  same UE asset arrays Loomle can resolve later: event/ubergraph pages,
+  function graphs, macro graphs, delegate signature graphs, and implemented
+  interface graphs.
+- `includeCompositeSubgraphs=true` additionally reports inline collapsed
+  graphs owned by `UK2Node_Composite`-style nodes with a `BoundGraph`. These
+  entries use `graphRef.kind="inline"`, keep `ownerNodeId`, and point back to
+  their containing graph through `parentGraphRef`.
+- Top-level graph-list failures must expose actionable error codes. Missing or
+  unloadable Blueprint assets return `ASSET_NOT_FOUND`; malformed arguments
+  return `INVALID_ARGUMENT`; malformed bridge data remains `INTERNAL_ERROR`.
+  Optional composite subgraph enumeration failures do not hide top-level graph
+  results and must be returned as `diagnostics[]`.
 - `graph.inspect` is graph-level structure read, not low-level edit.
 - graph management operations are lower-frequency than graph inspection and graph mutation.
 - recipe discovery and graph generation are not part of the current public

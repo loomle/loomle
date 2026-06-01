@@ -1535,6 +1535,17 @@ def main() -> int:
             fail(f"blueprint.inspect pre-create error shape mismatch: {blueprint_desc}")
         print("[PASS] blueprint.inspect error path validated")
 
+        missing_graph_list = call_tool(
+            client,
+            31,
+            "blueprint.graph.list",
+            {"assetPath": temp_asset},
+            expect_error=True,
+        )
+        if extract_nested_error_code(missing_graph_list) != "ASSET_NOT_FOUND":
+            fail(f"blueprint.graph.list missing-asset error code mismatch: {missing_graph_list}")
+        print("[PASS] blueprint.graph.list missing-asset error path validated")
+
         create_payload = call_tool(
             client,
             4,
@@ -2624,6 +2635,16 @@ def main() -> int:
         listed_graphs = graph_list_payload.get("graphs")
         if not isinstance(listed_graphs, list):
             fail(f"blueprint.graph.list missing graphs[]: {graph_list_payload}")
+        dispatcher_graph_entry = next(
+            (
+                entry
+                for entry in listed_graphs
+                if isinstance(entry, dict) and entry.get("graphName") == "OnReadyChanged"
+            ),
+            None,
+        )
+        if not isinstance(dispatcher_graph_entry, dict) or dispatcher_graph_entry.get("graphKind") != "delegate_signature":
+            fail(f"blueprint.graph.list missing dispatcher delegate signature graph: {graph_list_payload}")
         compute_graph_payload = call_tool(
             client,
             6525,
