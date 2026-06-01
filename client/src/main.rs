@@ -1227,6 +1227,11 @@ impl LoomleProxyServer {
             "dispatchers": payload.get("dispatchers").cloned().unwrap_or(serde_json::json!([])),
             "eventSignatures": payload.get("eventSignatures").cloned().unwrap_or(serde_json::json!([])),
             "components": payload.get("components").cloned().unwrap_or(serde_json::json!([])),
+            "routes": {
+                "class": "blueprint.class.inspect",
+                "members": "blueprint.member.inspect",
+                "graphs": "blueprint.graph.list"
+            },
             "summary": {
                 "interfaceCount": interfaces,
                 "variableCount": variables,
@@ -1252,6 +1257,8 @@ impl LoomleProxyServer {
             "blueprintClass": payload.get("blueprintClass").cloned().unwrap_or(serde_json::Value::Null),
             "parentClass": payload.get("parentClass").cloned().unwrap_or(serde_json::Value::Null),
             "parentClassPath": payload.get("parentClassPath").cloned().unwrap_or(serde_json::Value::Null),
+            "class": payload.get("class").cloned().unwrap_or(serde_json::Value::Null),
+            "settings": payload.get("settings").cloned().unwrap_or(serde_json::Value::Null),
             "implementedInterfaces": payload.get("implementedInterfaces").cloned().unwrap_or(serde_json::json!([])),
             "interfaceFunctions": payload.get("interfaceFunctions").cloned().unwrap_or(serde_json::json!([])),
             "classDefaults": payload.get("classDefaults").cloned().unwrap_or(serde_json::Value::Null),
@@ -6123,8 +6130,8 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("editor.open", "Open or focus the editor for a specific Unreal asset path.", Arc::new(editor_open_schema())),
         Tool::new("editor.focus", "Focus a semantic panel inside an asset editor, such as graph, viewport, details, palette, or find.", Arc::new(editor_focus_schema())),
         Tool::new("editor.screenshot", "Capture a PNG of the active editor window and return the written file path.", Arc::new(editor_screenshot_schema())),
-        Tool::new("blueprint.inspect", "Inspect a Blueprint and its class-level contract.", Arc::new(blueprint_inspect_schema())),
-        Tool::new("blueprint.class.inspect", "Inspect Blueprint class contract such as parent class and implemented interfaces.", Arc::new(blueprint_class_inspect_schema())),
+        Tool::new("blueprint.inspect", "Inspect a Blueprint overview and route to class, member, and graph detail tools.", Arc::new(blueprint_inspect_schema())),
+        Tool::new("blueprint.class.inspect", "Inspect Blueprint class contract, settings, default overrides, metadata, and implemented interfaces.", Arc::new(blueprint_class_inspect_schema())),
         Tool::new("blueprint.class.edit", "Edit Blueprint class contract such as parent class and implemented interfaces.", Arc::new(blueprint_class_edit_schema())),
         Tool::new("blueprint.member.inspect", "Inspect Blueprint members such as variables, functions, macros, dispatchers, events, and components.", Arc::new(blueprint_member_inspect_schema())),
         Tool::new("blueprint.member.edit", "Edit Blueprint members such as variables, functions, macros, dispatchers, events, and components.", Arc::new(blueprint_member_edit_schema())),
@@ -13081,6 +13088,38 @@ mod tests {
         assert!(status_tool_output.contains_key("issues"));
         assert!(!status_tool_output.contains_key("plugin"));
         assert!(!status_tool_output.contains_key("hosts"));
+
+        let blueprint = declared_tools
+            .iter()
+            .find(|tool| tool.name.as_ref() == "blueprint.inspect")
+            .expect("blueprint.inspect");
+        let blueprint_output_properties = blueprint
+            .output_schema
+            .as_ref()
+            .and_then(|schema| schema.get("properties"))
+            .and_then(|value| value.as_object())
+            .expect("blueprint.inspect output properties");
+        assert!(blueprint_output_properties.contains_key("routes"));
+        assert!(blueprint_output_properties.contains_key("summary"));
+        assert!(blueprint_output_properties.contains_key("variables"));
+        assert!(blueprint_output_properties.contains_key("functions"));
+
+        let blueprint_class = declared_tools
+            .iter()
+            .find(|tool| tool.name.as_ref() == "blueprint.class.inspect")
+            .expect("blueprint.class.inspect");
+        let blueprint_class_output_properties = blueprint_class
+            .output_schema
+            .as_ref()
+            .and_then(|schema| schema.get("properties"))
+            .and_then(|value| value.as_object())
+            .expect("blueprint.class.inspect output properties");
+        assert!(blueprint_class_output_properties.contains_key("class"));
+        assert!(blueprint_class_output_properties.contains_key("settings"));
+        assert!(blueprint_class_output_properties.contains_key("implementedInterfaces"));
+        assert!(blueprint_class_output_properties.contains_key("interfaceFunctions"));
+        assert!(blueprint_class_output_properties.contains_key("classDefaults"));
+        assert!(blueprint_class_output_properties.contains_key("metadata"));
 
         let context = declared_tools
             .iter()

@@ -1314,7 +1314,7 @@
     {
       "name": "blueprint.inspect",
       "title": "Inspect Blueprint",
-      "description": "Inspect a Blueprint and its class-level contract.",
+      "description": "Inspect a Blueprint overview and route to class, member, and graph detail tools.",
       "availability": [
         "native",
         "python"
@@ -1333,6 +1333,168 @@
         ],
         "additionalProperties": false
       },
+      "outputSchema": {
+        "type": "object",
+        "description": "Blueprint overview. Detailed class contracts, members, graphs, and nodes live on their dedicated inspect tools.",
+        "properties": {
+          "assetPath": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "blueprintClass": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parentClass": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parentClassPath": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "implementedInterfaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "variables": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "functions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "interfaceFunctions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "macros": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "dispatchers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "eventSignatures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "routes": {
+            "type": "object",
+            "description": "Dedicated tools to use for deeper inspection after reading the overview.",
+            "properties": {
+              "class": {
+                "const": "blueprint.class.inspect"
+              },
+              "members": {
+                "const": "blueprint.member.inspect"
+              },
+              "graphs": {
+                "const": "blueprint.graph.list"
+              }
+            },
+            "required": [
+              "class",
+              "members",
+              "graphs"
+            ],
+            "additionalProperties": false
+          },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "interfaceCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "variableCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "functionCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "interfaceFunctionCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "componentCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "eventSignatureCount": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "interfaceCount",
+              "variableCount",
+              "functionCount",
+              "interfaceFunctionCount",
+              "componentCount",
+              "eventSignatureCount"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "assetPath",
+          "blueprintClass",
+          "parentClass",
+          "parentClassPath",
+          "implementedInterfaces",
+          "variables",
+          "functions",
+          "interfaceFunctions",
+          "macros",
+          "dispatchers",
+          "eventSignatures",
+          "components",
+          "routes",
+          "summary"
+        ],
+        "additionalProperties": false
+      },
       "dispatch": {
         "kind": "bridgeRpc",
         "tool": "blueprint.inspect",
@@ -1345,7 +1507,7 @@
     {
       "name": "blueprint.class.inspect",
       "title": "Inspect Blueprint Class",
-      "description": "Inspect Blueprint class contract such as parent class and implemented interfaces.",
+      "description": "Inspect Blueprint class contract, settings, default overrides, metadata, and implemented interfaces.",
       "availability": [
         "native",
         "python"
@@ -1361,6 +1523,138 @@
         },
         "required": [
           "assetPath"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Blueprint class contract summary. Member, graph, and node details live on dedicated inspect tools.",
+        "properties": {
+          "assetPath": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "blueprintClass": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parentClass": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parentClassPath": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "class": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Generated Blueprint class identity and reflected class flags.",
+            "additionalProperties": true
+          },
+          "settings": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Class Settings values stored on the UBlueprint asset.",
+            "additionalProperties": true
+          },
+          "implementedInterfaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "interfaceFunctions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "classDefaults": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Generated class CDO properties overridden relative to the direct parent class CDO.",
+            "properties": {
+              "source": {
+                "const": "generatedClassCDO"
+              },
+              "comparison": {
+                "const": "parentClassCDO"
+              },
+              "objectPath": {
+                "type": "string"
+              },
+              "parentObjectPath": {
+                "type": "string"
+              },
+              "properties": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              },
+              "propertyCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "omittedCount": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "source",
+              "comparison",
+              "objectPath",
+              "parentObjectPath",
+              "properties",
+              "propertyCount",
+              "omittedCount"
+            ],
+            "additionalProperties": false
+          },
+          "metadata": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Metadata maps for the Blueprint asset, generated class, and parent class.",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "assetPath",
+          "blueprintClass",
+          "parentClass",
+          "parentClassPath",
+          "class",
+          "settings",
+          "implementedInterfaces",
+          "interfaceFunctions",
+          "classDefaults",
+          "metadata"
         ],
         "additionalProperties": false
       },

@@ -428,6 +428,175 @@ TSharedPtr<FJsonObject> MakeBlueprintDescribePropertyEntry(const FProperty* Prop
     return Entry;
 }
 
+FString BlueprintEnumValueToString(const UEnum* Enum, int64 Value)
+{
+    if (Enum == nullptr)
+    {
+        return FString::Printf(TEXT("%lld"), Value);
+    }
+
+    FString Name = Enum->GetNameStringByValue(Value);
+    if (Name.IsEmpty())
+    {
+        Name = Enum->GetNameByValue(Value).ToString();
+    }
+    return Name.IsEmpty() ? FString::Printf(TEXT("%lld"), Value) : Name;
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintMetadataObject(const UObject* Object)
+{
+    TSharedPtr<FJsonObject> Metadata = MakeShared<FJsonObject>();
+    if (Object == nullptr)
+    {
+        return Metadata;
+    }
+
+    if (const TMap<FName, FString>* Map = FMetaData::GetMapForObject(Object))
+    {
+        for (const TPair<FName, FString>& Pair : *Map)
+        {
+            Metadata->SetStringField(Pair.Key.ToString(), Pair.Value);
+        }
+    }
+    return Metadata;
+}
+
+bool ShouldDescribeBlueprintClassDefaultProperty(const FProperty* Property)
+{
+    if (Property == nullptr)
+    {
+        return false;
+    }
+
+    if (Property->HasAnyPropertyFlags(CPF_Transient | CPF_Deprecated | CPF_Parm))
+    {
+        return false;
+    }
+
+    if (!Property->HasAnyPropertyFlags(CPF_Edit))
+    {
+        return false;
+    }
+
+    if (Property->IsA<FMulticastDelegateProperty>() || Property->IsA<FDelegateProperty>())
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool CanSerializeBlueprintClassDefaultProperty(const FProperty* Property)
+{
+    if (Property == nullptr)
+    {
+        return false;
+    }
+
+    if (Property->IsA<FArrayProperty>() || Property->IsA<FSetProperty>() || Property->IsA<FMapProperty>())
+    {
+        return false;
+    }
+
+    if (const FStructProperty* StructProperty = CastField<FStructProperty>(Property))
+    {
+        const UScriptStruct* Struct = StructProperty->Struct;
+        return Struct == TBaseStructure<FVector>::Get()
+            || Struct == TBaseStructure<FRotator>::Get()
+            || Struct == TBaseStructure<FTransform>::Get()
+            || Struct == TBaseStructure<FLinearColor>::Get()
+            || Struct == TBaseStructure<FColor>::Get();
+    }
+
+    return Property->IsA<FBoolProperty>()
+        || Property->IsA<FNumericProperty>()
+        || Property->IsA<FNameProperty>()
+        || Property->IsA<FStrProperty>()
+        || Property->IsA<FTextProperty>()
+        || Property->IsA<FEnumProperty>()
+        || Property->IsA<FByteProperty>()
+        || Property->IsA<FObjectPropertyBase>()
+        || Property->IsA<FClassProperty>();
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintClassDefaultsObject(UClass* BlueprintClass)
+{
+    TSharedPtr<FJsonObject> Defaults = MakeShared<FJsonObject>();
+    Defaults->SetStringField(TEXT("source"), TEXT("generatedClassCDO"));
+    Defaults->SetStringField(TEXT("comparison"), TEXT("parentClassCDO"));
+
+    TArray<TSharedPtr<FJsonValue>> Properties;
+    int32 OmittedCount = 0;
+
+    UObject* CDO = BlueprintClass ? BlueprintClass->GetDefaultObject(false) : nullptr;
+    UClass* ParentClass = BlueprintClass ? BlueprintClass->GetSuperClass() : nullptr;
+    UObject* ParentCDO = ParentClass ? ParentClass->GetDefaultObject(false) : nullptr;
+
+    Defaults->SetStringField(TEXT("objectPath"), CDO ? CDO->GetPathName() : TEXT(""));
+    Defaults->SetStringField(TEXT("parentObjectPath"), ParentCDO ? ParentCDO->GetPathName() : TEXT(""));
+
+    if (CDO != nullptr)
+    {
+        for (TFieldIterator<FProperty> It(BlueprintClass, EFieldIteratorFlags::IncludeSuper); It; ++It)
+        {
+            FProperty* Property = *It;
+            if (!ShouldDescribeBlueprintClassDefaultProperty(Property))
+            {
+                continue;
+            }
+
+            const UClass* OwnerClass = Property->GetOwnerClass();
+            const bool bInheritedProperty = OwnerClass != nullptr && ParentClass != nullptr && ParentClass->IsChildOf(OwnerClass);
+            const bool bOverridden = !bInheritedProperty || ParentCDO == nullptr || !Property->Identical_InContainer(CDO, ParentCDO);
+            if (!bOverridden)
+            {
+                continue;
+            }
+
+            if (!CanSerializeBlueprintClassDefaultProperty(Property))
+            {
+                ++OmittedCount;
+                continue;
+            }
+
+            FString Value;
+            if (!FBlueprintEditorUtils::PropertyValueToString(Property, reinterpret_cast<const uint8*>(CDO), Value, CDO))
+            {
+                ++OmittedCount;
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> Entry = MakeBlueprintDescribePropertyEntry(Property, const_cast<UClass*>(OwnerClass));
+            Entry->SetStringField(TEXT("value"), Value);
+            Entry->SetBoolField(TEXT("overridden"), true);
+
+            if (bInheritedProperty && ParentCDO != nullptr)
+            {
+                FString InheritedValue;
+                if (FBlueprintEditorUtils::PropertyValueToString(Property, reinterpret_cast<const uint8*>(ParentCDO), InheritedValue, ParentCDO))
+                {
+                    Entry->SetStringField(TEXT("inheritedValue"), InheritedValue);
+                }
+                else
+                {
+                    Entry->SetField(TEXT("inheritedValue"), MakeShared<FJsonValueNull>());
+                }
+            }
+            else
+            {
+                Entry->SetField(TEXT("inheritedValue"), MakeShared<FJsonValueNull>());
+            }
+
+            Properties.Add(MakeShared<FJsonValueObject>(Entry));
+        }
+    }
+
+    Defaults->SetArrayField(TEXT("properties"), Properties);
+    Defaults->SetNumberField(TEXT("propertyCount"), Properties.Num());
+    Defaults->SetNumberField(TEXT("omittedCount"), OmittedCount);
+    return Defaults;
+}
+
 TSharedPtr<FJsonObject> MakeBlueprintDescribePinEntry(const UEdGraphPin* Pin)
 {
     TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
@@ -507,6 +676,55 @@ TSharedPtr<FJsonObject> BuildBlueprintClassDescribeResult(const FString& AssetPa
     Result->SetStringField(TEXT("blueprintClass"), BlueprintClass->GetPathName());
     Result->SetStringField(TEXT("parentClass"), BlueprintClass->GetSuperClass() ? BlueprintClass->GetSuperClass()->GetPathName() : TEXT(""));
     Result->SetStringField(TEXT("parentClassPath"), Blueprint->ParentClass ? Blueprint->ParentClass->GetPathName() : TEXT(""));
+
+    TSharedPtr<FJsonObject> ClassObject = MakeShared<FJsonObject>();
+    ClassObject->SetStringField(TEXT("generatedClassPath"), Blueprint->GeneratedClass ? Blueprint->GeneratedClass->GetPathName() : TEXT(""));
+    ClassObject->SetStringField(TEXT("skeletonClassPath"), Blueprint->SkeletonGeneratedClass ? Blueprint->SkeletonGeneratedClass->GetPathName() : TEXT(""));
+    TSharedPtr<FJsonObject> ClassFlags = MakeShared<FJsonObject>();
+    ClassFlags->SetBoolField(TEXT("abstract"), BlueprintClass->HasAnyClassFlags(CLASS_Abstract));
+    ClassFlags->SetBoolField(TEXT("const"), BlueprintClass->HasAnyClassFlags(CLASS_Const));
+    ClassFlags->SetBoolField(TEXT("deprecated"), BlueprintClass->HasAnyClassFlags(CLASS_Deprecated));
+    ClassFlags->SetBoolField(TEXT("native"), BlueprintClass->HasAnyClassFlags(CLASS_Native));
+    ClassObject->SetObjectField(TEXT("classFlags"), ClassFlags);
+    if (const UBlueprintGeneratedClass* GeneratedClass = Cast<UBlueprintGeneratedClass>(BlueprintClass))
+    {
+        ClassObject->SetNumberField(TEXT("numReplicatedProperties"), GeneratedClass->NumReplicatedProperties);
+    }
+    else
+    {
+        ClassObject->SetNumberField(TEXT("numReplicatedProperties"), 0);
+    }
+    Result->SetObjectField(TEXT("class"), ClassObject);
+
+    TSharedPtr<FJsonObject> Settings = MakeShared<FJsonObject>();
+    Settings->SetStringField(TEXT("blueprintType"), BlueprintEnumValueToString(StaticEnum<EBlueprintType>(), static_cast<int64>(Blueprint->BlueprintType.GetValue())));
+    Settings->SetStringField(TEXT("status"), BlueprintEnumValueToString(StaticEnum<EBlueprintStatus>(), static_cast<int64>(Blueprint->Status.GetValue())));
+    Settings->SetStringField(TEXT("compileMode"), BlueprintEnumValueToString(StaticEnum<EBlueprintCompileMode>(), static_cast<int64>(Blueprint->CompileMode)));
+    Settings->SetStringField(TEXT("displayName"), Blueprint->BlueprintDisplayName);
+    Settings->SetStringField(TEXT("description"), Blueprint->BlueprintDescription);
+    Settings->SetStringField(TEXT("namespace"), Blueprint->BlueprintNamespace);
+    Settings->SetStringField(TEXT("category"), Blueprint->BlueprintCategory);
+    TArray<TSharedPtr<FJsonValue>> HideCategories;
+    for (const FString& Category : Blueprint->HideCategories)
+    {
+        HideCategories.Add(MakeShared<FJsonValueString>(Category));
+    }
+    Settings->SetArrayField(TEXT("hideCategories"), HideCategories);
+    Settings->SetBoolField(TEXT("runConstructionScriptOnDrag"), Blueprint->bRunConstructionScriptOnDrag);
+    Settings->SetBoolField(TEXT("runConstructionScriptInSequencer"), Blueprint->bRunConstructionScriptInSequencer);
+    Settings->SetBoolField(TEXT("generateConstClass"), Blueprint->bGenerateConstClass);
+    Settings->SetBoolField(TEXT("generateAbstractClass"), Blueprint->bGenerateAbstractClass);
+    Settings->SetBoolField(TEXT("deprecated"), Blueprint->bDeprecate);
+    Settings->SetStringField(TEXT("shouldCookPropertyGuids"), BlueprintEnumValueToString(StaticEnum<EShouldCookBlueprintPropertyGuids>(), static_cast<int64>(Blueprint->ShouldCookPropertyGuidsValue)));
+    Result->SetObjectField(TEXT("settings"), Settings);
+
+    Result->SetObjectField(TEXT("classDefaults"), MakeBlueprintClassDefaultsObject(BlueprintClass));
+
+    TSharedPtr<FJsonObject> Metadata = MakeShared<FJsonObject>();
+    Metadata->SetObjectField(TEXT("asset"), MakeBlueprintMetadataObject(Blueprint));
+    Metadata->SetObjectField(TEXT("generatedClass"), MakeBlueprintMetadataObject(BlueprintClass));
+    Metadata->SetObjectField(TEXT("parentClass"), MakeBlueprintMetadataObject(Blueprint->ParentClass));
+    Result->SetObjectField(TEXT("metadata"), Metadata);
 
     TArray<TSharedPtr<FJsonValue>> ImplementedInterfaces;
     FString InterfacesJson;
@@ -5951,13 +6169,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintCompileToolResult(con
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintInspectToolResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
     FString AssetPath;
-    FString GraphName;
-    FString NodeId;
     if (Arguments.IsValid())
     {
         Arguments->TryGetStringField(TEXT("assetPath"), AssetPath);
-        Arguments->TryGetStringField(TEXT("graphName"), GraphName);
-        Arguments->TryGetStringField(TEXT("nodeId"), NodeId);
     }
 
     AssetPath = NormalizeAssetPath(AssetPath);
@@ -5967,65 +6181,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintInspectToolResult(con
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
         Result->SetStringField(TEXT("message"), TEXT("blueprint.inspect requires assetPath."));
-        return Result;
-    }
-
-    if (!NodeId.IsEmpty())
-    {
-        const FString EffectiveGraphName = GraphName.IsEmpty() ? TEXT("EventGraph") : GraphName;
-
-        TSharedPtr<FJsonObject> QueryArgs = MakeShared<FJsonObject>();
-        QueryArgs->SetStringField(TEXT("assetPath"), AssetPath);
-        QueryArgs->SetStringField(TEXT("graphName"), EffectiveGraphName);
-        QueryArgs->SetBoolField(TEXT("includePinDefaults"), true);
-        QueryArgs->SetBoolField(TEXT("includeConnections"), true);
-
-        TArray<TSharedPtr<FJsonValue>> NodeIds;
-        NodeIds.Add(MakeShared<FJsonValueString>(NodeId));
-        QueryArgs->SetArrayField(TEXT("nodeIds"), NodeIds);
-
-        const TSharedPtr<FJsonObject> QueryResult = BuildBlueprintGraphInspectToolResult(QueryArgs);
-        bool bQueryError = false;
-        QueryResult->TryGetBoolField(TEXT("isError"), bQueryError);
-        if (bQueryError)
-        {
-            return QueryResult;
-        }
-
-        const TSharedPtr<FJsonObject>* Snapshot = nullptr;
-        const TArray<TSharedPtr<FJsonValue>>* Nodes = nullptr;
-        if (!QueryResult->TryGetObjectField(TEXT("semanticSnapshot"), Snapshot)
-            || Snapshot == nullptr
-            || !(*Snapshot).IsValid()
-            || !(*Snapshot)->TryGetArrayField(TEXT("nodes"), Nodes)
-            || Nodes == nullptr
-            || Nodes->Num() == 0)
-        {
-            TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-            Result->SetBoolField(TEXT("isError"), true);
-            Result->SetStringField(TEXT("code"), TEXT("NODE_NOT_FOUND"));
-            Result->SetStringField(TEXT("message"), TEXT("Blueprint node not found."));
-            return Result;
-        }
-
-        const TSharedPtr<FJsonObject>* NodeObject = nullptr;
-        if (!(*Nodes)[0].IsValid() || !(*Nodes)[0]->TryGetObject(NodeObject) || NodeObject == nullptr || !(*NodeObject).IsValid())
-        {
-            TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-            Result->SetBoolField(TEXT("isError"), true);
-            Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
-            Result->SetStringField(TEXT("message"), TEXT("Blueprint describe failed to read node snapshot."));
-            return Result;
-        }
-
-        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-        Result->SetBoolField(TEXT("isError"), false);
-        Result->SetStringField(TEXT("mode"), TEXT("instance"));
-        Result->SetStringField(TEXT("assetPath"), AssetPath);
-        Result->SetStringField(TEXT("graphName"), EffectiveGraphName);
-        Result->SetStringField(TEXT("nodeId"), NodeId);
-        Result->SetObjectField(TEXT("graphRef"), MakeBlueprintGraphAssetRef(AssetPath, EffectiveGraphName));
-        Result->SetObjectField(TEXT("node"), CloneJsonObject(*NodeObject));
         return Result;
     }
 

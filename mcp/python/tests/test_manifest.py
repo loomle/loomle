@@ -158,6 +158,35 @@ class ToolManifestTests(unittest.TestCase):
         required = set(tool["inputSchema"]["required"])
         self.assertEqual(required, {"assetPath", "commands"})
 
+    def test_blueprint_inspect_manifest_is_overview_entrypoint(self) -> None:
+        manifest = load_manifest(MANIFEST)
+        blueprint_tool = next(
+            tool for tool in manifest.list_tools("python")
+            if tool["name"] == "blueprint.inspect"
+        )
+        class_tool = next(
+            tool for tool in manifest.list_tools("python")
+            if tool["name"] == "blueprint.class.inspect"
+        )
+
+        blueprint_output = blueprint_tool["outputSchema"]["properties"]
+        self.assertIn("routes", blueprint_output)
+        self.assertIn("summary", blueprint_output)
+        self.assertIn("variables", blueprint_output)
+        self.assertIn("functions", blueprint_output)
+        self.assertIn("components", blueprint_output)
+
+        class_output = class_tool["outputSchema"]["properties"]
+        self.assertIn("class", class_output)
+        self.assertIn("settings", class_output)
+        self.assertIn("implementedInterfaces", class_output)
+        self.assertIn("interfaceFunctions", class_output)
+        self.assertIn("classDefaults", class_output)
+        self.assertIn("metadata", class_output)
+        default_props = class_output["classDefaults"]["properties"]
+        self.assertEqual(default_props["source"]["const"], "generatedClassCDO")
+        self.assertEqual(default_props["comparison"]["const"], "parentClassCDO")
+
     def test_blueprint_graph_inspect_manifest_exposes_flow_views(self) -> None:
         manifest = load_manifest(MANIFEST)
         tool = next(

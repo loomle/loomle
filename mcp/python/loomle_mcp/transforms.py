@@ -820,6 +820,11 @@ def shape_blueprint_inspect_result(payload: dict[str, Any]) -> dict[str, Any]:
         "dispatchers": payload.get("dispatchers", []),
         "eventSignatures": payload.get("eventSignatures", []),
         "components": payload.get("components", []),
+        "routes": {
+            "class": "blueprint.class.inspect",
+            "members": "blueprint.member.inspect",
+            "graphs": "blueprint.graph.list",
+        },
         "summary": {
             "interfaceCount": len(payload.get("implementedInterfaces", []) if isinstance(payload.get("implementedInterfaces"), list) else []),
             "variableCount": len(payload.get("variables", []) if isinstance(payload.get("variables"), list) else []),
@@ -837,6 +842,8 @@ def shape_blueprint_class_inspect_result(payload: dict[str, Any]) -> dict[str, A
         "blueprintClass": payload.get("blueprintClass"),
         "parentClass": payload.get("parentClass"),
         "parentClassPath": payload.get("parentClassPath"),
+        "class": payload.get("class"),
+        "settings": payload.get("settings"),
         "implementedInterfaces": payload.get("implementedInterfaces", []),
         "interfaceFunctions": payload.get("interfaceFunctions", []),
         "classDefaults": payload.get("classDefaults"),

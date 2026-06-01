@@ -113,7 +113,10 @@ Current `asset.*` coverage:
   assets, but structural graph/node/member edits remain on their domain tools.
 - `asset.edit` should not absorb structural Blueprint, Material, PCG, or Widget
   editing operations.
-- `blueprint.inspect` remains the canonical Blueprint overview entrypoint.
+- `blueprint.inspect` remains the canonical Blueprint overview entrypoint. It
+  returns asset/class identity, lightweight member lists, counts, and routing
+  hints to dedicated class, member, and graph inspect tools. It should not
+  inspect a specific graph node; use `blueprint.node.inspect` for node details.
 
 ## Domain 2: Inheritance / Interfaces
 
@@ -141,10 +144,20 @@ Recommended asset-level operations for this domain:
 - inherited contract summary
 - implemented interfaces
 - interface add/remove lifecycle
+- Blueprint Class Settings stored on `UBlueprint`
+- generated class identity and class flags
+- generated class CDO default overrides relative to the direct parent CDO
+- metadata maps for the Blueprint asset, generated class, and parent class
 
 ### Notes
 
-- `blueprint.class.inspect` is read-oriented and summarizes the Blueprint class lineage.
+- `blueprint.class.inspect` is read-oriented and summarizes the Blueprint class
+  lineage, implemented interface contract, Class Settings, CDO overrides, and
+  metadata.
+- Class Defaults are intentionally simple: the tool takes no extra query
+  parameter and returns only properties overridden by the current Blueprint CDO
+  relative to its direct parent class CDO. Full parent default browsing belongs
+  to a future class-level inspect surface, not this Blueprint overview.
 - interface management stays separate from generic asset metadata and member editing.
 
 ## Domain 3: Variable
