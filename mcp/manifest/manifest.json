@@ -1157,7 +1157,8 @@
             "type": "object"
           },
           "args": {
-            "type": "object"
+            "type": "object",
+            "description": "Optional envelope for operation-specific fields. For updateMetadata it may contain metadata, removeKeys, or clearMetadata."
           },
           "dryRun": {
             "type": "boolean",
@@ -1670,7 +1671,7 @@
     {
       "name": "blueprint.class.edit",
       "title": "Edit Blueprint Class",
-      "description": "Edit Blueprint class contract such as parent class and implemented interfaces.",
+      "description": "Edit Blueprint class contract such as parent class and implemented interfaces. Read the current contract with blueprint.class.inspect.",
       "availability": [
         "native",
         "python"
@@ -1687,13 +1688,94 @@
             "type": "string",
             "enum": [
               "setParent",
-              "listInterfaces",
+              "setSettings",
+              "setDefault",
               "addInterface",
               "removeInterface"
             ]
           },
           "args": {
-            "type": "object"
+            "type": "object",
+            "properties": {
+              "parentClassPath": {
+                "type": "string",
+                "description": "Required for setParent. UE class path for the new Blueprint parent class."
+              },
+              "interfaceClassPath": {
+                "type": "string",
+                "description": "Required for addInterface and removeInterface. UE generated interface class path."
+              },
+              "preserveFunctions": {
+                "type": "boolean",
+                "default": false,
+                "description": "removeInterface only. Preserve interface function graphs when removing the interface contract."
+              },
+              "settings": {
+                "type": "object",
+                "description": "Required for setSettings. Editable Blueprint Class Settings.",
+                "properties": {
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "namespace": {
+                    "type": "string"
+                  },
+                  "category": {
+                    "type": "string"
+                  },
+                  "hideCategories": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "runConstructionScriptOnDrag": {
+                    "type": "boolean"
+                  },
+                  "runConstructionScriptInSequencer": {
+                    "type": "boolean"
+                  },
+                  "generateConstClass": {
+                    "type": "boolean"
+                  },
+                  "generateAbstractClass": {
+                    "type": "boolean"
+                  },
+                  "deprecated": {
+                    "type": "boolean"
+                  },
+                  "shouldCookPropertyGuids": {
+                    "type": "string"
+                  },
+                  "compileMode": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "property": {
+                "type": "string",
+                "description": "Required for setDefault. Editable generated-class CDO property name."
+              },
+              "value": {
+                "description": "Required for setDefault. UE import-text value, or a JSON string/number/boolean converted to import text.",
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false
           },
           "dryRun": {
             "type": "boolean",
@@ -1722,6 +1804,75 @@
         "tool": "blueprint.class.edit",
         "args": "identity",
         "result": "structured"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "assetPath": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "setParent",
+              "setSettings",
+              "setDefault",
+              "addInterface",
+              "removeInterface"
+            ]
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "applied": {
+            "type": "boolean"
+          },
+          "parentClassPath": {
+            "type": "string"
+          },
+          "interfaceClassPath": {
+            "type": "string"
+          },
+          "preserveFunctions": {
+            "type": "boolean"
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "previousSettings": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "requestedSettings": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "structural": {
+            "type": "boolean"
+          },
+          "property": {
+            "type": "string"
+          },
+          "importText": {
+            "type": "string"
+          },
+          "previousDefault": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "default": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "assetPath",
+          "operation",
+          "dryRun",
+          "applied"
+        ],
+        "additionalProperties": true
       }
     },
     {

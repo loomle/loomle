@@ -1723,15 +1723,15 @@ def main() -> int:
         dry_run_list_payload = call_tool(
             client,
             607,
-            "blueprint.class.edit",
-            {"assetPath": temp_asset, "operation": "listInterfaces"},
+            "blueprint.class.inspect",
+            {"assetPath": temp_asset},
         )
-        dry_run_interfaces = dry_run_list_payload.get("interfaces")
+        dry_run_interfaces = dry_run_list_payload.get("implementedInterfaces")
         if not isinstance(dry_run_interfaces, list) or any(
             isinstance(entry, dict) and entry.get("classPath") == interface_class_path
             for entry in dry_run_interfaces
         ):
-            fail(f"blueprint.class.edit dryRun unexpectedly added interface: {dry_run_list_payload}")
+            fail(f"blueprint.class.inspect dryRun unexpectedly added interface: {dry_run_list_payload}")
         add_interface_payload = call_tool(
             client,
             601,
@@ -1747,15 +1747,15 @@ def main() -> int:
         list_interface_payload = call_tool(
             client,
             602,
-            "blueprint.class.edit",
-            {"assetPath": temp_asset, "operation": "listInterfaces"},
+            "blueprint.class.inspect",
+            {"assetPath": temp_asset},
         )
-        listed_interfaces = list_interface_payload.get("interfaces")
+        listed_interfaces = list_interface_payload.get("implementedInterfaces")
         if not isinstance(listed_interfaces, list) or not any(
             isinstance(entry, dict) and entry.get("classPath") == interface_class_path
             for entry in listed_interfaces
         ):
-            fail(f"blueprint.class.edit listInterfaces missing added interface: {list_interface_payload}")
+            fail(f"blueprint.class.inspect missing added interface: {list_interface_payload}")
         asset_inspect_payload = call_tool(client, 603, "blueprint.inspect", {"assetPath": temp_asset})
         inspected_interfaces = asset_inspect_payload.get("implementedInterfaces")
         if not isinstance(inspected_interfaces, list) or not any(
@@ -1778,16 +1778,62 @@ def main() -> int:
         list_after_remove_payload = call_tool(
             client,
             605,
-            "blueprint.class.edit",
-            {"assetPath": temp_asset, "operation": "listInterfaces"},
+            "blueprint.class.inspect",
+            {"assetPath": temp_asset},
         )
-        interfaces_after_remove = list_after_remove_payload.get("interfaces")
+        interfaces_after_remove = list_after_remove_payload.get("implementedInterfaces")
         if not isinstance(interfaces_after_remove, list) or any(
             isinstance(entry, dict) and entry.get("classPath") == interface_class_path
             for entry in interfaces_after_remove
         ):
-            fail(f"blueprint.class.edit removeInterface did not remove interface: {list_after_remove_payload}")
+            fail(f"blueprint.class.inspect still lists removed interface: {list_after_remove_payload}")
         print("[PASS] blueprint.class.edit interface lifecycle validated")
+
+        dry_run_settings_payload = call_tool(
+            client,
+            608,
+            "blueprint.class.edit",
+            {
+                "assetPath": temp_asset,
+                "operation": "setSettings",
+                "args": {"settings": {"displayName": "Dry Run Name"}},
+                "dryRun": True,
+            },
+        )
+        if dry_run_settings_payload.get("applied") is not False or dry_run_settings_payload.get("dryRun") is not True:
+            fail(f"blueprint.class.edit setSettings dryRun shape mismatch: {dry_run_settings_payload}")
+        settings_payload = call_tool(
+            client,
+            609,
+            "blueprint.class.edit",
+            {
+                "assetPath": temp_asset,
+                "operation": "setSettings",
+                "args": {
+                    "settings": {
+                        "displayName": "Loomle Regression Actor",
+                        "description": "Blueprint class edit regression",
+                        "category": "Loomle|Regression",
+                        "hideCategories": ["Rendering"],
+                        "runConstructionScriptOnDrag": False,
+                    }
+                },
+            },
+        )
+        if settings_payload.get("applied") is not True:
+            fail(f"blueprint.class.edit setSettings did not apply: {settings_payload}")
+        inspected_settings_payload = call_tool(client, 610, "blueprint.class.inspect", {"assetPath": temp_asset})
+        inspected_settings = inspected_settings_payload.get("settings")
+        if not isinstance(inspected_settings, dict):
+            fail(f"blueprint.class.inspect missing settings after setSettings: {inspected_settings_payload}")
+        if (
+            inspected_settings.get("displayName") != "Loomle Regression Actor"
+            or inspected_settings.get("category") != "Loomle|Regression"
+            or inspected_settings.get("runConstructionScriptOnDrag") is not False
+            or "Rendering" not in inspected_settings.get("hideCategories", [])
+        ):
+            fail(f"blueprint.class.edit setSettings state mismatch: {inspected_settings_payload}")
+        print("[PASS] blueprint.class.edit setSettings validated")
 
         graph_query = call_domain_tool(
             client,
@@ -2584,6 +2630,50 @@ def main() -> int:
             fail(f"member.edit temp variable should have been deleted: inspect={variable_inspect_payload} state={member_state}")
         if member_state.get("itemCountDefault") != 5 or member_state.get("isReadyDefault") is not True:
             fail(f"member.edit variable defaults mismatch: {member_state}")
+        dry_run_class_default = call_tool(
+            client,
+            65221,
+            "blueprint.class.edit",
+            {
+                "assetPath": temp_asset,
+                "operation": "setDefault",
+                "args": {"property": "ItemCount", "value": "9"},
+                "dryRun": True,
+            },
+        )
+        if dry_run_class_default.get("applied") is not False or dry_run_class_default.get("dryRun") is not True:
+            fail(f"blueprint.class.edit setDefault dryRun shape mismatch: {dry_run_class_default}")
+        set_class_default = call_tool(
+            client,
+            65222,
+            "blueprint.class.edit",
+            {
+                "assetPath": temp_asset,
+                "operation": "setDefault",
+                "args": {"property": "ItemCount", "value": "12"},
+            },
+        )
+        if set_class_default.get("applied") is not True:
+            fail(f"blueprint.class.edit setDefault did not apply: {set_class_default}")
+        default_entry = set_class_default.get("default")
+        if not isinstance(default_entry, dict) or default_entry.get("name") != "ItemCount" or default_entry.get("value") != "12":
+            fail(f"blueprint.class.edit setDefault result mismatch: {set_class_default}")
+        class_default_state_payload = run_execute_json(
+            client,
+            req_id_base=65223,
+            code=(
+                "import json, unreal\n"
+                f"asset={json.dumps(temp_asset, ensure_ascii=False)}\n"
+                "bp = unreal.EditorAssetLibrary.load_asset(asset)\n"
+                "gc = bp.generated_class() if hasattr(bp, 'generated_class') and callable(bp.generated_class) else None\n"
+                "cdo = unreal.get_default_object(gc) if gc else None\n"
+                "print(json.dumps({'itemCountDefault': cdo.get_editor_property('ItemCount') if cdo else None}, ensure_ascii=False))\n"
+            ),
+        )
+        class_default_state = parse_execute_json(class_default_state_payload)
+        if class_default_state.get("itemCountDefault") != 12:
+            fail(f"blueprint.class.edit setDefault CDO state mismatch: {class_default_state}")
+        print("[PASS] blueprint.class.edit setDefault validated")
         graph_names = [entry.get("graphName") for entry in listed_graphs if isinstance(entry, dict)]
         if "ComputeValueRenamed" not in graph_names or "TempDeleteFunction" in graph_names:
             fail(f"member.edit function graph state mismatch: {graph_list_payload}")

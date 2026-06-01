@@ -1277,7 +1277,7 @@ impl LoomleProxyServer {
         };
         if !matches!(
             operation,
-            "setParent" | "listInterfaces" | "addInterface" | "removeInterface"
+            "setParent" | "setSettings" | "setDefault" | "addInterface" | "removeInterface"
         ) {
             return Ok(invalid_argument_result(format!(
                 "Unsupported blueprint.class.edit operation: {operation}."
@@ -7217,9 +7217,57 @@ fn blueprint_class_edit_schema() -> rmcp::model::JsonObject {
     );
     properties.insert(
         "operation".into(),
-        serde_json::json!({"type":"string","enum":["setParent","listInterfaces","addInterface","removeInterface"]}),
+        serde_json::json!({"type":"string","enum":["setParent","setSettings","setDefault","addInterface","removeInterface"]}),
     );
-    properties.insert("args".into(), serde_json::json!({"type":"object"}));
+    properties.insert(
+        "args".into(),
+        serde_json::json!({
+            "type":"object",
+            "properties":{
+                "parentClassPath":{
+                    "type":"string",
+                    "description":"Required for setParent. UE class path for the new Blueprint parent class."
+                },
+                "interfaceClassPath":{
+                    "type":"string",
+                    "description":"Required for addInterface and removeInterface. UE generated interface class path."
+                },
+                "preserveFunctions":{
+                    "type":"boolean",
+                    "default":false,
+                    "description":"removeInterface only. Preserve interface function graphs when removing the interface contract."
+                },
+                "settings":{
+                    "type":"object",
+                    "description":"Required for setSettings. Editable Blueprint Class Settings.",
+                    "properties":{
+                        "displayName":{"type":"string"},
+                        "description":{"type":"string"},
+                        "namespace":{"type":"string"},
+                        "category":{"type":"string"},
+                        "hideCategories":{"type":"array","items":{"type":"string"}},
+                        "runConstructionScriptOnDrag":{"type":"boolean"},
+                        "runConstructionScriptInSequencer":{"type":"boolean"},
+                        "generateConstClass":{"type":"boolean"},
+                        "generateAbstractClass":{"type":"boolean"},
+                        "deprecated":{"type":"boolean"},
+                        "shouldCookPropertyGuids":{"type":"string"},
+                        "compileMode":{"type":"string"}
+                    },
+                    "additionalProperties":false
+                },
+                "property":{
+                    "type":"string",
+                    "description":"Required for setDefault. Editable generated-class CDO property name."
+                },
+                "value":{
+                    "description":"Required for setDefault. UE import-text value, or a JSON string/number/boolean converted to import text.",
+                    "oneOf":[{"type":"string"},{"type":"number"},{"type":"boolean"}]
+                }
+            },
+            "additionalProperties":false
+        }),
+    );
     mutation_control_fields(&mut properties);
     schema_from_value(serde_json::json!({
         "type":"object",
@@ -13120,6 +13168,35 @@ mod tests {
         assert!(blueprint_class_output_properties.contains_key("interfaceFunctions"));
         assert!(blueprint_class_output_properties.contains_key("classDefaults"));
         assert!(blueprint_class_output_properties.contains_key("metadata"));
+
+        let blueprint_class_edit = declared_tools
+            .iter()
+            .find(|tool| tool.name.as_ref() == "blueprint.class.edit")
+            .expect("blueprint.class.edit");
+        let blueprint_class_edit_ops = blueprint_class_edit
+            .input_schema
+            .get("properties")
+            .and_then(|value| value.get("operation"))
+            .and_then(|value| value.get("enum"))
+            .and_then(|value| value.as_array())
+            .expect("blueprint.class.edit operation enum");
+        assert_eq!(
+            blueprint_class_edit_ops,
+            &[
+                serde_json::json!("setParent"),
+                serde_json::json!("setSettings"),
+                serde_json::json!("setDefault"),
+                serde_json::json!("addInterface"),
+                serde_json::json!("removeInterface"),
+            ]
+        );
+        let blueprint_class_edit_output_properties = blueprint_class_edit
+            .output_schema
+            .as_ref()
+            .and_then(|schema| schema.get("properties"))
+            .and_then(|value| value.as_object())
+            .expect("blueprint.class.edit output properties");
+        assert!(blueprint_class_edit_output_properties.contains_key("applied"));
 
         let context = declared_tools
             .iter()

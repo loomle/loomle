@@ -134,9 +134,67 @@ tools should expose them through `blueprint.class.inspect` and
 Recommended asset-level operations for this domain:
 
 - `setParent`
-- `listInterfaces`
+  - `args.parentClassPath`
 - `addInterface`
+  - `args.interfaceClassPath`
 - `removeInterface`
+  - `args.interfaceClassPath`
+  - `args.preserveFunctions` defaults to `false`
+- `setSettings`
+  - `args.settings` is an object containing editable Blueprint Class Settings.
+  - Writable settings are limited to `UBlueprint` editor-facing fields:
+    `displayName`, `description`, `namespace`, `category`, `hideCategories`,
+    `runConstructionScriptOnDrag`, `runConstructionScriptInSequencer`,
+    `generateConstClass`, `generateAbstractClass`, `deprecated`,
+    `shouldCookPropertyGuids`, and `compileMode`.
+  - Read-only runtime state such as `status` and factory identity such as
+    `blueprintType` are not writable through this operation.
+- `setDefault`
+  - `args.property` names one editable class-default property on the generated
+    Blueprint class or an inherited parent class.
+  - `args.value` is UE import text for that property. The first version accepts
+    the same simple value families currently returned by
+    `classDefaults`: bool, numeric, name, string, text, enum/byte, object/class
+    references, and common structs such as vector, rotator, transform, and color.
+  - Arrays, sets, maps, delegates, function params, transient properties,
+    deprecated properties, and arbitrary nested object mutation stay unsupported
+    until there is a dedicated inspect/edit surface for those shapes.
+
+Implemented interfaces are read through `blueprint.class.inspect`; read-only
+queries should not be modeled as `blueprint.class.edit` operations.
+
+### Class Settings Write Mapping
+
+UE exposes the relevant settings as `EditAnywhere` fields on `UBlueprint` in
+`Engine/Classes/Engine/Blueprint.h`. The editor customization writes these
+fields directly or through property handles, then marks the Blueprint modified;
+`deprecated`, `generateConstClass`, `generateAbstractClass`, and compile-mode
+style changes should be treated as structural because they affect the generated
+class contract.
+
+`namespace` needs the same semantic care as the editor: after assignment, the
+Blueprint namespace registry/editor context may need refresh. Loomle should
+update the stored `UBlueprint::BlueprintNamespace` and, when the registry API is
+available, register or rebuild namespace state instead of treating the namespace
+as inert metadata.
+
+### Class Default Write Mapping
+
+`blueprint.class.inspect` reports class defaults from the generated class CDO,
+compared against the direct parent class CDO. `setDefault` should write the same
+storage: `Blueprint->GeneratedClass->GetDefaultObject(false)`.
+
+The write path resolves a single `FProperty`, verifies it is editable and
+serializable by the same rules used by inspect, calls `Modify()` on the CDO and
+Blueprint, validates the import text against temporary property storage, imports
+the value with UE property import text, marks the Blueprint modified, and returns
+the previous value, new value, inherited value when there is a parent property,
+and whether the property is now overridden.
+
+Defaults for Blueprint-owned member variables still belong to this class-default
+operation because their actual runtime default lives on the generated class CDO.
+Variable declaration, type, metadata, category, replication, and exposure flags
+remain `blueprint.member.edit` concerns.
 
 ### Scope
 

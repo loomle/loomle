@@ -187,6 +187,25 @@ class ToolManifestTests(unittest.TestCase):
         self.assertEqual(default_props["source"]["const"], "generatedClassCDO")
         self.assertEqual(default_props["comparison"]["const"], "parentClassCDO")
 
+        class_edit_tool = next(
+            tool for tool in manifest.list_tools("python")
+            if tool["name"] == "blueprint.class.edit"
+        )
+        class_edit_ops = class_edit_tool["inputSchema"]["properties"]["operation"]["enum"]
+        self.assertEqual(
+            class_edit_ops,
+            ["setParent", "setSettings", "setDefault", "addInterface", "removeInterface"],
+        )
+        class_edit_args = class_edit_tool["inputSchema"]["properties"]["args"]["properties"]
+        self.assertIn("settings", class_edit_args)
+        self.assertIn("generateAbstractClass", class_edit_args["settings"]["properties"])
+        self.assertIn("property", class_edit_args)
+        self.assertIn("value", class_edit_args)
+        self.assertIn("outputSchema", class_edit_tool)
+        self.assertIn("applied", class_edit_tool["outputSchema"]["properties"])
+        self.assertIn("settings", class_edit_tool["outputSchema"]["properties"])
+        self.assertIn("default", class_edit_tool["outputSchema"]["properties"])
+
     def test_blueprint_graph_inspect_manifest_exposes_flow_views(self) -> None:
         manifest = load_manifest(MANIFEST)
         tool = next(

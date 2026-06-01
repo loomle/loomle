@@ -443,6 +443,54 @@ FString BlueprintEnumValueToString(const UEnum* Enum, int64 Value)
     return Name.IsEmpty() ? FString::Printf(TEXT("%lld"), Value) : Name;
 }
 
+bool TryParseBlueprintEnumValue(const UEnum* Enum, const FString& Text, int64& OutValue)
+{
+    OutValue = 0;
+    if (Enum == nullptr)
+    {
+        return LexTryParseString<int64>(OutValue, *Text);
+    }
+
+    const int64 NamedValue = Enum->GetValueByNameString(Text, EGetByNameFlags::None);
+    if (NamedValue != INDEX_NONE)
+    {
+        OutValue = NamedValue;
+        return true;
+    }
+
+    return LexTryParseString<int64>(OutValue, *Text);
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintClassSettingsObject(const UBlueprint* Blueprint)
+{
+    TSharedPtr<FJsonObject> Settings = MakeShared<FJsonObject>();
+    if (Blueprint == nullptr)
+    {
+        return Settings;
+    }
+
+    Settings->SetStringField(TEXT("blueprintType"), BlueprintEnumValueToString(StaticEnum<EBlueprintType>(), static_cast<int64>(Blueprint->BlueprintType.GetValue())));
+    Settings->SetStringField(TEXT("status"), BlueprintEnumValueToString(StaticEnum<EBlueprintStatus>(), static_cast<int64>(Blueprint->Status.GetValue())));
+    Settings->SetStringField(TEXT("compileMode"), BlueprintEnumValueToString(StaticEnum<EBlueprintCompileMode>(), static_cast<int64>(Blueprint->CompileMode)));
+    Settings->SetStringField(TEXT("displayName"), Blueprint->BlueprintDisplayName);
+    Settings->SetStringField(TEXT("description"), Blueprint->BlueprintDescription);
+    Settings->SetStringField(TEXT("namespace"), Blueprint->BlueprintNamespace);
+    Settings->SetStringField(TEXT("category"), Blueprint->BlueprintCategory);
+    TArray<TSharedPtr<FJsonValue>> HideCategories;
+    for (const FString& Category : Blueprint->HideCategories)
+    {
+        HideCategories.Add(MakeShared<FJsonValueString>(Category));
+    }
+    Settings->SetArrayField(TEXT("hideCategories"), HideCategories);
+    Settings->SetBoolField(TEXT("runConstructionScriptOnDrag"), Blueprint->bRunConstructionScriptOnDrag);
+    Settings->SetBoolField(TEXT("runConstructionScriptInSequencer"), Blueprint->bRunConstructionScriptInSequencer);
+    Settings->SetBoolField(TEXT("generateConstClass"), Blueprint->bGenerateConstClass);
+    Settings->SetBoolField(TEXT("generateAbstractClass"), Blueprint->bGenerateAbstractClass);
+    Settings->SetBoolField(TEXT("deprecated"), Blueprint->bDeprecate);
+    Settings->SetStringField(TEXT("shouldCookPropertyGuids"), BlueprintEnumValueToString(StaticEnum<EShouldCookBlueprintPropertyGuids>(), static_cast<int64>(Blueprint->ShouldCookPropertyGuidsValue)));
+    return Settings;
+}
+
 TSharedPtr<FJsonObject> MakeBlueprintMetadataObject(const UObject* Object)
 {
     TSharedPtr<FJsonObject> Metadata = MakeShared<FJsonObject>();
@@ -517,6 +565,145 @@ bool CanSerializeBlueprintClassDefaultProperty(const FProperty* Property)
         || Property->IsA<FByteProperty>()
         || Property->IsA<FObjectPropertyBase>()
         || Property->IsA<FClassProperty>();
+}
+
+bool TryBlueprintJsonValueToImportText(const TSharedPtr<FJsonValue>& Value, FString& OutText, FString& OutError)
+{
+    if (!Value.IsValid() || Value->Type == EJson::Null || Value->Type == EJson::None)
+    {
+        OutError = TEXT("Class default value must not be null.");
+        return false;
+    }
+
+    switch (Value->Type)
+    {
+    case EJson::String:
+        OutText = Value->AsString();
+        return true;
+    case EJson::Number:
+        OutText = FString::SanitizeFloat(Value->AsNumber());
+        return true;
+    case EJson::Boolean:
+        OutText = Value->AsBool() ? TEXT("true") : TEXT("false");
+        return true;
+    default:
+        OutError = TEXT("Class default value must be a string, number, or boolean.");
+        return false;
+    }
+}
+
+bool TryReadBlueprintClassDefaultValue(const FProperty* Property, const UObject* Container, FString& OutValue)
+{
+    OutValue.Reset();
+    if (Property == nullptr || Container == nullptr)
+    {
+        return false;
+    }
+
+    return FBlueprintEditorUtils::PropertyValueToString(
+        Property,
+        reinterpret_cast<const uint8*>(Container),
+        OutValue,
+        const_cast<UObject*>(Container));
+}
+
+bool TryImportBlueprintClassDefaultValue(
+    const FProperty* Property,
+    const FString& ImportText,
+    uint8* DirectValue,
+    UObject* OwningObject,
+    FString& OutError)
+{
+    if (Property == nullptr || DirectValue == nullptr)
+    {
+        OutError = TEXT("Class default property storage is unavailable.");
+        return false;
+    }
+
+    if (!FBlueprintEditorUtils::PropertyValueFromString_Direct(Property, ImportText, DirectValue, OwningObject, PPF_InstanceSubobjects))
+    {
+        OutError = FString::Printf(TEXT("Invalid class default value for '%s': %s"), *Property->GetName(), *ImportText);
+        return false;
+    }
+
+    return true;
+}
+
+bool ValidateBlueprintClassDefaultImportText(const FProperty* Property, const FString& ImportText, const UObject* SourceContainer, FString& OutError)
+{
+    if (Property == nullptr || SourceContainer == nullptr)
+    {
+        OutError = TEXT("Class default property source is unavailable.");
+        return false;
+    }
+
+    uint8* TempValue = static_cast<uint8*>(FMemory::Malloc(Property->GetSize(), Property->GetMinAlignment()));
+    if (TempValue == nullptr)
+    {
+        OutError = TEXT("Failed to allocate temporary class default storage.");
+        return false;
+    }
+
+    Property->InitializeValue(TempValue);
+    const void* SourceValue = Property->ContainerPtrToValuePtr<void>(SourceContainer);
+    if (SourceValue != nullptr)
+    {
+        Property->CopyCompleteValue(TempValue, SourceValue);
+    }
+
+    const bool bOk = TryImportBlueprintClassDefaultValue(Property, ImportText, TempValue, const_cast<UObject*>(SourceContainer), OutError);
+    Property->DestroyValue(TempValue);
+    FMemory::Free(TempValue);
+    return bOk;
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintClassDefaultMutationObject(
+    const FProperty* Property,
+    UClass* BlueprintClass,
+    UObject* CDO,
+    UObject* ParentCDO)
+{
+    TSharedPtr<FJsonObject> Entry = MakeBlueprintDescribePropertyEntry(
+        Property,
+        const_cast<UClass*>(Property ? Property->GetOwnerClass() : nullptr));
+    if (Property == nullptr)
+    {
+        return Entry;
+    }
+
+    FString Value;
+    if (TryReadBlueprintClassDefaultValue(Property, CDO, Value))
+    {
+        Entry->SetStringField(TEXT("value"), Value);
+    }
+    else
+    {
+        Entry->SetField(TEXT("value"), MakeShared<FJsonValueNull>());
+    }
+
+    UClass* ParentClass = BlueprintClass ? BlueprintClass->GetSuperClass() : nullptr;
+    const UClass* OwnerClass = Property->GetOwnerClass();
+    const bool bInheritedProperty = OwnerClass != nullptr && ParentClass != nullptr && ParentClass->IsChildOf(OwnerClass);
+    if (bInheritedProperty && ParentCDO != nullptr)
+    {
+        FString InheritedValue;
+        if (TryReadBlueprintClassDefaultValue(Property, ParentCDO, InheritedValue))
+        {
+            Entry->SetStringField(TEXT("inheritedValue"), InheritedValue);
+        }
+        else
+        {
+            Entry->SetField(TEXT("inheritedValue"), MakeShared<FJsonValueNull>());
+        }
+    }
+    else
+    {
+        Entry->SetField(TEXT("inheritedValue"), MakeShared<FJsonValueNull>());
+    }
+
+    const bool bOverridden = !bInheritedProperty || ParentCDO == nullptr || !Property->Identical_InContainer(CDO, ParentCDO);
+    Entry->SetBoolField(TEXT("overridden"), bOverridden);
+    return Entry;
 }
 
 TSharedPtr<FJsonObject> MakeBlueprintClassDefaultsObject(UClass* BlueprintClass)
@@ -696,27 +883,7 @@ TSharedPtr<FJsonObject> BuildBlueprintClassDescribeResult(const FString& AssetPa
     }
     Result->SetObjectField(TEXT("class"), ClassObject);
 
-    TSharedPtr<FJsonObject> Settings = MakeShared<FJsonObject>();
-    Settings->SetStringField(TEXT("blueprintType"), BlueprintEnumValueToString(StaticEnum<EBlueprintType>(), static_cast<int64>(Blueprint->BlueprintType.GetValue())));
-    Settings->SetStringField(TEXT("status"), BlueprintEnumValueToString(StaticEnum<EBlueprintStatus>(), static_cast<int64>(Blueprint->Status.GetValue())));
-    Settings->SetStringField(TEXT("compileMode"), BlueprintEnumValueToString(StaticEnum<EBlueprintCompileMode>(), static_cast<int64>(Blueprint->CompileMode)));
-    Settings->SetStringField(TEXT("displayName"), Blueprint->BlueprintDisplayName);
-    Settings->SetStringField(TEXT("description"), Blueprint->BlueprintDescription);
-    Settings->SetStringField(TEXT("namespace"), Blueprint->BlueprintNamespace);
-    Settings->SetStringField(TEXT("category"), Blueprint->BlueprintCategory);
-    TArray<TSharedPtr<FJsonValue>> HideCategories;
-    for (const FString& Category : Blueprint->HideCategories)
-    {
-        HideCategories.Add(MakeShared<FJsonValueString>(Category));
-    }
-    Settings->SetArrayField(TEXT("hideCategories"), HideCategories);
-    Settings->SetBoolField(TEXT("runConstructionScriptOnDrag"), Blueprint->bRunConstructionScriptOnDrag);
-    Settings->SetBoolField(TEXT("runConstructionScriptInSequencer"), Blueprint->bRunConstructionScriptInSequencer);
-    Settings->SetBoolField(TEXT("generateConstClass"), Blueprint->bGenerateConstClass);
-    Settings->SetBoolField(TEXT("generateAbstractClass"), Blueprint->bGenerateAbstractClass);
-    Settings->SetBoolField(TEXT("deprecated"), Blueprint->bDeprecate);
-    Settings->SetStringField(TEXT("shouldCookPropertyGuids"), BlueprintEnumValueToString(StaticEnum<EShouldCookBlueprintPropertyGuids>(), static_cast<int64>(Blueprint->ShouldCookPropertyGuidsValue)));
-    Result->SetObjectField(TEXT("settings"), Settings);
+    Result->SetObjectField(TEXT("settings"), MakeBlueprintClassSettingsObject(Blueprint));
 
     Result->SetObjectField(TEXT("classDefaults"), MakeBlueprintClassDefaultsObject(BlueprintClass));
 
@@ -1478,7 +1645,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
     {
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Result->SetStringField(TEXT("message"), TEXT("blueprint.edit requires assetPath and operation."));
+        Result->SetStringField(TEXT("message"), TEXT("blueprint.class.edit requires assetPath and operation."));
         return Result;
     }
 
@@ -1520,7 +1687,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
         {
             Result->SetBoolField(TEXT("isError"), true);
             Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
-            Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.edit create failed") : Error);
+            Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.class.edit create failed") : Error);
             return Result;
         }
 
@@ -1530,19 +1697,15 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
         return Result;
     }
 
-    if (Operation.Equals(TEXT("setParent"), ESearchCase::IgnoreCase) || Operation.Equals(TEXT("reparent"), ESearchCase::IgnoreCase))
+    if (Operation.Equals(TEXT("setParent"), ESearchCase::IgnoreCase))
     {
         FString ParentClassPath;
         EffectiveArgs->TryGetStringField(TEXT("parentClassPath"), ParentClassPath);
         if (ParentClassPath.IsEmpty())
         {
-            EffectiveArgs->TryGetStringField(TEXT("parentClass"), ParentClassPath);
-        }
-        if (ParentClassPath.IsEmpty())
-        {
             Result->SetBoolField(TEXT("isError"), true);
             Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-            Result->SetStringField(TEXT("message"), TEXT("blueprint.edit setParent requires args.parentClassPath."));
+            Result->SetStringField(TEXT("message"), TEXT("blueprint.class.edit setParent requires args.parentClassPath."));
             return Result;
         }
 
@@ -1559,7 +1722,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
         {
             Result->SetBoolField(TEXT("isError"), true);
             Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-            Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.edit setParent failed") : Error);
+            Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.class.edit setParent failed") : Error);
             return Result;
         }
 
@@ -1568,24 +1731,356 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
         return Result;
     }
 
-    if (Operation.Equals(TEXT("listInterfaces"), ESearchCase::IgnoreCase))
+    if (Operation.Equals(TEXT("setSettings"), ESearchCase::IgnoreCase))
     {
-        FString InterfacesJson;
-        FString Error;
-        const bool bOk = FLoomleBlueprintAdapter::ListImplementedInterfaces(AssetPath, InterfacesJson, Error);
-        if (!bOk)
+        const TSharedPtr<FJsonObject>* SettingsObjectPtr = nullptr;
+        if (!EffectiveArgs->TryGetObjectField(TEXT("settings"), SettingsObjectPtr) || SettingsObjectPtr == nullptr || !SettingsObjectPtr->IsValid())
         {
             Result->SetBoolField(TEXT("isError"), true);
-            Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
-            Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.edit listInterfaces failed") : Error);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Result->SetStringField(TEXT("message"), TEXT("blueprint.class.edit setSettings requires args.settings."));
             return Result;
         }
 
-        TArray<TSharedPtr<FJsonValue>> Interfaces;
-        const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(InterfacesJson);
-        FJsonSerializer::Deserialize(Reader, Interfaces);
-        Result->SetBoolField(TEXT("applied"), false);
-        Result->SetArrayField(TEXT("interfaces"), Interfaces);
+        const TSharedPtr<FJsonObject> SettingsObject = *SettingsObjectPtr;
+        if (SettingsObject->Values.Num() == 0)
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Result->SetStringField(TEXT("message"), TEXT("blueprint.class.edit setSettings requires at least one setting."));
+            return Result;
+        }
+
+        static const TSet<FString> WritableSettings = {
+            TEXT("displayName"),
+            TEXT("description"),
+            TEXT("namespace"),
+            TEXT("category"),
+            TEXT("hideCategories"),
+            TEXT("runConstructionScriptOnDrag"),
+            TEXT("runConstructionScriptInSequencer"),
+            TEXT("generateConstClass"),
+            TEXT("generateAbstractClass"),
+            TEXT("deprecated"),
+            TEXT("shouldCookPropertyGuids"),
+            TEXT("compileMode"),
+        };
+
+        for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : SettingsObject->Values)
+        {
+            if (!WritableSettings.Contains(Pair.Key))
+            {
+                Result->SetBoolField(TEXT("isError"), true);
+                Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+                Result->SetStringField(TEXT("message"), FString::Printf(TEXT("blueprint.class.edit setSettings does not support setting '%s'."), *Pair.Key));
+                return Result;
+            }
+        }
+
+        UBlueprint* Blueprint = LoadBlueprintByAssetPath(AssetPath);
+        if (Blueprint == nullptr)
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("ASSET_NOT_FOUND"));
+            Result->SetStringField(TEXT("message"), TEXT("Blueprint asset not found."));
+            return Result;
+        }
+
+        Result->SetObjectField(TEXT("previousSettings"), MakeBlueprintClassSettingsObject(Blueprint));
+
+        FString StringValue;
+        bool bBoolValue = false;
+        TArray<FString> HideCategories;
+        int64 EnumValue = 0;
+        bool bStructural = false;
+
+        if (SettingsObject->HasField(TEXT("displayName")) && !SettingsObject->TryGetStringField(TEXT("displayName"), StringValue))
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Result->SetStringField(TEXT("message"), TEXT("blueprint.class.edit setSettings displayName must be a string."));
+            return Result;
+        }
+        if (SettingsObject->HasField(TEXT("description")) && !SettingsObject->TryGetStringField(TEXT("description"), StringValue))
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Result->SetStringField(TEXT("message"), TEXT("blueprint.class.edit setSettings description must be a string."));
+            return Result;
+        }
+        if (SettingsObject->HasField(TEXT("namespace")) && !SettingsObject->TryGetStringField(TEXT("namespace"), StringValue))
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Result->SetStringField(TEXT("message"), TEXT("blueprint.class.edit setSettings namespace must be a string."));
+            return Result;
+        }
+        if (SettingsObject->HasField(TEXT("category")) && !SettingsObject->TryGetStringField(TEXT("category"), StringValue))
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Result->SetStringField(TEXT("message"), TEXT("blueprint.class.edit setSettings category must be a string."));
+            return Result;
+        }
+        if (SettingsObject->HasField(TEXT("hideCategories")) && !SettingsObject->TryGetStringArrayField(TEXT("hideCategories"), HideCategories))
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Result->SetStringField(TEXT("message"), TEXT("blueprint.class.edit setSettings hideCategories must be an array of strings."));
+            return Result;
+        }
+        for (const TCHAR* FieldName : {
+                 TEXT("runConstructionScriptOnDrag"),
+                 TEXT("runConstructionScriptInSequencer"),
+                 TEXT("generateConstClass"),
+                 TEXT("generateAbstractClass"),
+                 TEXT("deprecated"),
+             })
+        {
+            if (SettingsObject->HasField(FieldName) && !SettingsObject->TryGetBoolField(FieldName, bBoolValue))
+            {
+                Result->SetBoolField(TEXT("isError"), true);
+                Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+                Result->SetStringField(TEXT("message"), FString::Printf(TEXT("blueprint.class.edit setSettings %s must be a boolean."), FieldName));
+                return Result;
+            }
+        }
+        if (SettingsObject->HasField(TEXT("compileMode")))
+        {
+            if (!SettingsObject->TryGetStringField(TEXT("compileMode"), StringValue)
+                || !TryParseBlueprintEnumValue(StaticEnum<EBlueprintCompileMode>(), StringValue, EnumValue))
+            {
+                Result->SetBoolField(TEXT("isError"), true);
+                Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+                Result->SetStringField(TEXT("message"), TEXT("blueprint.class.edit setSettings compileMode must be a valid EBlueprintCompileMode name."));
+                return Result;
+            }
+        }
+        if (SettingsObject->HasField(TEXT("shouldCookPropertyGuids")))
+        {
+            if (!SettingsObject->TryGetStringField(TEXT("shouldCookPropertyGuids"), StringValue)
+                || !TryParseBlueprintEnumValue(StaticEnum<EShouldCookBlueprintPropertyGuids>(), StringValue, EnumValue))
+            {
+                Result->SetBoolField(TEXT("isError"), true);
+                Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+                Result->SetStringField(TEXT("message"), TEXT("blueprint.class.edit setSettings shouldCookPropertyGuids must be a valid EShouldCookBlueprintPropertyGuids name."));
+                return Result;
+            }
+        }
+        if (SettingsObject->HasField(TEXT("deprecated"))
+            && Blueprint->ParentClass != nullptr
+            && Blueprint->ParentClass->HasAnyClassFlags(CLASS_Deprecated))
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Result->SetStringField(TEXT("message"), TEXT("Cannot change deprecated setting because the parent class is deprecated."));
+            return Result;
+        }
+
+        if (bDryRun)
+        {
+            Result->SetBoolField(TEXT("applied"), false);
+            Result->SetObjectField(TEXT("settings"), MakeBlueprintClassSettingsObject(Blueprint));
+            Result->SetObjectField(TEXT("requestedSettings"), SettingsObject);
+            return Result;
+        }
+
+        Blueprint->Modify();
+
+        if (SettingsObject->TryGetStringField(TEXT("displayName"), StringValue))
+        {
+            Blueprint->BlueprintDisplayName = StringValue;
+        }
+        if (SettingsObject->TryGetStringField(TEXT("description"), StringValue))
+        {
+            Blueprint->BlueprintDescription = StringValue;
+        }
+        if (SettingsObject->TryGetStringField(TEXT("namespace"), StringValue))
+        {
+            Blueprint->BlueprintNamespace = StringValue;
+        }
+        if (SettingsObject->TryGetStringField(TEXT("category"), StringValue))
+        {
+            Blueprint->BlueprintCategory = StringValue;
+        }
+        if (SettingsObject->TryGetStringArrayField(TEXT("hideCategories"), HideCategories))
+        {
+            Blueprint->HideCategories = HideCategories;
+        }
+        if (SettingsObject->TryGetBoolField(TEXT("runConstructionScriptOnDrag"), bBoolValue))
+        {
+            Blueprint->bRunConstructionScriptOnDrag = bBoolValue;
+        }
+        if (SettingsObject->TryGetBoolField(TEXT("runConstructionScriptInSequencer"), bBoolValue))
+        {
+            Blueprint->bRunConstructionScriptInSequencer = bBoolValue;
+        }
+        if (SettingsObject->TryGetBoolField(TEXT("generateConstClass"), bBoolValue))
+        {
+            Blueprint->bGenerateConstClass = bBoolValue;
+            bStructural = true;
+        }
+        if (SettingsObject->TryGetBoolField(TEXT("generateAbstractClass"), bBoolValue))
+        {
+            Blueprint->bGenerateAbstractClass = bBoolValue;
+            bStructural = true;
+        }
+        if (SettingsObject->TryGetBoolField(TEXT("deprecated"), bBoolValue))
+        {
+            Blueprint->bDeprecate = bBoolValue;
+            bStructural = true;
+        }
+        if (SettingsObject->TryGetStringField(TEXT("compileMode"), StringValue)
+            && TryParseBlueprintEnumValue(StaticEnum<EBlueprintCompileMode>(), StringValue, EnumValue))
+        {
+            Blueprint->CompileMode = static_cast<EBlueprintCompileMode>(EnumValue);
+            bStructural = true;
+        }
+        if (SettingsObject->TryGetStringField(TEXT("shouldCookPropertyGuids"), StringValue)
+            && TryParseBlueprintEnumValue(StaticEnum<EShouldCookBlueprintPropertyGuids>(), StringValue, EnumValue))
+        {
+            Blueprint->ShouldCookPropertyGuidsValue = static_cast<EShouldCookBlueprintPropertyGuids>(EnumValue);
+            bStructural = true;
+        }
+
+        if (bStructural)
+        {
+            FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        }
+        else
+        {
+            FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+        }
+        Blueprint->MarkPackageDirty();
+
+        Result->SetBoolField(TEXT("applied"), true);
+        Result->SetObjectField(TEXT("settings"), MakeBlueprintClassSettingsObject(Blueprint));
+        Result->SetBoolField(TEXT("structural"), bStructural);
+        return Result;
+    }
+
+    if (Operation.Equals(TEXT("setDefault"), ESearchCase::IgnoreCase))
+    {
+        FString PropertyName;
+        EffectiveArgs->TryGetStringField(TEXT("property"), PropertyName);
+        if (PropertyName.IsEmpty())
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Result->SetStringField(TEXT("message"), TEXT("blueprint.class.edit setDefault requires args.property."));
+            return Result;
+        }
+
+        TSharedPtr<FJsonValue> ValueJson = EffectiveArgs->TryGetField(TEXT("value"));
+        FString ImportText;
+        FString ValueError;
+        if (!TryBlueprintJsonValueToImportText(ValueJson, ImportText, ValueError))
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+            Result->SetStringField(TEXT("message"), ValueError);
+            return Result;
+        }
+
+        UBlueprint* Blueprint = LoadBlueprintByAssetPath(AssetPath);
+        if (Blueprint == nullptr)
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("ASSET_NOT_FOUND"));
+            Result->SetStringField(TEXT("message"), TEXT("Blueprint asset not found."));
+            return Result;
+        }
+
+        UClass* BlueprintClass = Blueprint->GeneratedClass ? Blueprint->GeneratedClass : Blueprint->SkeletonGeneratedClass;
+        if (BlueprintClass == nullptr)
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+            Result->SetStringField(TEXT("message"), TEXT("Blueprint class is not available."));
+            return Result;
+        }
+
+        UObject* CDO = Blueprint->GeneratedClass ? Blueprint->GeneratedClass->GetDefaultObject(false) : nullptr;
+        if (CDO == nullptr)
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+            Result->SetStringField(TEXT("message"), TEXT("Blueprint generated class CDO is not available."));
+            return Result;
+        }
+
+        FProperty* Property = BlueprintClass->FindPropertyByName(FName(*PropertyName));
+        if (Property == nullptr)
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("PROPERTY_NOT_FOUND"));
+            Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Class default property not found: %s"), *PropertyName));
+            return Result;
+        }
+        if (!ShouldDescribeBlueprintClassDefaultProperty(Property))
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("PROPERTY_NOT_EDITABLE"));
+            Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Class default property is not editable: %s"), *PropertyName));
+            return Result;
+        }
+        if (!CanSerializeBlueprintClassDefaultProperty(Property))
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("UNSUPPORTED_PROPERTY_TYPE"));
+            Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Class default property type is not supported yet: %s"), *PropertyName));
+            return Result;
+        }
+
+        UClass* ParentClass = BlueprintClass->GetSuperClass();
+        UObject* ParentCDO = ParentClass ? ParentClass->GetDefaultObject(false) : nullptr;
+        Result->SetStringField(TEXT("property"), Property->GetName());
+        Result->SetStringField(TEXT("importText"), ImportText);
+        Result->SetObjectField(TEXT("previousDefault"), MakeBlueprintClassDefaultMutationObject(Property, BlueprintClass, CDO, ParentCDO));
+
+        FString ImportError;
+        if (!ValidateBlueprintClassDefaultImportText(Property, ImportText, CDO, ImportError))
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_DEFAULT_VALUE"));
+            Result->SetStringField(TEXT("message"), ImportError);
+            return Result;
+        }
+
+        if (bDryRun)
+        {
+            Result->SetBoolField(TEXT("applied"), false);
+            Result->SetObjectField(TEXT("default"), MakeBlueprintClassDefaultMutationObject(Property, BlueprintClass, CDO, ParentCDO));
+            return Result;
+        }
+
+        uint8* DirectValue = Property->ContainerPtrToValuePtr<uint8>(CDO);
+        if (DirectValue == nullptr)
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+            Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Class default property storage not found: %s"), *PropertyName));
+            return Result;
+        }
+
+        Blueprint->Modify();
+        CDO->Modify();
+
+        if (!TryImportBlueprintClassDefaultValue(Property, ImportText, DirectValue, CDO, ImportError))
+        {
+            Result->SetBoolField(TEXT("isError"), true);
+            Result->SetStringField(TEXT("code"), TEXT("INVALID_DEFAULT_VALUE"));
+            Result->SetStringField(TEXT("message"), ImportError);
+            return Result;
+        }
+
+        FPropertyChangedEvent ChangedEvent(Property, EPropertyChangeType::ValueSet);
+        CDO->PostEditChangeProperty(ChangedEvent);
+        FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+        Blueprint->MarkPackageDirty();
+
+        Result->SetBoolField(TEXT("applied"), true);
+        Result->SetObjectField(TEXT("default"), MakeBlueprintClassDefaultMutationObject(Property, BlueprintClass, CDO, ParentCDO));
         return Result;
     }
 
@@ -1595,18 +2090,21 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
         EffectiveArgs->TryGetStringField(TEXT("interfaceClassPath"), InterfaceClassPath);
         if (InterfaceClassPath.IsEmpty())
         {
-            EffectiveArgs->TryGetStringField(TEXT("interface"), InterfaceClassPath);
-        }
-        if (InterfaceClassPath.IsEmpty())
-        {
             Result->SetBoolField(TEXT("isError"), true);
             Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
             Result->SetStringField(
                 TEXT("message"),
                 Operation.Equals(TEXT("addInterface"), ESearchCase::IgnoreCase)
-                    ? TEXT("blueprint.edit addInterface requires args.interfaceClassPath.")
-                    : TEXT("blueprint.edit removeInterface requires args.interfaceClassPath."));
+                    ? TEXT("blueprint.class.edit addInterface requires args.interfaceClassPath.")
+                    : TEXT("blueprint.class.edit removeInterface requires args.interfaceClassPath."));
             return Result;
+        }
+
+        bool bPreserveFunctions = false;
+        if (Operation.Equals(TEXT("removeInterface"), ESearchCase::IgnoreCase))
+        {
+            EffectiveArgs->TryGetBoolField(TEXT("preserveFunctions"), bPreserveFunctions);
+            Result->SetBoolField(TEXT("preserveFunctions"), bPreserveFunctions);
         }
 
         if (bDryRun)
@@ -1624,8 +2122,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
         }
         else
         {
-            bool bPreserveFunctions = false;
-            EffectiveArgs->TryGetBoolField(TEXT("preserveFunctions"), bPreserveFunctions);
             bOk = FLoomleBlueprintAdapter::RemoveInterface(AssetPath, InterfaceClassPath, bPreserveFunctions, Error);
         }
 
@@ -1633,7 +2129,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
         {
             Result->SetBoolField(TEXT("isError"), true);
             Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-            Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.edit interface operation failed") : Error);
+            Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.class.edit interface operation failed") : Error);
             return Result;
         }
 
@@ -1646,7 +2142,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
     Result->SetStringField(TEXT("code"), TEXT("NOT_IMPLEMENTED"));
     Result->SetStringField(
         TEXT("message"),
-        FString::Printf(TEXT("blueprint.edit does not support operation yet: %s"), *Operation));
+        FString::Printf(TEXT("blueprint.class.edit supports setParent, setSettings, setDefault, addInterface, and removeInterface; got: %s"), *Operation));
     return Result;
 }
 
