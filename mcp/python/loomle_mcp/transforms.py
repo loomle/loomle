@@ -468,7 +468,8 @@ def blueprint_node_edit_args(arguments: dict[str, Any]) -> dict[str, Any]:
         raise TransformError("blueprint.node.edit requires operation.")
     out["operation"] = operation
     out["args"] = arguments.get("args", {})
-    copy_mutation_controls(arguments, out)
+    for field in ["expectedRevision", "dryRun"]:
+        copy_if_present(arguments, out, field)
     return out
 
 

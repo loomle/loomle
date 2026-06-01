@@ -1942,14 +1942,6 @@
             "type": "boolean",
             "default": false
           },
-          "returnDiff": {
-            "type": "boolean",
-            "default": false
-          },
-          "returnDiagnostics": {
-            "type": "boolean",
-            "default": true
-          },
           "expectedRevision": {
             "type": "string"
           }
@@ -5437,14 +5429,6 @@
             "type": "boolean",
             "default": false
           },
-          "returnDiff": {
-            "type": "boolean",
-            "default": false
-          },
-          "returnDiagnostics": {
-            "type": "boolean",
-            "default": true
-          },
           "expectedRevision": {
             "type": "string"
           }
@@ -5548,14 +5532,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
                 },
                 "expectedRevision": {
                   "type": "string"
@@ -5673,14 +5649,6 @@
                   "type": "boolean",
                   "default": false
                 },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
                 "expectedRevision": {
                   "type": "string"
                 }
@@ -5794,14 +5762,6 @@
                   "type": "boolean",
                   "default": false
                 },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
                 "expectedRevision": {
                   "type": "string"
                 }
@@ -5904,14 +5864,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
                 },
                 "expectedRevision": {
                   "type": "string"
@@ -6032,14 +5984,6 @@
                   "type": "boolean",
                   "default": false
                 },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
                 "expectedRevision": {
                   "type": "string"
                 }
@@ -6136,14 +6080,6 @@
                   "type": "boolean",
                   "default": false
                 },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
                 "expectedRevision": {
                   "type": "string"
                 }
@@ -6181,6 +6117,131 @@
         "result": {
           "transform": "blueprint.graph.edit.result.v1"
         }
+      },
+      "outputSchema": {
+        "oneOf": [
+          {
+            "type": "object",
+            "title": "Blueprint Node Edit Result",
+            "properties": {
+              "isError": {
+                "type": "boolean",
+                "const": false
+              },
+              "valid": {
+                "type": "boolean",
+                "const": true
+              },
+              "applied": {
+                "type": "boolean"
+              },
+              "dryRun": {
+                "type": "boolean"
+              },
+              "operation": {
+                "type": "string"
+              },
+              "assetPath": {
+                "type": "string"
+              },
+              "graphName": {
+                "type": "string"
+              },
+              "graphRef": {
+                "type": "object"
+              },
+              "previousRevision": {
+                "type": "string"
+              },
+              "newRevision": {
+                "type": "string"
+              },
+              "planned": {
+                "type": "object"
+              },
+              "diff": {
+                "type": "object"
+              },
+              "diagnostics": {
+                "type": "array"
+              },
+              "opResults": {
+                "type": "array"
+              }
+            },
+            "required": [
+              "isError",
+              "valid",
+              "applied",
+              "dryRun",
+              "assetPath",
+              "previousRevision",
+              "newRevision",
+              "planned",
+              "diff",
+              "diagnostics",
+              "opResults"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "title": "Blueprint Node Edit Error",
+            "properties": {
+              "isError": {
+                "type": "boolean",
+                "const": true
+              },
+              "valid": {
+                "type": "boolean",
+                "const": false
+              },
+              "applied": {
+                "type": "boolean",
+                "const": false
+              },
+              "dryRun": {
+                "type": "boolean"
+              },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "assetPath": {
+                "type": "string"
+              },
+              "graphName": {
+                "type": "string"
+              },
+              "previousRevision": {
+                "type": "string"
+              },
+              "newRevision": {
+                "type": "string"
+              },
+              "planned": {
+                "type": "object"
+              },
+              "diff": {
+                "type": "object"
+              },
+              "diagnostics": {
+                "type": "array"
+              },
+              "opResults": {
+                "type": "array"
+              }
+            },
+            "required": [
+              "isError",
+              "code",
+              "message"
+            ],
+            "additionalProperties": true
+          }
+        ]
       }
     },
     {

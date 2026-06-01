@@ -3326,7 +3326,9 @@ fn translate_blueprint_node_edit_args(
             .cloned()
             .unwrap_or_else(|| serde_json::json!({})),
     );
-    copy_mutation_controls(args, &mut translated);
+    for field in ["expectedRevision", "dryRun"] {
+        copy_if_present(args, &mut translated, field);
+    }
     Ok(translated)
 }
 
@@ -6327,6 +6329,17 @@ fn mutation_control_fields(properties: &mut serde_json::Map<String, serde_json::
     );
 }
 
+fn execution_control_fields(properties: &mut serde_json::Map<String, serde_json::Value>) {
+    properties.insert(
+        "dryRun".into(),
+        serde_json::json!({"type":"boolean","default":false}),
+    );
+    properties.insert(
+        "expectedRevision".into(),
+        serde_json::json!({"type":"string"}),
+    );
+}
+
 fn blueprint_inspect_schema() -> rmcp::model::JsonObject {
     asset_path_only_schema("Blueprint asset path.")
 }
@@ -6394,7 +6407,7 @@ fn blueprint_class_edit_schema() -> rmcp::model::JsonObject {
             "additionalProperties":false
         }),
     );
-    mutation_control_fields(&mut properties);
+    execution_control_fields(&mut properties);
     schema_from_value(serde_json::json!({
         "type":"object",
         "properties": properties,
@@ -6562,7 +6575,14 @@ fn blueprint_node_edit_schema() -> rmcp::model::JsonObject {
             "description":"Operation-specific arguments. The shape is intentionally omitted from tools/list; call schema.inspect for the selected operation."
         }),
     );
-    mutation_control_fields(&mut properties);
+    properties.insert(
+        "dryRun".into(),
+        serde_json::json!({"type":"boolean","default":false}),
+    );
+    properties.insert(
+        "expectedRevision".into(),
+        serde_json::json!({"type":"string"}),
+    );
     schema_from_value(serde_json::json!({
         "type":"object",
         "properties": properties,
@@ -10763,6 +10783,9 @@ mod tests {
             .and_then(|value| value.get("description"))
             .and_then(|value| value.as_str())
             .is_some_and(|description| description.contains("schema.inspect")));
+        assert!(!properties.contains_key("returnDiff"));
+        assert!(!properties.contains_key("returnDiagnostics"));
+        assert!(properties.contains_key("expectedRevision"));
     }
 
     #[test]
@@ -10799,6 +10822,8 @@ mod tests {
             serde_json::json!({"role": "case", "name": "Paused"}),
         );
         args.insert("dryRun".into(), serde_json::json!(true));
+        args.insert("returnDiff".into(), serde_json::json!(true));
+        args.insert("returnDiagnostics".into(), serde_json::json!(true));
 
         let translated = translate_blueprint_node_edit_args(&args).expect("translated args");
         assert_eq!(
@@ -10818,6 +10843,8 @@ mod tests {
             Some(true)
         );
         assert!(translated.get("graphRef").is_some());
+        assert!(translated.get("returnDiff").is_none());
+        assert!(translated.get("returnDiagnostics").is_none());
     }
 
     #[test]
@@ -12238,6 +12265,14 @@ mod tests {
                 serde_json::json!("removeInterface"),
             ]
         );
+        let blueprint_class_edit_input = blueprint_class_edit
+            .input_schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("blueprint.class.edit input properties");
+        assert!(!blueprint_class_edit_input.contains_key("returnDiff"));
+        assert!(!blueprint_class_edit_input.contains_key("returnDiagnostics"));
+        assert!(blueprint_class_edit_input.contains_key("expectedRevision"));
         let blueprint_class_edit_output_properties = blueprint_class_edit
             .output_schema
             .as_ref()

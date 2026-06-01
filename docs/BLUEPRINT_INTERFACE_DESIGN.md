@@ -162,6 +162,9 @@ Recommended asset-level operations for this domain:
 
 Implemented interfaces are read through `blueprint.class.inspect`; read-only
 queries should not be modeled as `blueprint.class.edit` operations.
+`blueprint.class.edit` accepts `dryRun` and `expectedRevision` as mutation
+controls. It does not expose `returnDiff` or `returnDiagnostics`; implemented
+diff and diagnostics are always returned in the mutation envelope.
 
 ### Class Settings Write Mapping
 
@@ -1063,6 +1066,15 @@ Mapping rules:
   `pins` or node-specific `state`.
 - Use `schema.inspect` with `tool: "blueprint.node.edit"` and an operation name
   for the second-layer operation schema.
+- Public request fields are `assetPath`, `graph`, `node`, `operation`, `args`,
+  optional `dryRun`, and optional `expectedRevision`.
+- `dryRun=true` resolves the asset, graph, node, revision, and operation-specific
+  preconditions, but does not call UE mutation APIs or mark the Blueprint dirty.
+- `expectedRevision` is enforced against the containing graph revision before
+  the node-local edit is applied.
+- `returnDiff` and `returnDiagnostics` are not public inputs for this tool.
+  Results always include the mutation envelope fields, diagnostics, diff,
+  revision metadata, and `opResults`.
 - Select node `removePin` follows UE `RemoveOptionPinToNode`: it removes the
   last removable option rather than an arbitrary named option.
 - SetFieldsInStruct `removePin` hides existing struct field pins; `restorePins`
@@ -1120,8 +1132,6 @@ Recommended request fields:
 - `graph`
 - `commands`
 - `dryRun`
-- `returnDiff`
-- `returnDiagnostics`
 - `expectedRevision`
 
 Recommended shape:
@@ -1134,8 +1144,6 @@ Recommended shape:
   },
   "commands": [],
   "dryRun": false,
-  "returnDiff": true,
-  "returnDiagnostics": true,
   "expectedRevision": "rev-42"
 }
 ```
@@ -1145,7 +1153,9 @@ Rules:
 - `assetPath` is required
 - `graph` is required
 - `commands` is required and ordered
-- `dryRun`, `returnDiff`, `returnDiagnostics`, and `expectedRevision` follow the unified mutation contract
+- `dryRun` and `expectedRevision` follow the unified mutation contract
+- implemented diff and diagnostics are returned directly, without public
+  `returnDiff` or `returnDiagnostics` switches
 
 ### Graph Reference Rules
 
@@ -1746,12 +1756,14 @@ This applies to:
 
 ### Common Fields
 
-All write interfaces should support:
+Core Blueprint mutation interfaces should support:
 
 - `dryRun`
-- `returnDiff`
-- `returnDiagnostics`
 - `expectedRevision`
+
+`returnDiff` and `returnDiagnostics` are retired as public switches for cleaned
+surfaces. Tools should return implemented diff and diagnostics fields directly
+instead of requiring the agent to request them.
 
 ### dryRun
 

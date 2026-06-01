@@ -1148,6 +1148,67 @@ bool ResolveBlueprintClassMutationRevision(const FString& AssetPath, FString& Ou
     return true;
 }
 
+void SetBlueprintClassMutationEnvelope(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& Tool,
+    const FString& AssetPath,
+    const FString& Operation,
+    const bool bDryRun)
+{
+    LoomleMutation::SetMutationEnvelope(Result, Tool, AssetPath, Operation, bDryRun, false, true);
+}
+
+bool InitializeBlueprintClassMutationRevision(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& AssetPath,
+    const FString& ExpectedRevision,
+    const bool bAllowMissingAsset,
+    FString& OutPreviousRevision)
+{
+    OutPreviousRevision.Empty();
+
+    FString RevisionCode;
+    FString RevisionMessage;
+    if (!ResolveBlueprintClassMutationRevision(AssetPath, OutPreviousRevision, RevisionCode, RevisionMessage))
+    {
+        if (!bAllowMissingAsset || !RevisionCode.Equals(TEXT("ASSET_NOT_FOUND"), ESearchCase::IgnoreCase))
+        {
+            LoomleMutation::SetFailure(
+                Result,
+                RevisionCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : RevisionCode,
+                RevisionMessage.IsEmpty() ? TEXT("Failed to resolve current Blueprint class revision.") : RevisionMessage);
+            return false;
+        }
+        OutPreviousRevision.Empty();
+    }
+
+    LoomleMutation::SetUnchangedRevision(Result, OutPreviousRevision);
+    if (!ExpectedRevision.IsEmpty() && !ExpectedRevision.Equals(OutPreviousRevision, ESearchCase::CaseSensitive))
+    {
+        LoomleMutation::SetRevisionConflict(Result, ExpectedRevision, OutPreviousRevision);
+        return false;
+    }
+    return true;
+}
+
+void RefreshBlueprintClassMutationRevision(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& AssetPath,
+    const FString& PreviousRevision)
+{
+    FString NewRevision = PreviousRevision;
+    FString NewRevisionCode;
+    FString NewRevisionMessage;
+    if (ResolveBlueprintClassMutationRevision(AssetPath, NewRevision, NewRevisionCode, NewRevisionMessage))
+    {
+        LoomleMutation::SetRevision(Result, PreviousRevision, NewRevision);
+    }
+    else
+    {
+        LoomleMutation::SetUnchangedRevision(Result, PreviousRevision);
+    }
+}
+
 FString BuildBlueprintQueryRevision(const TSharedPtr<FJsonObject>& Result, const FString& Signature)
 {
     if (!Result.IsValid())
@@ -1491,7 +1552,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphListToolResult(c
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("isError"), false);
 
     auto Fail = [&](const FString& Code, const FString& Message) {
         LoomleMutation::SetFailure(Result, Code, Message);
@@ -1537,8 +1597,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
     }
 
     AssetPath = NormalizeAssetPath(AssetPath);
-    Result->SetStringField(TEXT("assetPath"), AssetPath);
-    Result->SetStringField(TEXT("operation"), Operation);
+
+    bool bDryRun = false;
+    Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
+    SetBlueprintClassMutationEnvelope(Result, TEXT("blueprint.class.edit"), AssetPath, Operation, bDryRun);
 
     const TSharedPtr<FJsonObject>* ArgsObject = nullptr;
     const TSharedPtr<FJsonObject> EmptyArgs = MakeShared<FJsonObject>();
@@ -1547,45 +1609,18 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
             ? *ArgsObject
             : EmptyArgs;
 
-    bool bDryRun = false;
-    Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
-    Result->SetBoolField(TEXT("dryRun"), bDryRun);
-
     const bool bCreateOperation = Operation.Equals(TEXT("create"), ESearchCase::IgnoreCase);
     FString PreviousRevision;
-    FString RevisionCode;
-    FString RevisionMessage;
-    if (!ResolveBlueprintClassMutationRevision(AssetPath, PreviousRevision, RevisionCode, RevisionMessage))
-    {
-        if (!(bCreateOperation && RevisionCode.Equals(TEXT("ASSET_NOT_FOUND"), ESearchCase::IgnoreCase)))
-        {
-            Fail(RevisionCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : RevisionCode, RevisionMessage.IsEmpty() ? TEXT("Failed to resolve current Blueprint class revision.") : RevisionMessage);
-            return Result;
-        }
-        PreviousRevision.Empty();
-    }
-    LoomleMutation::SetUnchangedRevision(Result, PreviousRevision);
-
     FString ExpectedRevision;
-    if (Arguments->TryGetStringField(TEXT("expectedRevision"), ExpectedRevision) && !ExpectedRevision.IsEmpty() && !ExpectedRevision.Equals(PreviousRevision, ESearchCase::CaseSensitive))
+    Arguments->TryGetStringField(TEXT("expectedRevision"), ExpectedRevision);
+    if (!InitializeBlueprintClassMutationRevision(Result, AssetPath, ExpectedRevision, bCreateOperation, PreviousRevision))
     {
-        LoomleMutation::SetRevisionConflict(Result, ExpectedRevision, PreviousRevision);
         return Result;
     }
 
     auto RefreshNewRevision = [&]()
     {
-        FString NewRevision = PreviousRevision;
-        FString NewRevisionCode;
-        FString NewRevisionMessage;
-        if (ResolveBlueprintClassMutationRevision(AssetPath, NewRevision, NewRevisionCode, NewRevisionMessage))
-        {
-            LoomleMutation::SetRevision(Result, PreviousRevision, NewRevision);
-        }
-        else
-        {
-            LoomleMutation::SetUnchangedRevision(Result, PreviousRevision);
-        }
+        RefreshBlueprintClassMutationRevision(Result, AssetPath, PreviousRevision);
     };
 
     if (Operation.Equals(TEXT("create"), ESearchCase::IgnoreCase))
@@ -2413,7 +2448,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintStructEditToolResult(
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMemberEditToolResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("isError"), false);
 
     auto TryGetStringFieldAny = [](const TSharedPtr<FJsonObject>& Object, std::initializer_list<const TCHAR*> Names, FString& OutValue) -> bool {
         if (!Object.IsValid())
@@ -2568,9 +2602,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMemberEditToolResult(
     }
 
     AssetPath = NormalizeAssetPath(AssetPath);
-    Result->SetStringField(TEXT("assetPath"), AssetPath);
+    bool bDryRun = false;
+    Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
+    SetBlueprintClassMutationEnvelope(Result, TEXT("blueprint.member.edit"), AssetPath, Operation, bDryRun);
     Result->SetStringField(TEXT("memberKind"), MemberKind);
-    Result->SetStringField(TEXT("operation"), Operation);
 
     const TSharedPtr<FJsonObject>* ArgsObject = nullptr;
     const TSharedPtr<FJsonObject> EmptyArgs = MakeShared<FJsonObject>();
@@ -2579,43 +2614,17 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMemberEditToolResult(
             ? *ArgsObject
             : EmptyArgs;
 
-    bool bDryRun = false;
-    Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
-    Result->SetBoolField(TEXT("dryRun"), bDryRun);
-
     FString PreviousRevision;
-    FString RevisionCode;
-    FString RevisionMessage;
-    if (!ResolveBlueprintClassMutationRevision(AssetPath, PreviousRevision, RevisionCode, RevisionMessage))
-    {
-        LoomleMutation::SetFailure(
-            Result,
-            RevisionCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : RevisionCode,
-            RevisionMessage.IsEmpty() ? TEXT("Failed to resolve current Blueprint class revision.") : RevisionMessage);
-        return Result;
-    }
-    LoomleMutation::SetUnchangedRevision(Result, PreviousRevision);
-
     FString ExpectedRevision;
-    if (Arguments->TryGetStringField(TEXT("expectedRevision"), ExpectedRevision) && !ExpectedRevision.IsEmpty() && !ExpectedRevision.Equals(PreviousRevision, ESearchCase::CaseSensitive))
+    Arguments->TryGetStringField(TEXT("expectedRevision"), ExpectedRevision);
+    if (!InitializeBlueprintClassMutationRevision(Result, AssetPath, ExpectedRevision, false, PreviousRevision))
     {
-        LoomleMutation::SetRevisionConflict(Result, ExpectedRevision, PreviousRevision);
         return Result;
     }
 
     auto RefreshNewRevision = [&]()
     {
-        FString NewRevision = PreviousRevision;
-        FString NewRevisionCode;
-        FString NewRevisionMessage;
-        if (ResolveBlueprintClassMutationRevision(AssetPath, NewRevision, NewRevisionCode, NewRevisionMessage))
-        {
-            LoomleMutation::SetRevision(Result, PreviousRevision, NewRevision);
-        }
-        else
-        {
-            LoomleMutation::SetUnchangedRevision(Result, PreviousRevision);
-        }
+        RefreshBlueprintClassMutationRevision(Result, AssetPath, PreviousRevision);
     };
 
     const FString PayloadJson = SerializeBlueprintJsonObjectCondensed(EffectiveArgs);
@@ -3381,30 +3390,176 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeInspectToolResult
 
 namespace
 {
-TSharedPtr<FJsonObject> MakeBlueprintNodeEditResult(bool bOk, bool bChanged, const FString& Operation, const FString& NodeId, const FString& ErrorCode = TEXT(""), const FString& ErrorMessage = TEXT(""))
+TSharedPtr<FJsonObject> MakeBlueprintMutationResolvedRefs(
+    const FString& AssetPath,
+    const FString& GraphName = TEXT(""),
+    const FString& NodeId = TEXT(""))
+{
+    TSharedPtr<FJsonObject> ResolvedRefs = MakeShared<FJsonObject>();
+    TSharedPtr<FJsonObject> AssetRef = MakeShared<FJsonObject>();
+    AssetRef->SetStringField(TEXT("path"), AssetPath);
+    ResolvedRefs->SetObjectField(TEXT("asset"), AssetRef);
+    if (!GraphName.IsEmpty())
+    {
+        TSharedPtr<FJsonObject> GraphRef = MakeShared<FJsonObject>();
+        GraphRef->SetStringField(TEXT("name"), GraphName);
+        ResolvedRefs->SetObjectField(TEXT("graph"), GraphRef);
+    }
+    if (!NodeId.IsEmpty())
+    {
+        TSharedPtr<FJsonObject> NodeRef = MakeShared<FJsonObject>();
+        NodeRef->SetStringField(TEXT("id"), NodeId);
+        ResolvedRefs->SetObjectField(TEXT("node"), NodeRef);
+    }
+    return ResolvedRefs;
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintSingleMutationResult(
+    const FString& Tool,
+    const FString& DiffScope,
+    bool bOk,
+    bool bChanged,
+    const FString& Operation,
+    const FString& AssetPath,
+    const TSharedPtr<FJsonObject>& Args,
+    const TSharedPtr<FJsonObject>& ResolvedRefs = nullptr,
+    const FString& ErrorCode = TEXT(""),
+    const FString& ErrorMessage = TEXT(""),
+    bool bDryRun = false,
+    const FString& PreviousRevision = TEXT(""),
+    const FString& NewRevision = TEXT(""),
+    const FString& NodeId = TEXT(""),
+    const FString& GraphName = TEXT(""))
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("isError"), !bOk);
+    LoomleMutation::SetMutationEnvelope(Result, Tool, AssetPath, Operation, bDryRun, bOk && bChanged && !bDryRun, bOk);
     if (!bOk)
     {
         Result->SetStringField(TEXT("code"), ErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : ErrorCode);
-        Result->SetStringField(TEXT("message"), ErrorMessage.IsEmpty() ? TEXT("blueprint.node.edit failed.") : ErrorMessage);
+        Result->SetStringField(TEXT("message"), ErrorMessage.IsEmpty() ? FString::Printf(TEXT("%s failed."), *Tool) : ErrorMessage);
+        TArray<TSharedPtr<FJsonValue>> Diagnostics;
+        Diagnostics.Add(LoomleMutation::MakeDiagnostic(
+            TEXT("error"),
+            ErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : ErrorCode,
+            ErrorMessage.IsEmpty() ? FString::Printf(TEXT("%s failed."), *Tool) : ErrorMessage));
+        LoomleMutation::SetDiagnostics(Result, Diagnostics);
+    }
+    else
+    {
+        LoomleMutation::SetValidatedPlan(
+            Result,
+            Tool,
+            AssetPath,
+            Operation,
+            Args.IsValid() ? Args : MakeShared<FJsonObject>(),
+            ResolvedRefs.IsValid() ? ResolvedRefs : MakeBlueprintMutationResolvedRefs(AssetPath, GraphName, NodeId));
+    }
+    if (!PreviousRevision.IsEmpty() || !NewRevision.IsEmpty())
+    {
+        LoomleMutation::SetRevision(Result, PreviousRevision, NewRevision.IsEmpty() ? PreviousRevision : NewRevision);
+    }
+    Result->SetStringField(TEXT("nodeId"), NodeId);
+    if (!GraphName.IsEmpty())
+    {
+        Result->SetStringField(TEXT("graphName"), GraphName);
     }
 
-    TSharedPtr<FJsonObject> OpResult = MakeShared<FJsonObject>();
-    OpResult->SetNumberField(TEXT("index"), 0);
-    OpResult->SetStringField(TEXT("op"), Operation);
-    OpResult->SetBoolField(TEXT("ok"), bOk);
-    OpResult->SetBoolField(TEXT("skipped"), false);
-    OpResult->SetBoolField(TEXT("changed"), bChanged);
-    OpResult->SetStringField(TEXT("nodeId"), NodeId);
-    OpResult->SetStringField(TEXT("errorCode"), bOk ? TEXT("") : (ErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : ErrorCode));
-    OpResult->SetStringField(TEXT("errorMessage"), bOk ? TEXT("") : ErrorMessage);
     TArray<TSharedPtr<FJsonValue>> OpResults;
-    OpResults.Add(MakeShared<FJsonValueObject>(OpResult));
+    OpResults.Add(MakeShared<FJsonValueObject>(LoomleMutation::MakeOpResult(
+        0,
+        Operation,
+        bOk,
+        bChanged && !bDryRun,
+        bOk ? TEXT("") : (ErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : ErrorCode),
+        bOk ? TEXT("") : ErrorMessage,
+        NodeId)));
     Result->SetArrayField(TEXT("opResults"), OpResults);
-    Result->SetArrayField(TEXT("commandResults"), OpResults);
+    LoomleMutation::SetDiff(
+        Result,
+        DiffScope,
+        bOk && bChanged
+            ? TArray<TSharedPtr<FJsonValue>>{MakeShared<FJsonValueObject>(LoomleMutation::MakeChange(
+                Operation,
+                LoomleMutation::MakeTarget(TEXT("node"), NodeId)))}
+            : TArray<TSharedPtr<FJsonValue>>{});
     return Result;
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintNodeEditResult(
+    bool bOk,
+    bool bChanged,
+    const FString& Operation,
+    const FString& NodeId,
+    const FString& ErrorCode = TEXT(""),
+    const FString& ErrorMessage = TEXT(""),
+    bool bDryRun = false,
+    const FString& AssetPath = TEXT(""),
+    const FString& GraphName = TEXT(""),
+    const FString& PreviousRevision = TEXT(""),
+    const FString& NewRevision = TEXT(""),
+    const TSharedPtr<FJsonObject>& Args = nullptr)
+{
+    return MakeBlueprintSingleMutationResult(
+        TEXT("blueprint.node.edit"),
+        TEXT("blueprint.node.edit"),
+        bOk,
+        bChanged,
+        Operation,
+        AssetPath,
+        Args,
+        MakeBlueprintMutationResolvedRefs(AssetPath, GraphName, NodeId),
+        ErrorCode,
+        ErrorMessage,
+        bDryRun,
+        PreviousRevision,
+        NewRevision,
+        NodeId,
+        GraphName);
+}
+
+bool ResolveBlueprintMutationRevisionFromQuery(
+    const TFunction<TSharedPtr<FJsonObject>()>& QueryRevision,
+    const FString& Tool,
+    FString& OutRevision,
+    FString& OutCode,
+    FString& OutMessage)
+{
+    OutRevision.Empty();
+    OutCode.Empty();
+    OutMessage.Empty();
+
+    const TSharedPtr<FJsonObject> RevisionResult = QueryRevision();
+    if (!RevisionResult.IsValid())
+    {
+        OutCode = TEXT("INTERNAL_ERROR");
+        OutMessage = FString::Printf(TEXT("Failed to resolve current %s revision."), *Tool);
+        return false;
+    }
+
+    bool bRevisionError = false;
+    RevisionResult->TryGetBoolField(TEXT("isError"), bRevisionError);
+    if (bRevisionError)
+    {
+        RevisionResult->TryGetStringField(TEXT("code"), OutCode);
+        RevisionResult->TryGetStringField(TEXT("message"), OutMessage);
+        if (OutCode.IsEmpty())
+        {
+            OutCode = TEXT("REVISION_UNAVAILABLE");
+        }
+        if (OutMessage.IsEmpty())
+        {
+            OutMessage = FString::Printf(TEXT("Failed to resolve current %s revision."), *Tool);
+        }
+        return false;
+    }
+
+    if (!RevisionResult->TryGetStringField(TEXT("revision"), OutRevision) || OutRevision.IsEmpty())
+    {
+        OutCode = TEXT("REVISION_UNAVAILABLE");
+        OutMessage = FString::Printf(TEXT("Blueprint revision query did not return a revision for %s."), *Tool);
+        return false;
+    }
+    return true;
 }
 
 FString ReadBlueprintNodeEditPinName(const TSharedPtr<FJsonObject>& Args)
@@ -3677,26 +3832,119 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
     bool bDryRun = false;
     Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
 
+    auto BuildRevisionQueryArgs = [&]() -> TSharedPtr<FJsonObject>
+    {
+        TSharedPtr<FJsonObject> QueryArgs = MakeShared<FJsonObject>();
+        if (!InlineNodeGuid.IsEmpty())
+        {
+            QueryArgs->SetObjectField(TEXT("graphRef"), MakeBlueprintInlineGraphRef(InlineNodeGuid, AssetPath));
+        }
+        else
+        {
+            QueryArgs->SetStringField(TEXT("assetPath"), AssetPath);
+            QueryArgs->SetStringField(TEXT("graphName"), GraphName);
+        }
+        return QueryArgs;
+    };
+
+    auto ResolveRevision = [&](FString& OutRevision, FString& OutCode, FString& OutMessage) -> bool
+    {
+        return ResolveBlueprintMutationRevisionFromQuery(
+            [&]() { return BuildBlueprintGraphInspectToolResult(BuildRevisionQueryArgs()); },
+            TEXT("blueprint.node.edit"),
+            OutRevision,
+            OutCode,
+            OutMessage);
+    };
+
+    FString PreviousRevision;
+    FString PreviousRevisionCode;
+    FString PreviousRevisionMessage;
+    if (!ResolveRevision(PreviousRevision, PreviousRevisionCode, PreviousRevisionMessage))
+    {
+        return MakeBlueprintNodeEditResult(
+            false,
+            false,
+            Operation,
+            NodeId,
+            PreviousRevisionCode.IsEmpty() ? TEXT("REVISION_UNAVAILABLE") : PreviousRevisionCode,
+            PreviousRevisionMessage.IsEmpty() ? TEXT("Failed to resolve current blueprint node edit revision.") : PreviousRevisionMessage,
+            bDryRun,
+            AssetPath,
+            GraphName,
+            PreviousRevision,
+            PreviousRevision,
+            Args);
+    }
+    FString ExpectedRevision;
+    if (Arguments->TryGetStringField(TEXT("expectedRevision"), ExpectedRevision)
+        && !ExpectedRevision.IsEmpty()
+        && !ExpectedRevision.Equals(PreviousRevision, ESearchCase::CaseSensitive))
+    {
+        return MakeBlueprintNodeEditResult(
+            false,
+            false,
+            Operation,
+            NodeId,
+            TEXT("REVISION_CONFLICT"),
+            FString::Printf(TEXT("expectedRevision mismatch: expected %s but current revision is %s."), *ExpectedRevision, *PreviousRevision),
+            bDryRun,
+            AssetPath,
+            GraphName,
+            PreviousRevision,
+            PreviousRevision,
+            Args);
+    }
+
+    auto ReturnNodeEditResult = [&](bool bOk, bool bChanged, const FString& ErrorCode = TEXT(""), const FString& ErrorMessage = TEXT("")) -> TSharedPtr<FJsonObject>
+    {
+        FString NewRevision = PreviousRevision;
+        if (bOk && bChanged && !bDryRun)
+        {
+            FString NewRevisionCode;
+            FString NewRevisionMessage;
+            if (!ResolveRevision(NewRevision, NewRevisionCode, NewRevisionMessage))
+            {
+                NewRevision = PreviousRevision;
+            }
+        }
+        return MakeBlueprintNodeEditResult(
+            bOk,
+            bChanged,
+            Operation,
+            NodeId,
+            ErrorCode,
+            ErrorMessage,
+            bDryRun,
+            AssetPath,
+            GraphName,
+            PreviousRevision,
+            NewRevision,
+            Args);
+    };
+
     UBlueprint* Blueprint = LoadBlueprintByAssetPath(AssetPath);
     if (Blueprint == nullptr)
     {
-        return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("ASSET_NOT_FOUND"), TEXT("Blueprint asset not found."));
+        return ReturnNodeEditResult(false, false, TEXT("ASSET_NOT_FOUND"), TEXT("Blueprint asset not found."));
     }
     UEdGraph* TargetGraph = ResolveBlueprintGraph(Blueprint, GraphName);
     if (TargetGraph == nullptr)
     {
-        return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("GRAPH_NOT_FOUND"), TEXT("Blueprint graph not found."));
+        return ReturnNodeEditResult(false, false, TEXT("GRAPH_NOT_FOUND"), TEXT("Blueprint graph not found."));
     }
     UEdGraphNode* TargetNode = ResolveBlueprintGraphNodeByToken(TargetGraph, NodeId);
     if (TargetNode == nullptr)
     {
-        return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("NODE_NOT_FOUND"), TEXT("Blueprint graph node not found."));
+        return ReturnNodeEditResult(false, false, TEXT("NODE_NOT_FOUND"), TEXT("Blueprint graph node not found."));
     }
 
-    if (bDryRun)
+    auto PrepareMutation = [&]()
     {
-        return MakeBlueprintNodeEditResult(true, false, Operation, NodeId);
-    }
+        TargetGraph->Modify();
+        TargetNode->Modify();
+        Blueprint->Modify();
+    };
 
     auto FinalizeChanged = [&]()
     {
@@ -3706,9 +3954,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
     };
 
     const FString OperationLower = Operation.ToLower();
-    TargetGraph->Modify();
-    TargetNode->Modify();
-    Blueprint->Modify();
 
     if (OperationLower.Equals(TEXT("addpin")))
     {
@@ -3722,8 +3967,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
             const FName NewName = Name.IsEmpty() ? FName(*FString::Printf(TEXT("Case_%d"), SwitchNameNode->PinNames.Num())) : FName(*Name);
             if (SwitchNameNode->PinNames.Contains(NewName))
             {
-                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("INVALID_ARGUMENT"), TEXT("Switch case already exists."));
+                return ReturnNodeEditResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("Switch case already exists."));
             }
+            if (bDryRun)
+            {
+                return ReturnNodeEditResult(true, false);
+            }
+            PrepareMutation();
             SwitchNameNode->PinNames.Add(NewName);
             ReconstructBlueprintNodeAfterLocalEdit(TargetNode);
         }
@@ -3732,13 +3982,23 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
             const FName NewName = Name.IsEmpty() ? FName(*FString::Printf(TEXT("Case_%d"), SwitchStringNode->PinNames.Num())) : FName(*Name);
             if (SwitchStringNode->PinNames.Contains(NewName))
             {
-                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("INVALID_ARGUMENT"), TEXT("Switch case already exists."));
+                return ReturnNodeEditResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("Switch case already exists."));
             }
+            if (bDryRun)
+            {
+                return ReturnNodeEditResult(true, false);
+            }
+            PrepareMutation();
             SwitchStringNode->PinNames.Add(NewName);
             ReconstructBlueprintNodeAfterLocalEdit(TargetNode);
         }
         else if (UK2Node_FormatText* FormatTextNode = Cast<UK2Node_FormatText>(TargetNode))
         {
+            if (bDryRun)
+            {
+                return ReturnNodeEditResult(true, false);
+            }
+            PrepareMutation();
             FormatTextNode->AddArgumentPin();
             if (!Name.IsEmpty() && FormatTextNode->GetArgumentCount() > 0)
             {
@@ -3748,6 +4008,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
         }
         else if (UK2Node_Switch* SwitchNode = Cast<UK2Node_Switch>(TargetNode))
         {
+            if (bDryRun)
+            {
+                return ReturnNodeEditResult(true, false);
+            }
+            PrepareMutation();
             SwitchNode->AddPinToSwitchNode();
             ReconstructBlueprintNodeAfterLocalEdit(TargetNode);
         }
@@ -3755,17 +4020,22 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
         {
             if (!AddPinNode->CanAddPin())
             {
-                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node cannot add another pin."));
+                return ReturnNodeEditResult(false, false, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node cannot add another pin."));
             }
+            if (bDryRun)
+            {
+                return ReturnNodeEditResult(true, false);
+            }
+            PrepareMutation();
             AddPinNode->AddInputPin();
             ReconstructBlueprintNodeAfterLocalEdit(TargetNode);
         }
         else
         {
-            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node does not support addPin."));
+            return ReturnNodeEditResult(false, false, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node does not support addPin."));
         }
         FinalizeChanged();
-        return MakeBlueprintNodeEditResult(true, true, Operation, NodeId);
+        return ReturnNodeEditResult(true, true);
     }
 
     if (OperationLower.Equals(TEXT("removepin")))
@@ -3777,12 +4047,17 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
         {
             if (!SelectNode->CanRemoveOptionPinToNode())
             {
-                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This Select node cannot remove another option pin."));
+                return ReturnNodeEditResult(false, false, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This Select node cannot remove another option pin."));
             }
             if (!PinName.IsEmpty() && Pin == nullptr)
             {
-                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("PIN_NOT_FOUND"), TEXT("Pin not found."));
+                return ReturnNodeEditResult(false, false, TEXT("PIN_NOT_FOUND"), TEXT("Pin not found."));
             }
+            if (bDryRun)
+            {
+                return ReturnNodeEditResult(true, false);
+            }
+            PrepareMutation();
             SelectNode->RemoveOptionPinToNode();
         }
         else if (UK2Node_SetFieldsInStruct* SetFieldsNode = Cast<UK2Node_SetFieldsInStruct>(TargetNode))
@@ -3791,16 +4066,21 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
             Args->TryGetStringField(TEXT("mode"), Mode);
             if (PinName.IsEmpty())
             {
-                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("INVALID_ARGUMENT"), TEXT("SetFieldsInStruct removePin requires args.pin or args.target.pin."));
+                return ReturnNodeEditResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("SetFieldsInStruct removePin requires args.pin or args.target.pin."));
             }
             if (Pin == nullptr)
             {
-                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("PIN_NOT_FOUND"), TEXT("Pin not found."));
+                return ReturnNodeEditResult(false, false, TEXT("PIN_NOT_FOUND"), TEXT("Pin not found."));
             }
             if (!UK2Node_SetFieldsInStruct::ShowCustomPinActions(Pin, false))
             {
-                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_PIN_OPERATION"), TEXT("This struct field pin cannot be hidden."));
+                return ReturnNodeEditResult(false, false, TEXT("UNSUPPORTED_PIN_OPERATION"), TEXT("This struct field pin cannot be hidden."));
             }
+            if (bDryRun)
+            {
+                return ReturnNodeEditResult(true, false);
+            }
+            PrepareMutation();
             SetFieldsNode->RemoveFieldPins(
                 Pin,
                 Mode.Equals(TEXT("otherPins"), ESearchCase::IgnoreCase)
@@ -3811,27 +4091,37 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
         {
             if (PinName.IsEmpty())
             {
-                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("INVALID_ARGUMENT"), TEXT("removePin requires args.pin or args.target.pin."));
+                return ReturnNodeEditResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("removePin requires args.pin or args.target.pin."));
             }
             if (Pin == nullptr)
             {
-                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("PIN_NOT_FOUND"), TEXT("Pin not found."));
+                return ReturnNodeEditResult(false, false, TEXT("PIN_NOT_FOUND"), TEXT("Pin not found."));
             }
 
             if (UK2Node_ExecutionSequence* SequenceNode = Cast<UK2Node_ExecutionSequence>(TargetNode))
         {
             if (!SequenceNode->CanRemoveExecutionPin())
             {
-                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This execution node cannot remove another pin."));
+                return ReturnNodeEditResult(false, false, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This execution node cannot remove another pin."));
             }
+            if (bDryRun)
+            {
+                return ReturnNodeEditResult(true, false);
+            }
+            PrepareMutation();
             SequenceNode->RemovePinFromExecutionNode(Pin);
         }
         else if (UK2Node_Switch* SwitchNode = Cast<UK2Node_Switch>(TargetNode))
         {
             if (!SwitchNode->CanRemoveExecutionPin(Pin))
             {
-                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This switch pin cannot be removed."));
+                return ReturnNodeEditResult(false, false, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This switch pin cannot be removed."));
             }
+            if (bDryRun)
+            {
+                return ReturnNodeEditResult(true, false);
+            }
+            PrepareMutation();
             SwitchNode->RemovePinFromSwitchNode(Pin);
         }
         else if (UK2Node_FormatText* FormatTextNode = Cast<UK2Node_FormatText>(TargetNode))
@@ -3839,26 +4129,36 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
             const int32 Index = FindFormatTextArgumentIndex(FormatTextNode, PinName);
             if (Index == INDEX_NONE)
             {
-                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("PIN_NOT_FOUND"), TEXT("FormatText argument not found."));
+                return ReturnNodeEditResult(false, false, TEXT("PIN_NOT_FOUND"), TEXT("FormatText argument not found."));
             }
+            if (bDryRun)
+            {
+                return ReturnNodeEditResult(true, false);
+            }
+            PrepareMutation();
             FormatTextNode->RemoveArgument(Index);
         }
         else if (IK2Node_AddPinInterface* AddPinNode = Cast<IK2Node_AddPinInterface>(TargetNode))
         {
             if (!AddPinNode->CanRemovePin(Pin))
             {
-                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This pin cannot be removed."));
+                return ReturnNodeEditResult(false, false, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This pin cannot be removed."));
             }
+            if (bDryRun)
+            {
+                return ReturnNodeEditResult(true, false);
+            }
+            PrepareMutation();
             AddPinNode->RemoveInputPin(Pin);
             ReconstructBlueprintNodeAfterLocalEdit(TargetNode);
         }
             else
             {
-                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node does not support removePin."));
+                return ReturnNodeEditResult(false, false, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node does not support removePin."));
             }
         }
         FinalizeChanged();
-        return MakeBlueprintNodeEditResult(true, true, Operation, NodeId);
+        return ReturnNodeEditResult(true, true);
     }
 
     if (OperationLower.Equals(TEXT("insertpin")))
@@ -3868,21 +4168,26 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
         Args->TryGetStringField(TEXT("position"), Position);
         if (PinName.IsEmpty())
         {
-            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("INVALID_ARGUMENT"), TEXT("insertPin requires args.target.pin."));
+            return ReturnNodeEditResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("insertPin requires args.target.pin."));
         }
         UK2Node_ExecutionSequence* SequenceNode = Cast<UK2Node_ExecutionSequence>(TargetNode);
         UEdGraphPin* Pin = FindPinByName(TargetNode, PinName);
         if (SequenceNode == nullptr)
         {
-            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("insertPin is only supported by Sequence-style execution nodes."));
+            return ReturnNodeEditResult(false, false, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("insertPin is only supported by Sequence-style execution nodes."));
         }
         if (Pin == nullptr)
         {
-            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("PIN_NOT_FOUND"), TEXT("Insert anchor pin not found."));
+            return ReturnNodeEditResult(false, false, TEXT("PIN_NOT_FOUND"), TEXT("Insert anchor pin not found."));
         }
+        if (bDryRun)
+        {
+            return ReturnNodeEditResult(true, false);
+        }
+        PrepareMutation();
         SequenceNode->InsertPinIntoExecutionNode(Pin, Position.Equals(TEXT("before"), ESearchCase::IgnoreCase) ? EPinInsertPosition::Before : EPinInsertPosition::After);
         FinalizeChanged();
-        return MakeBlueprintNodeEditResult(true, true, Operation, NodeId);
+        return ReturnNodeEditResult(true, true);
     }
 
     if (OperationLower.Equals(TEXT("renamepin")))
@@ -3892,7 +4197,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
         Args->TryGetStringField(TEXT("name"), Name);
         if (PinName.IsEmpty() || Name.IsEmpty())
         {
-            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("INVALID_ARGUMENT"), TEXT("renamePin requires args.pin and args.name."));
+            return ReturnNodeEditResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("renamePin requires args.pin and args.name."));
         }
 
         if (UK2Node_SwitchName* SwitchNameNode = Cast<UK2Node_SwitchName>(TargetNode))
@@ -3900,8 +4205,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
             const int32 Index = SwitchNameNode->PinNames.IndexOfByKey(FName(*PinName));
             if (Index == INDEX_NONE)
             {
-                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("PIN_NOT_FOUND"), TEXT("Switch case not found."));
+                return ReturnNodeEditResult(false, false, TEXT("PIN_NOT_FOUND"), TEXT("Switch case not found."));
             }
+            if (bDryRun)
+            {
+                return ReturnNodeEditResult(true, false);
+            }
+            PrepareMutation();
             SwitchNameNode->PinNames[Index] = FName(*Name);
             ReconstructBlueprintNodeAfterLocalEdit(TargetNode);
         }
@@ -3910,8 +4220,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
             const int32 Index = SwitchStringNode->PinNames.IndexOfByKey(FName(*PinName));
             if (Index == INDEX_NONE)
             {
-                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("PIN_NOT_FOUND"), TEXT("Switch case not found."));
+                return ReturnNodeEditResult(false, false, TEXT("PIN_NOT_FOUND"), TEXT("Switch case not found."));
             }
+            if (bDryRun)
+            {
+                return ReturnNodeEditResult(true, false);
+            }
+            PrepareMutation();
             SwitchStringNode->PinNames[Index] = FName(*Name);
             ReconstructBlueprintNodeAfterLocalEdit(TargetNode);
         }
@@ -3920,17 +4235,22 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
             const int32 Index = FindFormatTextArgumentIndex(FormatTextNode, PinName);
             if (Index == INDEX_NONE)
             {
-                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("PIN_NOT_FOUND"), TEXT("FormatText argument not found."));
+                return ReturnNodeEditResult(false, false, TEXT("PIN_NOT_FOUND"), TEXT("FormatText argument not found."));
             }
+            if (bDryRun)
+            {
+                return ReturnNodeEditResult(true, false);
+            }
+            PrepareMutation();
             FormatTextNode->SetArgumentName(Index, FName(*Name));
             ReconstructBlueprintNodeAfterLocalEdit(TargetNode);
         }
         else
         {
-            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node does not support renamePin."));
+            return ReturnNodeEditResult(false, false, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node does not support renamePin."));
         }
         FinalizeChanged();
-        return MakeBlueprintNodeEditResult(true, true, Operation, NodeId);
+        return ReturnNodeEditResult(true, true);
     }
 
     if (OperationLower.Equals(TEXT("movepin")))
@@ -3941,7 +4261,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
         Args->TryGetStringField(TEXT("position"), Position);
         if (PinName.IsEmpty() || !ReadBlueprintNodeEditTargetPinName(Args, TargetPinName))
         {
-            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("INVALID_ARGUMENT"), TEXT("movePin requires args.pin and args.target.pin."));
+            return ReturnNodeEditResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("movePin requires args.pin and args.target.pin."));
         }
 
         if (UK2Node_FormatText* FormatTextNode = Cast<UK2Node_FormatText>(TargetNode))
@@ -3950,12 +4270,17 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
             int32 TargetIndex = FindFormatTextArgumentIndex(FormatTextNode, TargetPinName);
             if (FromIndex == INDEX_NONE || TargetIndex == INDEX_NONE)
             {
-                return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("PIN_NOT_FOUND"), TEXT("FormatText movePin argument not found."));
+                return ReturnNodeEditResult(false, false, TEXT("PIN_NOT_FOUND"), TEXT("FormatText movePin argument not found."));
             }
             if (FromIndex == TargetIndex)
             {
-                return MakeBlueprintNodeEditResult(true, false, Operation, NodeId);
+                return ReturnNodeEditResult(true, false);
             }
+            if (bDryRun)
+            {
+                return ReturnNodeEditResult(true, false);
+            }
+            PrepareMutation();
 
             int32 DesiredIndex = TargetIndex;
             if (Position.Equals(TEXT("after"), ESearchCase::IgnoreCase))
@@ -3981,10 +4306,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
         }
         else
         {
-            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node does not support movePin."));
+            return ReturnNodeEditResult(false, false, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node does not support movePin."));
         }
         FinalizeChanged();
-        return MakeBlueprintNodeEditResult(true, true, Operation, NodeId);
+        return ReturnNodeEditResult(true, true);
     }
 
     if (OperationLower.Equals(TEXT("restorepins")))
@@ -3993,19 +4318,24 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
         {
             if (SetFieldsNode->AllPinsAreShown())
             {
-                return MakeBlueprintNodeEditResult(true, false, Operation, NodeId);
+                return ReturnNodeEditResult(true, false);
             }
+            if (bDryRun)
+            {
+                return ReturnNodeEditResult(true, false);
+            }
+            PrepareMutation();
             SetFieldsNode->RestoreAllPins();
         }
         else
         {
-            return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node does not support restorePins."));
+            return ReturnNodeEditResult(false, false, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node does not support restorePins."));
         }
         FinalizeChanged();
-        return MakeBlueprintNodeEditResult(true, true, Operation, NodeId);
+        return ReturnNodeEditResult(true, true);
     }
 
-    return MakeBlueprintNodeEditResult(false, false, Operation, NodeId, TEXT("INVALID_ARGUMENT"), TEXT("Unsupported blueprint.node.edit operation."));
+    return ReturnNodeEditResult(false, false, TEXT("INVALID_ARGUMENT"), TEXT("Unsupported blueprint.node.edit operation."));
 }
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(const TSharedPtr<FJsonObject>& Arguments)
@@ -4073,43 +4403,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
 
     auto ResolveRevision = [&](const FString& EffectiveGraphName, const FString& EffectiveInlineNodeGuid, FString& OutRevision, FString& OutCode, FString& OutMessage) -> bool
     {
-        OutRevision.Empty();
-        OutCode.Empty();
-        OutMessage.Empty();
-
-        const TSharedPtr<FJsonObject> RevisionResult = BuildBlueprintGraphInspectToolResult(BuildRevisionQueryArgs(EffectiveGraphName, EffectiveInlineNodeGuid));
-        if (!RevisionResult.IsValid())
-        {
-            OutCode = TEXT("INTERNAL_ERROR");
-            OutMessage = TEXT("Failed to resolve current blueprint revision.");
-            return false;
-        }
-
-        bool bRevisionError = false;
-        RevisionResult->TryGetBoolField(TEXT("isError"), bRevisionError);
-        if (bRevisionError)
-        {
-            RevisionResult->TryGetStringField(TEXT("code"), OutCode);
-            RevisionResult->TryGetStringField(TEXT("message"), OutMessage);
-            if (OutCode.IsEmpty())
-            {
-                OutCode = TEXT("INTERNAL_ERROR");
-            }
-            if (OutMessage.IsEmpty())
-            {
-                OutMessage = TEXT("Failed to resolve current blueprint revision.");
-            }
-            return false;
-        }
-
-        if (!RevisionResult->TryGetStringField(TEXT("revision"), OutRevision) || OutRevision.IsEmpty())
-        {
-            OutCode = TEXT("INTERNAL_ERROR");
-            OutMessage = TEXT("blueprint.graph.inspect did not return a revision for blueprint.graph.edit.");
-            return false;
-        }
-
-        return true;
+        return ResolveBlueprintMutationRevisionFromQuery(
+            [&]() { return BuildBlueprintGraphInspectToolResult(BuildRevisionQueryArgs(EffectiveGraphName, EffectiveInlineNodeGuid)); },
+            TEXT("blueprint.graph.edit"),
+            OutRevision,
+            OutCode,
+            OutMessage);
     };
 
     auto MakeBatchPreflightError = [&](int32 Index, const FString& Op, const FString& Code, const FString& Message) -> TSharedPtr<FJsonObject>

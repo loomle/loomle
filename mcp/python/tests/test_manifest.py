@@ -251,10 +251,14 @@ class ToolManifestTests(unittest.TestCase):
             ["setParent", "setSettings", "setDefault", "addInterface", "removeInterface"],
         )
         class_edit_args = class_edit_tool["inputSchema"]["properties"]["args"]["properties"]
+        class_edit_props = class_edit_tool["inputSchema"]["properties"]
         self.assertIn("settings", class_edit_args)
         self.assertIn("generateAbstractClass", class_edit_args["settings"]["properties"])
         self.assertIn("property", class_edit_args)
         self.assertIn("value", class_edit_args)
+        self.assertNotIn("returnDiff", class_edit_props)
+        self.assertNotIn("returnDiagnostics", class_edit_props)
+        self.assertIn("expectedRevision", class_edit_props)
         self.assertIn("outputSchema", class_edit_tool)
         self.assertIn("applied", class_edit_tool["outputSchema"]["properties"])
         self.assertIn("settings", class_edit_tool["outputSchema"]["properties"])
@@ -459,6 +463,19 @@ class ToolManifestTests(unittest.TestCase):
 
     def test_blueprint_node_edit_operation_schema_is_precise(self) -> None:
         manifest = load_manifest(MANIFEST)
+        tool = next(
+            tool for tool in manifest.list_tools("python")
+            if tool["name"] == "blueprint.node.edit"
+        )
+        properties = tool["inputSchema"]["properties"]
+        self.assertNotIn("returnDiff", properties)
+        self.assertNotIn("returnDiagnostics", properties)
+        self.assertIn("expectedRevision", properties)
+        self.assertIn("outputSchema", tool)
+        output_properties = tool["outputSchema"]["oneOf"][0]["properties"]
+        self.assertIn("opResults", output_properties)
+        self.assertNotIn("commandResults", output_properties)
+
         payload = manifest.inspect_schema(
             domain="blueprint",
             tool_name="blueprint.node.edit",
@@ -466,6 +483,8 @@ class ToolManifestTests(unittest.TestCase):
             include=["schema"],
         )
 
+        self.assertNotIn("returnDiff", payload["schema"]["properties"])
+        self.assertNotIn("returnDiagnostics", payload["schema"]["properties"])
         args_schema = payload["schema"]["properties"]["args"]
         self.assertEqual(args_schema["required"], ["role"])
         self.assertEqual(
