@@ -124,7 +124,7 @@ PCG_PALETTE_ENTRY_BY_CLASS: dict[str, dict] = {}
 
 def bp_branch(position: dict | None = None, *, alias: str | None = None) -> dict:
     if BP_BRANCH_ENTRY is None:
-        fail("bp_branch helper used before blueprint.palette Branch entry was resolved")
+        fail("bp_branch helper used before blueprint.graph.palette Branch entry was resolved")
     command = {"kind": "addFromPalette", "entry": BP_BRANCH_ENTRY}
     if position is not None:
         command["position"] = position
@@ -141,15 +141,15 @@ def find_palette_entry(
     preferred_label: str | None = None,
     preferred_node_class: str | None = None,
 ) -> dict:
-    payload = call_tool(client, request_id, "blueprint.palette", {
+    payload = call_tool(client, request_id, "blueprint.graph.palette", {
         "assetPath": asset_path,
-        "graphName": "EventGraph",
+        "graph": {"name": "EventGraph"},
         "query": query,
         "limit": 20,
     })
     entries = payload.get("entries")
     if not isinstance(entries, list) or not entries:
-        fail(f"blueprint.palette query {query!r} returned no entries: {payload}")
+        fail(f"blueprint.graph.palette query {query!r} returned no entries: {payload}")
     if preferred_node_class is not None:
         entry = next((
             item for item in entries
@@ -158,15 +158,15 @@ def find_palette_entry(
         ), None)
         if entry is None:
             label_suffix = f" with label {preferred_label!r}" if preferred_label is not None else ""
-            fail(f"blueprint.palette query {query!r} did not return nodeClass {preferred_node_class!r}{label_suffix}: {payload}")
+            fail(f"blueprint.graph.palette query {query!r} did not return nodeClass {preferred_node_class!r}{label_suffix}: {payload}")
     elif preferred_label is None:
         entry = entries[0]
     else:
         entry = next((item for item in entries if item.get("label") == preferred_label), None)
         if entry is None:
-            fail(f"blueprint.palette query {query!r} did not return label {preferred_label!r}: {payload}")
+            fail(f"blueprint.graph.palette query {query!r} did not return label {preferred_label!r}: {payload}")
     if not isinstance(entry, dict) or not entry.get("id"):
-        fail(f"blueprint.palette query {query!r} entry missing id: {entry}")
+        fail(f"blueprint.graph.palette query {query!r} entry missing id: {entry}")
     return entry
 
 
@@ -1570,7 +1570,7 @@ def main() -> int:
 
         global BP_BRANCH_ENTRY
         BP_BRANCH_ENTRY = find_palette_entry(client, 401, temp_asset, "Branch", "Branch")
-        print("[PASS] blueprint.palette Branch entry resolved")
+        print("[PASS] blueprint.graph.palette Branch entry resolved")
 
         blueprint_list = call_domain_tool(client, 5, "blueprint", "list", {"assetPath": temp_asset})
         graphs = blueprint_list.get("graphs")
@@ -3133,7 +3133,7 @@ def main() -> int:
             fail(f"blueprint.graph.inspect missing macro identity for addFromPalette Gate: {macro_node}")
         if macro_ext.get("macroLibraryAssetPath") != "/Engine/EditorBlueprintResources/StandardMacros":
             fail(f"blueprint.graph.inspect macro library mismatch: {macro_node}")
-        print("[PASS] blueprint.palette MacroInstance creation validated")
+        print("[PASS] blueprint.graph.palette MacroInstance creation validated")
 
         self_entry = find_palette_entry(
             client,
@@ -3814,22 +3814,22 @@ def main() -> int:
         op_ok(remove_e)
         print("[PASS] blueprint.graph.edit addNode.byClass auto-placement validated")
 
-        palette_branch = call_tool(client, 1809, "blueprint.palette", {
+        palette_branch = call_tool(client, 1809, "blueprint.graph.palette", {
             "assetPath": temp_asset,
-            "graphName": "EventGraph",
+            "graph": {"name": "EventGraph"},
             "query": "Branch",
             "limit": 10,
         })
         palette_entries = palette_branch.get("entries")
         if not isinstance(palette_entries, list) or not palette_entries:
-            fail(f"blueprint.palette query Branch returned no entries: {palette_branch}")
+            fail(f"blueprint.graph.palette query Branch returned no entries: {palette_branch}")
         branch_entry = next((entry for entry in palette_entries if entry.get("label") == "Branch"), palette_entries[0])
         if not branch_entry.get("id"):
-            fail(f"blueprint.palette entry missing id: {branch_entry}")
+            fail(f"blueprint.graph.palette entry missing id: {branch_entry}")
         if branch_entry.get("actionType") not in {"nodeSpawner", "schemaAction"}:
-            fail(f"blueprint.palette entry has unexpected actionType: {branch_entry}")
+            fail(f"blueprint.graph.palette entry has unexpected actionType: {branch_entry}")
         if branch_entry.get("contextSensitive") is not True or branch_entry.get("executable") is not True:
-            fail(f"blueprint.palette nodeSpawner metadata mismatch: {branch_entry}")
+            fail(f"blueprint.graph.palette nodeSpawner metadata mismatch: {branch_entry}")
         dry_palette = call_tool(client, 18095, "blueprint.graph.edit", {
             "assetPath": temp_asset,
             "graphName": "EventGraph",
@@ -3875,7 +3875,7 @@ def main() -> int:
             },
         )
         op_ok(remove_palette_node)
-        print("[PASS] blueprint.palette and addFromPalette Branch creation validated")
+        print("[PASS] blueprint.graph.palette and addFromPalette Branch creation validated")
 
         switch_name_entry = find_palette_entry(
             client,
@@ -4188,20 +4188,20 @@ def main() -> int:
             fail(f"blueprint.node.edit restorePins did not restore SetFieldsInStruct field: {set_fields_inspect_final}")
         print("[PASS] blueprint.node.edit SetFieldsInStruct field hide/restore validated")
 
-        palette_schema = call_tool(client, 1813, "blueprint.palette", {
+        palette_schema = call_tool(client, 1813, "blueprint.graph.palette", {
             "assetPath": temp_asset,
-            "graphName": "EventGraph",
+            "graph": {"name": "EventGraph"},
             "query": "Select a Component",
             "limit": 20,
         })
         schema_entries = palette_schema.get("entries")
         if not isinstance(schema_entries, list) or not schema_entries:
-            fail(f"blueprint.palette schema action query returned no entries: {palette_schema}")
+            fail(f"blueprint.graph.palette schema action query returned no entries: {palette_schema}")
         schema_entry = next((entry for entry in schema_entries if entry.get("actionType") == "schemaAction"), None)
         if not isinstance(schema_entry, dict):
-            fail(f"blueprint.palette schema action missing from query: {palette_schema}")
+            fail(f"blueprint.graph.palette schema action missing from query: {palette_schema}")
         if schema_entry.get("executable") is not False:
-            fail(f"blueprint.palette schema action should report executable=false: {schema_entry}")
+            fail(f"blueprint.graph.palette schema action should report executable=false: {schema_entry}")
         schema_dry_run = call_tool(client, 1814, "blueprint.graph.edit", {
             "assetPath": temp_asset,
             "graphName": "EventGraph",
@@ -4215,7 +4215,7 @@ def main() -> int:
         schema_result = schema_dry_run.get("opResults", [{}])[0]
         if schema_result.get("errorCode") != "PALETTE_ENTRY_NOT_EXECUTABLE":
             fail(f"schema action addFromPalette dryRun should fail as not executable: {schema_dry_run}")
-        print("[PASS] blueprint.palette schema action non-executable metadata validated")
+        print("[PASS] blueprint.graph.palette schema action non-executable metadata validated")
 
         remove_a = call_domain_tool(
             client,

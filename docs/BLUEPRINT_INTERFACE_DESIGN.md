@@ -66,7 +66,7 @@ Recommended public graph surface:
 - `blueprint.graph.inspect`
 - `blueprint.graph.edit`
 - `blueprint.graph.layout`
-- `blueprint.palette`
+- `blueprint.graph.palette`
 - `blueprint.compile`
 
 ## Domain 1: Asset
@@ -486,7 +486,7 @@ Graph is a conceptual domain. Public MCP tools should keep high-frequency graph 
 - `blueprint.graph.inspect`
 - `blueprint.graph.edit`
 - `blueprint.graph.layout`
-- `blueprint.palette`
+- `blueprint.graph.palette`
 
 ### Graph Management Operations
 
@@ -1716,7 +1716,7 @@ The former public graph transformation and generation tools are retired:
 - `blueprint.graph.generate`
 - `blueprint.graph.recipe.*`
 
-They remain archived as design history in `docs/archive/legacy/BLUEPRINT_GRAPH_REFACTOR_GENERATE_RETIRED.md`. The public path is explicit `blueprint.graph.inspect`, `blueprint.palette`, `blueprint.graph.edit`, and `blueprint.graph.layout`.
+They remain archived as design history in `docs/archive/legacy/BLUEPRINT_GRAPH_REFACTOR_GENERATE_RETIRED.md`. The public path is explicit `blueprint.graph.inspect`, `blueprint.graph.palette`, `blueprint.graph.edit`, and `blueprint.graph.layout`.
 
 ## Graph Mutation Boundary Summary
 
@@ -1878,7 +1878,7 @@ The current recommended public Blueprint surface for these domains is:
 - `blueprint.graph.inspect`
 - `blueprint.graph.edit`
 - `blueprint.graph.layout`
-- `blueprint.palette`
+- `blueprint.graph.palette`
 - `blueprint.compile`
 
 ## Deferred Topics

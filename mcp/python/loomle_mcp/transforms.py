@@ -102,7 +102,7 @@ def apply_args_transform(transform: Any, arguments: dict[str, Any]) -> dict[str,
         return blueprint_node_inspect_args(arguments)
     if name == "blueprint.node.edit.args.v1":
         return blueprint_node_edit_args(arguments)
-    if name == "blueprint.palette.args.v1":
+    if name == "blueprint.graph.palette.args.v1":
         return blueprint_palette_args(arguments)
     if name == "blueprint.compile.args.v1":
         return blueprint_compile_args(arguments)
@@ -188,6 +188,41 @@ def string_field(arguments: dict[str, Any], field: str) -> str | None:
 def copy_if_present(source: dict[str, Any], target: dict[str, Any], field: str) -> None:
     if field in source:
         target[field] = source[field]
+
+
+def validate_int_range(
+    target: dict[str, Any],
+    field: str,
+    minimum: int,
+    maximum: int | None,
+    tool_name: str,
+) -> None:
+    if field not in target:
+        return
+    value = target[field]
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise TransformError(f"{tool_name} {field} must be an integer.")
+    if value < minimum or (maximum is not None and value > maximum):
+        if maximum is None:
+            raise TransformError(f"{tool_name} {field} must be at least {minimum}.")
+        raise TransformError(f"{tool_name} {field} must be between {minimum} and {maximum}.")
+
+
+def normalize_blueprint_palette_from_pins(value: Any, tool_name: str) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        raise TransformError(f"{tool_name} fromPins must be an array.")
+    normalized: list[dict[str, str]] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise TransformError(f"{tool_name} fromPins[{index}] must be an object.")
+        node = item.get("node")
+        if not isinstance(node, dict) or not isinstance(node.get("id"), str) or not node["id"]:
+            raise TransformError(f"{tool_name} fromPins[{index}] requires node.id.")
+        pin = item.get("pin")
+        if not isinstance(pin, str) or not pin:
+            raise TransformError(f"{tool_name} fromPins[{index}] requires pin.")
+        normalized.append({"nodeId": node["id"], "pin": pin})
+    return normalized
 
 
 def copy_mutation_controls(source: dict[str, Any], target: dict[str, Any]) -> None:
@@ -438,14 +473,20 @@ def blueprint_node_edit_args(arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def blueprint_palette_args(arguments: dict[str, Any]) -> dict[str, Any]:
+    if "graphName" in arguments or "graphRef" in arguments:
+        raise TransformError("blueprint.graph.palette uses graph:{id|name}; graphName and graphRef are not public inputs.")
     asset_path = string_field(arguments, "assetPath")
     if asset_path is None:
-        raise TransformError("blueprint.palette requires assetPath.")
+        raise TransformError("blueprint.graph.palette requires assetPath.")
     out: dict[str, Any] = {"assetPath": asset_path}
-    graph_name, graph_ref = blueprint_graph_address(arguments, asset_path, "blueprint.palette", required=False)
+    graph_name, graph_ref = blueprint_graph_address(arguments, asset_path, "blueprint.graph.palette", required=True)
     write_graph_address(out, graph_name, graph_ref)
-    for field in ["query", "contextSensitive", "fromPins", "limit", "offset"]:
+    for field in ["query", "contextSensitive", "limit", "offset"]:
         copy_if_present(arguments, out, field)
+    if "fromPins" in arguments:
+        out["fromPins"] = normalize_blueprint_palette_from_pins(arguments["fromPins"], "blueprint.graph.palette")
+    validate_int_range(out, "limit", 1, 500, "blueprint.graph.palette")
+    validate_int_range(out, "offset", 0, None, "blueprint.graph.palette")
     return out
 
 
@@ -515,8 +556,10 @@ def compile_blueprint_graph_command(command: Any) -> list[dict[str, Any]]:
         if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
             raise TransformError("addFromPalette requires entry.id.")
         args: dict[str, Any] = {"entryId": entry["id"], "entry": entry}
-        for field in ["position", "anchor", "from", "fromPins", "contextSensitive"]:
+        for field in ["position", "anchor", "from", "contextSensitive"]:
             copy_if_present(command, args, field)
+        if "fromPins" in command:
+            args["fromPins"] = normalize_blueprint_palette_from_pins(command["fromPins"], "addFromPalette")
         if "contextSensitive" not in args and isinstance(entry.get("contextSensitive"), bool):
             args["contextSensitive"] = entry["contextSensitive"]
         op: dict[str, Any] = {"op": "addFromPalette", "args": args}

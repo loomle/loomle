@@ -6169,9 +6169,9 @@
       }
     },
     {
-      "name": "blueprint.palette",
+      "name": "blueprint.graph.palette",
       "title": "Blueprint Palette",
-      "description": "Search UE Blueprint Action Menu entries for graph creation.",
+      "description": "Search UE Blueprint Action Menu entries for graph node creation.",
       "availability": [
         "native",
         "python"
@@ -6211,11 +6211,6 @@
               }
             ]
           },
-          "graphName": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Legacy compatibility graph address. Prefer graph:{id|name} for new calls."
-          },
           "query": {
             "type": "string"
           },
@@ -6228,31 +6223,35 @@
             "items": {
               "type": "object",
               "properties": {
-                "nodeId": {
-                  "type": "string"
-                },
-                "nodeName": {
-                  "type": "string"
-                },
-                "nodePath": {
-                  "type": "string"
-                },
-                "pinId": {
-                  "type": "string"
-                },
-                "pinName": {
-                  "type": "string"
+                "node": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "additionalProperties": false
                 },
                 "pin": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 1
                 }
               },
+              "required": [
+                "node",
+                "pin"
+              ],
               "additionalProperties": false
             }
           },
           "limit": {
             "type": "integer",
             "minimum": 1,
+            "maximum": 500,
             "default": 50
           },
           "offset": {
@@ -6262,15 +6261,152 @@
           }
         },
         "required": [
-          "assetPath"
+          "assetPath",
+          "graph"
         ],
         "additionalProperties": false
+      },
+      "outputSchema": {
+        "oneOf": [
+          {
+            "type": "object",
+            "title": "Blueprint Graph Palette Result",
+            "properties": {
+              "isError": {
+                "type": "boolean",
+                "const": false
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/paletteEntry"
+                }
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 500
+              },
+              "assetPath": {
+                "type": "string"
+              },
+              "graphName": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "isError",
+              "entries",
+              "total",
+              "offset",
+              "limit",
+              "assetPath"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "title": "Blueprint Graph Palette Error",
+            "properties": {
+              "isError": {
+                "type": "boolean",
+                "const": true
+              },
+              "code": {
+                "type": "string",
+                "enum": [
+                  "INVALID_ARGUMENT",
+                  "ASSET_NOT_FOUND",
+                  "GRAPH_NOT_FOUND",
+                  "PIN_NOT_FOUND",
+                  "PALETTE_QUERY_FAILED",
+                  "INTERNAL_ERROR"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "isError",
+              "code",
+              "message"
+            ],
+            "additionalProperties": true
+          }
+        ],
+        "$defs": {
+          "paletteEntry": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "label": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string"
+              },
+              "tooltip": {
+                "type": "string"
+              },
+              "keywords": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "actionType": {
+                "type": "string",
+                "enum": [
+                  "nodeSpawner",
+                  "schemaAction"
+                ]
+              },
+              "nodeClass": {
+                "type": "string"
+              },
+              "requiresContext": {
+                "type": "boolean"
+              },
+              "contextSensitive": {
+                "type": "boolean"
+              },
+              "executable": {
+                "type": "boolean"
+              },
+              "unavailableReason": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "actionType",
+              "requiresContext",
+              "contextSensitive",
+              "executable"
+            ],
+            "additionalProperties": true
+          }
+        }
       },
       "dispatch": {
         "kind": "bridgeRpc",
         "tool": "blueprint.palette",
         "args": {
-          "transform": "blueprint.palette.args.v1"
+          "transform": "blueprint.graph.palette.args.v1"
         },
         "result": "structured"
       }
@@ -6412,7 +6548,7 @@
           {
             "name": "addFromPalette",
             "category": "core",
-            "summary": "Execute one selected blueprint.palette entry.",
+            "summary": "Execute one selected blueprint.graph.palette entry.",
             "schema": {
               "type": "object",
               "properties": {
@@ -6442,7 +6578,7 @@
                 "fromPins": {
                   "type": "array",
                   "items": {
-                    "type": "object"
+                    "$ref": "#/$defs/pinRef"
                   }
                 },
                 "contextSensitive": {
@@ -6537,7 +6673,7 @@
               "PALETTE_ENTRY_NOT_EXECUTABLE"
             ],
             "notes": [
-              "entry should be the full object returned by blueprint.palette."
+              "entry should be the full object returned by blueprint.graph.palette."
             ]
           },
           {

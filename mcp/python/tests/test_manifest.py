@@ -27,7 +27,7 @@ class ToolManifestTests(unittest.TestCase):
         self.assertIn("schema.inspect", names)
         self.assertIn("context", names)
         self.assertIn("blueprint.graph.list", names)
-        self.assertIn("blueprint.palette", names)
+        self.assertIn("blueprint.graph.palette", names)
         self.assertIn("blueprint.compile", names)
         self.assertIn("blueprint.graph.edit", names)
         self.assertIn("material.palette", names)
@@ -157,6 +157,25 @@ class ToolManifestTests(unittest.TestCase):
 
         required = set(tool["inputSchema"]["required"])
         self.assertEqual(required, {"assetPath", "commands"})
+
+    def test_blueprint_graph_palette_manifest_is_graph_scoped(self) -> None:
+        manifest = load_manifest(MANIFEST)
+        tool = next(
+            tool for tool in manifest.list_tools("python")
+            if tool["name"] == "blueprint.graph.palette"
+        )
+
+        input_schema = tool["inputSchema"]
+        self.assertEqual(set(input_schema["required"]), {"assetPath", "graph"})
+        self.assertNotIn("graphName", input_schema["properties"])
+        self.assertEqual(input_schema["properties"]["limit"]["maximum"], 500)
+        from_pin = input_schema["properties"]["fromPins"]["items"]
+        self.assertEqual(set(from_pin["required"]), {"node", "pin"})
+
+        output_schema = tool["outputSchema"]
+        titles = {entry["title"] for entry in output_schema["oneOf"]}
+        self.assertIn("Blueprint Graph Palette Result", titles)
+        self.assertIn("Blueprint Graph Palette Error", titles)
 
     def test_blueprint_graph_list_manifest_exposes_inventory_contract(self) -> None:
         manifest = load_manifest(MANIFEST)

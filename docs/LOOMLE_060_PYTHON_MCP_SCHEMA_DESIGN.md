@@ -84,7 +84,7 @@ schema。
         "operations": [
           {
             "name": "addFromPalette",
-            "summary": "Execute one selected blueprint.palette entry.",
+            "summary": "Execute one selected blueprint.graph.palette entry.",
             "schema": { "$ref": "#/$defs/blueprintGraphEditAddFromPalette" },
             "examples": []
           }

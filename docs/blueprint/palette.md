@@ -2,19 +2,19 @@
 
 ## Intent
 
-`blueprint.palette` exposes Unreal Engine's Blueprint Action Menu to agents.
+`blueprint.graph.palette` exposes Unreal Engine's Blueprint Action Menu to agents.
 
 Its purpose is creation discovery. An agent should use it to find what UE can
 add to a Blueprint graph in a specific context, then execute the selected entry
 through `blueprint.graph.edit`.
 
-`blueprint.palette` is not a static node database and not a Loomle-curated node
+`blueprint.graph.palette` is not a static node database and not a Loomle-curated node
 catalog. It should return entries derived from UE's own action menu machinery
 for the requested Blueprint, graph, and optional pin context.
 
 The standard agent-facing node creation flow should be:
 
-1. Query `blueprint.palette`.
+1. Query `blueprint.graph.palette`.
 2. Select a returned palette entry.
 3. Execute that entry with `blueprint.graph.edit` using `addFromPalette`.
 
@@ -43,7 +43,7 @@ selected entry in the matching context.
 
 ## Tool Boundary
 
-`blueprint.palette` is read-only.
+`blueprint.graph.palette` is read-only.
 
 It searches UE-supported creation actions. It does not create nodes, choose
 positions, assign aliases, connect pins, or mutate the graph.
@@ -54,7 +54,7 @@ The recommended creation operation is `addFromPalette`. Lower-level by-class
 creation may still exist for fallback or specialized cases, but it should not be
 the primary agent-facing path for ordinary Blueprint node creation.
 
-## `blueprint.palette`
+## `blueprint.graph.palette`
 
 ### Input Schema
 
@@ -69,7 +69,7 @@ the primary agent-facing path for ordinary Blueprint node creation.
     },
     "graph": {
       "type": "object",
-      "description": "Graph reference. If omitted, Loomle may use the Blueprint's primary event graph when unambiguous."
+      "description": "Graph reference from blueprint.graph.list or blueprint.graph.inspect. Use {\"id\":\"...\"} when available, otherwise {\"name\":\"EventGraph\"}."
     },
     "query": {
       "type": "string",
@@ -85,10 +85,17 @@ the primary agent-facing path for ordinary Blueprint node creation.
       "items": {
         "type": "object",
         "properties": {
-          "nodeId": { "type": "string" },
-          "pinId": { "type": "string" },
-          "pinName": { "type": "string" }
+          "node": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "minLength": 1 }
+            },
+            "required": ["id"],
+            "additionalProperties": false
+          },
+          "pin": { "type": "string", "minLength": 1 }
         },
+        "required": ["node", "pin"],
         "additionalProperties": false
       },
       "description": "Optional dragged-from pin context, matching UE's pin-based action menu behavior."
@@ -96,6 +103,7 @@ the primary agent-facing path for ordinary Blueprint node creation.
     "limit": {
       "type": "integer",
       "minimum": 1,
+      "maximum": 500,
       "default": 50
     },
     "offset": {
@@ -104,7 +112,7 @@ the primary agent-facing path for ordinary Blueprint node creation.
       "default": 0
     }
   },
-  "required": ["assetPath"],
+  "required": ["assetPath", "graph"],
   "additionalProperties": false
 }
 ```
@@ -119,11 +127,14 @@ the primary agent-facing path for ordinary Blueprint node creation.
       "type": "array",
       "items": { "$ref": "#/$defs/paletteEntry" }
     },
+    "isError": { "const": false },
+    "assetPath": { "type": "string" },
+    "graphName": { "type": "string" },
     "total": { "type": "integer" },
     "offset": { "type": "integer" },
     "limit": { "type": "integer" }
   },
-  "required": ["entries", "total", "offset", "limit"],
+  "required": ["isError", "entries", "total", "offset", "limit", "assetPath"],
   "$defs": {
     "paletteEntry": {
       "type": "object",
@@ -202,7 +213,7 @@ selected palette entry.
 
 The operation consumes the selected entry and provides mutation choices such as
 position, alias, and optional pin context. These are agent decisions and should
-not be returned by `blueprint.palette`.
+not be returned by `blueprint.graph.palette`.
 
 ```json
 {
@@ -217,8 +228,8 @@ not be returned by `blueprint.palette`.
   "alias": "print",
   "fromPins": [
     {
-      "nodeId": "...",
-      "pinId": "..."
+      "node": { "id": "..." },
+      "pin": "Then"
     }
   ]
 }
@@ -257,22 +268,29 @@ not be returned by `blueprint.palette`.
       "items": {
         "type": "object",
         "properties": {
-          "nodeId": { "type": "string" },
-          "pinId": { "type": "string" },
-          "pinName": { "type": "string" }
+          "node": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "minLength": 1 }
+            },
+            "required": ["id"],
+            "additionalProperties": false
+          },
+          "pin": { "type": "string", "minLength": 1 }
         },
+        "required": ["node", "pin"],
         "additionalProperties": false
       }
     }
   },
-  "required": ["kind", "entry", "position"],
+  "required": ["kind", "entry"],
   "additionalProperties": false
 }
 ```
 
 ## Internal Implementation
 
-`blueprint.palette` should build the same kind of action context UE uses for
+`blueprint.graph.palette` should build the same kind of action context UE uses for
 the Blueprint Action Menu:
 
 1. Load and validate the Blueprint asset.
@@ -309,7 +327,7 @@ The guarded spawner families are:
 - delegate spawners, which require a valid delegate property owner
 - bound-event spawners, which require a valid event delegate owner
 
-When a guarded entry is unsafe, `blueprint.palette` returns it with
+When a guarded entry is unsafe, `blueprint.graph.palette` returns it with
 `executable=false` and an `unavailableReason`; `addFromPalette` returns the
 same structured diagnostic instead of calling `FBlueprintActionMenuItem` and
 risking an editor crash.
@@ -334,7 +352,7 @@ Each discovered action should be classified along two axes.
 
 Discovery coverage:
 
-- `listed`: Loomle can return the entry from `blueprint.palette`.
+- `listed`: Loomle can return the entry from `blueprint.graph.palette`.
 - `filtered`: UE returns the entry only in specific contexts.
 - `hidden`: Loomle cannot currently surface the entry.
 
@@ -353,7 +371,7 @@ Current audit baseline:
 - Project: Loomle test project
 - Blueprint: temporary Actor Blueprint generated by
   `tools/audit_blueprint_palette.py`
-- Measurement: live `blueprint.palette` pagination over UE Action Menu results
+- Measurement: live `blueprint.graph.palette` pagination over UE Action Menu results
 - Audit command:
   `python3 tools/audit_blueprint_palette.py --json-out .tmp/blueprint-palette-audit.json --markdown-out .tmp/blueprint-palette-audit.md`
 - Execution sample command:
@@ -440,11 +458,11 @@ Current grouped audit result with one sample per group:
 Schema actions are still listed because UE includes them in Action Menu results,
 but `addFromPalette` rejects them explicitly because they are not node spawners.
 This is an execution-path distinction, not a reason to hide them from
-`blueprint.palette`.
+`blueprint.graph.palette`.
 
 ## Non-Goals
 
-`blueprint.palette` should not:
+`blueprint.graph.palette` should not:
 
 - return a complete static list of all Blueprint node classes
 - maintain a Loomle-specific node catalog as the primary source of truth

@@ -1090,7 +1090,7 @@ fn blueprint_graph_edit_operation_names() -> Vec<&'static str> {
 
 fn blueprint_graph_edit_operation_index() -> Vec<serde_json::Value> {
     vec![
-        serde_json::json!({"name":"addFromPalette","category":"core","summary":"Execute one selected blueprint.palette entry."}),
+        serde_json::json!({"name":"addFromPalette","category":"core","summary":"Execute one selected blueprint.graph.palette entry."}),
         serde_json::json!({"name":"connect","category":"core","summary":"Create one explicit pin link."}),
         serde_json::json!({"name":"disconnect","category":"core","summary":"Remove one explicit pin link."}),
         serde_json::json!({"name":"breakLinks","category":"core","summary":"Remove all links from one pin."}),
@@ -1113,7 +1113,7 @@ fn blueprint_graph_edit_operation_schema(
     let (category, summary, schema, examples, errors, notes) = match operation {
         "addFromPalette" => (
             "core",
-            "Execute one selected blueprint.palette entry.",
+            "Execute one selected blueprint.graph.palette entry.",
             serde_json::json!({
                 "type":"object",
                 "properties":{
@@ -1121,7 +1121,7 @@ fn blueprint_graph_edit_operation_schema(
                     "entry":{"type":"object","properties":{"id":{"type":"string","minLength":1}},"required":["id"],"additionalProperties":true},
                     "position":{"$ref":"#/$defs/position"},
                     "alias":{"type":"string","minLength":1},
-                    "fromPins":{"type":"array","items":{"type":"object"}},
+                    "fromPins":{"type":"array","items":{"$ref":"#/$defs/pinRef"}},
                     "contextSensitive":{"type":"boolean"}
                 },
                 "required":["kind","entry"],
@@ -1131,7 +1131,7 @@ fn blueprint_graph_edit_operation_schema(
                 serde_json::json!({"kind":"addFromPalette","entry":{"id":"palette:..."},"position":{"x":400,"y":200},"alias":"branch"}),
             ],
             vec!["PALETTE_ENTRY_NOT_EXECUTABLE"],
-            vec!["entry should be the full object returned by blueprint.palette."],
+            vec!["entry should be the full object returned by blueprint.graph.palette."],
         ),
         "connect" => (
             "core",

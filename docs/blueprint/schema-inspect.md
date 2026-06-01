@@ -78,7 +78,7 @@ Blueprint behavior.
   "tool": "blueprint.graph.edit",
   "operation": "addFromPalette",
   "category": "core",
-  "summary": "Execute one selected blueprint.palette entry.",
+  "summary": "Execute one selected blueprint.graph.palette entry.",
   "schema": {},
   "examples": [],
   "errors": [],
@@ -109,7 +109,7 @@ index:
 
 For Blueprint graph node creation:
 
-1. Call `blueprint.palette` to find a UE Action Menu entry.
+1. Call `blueprint.graph.palette` to find a UE Action Menu entry.
 2. Call `schema.inspect` with `tool="blueprint.graph.edit"` and
    `operation="addFromPalette"`.
 3. Call `blueprint.graph.edit` with the returned command shape.
@@ -189,7 +189,7 @@ The first implementation should cover:
 - `blueprint.graph.edit` operation index
 - core graph edit commands
 - secondary graph edit commands as non-core entries
-- `blueprint.palette` entry and `addFromPalette` relationship
+- `blueprint.graph.palette` entry and `addFromPalette` relationship
 - `blueprint.member.edit` operation index
 - common member edit request schemas for variable, function, macro, dispatcher,
   event, and component operations

@@ -26,7 +26,7 @@ loaded on demand through the schema inspection flow.
 
 It does not own:
 
-- palette discovery, which belongs to `blueprint.palette`
+- palette discovery, which belongs to `blueprint.graph.palette`
 - fuzzy or semantic refactor planning; callers should inspect first and compose
   explicit edit commands
 - recipe expansion as a separate public abstraction
@@ -87,7 +87,7 @@ These are the first-class public command vocabulary:
 
 | Command | Purpose |
 | --- | --- |
-| `addFromPalette` | Execute one selected `blueprint.palette` entry. |
+| `addFromPalette` | Execute one selected `blueprint.graph.palette` entry. |
 | `connect` | Create one explicit pin link. |
 | `disconnect` | Remove one explicit pin link. |
 | `breakLinks` | Remove all links from one pin. |
@@ -170,7 +170,7 @@ Pins are always node-qualified. Fuzzy pin lookup is not part of
 
 ### addFromPalette
 
-Creates a node by executing one entry returned from `blueprint.palette`.
+Creates a node by executing one entry returned from `blueprint.graph.palette`.
 
 ```json
 {
@@ -195,10 +195,10 @@ Optional fields:
 
 Rules:
 
-- `entry` should be the full palette entry returned by `blueprint.palette`.
+- `entry` should be the full palette entry returned by `blueprint.graph.palette`.
 - `alias` is request-local and is chosen by the agent.
 - dry run must resolve the same palette entry but must not mutate the graph.
-- schema actions are listed by `blueprint.palette` but rejected with
+- schema actions are listed by `blueprint.graph.palette` but rejected with
   `PALETTE_ENTRY_NOT_EXECUTABLE`.
 
 ### connect

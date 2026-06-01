@@ -6582,32 +6582,34 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintInspectToolResult(con
 
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintPaletteToolResult(const TSharedPtr<FJsonObject>& Arguments) const
 {
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("isError"), false);
+
     FString AssetPath;
     FString GraphName;
-    if (Arguments.IsValid())
+    FString InlineNodeGuid;
+    if (!BuildBlueprintQueryAddress(Arguments, AssetPath, GraphName, InlineNodeGuid, Result))
     {
-        Arguments->TryGetStringField(TEXT("assetPath"), AssetPath);
-        Arguments->TryGetStringField(TEXT("graphName"), GraphName);
-    }
-
-    AssetPath = NormalizeAssetPath(AssetPath);
-    if (AssetPath.IsEmpty())
-    {
-        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-        Result->SetBoolField(TEXT("isError"), true);
-        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Result->SetStringField(TEXT("message"), TEXT("blueprint.palette requires assetPath."));
         return Result;
     }
+    (void)InlineNodeGuid;
 
     FString PayloadJson = SerializeBlueprintJsonObjectCondensed(Arguments);
     FString OutJson;
     FString OutError;
     if (!FLoomleBlueprintAdapter::SearchBlueprintPalette(AssetPath, GraphName, PayloadJson, OutJson, OutError))
     {
-        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
         Result->SetBoolField(TEXT("isError"), true);
-        Result->SetStringField(TEXT("code"), TEXT("PALETTE_QUERY_FAILED"));
+        const FString Code = OutError.Contains(TEXT("Blueprint asset was not found"))
+            ? TEXT("ASSET_NOT_FOUND")
+            : OutError.Contains(TEXT("Target Blueprint graph was not found"))
+            ? TEXT("GRAPH_NOT_FOUND")
+            : OutError.Contains(TEXT("source pin was not found"))
+            ? TEXT("PIN_NOT_FOUND")
+            : OutError.Contains(TEXT("Invalid palette payload JSON"))
+            ? TEXT("INVALID_ARGUMENT")
+            : TEXT("PALETTE_QUERY_FAILED");
+        Result->SetStringField(TEXT("code"), Code);
         Result->SetStringField(TEXT("message"), OutError.IsEmpty() ? TEXT("blueprint.palette failed.") : OutError);
         return Result;
     }
@@ -6616,7 +6618,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintPaletteToolResult(con
     const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(OutJson);
     if (!FJsonSerializer::Deserialize(Reader, Parsed) || !Parsed.IsValid())
     {
-        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
         Result->SetBoolField(TEXT("isError"), true);
         Result->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
         Result->SetStringField(TEXT("message"), TEXT("Failed to parse blueprint.palette result."));

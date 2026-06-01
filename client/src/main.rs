@@ -1097,7 +1097,7 @@ impl LoomleProxyServer {
             "blueprint.member.edit" => Ok(Some(
                 self.runtime_call("blueprint.member.edit", args).await?,
             )),
-            "blueprint.palette" => Ok(Some(self.call_blueprint_palette(args).await?)),
+            "blueprint.graph.palette" => Ok(Some(self.call_blueprint_palette(args).await?)),
             _ => Ok(None),
         }
     }
@@ -1924,6 +1924,66 @@ fn copy_if_present(
     if let Some(value) = source.get(field) {
         target.insert(field.to_owned(), value.clone());
     }
+}
+
+fn validate_integer_range(
+    object: &rmcp::model::JsonObject,
+    field: &str,
+    min: i64,
+    max: i64,
+    tool_name: &str,
+) -> Result<(), CallToolResult> {
+    let Some(value) = object.get(field) else {
+        return Ok(());
+    };
+    let Some(number) = value.as_i64() else {
+        return Err(invalid_argument_result(format!(
+            "{tool_name} {field} must be an integer."
+        )));
+    };
+    if number < min || number > max {
+        return Err(invalid_argument_result(format!(
+            "{tool_name} {field} must be between {min} and {max}."
+        )));
+    }
+    Ok(())
+}
+
+fn normalize_blueprint_palette_from_pins(
+    value: &serde_json::Value,
+    tool_name: &str,
+) -> Result<serde_json::Value, CallToolResult> {
+    let Some(items) = value.as_array() else {
+        return Err(invalid_argument_result(format!(
+            "{tool_name} fromPins must be an array."
+        )));
+    };
+    let mut normalized = Vec::new();
+    for (index, item) in items.iter().enumerate() {
+        let Some(object) = item.as_object() else {
+            return Err(invalid_argument_result(format!(
+                "{tool_name} fromPins[{index}] must be an object."
+            )));
+        };
+        let node_id = object
+            .get("node")
+            .and_then(|value| value.as_object())
+            .and_then(|node| node.get("id"))
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                invalid_argument_result(format!("{tool_name} fromPins[{index}] requires node.id."))
+            })?;
+        let pin = object
+            .get("pin")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                invalid_argument_result(format!("{tool_name} fromPins[{index}] requires pin."))
+            })?;
+        normalized.push(serde_json::json!({"nodeId": node_id, "pin": pin}));
+    }
+    Ok(serde_json::Value::Array(normalized))
 }
 
 fn copy_mutation_controls(source: &rmcp::model::JsonObject, target: &mut rmcp::model::JsonObject) {
@@ -4683,14 +4743,34 @@ fn shape_pcg_graph_inspect_result(
 fn translate_blueprint_palette_args(
     args: &rmcp::model::JsonObject,
 ) -> Result<rmcp::model::JsonObject, CallToolResult> {
-    let asset_path = read_required_asset_path(args, "blueprint.palette")?;
-    let graph_address = read_optional_graph_address(args, &asset_path, true, "blueprint.palette")?;
+    if args.contains_key("graphName") || args.contains_key("graphRef") {
+        return Err(invalid_argument_result(
+            "blueprint.graph.palette uses graph:{id|name}; graphName and graphRef are not public inputs.",
+        ));
+    }
+    let asset_path = read_required_asset_path(args, "blueprint.graph.palette")?;
+    let graph_address =
+        read_optional_graph_address(args, &asset_path, true, "blueprint.graph.palette")?;
     let mut translated = rmcp::model::JsonObject::new();
     translated.insert("assetPath".into(), serde_json::json!(asset_path));
     write_optional_graph_address(&mut translated, graph_address);
-    for field in ["query", "contextSensitive", "fromPins", "limit", "offset"] {
+    for field in ["query", "contextSensitive", "limit", "offset"] {
         copy_if_present(args, &mut translated, field);
     }
+    if let Some(from_pins) = args.get("fromPins") {
+        translated.insert(
+            "fromPins".into(),
+            normalize_blueprint_palette_from_pins(from_pins, "blueprint.graph.palette")?,
+        );
+    }
+    validate_integer_range(&translated, "limit", 1, 500, "blueprint.graph.palette")?;
+    validate_integer_range(
+        &translated,
+        "offset",
+        0,
+        i64::MAX,
+        "blueprint.graph.palette",
+    )?;
     Ok(translated)
 }
 
@@ -5224,8 +5304,14 @@ fn compile_add_from_palette_command(
     let mut args = serde_json::Map::new();
     args.insert("entryId".into(), serde_json::json!(entry_id));
     args.insert("entry".into(), serde_json::Value::Object(entry.clone()));
-    for field in ["position", "anchor", "from", "fromPins", "contextSensitive"] {
+    for field in ["position", "anchor", "from", "contextSensitive"] {
         copy_if_present(command, &mut args, field);
+    }
+    if let Some(from_pins) = command.get("fromPins") {
+        args.insert(
+            "fromPins".into(),
+            normalize_blueprint_graph_edit_from_pins(from_pins)?,
+        );
     }
     if !args.contains_key("contextSensitive") {
         if let Some(context_sensitive) = entry
@@ -5283,6 +5369,36 @@ fn compile_add_from_palette_command(
     Ok(ops)
 }
 
+fn normalize_blueprint_graph_edit_from_pins(
+    value: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let Some(items) = value.as_array() else {
+        return Err("addFromPalette fromPins must be an array.".to_owned());
+    };
+    let mut normalized = Vec::new();
+    for (index, item) in items.iter().enumerate() {
+        let Some(object) = item.as_object() else {
+            return Err(format!(
+                "addFromPalette fromPins[{index}] must be an object."
+            ));
+        };
+        let node_id = object
+            .get("node")
+            .and_then(|value| value.as_object())
+            .and_then(|node| node.get("id"))
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| format!("addFromPalette fromPins[{index}] requires node.id."))?;
+        let pin = object
+            .get("pin")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| format!("addFromPalette fromPins[{index}] requires pin."))?;
+        normalized.push(serde_json::json!({"nodeId": node_id, "pin": pin}));
+    }
+    Ok(serde_json::Value::Array(normalized))
+}
+
 fn palette_entry_command_value(
     transform: &serde_json::Map<String, serde_json::Value>,
     primary_field: &str,
@@ -5294,7 +5410,7 @@ fn palette_entry_command_value(
         .cloned()
         .ok_or_else(|| {
             invalid_argument_result(format!(
-                "{transform_kind} requires {primary_field}. Use blueprint.palette first and pass the selected entry."
+                "{transform_kind} requires {primary_field}. Use blueprint.graph.palette first and pass the selected entry."
             ))
         })
 }
@@ -5743,7 +5859,7 @@ fn compile_blueprint_refactor_request(
                     .get("replacement")
                     .cloned()
                     .ok_or_else(|| invalid_argument_result(
-                        "replaceNode requires replacement. Use blueprint.palette first and pass the selected entry.",
+                        "replaceNode requires replacement. Use blueprint.graph.palette first and pass the selected entry.",
                     ))?;
                 commands.push(serde_json::json!({
                     "kind": "addFromPalette",
@@ -5784,7 +5900,7 @@ fn compile_blueprint_refactor_request(
                     .get("wrapper")
                     .cloned()
                     .ok_or_else(|| invalid_argument_result(
-                        "wrapWith requires wrapper. Use blueprint.palette first and pass the selected entry.",
+                        "wrapWith requires wrapper. Use blueprint.graph.palette first and pass the selected entry.",
                     ))?;
                 let entry_pin = transform_obj
                     .get("entryPin")
@@ -5911,7 +6027,7 @@ fn compile_builtin_recipe(
     let input_entry = |name: &str| -> Result<serde_json::Value, CallToolResult> {
         inputs.get(name).cloned().ok_or_else(|| {
             invalid_argument_result(format!(
-                "Built-in Blueprint recipes now require inputs.{name}. Use blueprint.palette first and pass the selected entry."
+                "Built-in Blueprint recipes now require inputs.{name}. Use blueprint.graph.palette first and pass the selected entry."
             ))
         })
     };
@@ -6245,7 +6361,7 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("blueprint.graph.layout", "Format a selected Blueprint graph region without changing graph semantics.", Arc::new(blueprint_graph_layout_schema())),
         Tool::new("blueprint.node.inspect", "Inspect one Blueprint graph node for pins, defaults, node-local state, and edit capabilities.", Arc::new(blueprint_node_inspect_schema())),
         Tool::new("blueprint.node.edit", "Edit node-local Blueprint structure such as switch cases, sequence pins, and format-text arguments. Use schema.inspect for operation-specific args.", Arc::new(blueprint_node_edit_schema())),
-        Tool::new("blueprint.palette", "Search UE Blueprint Action Menu entries for graph creation.", Arc::new(blueprint_palette_schema())),
+        Tool::new("blueprint.graph.palette", "Search UE Blueprint Action Menu entries for graph node creation.", Arc::new(blueprint_palette_schema())),
         Tool::new("blueprint.compile", "Compile a Blueprint asset.", Arc::new(blueprint_compile_schema())),
         Tool::new("material.list", "List material expressions in a material asset.", Arc::new(asset_path_only_schema("Material asset path."))),
         Tool::new("material.graph.inspect", "Read expression nodes and pin data from a Material graph.", Arc::new(material_graph_inspect_schema())),
@@ -8016,7 +8132,6 @@ fn blueprint_palette_schema() -> rmcp::model::JsonObject {
         "properties":{
             "assetPath":{"type":"string","minLength":1},
             "graph": graph_ref_schema(),
-            "graphName":{"type":"string","minLength":1,"description":"Legacy compatibility graph address. Prefer graph:{id|name} for new calls."},
             "query":{"type":"string"},
             "contextSensitive":{"type":"boolean","default":true},
             "fromPins":{
@@ -8024,17 +8139,19 @@ fn blueprint_palette_schema() -> rmcp::model::JsonObject {
                 "items":{
                     "type":"object",
                     "properties":{
-                        "nodeId":{"type":"string"},
-                        "nodeName":{"type":"string"},
-                        "nodePath":{"type":"string"},
-                        "pinId":{"type":"string"},
-                        "pinName":{"type":"string"},
-                        "pin":{"type":"string"}
+                        "node":{
+                            "type":"object",
+                            "properties":{"id":{"type":"string","minLength":1}},
+                            "required":["id"],
+                            "additionalProperties": false
+                        },
+                        "pin":{"type":"string","minLength":1}
                     },
+                    "required":["node","pin"],
                     "additionalProperties": false
                 }
             },
-            "limit":{"type":"integer","minimum":1,"default":50},
+            "limit":{"type":"integer","minimum":1,"maximum":500,"default":50},
             "offset":{"type":"integer","minimum":0,"default":0}
         },
         "required":["assetPath"],
@@ -10316,14 +10433,15 @@ mod tests {
         acquire_file_lock, active_install_state_from_json, all_declared_tools, asset_create_schema,
         asset_edit_schema, asset_inspect_schema, blueprint_graph_inspect_schema,
         blueprint_graph_layout_schema, blueprint_node_edit_schema, blueprint_node_inspect_schema,
-        build_blueprint_graph_layout_plan, build_installer_args, call_schema_inspect,
-        compare_semver, compile_blueprint_refactor_request, current_platform_client_binary_name,
-        infer_attached_project_root, material_graph_edit_schema, material_graph_inspect_schema,
-        material_graph_layout_schema, material_node_edit_schema, material_palette_schema,
-        parse_active_install_state_json, parse_blueprint_graph_layout_request, pcg_compile_schema,
-        pcg_graph_inspect_schema, pcg_graph_layout_schema, pcg_node_inspect_schema,
-        pcg_palette_schema, pcg_parameter_edit_schema, play_participant_wait_conditions_met,
-        play_schema, play_wait_participant_conditions_from_args, read_cached_latest_version,
+        blueprint_palette_schema, build_blueprint_graph_layout_plan, build_installer_args,
+        call_schema_inspect, compare_semver, compile_blueprint_refactor_request,
+        current_platform_client_binary_name, infer_attached_project_root,
+        material_graph_edit_schema, material_graph_inspect_schema, material_graph_layout_schema,
+        material_node_edit_schema, material_palette_schema, parse_active_install_state_json,
+        parse_blueprint_graph_layout_request, pcg_compile_schema, pcg_graph_inspect_schema,
+        pcg_graph_layout_schema, pcg_node_inspect_schema, pcg_palette_schema,
+        pcg_parameter_edit_schema, play_participant_wait_conditions_met, play_schema,
+        play_wait_participant_conditions_from_args, read_cached_latest_version,
         read_file_lock_metadata, read_plugin_version, runtime_declared_tools,
         shape_blueprint_graph_inspect_result, shape_pcg_compile_result,
         shape_pcg_graph_inspect_result, shape_pcg_node_inspect_result,
@@ -10331,16 +10449,16 @@ mod tests {
         sync_project_support_to_version, sync_registered_project_support,
         translate_blueprint_graph_edit_args, translate_blueprint_graph_inspect_args,
         translate_blueprint_node_edit_args, translate_blueprint_node_inspect_args,
-        translate_material_graph_edit_args, translate_material_graph_inspect_args,
-        translate_material_graph_layout_args, translate_material_node_edit_args,
-        translate_material_palette_args, translate_pcg_compile_args,
-        translate_pcg_graph_inspect_args, translate_pcg_graph_layout_args,
-        translate_pcg_node_inspect_args, translate_pcg_parameter_edit_args,
-        translate_widget_inspect_args, translate_widget_tree_edit_args,
-        validate_blueprint_graph_inspect_args, validate_blueprint_graph_inspect_targets,
-        validate_pcg_graph_inspect_args, widget_inspect_schema, widget_palette_schema,
-        widget_tree_edit_schema, widget_tree_inspect_schema, Cli, FileLockMetadata, RuntimeProject,
-        UpdateOptions,
+        translate_blueprint_palette_args, translate_material_graph_edit_args,
+        translate_material_graph_inspect_args, translate_material_graph_layout_args,
+        translate_material_node_edit_args, translate_material_palette_args,
+        translate_pcg_compile_args, translate_pcg_graph_inspect_args,
+        translate_pcg_graph_layout_args, translate_pcg_node_inspect_args,
+        translate_pcg_parameter_edit_args, translate_widget_inspect_args,
+        translate_widget_tree_edit_args, validate_blueprint_graph_inspect_args,
+        validate_blueprint_graph_inspect_targets, validate_pcg_graph_inspect_args,
+        widget_inspect_schema, widget_palette_schema, widget_tree_edit_schema,
+        widget_tree_inspect_schema, Cli, FileLockMetadata, RuntimeProject, UpdateOptions,
     };
     use rmcp::model::JsonObject;
     use std::ffi::OsString;
@@ -11281,6 +11399,52 @@ mod tests {
                 .and_then(|value| value.get("contextSensitive"))
                 .and_then(|value| value.as_bool()),
             Some(false)
+        );
+    }
+
+    #[test]
+    fn blueprint_graph_palette_schema_and_args_are_public_shape() {
+        let schema = blueprint_palette_schema();
+        let properties = schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("properties");
+        assert!(properties.contains_key("graph"));
+        assert!(!properties.contains_key("graphName"));
+        assert_eq!(
+            properties
+                .get("limit")
+                .and_then(|value| value.get("maximum"))
+                .and_then(|value| value.as_i64()),
+            Some(500)
+        );
+
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graph".into(), serde_json::json!({ "name": "EventGraph" }));
+        args.insert("limit".into(), serde_json::json!(500));
+        args.insert(
+            "fromPins".into(),
+            serde_json::json!([{ "node": { "id": "node-1" }, "pin": "Then" }]),
+        );
+        let translated = translate_blueprint_palette_args(&args).expect("translated args");
+        assert_eq!(
+            translated.get("graphName").and_then(|value| value.as_str()),
+            Some("EventGraph")
+        );
+        assert_eq!(
+            translated.get("fromPins"),
+            Some(&serde_json::json!([{ "nodeId": "node-1", "pin": "Then" }]))
+        );
+
+        args.insert("limit".into(), serde_json::json!(501));
+        let error = translate_blueprint_palette_args(&args).expect_err("limit rejected");
+        assert_eq!(
+            error
+                .structured_content
+                .and_then(|value| value.get("code").cloned())
+                .and_then(|value| value.as_str().map(str::to_string)),
+            Some("INVALID_ARGUMENT".to_string())
         );
     }
 
@@ -13228,7 +13392,7 @@ mod tests {
             "blueprint.graph.layout",
             "blueprint.node.inspect",
             "blueprint.node.edit",
-            "blueprint.palette",
+            "blueprint.graph.palette",
             "blueprint.compile",
         ] {
             assert!(tool_names.contains(expected), "missing tool {expected}");
@@ -13240,6 +13404,7 @@ mod tests {
             "blueprint.enum.edit",
             "blueprint.graph.refactor",
             "blueprint.graph.generate",
+            "blueprint.palette",
         ] {
             assert!(
                 !tool_names.contains(retired),

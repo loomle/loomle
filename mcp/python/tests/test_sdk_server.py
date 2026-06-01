@@ -31,7 +31,7 @@ class PythonMcpSdkServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("schema.inspect", tool_names)
                 self.assertIn("context", tool_names)
                 self.assertIn("blueprint.graph.list", tool_names)
-                self.assertIn("blueprint.palette", tool_names)
+                self.assertIn("blueprint.graph.palette", tool_names)
                 self.assertIn("blueprint.compile", tool_names)
                 self.assertIn("blueprint.graph.edit", tool_names)
                 self.assertIn("material.palette", tool_names)
@@ -40,6 +40,11 @@ class PythonMcpSdkServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("widget.tree.inspect", tool_names)
                 self.assertIn("widget.tree.edit", tool_names)
                 self.assertNotIn("project.install", tool_names)
+                palette = next(
+                    tool for tool in tools.tools
+                    if tool.name == "blueprint.graph.palette"
+                )
+                self.assertIsNotNone(palette.outputSchema)
                 graph_inspect = next(
                     tool for tool in tools.tools
                     if tool.name == "blueprint.graph.inspect"

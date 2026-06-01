@@ -363,6 +363,29 @@ class TransformTests(unittest.TestCase):
         self.assertEqual(payload["ops"][0]["clientRef"], "branch")
         self.assertEqual(payload["ops"][0]["args"]["entryId"], "palette:branch")
 
+    def test_blueprint_graph_palette_transform_normalizes_public_pins(self) -> None:
+        payload = apply_args_transform(
+            {"transform": "blueprint.graph.palette.args.v1"},
+            {
+                "assetPath": "/Game/BP_Test",
+                "graph": {"name": "EventGraph"},
+                "limit": 500,
+                "fromPins": [{"node": {"id": "node-1"}, "pin": "Then"}],
+            },
+        )
+
+        self.assertEqual(payload["graphName"], "EventGraph")
+        self.assertEqual(payload["fromPins"], [{"nodeId": "node-1", "pin": "Then"}])
+        with self.assertRaises(TransformError):
+            apply_args_transform(
+                {"transform": "blueprint.graph.palette.args.v1"},
+                {
+                    "assetPath": "/Game/BP_Test",
+                    "graph": {"name": "EventGraph"},
+                    "limit": 501,
+                },
+            )
+
     def test_pcg_graph_edit_set_node_property_transform(self) -> None:
         payload = apply_args_transform(
             {"transform": "pcg.graph.edit.args.v1"},
