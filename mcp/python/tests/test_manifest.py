@@ -205,6 +205,11 @@ class ToolManifestTests(unittest.TestCase):
         self.assertIn("applied", class_edit_tool["outputSchema"]["properties"])
         self.assertIn("settings", class_edit_tool["outputSchema"]["properties"])
         self.assertIn("default", class_edit_tool["outputSchema"]["properties"])
+        self.assertIn("valid", class_edit_tool["outputSchema"]["properties"])
+        self.assertIn("resolvedRefs", class_edit_tool["outputSchema"]["properties"])
+        self.assertIn("planned", class_edit_tool["outputSchema"]["properties"])
+        self.assertIn("diagnostics", class_edit_tool["outputSchema"]["properties"])
+        self.assertIn("diff", class_edit_tool["outputSchema"]["properties"])
 
     def test_blueprint_graph_inspect_manifest_exposes_flow_views(self) -> None:
         manifest = load_manifest(MANIFEST)
@@ -343,6 +348,25 @@ class ToolManifestTests(unittest.TestCase):
 
     def test_blueprint_member_edit_operation_schema_is_precise(self) -> None:
         manifest = load_manifest(MANIFEST)
+        tool = next(
+            tool for tool in manifest.list_tools("python")
+            if tool["name"] == "blueprint.member.edit"
+        )
+        properties = tool["inputSchema"]["properties"]
+        self.assertEqual(
+            properties["memberKind"]["enum"],
+            ["variable", "function", "macro", "dispatcher", "event", "component"],
+        )
+        self.assertNotIn("returnDiff", properties)
+        self.assertNotIn("returnDiagnostics", properties)
+        self.assertNotIn("expectedRevision", properties)
+        self.assertIn("applied", tool["outputSchema"]["properties"])
+        self.assertIn("valid", tool["outputSchema"]["properties"])
+        self.assertIn("resolvedRefs", tool["outputSchema"]["properties"])
+        self.assertIn("planned", tool["outputSchema"]["properties"])
+        self.assertIn("diagnostics", tool["outputSchema"]["properties"])
+        self.assertIn("diff", tool["outputSchema"]["properties"])
+
         payload = manifest.inspect_schema(
             domain="blueprint",
             tool_name="blueprint.member.edit",
@@ -353,6 +377,17 @@ class ToolManifestTests(unittest.TestCase):
         args_schema = payload["schema"]["properties"]["args"]
         self.assertEqual(args_schema["required"], ["variableName", "type"])
         self.assertIn("defaultValue", args_schema["properties"])
+        self.assertNotIn("returnDiff", payload["schema"]["properties"])
+
+        signature_payload = manifest.inspect_schema(
+            domain="blueprint",
+            tool_name="blueprint.member.edit",
+            operation="function.updateSignature",
+            include=["schema"],
+        )
+        signature_args = signature_payload["schema"]["properties"]["args"]
+        self.assertEqual(signature_args["required"], ["functionName"])
+        self.assertIn("outputs", signature_args["properties"])
 
     def test_blueprint_node_edit_operation_schema_is_precise(self) -> None:
         manifest = load_manifest(MANIFEST)

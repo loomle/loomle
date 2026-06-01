@@ -1734,6 +1734,26 @@ def main() -> int:
         )
         if dry_run_interface_payload.get("applied") is not False or dry_run_interface_payload.get("dryRun") is not True:
             fail(f"blueprint.class.edit addInterface dryRun shape mismatch: {dry_run_interface_payload}")
+        if dry_run_interface_payload.get("valid") is not True:
+            fail(f"blueprint.class.edit addInterface dryRun should report valid=true: {dry_run_interface_payload}")
+        if not isinstance(dry_run_interface_payload.get("planned"), dict):
+            fail(f"blueprint.class.edit addInterface dryRun planned summary missing: {dry_run_interface_payload}")
+        if not isinstance(dry_run_interface_payload.get("resolvedRefs"), dict):
+            fail(f"blueprint.class.edit addInterface dryRun resolved refs missing: {dry_run_interface_payload}")
+        if not isinstance(dry_run_interface_payload.get("diagnostics"), list):
+            fail(f"blueprint.class.edit addInterface dryRun diagnostics missing: {dry_run_interface_payload}")
+        dry_run_interface_diff = dry_run_interface_payload.get("diff")
+        if (
+            not isinstance(dry_run_interface_diff, dict)
+            or dry_run_interface_diff.get("scope") != "blueprint.class"
+            or not any(
+                isinstance(change, dict)
+                and change.get("kind") == "create"
+                and change.get("target", {}).get("type") == "interface"
+                for change in dry_run_interface_diff.get("changes", [])
+            )
+        ):
+            fail(f"blueprint.class.edit addInterface dryRun diff invalid: {dry_run_interface_payload}")
         dry_run_list_payload = call_tool(
             client,
             607,
@@ -1816,6 +1836,21 @@ def main() -> int:
         )
         if dry_run_settings_payload.get("applied") is not False or dry_run_settings_payload.get("dryRun") is not True:
             fail(f"blueprint.class.edit setSettings dryRun shape mismatch: {dry_run_settings_payload}")
+        if dry_run_settings_payload.get("valid") is not True or not isinstance(dry_run_settings_payload.get("planned"), dict):
+            fail(f"blueprint.class.edit setSettings dryRun plan missing: {dry_run_settings_payload}")
+        dry_run_settings_diff = dry_run_settings_payload.get("diff")
+        if (
+            not isinstance(dry_run_settings_diff, dict)
+            or dry_run_settings_diff.get("scope") != "blueprint.class"
+            or not any(
+                isinstance(change, dict)
+                and change.get("kind") == "update"
+                and change.get("target", {}).get("path") == "settings.displayName"
+                and change.get("after") == "Dry Run Name"
+                for change in dry_run_settings_diff.get("changes", [])
+            )
+        ):
+            fail(f"blueprint.class.edit setSettings dryRun diff invalid: {dry_run_settings_payload}")
         settings_payload = call_tool(
             client,
             609,
@@ -2419,6 +2454,33 @@ def main() -> int:
         )
         if dry_run_member_payload.get("applied") is not False or dry_run_member_payload.get("dryRun") is not True:
             fail(f"blueprint.member.edit dryRun shape mismatch: {dry_run_member_payload}")
+        if dry_run_member_payload.get("valid") is not True:
+            fail(f"blueprint.member.edit dryRun should report valid=true: {dry_run_member_payload}")
+        dry_run_planned = dry_run_member_payload.get("planned")
+        if (
+            not isinstance(dry_run_planned, dict)
+            or dry_run_planned.get("memberKind") != "variable"
+            or dry_run_planned.get("operation") != "create"
+            or dry_run_planned.get("memberName") != "DryRunVariable"
+        ):
+            fail(f"blueprint.member.edit dryRun planned summary invalid: {dry_run_member_payload}")
+        dry_run_refs = dry_run_member_payload.get("resolvedRefs")
+        if not isinstance(dry_run_refs, dict) or dry_run_refs.get("member", {}).get("name") != "DryRunVariable":
+            fail(f"blueprint.member.edit dryRun resolved refs invalid: {dry_run_member_payload}")
+        if not isinstance(dry_run_member_payload.get("diagnostics"), list):
+            fail(f"blueprint.member.edit dryRun diagnostics missing: {dry_run_member_payload}")
+        dry_run_diff = dry_run_member_payload.get("diff")
+        if (
+            not isinstance(dry_run_diff, dict)
+            or dry_run_diff.get("scope") != "blueprint.member"
+            or not any(
+                isinstance(change, dict)
+                and change.get("kind") == "create"
+                and change.get("target", {}).get("name") == "DryRunVariable"
+                for change in dry_run_diff.get("changes", [])
+            )
+        ):
+            fail(f"blueprint.member.edit dryRun diff invalid: {dry_run_member_payload}")
         dry_run_unsupported_member_payload = call_tool(
             client,
             6530,
@@ -2477,6 +2539,10 @@ def main() -> int:
             or "variable create requires variableName" not in dry_run_missing_arg_message
         ):
             fail(f"blueprint.member.edit dryRun missing arg mismatch: {dry_run_missing_arg_payload}")
+        if dry_run_missing_arg_payload.get("valid") is not False or dry_run_missing_arg_payload.get("applied") is not False:
+            fail(f"blueprint.member.edit dryRun missing arg should be invalid and unapplied: {dry_run_missing_arg_payload}")
+        if not isinstance(dry_run_missing_arg_payload.get("diagnostics"), list):
+            fail(f"blueprint.member.edit dryRun missing arg diagnostics missing: {dry_run_missing_arg_payload}")
         macro_inspect_payload = call_tool(
             client,
             6531,
@@ -2543,6 +2609,17 @@ def main() -> int:
         )
         if not isinstance(client_event, dict) or client_event.get("replication") != "owningClient" or client_event.get("reliable") is not True:
             fail(f"blueprint.member.inspect event missing owning-client reliable flags: {event_inspect_payload}")
+        custom_event_inspect_payload = call_tool(
+            client,
+            6534,
+            "blueprint.member.inspect",
+            {"assetPath": temp_asset, "memberKind": "customEvent"},
+        )
+        custom_event_items = custom_event_inspect_payload.get("items")
+        if not isinstance(custom_event_items, list) or not custom_event_items:
+            fail(f"blueprint.member.inspect customEvent items missing: {custom_event_inspect_payload}")
+        if any(isinstance(entry, dict) and entry.get("isCustomEvent") is not True for entry in custom_event_items):
+            fail(f"blueprint.member.inspect customEvent returned non-custom events: {custom_event_inspect_payload}")
         graph_list_payload = call_tool(client, 6524, "blueprint.graph.list", {"assetPath": temp_asset})
         listed_graphs = graph_list_payload.get("graphs")
         if not isinstance(listed_graphs, list):
@@ -2657,6 +2734,20 @@ def main() -> int:
         )
         if dry_run_class_default.get("applied") is not False or dry_run_class_default.get("dryRun") is not True:
             fail(f"blueprint.class.edit setDefault dryRun shape mismatch: {dry_run_class_default}")
+        if dry_run_class_default.get("valid") is not True or not isinstance(dry_run_class_default.get("planned"), dict):
+            fail(f"blueprint.class.edit setDefault dryRun plan missing: {dry_run_class_default}")
+        dry_run_default_diff = dry_run_class_default.get("diff")
+        if (
+            not isinstance(dry_run_default_diff, dict)
+            or dry_run_default_diff.get("scope") != "blueprint.class"
+            or not any(
+                isinstance(change, dict)
+                and change.get("kind") == "set_default"
+                and change.get("target", {}).get("name") == "ItemCount"
+                for change in dry_run_default_diff.get("changes", [])
+            )
+        ):
+            fail(f"blueprint.class.edit setDefault dryRun diff invalid: {dry_run_class_default}")
         set_class_default = call_tool(
             client,
             65222,

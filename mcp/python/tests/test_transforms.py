@@ -199,6 +199,22 @@ class TransformTests(unittest.TestCase):
         self.assertEqual(len(payload["links"]), 1)
         self.assertNotIn("flow", payload)
 
+    def test_blueprint_member_inspect_custom_event_filters_engine_events(self) -> None:
+        payload = apply_result_transform(
+            {"transform": "blueprint.member.inspect.result.v1"},
+            {
+                "assetPath": "/Game/BP_Test",
+                "eventSignatures": [
+                    {"name": "ReceiveBeginPlay", "isCustomEvent": False, "eventKind": "engine"},
+                    {"name": "DoWork", "isCustomEvent": True, "eventKind": "custom"},
+                ],
+            },
+            {"memberKind": "customEvent"},
+        )
+
+        self.assertEqual(payload["memberKind"], "customEvent")
+        self.assertEqual([item["name"] for item in payload["items"]], ["DoWork"])
+
     def test_widget_tree_result_prunes_outline_slot_data(self) -> None:
         payload = apply_result_transform(
             {"transform": "widget.tree.inspect.result.v1"},

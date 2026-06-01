@@ -26,6 +26,19 @@ JSON field names should remain consistent with the existing public surface.
 Unreal C++ implementation code should continue to follow Unreal naming
 conventions and UE API names.
 
+## Mutation Dry Run Contract
+
+Tools that mutate UE state must follow
+[`docs/MUTATION_DRY_RUN_CONTRACT.md`](docs/MUTATION_DRY_RUN_CONTRACT.md).
+In short, `dryRun=true` should share the real edit path through parse, resolve,
+validate, and plan, then stop before applying changes. Do not expose
+`expectedRevision`, `returnDiff`, or rich dry-run result fields for a tool until
+that tool actually enforces or returns them. Bridge-side mutation result fields
+should be assembled through the shared `LoomleMutation` utility in
+`engine/LoomleBridge/Source/LoomleBridge/Private/LoomleMutationResult.h`, with
+tool modules supplying only their UE-specific parse, resolve, validate, plan,
+and apply logic.
+
 ## Workflow
 
 ### 1. Sense Demand

@@ -355,6 +355,12 @@ Recommended member-level operations for this domain:
 
 Custom Event is a conceptual member domain. Public MCP tools should expose custom event operations through `blueprint.member.inspect` and `blueprint.member.edit`; graph edit may create the visible event node, but deeper signature and RPC metadata belongs to the member surface.
 
+`blueprint.member.inspect` accepts both `memberKind="event"` and
+`memberKind="customEvent"`. `event` returns all event signature nodes discovered
+in Blueprint ubergraph pages, including native engine event nodes and custom
+event nodes. `customEvent` is a narrower view over the same UE source data and
+returns only `UK2Node_CustomEvent` entries.
+
 ### Tools
 
 - `blueprint.member.inspect`
@@ -420,6 +426,55 @@ Recommended member-level operations for this domain:
 
 - `reparent` here means changing attachment parent within the component tree.
 - Component management is explicitly separated from graph logic.
+
+## Blueprint Member Edit Contract
+
+`blueprint.member.edit` is the current mutation surface for Blueprint-owned
+variables, functions, macros, dispatchers, custom events, and components.
+
+### Request Shape
+
+The public top-level request is intentionally small:
+
+- `assetPath`
+- `memberKind`
+- `operation`
+- `args`
+- `dryRun`
+
+`schema.inspect` is the source of truth for each `memberKind.operation` args
+shape. `memberKind="event"` is the edit surface for Custom Events. The narrower
+`memberKind="customEvent"` name is inspect-only, where it filters event nodes to
+`UK2Node_CustomEvent` entries.
+
+### Result Shape
+
+The current result reports whether the request errored and whether it was
+applied:
+
+- `isError`
+- `assetPath`
+- `memberKind`
+- `operation`
+- `dryRun`
+- `applied`
+- `valid`
+- `resolvedRefs`
+- `planned`
+- `diff`
+- `diagnostics`
+- `code`
+- `message`
+- `reason`
+- `details`
+
+`dryRun=true` validates the request and resolved UE references, then returns
+`applied=false` with a planned edit summary and structured change set.
+
+`returnDiagnostics` and `expectedRevision` are not part of the implemented
+`blueprint.member.edit` contract yet. Those fields remain a broader
+mutation-model goal, but should not be exposed on this tool until the bridge
+actually enforces and returns them.
 
 ## Domain 9: Graph
 

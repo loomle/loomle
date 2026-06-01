@@ -1635,6 +1635,37 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
 
+    auto Fail = [&](const FString& Code, const FString& Message) {
+        LoomleMutation::SetFailure(Result, Code, Message);
+    };
+
+    auto SetSingleClassDiff = [&](const FString& Kind, const FString& TargetType, const TSharedPtr<FJsonValue>& Before, const TSharedPtr<FJsonValue>& After, const FString& Name = FString(), const FString& Path = FString()) {
+        TArray<TSharedPtr<FJsonValue>> Changes;
+        Changes.Add(MakeShared<FJsonValueObject>(LoomleMutation::MakeChange(
+            Kind,
+            LoomleMutation::MakeTarget(TargetType, Name, Path),
+            Before,
+            After)));
+        LoomleMutation::SetDiff(Result, TEXT("blueprint.class"), Changes);
+    };
+
+    auto SetSettingsDiff = [&](const TSharedPtr<FJsonObject>& PreviousSettings, const TSharedPtr<FJsonObject>& RequestedSettings) {
+        TArray<TSharedPtr<FJsonValue>> Changes;
+        if (RequestedSettings.IsValid())
+        {
+            for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : RequestedSettings->Values)
+            {
+                TSharedPtr<FJsonValue> BeforeValue = PreviousSettings.IsValid() ? PreviousSettings->TryGetField(Pair.Key) : nullptr;
+                Changes.Add(MakeShared<FJsonValueObject>(LoomleMutation::MakeChange(
+                    TEXT("update"),
+                    LoomleMutation::MakeTarget(TEXT("class_setting"), Pair.Key, FString::Printf(TEXT("settings.%s"), *Pair.Key)),
+                    BeforeValue,
+                    Pair.Value)));
+            }
+        }
+        LoomleMutation::SetDiff(Result, TEXT("blueprint.class"), Changes);
+    };
+
     FString AssetPath;
     FString Operation;
     if (!Arguments.IsValid()
@@ -1643,9 +1674,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
         || !Arguments->TryGetStringField(TEXT("operation"), Operation)
         || Operation.IsEmpty())
     {
-        Result->SetBoolField(TEXT("isError"), true);
-        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Result->SetStringField(TEXT("message"), TEXT("blueprint.class.edit requires assetPath and operation."));
+        Fail(TEXT("INVALID_ARGUMENT"), TEXT("blueprint.class.edit requires assetPath and operation."));
         return Result;
     }
 
@@ -1672,6 +1701,17 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
         {
             ParentClassPath = TEXT("/Script/Engine.Actor");
         }
+        LoomleMutation::SetValidatedPlan(Result, TEXT("blueprint.class.edit"), AssetPath, Operation, EffectiveArgs);
+        TSharedPtr<FJsonObject> After = MakeShared<FJsonObject>();
+        After->SetStringField(TEXT("assetPath"), AssetPath);
+        After->SetStringField(TEXT("parentClassPath"), ParentClassPath);
+        SetSingleClassDiff(
+            TEXT("create"),
+            TEXT("blueprint_class"),
+            nullptr,
+            MakeShared<FJsonValueObject>(After),
+            FPackageName::GetShortName(AssetPath),
+            AssetPath);
 
         if (bDryRun)
         {
@@ -1703,11 +1743,19 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
         EffectiveArgs->TryGetStringField(TEXT("parentClassPath"), ParentClassPath);
         if (ParentClassPath.IsEmpty())
         {
-            Result->SetBoolField(TEXT("isError"), true);
-            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-            Result->SetStringField(TEXT("message"), TEXT("blueprint.class.edit setParent requires args.parentClassPath."));
+            Fail(TEXT("INVALID_ARGUMENT"), TEXT("blueprint.class.edit setParent requires args.parentClassPath."));
             return Result;
         }
+        LoomleMutation::SetValidatedPlan(Result, TEXT("blueprint.class.edit"), AssetPath, Operation, EffectiveArgs);
+        TSharedPtr<FJsonObject> ParentAfter = MakeShared<FJsonObject>();
+        ParentAfter->SetStringField(TEXT("parentClassPath"), ParentClassPath);
+        SetSingleClassDiff(
+            TEXT("update"),
+            TEXT("class_parent"),
+            nullptr,
+            MakeShared<FJsonValueObject>(ParentAfter),
+            TEXT("parentClass"),
+            TEXT("class.parentClass"));
 
         if (bDryRun)
         {
@@ -1736,18 +1784,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
         const TSharedPtr<FJsonObject>* SettingsObjectPtr = nullptr;
         if (!EffectiveArgs->TryGetObjectField(TEXT("settings"), SettingsObjectPtr) || SettingsObjectPtr == nullptr || !SettingsObjectPtr->IsValid())
         {
-            Result->SetBoolField(TEXT("isError"), true);
-            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-            Result->SetStringField(TEXT("message"), TEXT("blueprint.class.edit setSettings requires args.settings."));
+            Fail(TEXT("INVALID_ARGUMENT"), TEXT("blueprint.class.edit setSettings requires args.settings."));
             return Result;
         }
 
         const TSharedPtr<FJsonObject> SettingsObject = *SettingsObjectPtr;
         if (SettingsObject->Values.Num() == 0)
         {
-            Result->SetBoolField(TEXT("isError"), true);
-            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-            Result->SetStringField(TEXT("message"), TEXT("blueprint.class.edit setSettings requires at least one setting."));
+            Fail(TEXT("INVALID_ARGUMENT"), TEXT("blueprint.class.edit setSettings requires at least one setting."));
             return Result;
         }
 
@@ -1770,9 +1814,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
         {
             if (!WritableSettings.Contains(Pair.Key))
             {
-                Result->SetBoolField(TEXT("isError"), true);
-                Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-                Result->SetStringField(TEXT("message"), FString::Printf(TEXT("blueprint.class.edit setSettings does not support setting '%s'."), *Pair.Key));
+                Fail(TEXT("INVALID_ARGUMENT"), FString::Printf(TEXT("blueprint.class.edit setSettings does not support setting '%s'."), *Pair.Key));
                 return Result;
             }
         }
@@ -1786,7 +1828,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
             return Result;
         }
 
-        Result->SetObjectField(TEXT("previousSettings"), MakeBlueprintClassSettingsObject(Blueprint));
+        const TSharedPtr<FJsonObject> PreviousSettings = MakeBlueprintClassSettingsObject(Blueprint);
+        Result->SetObjectField(TEXT("previousSettings"), PreviousSettings);
 
         FString StringValue;
         bool bBoolValue = false;
@@ -1871,11 +1914,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
             && Blueprint->ParentClass != nullptr
             && Blueprint->ParentClass->HasAnyClassFlags(CLASS_Deprecated))
         {
-            Result->SetBoolField(TEXT("isError"), true);
-            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-            Result->SetStringField(TEXT("message"), TEXT("Cannot change deprecated setting because the parent class is deprecated."));
+            Fail(TEXT("INVALID_ARGUMENT"), TEXT("Cannot change deprecated setting because the parent class is deprecated."));
             return Result;
         }
+
+        LoomleMutation::SetValidatedPlan(Result, TEXT("blueprint.class.edit"), AssetPath, Operation, EffectiveArgs);
+        SetSettingsDiff(PreviousSettings, SettingsObject);
 
         if (bDryRun)
         {
@@ -1965,9 +2009,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
         EffectiveArgs->TryGetStringField(TEXT("property"), PropertyName);
         if (PropertyName.IsEmpty())
         {
-            Result->SetBoolField(TEXT("isError"), true);
-            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-            Result->SetStringField(TEXT("message"), TEXT("blueprint.class.edit setDefault requires args.property."));
+            Fail(TEXT("INVALID_ARGUMENT"), TEXT("blueprint.class.edit setDefault requires args.property."));
             return Result;
         }
 
@@ -2036,16 +2078,27 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
         UObject* ParentCDO = ParentClass ? ParentClass->GetDefaultObject(false) : nullptr;
         Result->SetStringField(TEXT("property"), Property->GetName());
         Result->SetStringField(TEXT("importText"), ImportText);
-        Result->SetObjectField(TEXT("previousDefault"), MakeBlueprintClassDefaultMutationObject(Property, BlueprintClass, CDO, ParentCDO));
+        const TSharedPtr<FJsonObject> PreviousDefault = MakeBlueprintClassDefaultMutationObject(Property, BlueprintClass, CDO, ParentCDO);
+        Result->SetObjectField(TEXT("previousDefault"), PreviousDefault);
 
         FString ImportError;
         if (!ValidateBlueprintClassDefaultImportText(Property, ImportText, CDO, ImportError))
         {
-            Result->SetBoolField(TEXT("isError"), true);
-            Result->SetStringField(TEXT("code"), TEXT("INVALID_DEFAULT_VALUE"));
-            Result->SetStringField(TEXT("message"), ImportError);
+            Fail(TEXT("INVALID_DEFAULT_VALUE"), ImportError);
             return Result;
         }
+
+        LoomleMutation::SetValidatedPlan(Result, TEXT("blueprint.class.edit"), AssetPath, Operation, EffectiveArgs);
+        TSharedPtr<FJsonObject> DefaultAfter = MakeShared<FJsonObject>();
+        DefaultAfter->SetStringField(TEXT("name"), Property->GetName());
+        DefaultAfter->SetStringField(TEXT("value"), ImportText);
+        SetSingleClassDiff(
+            TEXT("set_default"),
+            TEXT("class_default"),
+            MakeShared<FJsonValueObject>(PreviousDefault),
+            MakeShared<FJsonValueObject>(DefaultAfter),
+            Property->GetName(),
+            FString::Printf(TEXT("classDefaults.%s"), *Property->GetName()));
 
         if (bDryRun)
         {
@@ -2090,10 +2143,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
         EffectiveArgs->TryGetStringField(TEXT("interfaceClassPath"), InterfaceClassPath);
         if (InterfaceClassPath.IsEmpty())
         {
-            Result->SetBoolField(TEXT("isError"), true);
-            Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-            Result->SetStringField(
-                TEXT("message"),
+            Fail(
+                TEXT("INVALID_ARGUMENT"),
                 Operation.Equals(TEXT("addInterface"), ESearchCase::IgnoreCase)
                     ? TEXT("blueprint.class.edit addInterface requires args.interfaceClassPath.")
                     : TEXT("blueprint.class.edit removeInterface requires args.interfaceClassPath."));
@@ -2106,6 +2157,26 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
             EffectiveArgs->TryGetBoolField(TEXT("preserveFunctions"), bPreserveFunctions);
             Result->SetBoolField(TEXT("preserveFunctions"), bPreserveFunctions);
         }
+        LoomleMutation::SetValidatedPlan(Result, TEXT("blueprint.class.edit"), AssetPath, Operation, EffectiveArgs);
+        TSharedPtr<FJsonObject> InterfaceValue = MakeShared<FJsonObject>();
+        InterfaceValue->SetStringField(TEXT("classPath"), InterfaceClassPath);
+        TSharedPtr<FJsonValue> InterfaceBefore;
+        TSharedPtr<FJsonValue> InterfaceAfter;
+        if (Operation.Equals(TEXT("removeInterface"), ESearchCase::IgnoreCase))
+        {
+            InterfaceBefore = MakeShareable(new FJsonValueObject(InterfaceValue));
+        }
+        if (Operation.Equals(TEXT("addInterface"), ESearchCase::IgnoreCase))
+        {
+            InterfaceAfter = MakeShareable(new FJsonValueObject(InterfaceValue));
+        }
+        SetSingleClassDiff(
+            Operation.Equals(TEXT("addInterface"), ESearchCase::IgnoreCase) ? TEXT("create") : TEXT("delete"),
+            TEXT("interface"),
+            InterfaceBefore,
+            InterfaceAfter,
+            InterfaceClassPath,
+            TEXT("implementedInterfaces"));
 
         if (bDryRun)
         {
@@ -2138,10 +2209,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintEditToolResult(const 
         return Result;
     }
 
-    Result->SetBoolField(TEXT("isError"), true);
-    Result->SetStringField(TEXT("code"), TEXT("NOT_IMPLEMENTED"));
-    Result->SetStringField(
-        TEXT("message"),
+    Fail(
+        TEXT("NOT_IMPLEMENTED"),
         FString::Printf(TEXT("blueprint.class.edit supports setParent, setSettings, setDefault, addInterface, and removeInterface; got: %s"), *Operation));
     return Result;
 }
@@ -2446,6 +2515,143 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMemberEditToolResult(
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("isError"), false);
 
+    auto TryGetStringFieldAny = [](const TSharedPtr<FJsonObject>& Object, std::initializer_list<const TCHAR*> Names, FString& OutValue) -> bool {
+        if (!Object.IsValid())
+        {
+            return false;
+        }
+        for (const TCHAR* Name : Names)
+        {
+            if (Object->TryGetStringField(Name, OutValue))
+            {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    auto ResolveMemberName = [&](const FString& MemberKindValue, const TSharedPtr<FJsonObject>& Args, FString& OutMemberName) -> bool {
+        if (MemberKindValue.Equals(TEXT("variable"), ESearchCase::IgnoreCase))
+        {
+            return TryGetStringFieldAny(Args, {TEXT("variableName"), TEXT("name")}, OutMemberName);
+        }
+        if (MemberKindValue.Equals(TEXT("function"), ESearchCase::IgnoreCase))
+        {
+            return TryGetStringFieldAny(Args, {TEXT("functionName"), TEXT("name")}, OutMemberName);
+        }
+        if (MemberKindValue.Equals(TEXT("macro"), ESearchCase::IgnoreCase))
+        {
+            return TryGetStringFieldAny(Args, {TEXT("macroName"), TEXT("name")}, OutMemberName);
+        }
+        if (MemberKindValue.Equals(TEXT("dispatcher"), ESearchCase::IgnoreCase))
+        {
+            return TryGetStringFieldAny(Args, {TEXT("dispatcherName"), TEXT("name")}, OutMemberName);
+        }
+        if (MemberKindValue.Equals(TEXT("component"), ESearchCase::IgnoreCase))
+        {
+            return TryGetStringFieldAny(Args, {TEXT("componentName"), TEXT("name")}, OutMemberName);
+        }
+        if (MemberKindValue.Equals(TEXT("event"), ESearchCase::IgnoreCase) || MemberKindValue.Equals(TEXT("customEvent"), ESearchCase::IgnoreCase))
+        {
+            return TryGetStringFieldAny(Args, {TEXT("eventName"), TEXT("customEventName"), TEXT("name")}, OutMemberName);
+        }
+        return false;
+    };
+
+    auto BuildMemberEditDiff = [&](const FString& MemberKindValue, const FString& OperationValue, const TSharedPtr<FJsonObject>& Args) -> TSharedPtr<FJsonObject> {
+        FString MemberName;
+        ResolveMemberName(MemberKindValue, Args, MemberName);
+        FString NewName;
+        TryGetStringFieldAny(Args, {TEXT("newName")}, NewName);
+
+        const FString OperationLower = OperationValue.ToLower();
+        FString ChangeKind = OperationLower;
+        if (OperationLower.Equals(TEXT("setdefault")))
+        {
+            ChangeKind = TEXT("set_default");
+        }
+        else if (OperationLower.Equals(TEXT("updatesignature")))
+        {
+            ChangeKind = TEXT("update");
+        }
+        else if (OperationLower.Equals(TEXT("addinput")))
+        {
+            ChangeKind = TEXT("update");
+        }
+        else if (OperationLower.Equals(TEXT("setflags")))
+        {
+            ChangeKind = TEXT("update");
+        }
+
+        TSharedPtr<FJsonValue> Before;
+        TSharedPtr<FJsonValue> After;
+        if (OperationLower.Equals(TEXT("create")))
+        {
+            After = MakeShared<FJsonValueObject>(Args.IsValid() ? Args : MakeShared<FJsonObject>());
+        }
+        else if (OperationLower.Equals(TEXT("rename")))
+        {
+            TSharedPtr<FJsonObject> BeforeObject = MakeShared<FJsonObject>();
+            BeforeObject->SetStringField(TEXT("name"), MemberName);
+            TSharedPtr<FJsonObject> AfterObject = MakeShared<FJsonObject>();
+            AfterObject->SetStringField(TEXT("name"), NewName);
+            Before = MakeShared<FJsonValueObject>(BeforeObject);
+            After = MakeShared<FJsonValueObject>(AfterObject);
+        }
+        else if (OperationLower.Equals(TEXT("delete")))
+        {
+            TSharedPtr<FJsonObject> BeforeObject = MakeShared<FJsonObject>();
+            BeforeObject->SetStringField(TEXT("name"), MemberName);
+            Before = MakeShared<FJsonValueObject>(BeforeObject);
+        }
+        else
+        {
+            After = MakeShared<FJsonValueObject>(Args.IsValid() ? Args : MakeShared<FJsonObject>());
+        }
+
+        TArray<TSharedPtr<FJsonValue>> Changes;
+        Changes.Add(MakeShared<FJsonValueObject>(LoomleMutation::MakeChange(
+            ChangeKind,
+            LoomleMutation::MakeTarget(MemberKindValue, MemberName),
+            Before,
+            After)));
+        return LoomleMutation::MakeDiff(TEXT("blueprint.member"), Changes);
+    };
+
+    auto BuildMemberEditPlan = [&](const FString& AssetPathValue, const FString& MemberKindValue, const FString& OperationValue, const TSharedPtr<FJsonObject>& Args) -> TSharedPtr<FJsonObject> {
+        TSharedPtr<FJsonObject> ResolvedRefs = MakeShared<FJsonObject>();
+
+        FString MemberName;
+        ResolveMemberName(MemberKindValue, Args, MemberName);
+        if (!MemberName.IsEmpty())
+        {
+            TSharedPtr<FJsonObject> MemberRef = MakeShared<FJsonObject>();
+            MemberRef->SetStringField(TEXT("kind"), MemberKindValue);
+            MemberRef->SetStringField(TEXT("name"), MemberName);
+            ResolvedRefs->SetObjectField(TEXT("member"), MemberRef);
+        }
+
+        FString NewName;
+        if (TryGetStringFieldAny(Args, {TEXT("newName")}, NewName) && !NewName.IsEmpty())
+        {
+            TSharedPtr<FJsonObject> TargetRef = MakeShared<FJsonObject>();
+            TargetRef->SetStringField(TEXT("name"), NewName);
+            ResolvedRefs->SetObjectField(TEXT("target"), TargetRef);
+        }
+
+        TSharedPtr<FJsonObject> Plan = LoomleMutation::BuildBasicPlan(TEXT("blueprint.member.edit"), AssetPathValue, OperationValue, Args, ResolvedRefs);
+        Plan->SetStringField(TEXT("memberKind"), MemberKindValue);
+        if (!MemberName.IsEmpty())
+        {
+            Plan->SetStringField(TEXT("memberName"), MemberName);
+        }
+        if (!NewName.IsEmpty())
+        {
+            Plan->SetStringField(TEXT("newName"), NewName);
+        }
+        return Plan;
+    };
+
     FString AssetPath;
     FString MemberKind;
     FString Operation;
@@ -2457,9 +2663,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMemberEditToolResult(
         || !Arguments->TryGetStringField(TEXT("operation"), Operation)
         || Operation.IsEmpty())
     {
-        Result->SetBoolField(TEXT("isError"), true);
-        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Result->SetStringField(TEXT("message"), TEXT("blueprint.member.edit requires assetPath, memberKind, and operation."));
+        LoomleMutation::SetFailure(Result, TEXT("INVALID_ARGUMENT"), TEXT("blueprint.member.edit requires assetPath, memberKind, and operation."));
         return Result;
     }
 
@@ -2493,21 +2697,26 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMemberEditToolResult(
         || MemberKind.Equals(TEXT("customEvent"), ESearchCase::IgnoreCase);
     if (!bSupportedMemberKind)
     {
-        Result->SetBoolField(TEXT("isError"), true);
-        Result->SetStringField(TEXT("code"), TEXT("NOT_IMPLEMENTED"));
-        Result->SetStringField(
-            TEXT("message"),
-            FString::Printf(TEXT("blueprint.member.edit does not support memberKind: %s"), *MemberKind));
+        LoomleMutation::SetFailure(Result, TEXT("NOT_IMPLEMENTED"), FString::Printf(TEXT("blueprint.member.edit does not support memberKind: %s"), *MemberKind));
         return Result;
     }
 
     if (!FLoomleBlueprintAdapter::ValidateMemberEditRequest(AssetPath, MemberKind, Operation, PayloadJson, Error))
     {
-        Result->SetBoolField(TEXT("isError"), true);
-        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Result->SetStringField(TEXT("message"), Error.IsEmpty() ? TEXT("blueprint.member.edit request is invalid.") : Error);
+        LoomleMutation::SetFailure(Result, TEXT("INVALID_ARGUMENT"), Error.IsEmpty() ? TEXT("blueprint.member.edit request is invalid.") : Error);
         return Result;
     }
+
+    TSharedPtr<FJsonObject> PlannedMemberEdit = BuildMemberEditPlan(AssetPath, MemberKind, Operation, EffectiveArgs);
+    Result->SetBoolField(TEXT("valid"), true);
+    Result->SetObjectField(TEXT("planned"), PlannedMemberEdit);
+    Result->SetObjectField(TEXT("diff"), BuildMemberEditDiff(MemberKind, Operation, EffectiveArgs));
+    const TSharedPtr<FJsonObject>* ResolvedRefs = nullptr;
+    if (PlannedMemberEdit->TryGetObjectField(TEXT("resolvedRefs"), ResolvedRefs) && ResolvedRefs != nullptr && ResolvedRefs->IsValid())
+    {
+        Result->SetObjectField(TEXT("resolvedRefs"), *ResolvedRefs);
+    }
+    LoomleMutation::SetDiagnostics(Result, TArray<TSharedPtr<FJsonValue>>{});
 
     if (bDryRun)
     {
@@ -2556,6 +2765,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMemberEditToolResult(
         }
 
         Result->SetBoolField(TEXT("isError"), true);
+        Result->SetBoolField(TEXT("valid"), false);
+        Result->SetBoolField(TEXT("applied"), false);
         Result->SetStringField(
             TEXT("code"),
             !StructuredCode.IsEmpty()
@@ -2564,6 +2775,16 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintMemberEditToolResult(
                 ? TEXT("INVALID_ARGUMENT")
                 : TEXT("INTERNAL_ERROR"));
         Result->SetStringField(TEXT("message"), !StructuredMessage.IsEmpty() ? StructuredMessage : (Error.IsEmpty() ? TEXT("blueprint.member.edit failed") : Error));
+        TArray<TSharedPtr<FJsonValue>> Diagnostics;
+        Diagnostics.Add(LoomleMutation::MakeDiagnostic(
+            TEXT("error"),
+            !StructuredCode.IsEmpty()
+                ? StructuredCode
+                : Error.Contains(TEXT("requires")) || Error.Contains(TEXT("Unsupported")) || Error.Contains(TEXT("Failed to resolve"))
+                ? TEXT("INVALID_ARGUMENT")
+                : TEXT("INTERNAL_ERROR"),
+            !StructuredMessage.IsEmpty() ? StructuredMessage : (Error.IsEmpty() ? TEXT("blueprint.member.edit failed") : Error)));
+        LoomleMutation::SetDiagnostics(Result, Diagnostics);
         if (!StructuredReason.IsEmpty())
         {
             Result->SetStringField(TEXT("reason"), StructuredReason);

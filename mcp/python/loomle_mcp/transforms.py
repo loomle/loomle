@@ -869,6 +869,8 @@ def shape_blueprint_member_inspect_result(payload: dict[str, Any], arguments: di
     items = payload.get(field, [])
     if not isinstance(items, list):
         items = []
+    if member_kind == "customEvent":
+        items = [item for item in items if isinstance(item, dict) and item.get("isCustomEvent") is True]
     if name_filter is not None:
         items = [item for item in items if isinstance(item, dict) and item.get("name") == name_filter]
     return {"assetPath": payload.get("assetPath"), "memberKind": member_kind, "items": items}

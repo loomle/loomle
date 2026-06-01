@@ -125,6 +125,7 @@
 #include "MeshSelectors/PCGMeshSelectorWeightedByCategory.h"
 #include "MeshSelectors/PCGSkinnedMeshSelector.h"
 #include "LoomleBlueprintAdapter.h"
+#include "LoomleMutationResult.h"
 #include "LoomlePipeServer.h"
 #include "ScopedTransaction.h"
 #include "Misc/App.h"

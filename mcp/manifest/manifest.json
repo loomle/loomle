@@ -1865,6 +1865,79 @@
           "default": {
             "type": "object",
             "additionalProperties": true
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "valid": {
+            "type": "boolean"
+          },
+          "resolvedRefs": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "planned": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "severity": {
+                  "type": "string"
+                },
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "diff": {
+            "type": "object",
+            "properties": {
+              "scope": {
+                "type": "string"
+              },
+              "changes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": true
+                    },
+                    "before": {},
+                    "after": {},
+                    "metadata": {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            },
+            "required": [
+              "scope",
+              "changes"
+            ],
+            "additionalProperties": true
           }
         },
         "required": [
@@ -1915,6 +1988,97 @@
         ],
         "additionalProperties": false
       },
+      "outputSchema": {
+        "type": "object",
+        "description": "Blueprint member inventory for one UE member domain.",
+        "properties": {
+          "assetPath": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "memberKind": {
+            "type": "string",
+            "enum": [
+              "variable",
+              "function",
+              "macro",
+              "dispatcher",
+              "event",
+              "customEvent",
+              "component"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "description": "Member entries from the requested UE member domain. Entry fields vary by memberKind.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "graphName": {
+                  "type": "string"
+                },
+                "graphId": {
+                  "type": "string"
+                },
+                "nodeId": {
+                  "type": "string"
+                },
+                "eventKind": {
+                  "type": "string",
+                  "enum": [
+                    "engine",
+                    "custom"
+                  ]
+                },
+                "isCustomEvent": {
+                  "type": "boolean"
+                },
+                "componentClassPath": {
+                  "type": "string"
+                },
+                "templatePath": {
+                  "type": "string"
+                },
+                "ownerClassPath": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "pins": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "assetPath",
+          "memberKind",
+          "items"
+        ],
+        "additionalProperties": false
+      },
       "dispatch": {
         "kind": "bridgeRpc",
         "tool": "blueprint.inspect",
@@ -1948,7 +2112,6 @@
               "macro",
               "dispatcher",
               "event",
-              "customEvent",
               "component"
             ],
             "description": "Use schema.inspect with domain='blueprint' and tool='blueprint.member.edit' to list supported memberKind.operation entries."
@@ -1964,17 +2127,6 @@
           "dryRun": {
             "type": "boolean",
             "default": false
-          },
-          "returnDiff": {
-            "type": "boolean",
-            "default": false
-          },
-          "returnDiagnostics": {
-            "type": "boolean",
-            "default": true
-          },
-          "expectedRevision": {
-            "type": "string"
           }
         },
         "required": [
@@ -2030,17 +2182,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -2101,17 +2242,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -2177,17 +2307,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -2261,17 +2380,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -2334,17 +2442,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -2405,17 +2502,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -2494,17 +2580,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -2521,6 +2596,96 @@
                 "memberKind": "function",
                 "operation": "create",
                 "args": {}
+              }
+            ],
+            "errors": [
+              "INVALID_ARGUMENT",
+              "ASSET_NOT_FOUND",
+              "MEMBER_EDIT_FAILED"
+            ],
+            "notes": [
+              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+            ]
+          },
+          {
+            "name": "function.updateSignature",
+            "category": "function",
+            "summary": "Replace one Blueprint function signature.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "assetPath": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "memberKind": {
+                  "const": "function"
+                },
+                "operation": {
+                  "const": "updateSignature"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "functionName": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "inputs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "outputs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  "required": [
+                    "functionName"
+                  ],
+                  "additionalProperties": false
+                },
+                "dryRun": {
+                  "type": "boolean",
+                  "default": false
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "assetPath",
+                "memberKind",
+                "operation",
+                "args"
+              ]
+            },
+            "examples": [
+              {
+                "assetPath": "/Game/BP_Test",
+                "memberKind": "function",
+                "operation": "updateSignature",
+                "args": {
+                  "functionName": "ComputeValue",
+                  "inputs": [
+                    {
+                      "name": "bInput",
+                      "type": {
+                        "category": "bool"
+                      }
+                    }
+                  ],
+                  "outputs": [
+                    {
+                      "name": "Value",
+                      "type": {
+                        "category": "int"
+                      }
+                    }
+                  ]
+                }
               }
             ],
             "errors": [
@@ -2586,17 +2751,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -2665,17 +2819,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -2736,17 +2879,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -2807,17 +2939,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -2896,17 +3017,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -2923,6 +3033,96 @@
                 "memberKind": "macro",
                 "operation": "create",
                 "args": {}
+              }
+            ],
+            "errors": [
+              "INVALID_ARGUMENT",
+              "ASSET_NOT_FOUND",
+              "MEMBER_EDIT_FAILED"
+            ],
+            "notes": [
+              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+            ]
+          },
+          {
+            "name": "macro.updateSignature",
+            "category": "macro",
+            "summary": "Replace one Blueprint macro signature.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "assetPath": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "memberKind": {
+                  "const": "macro"
+                },
+                "operation": {
+                  "const": "updateSignature"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "macroName": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "inputs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "outputs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  "required": [
+                    "macroName"
+                  ],
+                  "additionalProperties": false
+                },
+                "dryRun": {
+                  "type": "boolean",
+                  "default": false
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "assetPath",
+                "memberKind",
+                "operation",
+                "args"
+              ]
+            },
+            "examples": [
+              {
+                "assetPath": "/Game/BP_Test",
+                "memberKind": "macro",
+                "operation": "updateSignature",
+                "args": {
+                  "macroName": "GuardMacro",
+                  "inputs": [
+                    {
+                      "name": "bGate",
+                      "type": {
+                        "category": "bool"
+                      }
+                    }
+                  ],
+                  "outputs": [
+                    {
+                      "name": "bPassed",
+                      "type": {
+                        "category": "bool"
+                      }
+                    }
+                  ]
+                }
               }
             ],
             "errors": [
@@ -2972,17 +3172,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -3043,17 +3232,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -3132,17 +3310,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -3159,6 +3326,88 @@
                 "memberKind": "dispatcher",
                 "operation": "create",
                 "args": {}
+              }
+            ],
+            "errors": [
+              "INVALID_ARGUMENT",
+              "ASSET_NOT_FOUND",
+              "MEMBER_EDIT_FAILED"
+            ],
+            "notes": [
+              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+            ]
+          },
+          {
+            "name": "dispatcher.updateSignature",
+            "category": "dispatcher",
+            "summary": "Replace one Blueprint event dispatcher signature.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "assetPath": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "memberKind": {
+                  "const": "dispatcher"
+                },
+                "operation": {
+                  "const": "updateSignature"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "dispatcherName": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "inputs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "outputs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  "required": [
+                    "dispatcherName"
+                  ],
+                  "additionalProperties": false
+                },
+                "dryRun": {
+                  "type": "boolean",
+                  "default": false
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "assetPath",
+                "memberKind",
+                "operation",
+                "args"
+              ]
+            },
+            "examples": [
+              {
+                "assetPath": "/Game/BP_Test",
+                "memberKind": "dispatcher",
+                "operation": "updateSignature",
+                "args": {
+                  "dispatcherName": "OnReady",
+                  "inputs": [
+                    {
+                      "name": "bReady",
+                      "type": {
+                        "category": "bool"
+                      }
+                    }
+                  ]
+                }
               }
             ],
             "errors": [
@@ -3208,17 +3457,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -3279,17 +3517,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -3372,17 +3599,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -3450,17 +3666,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -3533,17 +3738,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -3604,17 +3798,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -3680,17 +3863,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -3751,17 +3923,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -3831,17 +3992,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -3902,17 +4052,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -3978,17 +4117,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -4054,17 +4182,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -4138,17 +4255,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -4209,17 +4315,6 @@
                 "dryRun": {
                   "type": "boolean",
                   "default": false
-                },
-                "returnDiff": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "returnDiagnostics": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "expectedRevision": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -4254,6 +4349,109 @@
         "tool": "blueprint.member.edit",
         "args": "identity",
         "result": "structured"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "isError": {
+            "type": "boolean"
+          },
+          "assetPath": {
+            "type": "string"
+          },
+          "memberKind": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "applied": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "details": {
+            "type": "object"
+          },
+          "valid": {
+            "type": "boolean"
+          },
+          "resolvedRefs": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "planned": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "severity": {
+                  "type": "string"
+                },
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "diff": {
+            "type": "object",
+            "properties": {
+              "scope": {
+                "type": "string"
+              },
+              "changes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": true
+                    },
+                    "before": {},
+                    "after": {},
+                    "metadata": {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            },
+            "required": [
+              "scope",
+              "changes"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "isError"
+        ],
+        "additionalProperties": true
       }
     },
     {

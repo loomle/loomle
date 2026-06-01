@@ -1350,6 +1350,11 @@ impl LoomleProxyServer {
             .unwrap_or_default()
             .into_iter()
             .filter(|item| {
+                if member_kind == "customEvent"
+                    && item.get("isCustomEvent").and_then(|value| value.as_bool()) != Some(true)
+                {
+                    return false;
+                }
                 name_filter.as_deref().is_none_or(|needle| {
                     item.get("name").and_then(|value| value.as_str()) == Some(needle)
                 })
@@ -7300,7 +7305,7 @@ fn blueprint_member_edit_schema() -> rmcp::model::JsonObject {
         "memberKind".into(),
         serde_json::json!({
             "type":"string",
-            "enum":["variable","function","macro","dispatcher","event","customEvent","component"],
+            "enum":["variable","function","macro","dispatcher","event","component"],
             "description":"Blueprint member domain. Use schema.inspect with domain='blueprint' and tool='blueprint.member.edit' to list supported memberKind.operation entries."
         }),
     );
@@ -7319,7 +7324,10 @@ fn blueprint_member_edit_schema() -> rmcp::model::JsonObject {
             "description":"Operation-specific arguments. The shape is intentionally omitted from tools/list; call schema.inspect for the selected memberKind.operation."
         }),
     );
-    mutation_control_fields(&mut properties);
+    properties.insert(
+        "dryRun".into(),
+        serde_json::json!({"type":"boolean","default":false}),
+    );
     schema_from_value(serde_json::json!({
         "type":"object",
         "properties": properties,
@@ -13169,6 +13177,53 @@ mod tests {
         assert!(blueprint_class_output_properties.contains_key("classDefaults"));
         assert!(blueprint_class_output_properties.contains_key("metadata"));
 
+        let blueprint_member = declared_tools
+            .iter()
+            .find(|tool| tool.name.as_ref() == "blueprint.member.inspect")
+            .expect("blueprint.member.inspect");
+        let blueprint_member_output_properties = blueprint_member
+            .output_schema
+            .as_ref()
+            .and_then(|schema| schema.get("properties"))
+            .and_then(|value| value.as_object())
+            .expect("blueprint.member.inspect output properties");
+        assert!(blueprint_member_output_properties.contains_key("assetPath"));
+        assert!(blueprint_member_output_properties.contains_key("memberKind"));
+        assert!(blueprint_member_output_properties.contains_key("items"));
+
+        let blueprint_member_edit = declared_tools
+            .iter()
+            .find(|tool| tool.name.as_ref() == "blueprint.member.edit")
+            .expect("blueprint.member.edit");
+        let blueprint_member_edit_input = blueprint_member_edit
+            .input_schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("blueprint.member.edit input properties");
+        let member_kind_enum = blueprint_member_edit_input
+            .get("memberKind")
+            .and_then(|value| value.get("enum"))
+            .and_then(|value| value.as_array())
+            .expect("memberKind enum");
+        assert!(!member_kind_enum
+            .iter()
+            .any(|value| value.as_str() == Some("customEvent")));
+        assert!(!blueprint_member_edit_input.contains_key("returnDiff"));
+        assert!(!blueprint_member_edit_input.contains_key("returnDiagnostics"));
+        assert!(!blueprint_member_edit_input.contains_key("expectedRevision"));
+        let blueprint_member_edit_output_properties = blueprint_member_edit
+            .output_schema
+            .as_ref()
+            .and_then(|schema| schema.get("properties"))
+            .and_then(|value| value.as_object())
+            .expect("blueprint.member.edit output properties");
+        assert!(blueprint_member_edit_output_properties.contains_key("applied"));
+        assert!(blueprint_member_edit_output_properties.contains_key("valid"));
+        assert!(blueprint_member_edit_output_properties.contains_key("resolvedRefs"));
+        assert!(blueprint_member_edit_output_properties.contains_key("planned"));
+        assert!(blueprint_member_edit_output_properties.contains_key("diagnostics"));
+        assert!(blueprint_member_edit_output_properties.contains_key("diff"));
+
         let blueprint_class_edit = declared_tools
             .iter()
             .find(|tool| tool.name.as_ref() == "blueprint.class.edit")
@@ -13197,6 +13252,11 @@ mod tests {
             .and_then(|value| value.as_object())
             .expect("blueprint.class.edit output properties");
         assert!(blueprint_class_edit_output_properties.contains_key("applied"));
+        assert!(blueprint_class_edit_output_properties.contains_key("valid"));
+        assert!(blueprint_class_edit_output_properties.contains_key("resolvedRefs"));
+        assert!(blueprint_class_edit_output_properties.contains_key("planned"));
+        assert!(blueprint_class_edit_output_properties.contains_key("diagnostics"));
+        assert!(blueprint_class_edit_output_properties.contains_key("diff"));
 
         let context = declared_tools
             .iter()

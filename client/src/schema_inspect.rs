@@ -696,13 +696,16 @@ fn blueprint_member_edit_operation_names() -> Vec<&'static str> {
         "variable.delete",
         "function.create",
         "function.override",
+        "function.updateSignature",
         "function.rename",
         "function.setFlags",
         "function.delete",
         "macro.create",
+        "macro.updateSignature",
         "macro.rename",
         "macro.delete",
         "dispatcher.create",
+        "dispatcher.updateSignature",
         "dispatcher.rename",
         "dispatcher.delete",
         "event.create",
@@ -755,13 +758,16 @@ fn member_edit_operation_summary(member_kind: &str, operation: &str) -> &'static
         ("function", "override") => {
             "Create or confirm an inherited Blueprint override function graph."
         }
+        ("function", "updateSignature") => "Replace one Blueprint function signature.",
         ("function", "rename") => "Rename one Blueprint function.",
         ("function", "setFlags") => "Update Blueprint function flags and metadata.",
         ("function", "delete") => "Delete one Blueprint function.",
         ("macro", "create") => "Create one Blueprint macro graph and signature.",
+        ("macro", "updateSignature") => "Replace one Blueprint macro signature.",
         ("macro", "rename") => "Rename one Blueprint macro.",
         ("macro", "delete") => "Delete one Blueprint macro.",
         ("dispatcher", "create") => "Create one Blueprint event dispatcher.",
+        ("dispatcher", "updateSignature") => "Replace one Blueprint event dispatcher signature.",
         ("dispatcher", "rename") => "Rename one Blueprint event dispatcher.",
         ("dispatcher", "delete") => "Delete one Blueprint event dispatcher.",
         ("event", "create") => "Create one custom event node and signature.",
@@ -799,10 +805,7 @@ fn blueprint_member_edit_operation_schema(
             "memberKind": {"const": member_kind},
             "operation": {"const": operation},
             "args": member_edit_args_schema(member_kind, operation),
-            "dryRun": {"type":"boolean","default":false},
-            "returnDiff": {"type":"boolean","default":false},
-            "returnDiagnostics": {"type":"boolean","default":true},
-            "expectedRevision": {"type":"string"}
+            "dryRun": {"type":"boolean","default":false}
         },
         "required": ["assetPath", "memberKind", "operation", "args"],
         "additionalProperties": false
@@ -888,13 +891,16 @@ fn member_edit_args_schema(member_kind: &str, operation: &str) -> serde_json::Va
             "anyOf":[{"required":["functionName"]},{"required":["name"]}],
             "additionalProperties":false
         }),
+        ("function", "updateSignature") => function_like_signature_schema("functionName"),
         ("function", "rename") => name_schema("functionName"),
         ("function", "setFlags") => object_with_required_name("functionName"),
         ("function", "delete") => single_name_schema("functionName"),
         ("macro", "create") => function_like_create_schema("macroName"),
+        ("macro", "updateSignature") => function_like_signature_schema("macroName"),
         ("macro", "rename") => name_schema("macroName"),
         ("macro", "delete") => single_name_schema("macroName"),
         ("dispatcher", "create") => function_like_create_schema("dispatcherName"),
+        ("dispatcher", "updateSignature") => function_like_signature_schema("dispatcherName"),
         ("dispatcher", "rename") => name_schema("dispatcherName"),
         ("dispatcher", "delete") => single_name_schema("dispatcherName"),
         ("event", "create") => serde_json::json!({
@@ -1013,6 +1019,28 @@ fn function_like_create_schema(name_field: &str) -> serde_json::Value {
     })
 }
 
+fn function_like_signature_schema(name_field: &str) -> serde_json::Value {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        name_field.to_string(),
+        serde_json::json!({"type":"string","minLength":1}),
+    );
+    properties.insert(
+        "inputs".to_string(),
+        serde_json::json!({"type":"array","items":{"type":"object"}}),
+    );
+    properties.insert(
+        "outputs".to_string(),
+        serde_json::json!({"type":"array","items":{"type":"object"}}),
+    );
+    serde_json::json!({
+        "type":"object",
+        "properties": properties,
+        "required":[name_field],
+        "additionalProperties":false
+    })
+}
+
 fn member_edit_example(member_kind: &str, operation: &str) -> serde_json::Value {
     match (member_kind, operation) {
         ("variable", "create") => {
@@ -1020,6 +1048,15 @@ fn member_edit_example(member_kind: &str, operation: &str) -> serde_json::Value 
         }
         ("function", "override") => {
             serde_json::json!({"assetPath":"/Game/BP_Test","memberKind":"function","operation":"override","args":{"functionName":"GetBodyMesh","ownerClassPath":"/Script/MyModule.MyAvatarBase"}})
+        }
+        ("function", "updateSignature") => {
+            serde_json::json!({"assetPath":"/Game/BP_Test","memberKind":"function","operation":"updateSignature","args":{"functionName":"ComputeValue","inputs":[{"name":"bInput","type":{"category":"bool"}}],"outputs":[{"name":"Value","type":{"category":"int"}}]}})
+        }
+        ("macro", "updateSignature") => {
+            serde_json::json!({"assetPath":"/Game/BP_Test","memberKind":"macro","operation":"updateSignature","args":{"macroName":"GuardMacro","inputs":[{"name":"bGate","type":{"category":"bool"}}],"outputs":[{"name":"bPassed","type":{"category":"bool"}}]}})
+        }
+        ("dispatcher", "updateSignature") => {
+            serde_json::json!({"assetPath":"/Game/BP_Test","memberKind":"dispatcher","operation":"updateSignature","args":{"dispatcherName":"OnReady","inputs":[{"name":"bReady","type":{"category":"bool"}}]}})
         }
         ("event", "addInput") => {
             serde_json::json!({"assetPath":"/Game/BP_Test","memberKind":"event","operation":"addInput","args":{"name":"OnReady","inputName":"Count","type":{"category":"int"}}})

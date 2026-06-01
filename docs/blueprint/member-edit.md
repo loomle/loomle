@@ -12,6 +12,24 @@ Blueprint event/function. Loomle exposes those as separate operations so agents
 do not accidentally create a same-named user function graph that does not
 participate in runtime dispatch.
 
+## Public Contract
+
+Top-level requests use `assetPath`, `memberKind`, `operation`, optional `args`,
+and optional `dryRun`. Operation-specific argument schemas are exposed through
+`schema.inspect`.
+
+`memberKind="event"` is the edit surface for Custom Events. The narrower
+`memberKind="customEvent"` name is inspect-only.
+
+The current result reports `isError`, `applied`, `valid`, `dryRun`,
+`assetPath`, `memberKind`, `operation`, `resolvedRefs`, `planned`, `diff`,
+`diagnostics`, and structured error fields such as `code`, `message`, `reason`,
+and `details`. `dryRun=true` validates the request, resolves the target member
+where applicable, returns `applied=false`, and includes the planned edit
+summary and structured change set. `returnDiagnostics` and `expectedRevision`
+are not currently implemented by this tool and should not be declared in its
+public schema.
+
 ## Function Operations
 
 ### `function.create`
