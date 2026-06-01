@@ -127,13 +127,75 @@ namespace LoomleMutation
         return Plan;
     }
 
+    static TSharedPtr<FJsonObject> BuildBatchPlanFromOpResults(
+        const FString& Tool,
+        const FString& AssetPath,
+        const FString& Operation,
+        const int32 CommandCount,
+        const TArray<TSharedPtr<FJsonValue>>& OpResults,
+        const TSharedPtr<FJsonObject>& ExtraResolvedRefs = nullptr)
+    {
+        TArray<TSharedPtr<FJsonValue>> PlannedCommands;
+        PlannedCommands.Reserve(OpResults.Num());
+        for (const TSharedPtr<FJsonValue>& OpResultValue : OpResults)
+        {
+            const TSharedPtr<FJsonObject>* OpResultObject = nullptr;
+            if (!OpResultValue.IsValid()
+                || !OpResultValue->TryGetObject(OpResultObject)
+                || OpResultObject == nullptr
+                || !(*OpResultObject).IsValid())
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> PlannedCommand = MakeShared<FJsonObject>();
+            double CommandIndex = 0.0;
+            if ((*OpResultObject)->TryGetNumberField(TEXT("index"), CommandIndex))
+            {
+                PlannedCommand->SetNumberField(TEXT("index"), CommandIndex);
+            }
+            FString PlannedOp;
+            if ((*OpResultObject)->TryGetStringField(TEXT("op"), PlannedOp))
+            {
+                PlannedCommand->SetStringField(TEXT("op"), PlannedOp);
+            }
+            bool bOpOk = false;
+            if ((*OpResultObject)->TryGetBoolField(TEXT("ok"), bOpOk))
+            {
+                PlannedCommand->SetBoolField(TEXT("valid"), bOpOk);
+            }
+            bool bOpChanged = false;
+            if ((*OpResultObject)->TryGetBoolField(TEXT("changed"), bOpChanged))
+            {
+                PlannedCommand->SetBoolField(TEXT("changed"), bOpChanged);
+            }
+            FString PlannedNodeId;
+            if ((*OpResultObject)->TryGetStringField(TEXT("nodeId"), PlannedNodeId) && !PlannedNodeId.IsEmpty())
+            {
+                PlannedCommand->SetStringField(TEXT("nodeId"), PlannedNodeId);
+            }
+            FString PlannedErrorCode;
+            if ((*OpResultObject)->TryGetStringField(TEXT("errorCode"), PlannedErrorCode) && !PlannedErrorCode.IsEmpty())
+            {
+                PlannedCommand->SetStringField(TEXT("errorCode"), PlannedErrorCode);
+            }
+            PlannedCommands.Add(MakeShared<FJsonValueObject>(PlannedCommand));
+        }
+
+        TSharedPtr<FJsonObject> Plan = BuildBatchPlan(Tool, AssetPath, Operation, PlannedCommands, ExtraResolvedRefs);
+        Plan->SetNumberField(TEXT("commandCount"), CommandCount);
+        return Plan;
+    }
+
     static TSharedPtr<FJsonObject> MakeOpResult(
         const int32 Index,
         const FString& Operation,
         const bool bOk,
         const bool bChanged,
         const FString& ErrorCode = FString(),
-        const FString& ErrorMessage = FString())
+        const FString& ErrorMessage = FString(),
+        const FString& NodeId = FString(),
+        const TSharedPtr<FJsonObject>& Details = nullptr)
     {
         TSharedPtr<FJsonObject> OpResult = MakeShared<FJsonObject>();
         OpResult->SetNumberField(TEXT("index"), Index);
@@ -143,6 +205,14 @@ namespace LoomleMutation
         OpResult->SetBoolField(TEXT("changed"), bChanged);
         OpResult->SetStringField(TEXT("errorCode"), bOk ? TEXT("") : ErrorCode);
         OpResult->SetStringField(TEXT("errorMessage"), bOk ? TEXT("") : ErrorMessage);
+        if (!NodeId.IsEmpty())
+        {
+            OpResult->SetStringField(TEXT("nodeId"), NodeId);
+        }
+        if (!bOk && Details.IsValid())
+        {
+            OpResult->SetObjectField(TEXT("details"), Details);
+        }
         return OpResult;
     }
 
@@ -152,14 +222,15 @@ namespace LoomleMutation
         const FString& AssetPath,
         const FString& Operation,
         const bool bDryRun,
-        const bool bApplied)
+        const bool bApplied,
+        const bool bValid = true)
     {
         if (!Result.IsValid())
         {
             return;
         }
-        Result->SetBoolField(TEXT("isError"), false);
-        Result->SetBoolField(TEXT("valid"), true);
+        Result->SetBoolField(TEXT("isError"), !bValid);
+        Result->SetBoolField(TEXT("valid"), bValid);
         Result->SetBoolField(TEXT("dryRun"), bDryRun);
         Result->SetBoolField(TEXT("applied"), bApplied);
         Result->SetStringField(TEXT("tool"), Tool);

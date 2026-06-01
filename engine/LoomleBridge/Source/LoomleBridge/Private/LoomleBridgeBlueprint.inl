@@ -3892,12 +3892,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
     if (!Arguments.IsValid() || !Arguments->TryGetArrayField(TEXT("ops"), Ops) || Ops == nullptr)
     {
         TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-        Result->SetBoolField(TEXT("isError"), true);
-        Result->SetBoolField(TEXT("valid"), false);
-        Result->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Result->SetStringField(TEXT("message"), TEXT("arguments.ops must be an array."));
+        LoomleMutation::SetFailure(Result, TEXT("INVALID_ARGUMENT"), TEXT("arguments.ops must be an array."));
         return Result;
     }
+
+    bool bDryRun = false;
+    Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
 
     if (Arguments.IsValid() && Ops != nullptr)
     {
@@ -3942,13 +3942,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
             Result->SetStringField(TEXT("newRevision"), TEXT(""));
 
             TArray<TSharedPtr<FJsonValue>> OpResults;
-            TSharedPtr<FJsonObject> OpResult = MakeShared<FJsonObject>();
-            OpResult->SetNumberField(TEXT("index"), Index);
-            OpResult->SetStringField(TEXT("op"), Op);
-            OpResult->SetBoolField(TEXT("ok"), false);
-            OpResult->SetBoolField(TEXT("skipped"), false);
-            OpResult->SetStringField(TEXT("errorCode"), TEXT("UNSUPPORTED_OP"));
-            OpResult->SetStringField(TEXT("errorMessage"), TEXT("blueprint.graph.edit does not support runScript."));
+            TSharedPtr<FJsonObject> OpResult = LoomleMutation::MakeOpResult(
+                Index,
+                Op,
+                false,
+                false,
+                TEXT("UNSUPPORTED_OP"),
+                TEXT("blueprint.graph.edit does not support runScript."));
             OpResults.Add(MakeShared<FJsonValueObject>(OpResult));
             Result->SetArrayField(TEXT("opResults"), OpResults);
 
@@ -4009,22 +4009,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
         if (!ExpectedRevision.Equals(CurrentRevision, ESearchCase::CaseSensitive))
         {
             TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-            Result->SetBoolField(TEXT("isError"), true);
-            Result->SetBoolField(TEXT("valid"), false);
-            Result->SetStringField(TEXT("code"), TEXT("REVISION_CONFLICT"));
-            Result->SetStringField(
-                TEXT("message"),
-                FString::Printf(TEXT("expectedRevision mismatch: expected %s but current revision is %s."), *ExpectedRevision, *CurrentRevision));
-            Result->SetBoolField(TEXT("applied"), false);
+            LoomleMutation::SetMutationEnvelope(Result, TEXT("blueprint.graph.edit"), AssetPath, TEXT("blueprint.graph.edit"), bDryRun, false, false);
+            LoomleMutation::SetRevisionConflict(Result, ExpectedRevision, CurrentRevision);
             Result->SetBoolField(TEXT("partialApplied"), false);
             Result->SetStringField(TEXT("graphType"), TEXT("blueprint"));
-            Result->SetStringField(TEXT("assetPath"), AssetPath);
             Result->SetStringField(TEXT("graphName"), GraphName);
             Result->SetObjectField(TEXT("graphRef"), MakeBlueprintEffectiveGraphRef(AssetPath, GraphName, InlineNodeGuid));
-            Result->SetStringField(TEXT("previousRevision"), CurrentRevision);
-            Result->SetStringField(TEXT("newRevision"), CurrentRevision);
             Result->SetArrayField(TEXT("opResults"), TArray<TSharedPtr<FJsonValue>>{});
-            Result->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
             return Result;
         }
     }
@@ -4201,9 +4192,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
         Result->SetStringField(TEXT("message"), FString::Printf(TEXT("arguments.ops exceeds executionPolicy.maxOps (%d)."), MaxOps));
         return Result;
     }
-
-    bool bDryRun = false;
-    Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
 
     TMap<FString, FString> NodeRefs;
     TArray<TSharedPtr<FJsonValue>> OpResults;
@@ -4783,22 +4771,15 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
             }
 
             TArray<TSharedPtr<FJsonValue>> DirectOpResults;
-            TSharedPtr<FJsonObject> DirectOpResult = MakeShared<FJsonObject>();
-            DirectOpResult->SetNumberField(TEXT("index"), 0);
-            DirectOpResult->SetStringField(TEXT("op"), OpName);
-            DirectOpResult->SetBoolField(TEXT("ok"), bOk);
-            DirectOpResult->SetBoolField(TEXT("skipped"), false);
-            DirectOpResult->SetBoolField(TEXT("changed"), bChanged);
-            DirectOpResult->SetStringField(TEXT("errorCode"), ActualErrorCode);
-            DirectOpResult->SetStringField(TEXT("errorMessage"), ActualErrorMessage);
-            if (!bOk && StructuredError.IsValid())
-            {
-                DirectOpResult->SetObjectField(TEXT("details"), StructuredError);
-            }
-            if (!NodeId.IsEmpty())
-            {
-                DirectOpResult->SetStringField(TEXT("nodeId"), NodeId);
-            }
+            TSharedPtr<FJsonObject> DirectOpResult = LoomleMutation::MakeOpResult(
+                0,
+                OpName,
+                bOk,
+                bChanged,
+                ActualErrorCode,
+                ActualErrorMessage,
+                NodeId,
+                StructuredError);
             DirectOpResults.Add(MakeShared<FJsonValueObject>(DirectOpResult));
             DirectResult->SetArrayField(TEXT("opResults"), DirectOpResults);
 
@@ -6184,12 +6165,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
 
         if (!SingleResult.IsValid())
         {
-            TSharedPtr<FJsonObject> FallbackOpResult = MakeShared<FJsonObject>();
-            FallbackOpResult->SetNumberField(TEXT("index"), Index);
-            FallbackOpResult->SetStringField(TEXT("op"), OpName);
-            FallbackOpResult->SetBoolField(TEXT("ok"), false);
-            FallbackOpResult->SetStringField(TEXT("errorCode"), TEXT("INTERNAL_ERROR"));
-            FallbackOpResult->SetStringField(TEXT("errorMessage"), TEXT("Single-op blueprint mutate returned an invalid result."));
+            TSharedPtr<FJsonObject> FallbackOpResult = LoomleMutation::MakeOpResult(
+                Index,
+                OpName,
+                false,
+                false,
+                TEXT("INTERNAL_ERROR"),
+                TEXT("Single-op blueprint mutate returned an invalid result."));
             FallbackOpResult->SetNumberField(TEXT("durationMs"), (FPlatformTime::Seconds() - OpStartSeconds) * 1000.0);
             OpResults.Add(MakeShared<FJsonValueObject>(FallbackOpResult));
             bAnyError = true;
@@ -6245,16 +6227,17 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
         }
         else
         {
-            TSharedPtr<FJsonObject> FallbackOpResult = MakeShared<FJsonObject>();
-            FallbackOpResult->SetNumberField(TEXT("index"), Index);
-            FallbackOpResult->SetStringField(TEXT("op"), OpName);
-            FallbackOpResult->SetBoolField(TEXT("ok"), !bSingleError);
             FString SingleCode;
             FString SingleMessage;
             SingleResult->TryGetStringField(TEXT("code"), SingleCode);
             SingleResult->TryGetStringField(TEXT("message"), SingleMessage);
-            FallbackOpResult->SetStringField(TEXT("errorCode"), bSingleError ? SingleCode : TEXT(""));
-            FallbackOpResult->SetStringField(TEXT("errorMessage"), bSingleError ? SingleMessage : TEXT(""));
+            TSharedPtr<FJsonObject> FallbackOpResult = LoomleMutation::MakeOpResult(
+                Index,
+                OpName,
+                !bSingleError,
+                false,
+                bSingleError ? SingleCode : TEXT(""),
+                bSingleError ? SingleMessage : TEXT(""));
             FallbackOpResult->SetNumberField(TEXT("durationMs"), (FPlatformTime::Seconds() - OpStartSeconds) * 1000.0);
             OpResults.Add(MakeShared<FJsonValueObject>(FallbackOpResult));
         }
@@ -6321,74 +6304,33 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
         }
     }
 
-    TSharedPtr<FJsonObject> Planned = MakeShared<FJsonObject>();
-    Planned->SetStringField(TEXT("operation"), TEXT("blueprint.graph.edit"));
-    Planned->SetNumberField(TEXT("commandCount"), Ops != nullptr ? Ops->Num() : 0);
-    TArray<TSharedPtr<FJsonValue>> PlannedCommands;
-    PlannedCommands.Reserve(OpResults.Num());
-    for (const TSharedPtr<FJsonValue>& OpResultValue : OpResults)
-    {
-        const TSharedPtr<FJsonObject>* OpResultObject = nullptr;
-        if (!OpResultValue.IsValid()
-            || !OpResultValue->TryGetObject(OpResultObject)
-            || OpResultObject == nullptr
-            || !(*OpResultObject).IsValid())
-        {
-            continue;
-        }
-
-        TSharedPtr<FJsonObject> PlannedCommand = MakeShared<FJsonObject>();
-        double CommandIndex = 0.0;
-        if ((*OpResultObject)->TryGetNumberField(TEXT("index"), CommandIndex))
-        {
-            PlannedCommand->SetNumberField(TEXT("index"), CommandIndex);
-        }
-        FString PlannedOp;
-        if ((*OpResultObject)->TryGetStringField(TEXT("op"), PlannedOp))
-        {
-            PlannedCommand->SetStringField(TEXT("op"), PlannedOp);
-        }
-        bool bOpOk = false;
-        if ((*OpResultObject)->TryGetBoolField(TEXT("ok"), bOpOk))
-        {
-            PlannedCommand->SetBoolField(TEXT("valid"), bOpOk);
-        }
-        bool bOpChanged = false;
-        if ((*OpResultObject)->TryGetBoolField(TEXT("changed"), bOpChanged))
-        {
-            PlannedCommand->SetBoolField(TEXT("changed"), bOpChanged);
-        }
-        FString PlannedNodeId;
-        if ((*OpResultObject)->TryGetStringField(TEXT("nodeId"), PlannedNodeId) && !PlannedNodeId.IsEmpty())
-        {
-            PlannedCommand->SetStringField(TEXT("nodeId"), PlannedNodeId);
-        }
-        FString PlannedErrorCode;
-        if ((*OpResultObject)->TryGetStringField(TEXT("errorCode"), PlannedErrorCode) && !PlannedErrorCode.IsEmpty())
-        {
-            PlannedCommand->SetStringField(TEXT("errorCode"), PlannedErrorCode);
-        }
-        PlannedCommands.Add(MakeShared<FJsonValueObject>(PlannedCommand));
-    }
-    Planned->SetArrayField(TEXT("commands"), PlannedCommands);
-
+    TSharedPtr<FJsonObject> ResolvedRefs = MakeShared<FJsonObject>();
+    ResolvedRefs->SetObjectField(TEXT("graph"), MakeBlueprintEffectiveGraphRef(AssetPath, GraphName, InlineNodeGuid));
+    TSharedPtr<FJsonObject> Planned = LoomleMutation::BuildBatchPlanFromOpResults(
+        TEXT("blueprint.graph.edit"),
+        AssetPath,
+        TEXT("blueprint.graph.edit"),
+        Ops != nullptr ? Ops->Num() : 0,
+        OpResults,
+        ResolvedRefs);
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("isError"), bAnyError);
-    Result->SetBoolField(TEXT("valid"), !bAnyError);
-    Result->SetStringField(TEXT("operation"), TEXT("blueprint.graph.edit"));
+    LoomleMutation::SetMutationEnvelope(
+        Result,
+        TEXT("blueprint.graph.edit"),
+        AssetPath,
+        TEXT("blueprint.graph.edit"),
+        bDryRun,
+        !bDryRun && !bAnyError,
+        !bAnyError);
     if (bAnyError)
     {
         Result->SetStringField(TEXT("code"), FirstErrorCode.IsEmpty() ? TEXT("INTERNAL_ERROR") : FirstErrorCode);
         Result->SetStringField(TEXT("message"), FirstErrorMessage.IsEmpty() ? TEXT("blueprint.graph.edit failed") : FirstErrorMessage);
     }
-    Result->SetBoolField(TEXT("applied"), !bDryRun && !bAnyError);
-    Result->SetBoolField(TEXT("dryRun"), bDryRun);
     Result->SetBoolField(TEXT("partialApplied"), bAnyError && bAnyChanged);
     Result->SetStringField(TEXT("graphType"), TEXT("blueprint"));
-    Result->SetStringField(TEXT("assetPath"), AssetPath);
     Result->SetStringField(TEXT("graphName"), GraphName);
     Result->SetObjectField(TEXT("graphRef"), MakeBlueprintEffectiveGraphRef(AssetPath, GraphName, InlineNodeGuid));
-    Result->SetStringField(TEXT("previousRevision"), PreviousRevision);
 
     FString NewRevision = PreviousRevision;
     if (!bDryRun && !bAnyError)
@@ -6397,16 +6339,16 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
         FString NewRevisionMessage;
         if (ResolveRevision(GraphName, InlineNodeGuid, NewRevision, NewRevisionCode, NewRevisionMessage))
         {
-            Result->SetStringField(TEXT("newRevision"), NewRevision);
+            LoomleMutation::SetRevision(Result, PreviousRevision, NewRevision);
         }
         else
         {
-            Result->SetStringField(TEXT("newRevision"), PreviousRevision);
+            LoomleMutation::SetUnchangedRevision(Result, PreviousRevision);
         }
     }
     else
     {
-        Result->SetStringField(TEXT("newRevision"), PreviousRevision);
+        LoomleMutation::SetUnchangedRevision(Result, PreviousRevision);
     }
 
     Result->SetArrayField(TEXT("opResults"), OpResults);
