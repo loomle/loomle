@@ -577,7 +577,7 @@ fn node_edit_args_schema(operation: &str) -> serde_json::Value {
         "removePin" => serde_json::json!({
             "type":"object",
             "properties":{
-                "pin":{"type":"string","minLength":1,"description":"Current pin name from blueprint.node.inspect pins/state. Optional only for Select, where UE removes the last option."},
+                "pin":{"type":"string","minLength":1,"description":"Current pin name from blueprint.node.inspect node.pins/editState. Optional only for Select, where UE removes the last option."},
                 "mode":{"type":"string","enum":["pin","otherPins"],"default":"pin","description":"For SetFieldsInStruct only: pin hides the selected field; otherPins hides all other visible fields."},
                 "target":{
                     "type":"object",
@@ -606,7 +606,7 @@ fn node_edit_args_schema(operation: &str) -> serde_json::Value {
         "renamePin" => serde_json::json!({
             "type":"object",
             "properties":{
-                "pin":{"type":"string","minLength":1,"description":"Current pin name from blueprint.node.inspect pins/state."},
+                "pin":{"type":"string","minLength":1,"description":"Current pin name from blueprint.node.inspect node.pins/editState."},
                 "name":{"type":"string","minLength":1,"description":"New case or argument name."}
             },
             "required":["pin","name"],
@@ -615,7 +615,7 @@ fn node_edit_args_schema(operation: &str) -> serde_json::Value {
         "movePin" => serde_json::json!({
             "type":"object",
             "properties":{
-                "pin":{"type":"string","minLength":1,"description":"Current pin name from blueprint.node.inspect pins/state."},
+                "pin":{"type":"string","minLength":1,"description":"Current pin name from blueprint.node.inspect node.pins/editState."},
                 "target":{
                     "type":"object",
                     "properties":{"pin":{"type":"string","minLength":1}},

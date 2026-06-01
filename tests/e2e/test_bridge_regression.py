@@ -3277,7 +3277,7 @@ def main() -> int:
         self_node = self_query.get("node", {})
         if self_node.get("className") != "K2Node_Self":
             fail(f"blueprint.graph.inspect self node class mismatch: {self_node}")
-        self_pins = self_query.get("pins")
+        self_pins = self_node.get("pins")
         if not isinstance(self_pins, list) or not any(
             isinstance(pin, dict) and pin.get("name") == "self" and pin.get("direction") == "output"
             for pin in self_pins
@@ -3292,7 +3292,7 @@ def main() -> int:
             fail(f"blueprint.graph.inspect self node link to UObject/Actor input missing: {self_node}")
         self_external_query = inspect_blueprint_node(client, 1310, temp_asset, "EventGraph", self_node_id)
         self_external_node = self_external_query.get("node", {})
-        self_external_pins = self_external_query.get("pins")
+        self_external_pins = self_external_node.get("pins")
         if not isinstance(self_external_pins, list) or not any(
             isinstance(pin, dict)
             and pin.get("name") == "self"
@@ -4007,8 +4007,8 @@ def main() -> int:
             "graph": {"name": "EventGraph"},
             "node": {"id": switch_name_node},
         })
-        case_pins = switch_inspect_after.get("state", {}).get("casePins")
-        pins_after = switch_inspect_after.get("pins")
+        case_pins = switch_inspect_after.get("editState", {}).get("casePins")
+        pins_after = switch_inspect_after.get("node", {}).get("pins")
         pin_names_after = {
             pin.get("name")
             for pin in pins_after
@@ -4049,7 +4049,7 @@ def main() -> int:
         select_op_names = {item.get("operation") for item in select_ops if isinstance(item, dict)} if isinstance(select_ops, list) else set()
         if "addPin" not in select_op_names or "removePin" not in select_op_names:
             fail(f"blueprint.node.inspect missing Select option operations: {select_inspect_before}")
-        select_pins_before = select_inspect_before.get("state", {}).get("optionPins")
+        select_pins_before = select_inspect_before.get("editState", {}).get("optionPins")
         select_count_before = len(select_pins_before) if isinstance(select_pins_before, list) else -1
         add_select_option = call_tool(client, 18131, "blueprint.node.edit", {
             "assetPath": temp_asset,
@@ -4065,7 +4065,7 @@ def main() -> int:
             "graph": {"name": "EventGraph"},
             "node": {"id": select_node},
         })
-        select_pins_added = select_inspect_added.get("state", {}).get("optionPins")
+        select_pins_added = select_inspect_added.get("editState", {}).get("optionPins")
         select_count_added = len(select_pins_added) if isinstance(select_pins_added, list) else -1
         if select_count_added <= select_count_before:
             fail(f"blueprint.node.edit addPin did not add Select option pin: {select_inspect_added}")
@@ -4083,7 +4083,7 @@ def main() -> int:
             "graph": {"name": "EventGraph"},
             "node": {"id": select_node},
         })
-        select_pins_removed = select_inspect_removed.get("state", {}).get("optionPins")
+        select_pins_removed = select_inspect_removed.get("editState", {}).get("optionPins")
         select_count_removed = len(select_pins_removed) if isinstance(select_pins_removed, list) else -1
         if select_count_removed != select_count_before:
             fail(f"blueprint.node.edit removePin should remove Select's last option: {select_inspect_removed}")
@@ -4161,7 +4161,7 @@ def main() -> int:
             "graph": {"name": "EventGraph"},
             "node": {"id": format_text_node},
         })
-        argument_pins = format_text_inspect.get("state", {}).get("argumentPins")
+        argument_pins = format_text_inspect.get("editState", {}).get("argumentPins")
         if not isinstance(argument_pins, list) or "PlayerScore" not in argument_pins or "PlayerName" in argument_pins:
             fail(f"blueprint.node.edit Format Text argument operations produced unexpected state: {format_text_inspect}")
         print("[PASS] blueprint.node.edit Format Text argument add/move/rename/remove validated")
@@ -4209,7 +4209,7 @@ def main() -> int:
             "graph": {"name": "EventGraph"},
             "node": {"id": set_fields_node},
         })
-        restored_field_pins = set_fields_inspect_restored.get("state", {}).get("fieldPins")
+        restored_field_pins = set_fields_inspect_restored.get("editState", {}).get("fieldPins")
         removable_field = None
         if isinstance(restored_field_pins, list):
             for candidate in restored_field_pins:
@@ -4232,7 +4232,7 @@ def main() -> int:
             "graph": {"name": "EventGraph"},
             "node": {"id": set_fields_node},
         })
-        hidden_field_pins = set_fields_inspect_hidden.get("state", {}).get("fieldPins")
+        hidden_field_pins = set_fields_inspect_hidden.get("editState", {}).get("fieldPins")
         if isinstance(hidden_field_pins, list) and removable_field in hidden_field_pins:
             fail(f"blueprint.node.edit removePin did not hide SetFieldsInStruct field: {set_fields_inspect_hidden}")
         restore_fields_final = call_tool(client, 18151, "blueprint.node.edit", {
@@ -4249,7 +4249,7 @@ def main() -> int:
             "graph": {"name": "EventGraph"},
             "node": {"id": set_fields_node},
         })
-        final_field_pins = set_fields_inspect_final.get("state", {}).get("fieldPins")
+        final_field_pins = set_fields_inspect_final.get("editState", {}).get("fieldPins")
         if not isinstance(final_field_pins, list) or removable_field not in final_field_pins:
             fail(f"blueprint.node.edit restorePins did not restore SetFieldsInStruct field: {set_fields_inspect_final}")
         print("[PASS] blueprint.node.edit SetFieldsInStruct field hide/restore validated")

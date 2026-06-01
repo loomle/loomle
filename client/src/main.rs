@@ -12102,6 +12102,7 @@ mod tests {
                 "retired tool should not be declared: {retired}"
             );
         }
+
     }
 
     #[test]
@@ -12208,6 +12209,26 @@ mod tests {
         assert!(blueprint_member_output_properties.contains_key("assetPath"));
         assert!(blueprint_member_output_properties.contains_key("memberKind"));
         assert!(blueprint_member_output_properties.contains_key("items"));
+
+        let blueprint_node_inspect = declared_tools
+            .iter()
+            .find(|tool| tool.name.as_ref() == "blueprint.node.inspect")
+            .expect("blueprint.node.inspect");
+        let blueprint_node_inspect_output = blueprint_node_inspect
+            .output_schema
+            .as_ref()
+            .and_then(|schema| schema.get("oneOf"))
+            .and_then(|value| value.as_array())
+            .and_then(|items| items.first())
+            .and_then(|schema| schema.get("properties"))
+            .and_then(|value| value.as_object())
+            .expect("blueprint.node.inspect output properties");
+        assert!(blueprint_node_inspect_output.contains_key("node"));
+        assert!(blueprint_node_inspect_output.contains_key("editState"));
+        assert!(blueprint_node_inspect_output.contains_key("editCapabilities"));
+        assert!(!blueprint_node_inspect_output.contains_key("pins"));
+        assert!(!blueprint_node_inspect_output.contains_key("state"));
+        assert!(!blueprint_node_inspect_output.contains_key("graphName"));
 
         let blueprint_member_edit = declared_tools
             .iter()

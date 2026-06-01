@@ -1041,8 +1041,8 @@ Readability notes:
 
 `blueprint.node.inspect` is the focused read surface for one graph node after
 `blueprint.graph.inspect` has identified that the node has node-local structure.
-It returns pins, node-local state, and `editCapabilities` so callers know whether
-`blueprint.node.edit` is applicable.
+It returns the full serialized node, node-local editable state, and
+`editCapabilities` so callers know whether `blueprint.node.edit` is applicable.
 
 `blueprint.graph.inspect` marks such nodes with `hasNodeEditCapabilities: true`
 and `inspectWith: "blueprint.node.inspect"`. That routing hint comes from the
@@ -1063,7 +1063,7 @@ Supported operation families:
 Mapping rules:
 
 - Call `blueprint.node.inspect` first and use current pin names from its
-  `pins` or node-specific `state`.
+  `node.pins` or node-specific `editState`.
 - Use `schema.inspect` with `tool: "blueprint.node.edit"` and an operation name
   for the second-layer operation schema.
 - Public request fields are `assetPath`, `graph`, `node`, `operation`, `args`,

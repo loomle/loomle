@@ -5245,6 +5245,210 @@
           "transform": "blueprint.node.inspect.args.v1"
         },
         "result": "structured"
+      },
+      "outputSchema": {
+        "oneOf": [
+          {
+            "type": "object",
+            "title": "Blueprint Node Inspect Result",
+            "properties": {
+              "isError": {
+                "type": "boolean",
+                "const": false
+              },
+              "assetPath": {
+                "type": "string"
+              },
+              "graphRef": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "asset",
+                      "inline"
+                    ]
+                  },
+                  "assetPath": {
+                    "type": "string"
+                  },
+                  "graphId": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "graphName": {
+                    "type": "string"
+                  },
+                  "nodeGuid": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "assetPath"
+                ],
+                "additionalProperties": true
+              },
+              "node": {
+                "type": "object",
+                "description": "Full serialized graph node. Pin/default/link details live under node.pins.",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "guid": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "nodeTitle": {
+                    "type": "string"
+                  },
+                  "className": {
+                    "type": "string"
+                  },
+                  "classPath": {
+                    "type": "string"
+                  },
+                  "nodeClassPath": {
+                    "type": "string"
+                  },
+                  "layout": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "position": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "pins": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  },
+                  "k2Extensions": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "embeddedTemplate": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "effectiveSettings": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "graphBoundarySummary": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "hasNodeEditCapabilities": {
+                    "type": "boolean"
+                  },
+                  "inspectWith": {
+                    "const": "blueprint.node.inspect"
+                  }
+                },
+                "required": [
+                  "id",
+                  "pins"
+                ],
+                "additionalProperties": true
+              },
+              "editState": {
+                "type": "object",
+                "description": "Node-local editable pin state used by blueprint.node.edit, such as casePins, execPins, argumentPins, optionPins, fieldPins, or inputPins.",
+                "additionalProperties": true
+              },
+              "editCapabilities": {
+                "type": "object",
+                "properties": {
+                  "hasPinOperations": {
+                    "type": "boolean"
+                  },
+                  "pinOperations": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "operation": {
+                          "type": "string"
+                        },
+                        "role": {
+                          "type": "string"
+                        },
+                        "nameMode": {
+                          "type": "string"
+                        },
+                        "summary": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": true
+                    }
+                  },
+                  "notes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "hasPinOperations",
+                  "pinOperations"
+                ],
+                "additionalProperties": true
+              }
+            },
+            "required": [
+              "isError",
+              "assetPath",
+              "graphRef",
+              "node",
+              "editState",
+              "editCapabilities"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "title": "Blueprint Node Inspect Error",
+            "properties": {
+              "isError": {
+                "type": "boolean",
+                "const": true
+              },
+              "code": {
+                "type": "string",
+                "enum": [
+                  "INVALID_ARGUMENT",
+                  "ASSET_NOT_FOUND",
+                  "GRAPH_NOT_FOUND",
+                  "NODE_NOT_FOUND",
+                  "INTERNAL_ERROR"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "isError",
+              "code",
+              "message"
+            ],
+            "additionalProperties": true
+          }
+        ]
       }
     },
     {
@@ -5618,7 +5822,7 @@
                     "pin": {
                       "type": "string",
                       "minLength": 1,
-                      "description": "Current pin name from blueprint.node.inspect pins/state. Optional only for Select, where UE removes the last option."
+                      "description": "Current pin name from blueprint.node.inspect node.pins/editState. Optional only for Select, where UE removes the last option."
                     },
                     "mode": {
                       "type": "string",
@@ -5847,7 +6051,7 @@
                     "pin": {
                       "type": "string",
                       "minLength": 1,
-                      "description": "Current pin name from blueprint.node.inspect pins/state."
+                      "description": "Current pin name from blueprint.node.inspect node.pins/editState."
                     },
                     "name": {
                       "type": "string",
@@ -5950,7 +6154,7 @@
                     "pin": {
                       "type": "string",
                       "minLength": 1,
-                      "description": "Current pin name from blueprint.node.inspect pins/state."
+                      "description": "Current pin name from blueprint.node.inspect node.pins/editState."
                     },
                     "target": {
                       "type": "object",

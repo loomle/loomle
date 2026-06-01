@@ -3371,19 +3371,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeInspectToolResult
     }
 
     Result->SetStringField(TEXT("assetPath"), AssetPath);
-    Result->SetStringField(TEXT("graphName"), GraphName);
     Result->SetObjectField(TEXT("graphRef"), MakeBlueprintEffectiveGraphRef(AssetPath, GraphName, InlineNodeGuid));
     Result->SetObjectField(TEXT("node"), *Node);
-    const TArray<TSharedPtr<FJsonValue>>* Pins = nullptr;
-    if ((*Node)->TryGetArrayField(TEXT("pins"), Pins) && Pins != nullptr)
-    {
-        Result->SetArrayField(TEXT("pins"), *Pins);
-    }
-    else
-    {
-        Result->SetArrayField(TEXT("pins"), {});
-    }
-    Result->SetObjectField(TEXT("state"), BuildBlueprintNodeInspectState(*Node));
+    Result->SetObjectField(TEXT("editState"), BuildBlueprintNodeInspectState(*Node));
     Result->SetObjectField(TEXT("editCapabilities"), EditCapabilities);
     return Result;
 }

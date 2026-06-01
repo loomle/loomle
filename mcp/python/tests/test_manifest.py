@@ -271,6 +271,19 @@ class ToolManifestTests(unittest.TestCase):
         self.assertIn("previousRevision", class_edit_tool["outputSchema"]["properties"])
         self.assertIn("newRevision", class_edit_tool["outputSchema"]["properties"])
 
+        node_inspect_tool = next(
+            tool for tool in manifest.list_tools("python")
+            if tool["name"] == "blueprint.node.inspect"
+        )
+        self.assertIn("outputSchema", node_inspect_tool)
+        node_output = node_inspect_tool["outputSchema"]["oneOf"][0]["properties"]
+        self.assertIn("node", node_output)
+        self.assertIn("editState", node_output)
+        self.assertIn("editCapabilities", node_output)
+        self.assertNotIn("pins", node_output)
+        self.assertNotIn("state", node_output)
+        self.assertNotIn("graphName", node_output)
+
     def test_blueprint_graph_inspect_manifest_exposes_flow_views(self) -> None:
         manifest = load_manifest(MANIFEST)
         tool = next(
