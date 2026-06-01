@@ -30,27 +30,27 @@ def percentile(values: list[float], p: float) -> float:
     return values[lo] * (1.0 - frac) + values[hi] * frac
 
 
-def timed_loomle_call(client: McpStdioClient, req_id: int) -> tuple[float, dict]:
+def timed_status_call(client: McpStdioClient, req_id: int) -> tuple[float, dict]:
     started = time.perf_counter()
-    payload = call_tool(client, req_id, "loomle", {})
+    payload = call_tool(client, req_id, "status", {})
     elapsed_ms = (time.perf_counter() - started) * 1000.0
     return elapsed_ms, payload
 
 
-def measure_loomle(
+def measure_status(
     client: McpStdioClient,
     total: int,
     req_id_base: int,
 ) -> list[float]:
     latencies_ms: list[float] = []
     for offset in range(total):
-        elapsed_ms, payload = timed_loomle_call(client, req_id_base + offset)
+        elapsed_ms, payload = timed_status_call(client, req_id_base + offset)
         status = payload.get("status")
-        rpc_status = payload.get("runtime", {}).get("rpcHealth", {}).get("status")
-        if status not in {"ok", "degraded", "error"}:
-            fail(f"loomle returned unexpected status payload: {payload}")
-        if rpc_status not in {"ok", "degraded", "error"}:
-            fail(f"loomle returned unexpected rpc status payload: {payload}")
+        runtime_state = payload.get("runtime", {}).get("state")
+        if status not in {"ready", "degraded", "offline"}:
+            fail(f"status returned unexpected payload: {payload}")
+        if runtime_state not in {"ready", "degraded", "unavailable", "no_project", "error"}:
+            fail(f"status returned unexpected runtime state payload: {payload}")
         latencies_ms.append(elapsed_ms)
     return latencies_ms
 
@@ -166,8 +166,8 @@ def main() -> int:
         _ = client.request(2, "tools/list", {})
         wait_for_bridge_ready(client, timeout_s=120.0, interval_s=2.0)
 
-        _ = measure_loomle(client, total=max(0, args.warmup), req_id_base=100)
-        baseline = measure_loomle(client, total=max(1, args.samples), req_id_base=1000)
+        _ = measure_status(client, total=max(0, args.warmup), req_id_base=100)
+        baseline = measure_status(client, total=max(1, args.samples), req_id_base=1000)
         print_stats("baseline", baseline)
         assert_budget("baseline", baseline, args.baseline_max_ms, args.baseline_p95_ms)
 
@@ -191,7 +191,7 @@ def main() -> int:
             thread.start()
 
         time.sleep(0.2)
-        loaded = measure_loomle(client, total=max(1, args.samples), req_id_base=20_000)
+        loaded = measure_status(client, total=max(1, args.samples), req_id_base=20_000)
 
         for thread in blocker_threads:
             thread.join()

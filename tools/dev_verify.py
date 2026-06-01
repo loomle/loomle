@@ -431,15 +431,22 @@ def wait_for_bridge_runtime_ready(project_root: Path, loomle_binary: Path, mcp_s
                 )
                 time.sleep(2.0)
                 continue
-            loomle_payload = call_tool(client, base_req_id + 1, "loomle", {})
-            status = loomle_payload.get("status")
-            rpc_health = loomle_payload.get("runtime", {}).get("rpcHealth", {}) if isinstance(loomle_payload, dict) else {}
-            if status not in {"ok", "degraded"} or not isinstance(rpc_health, dict) or rpc_health.get("status") not in {
-                "ok",
-                "degraded",
-            }:
+            status_payload = call_tool(client, base_req_id + 1, "status", {})
+            status = status_payload.get("status") if isinstance(status_payload, dict) else None
+            runtime = status_payload.get("runtime", {}) if isinstance(status_payload, dict) else {}
+            project = status_payload.get("project", {}) if isinstance(status_payload, dict) else {}
+            if (
+                status not in {"ready", "degraded"}
+                or not isinstance(runtime, dict)
+                or runtime.get("state") != "ready"
+                or runtime.get("rpcConnected") is not True
+                or runtime.get("listenerReady") is not True
+                or not isinstance(project, dict)
+                or project.get("attached") is not True
+            ):
                 print(
-                    f"[WARN] bridge not ready yet (attempt {attempt}): status={status} rpc={rpc_health}",
+                    f"[WARN] bridge not ready yet (attempt {attempt}): "
+                    f"status={status} runtime={runtime} project={project}",
                     file=sys.stderr,
                 )
                 time.sleep(2.0)

@@ -309,8 +309,8 @@ def main() -> int:
     parser.add_argument("--warmup", type=int, default=20, help="Warmup request count")
     parser.add_argument(
         "--tool",
-        default="loomle",
-        help="Tool name for MCP tools/call (default: loomle)",
+        default="status",
+        help="Tool name for MCP tools/call (default: status)",
     )
     parser.add_argument(
         "--arguments",
@@ -320,7 +320,7 @@ def main() -> int:
     parser.add_argument(
         "--tools",
         default="",
-        help="Comma-separated tool list for batch mode, e.g. loomle,context,graph.query",
+        help="Comma-separated tool list for batch mode, e.g. status,context,blueprint.inspect",
     )
     parser.add_argument(
         "--output",

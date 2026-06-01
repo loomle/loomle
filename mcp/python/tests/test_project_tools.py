@@ -125,7 +125,7 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
                     )
                     self.assertIn(
                         status.structuredContent["runtime"]["state"],
-                        {"ready", "unavailable", "error"},
+                        {"ready", "degraded", "unavailable", "error"},
                     )
                     self.assertNotIn("plugin", status.structuredContent)
                     self.assertNotIn("hosts", status.structuredContent)

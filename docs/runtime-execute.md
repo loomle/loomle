@@ -48,7 +48,7 @@ If the editor process crashes during arbitrary Python execution, the active RPC
 connection may disappear before Loomle can produce a normal execute result.
 After reconnect, callers should inspect:
 
-- `loomle.status` for attachment and runtime health
+- `status` for attachment and runtime health
 - `diagnostic.tail` for recent structured Loomle errors
 - `log.tail` for Unreal output log context
 - project `Saved/Crashes` for UE crash context when available

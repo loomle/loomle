@@ -32,11 +32,23 @@ def wait_for_bridge_ready(client: McpStdioClient, timeout_s: float = 120.0, inte
     while time.time() < deadline:
         attempt += 1
         try:
-            loomle = call_tool(client, 9000 + attempt, "loomle", {})
-            status = loomle.get("status")
-            rpc_health = loomle.get("runtime", {}).get("rpcHealth", {})
-            if status not in {"ok", "degraded"} or rpc_health.get("status") not in {"ok", "degraded"}:
-                print(f"[WARN] bridge not ready yet (attempt {attempt}): status={status}, rpc={rpc_health}")
+            status_payload = call_tool(client, 9000 + attempt, "status", {})
+            status = status_payload.get("status") if isinstance(status_payload, dict) else None
+            runtime = status_payload.get("runtime", {}) if isinstance(status_payload, dict) else {}
+            project = status_payload.get("project", {}) if isinstance(status_payload, dict) else {}
+            if (
+                status not in {"ready", "degraded"}
+                or not isinstance(runtime, dict)
+                or runtime.get("state") != "ready"
+                or runtime.get("rpcConnected") is not True
+                or runtime.get("listenerReady") is not True
+                or not isinstance(project, dict)
+                or project.get("attached") is not True
+            ):
+                print(
+                    f"[WARN] bridge not ready yet (attempt {attempt}): "
+                    f"status={status}, runtime={runtime}, project={project}"
+                )
                 time.sleep(interval_s)
                 continue
 

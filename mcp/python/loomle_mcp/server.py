@@ -88,7 +88,12 @@ def make_server(
                     except (BridgeRpcError, OSError):
                         capabilities = None
                     health_status = str(health.get("status") or "ready")
-                    runtime_state = "ready" if health_status == "ready" else "error"
+                    if health_status in ("ok", "ready"):
+                        runtime_state = "ready"
+                    elif health_status == "degraded":
+                        runtime_state = "degraded"
+                    else:
+                        runtime_state = "error"
                     runtime = {
                         "state": runtime_state,
                         "rpcConnected": True,

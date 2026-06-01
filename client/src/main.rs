@@ -890,10 +890,10 @@ impl LoomleProxyServer {
                         .get("status")
                         .and_then(|value| value.as_str())
                         .unwrap_or("ready");
-                    let state = if health_status == "ready" {
-                        "ready"
-                    } else {
-                        "error"
+                    let state = match health_status {
+                        "ok" | "ready" => "ready",
+                        "degraded" => "degraded",
+                        _ => "error",
                     };
                     runtime = serde_json::json!({
                         "state": state,

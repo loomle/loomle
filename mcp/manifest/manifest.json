@@ -112,6 +112,7 @@
                 "type": "string",
                 "enum": [
                   "ready",
+                  "degraded",
                   "unavailable",
                   "no_project",
                   "error"

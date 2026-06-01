@@ -20,7 +20,7 @@ TEST_TOOLS_DIR = REPO_ROOT / "tests" / "tools"
 TEST_FIXTURES_DIR = REPO_ROOT / "tests" / "fixtures"
 
 REQUIRED_TOOLS = {
-    "loomle",
+    "status",
     "asset.create",
     "asset.inspect",
     "asset.edit",
@@ -3310,13 +3310,19 @@ def main() -> int:
         attach_project(client, 3, project_root)
         print(f"[PASS] project.attach selected {project_root}")
 
-        loomle_payload = call_tool(client, 4, "loomle", {})
-        if loomle_payload.get("status") not in {"ok", "degraded"}:
-            fail(f"loomle unexpected status: {loomle_payload}")
-        rpc_health = loomle_payload.get("runtime", {}).get("rpcHealth", {})
-        if rpc_health.get("status") not in {"ok", "degraded"}:
-            fail(f"loomle rpc health not ready: {loomle_payload}")
-        print("[PASS] loomle status query succeeded")
+        status_payload = call_tool(client, 4, "status", {})
+        status = status_payload.get("status") if isinstance(status_payload, dict) else None
+        runtime = status_payload.get("runtime", {}) if isinstance(status_payload, dict) else {}
+        project = status_payload.get("project", {}) if isinstance(status_payload, dict) else {}
+        if status not in {"ready", "degraded"}:
+            fail(f"status unexpected value: {status_payload}")
+        if not isinstance(runtime, dict) or runtime.get("state") != "ready":
+            fail(f"status runtime not ready: {status_payload}")
+        if runtime.get("rpcConnected") is not True or runtime.get("listenerReady") is not True:
+            fail(f"status runtime bridge not connected: {status_payload}")
+        if not isinstance(project, dict) or project.get("attached") is not True:
+            fail(f"status project not attached: {status_payload}")
+        print("[PASS] status query succeeded")
 
         play_payload = call_tool(client, 30, "play", {"action": "status"})
         if play_payload.get("status") != "ok":
