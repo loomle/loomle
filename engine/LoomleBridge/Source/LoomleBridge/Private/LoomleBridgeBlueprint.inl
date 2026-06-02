@@ -3753,6 +3753,8 @@ bool IsSupportedBlueprintGraphEditOp(const FString& OpName)
         TEXT("addcommentbox"),
         TEXT("addreroute"),
         TEXT("duplicatenode"),
+        TEXT("insertexec"),
+        TEXT("bypassexec"),
         TEXT("connectpins"),
         TEXT("disconnectpins"),
         TEXT("breakpinlinks"),
@@ -4964,6 +4966,44 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                 return FVector2D(280.0f, 160.0f);
             };
 
+            auto GetVisiblePinIndexByDirection = [](const UEdGraphPin* TargetPin) -> int32
+            {
+                const UEdGraphNode* Node = TargetPin ? TargetPin->GetOwningNodeUnchecked() : nullptr;
+                if (Node == nullptr)
+                {
+                    return INDEX_NONE;
+                }
+                int32 Index = 0;
+                for (const UEdGraphPin* Pin : Node->Pins)
+                {
+                    if (Pin == nullptr || Pin->bHidden || Pin->Direction != TargetPin->Direction)
+                    {
+                        continue;
+                    }
+                    if (Pin == TargetPin)
+                    {
+                        return Index;
+                    }
+                    ++Index;
+                }
+                return INDEX_NONE;
+            };
+
+            auto EstimateExecPinAnchorY = [&](const UEdGraphNode* Node, const UEdGraphPin* Pin) -> int32
+            {
+                if (Node == nullptr || Pin == nullptr || Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec)
+                {
+                    return Node != nullptr ? Node->NodePosY : 0;
+                }
+                const int32 PinIndex = FMath::Max(GetVisiblePinIndexByDirection(Pin), 0);
+                return Node->NodePosY + 31 + PinIndex * 24;
+            };
+
+            auto EstimatePrimaryExecInputOffsetY = [&]() -> int32
+            {
+                return 31;
+            };
+
             auto ResolveGraphNodeByTokenLocal = [](UEdGraph* Graph, const FString& NodeToken) -> UEdGraphNode*
             {
                 if (Graph == nullptr || NodeToken.IsEmpty())
@@ -4993,6 +5033,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
 
             UEdGraphNode* AnchorNode = nullptr;
             FString AnchorPinName;
+            bool bAnchorFromExecOutput = false;
             auto TryResolveAnchorField = [&](const TCHAR* FieldName) -> bool
             {
                 const TSharedPtr<FJsonObject>* AnchorObj = nullptr;
@@ -5017,10 +5058,56 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                 }
 
                 ResolvePinName(*AnchorObj, AnchorPinName);
+                if (!AnchorPinName.IsEmpty())
+                {
+                    if (UEdGraphPin* AnchorPin = FindPinByName(AnchorNode, AnchorPinName))
+                    {
+                        bAnchorFromExecOutput = AnchorPin->Direction == EGPD_Output
+                            && AnchorPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec;
+                    }
+                }
                 return true;
             };
 
-            if (!TryResolveAnchorField(TEXT("anchor")))
+            auto TryResolveFirstFromPinAnchor = [&]() -> bool
+            {
+                const TArray<TSharedPtr<FJsonValue>>* FromPins = nullptr;
+                if (!Object.IsValid() || !Object->TryGetArrayField(TEXT("fromPins"), FromPins) || FromPins == nullptr)
+                {
+                    return false;
+                }
+                for (const TSharedPtr<FJsonValue>& PinValue : *FromPins)
+                {
+                    const TSharedPtr<FJsonObject>* PinObject = nullptr;
+                    if (!PinValue.IsValid() || !PinValue->TryGetObject(PinObject) || PinObject == nullptr || !(*PinObject).IsValid())
+                    {
+                        continue;
+                    }
+
+                    FString AnchorToken;
+                    FString PinName;
+                    if (!ResolveSingleNodeToken(*PinObject, AnchorToken) || AnchorToken.IsEmpty() || !ResolvePinName(*PinObject, PinName))
+                    {
+                        continue;
+                    }
+
+                    UEdGraphNode* CandidateNode = ResolveGraphNodeByTokenLocal(TargetGraph, AnchorToken);
+                    UEdGraphPin* CandidatePin = CandidateNode != nullptr ? FindPinByName(CandidateNode, PinName) : nullptr;
+                    if (CandidateNode == nullptr || CandidatePin == nullptr)
+                    {
+                        continue;
+                    }
+
+                    AnchorNode = CandidateNode;
+                    AnchorPinName = PinName;
+                    bAnchorFromExecOutput = CandidatePin->Direction == EGPD_Output
+                        && CandidatePin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec;
+                    return true;
+                }
+                return false;
+            };
+
+            if (!TryResolveFirstFromPinAnchor() && !TryResolveAnchorField(TEXT("anchor")))
             {
                 if (!TryResolveAnchorField(TEXT("near")))
                 {
@@ -5043,6 +5130,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                         if (AnchorPin->Direction == EGPD_Input)
                         {
                             OutX = AnchorNode->NodePosX - 384;
+                        }
+                        else if (bAnchorFromExecOutput)
+                        {
+                            OutY = EstimateExecPinAnchorY(AnchorNode, AnchorPin) - EstimatePrimaryExecInputOffsetY();
                         }
                     }
                 }
@@ -5161,6 +5252,18 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
             if (ErrorMessage.StartsWith(TEXT("LINK_NOT_FOUND")))
             {
                 return TEXT("LINK_NOT_FOUND");
+            }
+            if (ErrorMessage.StartsWith(TEXT("EXEC_PIN_REQUIRED")))
+            {
+                return TEXT("EXEC_PIN_REQUIRED");
+            }
+            if (ErrorMessage.StartsWith(TEXT("EXEC_CHAIN_AMBIGUOUS")))
+            {
+                return TEXT("EXEC_CHAIN_AMBIGUOUS");
+            }
+            if (ErrorMessage.StartsWith(TEXT("REMOVE_NODE_FAILED")))
+            {
+                return TEXT("REMOVE_NODE_FAILED");
             }
             return TEXT("");
         };
@@ -5374,6 +5477,338 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                 if (bOk)
                 {
                     AttachNodeAddedDiff(SingleResult, NewNodeId, TEXT(""));
+                }
+            }
+        }
+        else if (OpName.Equals(TEXT("insertexec")))
+        {
+            FString FromNodeId;
+            FString FromPinName;
+            FString ToNodeId;
+            FString ToPinName;
+            FString InsertNodeId;
+            if (!ResolvePinEndpoint(SingleArgsObject, TEXT("from"), FromNodeId, FromPinName)
+                || !ResolvePinEndpoint(SingleArgsObject, TEXT("to"), ToNodeId, ToPinName)
+                || !ResolveSingleNodeToken(SingleArgsObject, InsertNodeId))
+            {
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("INVALID_ARGUMENT"), TEXT("insertExec requires from, to, and node."));
+            }
+            else
+            {
+                FString InputPinName;
+                FString OutputPinName;
+                ReadStringAlias({TEXT("inputPin")}, InputPinName);
+                ReadStringAlias({TEXT("outputPin")}, OutputPinName);
+                if (InputPinName.IsEmpty())
+                {
+                    InputPinName = TEXT("execute");
+                }
+                if (OutputPinName.IsEmpty())
+                {
+                    OutputPinName = TEXT("then");
+                }
+
+                FString Error;
+                bool bOk = false;
+                FBlueprintGraphEditResolvedGraph Resolved;
+                if (ResolveCachedGraph(EffectiveGraphName, Resolved, Error))
+                {
+                    UEdGraphNode* FromNode = ResolveBlueprintGraphNodeByToken(Resolved.Graph, FromNodeId);
+                    UEdGraphNode* ToNode = ResolveBlueprintGraphNodeByToken(Resolved.Graph, ToNodeId);
+                    UEdGraphNode* InsertNode = ResolveBlueprintGraphNodeByToken(Resolved.Graph, InsertNodeId);
+                    UEdGraphPin* FromPin = FromNode != nullptr ? FindPinByName(FromNode, FromPinName) : nullptr;
+                    UEdGraphPin* ToPin = ToNode != nullptr ? FindPinByName(ToNode, ToPinName) : nullptr;
+                    UEdGraphPin* InsertInputPin = InsertNode != nullptr ? FindPinByName(InsertNode, InputPinName) : nullptr;
+                    UEdGraphPin* InsertOutputPin = InsertNode != nullptr ? FindPinByName(InsertNode, OutputPinName) : nullptr;
+
+                    if (FromNode == nullptr || ToNode == nullptr || InsertNode == nullptr)
+                    {
+                        Error = TEXT("NODE_REF_NOT_FOUND: insertExec could not resolve from, to, or node.");
+                    }
+                    else if (FromPin == nullptr || ToPin == nullptr || InsertInputPin == nullptr || InsertOutputPin == nullptr)
+                    {
+                        Error = TEXT("PIN_REF_NOT_FOUND: insertExec could not resolve from, to, inputPin, or outputPin.");
+                    }
+                    else if (FromPin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec
+                        || ToPin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec
+                        || InsertInputPin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec
+                        || InsertOutputPin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec
+                        || FromPin->Direction != EGPD_Output
+                        || ToPin->Direction != EGPD_Input
+                        || InsertInputPin->Direction != EGPD_Input
+                        || InsertOutputPin->Direction != EGPD_Output)
+                    {
+                        Error = TEXT("EXEC_PIN_REQUIRED: insertExec only supports output exec -> input exec insertion.");
+                    }
+                    else if (!(FromPin->LinkedTo.Contains(ToPin) || ToPin->LinkedTo.Contains(FromPin)))
+                    {
+                        Error = TEXT("LINK_NOT_FOUND: insertExec requires an existing direct exec link from from to to.");
+                    }
+                    else
+                    {
+                        const UEdGraphSchema_K2* Schema = GetDefault<UEdGraphSchema_K2>();
+                        if (Schema == nullptr)
+                        {
+                            Error = TEXT("INTERNAL_ERROR: Failed to resolve K2 graph schema.");
+                        }
+                        else
+                        {
+                            const FPinConnectionResponse FirstResponse = Schema->CanCreateConnection(FromPin, InsertInputPin);
+                            const FPinConnectionResponse SecondResponse = Schema->CanCreateConnection(InsertOutputPin, ToPin);
+                            if (FirstResponse.Response == CONNECT_RESPONSE_DISALLOW
+                                || FirstResponse.Response == CONNECT_RESPONSE_MAKE_WITH_CONVERSION_NODE
+                                || FirstResponse.Response == CONNECT_RESPONSE_MAKE_WITH_PROMOTION)
+                            {
+                                Error = FString::Printf(TEXT("CONNECT_PIN_TYPE_MISMATCH: insertExec cannot connect source to inserted node. %s"), *FirstResponse.Message.ToString());
+                            }
+                            else if (SecondResponse.Response == CONNECT_RESPONSE_DISALLOW
+                                || SecondResponse.Response == CONNECT_RESPONSE_MAKE_WITH_CONVERSION_NODE
+                                || SecondResponse.Response == CONNECT_RESPONSE_MAKE_WITH_PROMOTION)
+                            {
+                                Error = FString::Printf(TEXT("CONNECT_PIN_TYPE_MISMATCH: insertExec cannot connect inserted node to target. %s"), *SecondResponse.Message.ToString());
+                            }
+                            else if (bDryRun)
+                            {
+                                bOk = true;
+                            }
+                            else
+                            {
+                                Resolved.Blueprint->Modify();
+                                Resolved.Graph->Modify();
+                                FromNode->Modify();
+                                ToNode->Modify();
+                                InsertNode->Modify();
+                                FromPin->BreakLinkTo(ToPin);
+                                const bool bFirstOk = Schema->TryCreateConnection(FromPin, InsertInputPin);
+                                const bool bSecondOk = Schema->TryCreateConnection(InsertOutputPin, ToPin);
+                                if (bFirstOk && bSecondOk)
+                                {
+                                    bOk = true;
+                                    DeferGraphModified(Resolved.Blueprint, Resolved.Graph);
+                                }
+                                else
+                                {
+                                    Error = TEXT("CONNECT_PIN_TYPE_MISMATCH: insertExec failed to create the replacement exec links.");
+                                }
+                            }
+                        }
+                    }
+                }
+
+                const FString ErrorCode = ErrorCodeFromPrefixedMessage(Error);
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, bOk, bOk && !bDryRun, ErrorCode, Error, InsertNodeId);
+                if (bOk)
+                {
+                    TSharedPtr<FJsonObject> Diff = MakeBlueprintGraphDiff();
+                    TSharedPtr<FJsonObject> RemovedLink = MakeShared<FJsonObject>();
+                    RemovedLink->SetStringField(TEXT("fromNodeId"), FromNodeId);
+                    RemovedLink->SetStringField(TEXT("fromPin"), FromPinName);
+                    RemovedLink->SetStringField(TEXT("toNodeId"), ToNodeId);
+                    RemovedLink->SetStringField(TEXT("toPin"), ToPinName);
+                    AppendBlueprintGraphDiffObject(Diff, TEXT("linksRemoved"), RemovedLink);
+
+                    TSharedPtr<FJsonObject> FirstLink = MakeShared<FJsonObject>();
+                    FirstLink->SetStringField(TEXT("fromNodeId"), FromNodeId);
+                    FirstLink->SetStringField(TEXT("fromPin"), FromPinName);
+                    FirstLink->SetStringField(TEXT("toNodeId"), InsertNodeId);
+                    FirstLink->SetStringField(TEXT("toPin"), InputPinName);
+                    AppendBlueprintGraphDiffObject(Diff, TEXT("linksAdded"), FirstLink);
+
+                    TSharedPtr<FJsonObject> SecondLink = MakeShared<FJsonObject>();
+                    SecondLink->SetStringField(TEXT("fromNodeId"), InsertNodeId);
+                    SecondLink->SetStringField(TEXT("fromPin"), OutputPinName);
+                    SecondLink->SetStringField(TEXT("toNodeId"), ToNodeId);
+                    SecondLink->SetStringField(TEXT("toPin"), ToPinName);
+                    AppendBlueprintGraphDiffObject(Diff, TEXT("linksAdded"), SecondLink);
+                    AttachBlueprintGraphDiffToSingleResult(SingleResult, Diff);
+                }
+            }
+        }
+        else if (OpName.Equals(TEXT("bypassexec")))
+        {
+            FString TargetNodeId;
+            if (!ResolveSingleNodeToken(SingleArgsObject, TargetNodeId))
+            {
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("TARGET_NOT_FOUND"), TEXT("bypassExec requires node."));
+            }
+            else
+            {
+                FString InputPinName;
+                FString OutputPinName;
+                ReadStringAlias({TEXT("inputPin")}, InputPinName);
+                ReadStringAlias({TEXT("outputPin")}, OutputPinName);
+                if (InputPinName.IsEmpty())
+                {
+                    InputPinName = TEXT("execute");
+                }
+                if (OutputPinName.IsEmpty())
+                {
+                    OutputPinName = TEXT("then");
+                }
+
+                FString Error;
+                bool bOk = false;
+                FString UpstreamNodeId;
+                FString UpstreamPinName;
+                FString DownstreamNodeId;
+                FString DownstreamPinName;
+                FString RemovedNodeClassPath;
+                FString RemovedNodeTitle;
+                FBlueprintGraphEditResolvedGraph Resolved;
+                if (ResolveCachedGraph(EffectiveGraphName, Resolved, Error))
+                {
+                    UEdGraphNode* TargetNode = ResolveBlueprintGraphNodeByToken(Resolved.Graph, TargetNodeId);
+                    UEdGraphPin* TargetInputPin = TargetNode != nullptr ? FindPinByName(TargetNode, InputPinName) : nullptr;
+                    UEdGraphPin* TargetOutputPin = TargetNode != nullptr ? FindPinByName(TargetNode, OutputPinName) : nullptr;
+                    if (TargetNode == nullptr)
+                    {
+                        Error = FString::Printf(TEXT("NODE_REF_NOT_FOUND: bypassExec node was not found in graph: %s"), *TargetNodeId);
+                    }
+                    else if (TargetInputPin == nullptr || TargetOutputPin == nullptr)
+                    {
+                        Error = TEXT("PIN_REF_NOT_FOUND: bypassExec could not resolve inputPin or outputPin.");
+                    }
+                    else if (TargetInputPin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec
+                        || TargetOutputPin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec
+                        || TargetInputPin->Direction != EGPD_Input
+                        || TargetOutputPin->Direction != EGPD_Output)
+                    {
+                        Error = TEXT("EXEC_PIN_REQUIRED: bypassExec only supports one exec input pin and one exec output pin.");
+                    }
+                    else
+                    {
+                        RemovedNodeClassPath = TargetNode->GetClass() ? TargetNode->GetClass()->GetPathName() : TEXT("");
+                        RemovedNodeTitle = TargetNode->GetNodeTitle(ENodeTitleType::ListView).ToString();
+                        UEdGraphPin* UpstreamPin = nullptr;
+                        UEdGraphPin* DownstreamPin = nullptr;
+                        for (UEdGraphPin* LinkedPin : TargetInputPin->LinkedTo)
+                        {
+                            if (LinkedPin != nullptr
+                                && LinkedPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec
+                                && LinkedPin->Direction == EGPD_Output)
+                            {
+                                if (UpstreamPin != nullptr)
+                                {
+                                    Error = TEXT("EXEC_CHAIN_AMBIGUOUS: bypassExec found multiple upstream exec links.");
+                                    break;
+                                }
+                                UpstreamPin = LinkedPin;
+                            }
+                        }
+                        if (Error.IsEmpty())
+                        {
+                            for (UEdGraphPin* LinkedPin : TargetOutputPin->LinkedTo)
+                            {
+                                if (LinkedPin != nullptr
+                                    && LinkedPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec
+                                    && LinkedPin->Direction == EGPD_Input)
+                                {
+                                    if (DownstreamPin != nullptr)
+                                    {
+                                        Error = TEXT("EXEC_CHAIN_AMBIGUOUS: bypassExec found multiple downstream exec links.");
+                                        break;
+                                    }
+                                    DownstreamPin = LinkedPin;
+                                }
+                            }
+                        }
+
+                        if (Error.IsEmpty() && (UpstreamPin == nullptr || DownstreamPin == nullptr))
+                        {
+                            Error = TEXT("LINK_NOT_FOUND: bypassExec requires exactly one upstream and one downstream exec link.");
+                        }
+                        if (Error.IsEmpty())
+                        {
+                            UEdGraphNode* UpstreamNode = UpstreamPin->GetOwningNode();
+                            UEdGraphNode* DownstreamNode = DownstreamPin->GetOwningNode();
+                            UpstreamNodeId = UpstreamNode != nullptr ? UpstreamNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens) : TEXT("");
+                            UpstreamPinName = UpstreamPin->PinName.ToString();
+                            DownstreamNodeId = DownstreamNode != nullptr ? DownstreamNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens) : TEXT("");
+                            DownstreamPinName = DownstreamPin->PinName.ToString();
+
+                            const UEdGraphSchema_K2* Schema = GetDefault<UEdGraphSchema_K2>();
+                            if (Schema == nullptr)
+                            {
+                                Error = TEXT("INTERNAL_ERROR: Failed to resolve K2 graph schema.");
+                            }
+                            else
+                            {
+                                const FPinConnectionResponse Response = Schema->CanCreateConnection(UpstreamPin, DownstreamPin);
+                                if (Response.Response == CONNECT_RESPONSE_DISALLOW
+                                    || Response.Response == CONNECT_RESPONSE_MAKE_WITH_CONVERSION_NODE
+                                    || Response.Response == CONNECT_RESPONSE_MAKE_WITH_PROMOTION)
+                                {
+                                    Error = FString::Printf(TEXT("CONNECT_PIN_TYPE_MISMATCH: bypassExec cannot connect upstream to downstream. %s"), *Response.Message.ToString());
+                                }
+                                else if (bDryRun)
+                                {
+                                    bOk = true;
+                                }
+                                else
+                                {
+                                    Resolved.Blueprint->Modify();
+                                    Resolved.Graph->Modify();
+                                    if (UpstreamNode != nullptr)
+                                    {
+                                        UpstreamNode->Modify();
+                                    }
+                                    if (DownstreamNode != nullptr)
+                                    {
+                                        DownstreamNode->Modify();
+                                    }
+                                    TargetNode->Modify();
+                                    UpstreamPin->BreakLinkTo(TargetInputPin);
+                                    TargetOutputPin->BreakLinkTo(DownstreamPin);
+                                    if (Schema->TryCreateConnection(UpstreamPin, DownstreamPin))
+                                    {
+                                        FString RemoveError;
+                                        if (FLoomleBlueprintAdapter::RemoveNode(AssetPath, EffectiveGraphName, TargetNodeId, RemoveError))
+                                        {
+                                            bOk = true;
+                                            DeferGraphModified(Resolved.Blueprint, Resolved.Graph);
+                                        }
+                                        else
+                                        {
+                                            Error = FString::Printf(TEXT("REMOVE_NODE_FAILED: bypassExec rewired exec links but failed to remove node. %s"), *RemoveError);
+                                        }
+                                    }
+                                    else
+                                    {
+                                        Error = TEXT("CONNECT_PIN_TYPE_MISMATCH: bypassExec failed to connect upstream to downstream.");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                const FString ErrorCode = ErrorCodeFromPrefixedMessage(Error);
+                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, bOk, bOk && !bDryRun, ErrorCode, Error, TargetNodeId);
+                if (bOk)
+                {
+                    TSharedPtr<FJsonObject> Diff = MakeBlueprintGraphDiff();
+                    TSharedPtr<FJsonObject> FirstRemovedLink = MakeShared<FJsonObject>();
+                    FirstRemovedLink->SetStringField(TEXT("fromNodeId"), UpstreamNodeId);
+                    FirstRemovedLink->SetStringField(TEXT("fromPin"), UpstreamPinName);
+                    FirstRemovedLink->SetStringField(TEXT("toNodeId"), TargetNodeId);
+                    FirstRemovedLink->SetStringField(TEXT("toPin"), InputPinName);
+                    AppendBlueprintGraphDiffObject(Diff, TEXT("linksRemoved"), FirstRemovedLink);
+
+                    TSharedPtr<FJsonObject> SecondRemovedLink = MakeShared<FJsonObject>();
+                    SecondRemovedLink->SetStringField(TEXT("fromNodeId"), TargetNodeId);
+                    SecondRemovedLink->SetStringField(TEXT("fromPin"), OutputPinName);
+                    SecondRemovedLink->SetStringField(TEXT("toNodeId"), DownstreamNodeId);
+                    SecondRemovedLink->SetStringField(TEXT("toPin"), DownstreamPinName);
+                    AppendBlueprintGraphDiffObject(Diff, TEXT("linksRemoved"), SecondRemovedLink);
+
+                    TSharedPtr<FJsonObject> AddedLink = MakeShared<FJsonObject>();
+                    AddedLink->SetStringField(TEXT("fromNodeId"), UpstreamNodeId);
+                    AddedLink->SetStringField(TEXT("fromPin"), UpstreamPinName);
+                    AddedLink->SetStringField(TEXT("toNodeId"), DownstreamNodeId);
+                    AddedLink->SetStringField(TEXT("toPin"), DownstreamPinName);
+                    AppendBlueprintGraphDiffObject(Diff, TEXT("linksAdded"), AddedLink);
+                    AppendBlueprintGraphDiffObject(Diff, TEXT("nodesRemoved"), MakeBlueprintGraphNodeDiffEntry(TargetNodeId, RemovedNodeClassPath, RemovedNodeTitle));
+                    AttachBlueprintGraphDiffToSingleResult(SingleResult, Diff);
                 }
             }
         }

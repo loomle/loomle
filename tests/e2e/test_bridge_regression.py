@@ -1223,6 +1223,15 @@ def require_layout(node: dict) -> dict:
         not isinstance(layout.get("sizeSource"), str) or not isinstance(layout.get("boundsSource"), str)
     ):
         fail(f"domain query node layout missing source metadata: {node}")
+    size = layout.get("size")
+    if isinstance(size, dict):
+        if not isinstance(size.get("w"), (int, float)) or not isinstance(size.get("h"), (int, float)):
+            fail(f"domain query node layout size missing w/h: {node}")
+    bounds = layout.get("bounds")
+    if isinstance(bounds, dict):
+        for field in ("x", "y", "w", "h"):
+            if not isinstance(bounds.get(field), (int, float)):
+                fail(f"domain query node layout bounds missing {field}: {node}")
     return layout
 
 
@@ -3142,7 +3151,7 @@ def main() -> int:
         )
         node_a = op_ok(add_a).get("nodeId")
         if not isinstance(node_a, str) or not node_a:
-            fail(f"addNode.byClass did not return nodeId: {add_a}")
+            fail(f"addFromPalette did not return nodeId: {add_a}")
         missing_data_pin = call_tool(
             client,
             1010,
@@ -3171,7 +3180,7 @@ def main() -> int:
         )
         node_b = op_ok(add_b).get("nodeId")
         if not isinstance(node_b, str) or not node_b:
-            fail(f"addNode.byClass did not return nodeId for second node: {add_b}")
+            fail(f"addFromPalette did not return nodeId for second node: {add_b}")
         print("[PASS] blueprint.graph.edit addFromPalette validated")
 
         gate_entry = find_palette_entry(client, 1011, temp_asset, "Gate", "Gate")
@@ -3503,7 +3512,7 @@ def main() -> int:
         )
         partial_apply_node_id = op_ok(partial_apply_node).get("nodeId")
         if not isinstance(partial_apply_node_id, str) or not partial_apply_node_id:
-            fail(f"Blueprint partial-apply setup addNode.byClass did not return nodeId: {partial_apply_node}")
+            fail(f"Blueprint partial-apply setup addFromPalette did not return nodeId: {partial_apply_node}")
         partial_apply_before = query_graph_payload(
             client,
             10924,
@@ -3710,6 +3719,93 @@ def main() -> int:
         )
         op_ok(reconnect_payload)
 
+        insert_exec_payload = call_domain_tool(
+            client,
+            141,
+            "blueprint",
+            "mutate",
+            {
+                "assetPath": temp_asset,
+                "graph": {"name": "EventGraph"},
+                "commands": [
+                    bp_branch(alias="insertedExec"),
+                    {
+                        "kind": "insertExec",
+                        "from": bp_pin(node_a, "then"),
+                        "node": {"alias": "insertedExec"},
+                        "to": bp_pin(node_b, "execute"),
+                    },
+                ],
+            },
+        )
+        insert_exec_results = insert_exec_payload.get("opResults")
+        if not isinstance(insert_exec_results, list) or len(insert_exec_results) != 2:
+            fail(f"blueprint.graph.edit insertExec opResults mismatch: {insert_exec_payload}")
+        inserted_exec_node = insert_exec_results[0].get("nodeId") if isinstance(insert_exec_results[0], dict) else None
+        if not isinstance(inserted_exec_node, str) or not inserted_exec_node:
+            fail(f"blueprint.graph.edit insertExec setup did not return inserted nodeId: {insert_exec_payload}")
+        if not isinstance(insert_exec_results[1], dict) or insert_exec_results[1].get("ok") is not True:
+            fail(f"blueprint.graph.edit insertExec op failed: {insert_exec_payload}")
+
+        def diff_has_link(diff: dict, field: str, from_node_id: str, from_pin: str, to_node_id: str, to_pin: str) -> bool:
+            links = diff.get(field)
+            if not isinstance(links, list):
+                return False
+            from_node_id_lower = from_node_id.lower()
+            to_node_id_lower = to_node_id.lower()
+            for link in links:
+                if not isinstance(link, dict):
+                    continue
+                if (
+                    str(link.get("fromNodeId", "")).lower() == from_node_id_lower
+                    and link.get("fromPin") == from_pin
+                    and str(link.get("toNodeId", "")).lower() == to_node_id_lower
+                    and link.get("toPin") == to_pin
+                ):
+                    return True
+            return False
+
+        insert_exec_diff = insert_exec_results[1].get("diff") if isinstance(insert_exec_results[1], dict) else None
+        if not isinstance(insert_exec_diff, dict):
+            fail(f"blueprint.graph.edit insertExec missing op diff: {insert_exec_payload}")
+        if not diff_has_link(insert_exec_diff, "linksAdded", node_a, "then", inserted_exec_node, "execute"):
+            fail(f"blueprint.graph.edit insertExec did not connect source to inserted node: {insert_exec_payload}")
+        if not diff_has_link(insert_exec_diff, "linksAdded", inserted_exec_node, "then", node_b, "execute"):
+            fail(f"blueprint.graph.edit insertExec did not connect inserted node to target: {insert_exec_payload}")
+        if not diff_has_link(insert_exec_diff, "linksRemoved", node_a, "then", node_b, "execute"):
+            fail(f"blueprint.graph.edit insertExec did not remove original direct link: {insert_exec_payload}")
+
+        bypass_exec_payload = call_domain_tool(
+            client,
+            143,
+            "blueprint",
+            "mutate",
+            {
+                "assetPath": temp_asset,
+                "graph": {"name": "EventGraph"},
+                "commands": [{"kind": "bypassExec", "node": {"id": inserted_exec_node}}],
+            },
+        )
+        bypass_exec_op = op_ok(bypass_exec_payload)
+        bypass_exec_diff = bypass_exec_op.get("diff")
+        if not isinstance(bypass_exec_diff, dict):
+            fail(f"blueprint.graph.edit bypassExec missing op diff: {bypass_exec_payload}")
+        if not diff_has_link(bypass_exec_diff, "linksAdded", node_a, "then", node_b, "execute"):
+            fail(f"blueprint.graph.edit bypassExec did not restore direct exec link: {bypass_exec_payload}")
+        if not diff_has_link(bypass_exec_diff, "linksRemoved", node_a, "then", inserted_exec_node, "execute"):
+            fail(f"blueprint.graph.edit bypassExec did not remove source-to-bypassed link: {bypass_exec_payload}")
+        if not diff_has_link(bypass_exec_diff, "linksRemoved", inserted_exec_node, "then", node_b, "execute"):
+            fail(f"blueprint.graph.edit bypassExec did not remove bypassed-to-target link: {bypass_exec_payload}")
+        bypass_removed_nodes = bypass_exec_diff.get("nodesRemoved")
+        if not isinstance(bypass_removed_nodes, list) or not any(
+            isinstance(node, dict) and str(node.get("nodeId", "")).lower() == inserted_exec_node.lower()
+            for node in bypass_removed_nodes
+        ):
+            fail(f"blueprint.graph.edit bypassExec did not remove bypassed node: {bypass_exec_payload}")
+        nodes_after_bypass_exec = query_nodes(client, 144, temp_asset, "EventGraph")
+        require_node_absent(nodes_after_bypass_exec, inserted_exec_node)
+        print("[PASS] blueprint.graph.edit insertExec/bypassExec validated")
+
         disconnect_payload = call_domain_tool(
             client,
             15,
@@ -3859,13 +3955,66 @@ def main() -> int:
         )
         node_e = op_ok(add_without_position).get("nodeId")
         if not isinstance(node_e, str) or not node_e:
-            fail(f"addNode.byClass without position did not return nodeId: {add_without_position}")
+            fail(f"addFromPalette without position did not return nodeId: {add_without_position}")
         nodes_after_auto_place = query_nodes(client, 1807, temp_asset, "EventGraph")
         node_e_info = require_node(nodes_after_auto_place, node_e)
         node_e_layout = require_layout(node_e_info)
         node_e_pos = node_e_layout.get("position", {})
         if node_e_pos.get("x") == 0 and node_e_pos.get("y") == 0:
-            fail(f"addNode.byClass without position still defaulted to origin: {node_e_info}")
+            fail(f"addFromPalette without position still defaulted to origin: {node_e_info}")
+        add_from_exec_pin = call_domain_tool(
+            client,
+            18081,
+            "blueprint",
+            "mutate",
+            {
+                "assetPath": temp_asset,
+                "graph": {"name": "EventGraph"},
+                "commands": [{
+                    "kind": "addFromPalette",
+                    "entry": BP_BRANCH_ENTRY,
+                    "fromPins": [{"node": {"id": node_e}, "pin": "then"}],
+                }],
+            },
+        )
+        node_f = op_ok(add_from_exec_pin).get("nodeId")
+        if not isinstance(node_f, str) or not node_f:
+            fail(f"addFromPalette with exec fromPins did not return nodeId: {add_from_exec_pin}")
+        node_e_with_pins = inspect_blueprint_node(client, 18082, temp_asset, "EventGraph", node_e).get("node", {})
+        node_f_info = inspect_blueprint_node(client, 18084, temp_asset, "EventGraph", node_f).get("node", {})
+        node_f_layout = require_layout(node_f_info)
+
+        def exec_anchor_y(node: dict, pin_name: str) -> float | None:
+            pins = node.get("pins")
+            if not isinstance(pins, list):
+                return None
+            for pin in pins:
+                if not isinstance(pin, dict) or pin.get("name") != pin_name or pin.get("category") != "exec":
+                    continue
+                anchor = pin.get("layout", {}).get("anchor") if isinstance(pin.get("layout"), dict) else None
+                value = anchor.get("y") if isinstance(anchor, dict) else None
+                return value if isinstance(value, (int, float)) else None
+            return None
+
+        from_anchor_y = exec_anchor_y(node_e_with_pins, "then")
+        to_anchor_y = exec_anchor_y(node_f_info, "execute")
+        if from_anchor_y is None or to_anchor_y is None or abs(from_anchor_y - to_anchor_y) > 1:
+            fail(f"addFromPalette with exec fromPins did not align exec anchors: from={node_e_with_pins} to={node_f_info}")
+        node_f_pos = node_f_layout.get("position", {})
+        if not isinstance(node_f_pos.get("x"), (int, float)) or node_f_pos.get("x") <= node_e_pos.get("x", 0):
+            fail(f"addFromPalette with exec fromPins did not place node to the right: from={node_e_with_pins} to={node_f_info}")
+        remove_f = call_domain_tool(
+            client,
+            18083,
+            "blueprint",
+            "mutate",
+            {
+                "assetPath": temp_asset,
+                "graph": {"name": "EventGraph"},
+                "commands": [bp_remove(node_f)],
+            },
+        )
+        op_ok(remove_f)
         remove_e = call_domain_tool(
             client,
             1808,
@@ -3878,7 +4027,7 @@ def main() -> int:
             },
         )
         op_ok(remove_e)
-        print("[PASS] blueprint.graph.edit addNode.byClass auto-placement validated")
+        print("[PASS] blueprint.graph.edit addFromPalette auto-placement validated")
 
         palette_branch = call_tool(client, 1809, "blueprint.graph.palette", {
             "assetPath": temp_asset,
@@ -3981,6 +4130,19 @@ def main() -> int:
         operation_names = {item.get("operation") for item in operations if isinstance(item, dict)} if isinstance(operations, list) else set()
         if "addPin" not in operation_names or "renamePin" not in operation_names:
             fail(f"blueprint.node.inspect missing Switch on Name pin operations: {switch_inspect_before}")
+        switch_node_before = switch_inspect_before.get("node", {})
+        switch_exec_pins = [
+            pin for pin in switch_node_before.get("pins", [])
+            if isinstance(pin, dict) and pin.get("category") == "exec"
+        ] if isinstance(switch_node_before, dict) else []
+        if not switch_exec_pins:
+            fail(f"blueprint.node.inspect Switch on Name missing exec pins: {switch_inspect_before}")
+        for pin in switch_exec_pins:
+            pin_layout = pin.get("layout")
+            if not isinstance(pin_layout, dict) or pin_layout.get("source") != "estimate":
+                fail(f"blueprint.node.inspect exec pin missing estimated layout: {pin}")
+            if not isinstance(pin_layout.get("offset"), dict) or not isinstance(pin_layout.get("anchor"), dict):
+                fail(f"blueprint.node.inspect exec pin layout missing offset/anchor: {pin_layout}")
 
         add_case_schema = call_tool(client, 18125, "schema.inspect", {
             "domain": "blueprint",
@@ -4326,7 +4488,7 @@ def main() -> int:
         )
         node_c = op_ok(add_c).get("nodeId")
         if not isinstance(node_c, str) or not node_c:
-            fail(f"addNode.byClass did not return nodeId for third node: {add_c}")
+            fail(f"addFromPalette did not return nodeId for third node: {add_c}")
 
         remove_c = call_domain_tool(
             client,
@@ -4356,7 +4518,7 @@ def main() -> int:
         )
         node_d = op_ok(add_via_graph_ref).get("nodeId")
         if not isinstance(node_d, str) or not node_d:
-            fail(f"graph-scoped mutate addNode.byClass did not return nodeId: {add_via_graph_ref}")
+            fail(f"graph-scoped mutate addFromPalette did not return nodeId: {add_via_graph_ref}")
 
         remove_via_target_graph_ref = call_domain_tool(
             client,

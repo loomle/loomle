@@ -5501,6 +5501,64 @@ fn compile_blueprint_graph_commands(
                     }
                 })])
             }
+            "insertExec" => {
+                let from = command_obj
+                    .get("from")
+                    .ok_or_else(|| "insertExec requires from.".to_owned())
+                    .and_then(extract_pin_endpoint)
+                    .map_err(invalid_argument_result)?;
+                let to = command_obj
+                    .get("to")
+                    .ok_or_else(|| "insertExec requires to.".to_owned())
+                    .and_then(extract_pin_endpoint)
+                    .map_err(invalid_argument_result)?;
+                let node = command_obj
+                    .get("node")
+                    .ok_or_else(|| "insertExec requires node.".to_owned())
+                    .and_then(extract_node_token)
+                    .map_err(invalid_argument_result)?;
+                let input_pin = command_obj
+                    .get("inputPin")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("execute");
+                let output_pin = command_obj
+                    .get("outputPin")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("then");
+                Ok(vec![serde_json::json!({
+                    "op": "insertExec",
+                    "args": {
+                        "from": from,
+                        "to": to,
+                        "node": node,
+                        "inputPin": input_pin,
+                        "outputPin": output_pin
+                    }
+                })])
+            }
+            "bypassExec" => {
+                let node = command_obj
+                    .get("node")
+                    .ok_or_else(|| "bypassExec requires node.".to_owned())
+                    .and_then(extract_node_token)
+                    .map_err(invalid_argument_result)?;
+                let input_pin = command_obj
+                    .get("inputPin")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("execute");
+                let output_pin = command_obj
+                    .get("outputPin")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("then");
+                Ok(vec![serde_json::json!({
+                    "op": "bypassExec",
+                    "args": {
+                        "node": node,
+                        "inputPin": input_pin,
+                        "outputPin": output_pin
+                    }
+                })])
+            }
             "breakLinks" => {
                 let target = command_obj
                     .get("target")
@@ -10188,6 +10246,65 @@ mod tests {
     }
 
     #[test]
+    fn blueprint_graph_edit_translates_exec_chain_commands() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graph".into(), serde_json::json!({ "name": "EventGraph" }));
+        args.insert(
+            "commands".into(),
+            serde_json::json!([
+                {
+                    "kind": "insertExec",
+                    "from": { "node": { "id": "node-a" }, "pin": "then" },
+                    "node": { "alias": "new-step" },
+                    "to": { "node": { "id": "node-b" }, "pin": "execute" }
+                },
+                {
+                    "kind": "bypassExec",
+                    "node": { "id": "new-step-id" }
+                }
+            ]),
+        );
+
+        let translated = translate_blueprint_graph_edit_args(&args).expect("translated args");
+        let ops = translated
+            .get("ops")
+            .and_then(|value| value.as_array())
+            .expect("ops");
+        assert_eq!(ops.len(), 2);
+        assert_eq!(
+            ops[0].get("op").and_then(|value| value.as_str()),
+            Some("insertExec")
+        );
+        assert_eq!(
+            ops[0]
+                .get("args")
+                .and_then(|value| value.get("inputPin"))
+                .and_then(|value| value.as_str()),
+            Some("execute")
+        );
+        assert_eq!(
+            ops[0]
+                .get("args")
+                .and_then(|value| value.get("outputPin"))
+                .and_then(|value| value.as_str()),
+            Some("then")
+        );
+        assert_eq!(
+            ops[1].get("op").and_then(|value| value.as_str()),
+            Some("bypassExec")
+        );
+        assert_eq!(
+            ops[1]
+                .get("args")
+                .and_then(|value| value.get("node"))
+                .and_then(|value| value.get("nodeId"))
+                .and_then(|value| value.as_str()),
+            Some("new-step-id")
+        );
+    }
+
+    #[test]
     fn blueprint_graph_palette_schema_and_args_are_public_shape() {
         let schema = blueprint_palette_schema();
         let properties = schema
@@ -12410,6 +12527,8 @@ mod tests {
             "addFromPalette",
             "connect",
             "disconnect",
+            "insertExec",
+            "bypassExec",
             "breakLinks",
             "setPinDefault",
             "removeNode",

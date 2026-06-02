@@ -698,7 +698,8 @@ namespace LoomleBlueprintAdapterInternal
         int32 PositionY,
         const FString& Source,
         bool bReliable,
-        const TOptional<FVector2D>& Size = TOptional<FVector2D>())
+        const TOptional<FVector2D>& Size = TOptional<FVector2D>(),
+        const FString& SizeSource = TEXT(""))
     {
         TSharedPtr<FJsonObject> Layout = MakeShared<FJsonObject>();
 
@@ -714,9 +715,15 @@ namespace LoomleBlueprintAdapterInternal
             TSharedPtr<FJsonObject> SizeObject = MakeShared<FJsonObject>();
             SizeObject->SetNumberField(TEXT("width"), SizeValue.X);
             SizeObject->SetNumberField(TEXT("height"), SizeValue.Y);
+            SizeObject->SetNumberField(TEXT("w"), SizeValue.X);
+            SizeObject->SetNumberField(TEXT("h"), SizeValue.Y);
             Layout->SetObjectField(TEXT("size"), SizeObject);
 
             TSharedPtr<FJsonObject> Bounds = MakeShared<FJsonObject>();
+            Bounds->SetNumberField(TEXT("x"), PositionX);
+            Bounds->SetNumberField(TEXT("y"), PositionY);
+            Bounds->SetNumberField(TEXT("w"), SizeValue.X);
+            Bounds->SetNumberField(TEXT("h"), SizeValue.Y);
             Bounds->SetNumberField(TEXT("left"), PositionX);
             Bounds->SetNumberField(TEXT("top"), PositionY);
             Bounds->SetNumberField(TEXT("right"), PositionX + SizeValue.X);
@@ -726,8 +733,11 @@ namespace LoomleBlueprintAdapterInternal
 
         Layout->SetStringField(TEXT("source"), Source);
         Layout->SetBoolField(TEXT("reliable"), bReliable);
-        Layout->SetStringField(TEXT("sizeSource"), Size.IsSet() ? TEXT("model") : TEXT("unsupported"));
-        Layout->SetStringField(TEXT("boundsSource"), Size.IsSet() ? TEXT("model") : TEXT("unsupported"));
+        const FString EffectiveSizeSource = SizeSource.IsEmpty()
+            ? (Size.IsSet() ? TEXT("model") : TEXT("unsupported"))
+            : SizeSource;
+        Layout->SetStringField(TEXT("sizeSource"), EffectiveSizeSource);
+        Layout->SetStringField(TEXT("boundsSource"), Size.IsSet() ? EffectiveSizeSource : TEXT("unsupported"));
         return Layout;
     }
 
@@ -3480,6 +3490,105 @@ namespace LoomleBlueprintAdapterInternal
         }
     }
 
+    static bool IsExecPin(const UEdGraphPin* Pin)
+    {
+        return Pin != nullptr && Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec;
+    }
+
+    static int32 CountVisiblePinsByDirection(const UEdGraphNode* Node, const EEdGraphPinDirection Direction)
+    {
+        int32 Count = 0;
+        if (Node == nullptr)
+        {
+            return Count;
+        }
+
+        for (const UEdGraphPin* Pin : Node->Pins)
+        {
+            if (Pin != nullptr && !Pin->bHidden && Pin->Direction == Direction)
+            {
+                ++Count;
+            }
+        }
+        return Count;
+    }
+
+    static int32 GetVisiblePinIndexByDirection(const UEdGraphPin* TargetPin)
+    {
+        const UEdGraphNode* Node = TargetPin ? TargetPin->GetOwningNodeUnchecked() : nullptr;
+        if (Node == nullptr)
+        {
+            return INDEX_NONE;
+        }
+
+        int32 Index = 0;
+        for (const UEdGraphPin* Pin : Node->Pins)
+        {
+            if (Pin == nullptr || Pin->bHidden || Pin->Direction != TargetPin->Direction)
+            {
+                continue;
+            }
+            if (Pin == TargetPin)
+            {
+                return Index;
+            }
+            ++Index;
+        }
+        return INDEX_NONE;
+    }
+
+    static FVector2D EstimateNodeSize(const UEdGraphNode* Node)
+    {
+        if (const UEdGraphNode_Comment* CommentNode = Cast<UEdGraphNode_Comment>(Node))
+        {
+            return FVector2D(CommentNode->NodeWidth, CommentNode->NodeHeight);
+        }
+
+        const int32 InputCount = CountVisiblePinsByDirection(Node, EGPD_Input);
+        const int32 OutputCount = CountVisiblePinsByDirection(Node, EGPD_Output);
+        const int32 PinRows = FMath::Max(InputCount, OutputCount);
+        const float Width = 240.0f;
+        const float Height = FMath::Max(72.0f, 42.0f + static_cast<float>(PinRows) * 24.0f);
+        return FVector2D(Width, Height);
+    }
+
+    static TSharedPtr<FJsonObject> MakeEstimatedExecPinLayout(const UEdGraphPin* Pin)
+    {
+        if (!IsExecPin(Pin))
+        {
+            return nullptr;
+        }
+
+        const UEdGraphNode* Node = Pin->GetOwningNodeUnchecked();
+        if (Node == nullptr)
+        {
+            TSharedPtr<FJsonObject> Layout = MakeShared<FJsonObject>();
+            Layout->SetStringField(TEXT("source"), TEXT("unavailable"));
+            return Layout;
+        }
+
+        const FVector2D NodeSize = EstimateNodeSize(Node);
+        const int32 PinIndex = GetVisiblePinIndexByDirection(Pin);
+        const float OffsetY = 31.0f + static_cast<float>(FMath::Max(PinIndex, 0)) * 24.0f;
+        const bool bInput = Pin->Direction == EGPD_Input;
+        const float OffsetX = bInput ? 0.0f : NodeSize.X;
+
+        TSharedPtr<FJsonObject> Offset = MakeShared<FJsonObject>();
+        Offset->SetNumberField(TEXT("x"), OffsetX);
+        Offset->SetNumberField(TEXT("y"), OffsetY);
+
+        TSharedPtr<FJsonObject> Anchor = MakeShared<FJsonObject>();
+        Anchor->SetNumberField(TEXT("x"), static_cast<float>(Node->NodePosX) + OffsetX);
+        Anchor->SetNumberField(TEXT("y"), static_cast<float>(Node->NodePosY) + OffsetY);
+
+        TSharedPtr<FJsonObject> Layout = MakeShared<FJsonObject>();
+        Layout->SetStringField(TEXT("side"), bInput ? TEXT("left") : TEXT("right"));
+        Layout->SetObjectField(TEXT("offset"), Offset);
+        Layout->SetObjectField(TEXT("anchor"), Anchor);
+        Layout->SetStringField(TEXT("source"), TEXT("estimate"));
+        return Layout;
+    }
+
     static TSharedPtr<FJsonObject> SerializePin(const UEdGraphPin* Pin)
     {
         TSharedPtr<FJsonObject> PinObject = MakeShared<FJsonObject>();
@@ -3525,6 +3634,10 @@ namespace LoomleBlueprintAdapterInternal
         PinDefaultObject->SetStringField(TEXT("object"), Pin->DefaultObject ? Pin->DefaultObject->GetPathName() : TEXT(""));
         PinDefaultObject->SetStringField(TEXT("text"), Pin->DefaultTextValue.ToString());
         PinObject->SetObjectField(TEXT("default"), PinDefaultObject);
+        if (TSharedPtr<FJsonObject> PinLayout = MakeEstimatedExecPinLayout(Pin))
+        {
+            PinObject->SetObjectField(TEXT("layout"), PinLayout);
+        }
 
         TArray<TSharedPtr<FJsonValue>> Links;
         TArray<TSharedPtr<FJsonValue>> SemanticLinks;
@@ -3661,7 +3774,7 @@ namespace LoomleBlueprintAdapterInternal
         NodeObject->SetObjectField(TEXT("position"), Position);
         NodeObject->SetObjectField(
             TEXT("layout"),
-            MakeLayoutObject(Node->NodePosX, Node->NodePosY, TEXT("model"), true));
+            MakeLayoutObject(Node->NodePosX, Node->NodePosY, TEXT("model"), true, EstimateNodeSize(Node), TEXT("estimate")));
 
         TSharedPtr<FJsonObject> MemberReference = MakeShared<FJsonObject>();
         MemberReference->SetStringField(TEXT("memberKind"), TEXT(""));

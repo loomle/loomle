@@ -1049,6 +1049,36 @@ and `inspectWith: "blueprint.node.inspect"`. That routing hint comes from the
 bridge's UE-node capability calculation, not from client-side class-name
 guessing.
 
+### Node Layout Data
+
+Serialized Blueprint nodes expose graph-space layout data on `node.layout`.
+`position` comes from `UEdGraphNode::NodePosX/Y`. `size` and `bounds` use
+`w/h` and `x/y/w/h` fields, with legacy `width/height` and
+`left/top/right/bottom` fields retained for compatibility. `sizeSource` and
+`boundsSource` identify whether the size is `model`, `estimate`, `slate`, or
+`unsupported`.
+
+The first layout-data version only adds pin anchors for exec pins. Exec pins
+may include:
+
+```json
+{
+  "name": "then",
+  "category": "exec",
+  "layout": {
+    "side": "right",
+    "offset": { "x": 240, "y": 31 },
+    "anchor": { "x": 340, "y": 231 },
+    "source": "estimate"
+  }
+}
+```
+
+`offset` is relative to the node's top-left graph-space position. `anchor` is
+absolute graph-space position. Non-exec pins do not expose pin layout in the
+first version. The initial implementation uses `estimate`; a later Slate-backed
+pass may return `source: "slate"` when the graph widget has reliable geometry.
+
 `blueprint.node.edit` is limited to UE-native node-local structural actions. It
 does not replace `blueprint.graph.edit` for graph wiring/layout, and it does not
 replace `blueprint.member.edit` for member signatures.
@@ -1103,13 +1133,14 @@ It should be used when:
 
 Recommended public command set:
 
-- `addNode`
-- `addNode.byMacro`
+- `addFromPalette`
 - `removeNode`
 - `duplicateNode`
 - `moveNode`
 - `connect`
 - `disconnect`
+- `insertExec`
+- `bypassExec`
 - `breakLinks`
 - `setPinDefault`
 - `setNodeComment`
@@ -1216,28 +1247,29 @@ Rules:
 
 ### Command Schemas
 
-#### addNode
+#### addFromPalette
 
-Creates one node instance.
+Creates one node by executing a selected `blueprint.graph.palette` entry.
 
 Required fields:
 
 - `kind`
-- `nodeType`
-- `position`
+- `entry`
 
 Optional fields:
 
 - `alias`
+- `position`
+- `fromPins`
 - `defaults`
 
 Recommended shape:
 
 ```json
 {
-  "kind": "addNode",
-  "nodeType": {
-    "id": "ufunction:/Script/Engine.KismetSystemLibrary:PrintString"
+  "kind": "addFromPalette",
+  "entry": {
+    "id": "blueprint.palette:..."
   },
   "alias": "print1",
   "position": { "x": 100, "y": 200 },
@@ -1253,46 +1285,18 @@ Recommended shape:
 Rules:
 
 - `alias` is strongly recommended
+- `entry` should come directly from `blueprint.graph.palette`; callers should not
+  guess Blueprint node classes in public requests
 - `defaults` only initializes pin defaults on the new node
-- `addNode` does not implicitly attach the node to existing structure
-- Self references use the normal by-class path: `nodeType.id = "class:/Script/BlueprintGraph.K2Node_Self"`
-- `K2Node_Self` exposes an output pin named `self`, which may be connected with the standard `connect` command to compatible UObject/Actor input pins
-- UE macro instance nodes use the normal by-class path with explicit macro context: `nodeType.id = "class:/Script/BlueprintGraph.K2Node_MacroInstance"`, `macroLibraryAssetPath`, and `macroGraphName`
-
-#### addNode.byMacro
-
-Creates one `UK2Node_MacroInstance` from a Blueprint macro library graph.
-
-Required fields:
-
-- `kind`
-- `macroLibraryAssetPath`
-- `macroGraphName`
-- `position`
-
-Optional fields:
-
-- `alias`
-
-Recommended shape:
-
-```json
-{
-  "kind": "addNode.byMacro",
-  "macroLibraryAssetPath": "/Engine/EditorBlueprintResources/StandardMacros",
-  "macroGraphName": "Gate",
-  "alias": "authority",
-  "position": { "x": 100, "y": 200 }
-}
-```
-
-Rules:
-
-- `addNode.byMacro` is a direct UE macro instance creation path, not a semantic wrapper around specific macros
-- standard macros such as `Gate`, `DoOnce`, `ForLoop`, `ForLoopWithBreak`, and related Blueprint macro library graphs should all use this shape
-- `macroGraphName` must match the graph name in the macro library exactly
-- when `macroGraphName` is wrong, the tool should return `MACRO_GRAPH_NOT_FOUND` with `availableMacroGraphs` so callers can correct the request without guessing blindly
-- `blueprint.graph.inspect` should expose macro identity through the node's macro extension fields
+- when `position` is omitted, `addFromPalette` uses deterministic default
+  placement instead of the graph origin
+- when `fromPins` contains an exec output pin, the new node is placed to the
+  right of the source node and its primary exec input anchor is aligned to the
+  source exec output anchor
+- `addFromPalette` does not implicitly attach the node to existing structure
+  except where UE's palette action uses `fromPins` for native autowiring
+- Self references, macro instances, and schema actions are selected through
+  `blueprint.graph.palette`
 
 #### removeNode
 
@@ -1447,6 +1451,87 @@ Rules:
 
 - `disconnect` only removes the specified link
 - if the link is absent, the command should be treated as no-op with optional warning
+
+#### insertExec
+
+Inserts one node into an existing exec link.
+
+Required fields:
+
+- `kind`
+- `from`
+- `node`
+- `to`
+
+Optional fields:
+
+- `inputPin`
+- `outputPin`
+
+Recommended shape:
+
+```json
+{
+  "kind": "insertExec",
+  "from": {
+    "node": { "id": "node-a" },
+    "pin": "then"
+  },
+  "node": { "alias": "newStep" },
+  "to": {
+    "node": { "id": "node-b" },
+    "pin": "execute"
+  }
+}
+```
+
+Rules:
+
+- `from` must be an output exec pin
+- `to` must be an input exec pin
+- `node` may reference an existing node or an alias created earlier in the same
+  `graph.edit` request
+- `inputPin` defaults to `execute`
+- `outputPin` defaults to `then`
+- `insertExec` requires an existing direct exec link from `from` to `to`
+- the command replaces `from -> to` with `from -> node.inputPin` and
+  `node.outputPin -> to`
+
+#### bypassExec
+
+Removes one exec-chain node while preserving the surrounding exec chain.
+
+Required fields:
+
+- `kind`
+- `node`
+
+Optional fields:
+
+- `inputPin`
+- `outputPin`
+
+Recommended shape:
+
+```json
+{
+  "kind": "bypassExec",
+  "node": { "id": "node-to-bypass" }
+}
+```
+
+Rules:
+
+- `inputPin` defaults to `execute`
+- `outputPin` defaults to `then`
+- both pins must be exec pins
+- the selected input pin must have exactly one upstream exec link
+- the selected output pin must have exactly one downstream exec link
+- `bypassExec` replaces `upstream -> node -> downstream` with
+  `upstream -> downstream`
+- the bypassed node is removed after the replacement link is created
+- use `removeNode` for plain deletion when surrounding exec links should not be
+  preserved
 
 #### breakLinks
 

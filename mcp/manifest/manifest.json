@@ -7263,6 +7263,205 @@
             }
           },
           {
+            "name": "insertExec",
+            "category": "core",
+            "summary": "Insert one node into an existing exec link.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "insertExec"
+                },
+                "from": {
+                  "$ref": "#/$defs/pinRef"
+                },
+                "node": {
+                  "$ref": "#/$defs/nodeRef"
+                },
+                "inputPin": {
+                  "type": "string",
+                  "minLength": 1,
+                  "default": "execute"
+                },
+                "outputPin": {
+                  "type": "string",
+                  "minLength": 1,
+                  "default": "then"
+                },
+                "to": {
+                  "$ref": "#/$defs/pinRef"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "from",
+                "node",
+                "to"
+              ],
+              "$defs": {
+                "nodeRef": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "id"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "alias": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "alias"
+                      ]
+                    }
+                  ]
+                },
+                "pinRef": {
+                  "type": "object",
+                  "properties": {
+                    "node": {
+                      "$ref": "#/$defs/nodeRef"
+                    },
+                    "pin": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "node",
+                    "pin"
+                  ]
+                }
+              }
+            },
+            "examples": [
+              {
+                "kind": "insertExec",
+                "from": {
+                  "node": {
+                    "id": "node-a"
+                  },
+                  "pin": "then"
+                },
+                "node": {
+                  "alias": "newStep"
+                },
+                "to": {
+                  "node": {
+                    "id": "node-b"
+                  },
+                  "pin": "execute"
+                }
+              }
+            ],
+            "errors": [
+              "EXEC_PIN_REQUIRED",
+              "LINK_NOT_FOUND",
+              "CONNECT_PIN_TYPE_MISMATCH"
+            ],
+            "notes": [
+              "insertExec requires an existing direct exec link from from to to.",
+              "The inserted node can be an alias created earlier in the same graph.edit request."
+            ]
+          },
+          {
+            "name": "bypassExec",
+            "category": "core",
+            "summary": "Remove one exec-chain node while preserving the surrounding exec chain.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "bypassExec"
+                },
+                "node": {
+                  "$ref": "#/$defs/nodeRef"
+                },
+                "inputPin": {
+                  "type": "string",
+                  "minLength": 1,
+                  "default": "execute"
+                },
+                "outputPin": {
+                  "type": "string",
+                  "minLength": 1,
+                  "default": "then"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "node"
+              ],
+              "$defs": {
+                "nodeRef": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "id"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "alias": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "alias"
+                      ]
+                    }
+                  ]
+                }
+              }
+            },
+            "examples": [
+              {
+                "kind": "bypassExec",
+                "node": {
+                  "id": "node-to-bypass"
+                }
+              }
+            ],
+            "errors": [
+              "EXEC_PIN_REQUIRED",
+              "LINK_NOT_FOUND",
+              "EXEC_CHAIN_AMBIGUOUS",
+              "CONNECT_PIN_TYPE_MISMATCH",
+              "REMOVE_NODE_FAILED"
+            ],
+            "notes": [
+              "bypassExec replaces upstream -> node -> downstream with upstream -> downstream.",
+              "The bypassed node is removed after the replacement link is created."
+            ]
+          },
+          {
             "name": "breakLinks",
             "category": "core",
             "summary": "Remove all links from one pin.",
