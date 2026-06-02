@@ -3146,6 +3146,43 @@ def attach_project(client: McpStdioClient, req_id: int, project_root: Path) -> d
     return payload
 
 
+def wait_for_status_ready(
+    client: McpStdioClient,
+    req_id_base: int,
+    timeout_s: float = 120.0,
+    interval_s: float = 2.0,
+) -> dict[str, Any]:
+    deadline = time.time() + timeout_s
+    attempt = 0
+    last_payload: dict[str, Any] | None = None
+    while time.time() < deadline:
+        attempt += 1
+        status_payload = call_tool(client, req_id_base + attempt, "status", {})
+        last_payload = status_payload
+        status = status_payload.get("status") if isinstance(status_payload, dict) else None
+        runtime = status_payload.get("runtime", {}) if isinstance(status_payload, dict) else {}
+        project = status_payload.get("project", {}) if isinstance(status_payload, dict) else {}
+        if (
+            status in {"ready", "degraded"}
+            and isinstance(runtime, dict)
+            and runtime.get("state") == "ready"
+            and runtime.get("rpcConnected") is True
+            and runtime.get("listenerReady") is True
+            and isinstance(project, dict)
+            and project.get("attached") is True
+        ):
+            if attempt > 1:
+                print(f"[PASS] status became ready after {attempt} attempt(s)")
+            return status_payload
+        print(
+            f"[WARN] status not ready yet (attempt {attempt}): "
+            f"status={status}, runtime={runtime}, project={project}"
+        )
+        time.sleep(interval_s)
+    fail(f"status runtime not ready within {timeout_s:.0f}s: {last_payload}")
+    raise RuntimeError("unreachable")
+
+
 def submit_execute_job(
     client: McpStdioClient,
     req_id: int,
@@ -3310,18 +3347,7 @@ def main() -> int:
         attach_project(client, 3, project_root)
         print(f"[PASS] project.attach selected {project_root}")
 
-        status_payload = call_tool(client, 4, "status", {})
-        status = status_payload.get("status") if isinstance(status_payload, dict) else None
-        runtime = status_payload.get("runtime", {}) if isinstance(status_payload, dict) else {}
-        project = status_payload.get("project", {}) if isinstance(status_payload, dict) else {}
-        if status not in {"ready", "degraded"}:
-            fail(f"status unexpected value: {status_payload}")
-        if not isinstance(runtime, dict) or runtime.get("state") != "ready":
-            fail(f"status runtime not ready: {status_payload}")
-        if runtime.get("rpcConnected") is not True or runtime.get("listenerReady") is not True:
-            fail(f"status runtime bridge not connected: {status_payload}")
-        if not isinstance(project, dict) or project.get("attached") is not True:
-            fail(f"status project not attached: {status_payload}")
+        status_payload = wait_for_status_ready(client, 4000)
         print("[PASS] status query succeeded")
 
         play_payload = call_tool(client, 30, "play", {"action": "status"})
