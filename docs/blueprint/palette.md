@@ -313,6 +313,7 @@ not be returned by `blueprint.graph.palette`.
     "y": 200
   },
   "alias": "print",
+  "eventName": "OnClicked_BottomWorldNav",
   "fromPins": [
     {
       "node": { "id": "..." },
@@ -350,6 +351,11 @@ not be returned by `blueprint.graph.palette`.
       "type": "string",
       "description": "Optional intra-request alias for nodes created by this operation."
     },
+    "eventName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional custom event name for palette actions that create an attached UK2Node_CustomEvent, such as Assign Delegate."
+    },
     "fromPins": {
       "type": "array",
       "items": {
@@ -374,6 +380,13 @@ not be returned by `blueprint.graph.palette`.
   "additionalProperties": false
 }
 ```
+
+For `Assign Delegate` palette entries, UE creates a companion
+`UK2Node_CustomEvent` and connects its delegate output to the assign node. Loomle
+keeps that UE behavior, but it also ensures the companion event name is unique in
+the owning Blueprint. If the caller provides `eventName`, Loomle validates and
+uses that exact name; otherwise it applies UE-style deterministic suffixing only
+when the generated name would collide.
 
 ## Internal Implementation
 

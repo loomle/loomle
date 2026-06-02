@@ -32,6 +32,7 @@
 #include "GameFramework/Actor.h"
 #include "K2Node_AddComponent.h"
 #include "K2Node_AddComponentByClass.h"
+#include "K2Node_AssignDelegate.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_Composite.h"
 #include "K2Node_ComponentBoundEvent.h"
@@ -7886,6 +7887,135 @@ namespace
         return true;
     }
 
+    static UK2Node_CustomEvent* LoomleFindAssignDelegateCompanionEvent(UK2Node_AssignDelegate* AssignNode)
+    {
+        if (AssignNode == nullptr)
+        {
+            return nullptr;
+        }
+
+        UEdGraphPin* DelegatePin = AssignNode->GetDelegatePin();
+        if (DelegatePin == nullptr)
+        {
+            return nullptr;
+        }
+
+        for (UEdGraphPin* LinkedPin : DelegatePin->LinkedTo)
+        {
+            if (LinkedPin == nullptr)
+            {
+                continue;
+            }
+
+            if (UK2Node_CustomEvent* CustomEvent = Cast<UK2Node_CustomEvent>(LinkedPin->GetOwningNode()))
+            {
+                return CustomEvent;
+            }
+        }
+
+        return nullptr;
+    }
+
+    static bool LoomleIsCustomEventNameUsed(UBlueprint* Blueprint, const FString& EventName, const UK2Node_CustomEvent* ExcludeEvent)
+    {
+        if (Blueprint == nullptr || EventName.IsEmpty())
+        {
+            return false;
+        }
+
+        TArray<UEdGraph*> UberGraphs;
+        LoomleBlueprintAdapterInternal::GetAllUberGraphs(Blueprint, UberGraphs);
+        for (UEdGraph* Graph : UberGraphs)
+        {
+            if (Graph == nullptr)
+            {
+                continue;
+            }
+
+            TArray<UK2Node_CustomEvent*> CustomEvents;
+            Graph->GetNodesOfClass(CustomEvents);
+            for (const UK2Node_CustomEvent* CustomEvent : CustomEvents)
+            {
+                if (CustomEvent != nullptr
+                    && CustomEvent != ExcludeEvent
+                    && CustomEvent->CustomFunctionName.ToString().Equals(EventName, ESearchCase::IgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    static bool LoomleApplyAssignDelegateCompanionEventName(UBlueprint* Blueprint, UEdGraphNode* NewNode, const TSharedPtr<FJsonObject>& Payload, FString& OutError)
+    {
+        OutError.Empty();
+
+        UK2Node_AssignDelegate* AssignNode = Cast<UK2Node_AssignDelegate>(NewNode);
+        if (Blueprint == nullptr || AssignNode == nullptr)
+        {
+            return true;
+        }
+
+        UK2Node_CustomEvent* CompanionEvent = LoomleFindAssignDelegateCompanionEvent(AssignNode);
+        if (CompanionEvent == nullptr)
+        {
+            return true;
+        }
+
+        FString RequestedEventName;
+        const bool bHasRequestedEventName = Payload.IsValid() && Payload->TryGetStringField(TEXT("eventName"), RequestedEventName);
+        RequestedEventName.TrimStartAndEndInline();
+        if (bHasRequestedEventName && RequestedEventName.IsEmpty())
+        {
+            OutError = TEXT("addFromPalette eventName must not be empty.");
+            return false;
+        }
+
+        FString TargetEventName = RequestedEventName;
+        if (TargetEventName.IsEmpty())
+        {
+            const FString CurrentEventName = CompanionEvent->CustomFunctionName.ToString();
+            if (!LoomleIsCustomEventNameUsed(Blueprint, CurrentEventName, CompanionEvent))
+            {
+                return true;
+            }
+
+            TargetEventName = FBlueprintEditorUtils::FindUniqueKismetName(Blueprint, CurrentEventName).ToString();
+        }
+        else
+        {
+            if (LoomleIsCustomEventNameUsed(Blueprint, TargetEventName, CompanionEvent))
+            {
+                OutError = FString::Printf(TEXT("addFromPalette eventName is already used by another custom event: %s"), *TargetEventName);
+                return false;
+            }
+
+            if (!TargetEventName.Equals(CompanionEvent->CustomFunctionName.ToString(), ESearchCase::CaseSensitive))
+            {
+                const FString UniqueEventName = FBlueprintEditorUtils::FindUniqueKismetName(Blueprint, TargetEventName).ToString();
+                if (!UniqueEventName.Equals(TargetEventName, ESearchCase::CaseSensitive))
+                {
+                    OutError = FString::Printf(TEXT("addFromPalette eventName is not available in this Blueprint: %s"), *TargetEventName);
+                    return false;
+                }
+            }
+        }
+
+        if (TargetEventName.IsEmpty() || TargetEventName.Equals(CompanionEvent->CustomFunctionName.ToString(), ESearchCase::CaseSensitive))
+        {
+            return true;
+        }
+
+        CompanionEvent->Modify();
+        CompanionEvent->OnRenameNode(TargetEventName);
+        CompanionEvent->ReconstructNode();
+        FBlueprintEditorUtils::ValidateBlueprintChildVariables(Blueprint, CompanionEvent->CustomFunctionName);
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        return true;
+    }
+
     static FString LoomlePaletteActionStableText(const TSharedPtr<FEdGraphSchemaAction>& Action, int32 Index)
     {
         if (!Action.IsValid())
@@ -8252,6 +8382,29 @@ bool FLoomleBlueprintAdapter::AddNodeFromPalette(const FString& BlueprintAssetPa
             return false;
         }
 
+        FString RequestedEventName;
+        if (Payload.IsValid() && Payload->TryGetStringField(TEXT("eventName"), RequestedEventName))
+        {
+            RequestedEventName.TrimStartAndEndInline();
+            if (RequestedEventName.IsEmpty())
+            {
+                OutError = TEXT("addFromPalette eventName must not be empty.");
+                return false;
+            }
+            if (LoomleIsCustomEventNameUsed(Blueprint, RequestedEventName, nullptr))
+            {
+                OutError = FString::Printf(TEXT("addFromPalette eventName is already used by another custom event: %s"), *RequestedEventName);
+                return false;
+            }
+
+            const FString UniqueEventName = FBlueprintEditorUtils::FindUniqueKismetName(Blueprint, RequestedEventName).ToString();
+            if (!UniqueEventName.Equals(RequestedEventName, ESearchCase::CaseSensitive))
+            {
+                OutError = FString::Printf(TEXT("addFromPalette eventName is not available in this Blueprint: %s"), *RequestedEventName);
+                return false;
+            }
+        }
+
         if (bDryRun)
         {
             return true;
@@ -8261,6 +8414,11 @@ bool FLoomleBlueprintAdapter::AddNodeFromPalette(const FString& BlueprintAssetPa
         if (NewNode == nullptr)
         {
             OutError = FString::Printf(TEXT("Palette entry could not be executed: %s"), *EntryId);
+            return false;
+        }
+
+        if (!LoomleApplyAssignDelegateCompanionEventName(Blueprint, NewNode, Payload, OutError))
+        {
             return false;
         }
 

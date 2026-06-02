@@ -5667,7 +5667,14 @@ fn compile_add_from_palette_command(
     let mut args = serde_json::Map::new();
     args.insert("entryId".into(), serde_json::json!(entry_id));
     args.insert("entry".into(), serde_json::Value::Object(entry.clone()));
-    for field in ["position", "anchor", "from", "contextSensitive", "context"] {
+    for field in [
+        "position",
+        "anchor",
+        "from",
+        "contextSensitive",
+        "context",
+        "eventName",
+    ] {
         copy_if_present(command, &mut args, field);
     }
     if !args.contains_key("context") {
@@ -10664,7 +10671,8 @@ mod tests {
                                 ]
                             }
                         },
-                        "position": { "x": 320, "y": 160 }
+                        "position": { "x": 320, "y": 160 },
+                        "eventName": "OnClicked_BottomWorldNav"
                     }
             ]),
         );
@@ -10715,6 +10723,13 @@ mod tests {
                 .and_then(|value| value.get("name"))
                 .and_then(|value| value.as_str()),
             Some("BottomWorldNavButton")
+        );
+        assert_eq!(
+            ops[0]
+                .get("args")
+                .and_then(|value| value.get("eventName"))
+                .and_then(|value| value.as_str()),
+            Some("OnClicked_BottomWorldNav")
         );
     }
 

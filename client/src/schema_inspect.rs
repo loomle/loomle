@@ -1122,6 +1122,11 @@ fn blueprint_graph_edit_operation_schema(
                     "position":{"$ref":"#/$defs/position"},
                     "alias":{"type":"string","minLength":1},
                     "fromPins":{"type":"array","items":{"$ref":"#/$defs/pinRef"}},
+                    "eventName":{
+                        "type":"string",
+                        "minLength":1,
+                        "description":"Optional custom event name for palette actions that create an attached UK2Node_CustomEvent, such as Assign Delegate."
+                    },
                     "contextSensitive":{"type":"boolean"},
                     "context":{
                         "type":"object",
