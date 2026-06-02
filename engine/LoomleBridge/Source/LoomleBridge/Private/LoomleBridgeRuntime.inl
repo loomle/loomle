@@ -4064,9 +4064,16 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorOpenToolResult(const TSh
         return Result;
     }
 
+    const FString AssetName = Asset->GetName();
+    const FString AssetClassPath = Asset->GetClass() ? Asset->GetClass()->GetPathName() : TEXT("");
+    const bool bIsWorldAsset = Asset->IsA<UWorld>();
+    TWeakObjectPtr<UObject> WeakAsset = Asset;
     const bool bAlreadyOpen = AssetEditorSubsystem->FindEditorForAsset(Asset, false) != nullptr;
     const bool bOpened = AssetEditorSubsystem->OpenEditorForAsset(Asset);
-    const bool bWindowFocused = AssetEditorSubsystem->FindEditorForAsset(Asset, true) != nullptr;
+    const bool bCanUseAssetAfterOpen = WeakAsset.IsValid();
+    const bool bWindowFocused = (!bIsWorldAsset && bCanUseAssetAfterOpen)
+        ? AssetEditorSubsystem->FindEditorForAsset(WeakAsset.Get(), true) != nullptr
+        : false;
     const TSharedPtr<FJsonObject> ActiveWindow = BuildActiveWindowJson();
 
     if (!bOpened && !bAlreadyOpen)
@@ -4081,8 +4088,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorOpenToolResult(const TSh
     Result->SetBoolField(TEXT("isError"), false);
     Result->SetBoolField(TEXT("ok"), true);
     Result->SetStringField(TEXT("assetPath"), AssetPath);
-    Result->SetStringField(TEXT("assetName"), Asset->GetName());
-    Result->SetStringField(TEXT("assetClassPath"), Asset->GetClass() ? Asset->GetClass()->GetPathName() : TEXT(""));
+    Result->SetStringField(TEXT("assetName"), AssetName);
+    Result->SetStringField(TEXT("assetClassPath"), AssetClassPath);
     Result->SetBoolField(TEXT("alreadyOpen"), bAlreadyOpen);
     Result->SetBoolField(TEXT("windowFocused"), bWindowFocused);
     Result->SetStringField(TEXT("windowTitle"), ActiveWindow.IsValid() ? ActiveWindow->GetStringField(TEXT("title")) : TEXT(""));
