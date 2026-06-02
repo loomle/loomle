@@ -8573,6 +8573,16 @@ fn copy_tree_replace(source: &Path, destination: &Path) -> Result<(), String> {
     copy_dir_recursive(source, destination)
 }
 
+fn clean_project_plugin_build_outputs(plugin_root: &Path) -> Result<bool, String> {
+    let binaries_dir = plugin_root.join("Binaries");
+    if !binaries_dir.exists() {
+        return Ok(false);
+    }
+    fs::remove_dir_all(&binaries_dir)
+        .map_err(|error| format!("failed to remove {}: {error}", binaries_dir.display()))?;
+    Ok(true)
+}
+
 fn cleanup_old_binaries() {
     if !cfg!(windows) {
         return;
@@ -8845,19 +8855,23 @@ fn sync_project_support_to_version(
     }
     let previous_version = read_plugin_version(&plugin_destination);
     if previous_version.as_deref() == Some(active_version) && !force {
+        let cleaned_build_outputs = clean_project_plugin_build_outputs(&plugin_destination)?;
         write_project_registration(project_root, active_version, "project.sync")?;
         return Ok(ProjectSupportSyncOutcome {
             project_root: project_root.to_path_buf(),
             plugin_path: plugin_destination,
-            changed: false,
+            changed: cleaned_build_outputs,
             previous_version,
             installed_version: active_version.to_string(),
-            requires_editor_restart: false,
+            requires_editor_restart: cleaned_build_outputs,
             skipped_reason: None,
-            message: None,
+            message: cleaned_build_outputs.then(|| {
+                "Removed stale LoomleBridge build outputs so Unreal can rebuild plugin binaries for the current editor build.".to_string()
+            }),
         });
     }
 
+    let _ = clean_project_plugin_build_outputs(&plugin_destination)?;
     copy_tree_replace(&plugin_source, &plugin_destination)?;
     ensure_editor_performance_setting(project_root)?;
     write_project_registration(project_root, active_version, "project.sync")?;
@@ -10172,6 +10186,24 @@ mod tests {
             sync_project_support_to_version(&project_root, "0.5.8", false).expect("sync");
         assert!(!unchanged.changed);
         assert!(!unchanged.requires_editor_restart);
+
+        let stale_binaries = installed_plugin.join("Binaries").join("Mac");
+        fs::create_dir_all(&stale_binaries).expect("stale binaries dir");
+        fs::write(
+            stale_binaries.join("UnrealEditor.modules"),
+            r#"{"BuildId":"old","Modules":{"LoomleBridge":"UnrealEditor-LoomleBridge.dylib"}}"#,
+        )
+        .expect("stale modules manifest");
+        let cleaned =
+            sync_project_support_to_version(&project_root, "0.5.8", false).expect("sync");
+        assert!(cleaned.changed);
+        assert!(cleaned.requires_editor_restart);
+        assert!(!installed_plugin.join("Binaries").exists());
+
+        let unchanged_after_clean =
+            sync_project_support_to_version(&project_root, "0.5.8", false).expect("sync");
+        assert!(!unchanged_after_clean.changed);
+        assert!(!unchanged_after_clean.requires_editor_restart);
 
         if let Some(previous_root) = previous_root {
             std::env::set_var("LOOMLE_INSTALL_ROOT", previous_root);

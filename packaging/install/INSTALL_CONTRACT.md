@@ -96,6 +96,12 @@ responsibility.
 4. skip online projects without overwriting loaded plugins
 5. report updated, unchanged, skipped, and failed project counts
 
+When syncing a LOOMLE-managed project plugin, `loomle update` should remove
+project-local `Plugins/LoomleBridge/Binaries` build outputs. Unreal Editor owns
+the platform binary rebuild for the current engine build, and stale
+`UnrealEditor.modules` BuildId manifests must not be preserved across plugin
+updates.
+
 Project sync failures should be reported per project. They should not make the
 global update fail after the global install has already succeeded.
 

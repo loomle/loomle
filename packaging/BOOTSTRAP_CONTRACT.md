@@ -67,6 +67,10 @@ then scans persistent LOOMLE project records and syncs the active
 projects are skipped because Unreal Editor may have the plugin loaded; users can
 close Unreal Editor and run `loomle update` again.
 
+Offline project sync removes `Plugins/LoomleBridge/Binaries` before reporting a
+project as up to date, so stale Unreal module manifests from another editor
+BuildId do not block the next editor launch.
+
 Runtime records under `state/runtimes` are live status only. Persistent project
 membership lives under `state/projects` so closed Unreal projects remain
 eligible for update.
