@@ -179,8 +179,18 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
                             "result": {
                                 "ok": True,
                                 "payload": {
-                                    "status": "ok",
-                                    "tool": request["params"]["tool"],
+                                    "isError": False,
+                                    "valid": True,
+                                    "applied": True,
+                                    "dryRun": False,
+                                    "operation": request["params"]["tool"],
+                                    "assetPath": request["params"]["args"]["assetPath"],
+                                    "previousRevision": "rev-1",
+                                    "newRevision": "rev-2",
+                                    "planned": {},
+                                    "diff": {},
+                                    "diagnostics": [],
+                                    "opResults": [],
                                 },
                                 "diagnostics": [],
                             },
@@ -226,7 +236,7 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
                 await server.wait_closed()
 
             self.assertFalse(result.isError, result)
-            self.assertEqual(result.structuredContent["status"], "ok")
+            self.assertEqual(result.structuredContent["operation"], "blueprint.graph.edit")
             self.assertEqual(seen["method"], "rpc.invoke")
             self.assertEqual(seen["tool"], "blueprint.graph.edit")
 
