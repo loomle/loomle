@@ -34,6 +34,7 @@
 #include "K2Node_AddComponentByClass.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_Composite.h"
+#include "K2Node_ComponentBoundEvent.h"
 #include "K2Node_CustomEvent.h"
 #include "K2Node_DynamicCast.h"
 #include "K2Node_EditablePinBase.h"
@@ -7315,6 +7316,143 @@ namespace
         return Out;
     }
 
+    static FObjectProperty* LoomleFindBlueprintObjectProperty(UBlueprint* Blueprint, const FString& PropertyName)
+    {
+        if (Blueprint == nullptr || PropertyName.IsEmpty())
+        {
+            return nullptr;
+        }
+
+        const FName PropertyFName(*PropertyName);
+        if (Blueprint->SkeletonGeneratedClass != nullptr)
+        {
+            if (FObjectProperty* Property = FindFProperty<FObjectProperty>(Blueprint->SkeletonGeneratedClass, PropertyFName))
+            {
+                return Property;
+            }
+        }
+        if (Blueprint->GeneratedClass != nullptr)
+        {
+            if (FObjectProperty* Property = FindFProperty<FObjectProperty>(Blueprint->GeneratedClass, PropertyFName))
+            {
+                return Property;
+            }
+        }
+        return nullptr;
+    }
+
+    static TSharedPtr<FJsonObject> LoomleNormalizePaletteContext(const TSharedPtr<FJsonObject>& Payload)
+    {
+        TArray<TSharedPtr<FJsonValue>> SelectedObjects;
+
+        const TSharedPtr<FJsonObject>* ContextObject = nullptr;
+        if (Payload.IsValid()
+            && Payload->TryGetObjectField(TEXT("context"), ContextObject)
+            && ContextObject != nullptr
+            && (*ContextObject).IsValid())
+        {
+            const TArray<TSharedPtr<FJsonValue>>* SelectedObjectValues = nullptr;
+            if ((*ContextObject)->TryGetArrayField(TEXT("selectedObjects"), SelectedObjectValues) && SelectedObjectValues != nullptr)
+            {
+                for (const TSharedPtr<FJsonValue>& SelectedObjectValue : *SelectedObjectValues)
+                {
+                    const TSharedPtr<FJsonObject>* SelectedObject = nullptr;
+                    if (SelectedObjectValue.IsValid()
+                        && SelectedObjectValue->TryGetObject(SelectedObject)
+                        && SelectedObject != nullptr
+                        && (*SelectedObject).IsValid())
+                    {
+                        FString Kind;
+                        FString Name;
+                        (*SelectedObject)->TryGetStringField(TEXT("kind"), Kind);
+                        (*SelectedObject)->TryGetStringField(TEXT("name"), Name);
+                        if (!Kind.IsEmpty() && !Name.IsEmpty())
+                        {
+                            TSharedPtr<FJsonObject> Normalized = MakeShared<FJsonObject>();
+                            Normalized->SetStringField(TEXT("kind"), Kind);
+                            Normalized->SetStringField(TEXT("name"), Name);
+                            SelectedObjects.Add(MakeShared<FJsonValueObject>(Normalized));
+                        }
+                    }
+                }
+            }
+
+            const TSharedPtr<FJsonObject>* ComponentObject = nullptr;
+            if ((*ContextObject)->TryGetObjectField(TEXT("component"), ComponentObject)
+                && ComponentObject != nullptr
+                && (*ComponentObject).IsValid())
+            {
+                FString ComponentName;
+                (*ComponentObject)->TryGetStringField(TEXT("name"), ComponentName);
+                if (!ComponentName.IsEmpty())
+                {
+                    TSharedPtr<FJsonObject> Normalized = MakeShared<FJsonObject>();
+                    Normalized->SetStringField(TEXT("kind"), TEXT("component_property"));
+                    Normalized->SetStringField(TEXT("name"), ComponentName);
+                    SelectedObjects.Add(MakeShared<FJsonValueObject>(Normalized));
+                }
+            }
+        }
+
+        TSharedPtr<FJsonObject> Context = MakeShared<FJsonObject>();
+        Context->SetArrayField(TEXT("selectedObjects"), SelectedObjects);
+        return Context;
+    }
+
+    static FString LoomlePaletteContextCacheKey(const TSharedPtr<FJsonObject>& Payload)
+    {
+        const TSharedPtr<FJsonObject> Context = LoomleNormalizePaletteContext(Payload);
+        return LoomleBlueprintAdapterInternal::JsonObjectToCondensedString(Context);
+    }
+
+    static bool LoomleApplyPaletteContextSelectedObjects(
+        UBlueprint* Blueprint,
+        const TSharedPtr<FJsonObject>& Payload,
+        FBlueprintActionContext& OutContext,
+        FString& OutError)
+    {
+        const TSharedPtr<FJsonObject> Context = LoomleNormalizePaletteContext(Payload);
+        const TArray<TSharedPtr<FJsonValue>>* SelectedObjectValues = nullptr;
+        if (!Context.IsValid()
+            || !Context->TryGetArrayField(TEXT("selectedObjects"), SelectedObjectValues)
+            || SelectedObjectValues == nullptr)
+        {
+            return true;
+        }
+
+        for (const TSharedPtr<FJsonValue>& SelectedObjectValue : *SelectedObjectValues)
+        {
+            const TSharedPtr<FJsonObject>* SelectedObject = nullptr;
+            if (!SelectedObjectValue.IsValid()
+                || !SelectedObjectValue->TryGetObject(SelectedObject)
+                || SelectedObject == nullptr
+                || !(*SelectedObject).IsValid())
+            {
+                continue;
+            }
+
+            FString Kind;
+            FString Name;
+            (*SelectedObject)->TryGetStringField(TEXT("kind"), Kind);
+            (*SelectedObject)->TryGetStringField(TEXT("name"), Name);
+            if (Kind.Equals(TEXT("component_property"), ESearchCase::IgnoreCase))
+            {
+                FObjectProperty* Property = LoomleFindBlueprintObjectProperty(Blueprint, Name);
+                if (Property == nullptr)
+                {
+                    OutError = FString::Printf(TEXT("Palette context component_property was not found on Blueprint skeleton/generated class: %s"), *Name);
+                    return false;
+                }
+                OutContext.SelectedObjects.Add(Property);
+                continue;
+            }
+
+            OutError = FString::Printf(TEXT("Unsupported palette selected object kind: %s"), *Kind);
+            return false;
+        }
+        return true;
+    }
+
     static UEdGraphPin* LoomleFindPinByRef(UEdGraph* Graph, const TSharedPtr<FJsonObject>& PinRef)
     {
         if (Graph == nullptr || !PinRef.IsValid())
@@ -7427,6 +7565,10 @@ namespace
         OutContext.Blueprints.Add(OutBlueprint);
         OutContext.Graphs.Add(OutGraph);
         OutContext.Pins = OutPins;
+        if (!LoomleApplyPaletteContextSelectedObjects(OutBlueprint, Payload, OutContext, OutError))
+        {
+            return false;
+        }
         return true;
     }
 
@@ -7503,7 +7645,8 @@ namespace
         const FString& BlueprintAssetPath,
         const UEdGraph* TargetGraph,
         const TArray<UEdGraphPin*>& FromPins,
-        bool bContextSensitive)
+        bool bContextSensitive,
+        const FString& ContextKey)
     {
         TArray<FString> PinKeys;
         for (const UEdGraphPin* Pin : FromPins)
@@ -7521,11 +7664,12 @@ namespace
         PinKeys.Sort();
 
         return FString::Printf(
-            TEXT("%s|%s|%d|%s"),
+            TEXT("%s|%s|%d|%s|%s"),
             *BlueprintAssetPath,
             TargetGraph != nullptr ? *TargetGraph->GetPathName() : TEXT(""),
             bContextSensitive ? 1 : 0,
-            *FString::Join(PinKeys, TEXT(",")));
+            *FString::Join(PinKeys, TEXT(",")),
+            *ContextKey);
     }
 
     static FString LoomlePaletteActionNodeClass(const TSharedPtr<FEdGraphSchemaAction>& Action)
@@ -7829,7 +7973,7 @@ namespace
         return 100;
     }
 
-    static TSharedPtr<FJsonObject> LoomleSerializePaletteAction(const TSharedPtr<FEdGraphSchemaAction>& Action, int32 Index, bool bContextSensitive)
+    static TSharedPtr<FJsonObject> LoomleSerializePaletteAction(const TSharedPtr<FEdGraphSchemaAction>& Action, int32 Index, bool bContextSensitive, const TSharedPtr<FJsonObject>& Payload)
     {
         TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
         Entry->SetStringField(TEXT("id"), LoomlePaletteActionId(Action, Index));
@@ -7853,11 +7997,57 @@ namespace
             }
         }
         Entry->SetArrayField(TEXT("keywords"), Action.IsValid() ? LoomleStringArrayToJson(Action->GetSearchKeywordsArray()) : TArray<TSharedPtr<FJsonValue>>());
+        const TSharedPtr<FJsonObject> Context = LoomleNormalizePaletteContext(Payload);
+        if (Context.IsValid())
+        {
+            const TArray<TSharedPtr<FJsonValue>>* SelectedObjectValues = nullptr;
+            if (Context->TryGetArrayField(TEXT("selectedObjects"), SelectedObjectValues)
+                && SelectedObjectValues != nullptr
+                && SelectedObjectValues->Num() > 0)
+            {
+                Entry->SetObjectField(TEXT("context"), Context);
+                const TSharedPtr<FJsonObject>* FirstSelectedObject = nullptr;
+                if ((*SelectedObjectValues)[0].IsValid()
+                    && (*SelectedObjectValues)[0]->TryGetObject(FirstSelectedObject)
+                    && FirstSelectedObject != nullptr
+                    && (*FirstSelectedObject).IsValid())
+                {
+                    FString Kind;
+                    FString Name;
+                    (*FirstSelectedObject)->TryGetStringField(TEXT("kind"), Kind);
+                    (*FirstSelectedObject)->TryGetStringField(TEXT("name"), Name);
+                    if (Kind.Equals(TEXT("component_property"), ESearchCase::IgnoreCase) && !Name.IsEmpty())
+                    {
+                        Entry->SetStringField(TEXT("componentName"), Name);
+                    }
+                }
+            }
+        }
 
         const FString NodeClass = LoomlePaletteActionNodeClass(Action);
         if (!NodeClass.IsEmpty())
         {
             Entry->SetStringField(TEXT("nodeClass"), NodeClass);
+        }
+        if (Action.IsValid() && Action->GetTypeId() == FBlueprintActionMenuItem::StaticGetTypeId())
+        {
+            const FBlueprintActionMenuItem* MenuItem = static_cast<const FBlueprintActionMenuItem*>(Action.Get());
+            const UBlueprintNodeSpawner* Spawner = MenuItem != nullptr ? MenuItem->GetRawAction() : nullptr;
+            if (const UBlueprintBoundEventNodeSpawner* BoundEventSpawner = Cast<const UBlueprintBoundEventNodeSpawner>(Spawner))
+            {
+                const FMulticastDelegateProperty* Delegate = BoundEventSpawner->GetEventDelegate();
+                if (Delegate != nullptr)
+                {
+                    Entry->SetStringField(TEXT("bindingKind"), BoundEventSpawner->NodeClass && BoundEventSpawner->NodeClass->IsChildOf<UK2Node_ComponentBoundEvent>()
+                        ? TEXT("component_property")
+                        : TEXT("actor"));
+                    Entry->SetStringField(TEXT("delegateName"), Delegate->GetName());
+                    if (const UClass* OwnerClass = Delegate->GetOwnerClass())
+                    {
+                        Entry->SetStringField(TEXT("ownerClassPath"), OwnerClass->GetPathName());
+                    }
+                }
+            }
         }
         return Entry;
     }
@@ -7956,12 +8146,12 @@ bool FLoomleBlueprintAdapter::SearchBlueprintPalette(const FString& BlueprintAss
             : Left.Score < Right.Score;
     });
 
-    TArray<TSharedPtr<FJsonValue>> Entries;
-    for (int32 MatchIndex = Offset; MatchIndex < Matches.Num() && Entries.Num() < Limit; ++MatchIndex)
-    {
-        const FMatchedPaletteAction& Match = Matches[MatchIndex];
-        Entries.Add(MakeShared<FJsonValueObject>(LoomleSerializePaletteAction(Match.Action, Match.Index, bContextSensitive)));
-    }
+	    TArray<TSharedPtr<FJsonValue>> Entries;
+	    for (int32 MatchIndex = Offset; MatchIndex < Matches.Num() && Entries.Num() < Limit; ++MatchIndex)
+	    {
+	        const FMatchedPaletteAction& Match = Matches[MatchIndex];
+	        Entries.Add(MakeShared<FJsonValueObject>(LoomleSerializePaletteAction(Match.Action, Match.Index, bContextSensitive, Payload)));
+	    }
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetArrayField(TEXT("entries"), Entries);
@@ -8017,11 +8207,11 @@ bool FLoomleBlueprintAdapter::AddNodeFromPalette(const FString& BlueprintAssetPa
     }
 
     TSharedPtr<FBlueprintActionMenuBuilder> CachedBuilder;
-    if (PaletteRequestCacheId != INDEX_NONE)
-    {
-        if (TMap<FString, TSharedPtr<FBlueprintActionMenuBuilder>>* RequestCache = PaletteRequestCaches.Find(PaletteRequestCacheId))
-        {
-            const FString CacheKey = LoomlePaletteActionCacheKey(BlueprintAssetPath, TargetGraph, FromPins, bContextSensitive);
+	    if (PaletteRequestCacheId != INDEX_NONE)
+	    {
+	        if (TMap<FString, TSharedPtr<FBlueprintActionMenuBuilder>>* RequestCache = PaletteRequestCaches.Find(PaletteRequestCacheId))
+	        {
+	            const FString CacheKey = LoomlePaletteActionCacheKey(BlueprintAssetPath, TargetGraph, FromPins, bContextSensitive, LoomlePaletteContextCacheKey(Payload));
             if (const TSharedPtr<FBlueprintActionMenuBuilder>* ExistingBuilder = RequestCache->Find(CacheKey))
             {
                 CachedBuilder = *ExistingBuilder;

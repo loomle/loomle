@@ -187,10 +187,13 @@ Optional fields:
 - `alias`
 - `fromPins`
 - `contextSensitive`
+- `context`
 
 Rules:
 
 - `entry` should be the full palette entry returned by `blueprint.graph.palette`.
+- `context` is normally inherited from `entry.context`; agents should pass the
+  full returned entry for component/widget bound events.
 - `alias` is request-local and is chosen by the agent.
 - dry run must resolve the same palette entry but must not mutate the graph.
 - schema actions are listed by `blueprint.graph.palette` but rejected with

@@ -1552,9 +1552,9 @@ impl LoomleProxyServer {
             return Ok(edit_result);
         }
 
-        Ok(structured_result(
-            plan.to_json_from_edit_result(edit_result.structured_content.as_ref()),
-        ))
+        Ok(structured_result(plan.to_json_from_edit_result(
+            edit_result.structured_content.as_ref(),
+        )))
     }
 
     async fn call_blueprint_compile(
@@ -4801,6 +4801,9 @@ fn translate_blueprint_palette_args(
     for field in ["query", "contextSensitive", "limit", "offset"] {
         copy_if_present(args, &mut translated, field);
     }
+    if let Some(context) = args.get("context") {
+        translated.insert("context".into(), context.clone());
+    }
     if let Some(from_pins) = args.get("fromPins") {
         translated.insert(
             "fromPins".into(),
@@ -4988,7 +4991,10 @@ fn blueprint_layout_revision_pair(payload: &serde_json::Value) -> (Option<String
 }
 
 impl BlueprintGraphLayoutPlan {
-    fn to_json_from_edit_result(&self, edit_payload: Option<&serde_json::Value>) -> serde_json::Value {
+    fn to_json_from_edit_result(
+        &self,
+        edit_payload: Option<&serde_json::Value>,
+    ) -> serde_json::Value {
         let (previous_revision, new_revision) = edit_payload
             .map(blueprint_layout_revision_pair)
             .unwrap_or((None, None));
@@ -5124,7 +5130,9 @@ fn blueprint_layout_pin_name(pin: &serde_json::Map<String, serde_json::Value>) -
         .map(str::to_owned)
 }
 
-fn blueprint_layout_pin_category(pin: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
+fn blueprint_layout_pin_category(
+    pin: &serde_json::Map<String, serde_json::Value>,
+) -> Option<String> {
     pin.get("category")
         .or_else(|| pin.get("pinCategory"))
         .and_then(|value| value.as_str())
@@ -5132,7 +5140,9 @@ fn blueprint_layout_pin_category(pin: &serde_json::Map<String, serde_json::Value
         .map(str::to_owned)
 }
 
-fn blueprint_layout_pin_direction(pin: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
+fn blueprint_layout_pin_direction(
+    pin: &serde_json::Map<String, serde_json::Value>,
+) -> Option<String> {
     pin.get("direction")
         .and_then(|value| value.as_str())
         .filter(|value| !value.is_empty())
@@ -5201,7 +5211,9 @@ fn blueprint_layout_target_pin_offset_y(
             continue;
         }
         let name_matches = target_pin_name
-            .and_then(|target_pin| blueprint_layout_pin_name(pin_obj).map(|name| name == target_pin))
+            .and_then(|target_pin| {
+                blueprint_layout_pin_name(pin_obj).map(|name| name == target_pin)
+            })
             .unwrap_or(true);
         if name_matches {
             return blueprint_layout_pin_offset_y(pin_obj, target_node.y).0;
@@ -5288,7 +5300,9 @@ fn build_blueprint_layout_nodes(
                             }
                             let target_pin = link
                                 .as_object()
-                                .and_then(|object| object.get("pin").or_else(|| object.get("pinName")))
+                                .and_then(|object| {
+                                    object.get("pin").or_else(|| object.get("pinName"))
+                                })
                                 .and_then(|value| value.as_str())
                                 .map(str::to_owned);
                             if is_exec_output {
@@ -5382,7 +5396,8 @@ fn build_blueprint_graph_layout_plan(
     request: &BlueprintGraphLayoutRequest,
     inspect_payload: &serde_json::Value,
 ) -> Result<BlueprintGraphLayoutPlan, String> {
-    let (nodes, raw_nodes, previous_revision, graph_ref) = build_blueprint_layout_nodes(inspect_payload)?;
+    let (nodes, raw_nodes, previous_revision, graph_ref) =
+        build_blueprint_layout_nodes(inspect_payload)?;
     if !nodes.contains_key(&request.root) {
         return Err(format!("root node not found in graph: {}", request.root));
     }
@@ -5477,7 +5492,9 @@ fn build_blueprint_graph_layout_plan(
             continue;
         };
         for data_input in &node.data_inputs {
-            if tree_set.contains(&data_input.source_id) || !nodes.contains_key(&data_input.source_id) {
+            if tree_set.contains(&data_input.source_id)
+                || !nodes.contains_key(&data_input.source_id)
+            {
                 continue;
             }
             support_consumers
@@ -5514,12 +5531,14 @@ fn build_blueprint_graph_layout_plan(
             continue;
         };
         for (index, support_id) in support_ids.iter().enumerate() {
-            placed.entry(support_id.clone()).or_insert(BlueprintLayoutPlacedNode {
-                x: consumer_place.x,
-                y: consumer_place.y + request.spacing_y + index as i64 * request.spacing_y,
-                role: "support".to_string(),
-                constraints: vec!["single_consumer_data_support".to_string()],
-            });
+            placed
+                .entry(support_id.clone())
+                .or_insert(BlueprintLayoutPlacedNode {
+                    x: consumer_place.x,
+                    y: consumer_place.y + request.spacing_y + index as i64 * request.spacing_y,
+                    role: "support".to_string(),
+                    constraints: vec!["single_consumer_data_support".to_string()],
+                });
         }
     }
 
@@ -5527,14 +5546,22 @@ fn build_blueprint_graph_layout_plan(
         let Some(node) = nodes.get(node_id) else {
             continue;
         };
-        if node.pin_layout_sources.iter().any(|source| source == "unsupported") {
+        if node
+            .pin_layout_sources
+            .iter()
+            .any(|source| source == "unsupported")
+        {
             diagnostics.push(serde_json::json!({
                 "code": "PIN_LAYOUT_UNSUPPORTED",
                 "severity": "warning",
                 "message": "Some pins do not expose layout data; used conservative fallback offsets. Open the Blueprint editor and retry for more accurate anchors.",
                 "node": { "id": node_id },
             }));
-        } else if node.pin_layout_sources.iter().any(|source| source == "estimate") {
+        } else if node
+            .pin_layout_sources
+            .iter()
+            .any(|source| source == "estimate")
+        {
             diagnostics.push(serde_json::json!({
                 "code": "PIN_LAYOUT_ESTIMATED",
                 "severity": "info",
@@ -5640,8 +5667,13 @@ fn compile_add_from_palette_command(
     let mut args = serde_json::Map::new();
     args.insert("entryId".into(), serde_json::json!(entry_id));
     args.insert("entry".into(), serde_json::Value::Object(entry.clone()));
-    for field in ["position", "anchor", "from", "contextSensitive"] {
+    for field in ["position", "anchor", "from", "contextSensitive", "context"] {
         copy_if_present(command, &mut args, field);
+    }
+    if !args.contains_key("context") {
+        if let Some(context) = entry.get("context") {
+            args.insert("context".into(), context.clone());
+        }
     }
     if let Some(from_pins) = command.get("fromPins") {
         args.insert(
@@ -7326,6 +7358,32 @@ fn blueprint_palette_schema() -> rmcp::model::JsonObject {
                     "required":["node","pin"],
                     "additionalProperties": false
                 }
+            },
+            "context":{
+                "type":"object",
+                "description":"Optional UE action-menu context. Use selectedObjects for bound component/widget events and member-context actions.",
+                "properties":{
+                    "selectedObjects":{
+                        "type":"array",
+                        "items":{
+                            "type":"object",
+                            "properties":{
+                                "kind":{"type":"string","enum":["component_property"]},
+                                "name":{"type":"string","minLength":1}
+                            },
+                            "required":["kind","name"],
+                            "additionalProperties": false
+                        }
+                    },
+                    "component":{
+                        "type":"object",
+                        "description":"Shortcut for selectedObjects:[{kind:'component_property',name}].",
+                        "properties":{"name":{"type":"string","minLength":1}},
+                        "required":["name"],
+                        "additionalProperties": false
+                    }
+                },
+                "additionalProperties": false
             },
             "limit":{"type":"integer","minimum":1,"maximum":500,"default":50},
             "offset":{"type":"integer","minimum":0,"default":0}
@@ -9647,8 +9705,8 @@ mod tests {
         translate_widget_tree_edit_args, validate_blueprint_graph_inspect_args,
         validate_blueprint_graph_inspect_targets, validate_pcg_graph_inspect_args,
         widget_inspect_schema, widget_palette_schema, widget_tree_edit_schema,
-        widget_tree_inspect_schema, write_public_blueprint_graph_address, Cli,
-        FileLockMetadata, RuntimeProject, UpdateOptions,
+        widget_tree_inspect_schema, write_public_blueprint_graph_address, Cli, FileLockMetadata,
+        RuntimeProject, UpdateOptions,
     };
     use rmcp::model::JsonObject;
     use std::ffi::OsString;
@@ -9899,7 +9957,10 @@ mod tests {
         write_public_blueprint_graph_address(&mut edit_args, request.graph_address)
             .expect("public graph address");
 
-        assert_eq!(edit_args.get("graph"), Some(&serde_json::json!({ "name": "EventGraph" })));
+        assert_eq!(
+            edit_args.get("graph"),
+            Some(&serde_json::json!({ "name": "EventGraph" }))
+        );
         assert!(!edit_args.contains_key("graphName"));
         assert!(!edit_args.contains_key("graphRef"));
     }
@@ -9916,7 +9977,10 @@ mod tests {
         write_public_blueprint_graph_address(&mut edit_args, request.graph_address)
             .expect("public graph address");
 
-        assert_eq!(edit_args.get("graph"), Some(&serde_json::json!({ "id": "graph-1" })));
+        assert_eq!(
+            edit_args.get("graph"),
+            Some(&serde_json::json!({ "id": "graph-1" }))
+        );
         assert!(!edit_args.contains_key("graphName"));
         assert!(!edit_args.contains_key("graphRef"));
     }
@@ -10194,8 +10258,7 @@ mod tests {
             r#"{"BuildId":"old","Modules":{"LoomleBridge":"UnrealEditor-LoomleBridge.dylib"}}"#,
         )
         .expect("stale modules manifest");
-        let cleaned =
-            sync_project_support_to_version(&project_root, "0.5.8", false).expect("sync");
+        let cleaned = sync_project_support_to_version(&project_root, "0.5.8", false).expect("sync");
         assert!(cleaned.changed);
         assert!(cleaned.requires_editor_restart);
         assert!(!installed_plugin.join("Binaries").exists());
@@ -10592,12 +10655,17 @@ mod tests {
                 {
                     "kind": "addFromPalette",
                     "alias": "branch",
-                    "entry": {
-                        "id": "palette:abc123",
-                        "contextSensitive": false
-                    },
-                    "position": { "x": 320, "y": 160 }
-                }
+                        "entry": {
+                            "id": "palette:abc123",
+                            "contextSensitive": false,
+                            "context": {
+                                "selectedObjects": [
+                                    { "kind": "component_property", "name": "BottomWorldNavButton" }
+                                ]
+                            }
+                        },
+                        "position": { "x": 320, "y": 160 }
+                    }
             ]),
         );
 
@@ -10636,6 +10704,17 @@ mod tests {
                 .and_then(|value| value.get("contextSensitive"))
                 .and_then(|value| value.as_bool()),
             Some(false)
+        );
+        assert_eq!(
+            ops[0]
+                .get("args")
+                .and_then(|value| value.get("context"))
+                .and_then(|value| value.get("selectedObjects"))
+                .and_then(|value| value.as_array())
+                .and_then(|items| items.first())
+                .and_then(|value| value.get("name"))
+                .and_then(|value| value.as_str()),
+            Some("BottomWorldNavButton")
         );
     }
 
@@ -10706,6 +10785,7 @@ mod tests {
             .and_then(|value| value.as_object())
             .expect("properties");
         assert!(properties.contains_key("graph"));
+        assert!(properties.contains_key("context"));
         assert!(!properties.contains_key("graphName"));
         assert_eq!(
             properties
@@ -10723,6 +10803,14 @@ mod tests {
             "fromPins".into(),
             serde_json::json!([{ "node": { "id": "node-1" }, "pin": "Then" }]),
         );
+        args.insert(
+            "context".into(),
+            serde_json::json!({
+                "selectedObjects": [
+                    { "kind": "component_property", "name": "BottomWorldNavButton" }
+                ]
+            }),
+        );
         let translated = translate_blueprint_palette_args(&args).expect("translated args");
         assert_eq!(
             translated.get("graphName").and_then(|value| value.as_str()),
@@ -10731,6 +10819,14 @@ mod tests {
         assert_eq!(
             translated.get("fromPins"),
             Some(&serde_json::json!([{ "nodeId": "node-1", "pin": "Then" }]))
+        );
+        assert_eq!(
+            translated.get("context"),
+            Some(&serde_json::json!({
+                "selectedObjects": [
+                    { "kind": "component_property", "name": "BottomWorldNavButton" }
+                ]
+            }))
         );
 
         args.insert("limit".into(), serde_json::json!(501));
@@ -12613,7 +12709,6 @@ mod tests {
                 "retired tool should not be declared: {retired}"
             );
         }
-
     }
 
     #[test]

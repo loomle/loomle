@@ -1122,7 +1122,32 @@ fn blueprint_graph_edit_operation_schema(
                     "position":{"$ref":"#/$defs/position"},
                     "alias":{"type":"string","minLength":1},
                     "fromPins":{"type":"array","items":{"$ref":"#/$defs/pinRef"}},
-                    "contextSensitive":{"type":"boolean"}
+                    "contextSensitive":{"type":"boolean"},
+                    "context":{
+                        "type":"object",
+                        "description":"Optional UE action-menu context. Usually inherited from the selected palette entry.",
+                        "properties":{
+                            "selectedObjects":{
+                                "type":"array",
+                                "items":{
+                                    "type":"object",
+                                    "properties":{
+                                        "kind":{"type":"string","enum":["component_property"]},
+                                        "name":{"type":"string","minLength":1}
+                                    },
+                                    "required":["kind","name"],
+                                    "additionalProperties":false
+                                }
+                            },
+                            "component":{
+                                "type":"object",
+                                "properties":{"name":{"type":"string","minLength":1}},
+                                "required":["name"],
+                                "additionalProperties":false
+                            }
+                        },
+                        "additionalProperties":false
+                    }
                 },
                 "required":["kind","entry"],
                 "additionalProperties":false

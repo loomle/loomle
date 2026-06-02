@@ -26,8 +26,8 @@ construction details, and toward UE's own creation semantics.
 Blueprint node creation in the editor is driven by the Blueprint Action Menu.
 The relevant UE model includes:
 
-- action context built from the Blueprint, graph, selected pins, and editor
-  state
+- action context built from the Blueprint, graph, selected pins, selected
+  component/member objects, and editor state
 - action menu entries shown to the user
 - node spawners behind many executable entries
 - schema-specific filtering, especially through the K2 graph schema
@@ -100,6 +100,43 @@ the primary agent-facing path for ordinary Blueprint node creation.
       },
       "description": "Optional dragged-from pin context, matching UE's pin-based action menu behavior."
     },
+    "context": {
+      "type": "object",
+      "description": "Optional UE action-menu object context. Use this for component/widget bound events and other selected-member actions.",
+      "properties": {
+        "selectedObjects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["component_property"]
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": ["kind", "name"],
+            "additionalProperties": false
+          }
+        },
+        "component": {
+          "type": "object",
+          "description": "Shortcut for selectedObjects:[{kind:\"component_property\",name}].",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["name"],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "limit": {
       "type": "integer",
       "minimum": 1,
@@ -116,6 +153,40 @@ the primary agent-facing path for ordinary Blueprint node creation.
   "additionalProperties": false
 }
 ```
+
+`context.selectedObjects` is Loomle's public expression of UE's selected-object
+Action Menu context. For component and widget events, pass the Blueprint variable
+that owns the delegate source:
+
+```json
+{
+  "assetPath": "/Game/UI/WBP_Menu",
+  "graph": { "name": "EventGraph" },
+  "query": "OnClicked",
+  "context": {
+    "selectedObjects": [
+      { "kind": "component_property", "name": "BottomWorldNavButton" }
+    ]
+  }
+}
+```
+
+For the common single-component case, agents may use the equivalent shortcut:
+
+```json
+{
+  "assetPath": "/Game/UI/WBP_Menu",
+  "graph": { "name": "EventGraph" },
+  "query": "OnClicked",
+  "context": {
+    "component": { "name": "BottomWorldNavButton" }
+  }
+}
+```
+
+This is not UMG-specific. A WidgetBlueprint `Button.OnClicked` and an Actor
+Blueprint `BoxComponent.OnComponentBeginOverlap` both map to UE component-bound
+event actions when their component property is selected.
 
 ### Response Schema
 
@@ -169,6 +240,22 @@ the primary agent-facing path for ordinary Blueprint node creation.
         "target": {
           "type": "object",
           "description": "Optional UE target identity, such as function, variable, event, macro, or class reference."
+        },
+        "context": {
+          "type": "object",
+          "description": "Normalized UE action-menu object context required to execute this entry."
+        },
+        "bindingKind": {
+          "type": "string",
+          "description": "Binding class for bound-event entries, such as component_property."
+        },
+        "delegateName": {
+          "type": "string",
+          "description": "UE multicast delegate property name for bound-event entries."
+        },
+        "ownerClassPath": {
+          "type": "string",
+          "description": "Class path that owns the bound-event delegate property."
         },
         "requiresContext": {
           "type": "boolean",
@@ -304,6 +391,13 @@ the Blueprint Action Menu:
 execution. The entry id is not a permanent global id. It is valid only for the
 context needed to reproduce the selected UE action.
 
+For entries that depend on selected component/member objects, the returned
+palette entry carries a normalized `context`. Agents should pass the full entry
+object to `addFromPalette`; they do not need to repeat the context manually.
+This is how UE component-bound event actions such as `Button.OnClicked` or
+`BoxComponent.OnComponentBeginOverlap` remain a normal palette/edit flow instead
+of a separate Loomle event API.
+
 ### Spawner Safety
 
 UE's Action Menu spawners are the source of truth for palette behavior, but some
@@ -424,7 +518,7 @@ groups into a curated source of truth:
 | Flow control | TBD | TBD | TBD | TBD | TBD | Branch, Sequence, Gate, and related actions. |
 | Operators | TBD | TBD | TBD | TBD | TBD | Equality, math, boolean, enum, and conversion actions. |
 | Components | TBD | TBD | TBD | TBD | TBD | Add, get, and component-related actions. |
-| Delegates | TBD | TBD | TBD | TBD | TBD | Bind, assign, call, and delegate event actions. |
+| Delegates | TBD | TBD | TBD | TBD | TBD | Bind, assign, call, clear, remove, and component/actor bound event actions. |
 | Timeline | TBD | TBD | TBD | TBD | TBD | May require Blueprint member side effects. |
 | Comment/Reroute | TBD | TBD | TBD | TBD | TBD | Editor utility graph entries. |
 
