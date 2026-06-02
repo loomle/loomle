@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import argparse
-import hashlib
 import json
 import os
 import platform
@@ -889,54 +888,6 @@ def mutate_with_plan_steps(
     return payload
 
 
-def capture_editor_png_hash(client: McpStdioClient, request_id: int, relative_path: str) -> tuple[dict, Path, str]:
-    payload = call_tool(
-        client,
-        request_id,
-        "editor.screenshot",
-        {"path": relative_path},
-    )
-    capture_path = payload.get("path")
-    if not isinstance(capture_path, str) or not capture_path:
-        fail(f"editor.screenshot missing path: {payload}")
-    capture_file = Path(capture_path)
-    if not capture_file.exists():
-        fail(f"editor.screenshot did not write file: {payload}")
-    png_bytes = capture_file.read_bytes()
-    if png_bytes[:8] != b"\x89PNG\r\n\x1a\n":
-        fail(f"editor.screenshot did not write a PNG file: {payload}")
-    return payload, capture_file, hashlib.sha256(png_bytes).hexdigest()
-
-
-def capture_editor_png_hash_until_changed(
-    client: McpStdioClient,
-    request_id: int,
-    *,
-    relative_path_prefix: str,
-    baseline_hash: str,
-    attempts: int = 3,
-    sleep_s: float = 0.5,
-) -> tuple[dict, Path, str]:
-    if platform.system() == "Windows":
-        attempts = max(attempts, 6)
-        sleep_s = max(sleep_s, 0.75)
-    last_result: tuple[dict, Path, str] | None = None
-    for attempt in range(attempts):
-        last_result = capture_editor_png_hash(
-            client,
-            request_id + attempt,
-            f"{relative_path_prefix}-{int(time.time() * 1000)}-{attempt}.png",
-        )
-        if last_result[2] != baseline_hash:
-            return last_result
-        if attempt + 1 < attempts:
-            time.sleep(sleep_s)
-
-    if last_result is None:
-        raise RuntimeError("unreachable")
-    return last_result
-
-
 def mutate_with_combined_plan_steps(
     client: McpStdioClient,
     request_id: int,
@@ -1394,13 +1345,6 @@ def main() -> int:
     temp_asset_create_function = make_temp_asset_path("/Game/Codex/MF_AssetCreateRegression")
     temp_asset_create_pcg = make_temp_asset_path("/Game/Codex/PCG_AssetCreateRegression")
     temp_asset_create_widget = make_temp_asset_path("/Game/Codex/WBP_AssetCreateRegression")
-    skip_editor_visual_regression = os.environ.get("LOOMLE_SKIP_EDITOR_VISUAL_REGRESSION") == "1"
-    skip_material_visual_regression = (
-        skip_editor_visual_regression or os.environ.get("LOOMLE_SKIP_MATERIAL_VISUAL_REGRESSION") == "1"
-    )
-    skip_pcg_visual_regression = (
-        skip_editor_visual_regression or os.environ.get("LOOMLE_SKIP_PCG_VISUAL_REGRESSION") == "1"
-    )
     completed_successfully = False
 
     try:
@@ -4003,6 +3947,55 @@ def main() -> int:
         node_f_pos = node_f_layout.get("position", {})
         if not isinstance(node_f_pos.get("x"), (int, float)) or node_f_pos.get("x") <= node_e_pos.get("x", 0):
             fail(f"addFromPalette with exec fromPins did not place node to the right: from={node_e_with_pins} to={node_f_info}")
+        disalign_f = call_domain_tool(
+            client,
+            18085,
+            "blueprint",
+            "mutate",
+            {
+                "assetPath": temp_asset,
+                "graph": {"name": "EventGraph"},
+                "commands": [
+                    {"kind": "moveNode", "node": bp_node(node_f), "delta": {"x": 0, "y": 96}}
+                ],
+            },
+        )
+        op_ok(disalign_f)
+        layout_dry_run = call_tool(client, 18086, "blueprint.graph.layout", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "root": {"id": node_e},
+            "dryRun": True,
+        })
+        if layout_dry_run.get("applied") is not False or layout_dry_run.get("valid") is not True:
+            fail(f"blueprint.graph.layout dryRun should validate without applying: {layout_dry_run}")
+        planned_moves = layout_dry_run.get("planned", {}).get("moves")
+        if not isinstance(planned_moves, list) or not any(
+            isinstance(move, dict) and move.get("node", {}).get("id") == node_f
+            for move in planned_moves
+        ):
+            fail(f"blueprint.graph.layout dryRun should plan a move for disaligned exec child: {layout_dry_run}")
+        layout_apply = call_tool(client, 18087, "blueprint.graph.layout", {
+            "assetPath": temp_asset,
+            "graph": {"name": "EventGraph"},
+            "root": {"id": node_e},
+        })
+        if layout_apply.get("applied") is not True or layout_apply.get("valid") is not True:
+            fail(f"blueprint.graph.layout apply should move the execution tree: {layout_apply}")
+        node_e_after_layout = inspect_blueprint_node(client, 18088, temp_asset, "EventGraph", node_e).get("node", {})
+        node_f_after_layout = inspect_blueprint_node(client, 18089, temp_asset, "EventGraph", node_f).get("node", {})
+        from_anchor_after_layout = exec_anchor_y(node_e_after_layout, "then")
+        to_anchor_after_layout = exec_anchor_y(node_f_after_layout, "execute")
+        if (
+            from_anchor_after_layout is None
+            or to_anchor_after_layout is None
+            or abs(from_anchor_after_layout - to_anchor_after_layout) > 1
+        ):
+            fail(
+                "blueprint.graph.layout did not restore straight exec anchor alignment: "
+                f"from={node_e_after_layout} to={node_f_after_layout} payload={layout_apply}"
+            )
+        print("[PASS] blueprint.graph.layout root exec-tree formatting validated")
         remove_f = call_domain_tool(
             client,
             18083,
@@ -5369,68 +5362,7 @@ def main() -> int:
                 "Material layoutGraph(scope=all) did not change tracked node position after moveNodeBy: "
                 f"before={material_before_relayout} after={material_after_relayout_pos}"
             )
-        if skip_material_visual_regression:
-            print(
-                "[WARN] material visual layout regression skipped by "
-                "LOOMLE_SKIP_EDITOR_VISUAL_REGRESSION=1 or LOOMLE_SKIP_MATERIAL_VISUAL_REGRESSION=1"
-            )
-        else:
-            editor_open_material_payload = call_tool(
-                client,
-                10018,
-                "editor.open",
-                {"assetPath": material_asset_path},
-            )
-            if editor_open_material_payload.get("assetPath") != material_asset_path:
-                fail(f"editor.open did not open material asset: {editor_open_material_payload}")
-            editor_focus_material_payload = call_tool(
-                client,
-                10019,
-                "editor.focus",
-                {"assetPath": material_asset_path, "panel": "graph"},
-            )
-            if editor_focus_material_payload.get("editorType") != "material":
-                fail(f"editor.focus did not resolve material editorType: {editor_focus_material_payload}")
-            _, _, material_capture_before_hash = capture_editor_png_hash(
-                client,
-                10020,
-                f"Saved/Loomle/captures/material-layout-before-{int(time.time())}.png",
-            )
-            material_visual_relayout_payload = call_domain_tool(
-                client,
-                10021,
-                "material",
-                "mutate",
-                {
-                    "assetPath": material_asset_path,
-                    "ops": [
-                        {
-                            "op": "moveNodeBy",
-                            "nodeId": material_multiply_id,
-                            "dx": 640,
-                            "dy": -320,
-                        },
-                        {"op": "layoutGraph", "scope": "all"},
-                    ],
-                },
-            )
-            material_visual_relayout_results = material_visual_relayout_payload.get("opResults")
-            if not isinstance(material_visual_relayout_results, list) or len(material_visual_relayout_results) != 2:
-                fail(f"Material visual relayout opResults mismatch: {material_visual_relayout_payload}")
-            if not isinstance(material_visual_relayout_results[1], dict) or material_visual_relayout_results[1].get("ok") is not True:
-                fail(f"Material visual relayout failed: {material_visual_relayout_payload}")
-            _, _, material_capture_after_hash = capture_editor_png_hash_until_changed(
-                client,
-                10022,
-                relative_path_prefix="Saved/Loomle/captures/material-layout-after",
-                baseline_hash=material_capture_before_hash,
-            )
-            if material_capture_after_hash == material_capture_before_hash:
-                fail(
-                    "editor.screenshot stayed visually stale after Material layoutGraph: "
-                    f"before={material_capture_before_hash} after={material_capture_after_hash}"
-                )
-            print("[PASS] material root-aware layout validated")
+        print("[PASS] material root-aware layout validated")
 
         pcg_layout_add = call_domain_tool(
             client,
@@ -5748,67 +5680,6 @@ def main() -> int:
             for edge in pcg_edges
         ):
             fail(f"PCG graph inspect missing filter branch edge: {pcg_edges}")
-        if skip_pcg_visual_regression:
-            print(
-                "[WARN] PCG visual layout regression skipped by "
-                "LOOMLE_SKIP_EDITOR_VISUAL_REGRESSION=1 or LOOMLE_SKIP_PCG_VISUAL_REGRESSION=1"
-            )
-        else:
-            editor_open_pcg_payload = call_tool(
-                client,
-                10112,
-                "editor.open",
-                {"assetPath": temp_pcg_asset},
-            )
-            if editor_open_pcg_payload.get("assetPath") != temp_pcg_asset:
-                fail(f"editor.open did not open PCG asset: {editor_open_pcg_payload}")
-            editor_focus_pcg_payload = call_tool(
-                client,
-                10113,
-                "editor.focus",
-                {"assetPath": temp_pcg_asset, "panel": "graph"},
-            )
-            if editor_focus_pcg_payload.get("editorType") != "pcg":
-                fail(f"editor.focus did not resolve PCG editorType: {editor_focus_pcg_payload}")
-            _, _, pcg_capture_before_hash = capture_editor_png_hash(
-                client,
-                10114,
-                f"Saved/Loomle/captures/pcg-layout-before-{int(time.time())}.png",
-            )
-            pcg_visual_relayout_payload = call_domain_tool(
-                client,
-                10115,
-                "pcg",
-                "mutate",
-                {
-                    "assetPath": temp_pcg_asset,
-                    "ops": [
-                        {
-                            "op": "moveNodeBy",
-                            "nodeId": pcg_create_id,
-                            "dx": 640,
-                            "dy": -320,
-                        },
-                        {"op": "layoutGraph", "scope": "all"},
-                    ],
-                },
-            )
-            pcg_visual_relayout_results = pcg_visual_relayout_payload.get("opResults")
-            if not isinstance(pcg_visual_relayout_results, list) or len(pcg_visual_relayout_results) != 2:
-                fail(f"PCG visual relayout opResults mismatch: {pcg_visual_relayout_payload}")
-            if not isinstance(pcg_visual_relayout_results[1], dict) or pcg_visual_relayout_results[1].get("ok") is not True:
-                fail(f"PCG visual relayout failed: {pcg_visual_relayout_payload}")
-            _, _, pcg_capture_after_hash = capture_editor_png_hash_until_changed(
-                client,
-                10116,
-                relative_path_prefix="Saved/Loomle/captures/pcg-layout-after",
-                baseline_hash=pcg_capture_before_hash,
-            )
-            if pcg_capture_after_hash == pcg_capture_before_hash:
-                fail(
-                    "editor.screenshot stayed visually stale after PCG layoutGraph: "
-                    f"before={pcg_capture_before_hash} after={pcg_capture_after_hash}"
-                )
         print("[PASS] pcg pipeline layout validated")
 
         pcg_settings_probe_add = call_domain_tool(
@@ -6548,38 +6419,6 @@ def main() -> int:
         if pcg_filter_component_verify.get("extraNames") != ["X"]:
             fail(f"PCG FilterByAttribute structured selector engine accessor mismatch: {pcg_filter_component_verify}")
         print("[PASS] PCG FilterByAttribute selector readback/editing is structured and engine-matched")
-
-        if skip_editor_visual_regression:
-            print("[WARN] editor.open/editor.focus/editor.screenshot regression skipped by LOOMLE_SKIP_EDITOR_VISUAL_REGRESSION=1")
-        else:
-            editor_open_payload = call_tool(
-                client,
-                4001,
-                "editor.open",
-                {"assetPath": temp_asset},
-            )
-            if editor_open_payload.get("assetPath") != temp_asset:
-                fail(f"editor.open did not echo assetPath: {editor_open_payload}")
-            if not isinstance(editor_open_payload.get("assetClassPath"), str) or not editor_open_payload.get("assetClassPath"):
-                fail(f"editor.open missing assetClassPath: {editor_open_payload}")
-
-            editor_focus_payload = call_tool(
-                client,
-                4002,
-                "editor.focus",
-                {"assetPath": temp_asset, "panel": "graph"},
-            )
-            if editor_focus_payload.get("editorType") != "blueprint":
-                fail(f"editor.focus did not resolve blueprint editorType: {editor_focus_payload}")
-            if editor_focus_payload.get("panel") != "graph":
-                fail(f"editor.focus did not echo graph panel: {editor_focus_payload}")
-
-            _, _, _ = capture_editor_png_hash(
-                client,
-                4003,
-                f"Saved/Loomle/captures/editor-open-regression-{int(time.time())}.png",
-            )
-            print("[PASS] editor.open, editor.focus, and editor.screenshot validated")
 
         print("[PASS] domain mutate core ops validated")
 

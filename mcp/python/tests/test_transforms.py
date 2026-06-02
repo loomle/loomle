@@ -89,6 +89,36 @@ class TransformTests(unittest.TestCase):
         with self.assertRaises(TransformError):
             apply_args_transform({"transform": "pcg.compile.args.v1"}, {})
 
+    def test_blueprint_graph_layout_transform_uses_root_tree(self) -> None:
+        payload = apply_args_transform(
+            {"transform": "blueprint.graph.layout.args.v1"},
+            {
+                "assetPath": "/Game/BP_Test",
+                "graph": {"name": "EventGraph"},
+                "root": {"id": "branch"},
+                "dryRun": True,
+            },
+        )
+
+        self.assertEqual(payload["assetPath"], "/Game/BP_Test")
+        self.assertEqual(payload["graphName"], "EventGraph")
+        self.assertEqual(
+            payload["ops"],
+            [{"op": "layoutGraph", "scope": "tree", "rootNodeId": "branch"}],
+        )
+        self.assertTrue(payload["dryRun"])
+
+    def test_blueprint_graph_layout_transform_rejects_retired_scope(self) -> None:
+        with self.assertRaises(TransformError):
+            apply_args_transform(
+                {"transform": "blueprint.graph.layout.args.v1"},
+                {
+                    "assetPath": "/Game/BP_Test",
+                    "graph": {"name": "EventGraph"},
+                    "scope": {"mode": "selection", "nodes": [{"id": "a"}]},
+                },
+            )
+
     def test_widget_tree_inspect_transform_shapes_view(self) -> None:
         payload = apply_args_transform(
             {"transform": "widget.tree.inspect.args.v1"},

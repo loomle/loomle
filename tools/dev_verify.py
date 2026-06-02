@@ -271,19 +271,18 @@ def close_editor_gracefully(project_root: Path, uproject: Path, loomle_binary: P
 
 
 def start_editor(editor_binary: Path, uproject: Path, platform: str) -> None:
+    automation_args = [
+        str(uproject),
+        "-nullrhi",
+        "-unattended",
+        "-nosplash",
+        "-nop4",
+        "-NoSound",
+    ]
     if platform == "darwin":
-        subprocess.Popen(["open", "-na", str(editor_binary), "--args", str(uproject)])
+        subprocess.Popen(["open", "-na", str(editor_binary), "--args", *automation_args])
     elif platform == "windows":
-        args = [
-            str(editor_binary),
-            str(uproject),
-            "-nullrhi",
-            "-unattended",
-            "-nosplash",
-            "-nop4",
-            "-NoSound",
-        ]
-        subprocess.Popen(args)
+        subprocess.Popen([str(editor_binary), *automation_args])
 
 
 def sync_source_plugin_into_project(project_root: Path) -> None:

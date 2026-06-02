@@ -165,6 +165,22 @@ class ToolManifestTests(unittest.TestCase):
         self.assertIn("opResults", output_properties)
         self.assertNotIn("commandResults", output_properties)
 
+    def test_blueprint_graph_layout_manifest_is_root_tree_only(self) -> None:
+        manifest = load_manifest(MANIFEST)
+        tool = next(
+            tool for tool in manifest.list_tools("python")
+            if tool["name"] == "blueprint.graph.layout"
+        )
+
+        input_schema = tool["inputSchema"]
+        self.assertEqual(set(input_schema["required"]), {"assetPath", "graph", "root"})
+        properties = input_schema["properties"]
+        self.assertIn("root", properties)
+        self.assertNotIn("scope", properties)
+        self.assertNotIn("returnDiff", properties)
+        self.assertNotIn("returnDiagnostics", properties)
+        self.assertEqual(properties["root"]["required"], ["id"])
+
     def test_blueprint_graph_palette_manifest_is_graph_scoped(self) -> None:
         manifest = load_manifest(MANIFEST)
         tool = next(

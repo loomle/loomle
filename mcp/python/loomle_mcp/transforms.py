@@ -510,23 +510,17 @@ def blueprint_graph_layout_args(arguments: dict[str, Any]) -> dict[str, Any]:
     if asset_path is None:
         raise TransformError("blueprint.graph.layout requires assetPath.")
     graph_name, graph_ref = blueprint_graph_address(arguments, asset_path, "blueprint.graph.layout")
-    scope = arguments.get("scope")
-    if not isinstance(scope, dict):
-        raise TransformError("blueprint.graph.layout requires scope.")
-    mode = scope.get("mode")
-    if mode != "selection":
-        raise TransformError("Python MCP currently supports blueprint.graph.layout scope.mode='selection'.")
-    nodes = scope.get("nodes")
-    if not isinstance(nodes, list) or not nodes:
-        raise TransformError("scope.nodes must contain at least one node.")
-    node_ids = []
-    for index, node in enumerate(nodes):
-        if not isinstance(node, dict) or not isinstance(node.get("id"), str) or not node["id"]:
-            raise TransformError(f"scope.nodes[{index}] requires id.")
-        node_ids.append(node["id"])
+    for retired_field in ("operation", "scope", "direction", "style"):
+        if retired_field in arguments:
+            raise TransformError(
+                f"blueprint.graph.layout no longer accepts {retired_field}; pass root instead."
+            )
+    root = arguments.get("root")
+    if not isinstance(root, dict) or not isinstance(root.get("id"), str) or not root["id"]:
+        raise TransformError("blueprint.graph.layout requires root.id.")
     out: dict[str, Any] = {"assetPath": asset_path}
     write_graph_address(out, graph_name, graph_ref)
-    out["ops"] = [{"op": "layoutGraph", "scope": "selection", "nodeIds": node_ids}]
+    out["ops"] = [{"op": "layoutGraph", "scope": "tree", "rootNodeId": root["id"]}]
     for field in ["expectedRevision", "dryRun"]:
         copy_if_present(arguments, out, field)
     return out

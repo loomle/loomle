@@ -5454,7 +5454,7 @@
     {
       "name": "blueprint.graph.layout",
       "title": "Layout Blueprint Graph",
-      "description": "Format a selected Blueprint graph region without changing graph semantics.",
+      "description": "Format a Blueprint execution tree from a root node without changing graph semantics.",
       "availability": [
         "native",
         "python"
@@ -5493,50 +5493,23 @@
               }
             ]
           },
-          "scope": {
+          "root": {
             "type": "object",
+            "description": "Root node id from blueprint.graph.inspect. Layout follows Blueprint exec output pins downstream from this node.",
             "properties": {
-              "mode": {
+              "id": {
                 "type": "string",
-                "enum": [
-                  "selection"
-                ]
-              },
-              "nodes": {
-                "type": "array",
-                "minItems": 1,
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  },
-                  "required": [
-                    "id"
-                  ],
-                  "additionalProperties": false
-                }
+                "minLength": 1
               }
             },
             "required": [
-              "mode",
-              "nodes"
+              "id"
             ],
             "additionalProperties": false
           },
           "dryRun": {
             "type": "boolean",
             "default": false
-          },
-          "returnDiff": {
-            "type": "boolean",
-            "default": false
-          },
-          "returnDiagnostics": {
-            "type": "boolean",
-            "default": true
           },
           "expectedRevision": {
             "type": "string"
@@ -5545,7 +5518,7 @@
         "required": [
           "assetPath",
           "graph",
-          "scope"
+          "root"
         ],
         "additionalProperties": false
       },

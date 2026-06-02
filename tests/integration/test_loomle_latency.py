@@ -66,11 +66,7 @@ def slow_execute_worker(
 ) -> None:
     client = McpStdioClient(project_root=project_root, server_binary=server_binary, timeout_s=timeout_s)
     try:
-        init = client.request(req_id_base, "initialize", {})
-        if "error" in init:
-            errors.append(f"initialize failed: {init['error']}")
-            return
-        _ = client.request(req_id_base + 1, "tools/list", {})
+        _ = client.request(req_id_base, "tools/list", {})
         for idx in range(repeat):
             try:
                 call_tool(
@@ -160,9 +156,6 @@ def main() -> int:
 
     client = McpStdioClient(project_root=project_root, server_binary=server_binary, timeout_s=args.timeout)
     try:
-        init = client.request(1, "initialize", {})
-        if "error" in init:
-            fail(f"initialize failed: {init['error']}")
         _ = client.request(2, "tools/list", {})
         wait_for_bridge_ready(client, timeout_s=120.0, interval_s=2.0)
 

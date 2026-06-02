@@ -118,9 +118,9 @@ surface instead:
 | --- | --- |
 | `rebindMatchingPins` | Retired; connect pins explicitly. |
 | `moveInputLinks` | Retired; disconnect and reconnect explicit pins. |
-| `layoutGraph` | `blueprint.graph.layout` with `operation="format"`. |
+| `layoutGraph` | `blueprint.graph.layout` with a root execution-tree request. |
 | `compile` | `blueprint.compile`. |
-| `moveNodes` | Retired; use `blueprint.graph.layout` selection formatting, or explicit `moveNode` commands. |
+| `moveNodes` | Retired; use explicit `moveNode` commands for hand placement, or `blueprint.graph.layout` to format a root execution tree. |
 | `addGraph` / `addFunctionGraph` / `addMacroGraph` | Future graph management surface. |
 | `renameGraph` | Future graph management surface. |
 | `deleteGraph` | Future graph management surface. |

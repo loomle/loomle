@@ -860,8 +860,8 @@ separate public abstractions.
 - `edit` is for deterministic, local, low-ambiguity graph changes.
 - `refactor` is for structural transformation of existing graph structure.
 - `generate` is for creating new local graph structure from controlled recipes.
-- `layout` is for visual formatting of an explicit graph region without
-  changing Blueprint behavior.
+- `layout` is for visual formatting of an execution tree without changing
+  Blueprint behavior.
 
 This split is the core agent-facing editing model for Blueprint graphs.
 
@@ -872,31 +872,31 @@ This split is the core agent-facing editing model for Blueprint graphs.
 It should be used when:
 
 - the graph already contains the nodes to organize
-- the caller wants the region to become easier to read
+- the caller wants the execution tree from one root to become easier to read
 - the operation should not change execution or data semantics
 - the caller wants a dry-run movement plan before applying layout
+
+It should not be used for one-off placement of a single node or a small
+hand-picked set of unrelated nodes. Use `blueprint.graph.edit` with explicit
+`moveNode` commands for manual positioning.
 
 ### Required Properties
 
 - visual-only by default
 - deterministic
 - dry-run capable
-- region-scoped
+- root-scoped
 - diff-friendly
 
 ### First-Version Operation
 
-Recommended public operation set:
+The first version has one operation: format the execution tree reachable from
+one root node.
 
-- `format`
-
-The first version supports two explicit scope modes:
-
-- `selection`
-- `tree`
-
-There is no shortcut syntax. Formatting one node still uses
-`scope.mode="selection"` with one node in `scope.nodes`.
+There is no selection mode and no shortcut syntax. Selection-style movement is
+intentionally left to explicit `moveNode` commands because a partial selection
+has ambiguous behavior around unselected upstream, downstream, and intermediate
+nodes.
 
 ### Top-Level Request Shape
 
@@ -906,46 +906,87 @@ Recommended shape:
 {
   "assetPath": "/Game/Example/BP_Test",
   "graph": { "name": "EventGraph" },
-  "operation": "format",
-  "scope": {
-    "mode": "tree",
-    "root": { "id": "branch1" }
-  },
-  "direction": "right",
-  "style": "simple",
+  "root": { "id": "branch1" },
   "spacing": { "x": 360, "y": 180 },
   "origin": { "x": 400, "y": 200 },
   "dryRun": true
 }
 ```
 
-### Scope Rules
+Recommended request fields:
 
-`selection`:
+- `assetPath`
+- `graph`
+- `root`
+- `spacing`
+- `origin`
+- `dryRun`
+- `expectedRevision`
 
-- requires `scope.nodes`
-- moves only the listed nodes
-- does not expand the selection automatically
+Rules:
 
-`tree`:
-
-- requires `scope.root`
-- includes the root
-- follows execution output pins downstream
-- stays within the addressed graph
-- skips already visited nodes
-- does not follow data-flow-only links in the first version
+- `assetPath`, `graph`, and `root` are required.
+- `root` is a stable node id returned by `blueprint.graph.inspect`.
+- If `origin` is omitted, the root keeps its current graph-space position.
+- `dryRun` and `expectedRevision` follow the unified mutation contract.
 
 ### Formatting Rules
 
-- first version supports `direction: right | down`
-- first version supports `style: simple`
-- first version accepts optional `spacing`
-- if `origin` is omitted, `tree` keeps the root anchored at its current position
-- if `origin` is omitted, `selection` uses the selection bounding box top-left
-- first version must not insert, remove, or clean up reroute nodes
-- first version must not create or fit comment boxes
-- first version must not change links
+Layout starts from `root`, follows execution output pins downstream, stays
+within the addressed graph, and skips already visited nodes. It does not include
+unrelated graph nodes.
+
+The formatter uses one algorithm for the whole tree:
+
+- The execution skeleton is laid out first.
+- Exec links are aligned by pin anchor, not by node top-left position.
+- For a normal exec link, the target node position is chosen so the source
+  output exec pin anchor and target input exec pin anchor share the same
+  graph-space y coordinate.
+- Linear chains keep a straight horizontal execution wire and consistent column
+  spacing.
+- Nodes with multiple execution outputs, such as Branch, Sequence, Switch, and
+  Gate-style nodes, create one lane per execution output pin. Each lane starts
+  from that output pin's anchor and uses consistent vertical spacing.
+- Branch lanes reserve enough vertical space for their child subtrees so lanes
+  do not overlap.
+- The formatter may read data-flow links connected to nodes in the execution
+  tree to identify support nodes, but data-flow-only traversal must not expand
+  the execution tree itself.
+- Support/data nodes with a clear single consumer in the execution tree are
+  placed compactly below the consuming node or lane, ordered by data dependency
+  and input pin order where available.
+- Shared support/data nodes, unresolved data ownership, reroute-heavy wiring,
+  and unsupported pin layout sources produce diagnostics instead of blocking the
+  layout.
+- The formatter must not insert, remove, reconnect, or clean up reroute nodes.
+- The formatter must not create or resize comment boxes.
+- The formatter must not change links, pin defaults, node-local state, or graph
+  semantics.
+
+`spacing.x` controls the primary execution-column distance. `spacing.y`
+controls the minimum lane and support-node distance. Later versions may add
+more detailed spacing controls only if the simple pair is not expressive enough
+for real Blueprint graphs.
+
+### Layout Source Rules
+
+`blueprint.node.inspect` and graph inspection can expose node layout and exec
+pin anchor data. The formatter should prefer the most reliable available source
+but should not fail only because layout geometry is estimated.
+
+Rules:
+
+- `source: "slate"` or another editor-measured source is preferred when the
+  Blueprint editor is open and the graph widget can provide geometry.
+- `source: "estimate"` is usable and should produce a deterministic layout.
+- Unsupported or partial pin layout falls back to conservative default offsets
+  when possible.
+- Estimated, partial, or unsupported geometry returns diagnostics such as
+  `PIN_LAYOUT_ESTIMATED`, `PARTIAL_PIN_LAYOUT`,
+  `PIN_LAYOUT_UNSUPPORTED`, or `EDITOR_LAYOUT_RECOMMENDED`.
+- Diagnostics should tell the agent that opening the Blueprint editor window
+  and retrying may provide more accurate pin anchors.
 
 ### Result Shape
 
@@ -953,36 +994,55 @@ Dry run and execution should share the same shape:
 
 ```json
 {
-  "changed": true,
+  "isError": false,
+  "valid": true,
+  "applied": false,
   "dryRun": true,
-  "operation": "format",
-  "scope": {
-    "mode": "tree",
-    "resolvedNodeCount": 5
+  "operation": "blueprint.graph.layout",
+  "assetPath": "/Game/Example/BP_Test",
+  "graphRef": { "name": "EventGraph" },
+  "root": { "id": "branch1" },
+  "previousRevision": "rev-42",
+  "newRevision": "rev-42",
+  "planned": {
+    "style": "exec_tree",
+    "resolvedNodeCount": 5,
+    "supportNodeCount": 2,
+    "moves": [
+      {
+        "node": { "id": "nodeA" },
+        "role": "exec",
+        "from": { "x": 100, "y": 200 },
+        "to": { "x": 400, "y": 200 },
+        "constraints": ["exec_anchor_y"]
+      }
+    ]
   },
-  "nodesMoved": [
-    {
-      "node": { "id": "nodeA" },
-      "from": { "x": 100, "y": 200 },
-      "to": { "x": 400, "y": 200 }
-    }
-  ],
-  "warnings": []
+  "diff": {
+    "scope": "blueprint.graph.layout",
+    "changes": []
+  },
+  "diagnostics": []
 }
 ```
+
+For `dryRun=true`, `applied` must be false and revisions must remain unchanged.
+For a real apply, the result should report the same plan shape plus the applied
+revision. Diff entries describe node position changes only.
 
 ### Explicitly Excluded From Layout MVP
 
 - `organizeGraph`
 - implicit single-node shortcut syntax
 - whole-graph formatting
-- automatic region discovery beyond `tree`
+- selection formatting
+- automatic region discovery beyond the root execution tree
 - reroute insertion
 - reroute cleanup
 - wire routing
 - comment creation
 - comment fitting
-- data-flow-only traversal
+- data-flow-only tree traversal
 
 ## blueprint.graph.inspect
 
