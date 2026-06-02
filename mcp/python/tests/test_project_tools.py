@@ -213,6 +213,7 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
                             "blueprint.graph.edit",
                             {
                                 "assetPath": "/Game/Test/BP_Test",
+                                "graph": {"name": "EventGraph"},
                                 "commands": [
                                     {
                                         "kind": "addFromPalette",
