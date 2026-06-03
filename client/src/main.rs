@@ -1186,6 +1186,13 @@ impl LoomleProxyServer {
                     self.runtime_call("widget.tree.edit", mutate_args).await?,
                 ))
             }
+            "widget.edit" => {
+                let mutate_args = match translate_widget_edit_args(&args) {
+                    Ok(value) => value,
+                    Err(error) => return Ok(Some(error)),
+                };
+                Ok(Some(self.runtime_call("widget.edit", mutate_args).await?))
+            }
             "widget.tree.inspect" => {
                 let inspect_args = translate_widget_tree_inspect_args(&args);
                 let result = self
@@ -3096,22 +3103,6 @@ fn compile_widget_tree_command(
             op_args.insert("name".into(), serde_json::json!(old_name));
             op_args.insert("newName".into(), serde_json::json!(new_name));
         }
-        "setProperty" => {
-            let name = widget_target_name_from_command(command)
-                .ok_or_else(|| "setProperty requires name or target.name.".to_owned())?;
-            let property = command
-                .get("property")
-                .and_then(|value| value.as_str())
-                .ok_or_else(|| "setProperty requires property.".to_owned())?;
-            let value = command
-                .get("value")
-                .and_then(|value| value.as_str())
-                .ok_or_else(|| "setProperty requires string value.".to_owned())?;
-            op.insert("op".into(), serde_json::json!("setProperty"));
-            op_args.insert("name".into(), serde_json::json!(name));
-            op_args.insert("property".into(), serde_json::json!(property));
-            op_args.insert("value".into(), serde_json::json!(value));
-        }
         "reparentWidget" => {
             let name = widget_target_name_from_command(command)
                 .ok_or_else(|| "reparentWidget requires name or target.name.".to_owned())?;
@@ -3166,6 +3157,77 @@ fn translate_widget_tree_edit_args(
             ));
         };
         match compile_widget_tree_command(command_obj) {
+            Ok(op) => ops.push(op),
+            Err(message) => return Err(invalid_argument_result(message)),
+        }
+    }
+
+    let mut translated = rmcp::model::JsonObject::new();
+    translated.insert("assetPath".into(), serde_json::json!(asset_path));
+    translated.insert("ops".into(), serde_json::Value::Array(ops));
+    copy_dry_run_revision_controls(args, &mut translated);
+    Ok(translated)
+}
+
+fn compile_widget_edit_command(
+    command: &serde_json::Map<String, serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    let kind = command
+        .get("kind")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| "widget.edit command requires kind.".to_owned())?;
+    if kind != "setProperty" && kind != "setSlotProperty" {
+        return Err(format!("Unsupported widget.edit command kind: {kind}."));
+    }
+    let name = command
+        .get("widget")
+        .and_then(|value| value.as_object())
+        .and_then(|widget| widget.get("name"))
+        .and_then(|value| value.as_str())
+        .or_else(|| command.get("name").and_then(|value| value.as_str()))
+        .ok_or_else(|| format!("{kind} requires widget.name."))?;
+    let property = command
+        .get("property")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| format!("{kind} requires property."))?;
+    let value = command
+        .get("value")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| format!("{kind} requires string value."))?;
+
+    Ok(serde_json::json!({
+        "op": kind,
+        "args": {
+            "name": name,
+            "property": property,
+            "value": value
+        }
+    }))
+}
+
+fn translate_widget_edit_args(
+    args: &rmcp::model::JsonObject,
+) -> Result<rmcp::model::JsonObject, CallToolResult> {
+    let asset_path = args
+        .get("assetPath")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| invalid_argument_result("widget.edit requires assetPath."))?;
+    let commands = args
+        .get("commands")
+        .and_then(|value| value.as_array())
+        .ok_or_else(|| invalid_argument_result("widget.edit requires commands."))?;
+    if commands.is_empty() {
+        return Err(invalid_argument_result("widget.edit commands must be non-empty."));
+    }
+
+    let mut ops = Vec::new();
+    for command in commands {
+        let Some(command_obj) = command.as_object() else {
+            return Err(invalid_argument_result(
+                "widget.edit commands entries must be objects.",
+            ));
+        };
+        match compile_widget_edit_command(command_obj) {
             Ok(op) => ops.push(op),
             Err(message) => return Err(invalid_argument_result(message)),
         }
@@ -6312,6 +6374,7 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("widget.palette", "Search UE Widget Palette entries for UMG widget creation.", Arc::new(widget_palette_schema())),
         Tool::new("widget.tree.inspect", "Read the UMG WidgetTree of a WidgetBlueprint asset.", Arc::new(widget_tree_inspect_schema())),
         Tool::new("widget.tree.edit", "Apply explicit local edit commands to a WidgetBlueprint WidgetTree. Use widget.palette for widget creation.", Arc::new(widget_tree_edit_schema())),
+        Tool::new("widget.edit", "Apply explicit local property edit commands to WidgetTree widget instances.", Arc::new(widget_edit_schema())),
         Tool::new("widget.event.create", "Create or return the native component-bound event node for one WidgetBlueprint widget event.", Arc::new(widget_event_create_schema())),
         Tool::new("widget.inspect", "Inspect one UMG widget class or WidgetTree instance for editable properties.", Arc::new(widget_inspect_schema())),
         Tool::new("widget.compile", "Compile a WidgetBlueprint and return diagnostics.", Arc::new(asset_path_only_schema("WidgetBlueprint asset path."))),
@@ -7839,6 +7902,49 @@ fn widget_tree_edit_schema() -> rmcp::model::JsonObject {
         serde_json::json!({
             "type": "string"
         }),
+    );
+    schema_from_value(serde_json::json!({
+        "type": "object",
+        "properties": properties,
+        "required": ["assetPath", "commands"],
+        "additionalProperties": false
+    }))
+}
+
+fn widget_edit_schema() -> rmcp::model::JsonObject {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "assetPath".into(),
+        serde_json::json!({
+            "type": "string",
+            "minLength": 1,
+            "description": "WidgetBlueprint asset path."
+        }),
+    );
+    properties.insert(
+        "commands".into(),
+        serde_json::json!({
+            "type": "array",
+            "description": "Ordered widget instance edit commands. Each command requires kind. Use schema.inspect with domain='widget' and tool='widget.edit' to list supported command kinds. Use widget.inspect to discover writable property names and serialized value expectations.",
+            "items": {
+                "type": "object",
+                "description": "Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema.inspect.",
+                "properties": {
+                    "kind": { "type": "string", "minLength": 1 }
+                },
+                "required": ["kind"],
+                "additionalProperties": true
+            },
+            "minItems": 1
+        }),
+    );
+    properties.insert(
+        "dryRun".into(),
+        serde_json::json!({"type": "boolean", "default": false}),
+    );
+    properties.insert(
+        "expectedRevision".into(),
+        serde_json::json!({"type": "string"}),
     );
     schema_from_value(serde_json::json!({
         "type": "object",
@@ -9782,10 +9888,10 @@ mod tests {
         translate_material_node_edit_args, translate_material_palette_args,
         translate_pcg_compile_args, translate_pcg_graph_inspect_args,
         translate_pcg_graph_layout_args, translate_pcg_node_inspect_args,
-        translate_pcg_parameter_edit_args, translate_widget_inspect_args,
+        translate_pcg_parameter_edit_args, translate_widget_edit_args, translate_widget_inspect_args,
         translate_widget_tree_edit_args, validate_blueprint_graph_inspect_args,
         validate_blueprint_graph_inspect_targets, validate_pcg_graph_inspect_args,
-        widget_inspect_schema, widget_palette_schema, widget_tree_edit_schema,
+        widget_edit_schema, widget_inspect_schema, widget_palette_schema, widget_tree_edit_schema,
         widget_tree_inspect_schema, write_public_blueprint_graph_address, Cli, FileLockMetadata,
         RuntimeProject, UpdateOptions,
     };
@@ -12141,6 +12247,7 @@ mod tests {
             "widget.palette",
             "widget.tree.inspect",
             "widget.tree.edit",
+            "widget.edit",
             "widget.event.create",
             "widget.inspect",
             "widget.compile",
@@ -12396,6 +12503,24 @@ mod tests {
         assert!(!properties.contains_key("returnDiff"));
         assert!(!properties.contains_key("returnDiagnostics"));
         assert!(!properties.contains_key("idempotencyKey"));
+    }
+
+    #[test]
+    fn widget_edit_schema_points_to_schema_inspect() {
+        let schema = widget_edit_schema();
+        let properties = schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("properties");
+        let commands_description = properties
+            .get("commands")
+            .and_then(|value| value.get("description"))
+            .and_then(|value| value.as_str())
+            .expect("commands description");
+        assert!(commands_description.contains("schema.inspect"));
+        assert!(commands_description.contains("widget.inspect"));
+        assert!(properties.contains_key("dryRun"));
+        assert!(properties.contains_key("expectedRevision"));
     }
 
     #[test]
@@ -12696,6 +12821,43 @@ mod tests {
             op_args.get("newName").and_then(|value| value.as_str()),
             Some("CardButton")
         );
+    }
+
+    #[test]
+    fn widget_edit_translates_property_commands() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/UI/WBP_Menu"));
+        args.insert(
+            "commands".into(),
+            serde_json::json!([
+                {
+                    "kind": "setProperty",
+                    "widget": {"name": "TitleText"},
+                    "property": "Text",
+                    "value": "Hello"
+                },
+                {
+                    "kind": "setSlotProperty",
+                    "widget": {"name": "TitleText"},
+                    "property": "ZOrder",
+                    "value": "2"
+                }
+            ]),
+        );
+        args.insert("dryRun".into(), serde_json::json!(true));
+
+        let translated = translate_widget_edit_args(&args).expect("translated args");
+        assert_eq!(
+            translated.get("assetPath").and_then(|value| value.as_str()),
+            Some("/Game/UI/WBP_Menu")
+        );
+        assert_eq!(translated.get("dryRun").and_then(|value| value.as_bool()), Some(true));
+        let ops = translated
+            .get("ops")
+            .and_then(|value| value.as_array())
+            .expect("ops");
+        assert_eq!(ops[0].get("op").and_then(|value| value.as_str()), Some("setProperty"));
+        assert_eq!(ops[1].get("op").and_then(|value| value.as_str()), Some("setSlotProperty"));
     }
 
     #[test]
@@ -13483,11 +13645,33 @@ mod tests {
             "addFromPalette",
             "removeWidget",
             "renameWidget",
-            "setProperty",
             "reparentWidget",
         ] {
             assert!(names.contains(expected), "missing operation {expected}");
         }
+        assert!(!names.contains("setProperty"));
+    }
+
+    #[test]
+    fn schema_inspect_lists_widget_edit_operations() {
+        let mut args = JsonObject::new();
+        args.insert("domain".into(), serde_json::json!("widget"));
+        args.insert("tool".into(), serde_json::json!("widget.edit"));
+
+        let result = call_schema_inspect(&args);
+        assert_eq!(result.is_error, Some(false));
+        let payload = result.structured_content.expect("structured content");
+        let operations = payload
+            .get("operations")
+            .and_then(|value| value.as_array())
+            .expect("operations");
+        let names = operations
+            .iter()
+            .filter_map(|entry| entry.get("name").and_then(|value| value.as_str()))
+            .collect::<std::collections::HashSet<_>>();
+
+        assert!(names.contains("setProperty"));
+        assert!(names.contains("setSlotProperty"));
     }
 
     #[test]

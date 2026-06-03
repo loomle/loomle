@@ -90,6 +90,8 @@ def apply_args_transform(transform: Any, arguments: dict[str, Any]) -> dict[str,
         return transformed
     if name == "widget.tree.edit.args.v1":
         return widget_tree_edit_args(arguments)
+    if name == "widget.edit.args.v1":
+        return widget_edit_args(arguments)
     if name == "asset.create.args.v1":
         return asset_create_args(arguments)
     if name == "asset.inspect.args.v1":
@@ -1463,21 +1465,6 @@ def compile_widget_tree_command(command: dict[str, Any]) -> dict[str, Any]:
             raise TransformError("removeWidget requires name or target.name.")
         return {"op": "removeWidget", "args": {"name": name}}
 
-    if kind == "setProperty":
-        name = widget_target_name(command)
-        if name is None:
-            raise TransformError("setProperty requires name or target.name.")
-        property_name = string_field(command, "property")
-        if property_name is None:
-            raise TransformError("setProperty requires property.")
-        value = command.get("value")
-        if not isinstance(value, str):
-            raise TransformError("setProperty requires string value.")
-        return {
-            "op": "setProperty",
-            "args": {"name": name, "property": property_name, "value": value},
-        }
-
     if kind == "reparentWidget":
         name = widget_target_name(command)
         if name is None:
@@ -1495,6 +1482,51 @@ def compile_widget_tree_command(command: dict[str, Any]) -> dict[str, Any]:
         return {"op": "reparentWidget", "args": args}
 
     raise TransformError(f"Unsupported widget.tree.edit command kind: {kind}.")
+
+
+def widget_edit_args(arguments: dict[str, Any]) -> dict[str, Any]:
+    asset_path = string_field(arguments, "assetPath")
+    if asset_path is None:
+        raise TransformError("widget.edit requires assetPath.")
+    commands = arguments.get("commands")
+    if not isinstance(commands, list):
+        raise TransformError("widget.edit requires commands.")
+    if not commands:
+        raise TransformError("widget.edit commands must be non-empty.")
+
+    ops = []
+    for command in commands:
+        if not isinstance(command, dict):
+            raise TransformError("widget.edit commands entries must be objects.")
+        ops.append(compile_widget_edit_command(command))
+
+    transformed: dict[str, Any] = {"assetPath": asset_path, "ops": ops}
+    for field in ["expectedRevision", "dryRun"]:
+        copy_if_present(arguments, transformed, field)
+    return transformed
+
+
+def compile_widget_edit_command(command: dict[str, Any]) -> dict[str, Any]:
+    kind = string_field(command, "kind")
+    if kind not in {"setProperty", "setSlotProperty"}:
+        raise TransformError(f"Unsupported widget.edit command kind: {kind}.")
+    widget = command.get("widget")
+    if isinstance(widget, dict) and isinstance(widget.get("name"), str):
+        name = widget["name"]
+    else:
+        name = string_field(command, "name")
+    if name is None:
+        raise TransformError(f"{kind} requires widget.name.")
+    property_name = string_field(command, "property")
+    if property_name is None:
+        raise TransformError(f"{kind} requires property.")
+    value = command.get("value")
+    if not isinstance(value, str):
+        raise TransformError(f"{kind} requires string value.")
+    return {
+        "op": kind,
+        "args": {"name": name, "property": property_name, "value": value},
+    }
 
 
 def node_ref_token(node: dict[str, Any]) -> dict[str, Any]:

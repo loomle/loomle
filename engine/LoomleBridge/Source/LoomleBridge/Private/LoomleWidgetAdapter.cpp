@@ -32,6 +32,8 @@
 namespace
 {
 
+bool IsDescribableProperty(FProperty* Prop);
+
 FString JsonObjectToString(const TSharedPtr<FJsonObject>& Obj)
 {
     FString Out;
@@ -141,6 +143,30 @@ FString ComputeWidgetEventRevision(UWidgetBlueprint* WBP)
 
     Tokens.Sort();
     return FMD5::HashAnsiString(*FString::Join(Tokens, TEXT("\n")));
+}
+
+void AppendWidgetPropertyRevisionTokens(UWidget* Widget, TArray<FString>& Tokens)
+{
+    if (!Widget)
+    {
+        return;
+    }
+    for (TFieldIterator<FProperty> PropIt(Widget->GetClass()); PropIt; ++PropIt)
+    {
+        FProperty* Prop = *PropIt;
+        if (!IsDescribableProperty(Prop))
+        {
+            continue;
+        }
+        FString ValueStr;
+        const void* PropPtr = Prop->ContainerPtrToValuePtr<void>(Widget);
+        Prop->ExportTextItem_Direct(ValueStr, PropPtr, nullptr, nullptr, PPF_None);
+        Tokens.Add(FString::Printf(
+            TEXT("%s|property|%s|%s"),
+            *Widget->GetName(),
+            *Prop->GetName(),
+            *ValueStr));
+    }
 }
 
 } // namespace
@@ -277,7 +303,14 @@ FString FLoomleWidgetAdapter::ComputeRevision(UWidgetBlueprint* WBP)
     // Build a canonical string from the tree and hash it.
     TSharedPtr<FJsonObject> TreeObj = SerializeWidget(WBP, WBP->WidgetTree->RootWidget, /*bIncludeSlotProperties=*/true);
     FString TreeStr = TreeObj.IsValid() ? JsonObjectToString(TreeObj) : TEXT("null");
-    return FMD5::HashAnsiString(*TreeStr);
+    TArray<FString> Tokens;
+    Tokens.Add(TreeStr);
+    WBP->WidgetTree->ForEachWidget([&Tokens](UWidget* Widget)
+    {
+        AppendWidgetPropertyRevisionTokens(Widget, Tokens);
+    });
+    Tokens.Sort();
+    return FMD5::HashAnsiString(*FString::Join(Tokens, TEXT("\n")));
 }
 
 void FLoomleWidgetAdapter::MarkModified(UWidgetBlueprint* WBP)
@@ -734,6 +767,7 @@ bool FLoomleWidgetAdapter::SetWidgetProperty(
     const FString& TargetName,
     const FString& PropertyName,
     const FString& ValueJson,
+    bool bSlotProperty,
     FString& OutError)
 {
     UWidget* Target = FindWidgetByName(WBP, TargetName);
@@ -743,21 +777,40 @@ bool FLoomleWidgetAdapter::SetWidgetProperty(
         return false;
     }
 
-    // Try widget-own property first, then fall back to slot property.
-    FProperty* Prop = FindFProperty<FProperty>(Target->GetClass(), *PropertyName);
-    UObject* PropOwner = Target;
-
-    if (!Prop && Target->Slot)
+    UObject* PropOwner = nullptr;
+    FProperty* Prop = nullptr;
+    if (bSlotProperty)
     {
+        if (!Target->Slot)
+        {
+            OutError = FString::Printf(TEXT("SLOT_NOT_FOUND: Widget '%s' has no slot."), *TargetName);
+            return false;
+        }
         Prop = FindFProperty<FProperty>(Target->Slot->GetClass(), *PropertyName);
         PropOwner = Target->Slot;
+    }
+    else
+    {
+        Prop = FindFProperty<FProperty>(Target->GetClass(), *PropertyName);
+        PropOwner = Target;
     }
 
     if (!Prop)
     {
-        OutError = FString::Printf(
-            TEXT("INVALID_ARGUMENT: Property '%s' not found on widget class '%s' or its slot."),
-            *PropertyName, *Target->GetClass()->GetName());
+        if (bSlotProperty)
+        {
+            OutError = FString::Printf(
+                TEXT("PROPERTY_NOT_FOUND: Slot property '%s' not found on widget '%s'."),
+                *PropertyName,
+                *TargetName);
+        }
+        else
+        {
+            OutError = FString::Printf(
+                TEXT("PROPERTY_NOT_FOUND: Property '%s' not found on widget class '%s'."),
+                *PropertyName,
+                *Target->GetClass()->GetName());
+        }
         return false;
     }
 
@@ -766,7 +819,7 @@ bool FLoomleWidgetAdapter::SetWidgetProperty(
     if (!ImportResult)
     {
         OutError = FString::Printf(
-            TEXT("INVALID_ARGUMENT: Could not import value '%s' for property '%s'."),
+            TEXT("PROPERTY_SET_FAILED: Could not import value '%s' for property '%s'."),
             *ValueJson, *PropertyName);
         return false;
     }

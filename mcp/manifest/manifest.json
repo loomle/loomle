@@ -11348,73 +11348,6 @@
             ]
           },
           {
-            "name": "setProperty",
-            "category": "core",
-            "summary": "Set one editable property on a widget instance.",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "kind": {
-                  "const": "setProperty"
-                },
-                "target": {
-                  "$ref": "#/$defs/widgetRef"
-                },
-                "name": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "property": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "value": {
-                  "type": "string",
-                  "description": "UE serialized property value text."
-                }
-              },
-              "required": [
-                "kind",
-                "property",
-                "value"
-              ],
-              "additionalProperties": false,
-              "$defs": {
-                "widgetRef": {
-                  "type": "object",
-                  "properties": {
-                    "name": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  },
-                  "required": [
-                    "name"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            },
-            "examples": [
-              {
-                "kind": "setProperty",
-                "target": {
-                  "name": "TitleText"
-                },
-                "property": "Text",
-                "value": "Hello"
-              }
-            ],
-            "errors": [
-              "WIDGET_NOT_FOUND",
-              "PROPERTY_NOT_FOUND",
-              "PROPERTY_SET_FAILED"
-            ],
-            "notes": [
-              "Use widget.inspect to discover editable property names and serialized value expectations."
-            ]
-          },
-          {
             "name": "reparentWidget",
             "category": "core",
             "summary": "Move one widget under a different parent widget.",
@@ -11495,6 +11428,376 @@
         "tool": "widget.tree.edit",
         "args": {
           "transform": "widget.tree.edit.args.v1"
+        },
+        "result": "structured"
+      }
+    },
+    {
+      "name": "widget.edit",
+      "title": "Edit Widget",
+      "description": "Apply explicit local property edit commands to WidgetTree widget instances. Use widget.inspect to discover writable property names and serialized value expectations.",
+      "availability": [
+        "native",
+        "python"
+      ],
+      "requiresBridge": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "assetPath": {
+            "type": "string",
+            "minLength": 1,
+            "description": "WidgetBlueprint asset path."
+          },
+          "commands": {
+            "type": "array",
+            "description": "Ordered widget instance edit commands. Each command requires kind. Use schema.inspect with domain='widget' and tool='widget.edit' to list supported command kinds.",
+            "items": {
+              "type": "object",
+              "description": "Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema.inspect.",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": true
+            },
+            "minItems": 1
+          },
+          "dryRun": {
+            "type": "boolean",
+            "default": false
+          },
+          "expectedRevision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "assetPath",
+          "commands"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "oneOf": [
+          {
+            "type": "object",
+            "title": "Widget Edit Result",
+            "properties": {
+              "isError": {
+                "type": "boolean",
+                "const": false
+              },
+              "valid": {
+                "type": "boolean",
+                "const": true
+              },
+              "applied": {
+                "type": "boolean"
+              },
+              "dryRun": {
+                "type": "boolean"
+              },
+              "tool": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              },
+              "assetPath": {
+                "type": "string"
+              },
+              "previousRevision": {
+                "type": "string"
+              },
+              "newRevision": {
+                "type": "string"
+              },
+              "resolvedRefs": {
+                "type": "object"
+              },
+              "planned": {
+                "type": "object"
+              },
+              "diff": {
+                "type": "object"
+              },
+              "diagnostics": {
+                "type": "array"
+              },
+              "opResults": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "index": {
+                      "type": "number"
+                    },
+                    "op": {
+                      "type": "string"
+                    },
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "skipped": {
+                      "type": "boolean"
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    },
+                    "errorCode": {
+                      "type": "string"
+                    },
+                    "errorMessage": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "index",
+                    "op",
+                    "ok",
+                    "changed"
+                  ],
+                  "additionalProperties": true
+                }
+              }
+            },
+            "required": [
+              "isError",
+              "valid",
+              "applied",
+              "dryRun",
+              "assetPath",
+              "previousRevision",
+              "newRevision",
+              "planned",
+              "diff",
+              "diagnostics",
+              "opResults"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "title": "Widget Edit Error",
+            "properties": {
+              "isError": {
+                "type": "boolean",
+                "const": true
+              },
+              "valid": {
+                "type": "boolean",
+                "const": false
+              },
+              "applied": {
+                "type": "boolean",
+                "const": false
+              },
+              "dryRun": {
+                "type": "boolean"
+              },
+              "tool": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "assetPath": {
+                "type": "string"
+              },
+              "previousRevision": {
+                "type": "string"
+              },
+              "newRevision": {
+                "type": "string"
+              },
+              "resolvedRefs": {
+                "type": "object"
+              },
+              "planned": {
+                "type": "object"
+              },
+              "diff": {
+                "type": "object"
+              },
+              "diagnostics": {
+                "type": "array"
+              },
+              "opResults": {
+                "type": "array"
+              }
+            },
+            "required": [
+              "isError",
+              "code",
+              "message"
+            ],
+            "additionalProperties": true
+          }
+        ]
+      },
+      "schemaInspect": {
+        "domain": "widget",
+        "tool": "widget.edit",
+        "source": {
+          "document": "UE UMG Widget and PanelSlot reflected properties",
+          "section": "Widget instance edit command set"
+        },
+        "operations": [
+          {
+            "name": "setProperty",
+            "category": "core",
+            "summary": "Set one reflected property on a widget instance.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "setProperty"
+                },
+                "widget": {
+                  "$ref": "#/$defs/widgetRef"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "property": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "value": {
+                  "type": "string",
+                  "description": "UE serialized property value text."
+                }
+              },
+              "required": [
+                "kind",
+                "widget",
+                "property",
+                "value"
+              ],
+              "additionalProperties": false,
+              "$defs": {
+                "widgetRef": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "examples": [
+              {
+                "kind": "setProperty",
+                "widget": {
+                  "name": "TitleText"
+                },
+                "property": "Text",
+                "value": "Hello"
+              }
+            ],
+            "errors": [
+              "WIDGET_NOT_FOUND",
+              "PROPERTY_NOT_FOUND",
+              "PROPERTY_SET_FAILED"
+            ],
+            "notes": [
+              "Use widget.inspect to discover editable widget property names and serialized value expectations."
+            ]
+          },
+          {
+            "name": "setSlotProperty",
+            "category": "core",
+            "summary": "Set one reflected property on a widget's current UPanelSlot.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "setSlotProperty"
+                },
+                "widget": {
+                  "$ref": "#/$defs/widgetRef"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "property": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "value": {
+                  "type": "string",
+                  "description": "UE serialized property value text."
+                }
+              },
+              "required": [
+                "kind",
+                "widget",
+                "property",
+                "value"
+              ],
+              "additionalProperties": false,
+              "$defs": {
+                "widgetRef": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "examples": [
+              {
+                "kind": "setSlotProperty",
+                "widget": {
+                  "name": "TitleText"
+                },
+                "property": "ZOrder",
+                "value": "2"
+              }
+            ],
+            "errors": [
+              "WIDGET_NOT_FOUND",
+              "SLOT_NOT_FOUND",
+              "PROPERTY_NOT_FOUND",
+              "PROPERTY_SET_FAILED"
+            ],
+            "notes": [
+              "Slot properties depend on the current parent panel. Use widget.tree.inspect view='layout' or instance-mode widget.inspect to discover the slot class and values."
+            ]
+          }
+        ]
+      },
+      "dispatch": {
+        "kind": "bridgeRpc",
+        "tool": "widget.edit",
+        "args": {
+          "transform": "widget.edit.args.v1"
         },
         "result": "structured"
       }

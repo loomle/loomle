@@ -47,6 +47,7 @@ public:
         const FString& TargetName,
         const FString& PropertyName,
         const FString& ValueJson,
+        bool bSlotProperty,
         FString& OutError);
 
     static bool ReparentWidget(

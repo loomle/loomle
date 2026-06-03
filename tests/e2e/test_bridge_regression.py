@@ -794,13 +794,6 @@ def widget_command_from_legacy_op(op: dict) -> dict:
             "target": {"name": args.get("name", args.get("oldName", ""))},
             "name": args.get("newName", args.get("to", "")),
         }
-    if op_name == "setProperty":
-        return {
-            "kind": "setProperty",
-            "target": {"name": args.get("name", "")},
-            "property": args.get("property", ""),
-            "value": args.get("value", ""),
-        }
     if op_name == "reparentWidget":
         command = {
             "kind": "reparentWidget",
@@ -828,6 +821,32 @@ def widget_tree_edit(
         if field in arguments:
             payload[field] = arguments[field]
     return call_tool(client, request_id, "widget.tree.edit", payload, expect_error=expect_error)
+
+
+def widget_edit(
+    client: McpStdioClient,
+    request_id: int,
+    arguments: dict,
+    *,
+    expect_error: bool = False,
+) -> dict:
+    payload = {
+        "assetPath": arguments.get("assetPath"),
+        "commands": [],
+    }
+    for op in arguments.get("ops", []):
+        op_name = op.get("op")
+        args = op.get("args", {})
+        payload["commands"].append({
+            "kind": op_name,
+            "widget": {"name": args.get("name", "")},
+            "property": args.get("property", ""),
+            "value": args.get("value", ""),
+        })
+    for field in ["dryRun", "expectedRevision"]:
+        if field in arguments:
+            payload[field] = arguments[field]
+    return call_tool(client, request_id, "widget.edit", payload, expect_error=expect_error)
 
 
 def widget_tree_inspect(
@@ -6598,8 +6617,8 @@ def main() -> int:
             fail(f"W07 TitleText not found in rootWidget.children: {wq2}")
         print("[PASS] W07 widget.tree.inspect layout view shows TextBlock child")
 
-        # W08 — setProperty on TextBlock (Text / a known FText property)
-        wm_set_prop = widget_tree_edit(client, 5070, {
+        # W08 — widget.edit setProperty on TextBlock (Text / a known FText property)
+        wm_set_prop = widget_edit(client, 5070, {
             "assetPath": temp_wbp_asset,
             "ops": [{"op": "setProperty", "args": {
                 "name": "TitleText",
@@ -6608,7 +6627,9 @@ def main() -> int:
             }}],
         })
         widget_op_ok(wm_set_prop, 0)
-        print("[PASS] W08 widget.tree.edit setProperty validated")
+        if wm_set_prop.get("newRevision") == wm_set_prop.get("previousRevision"):
+            fail(f"W08 widget.edit setProperty should update revision: {wm_set_prop}")
+        print("[PASS] W08 widget.edit setProperty validated")
 
         # W09 — addWidget second panel for reparent source (uses parentName field)
         wm_add_panel2 = widget_tree_edit(client, 5080, {
@@ -6866,33 +6887,33 @@ def main() -> int:
             fail(f"W22 expected WIDGET_CLASS_NOT_FOUND, got: {err_code}")
         print("[PASS] W22 widget.inspect unknown class returns WIDGET_CLASS_NOT_FOUND")
 
-        # W23 — setProperty can write a CanvasPanelSlot ZOrder (slot property fallback)
+        # W23 — widget.edit setSlotProperty can write a CanvasPanelSlot ZOrder
         # SecondPanel is a VerticalBox child of RootCanvas — its slot is FCanvasPanelSlot.
-        wm_slot_zorder = widget_tree_edit(client, 5200, {
+        wm_slot_zorder = widget_edit(client, 5200, {
             "assetPath": temp_wbp_asset,
-            "ops": [{"op": "setProperty", "args": {
+            "ops": [{"op": "setSlotProperty", "args": {
                 "name": "SecondPanel",
                 "property": "ZOrder",
                 "value": "5",
             }}],
         })
         widget_op_ok(wm_slot_zorder, 0)
-        print("[PASS] W23 widget.tree.edit setProperty writes CanvasPanelSlot ZOrder via slot fallback")
+        print("[PASS] W23 widget.edit setSlotProperty writes CanvasPanelSlot ZOrder")
 
-        # W24 — setProperty can write CanvasPanelSlot LayoutData (struct slot property)
-        wm_slot_layout = widget_tree_edit(client, 5210, {
+        # W24 — widget.edit setSlotProperty can write CanvasPanelSlot LayoutData (struct slot property)
+        wm_slot_layout = widget_edit(client, 5210, {
             "assetPath": temp_wbp_asset,
-            "ops": [{"op": "setProperty", "args": {
+            "ops": [{"op": "setSlotProperty", "args": {
                 "name": "SecondPanel",
                 "property": "LayoutData",
                 "value": "(Offsets=(Left=10,Top=20,Right=0,Bottom=0),Anchors=(Minimum=(X=0.0,Y=0.0),Maximum=(X=0.5,Y=0.5)),Alignment=(X=0,Y=0))",
             }}],
         })
         widget_op_ok(wm_slot_layout, 0)
-        print("[PASS] W24 widget.tree.edit setProperty writes CanvasPanelSlot LayoutData via slot fallback")
+        print("[PASS] W24 widget.edit setSlotProperty writes CanvasPanelSlot LayoutData")
 
-        # W25 — setProperty with a property that exists on neither widget nor slot returns INVALID_ARGUMENT
-        wm_bad_prop = widget_tree_edit(client, 5220, {
+        # W25 — widget.edit setProperty with an unknown widget property returns PROPERTY_NOT_FOUND
+        wm_bad_prop = widget_edit(client, 5220, {
             "assetPath": temp_wbp_asset,
             "ops": [{"op": "setProperty", "args": {
                 "name": "SecondPanel",
@@ -6900,11 +6921,12 @@ def main() -> int:
                 "value": "anything",
             }}],
         }, expect_error=True)
-        # The op itself should fail (ok=False) even if the tool call succeeds
         op25 = (wm_bad_prop.get("opResults") or [{}])[0]
         if op25.get("ok"):
             fail(f"W25 expected setProperty to fail for unknown property, but got ok: {op25}")
-        print("[PASS] W25 widget.tree.edit setProperty unknown property returns op-level error")
+        if wm_bad_prop.get("message") != "PROPERTY_NOT_FOUND" and wm_bad_prop.get("code") != "PROPERTY_NOT_FOUND":
+            fail(f"W25 expected PROPERTY_NOT_FOUND, got: {wm_bad_prop}")
+        print("[PASS] W25 widget.edit setProperty unknown property returns op-level error")
 
         print("[PASS] widget.* regression complete")
 

@@ -330,17 +330,23 @@ class TransformTests(unittest.TestCase):
         self.assertEqual(payload["ops"][0]["args"]["widgetClass"], "/Script/UMG.TextBlock")
         self.assertEqual(payload["ops"][0]["args"]["parentName"], "RootCanvas")
 
-    def test_widget_tree_edit_set_property_transform(self) -> None:
+    def test_widget_edit_set_property_transform(self) -> None:
         payload = apply_args_transform(
-            {"transform": "widget.tree.edit.args.v1"},
+            {"transform": "widget.edit.args.v1"},
             {
                 "assetPath": "/Game/UI/WBP_Menu",
                 "commands": [
                     {
                         "kind": "setProperty",
-                        "target": {"name": "TitleText"},
+                        "widget": {"name": "TitleText"},
                         "property": "Text",
                         "value": "Hello",
+                    },
+                    {
+                        "kind": "setSlotProperty",
+                        "widget": {"name": "TitleText"},
+                        "property": "ZOrder",
+                        "value": "2",
                     }
                 ],
                 "dryRun": True,
@@ -361,6 +367,13 @@ class TransformTests(unittest.TestCase):
             {
                 "op": "setProperty",
                 "args": {"name": "TitleText", "property": "Text", "value": "Hello"},
+            },
+        )
+        self.assertEqual(
+            payload["ops"][1],
+            {
+                "op": "setSlotProperty",
+                "args": {"name": "TitleText", "property": "ZOrder", "value": "2"},
             },
         )
 

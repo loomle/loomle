@@ -65,6 +65,7 @@ REQUIRED_TOOLS = {
     "widget.palette",
     "widget.tree.inspect",
     "widget.tree.edit",
+    "widget.edit",
     "widget.inspect",
     "widget.compile",
 }

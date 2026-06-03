@@ -36,6 +36,7 @@ class ToolManifestTests(unittest.TestCase):
         self.assertIn("widget.palette", names)
         self.assertIn("widget.tree.inspect", names)
         self.assertIn("widget.tree.edit", names)
+        self.assertIn("widget.edit", names)
         self.assertIn("widget.event.create", names)
         self.assertIn("widget.compile", names)
         self.assertNotIn("loomle", names)
@@ -144,6 +145,7 @@ class ToolManifestTests(unittest.TestCase):
                 "pcg.graph.edit",
                 "pcg.parameter.edit",
                 "widget.tree.edit",
+                "widget.edit",
             },
         )
         self.assertTrue(manifest_tools <= available)
@@ -427,8 +429,20 @@ class ToolManifestTests(unittest.TestCase):
         names = {operation["name"] for operation in payload["operations"]}
         self.assertEqual(
             names,
-            {"addFromPalette", "removeWidget", "renameWidget", "setProperty", "reparentWidget"},
+            {"addFromPalette", "removeWidget", "renameWidget", "reparentWidget"},
         )
+
+    def test_schema_inspect_lists_widget_edit_operations(self) -> None:
+        manifest = load_manifest(MANIFEST)
+        payload = manifest.inspect_schema(
+            domain="widget",
+            tool_name="widget.edit",
+            operation=None,
+            include=None,
+        )
+
+        names = {operation["name"] for operation in payload["operations"]}
+        self.assertEqual(names, {"setProperty", "setSlotProperty"})
 
     def test_widget_tree_edit_output_schema_declares_mutation_envelope(self) -> None:
         manifest = load_manifest(MANIFEST)

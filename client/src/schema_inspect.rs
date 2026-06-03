@@ -1,6 +1,7 @@
 use rmcp::model::{CallToolResult, JsonObject};
 
 const TOOL_MANIFEST_JSON: &str = include_str!("../../mcp/manifest/manifest.json");
+const WIDGET_EDIT_SCHEMA_TOOL: &str = "widget.edit";
 
 pub fn schema_inspect_schema() -> JsonObject {
     serde_json::from_value(serde_json::json!({
@@ -1384,7 +1385,6 @@ fn widget_tree_edit_operation_names() -> Vec<&'static str> {
     vec![
         "addFromPalette",
         "removeWidget",
-        "setProperty",
         "reparentWidget",
     ]
 }
@@ -1393,7 +1393,6 @@ fn widget_tree_edit_operation_index() -> Vec<serde_json::Value> {
     vec![
         serde_json::json!({"name":"addFromPalette","category":"core","summary":"Create one UMG widget from a selected widget.palette entry."}),
         serde_json::json!({"name":"removeWidget","category":"core","summary":"Remove one widget from the WidgetTree."}),
-        serde_json::json!({"name":"setProperty","category":"core","summary":"Set one editable property on a widget instance."}),
         serde_json::json!({"name":"reparentWidget","category":"core","summary":"Move one widget under a different parent widget."}),
     ]
 }
@@ -1449,14 +1448,6 @@ fn widget_tree_edit_operation_schema(
             vec![serde_json::json!({"kind":"removeWidget","target":{"name":"TitleText"}})],
             vec!["WIDGET_NOT_FOUND"],
             vec!["Removing a panel also removes its child widgets."],
-        ),
-        "setProperty" => (
-            "core",
-            "Set one editable property on a widget instance.",
-            serde_json::json!({"type":"object","properties":{"kind":{"const":"setProperty"},"target":{"$ref":"#/$defs/widgetRef"},"name":{"type":"string","minLength":1},"property":{"type":"string","minLength":1},"value":{"type":"string","description":"UE serialized property value text."}},"required":["kind","property","value"],"additionalProperties":false}),
-            vec![serde_json::json!({"kind":"setProperty","target":{"name":"TitleText"},"property":"Text","value":"Hello"})],
-            vec!["WIDGET_NOT_FOUND", "PROPERTY_NOT_FOUND", "PROPERTY_SET_FAILED"],
-            vec!["Use widget.inspect to discover editable property names and serialized value expectations."],
         ),
         "reparentWidget" => (
             "core",
