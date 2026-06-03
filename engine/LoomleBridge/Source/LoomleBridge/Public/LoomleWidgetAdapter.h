@@ -89,6 +89,7 @@ public:
 private:
     // Walk UWidget* recursively into a JsonObject tree.
     static TSharedPtr<FJsonObject> SerializeWidget(
+        UWidgetBlueprint* WBP,
         UWidget* Widget,
         bool bIncludeSlotProperties);
 

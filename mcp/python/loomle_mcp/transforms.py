@@ -71,7 +71,7 @@ def apply_args_transform(transform: Any, arguments: dict[str, Any]) -> dict[str,
         transformed: dict[str, Any] = {}
         copy_if_present(arguments, transformed, "assetPath")
         view = arguments.get("view")
-        transformed["includeSlotProperties"] = view in ("layout", "details")
+        transformed["includeSlotProperties"] = view == "layout"
         return transformed
     if name == "widget.inspect.args.v1":
         transformed = {}
@@ -1420,14 +1420,7 @@ def widget_tree_edit_args(arguments: dict[str, Any]) -> dict[str, Any]:
         ops.append(compile_widget_tree_command(command))
 
     transformed: dict[str, Any] = {"assetPath": asset_path, "ops": ops}
-    for field in [
-        "expectedRevision",
-        "idempotencyKey",
-        "dryRun",
-        "returnDiff",
-        "returnDiagnostics",
-        "continueOnError",
-    ]:
+    for field in ["expectedRevision", "dryRun"]:
         copy_if_present(arguments, transformed, field)
     return transformed
 
@@ -1560,8 +1553,6 @@ def shape_widget_tree_inspect_payload(
         matches: list[Any] = []
         collect_widget_tree_matches(shaped.get("rootWidget"), names, text, matches)
         shaped["matches"] = matches
-        if view == "details":
-            shaped.pop("rootWidget", None)
     return shaped
 
 
@@ -1570,6 +1561,7 @@ def prune_widget_tree_outline(node: Any) -> Any:
         return node
     pruned = dict(node)
     pruned.pop("slot", None)
+    pruned.pop("slotClass", None)
     children = pruned.get("children")
     if isinstance(children, list):
         pruned["children"] = [prune_widget_tree_outline(child) for child in children]

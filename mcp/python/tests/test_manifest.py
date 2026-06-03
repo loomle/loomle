@@ -43,6 +43,32 @@ class ToolManifestTests(unittest.TestCase):
         self.assertNotIn("setup.configure", names)
         self.assertNotIn("project.install", names)
 
+    def test_widget_tree_inspect_manifest_declares_outline_layout_output(self) -> None:
+        manifest = load_manifest(MANIFEST)
+        tool = next(
+            tool
+            for tool in manifest.list_tools("python")
+            if tool["name"] == "widget.tree.inspect"
+        )
+        view_enum = tool["inputSchema"]["properties"]["view"]["enum"]
+        self.assertEqual(view_enum, ["outline", "layout"])
+
+        output_schema = tool["outputSchema"]
+        self.assertIn("widgetTreeNode", output_schema["$defs"])
+        node_schema = output_schema["$defs"]["widgetTreeNode"]
+        for field in [
+            "name",
+            "widgetClass",
+            "parentName",
+            "index",
+            "isVariable",
+            "variableGuid",
+            "children",
+        ]:
+            self.assertIn(field, node_schema["required"])
+        self.assertIn("slotClass", node_schema["properties"])
+        self.assertIn("slot", node_schema["properties"])
+
     def test_python_manifest_covers_rust_runtime_tools(self) -> None:
         manifest = load_manifest(MANIFEST)
         python_names = {tool["name"] for tool in manifest.list_tools("python")}
@@ -381,6 +407,26 @@ class ToolManifestTests(unittest.TestCase):
             names,
             {"addFromPalette", "removeWidget", "renameWidget", "setProperty", "reparentWidget"},
         )
+
+    def test_widget_tree_edit_output_schema_declares_mutation_envelope(self) -> None:
+        manifest = load_manifest(MANIFEST)
+        tool = next(
+            tool for tool in manifest.list_tools("python")
+            if tool["name"] == "widget.tree.edit"
+        )
+
+        self.assertIn("outputSchema", tool)
+        output_properties = tool["outputSchema"]["oneOf"][0]["properties"]
+        self.assertIn("applied", output_properties)
+        self.assertIn("valid", output_properties)
+        self.assertIn("dryRun", output_properties)
+        self.assertIn("resolvedRefs", output_properties)
+        self.assertIn("planned", output_properties)
+        self.assertIn("diagnostics", output_properties)
+        self.assertIn("diff", output_properties)
+        self.assertIn("opResults", output_properties)
+        self.assertIn("previousRevision", output_properties)
+        self.assertIn("newRevision", output_properties)
 
     def test_schema_inspect_returns_widget_tree_edit_operation(self) -> None:
         manifest = load_manifest(MANIFEST)

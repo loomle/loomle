@@ -824,7 +824,7 @@ def widget_tree_edit(
         "assetPath": arguments.get("assetPath"),
         "commands": [widget_command_from_legacy_op(op) for op in arguments.get("ops", [])],
     }
-    for field in ["dryRun", "continueOnError", "expectedRevision"]:
+    for field in ["dryRun", "expectedRevision"]:
         if field in arguments:
             payload[field] = arguments[field]
     return call_tool(client, request_id, "widget.tree.edit", payload, expect_error=expect_error)
@@ -838,8 +838,6 @@ def widget_tree_inspect(
     expect_error: bool = False,
 ) -> dict:
     payload = {"assetPath": arguments.get("assetPath")}
-    if arguments.get("includeSlotProperties"):
-        payload["view"] = "layout"
     for field in ["view", "filter"]:
         if field in arguments:
             payload[field] = arguments[field]
@@ -6533,7 +6531,7 @@ def main() -> int:
         widget_op_ok(wm_rename, 0)
         wq_renamed = widget_tree_inspect(client, 5056, {
             "assetPath": temp_wbp_asset,
-            "includeSlotProperties": True,
+            "view": "layout",
         })
         renamed_children = wq_renamed.get("rootWidget", {}).get("children", [])
         if not isinstance(renamed_children, list) or not any(
@@ -6588,10 +6586,10 @@ def main() -> int:
             fail(f"W06c widget.event.create repeated call should return same nodeId: {we_existing}")
         print("[PASS] W06c widget.event.create native Button OnClicked event validated")
 
-        # W07 — query with includeSlotProperties confirms child is present
+        # W07 — layout view confirms child is present
         wq2 = widget_tree_inspect(client, 5060, {
             "assetPath": temp_wbp_asset,
-            "includeSlotProperties": True,
+            "view": "layout",
         })
         root_children = wq2.get("rootWidget", {}).get("children", [])
         if not isinstance(root_children, list) or not any(
@@ -6667,36 +6665,37 @@ def main() -> int:
             fail(f"W12 expected REVISION_CONFLICT code, got: {stale_code}")
         print("[PASS] W12 widget.tree.edit stale expectedRevision raises REVISION_CONFLICT")
 
-        # W13 — op-level failure with continueOnError
+        # W13 — batch preflight failure stops before later commands are applied
         wm_unknown = widget_tree_edit(client, 5120, {
             "assetPath": temp_wbp_asset,
-            "continueOnError": True,
             "ops": [
-                {"op": "removeWidget", "args": {"name": "MissingBeforeContinue"}},
+                {"op": "removeWidget", "args": {"name": "MissingBeforeStop"}},
                 {"op": "addWidget", "args": {
                     "widgetClass": "/Script/UMG.TextBlock",
-                    "name": "AfterUnknown",
+                    "name": "AfterStoppedFailure",
                     "parent": "RootCanvas",
                 }},
             ],
-        })
-        if not isinstance(wm_unknown.get("opResults"), list) or len(wm_unknown["opResults"]) < 2:
-            fail(f"W13 continueOnError should return 2 opResults: {wm_unknown}")
+        }, expect_error=True)
+        if not wm_unknown.get("isError"):
+            fail(f"W13 missing widget should return an error: {wm_unknown}")
+        if not isinstance(wm_unknown.get("opResults"), list) or len(wm_unknown["opResults"]) != 1:
+            fail(f"W13 preflight failure should return only the failing opResult: {wm_unknown}")
         op0 = wm_unknown["opResults"][0] if isinstance(wm_unknown["opResults"][0], dict) else {}
-        op1 = wm_unknown["opResults"][1] if isinstance(wm_unknown["opResults"][1], dict) else {}
         if op0.get("ok") is not False:
             fail(f"W13 removeWidget[0] should be ok=False: {op0}")
-        if op1.get("ok") is not True:
-            fail(f"W13 addWidget[1] should succeed after continueOnError: {op1}")
-        if wm_unknown.get("partialApplied") is not True:
-            fail(f"W13 partialApplied should be True: {wm_unknown}")
-        print("[PASS] W13 widget.tree.edit continueOnError partial execution validated")
+        wq_after_stop = widget_tree_inspect(client, 5121, {"assetPath": temp_wbp_asset})
+        root_after_stop = wq_after_stop.get("rootWidget", {})
+        stopped_children = root_after_stop.get("children", []) if isinstance(root_after_stop, dict) else []
+        if any(isinstance(c, dict) and c.get("name") == "AfterStoppedFailure" for c in stopped_children):
+            fail(f"W13 later command should not be applied after preflight failure: {wq_after_stop}")
+        print("[PASS] W13 widget.tree.edit preflight failure stops batch before mutation")
 
         # W14 — removeWidget for non-existent widget (op-level error)
         wm_notfound = widget_tree_edit(client, 5130, {
             "assetPath": temp_wbp_asset,
             "ops": [{"op": "removeWidget", "args": {"name": "DoesNotExist"}}],
-        })
+        }, expect_error=True)
         op_nf = wm_notfound.get("opResults", [{}])[0] if wm_notfound.get("opResults") else {}
         if not isinstance(op_nf, dict) or op_nf.get("ok") is not False:
             fail(f"W14 removeWidget non-existent should be ok=False: {op_nf}")
@@ -6866,7 +6865,7 @@ def main() -> int:
                 "property": "NonExistentProperty_XYZ",
                 "value": "anything",
             }}],
-        }, expect_error=False)
+        }, expect_error=True)
         # The op itself should fail (ok=False) even if the tool call succeeds
         op25 = (wm_bad_prop.get("opResults") or [{}])[0]
         if op25.get("ok"):

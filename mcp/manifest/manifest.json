@@ -10697,11 +10697,10 @@
             "type": "string",
             "enum": [
               "outline",
-              "layout",
-              "details"
+              "layout"
             ],
             "default": "outline",
-            "description": "outline returns the widget tree without slot/layout details; layout includes slot/layout details; details returns matching widgets from filter."
+            "description": "outline returns hierarchy and widget identity; layout also includes slot/layout details."
           },
           "filter": {
             "type": "object",
@@ -10712,7 +10711,7 @@
                   "type": "string",
                   "minLength": 1
                 },
-                "description": "Exact widget names to return in matches/details."
+                "description": "Exact widget names to return in matches."
               },
               "text": {
                 "type": "string",
@@ -10727,6 +10726,160 @@
           "assetPath"
         ],
         "additionalProperties": false
+      },
+      "outputSchema": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "isError": {
+                "type": "boolean",
+                "const": false
+              },
+              "assetPath": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "string"
+              },
+              "view": {
+                "type": "string",
+                "enum": [
+                  "outline",
+                  "layout"
+                ]
+              },
+              "rootWidget": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/widgetTreeNode"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "matches": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/widgetTreeNode"
+                }
+              },
+              "diagnostics": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            },
+            "required": [
+              "isError",
+              "assetPath",
+              "revision",
+              "view",
+              "rootWidget",
+              "diagnostics"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "isError": {
+                "type": "boolean",
+                "const": true
+              },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "isError",
+              "code",
+              "message",
+              "detail"
+            ],
+            "additionalProperties": false
+          }
+        ],
+        "$defs": {
+          "widgetTreeNode": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "widgetClass": {
+                "type": "string"
+              },
+              "parentName": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "index": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "isVariable": {
+                "type": "boolean"
+              },
+              "variableGuid": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "slotClass": {
+                "type": "string"
+              },
+              "slot": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "children": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/widgetTreeNode"
+                }
+              }
+            },
+            "required": [
+              "name",
+              "widgetClass",
+              "parentName",
+              "index",
+              "isVariable",
+              "variableGuid",
+              "children"
+            ],
+            "additionalProperties": false
+          }
+        }
       },
       "dispatch": {
         "kind": "bridgeRpc",
@@ -10779,24 +10932,8 @@
             "type": "boolean",
             "default": false
           },
-          "returnDiff": {
-            "type": "boolean",
-            "default": false
-          },
-          "returnDiagnostics": {
-            "type": "boolean",
-            "default": true
-          },
           "expectedRevision": {
             "type": "string"
-          },
-          "idempotencyKey": {
-            "type": "string"
-          },
-          "continueOnError": {
-            "type": "boolean",
-            "default": false,
-            "description": "Continue applying later commands after an operation-level failure."
           }
         },
         "required": [
@@ -10804,6 +10941,170 @@
           "commands"
         ],
         "additionalProperties": false
+      },
+      "outputSchema": {
+        "oneOf": [
+          {
+            "type": "object",
+            "title": "Widget Tree Edit Result",
+            "properties": {
+              "isError": {
+                "type": "boolean",
+                "const": false
+              },
+              "valid": {
+                "type": "boolean",
+                "const": true
+              },
+              "applied": {
+                "type": "boolean"
+              },
+              "dryRun": {
+                "type": "boolean"
+              },
+              "tool": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              },
+              "assetPath": {
+                "type": "string"
+              },
+              "previousRevision": {
+                "type": "string"
+              },
+              "newRevision": {
+                "type": "string"
+              },
+              "resolvedRefs": {
+                "type": "object"
+              },
+              "planned": {
+                "type": "object"
+              },
+              "diff": {
+                "type": "object"
+              },
+              "diagnostics": {
+                "type": "array"
+              },
+              "opResults": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "index": {
+                      "type": "number"
+                    },
+                    "op": {
+                      "type": "string"
+                    },
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "skipped": {
+                      "type": "boolean"
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    },
+                    "errorCode": {
+                      "type": "string"
+                    },
+                    "errorMessage": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "index",
+                    "op",
+                    "ok",
+                    "changed"
+                  ],
+                  "additionalProperties": true
+                }
+              }
+            },
+            "required": [
+              "isError",
+              "valid",
+              "applied",
+              "dryRun",
+              "assetPath",
+              "previousRevision",
+              "newRevision",
+              "planned",
+              "diff",
+              "diagnostics",
+              "opResults"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "title": "Widget Tree Edit Error",
+            "properties": {
+              "isError": {
+                "type": "boolean",
+                "const": true
+              },
+              "valid": {
+                "type": "boolean",
+                "const": false
+              },
+              "applied": {
+                "type": "boolean",
+                "const": false
+              },
+              "dryRun": {
+                "type": "boolean"
+              },
+              "tool": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "assetPath": {
+                "type": "string"
+              },
+              "previousRevision": {
+                "type": "string"
+              },
+              "newRevision": {
+                "type": "string"
+              },
+              "resolvedRefs": {
+                "type": "object"
+              },
+              "planned": {
+                "type": "object"
+              },
+              "diff": {
+                "type": "object"
+              },
+              "diagnostics": {
+                "type": "array"
+              },
+              "opResults": {
+                "type": "array"
+              }
+            },
+            "required": [
+              "isError",
+              "code",
+              "message"
+            ],
+            "additionalProperties": true
+          }
+        ]
       },
       "schemaInspect": {
         "domain": "widget",

@@ -128,6 +128,12 @@ class TransformTests(unittest.TestCase):
         self.assertEqual(payload["assetPath"], "/Game/UI/WBP_Menu")
         self.assertTrue(payload["includeSlotProperties"])
 
+        outline_payload = apply_args_transform(
+            {"transform": "widget.tree.inspect.args.v1"},
+            {"assetPath": "/Game/UI/WBP_Menu", "view": "details"},
+        )
+        self.assertFalse(outline_payload["includeSlotProperties"])
+
     def test_pcg_compile_result_matches_public_shape(self) -> None:
         payload = apply_result_transform(
             {"transform": "pcg.compile.result.v1"},
@@ -286,8 +292,9 @@ class TransformTests(unittest.TestCase):
             {
                 "rootWidget": {
                     "name": "Root",
+                    "slotClass": "/Script/UMG.CanvasPanelSlot",
                     "slot": {"padding": 4},
-                    "children": [{"name": "Title", "slot": {"padding": 2}}],
+                    "children": [{"name": "Title", "slotClass": "/Script/UMG.CanvasPanelSlot", "slot": {"padding": 2}}],
                 }
             },
             {"view": "outline"},
@@ -295,7 +302,9 @@ class TransformTests(unittest.TestCase):
 
         self.assertEqual(payload["view"], "outline")
         self.assertNotIn("slot", payload["rootWidget"])
+        self.assertNotIn("slotClass", payload["rootWidget"])
         self.assertNotIn("slot", payload["rootWidget"]["children"][0])
+        self.assertNotIn("slotClass", payload["rootWidget"]["children"][0])
 
     def test_widget_tree_edit_add_from_palette_transform(self) -> None:
         payload = apply_args_transform(
@@ -335,10 +344,18 @@ class TransformTests(unittest.TestCase):
                     }
                 ],
                 "dryRun": True,
+                "continueOnError": True,
+                "returnDiff": True,
+                "returnDiagnostics": True,
+                "idempotencyKey": "widget-edit-1",
             },
         )
 
         self.assertTrue(payload["dryRun"])
+        self.assertNotIn("continueOnError", payload)
+        self.assertNotIn("returnDiff", payload)
+        self.assertNotIn("returnDiagnostics", payload)
+        self.assertNotIn("idempotencyKey", payload)
         self.assertEqual(
             payload["ops"][0],
             {

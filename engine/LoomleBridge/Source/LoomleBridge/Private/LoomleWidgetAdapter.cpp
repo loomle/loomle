@@ -70,6 +70,26 @@ UWidgetBlueprint* LoadWidgetBlueprintAsset(const FString& AssetPath, FString& Ou
     return WBP;
 }
 
+void EnsureExistingWidgetVariableGuids(UWidgetBlueprint* WBP)
+{
+#if WITH_EDITORONLY_DATA
+    if (!WBP || !WBP->WidgetVariableNameToGuidMap.IsEmpty())
+    {
+        return;
+    }
+    WBP->Modify();
+    WBP->ForEachSourceWidget([WBP](UWidget* Widget)
+    {
+        if (Widget && !WBP->WidgetVariableNameToGuidMap.Contains(Widget->GetFName()))
+        {
+            WBP->WidgetVariableNameToGuidMap.Emplace(
+                Widget->GetFName(),
+                FGuid::NewDeterministicGuid(Widget->GetPathName()));
+        }
+    });
+#endif
+}
+
 FString NodeGuidString(const UEdGraphNode* Node)
 {
     return Node ? Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower) : FString();
@@ -129,7 +149,10 @@ FString ComputeWidgetEventRevision(UWidgetBlueprint* WBP)
 // Private helpers (static member implementations)
 // ---------------------------------------------------------------------------
 
-TSharedPtr<FJsonObject> FLoomleWidgetAdapter::SerializeWidget(UWidget* Widget, bool bIncludeSlotProperties)
+TSharedPtr<FJsonObject> FLoomleWidgetAdapter::SerializeWidget(
+    UWidgetBlueprint* WBP,
+    UWidget* Widget,
+    bool bIncludeSlotProperties)
 {
     if (!Widget)
     {
@@ -139,12 +162,44 @@ TSharedPtr<FJsonObject> FLoomleWidgetAdapter::SerializeWidget(UWidget* Widget, b
     TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
     Obj->SetStringField(TEXT("name"), Widget->GetName());
     Obj->SetStringField(TEXT("widgetClass"), Widget->GetClass()->GetPathName());
+    Obj->SetBoolField(TEXT("isVariable"), Widget->bIsVariable != 0);
+
+    UPanelWidget* ParentWidget = Widget->Slot ? Widget->Slot->Parent.Get() : nullptr;
+    if (ParentWidget)
+    {
+        Obj->SetStringField(TEXT("parentName"), ParentWidget->GetName());
+        Obj->SetNumberField(TEXT("index"), ParentWidget->GetChildIndex(Widget));
+    }
+    else
+    {
+        Obj->SetField(TEXT("parentName"), MakeShared<FJsonValueNull>());
+        Obj->SetField(TEXT("index"), MakeShared<FJsonValueNull>());
+    }
+
+#if WITH_EDITORONLY_DATA
+    if (WBP)
+    {
+        if (const FGuid* VariableGuid = WBP->WidgetVariableNameToGuidMap.Find(Widget->GetFName()))
+        {
+            Obj->SetStringField(TEXT("variableGuid"), VariableGuid->ToString(EGuidFormats::DigitsWithHyphensLower));
+        }
+        else
+        {
+            Obj->SetField(TEXT("variableGuid"), MakeShared<FJsonValueNull>());
+        }
+    }
+    else
+#endif
+    {
+        Obj->SetField(TEXT("variableGuid"), MakeShared<FJsonValueNull>());
+    }
 
     // Slot properties (from the parent's perspective)
     if (bIncludeSlotProperties && Widget->Slot)
     {
         TSharedPtr<FJsonObject> SlotObj = MakeShared<FJsonObject>();
         UPanelSlot* PanelSlot = Widget->Slot;
+        Obj->SetStringField(TEXT("slotClass"), PanelSlot->GetClass()->GetPathName());
         for (TFieldIterator<FProperty> PropIt(PanelSlot->GetClass()); PropIt; ++PropIt)
         {
             FProperty* Prop = *PropIt;
@@ -166,7 +221,7 @@ TSharedPtr<FJsonObject> FLoomleWidgetAdapter::SerializeWidget(UWidget* Widget, b
     {
         for (int32 i = 0; i < Panel->GetChildrenCount(); ++i)
         {
-            TSharedPtr<FJsonObject> ChildObj = SerializeWidget(Panel->GetChildAt(i), bIncludeSlotProperties);
+            TSharedPtr<FJsonObject> ChildObj = SerializeWidget(WBP, Panel->GetChildAt(i), bIncludeSlotProperties);
             if (ChildObj.IsValid())
             {
                 ChildArray.Add(MakeShared<FJsonValueObject>(ChildObj));
@@ -220,7 +275,7 @@ FString FLoomleWidgetAdapter::ComputeRevision(UWidgetBlueprint* WBP)
         return TEXT("");
     }
     // Build a canonical string from the tree and hash it.
-    TSharedPtr<FJsonObject> TreeObj = SerializeWidget(WBP->WidgetTree->RootWidget, /*bIncludeSlotProperties=*/true);
+    TSharedPtr<FJsonObject> TreeObj = SerializeWidget(WBP, WBP->WidgetTree->RootWidget, /*bIncludeSlotProperties=*/true);
     FString TreeStr = TreeObj.IsValid() ? JsonObjectToString(TreeObj) : TEXT("null");
     return FMD5::HashAnsiString(*TreeStr);
 }
@@ -460,7 +515,7 @@ bool FLoomleWidgetAdapter::QueryWidgetTree(
         return false;
     }
 
-    TSharedPtr<FJsonObject> RootObj = SerializeWidget(WBP->WidgetTree->RootWidget, bIncludeSlotProperties);
+    TSharedPtr<FJsonObject> RootObj = SerializeWidget(WBP, WBP->WidgetTree->RootWidget, bIncludeSlotProperties);
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetStringField(TEXT("assetPath"), AssetPath);
@@ -503,6 +558,11 @@ bool FLoomleWidgetAdapter::AddWidget(
         return false;
     }
 
+    EnsureExistingWidgetVariableGuids(WBP);
+    WBP->Modify();
+    WBP->WidgetTree->SetFlags(RF_Transactional);
+    WBP->WidgetTree->Modify();
+
     // Construct the new widget inside the WidgetTree
     UWidget* NewWidget = WBP->WidgetTree->ConstructWidget<UWidget>(WidgetClass, FName(*Name));
     if (!NewWidget)
@@ -511,6 +571,8 @@ bool FLoomleWidgetAdapter::AddWidget(
             TEXT("INTERNAL_ERROR: ConstructWidget failed for class '%s'."), *WidgetClassPath);
         return false;
     }
+    NewWidget->SetFlags(RF_Transactional);
+    NewWidget->Modify();
 
     // Resolve parent and attach
     if (ParentName.IsEmpty() || ParentName.Equals(TEXT("root"), ESearchCase::IgnoreCase))
@@ -535,10 +597,15 @@ bool FLoomleWidgetAdapter::AddWidget(
                 *ParentName);
             return false;
         }
+        Panel->SetFlags(RF_Transactional);
+        Panel->Modify();
         UPanelSlot* Slot = Panel->AddChild(NewWidget);
         ApplySlotProperties(Slot, SlotArgs);
     }
 
+#if WITH_EDITORONLY_DATA
+    WBP->OnVariableAdded(NewWidget->GetFName());
+#endif
     MarkModified(WBP);
     return true;
 }
@@ -555,14 +622,55 @@ bool FLoomleWidgetAdapter::RemoveWidget(
         return false;
     }
 
+    EnsureExistingWidgetVariableGuids(WBP);
+    TArray<FName> RemovedNames;
+    RemovedNames.Add(Target->GetFName());
+    TArray<UWidget*> ChildWidgets;
+    UWidgetTree::GetChildWidgets(Target, ChildWidgets);
+    for (UWidget* ChildWidget : ChildWidgets)
+    {
+        if (ChildWidget)
+        {
+            RemovedNames.Add(ChildWidget->GetFName());
+        }
+    }
+
+    WBP->Modify();
+    WBP->WidgetTree->SetFlags(RF_Transactional);
+    WBP->WidgetTree->Modify();
+    Target->SetFlags(RF_Transactional);
+    Target->Modify();
+
+    bool bRemoved = false;
     if (Target == WBP->WidgetTree->RootWidget)
     {
         WBP->WidgetTree->RootWidget = nullptr;
+        bRemoved = true;
     }
     else if (UPanelWidget* ParentPanel = Cast<UPanelWidget>(Target->GetParent()))
     {
-        ParentPanel->RemoveChild(Target);
+        ParentPanel->SetFlags(RF_Transactional);
+        ParentPanel->Modify();
+        bRemoved = ParentPanel->RemoveChild(Target);
     }
+    else
+    {
+        bRemoved = WBP->WidgetTree->RemoveWidget(Target);
+    }
+
+    if (!bRemoved)
+    {
+        OutError = FString::Printf(TEXT("REMOVE_WIDGET_FAILED: Failed to remove widget '%s'."), *Name);
+        return false;
+    }
+
+#if WITH_EDITORONLY_DATA
+    for (const FName& RemovedName : RemovedNames)
+    {
+        WBP->OnVariableRemoved(RemovedName);
+    }
+#endif
+    Target->Rename(nullptr, GetTransientPackage());
 
     MarkModified(WBP);
     return true;
@@ -593,7 +701,12 @@ bool FLoomleWidgetAdapter::RenameWidget(
         return false;
     }
 
+    EnsureExistingWidgetVariableGuids(WBP);
+    WBP->Modify();
     Target->Modify();
+#if WITH_EDITORONLY_DATA
+    WBP->OnVariableRenamed(FName(*OldName), FName(*NewName));
+#endif
     if (!Target->Rename(*NewName, WBP->WidgetTree, REN_DontCreateRedirectors | REN_ForceNoResetLoaders))
     {
         OutError = FString::Printf(TEXT("RENAME_WIDGET_FAILED: Failed to rename widget '%s' to '%s'."), *OldName, *NewName);

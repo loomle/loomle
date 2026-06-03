@@ -2040,6 +2040,15 @@ fn copy_mutation_controls(source: &rmcp::model::JsonObject, target: &mut rmcp::m
     }
 }
 
+fn copy_dry_run_revision_controls(
+    source: &rmcp::model::JsonObject,
+    target: &mut rmcp::model::JsonObject,
+) {
+    for field in ["dryRun", "expectedRevision"] {
+        copy_if_present(source, target, field);
+    }
+}
+
 fn asset_enum_args_from_top_level(args: &rmcp::model::JsonObject) -> serde_json::Value {
     if let Some(args_object) = args.get("args").and_then(|value| value.as_object()) {
         return serde_json::Value::Object(args_object.clone());
@@ -3165,8 +3174,7 @@ fn translate_widget_tree_edit_args(
     let mut translated = rmcp::model::JsonObject::new();
     translated.insert("assetPath".into(), serde_json::json!(asset_path));
     translated.insert("ops".into(), serde_json::Value::Array(ops));
-    copy_mutation_controls(args, &mut translated);
-    copy_if_present(args, &mut translated, "continueOnError");
+    copy_dry_run_revision_controls(args, &mut translated);
     Ok(translated)
 }
 
@@ -3176,7 +3184,7 @@ fn translate_widget_tree_inspect_args(args: &rmcp::model::JsonObject) -> rmcp::m
     let include_slot_properties = args
         .get("view")
         .and_then(|value| value.as_str())
-        .is_some_and(|view| matches!(view, "layout" | "details"));
+        .is_some_and(|view| view == "layout");
     translated.insert(
         "includeSlotProperties".into(),
         serde_json::json!(include_slot_properties),
@@ -3237,6 +3245,7 @@ fn prune_widget_tree_outline(node: &mut serde_json::Value) {
         return;
     };
     object.remove("slot");
+    object.remove("slotClass");
     if let Some(children) = object
         .get_mut("children")
         .and_then(|value| value.as_array_mut())
@@ -3288,9 +3297,6 @@ fn shape_widget_tree_inspect_payload(
                 collect_widget_tree_matches(root_widget, &names, text.as_deref(), &mut matches);
             }
             object.insert("matches".into(), serde_json::Value::Array(matches));
-            if view == "details" {
-                object.remove("rootWidget");
-            }
         }
     }
     payload
@@ -7768,9 +7774,9 @@ fn widget_tree_inspect_schema() -> rmcp::model::JsonObject {
             },
             "view": {
                 "type": "string",
-                "enum": ["outline", "layout", "details"],
+                "enum": ["outline", "layout"],
                 "default": "outline",
-                "description": "outline returns the widget tree without slot/layout details; layout includes slot/layout details; details returns matching widgets from filter."
+                "description": "outline returns hierarchy and widget identity; layout also includes slot/layout details."
             },
             "filter": {
                 "type": "object",
@@ -7778,7 +7784,7 @@ fn widget_tree_inspect_schema() -> rmcp::model::JsonObject {
                     "names": {
                         "type": "array",
                         "items": { "type": "string", "minLength": 1 },
-                        "description": "Exact widget names to return in matches/details."
+                        "description": "Exact widget names to return in matches."
                     },
                     "text": {
                         "type": "string",
@@ -7821,7 +7827,19 @@ fn widget_tree_edit_schema() -> rmcp::model::JsonObject {
             "minItems": 1
         }),
     );
-    mutation_control_fields(&mut properties);
+    properties.insert(
+        "dryRun".into(),
+        serde_json::json!({
+            "type": "boolean",
+            "default": false
+        }),
+    );
+    properties.insert(
+        "expectedRevision".into(),
+        serde_json::json!({
+            "type": "string"
+        }),
+    );
     schema_from_value(serde_json::json!({
         "type": "object",
         "properties": properties,
@@ -12372,6 +12390,50 @@ mod tests {
             .expect("commands description");
         assert!(commands_description.contains("schema.inspect"));
         assert!(commands_description.contains("widget.palette"));
+        assert!(properties.contains_key("dryRun"));
+        assert!(properties.contains_key("expectedRevision"));
+        assert!(!properties.contains_key("continueOnError"));
+        assert!(!properties.contains_key("returnDiff"));
+        assert!(!properties.contains_key("returnDiagnostics"));
+        assert!(!properties.contains_key("idempotencyKey"));
+    }
+
+    #[test]
+    fn widget_tree_edit_manifest_output_schema_declares_mutation_envelope() {
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../../mcp/manifest/manifest.json"))
+                .expect("manifest json");
+        let tool = manifest
+            .get("tools")
+            .and_then(|value| value.as_array())
+            .and_then(|tools| {
+                tools
+                    .iter()
+                    .find(|tool| tool.get("name").and_then(|value| value.as_str()) == Some("widget.tree.edit"))
+            })
+            .expect("widget.tree.edit tool");
+        let output_properties = tool
+            .get("outputSchema")
+            .and_then(|value| value.get("oneOf"))
+            .and_then(|value| value.as_array())
+            .and_then(|one_of| one_of.first())
+            .and_then(|value| value.get("properties"))
+            .and_then(|value| value.as_object())
+            .expect("output properties");
+        for field in [
+            "applied",
+            "valid",
+            "dryRun",
+            "resolvedRefs",
+            "planned",
+            "diagnostics",
+            "diff",
+            "opResults",
+            "previousRevision",
+            "newRevision",
+        ] {
+            assert!(output_properties.contains_key(field), "missing {field}");
+        }
     }
 
     #[test]
@@ -12391,6 +12453,18 @@ mod tests {
         assert!(properties.contains_key("view"));
         assert!(properties.contains_key("filter"));
         assert!(!properties.contains_key("includeSlotProperties"));
+        let views = properties
+            .get("view")
+            .and_then(|value| value.get("enum"))
+            .and_then(|value| value.as_array())
+            .expect("view enum");
+        assert_eq!(
+            views
+                .iter()
+                .filter_map(|value| value.as_str())
+                .collect::<Vec<_>>(),
+            vec!["outline", "layout"]
+        );
         let schema_text = serde_json::to_string(&schema).expect("schema json");
         assert!(!schema_text.contains("schema.inspect"));
     }
@@ -12442,10 +12516,12 @@ mod tests {
             "rootWidget": {
                 "name": "RootCanvas",
                 "widgetClass": "/Script/UMG.CanvasPanel",
+                "slotClass": "/Script/UMG.CanvasPanelSlot",
                 "slot": {"LayoutData": "..."},
                 "children": [{
                     "name": "TitleText",
                     "widgetClass": "/Script/UMG.TextBlock",
+                    "slotClass": "/Script/UMG.CanvasPanelSlot",
                     "slot": {"ZOrder": "2"},
                     "children": []
                 }]
@@ -12460,6 +12536,7 @@ mod tests {
             .and_then(|value| value.as_object())
             .expect("root");
         assert!(!root.contains_key("slot"));
+        assert!(!root.contains_key("slotClass"));
         let child = root
             .get("children")
             .and_then(|value| value.as_array())
@@ -12467,10 +12544,11 @@ mod tests {
             .and_then(|value| value.as_object())
             .expect("child");
         assert!(!child.contains_key("slot"));
+        assert!(!child.contains_key("slotClass"));
     }
 
     #[test]
-    fn widget_tree_inspect_details_returns_filtered_matches() {
+    fn widget_tree_inspect_filter_keeps_root_and_returns_matches() {
         let payload = serde_json::json!({
             "assetPath": "/Game/UI/WBP_Menu",
             "revision": "abc",
@@ -12486,11 +12564,11 @@ mod tests {
             }
         });
         let mut args = JsonObject::new();
-        args.insert("view".into(), serde_json::json!("details"));
+        args.insert("view".into(), serde_json::json!("layout"));
         args.insert("filter".into(), serde_json::json!({"names": ["TitleText"]}));
 
         let shaped = shape_widget_tree_inspect_payload(payload, &args);
-        assert!(shaped.get("rootWidget").is_none());
+        assert!(shaped.get("rootWidget").is_some());
         let matches = shaped
             .get("matches")
             .and_then(|value| value.as_array())

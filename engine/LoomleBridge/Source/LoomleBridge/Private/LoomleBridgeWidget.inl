@@ -3,6 +3,9 @@
 // Widget tool handlers for Loomle Bridge.
 // Included by LoomleBridgeModule.cpp after shared graph-domain helpers.
 
+#include "Blueprint/WidgetTree.h"
+#include "Components/PanelWidget.h"
+
 namespace
 {
 
@@ -80,6 +83,288 @@ TSharedPtr<FJsonObject> MakeWidgetOpResult(
     Obj->SetStringField(TEXT("errorCode"), ErrorCode);
     Obj->SetStringField(TEXT("errorMessage"), ErrorMessage);
     return Obj;
+}
+
+void SplitWidgetError(const FString& Error, FString& OutCode, FString& OutMessage)
+{
+    OutCode = TEXT("INVALID_ARGUMENT");
+    OutMessage = Error;
+    int32 ColonIdx = INDEX_NONE;
+    if (Error.FindChar(TEXT(':'), ColonIdx) && ColonIdx > 0)
+    {
+        const FString Prefix = Error.Left(ColonIdx);
+        if (!Prefix.Contains(TEXT(" ")))
+        {
+            OutCode = Prefix;
+            OutMessage = Error.Mid(ColonIdx + 1).TrimStart();
+        }
+    }
+}
+
+TSharedPtr<FJsonObject> MakeWidgetRef(const FString& Name)
+{
+    TSharedPtr<FJsonObject> Ref = MakeShared<FJsonObject>();
+    Ref->SetStringField(TEXT("name"), Name);
+    return Ref;
+}
+
+TSharedPtr<FJsonObject> MakeWidgetTreeChange(
+    const FString& Kind,
+    const FString& TargetName,
+    const TSharedPtr<FJsonValue>& Before = nullptr,
+    const TSharedPtr<FJsonValue>& After = nullptr)
+{
+    return LoomleMutation::MakeChange(
+        Kind,
+        LoomleMutation::MakeTarget(TEXT("widget"), TargetName),
+        Before,
+        After);
+}
+
+bool TryFindWidgetTemplate(UWidgetBlueprint* WBP, const FString& Name, UWidget*& OutWidget)
+{
+    OutWidget = nullptr;
+    if (!WBP || !WBP->WidgetTree || Name.IsEmpty())
+    {
+        return false;
+    }
+    OutWidget = WBP->WidgetTree->FindWidget(FName(*Name));
+    return OutWidget != nullptr;
+}
+
+bool ValidateWidgetPropertyImport(UObject* Owner, FProperty* Prop, const FString& Value, FString& OutError)
+{
+    if (!Owner || !Prop)
+    {
+        OutError = TEXT("PROPERTY_NOT_FOUND: Property target is unavailable.");
+        return false;
+    }
+
+    void* TempValue = FMemory::Malloc(Prop->GetSize(), Prop->GetMinAlignment());
+    Prop->InitializeValue(TempValue);
+    Prop->CopyCompleteValue(TempValue, Prop->ContainerPtrToValuePtr<void>(Owner));
+    const TCHAR* ImportResult = Prop->ImportText_Direct(*Value, TempValue, nullptr, PPF_None);
+    Prop->DestroyValue(TempValue);
+    FMemory::Free(TempValue);
+    if (!ImportResult)
+    {
+        OutError = FString::Printf(
+            TEXT("PROPERTY_SET_FAILED: Could not import value '%s' for property '%s'."),
+            *Value,
+            *Prop->GetName());
+        return false;
+    }
+    return true;
+}
+
+bool ValidateWidgetTreeOp(
+    UWidgetBlueprint* WBP,
+    const FString& OpName,
+    const TSharedPtr<FJsonObject>& Args,
+    TMap<FString, UClass*>& PlannedAdds,
+    FString& OutError)
+{
+    if (OpName.Equals(TEXT("addWidget")))
+    {
+        FString WidgetClassPath;
+        FString Name;
+        FString Parent;
+        Args->TryGetStringField(TEXT("widgetClass"), WidgetClassPath);
+        Args->TryGetStringField(TEXT("name"), Name);
+        Args->TryGetStringField(TEXT("parentName"), Parent);
+        if (Parent.IsEmpty())
+        {
+            Args->TryGetStringField(TEXT("parent"), Parent);
+        }
+        if (WidgetClassPath.IsEmpty() || Name.IsEmpty())
+        {
+            OutError = TEXT("INVALID_ARGUMENT: addWidget requires widgetClass and name.");
+            return false;
+        }
+        UClass* WidgetClass = LoadClass<UWidget>(nullptr, *WidgetClassPath);
+        if (!WidgetClass)
+        {
+            OutError = FString::Printf(TEXT("WIDGET_CLASS_NOT_FOUND: Could not load widget class '%s'."), *WidgetClassPath);
+            return false;
+        }
+        UWidget* ExistingWidget = nullptr;
+        if (TryFindWidgetTemplate(WBP, Name, ExistingWidget) || PlannedAdds.Contains(Name))
+        {
+            OutError = FString::Printf(TEXT("WIDGET_ALREADY_EXISTS: A widget named '%s' already exists in the WidgetTree or current batch."), *Name);
+            return false;
+        }
+        if (!Parent.IsEmpty() && !Parent.Equals(TEXT("root"), ESearchCase::IgnoreCase))
+        {
+            UWidget* ParentWidget = nullptr;
+            if (TryFindWidgetTemplate(WBP, Parent, ParentWidget))
+            {
+                if (!ParentWidget->IsA(UPanelWidget::StaticClass()))
+                {
+                    OutError = FString::Printf(TEXT("WIDGET_PARENT_NOT_PANEL: Parent widget '%s' is not a UPanelWidget and cannot have children."), *Parent);
+                    return false;
+                }
+            }
+            else if (UClass** PlannedParentClass = PlannedAdds.Find(Parent))
+            {
+                if (!(*PlannedParentClass)->IsChildOf(UPanelWidget::StaticClass()))
+                {
+                    OutError = FString::Printf(TEXT("WIDGET_PARENT_NOT_PANEL: Planned parent widget '%s' is not a UPanelWidget and cannot have children."), *Parent);
+                    return false;
+                }
+            }
+            else
+            {
+                OutError = FString::Printf(TEXT("WIDGET_NOT_FOUND: Parent widget '%s' not found."), *Parent);
+                return false;
+            }
+        }
+        PlannedAdds.Add(Name, WidgetClass);
+        return true;
+    }
+
+    if (OpName.Equals(TEXT("removeWidget")))
+    {
+        FString Name;
+        if (!ResolveWidgetName(Args, Name))
+        {
+            OutError = TEXT("INVALID_ARGUMENT: removeWidget requires args.name or args.target.name.");
+            return false;
+        }
+        UWidget* Target = nullptr;
+        if (!TryFindWidgetTemplate(WBP, Name, Target) && !PlannedAdds.Contains(Name))
+        {
+            OutError = FString::Printf(TEXT("WIDGET_NOT_FOUND: Widget '%s' not found."), *Name);
+            return false;
+        }
+        PlannedAdds.Remove(Name);
+        return true;
+    }
+
+    if (OpName.Equals(TEXT("renameWidget")))
+    {
+        FString OldName;
+        FString NewName;
+        if (!ResolveWidgetName(Args, OldName))
+        {
+            OutError = TEXT("INVALID_ARGUMENT: renameWidget requires args.name or args.target.name.");
+            return false;
+        }
+        if (!Args->TryGetStringField(TEXT("newName"), NewName) || NewName.IsEmpty())
+        {
+            OutError = TEXT("INVALID_ARGUMENT: renameWidget requires args.newName.");
+            return false;
+        }
+        UWidget* Target = nullptr;
+        if (!TryFindWidgetTemplate(WBP, OldName, Target) && !PlannedAdds.Contains(OldName))
+        {
+            OutError = FString::Printf(TEXT("WIDGET_NOT_FOUND: Widget '%s' not found."), *OldName);
+            return false;
+        }
+        UWidget* ExistingNew = nullptr;
+        if (TryFindWidgetTemplate(WBP, NewName, ExistingNew) || PlannedAdds.Contains(NewName))
+        {
+            OutError = FString::Printf(TEXT("WIDGET_ALREADY_EXISTS: A widget named '%s' already exists in the WidgetTree or current batch."), *NewName);
+            return false;
+        }
+        if (UClass** PlannedClass = PlannedAdds.Find(OldName))
+        {
+            PlannedAdds.Add(NewName, *PlannedClass);
+            PlannedAdds.Remove(OldName);
+        }
+        return true;
+    }
+
+    if (OpName.Equals(TEXT("setProperty")))
+    {
+        FString Name;
+        FString PropertyName;
+        FString Value;
+        if (!ResolveWidgetName(Args, Name))
+        {
+            OutError = TEXT("INVALID_ARGUMENT: setProperty requires args.name or args.target.name.");
+            return false;
+        }
+        if (!Args->TryGetStringField(TEXT("property"), PropertyName) || PropertyName.IsEmpty())
+        {
+            OutError = TEXT("INVALID_ARGUMENT: setProperty requires args.property.");
+            return false;
+        }
+        if (!Args->TryGetStringField(TEXT("value"), Value))
+        {
+            OutError = TEXT("INVALID_ARGUMENT: setProperty requires args.value.");
+            return false;
+        }
+        UWidget* Target = nullptr;
+        if (!TryFindWidgetTemplate(WBP, Name, Target))
+        {
+            OutError = FString::Printf(TEXT("WIDGET_NOT_FOUND: Widget '%s' not found."), *Name);
+            return false;
+        }
+        FProperty* Prop = FindFProperty<FProperty>(Target->GetClass(), *PropertyName);
+        UObject* PropOwner = Target;
+        if (!Prop && Target->Slot)
+        {
+            Prop = FindFProperty<FProperty>(Target->Slot->GetClass(), *PropertyName);
+            PropOwner = Target->Slot;
+        }
+        if (!Prop)
+        {
+            OutError = FString::Printf(
+                TEXT("PROPERTY_NOT_FOUND: Property '%s' not found on widget class '%s' or its slot."),
+                *PropertyName,
+                *Target->GetClass()->GetName());
+            return false;
+        }
+        return ValidateWidgetPropertyImport(PropOwner, Prop, Value, OutError);
+    }
+
+    if (OpName.Equals(TEXT("reparentWidget")))
+    {
+        FString Name;
+        FString NewParent;
+        if (!ResolveWidgetName(Args, Name))
+        {
+            OutError = TEXT("INVALID_ARGUMENT: reparentWidget requires args.name or args.target.name.");
+            return false;
+        }
+        if (!Args->TryGetStringField(TEXT("newParent"), NewParent) || NewParent.IsEmpty())
+        {
+            OutError = TEXT("INVALID_ARGUMENT: reparentWidget requires args.newParent.");
+            return false;
+        }
+        UWidget* Target = nullptr;
+        if (!TryFindWidgetTemplate(WBP, Name, Target) && !PlannedAdds.Contains(Name))
+        {
+            OutError = FString::Printf(TEXT("WIDGET_NOT_FOUND: Widget '%s' not found."), *Name);
+            return false;
+        }
+        UWidget* NewParentWidget = nullptr;
+        if (TryFindWidgetTemplate(WBP, NewParent, NewParentWidget))
+        {
+            if (!NewParentWidget->IsA(UPanelWidget::StaticClass()))
+            {
+                OutError = FString::Printf(TEXT("WIDGET_PARENT_NOT_PANEL: Widget '%s' is not a UPanelWidget and cannot have children."), *NewParent);
+                return false;
+            }
+        }
+        else if (UClass** PlannedParentClass = PlannedAdds.Find(NewParent))
+        {
+            if (!(*PlannedParentClass)->IsChildOf(UPanelWidget::StaticClass()))
+            {
+                OutError = FString::Printf(TEXT("WIDGET_PARENT_NOT_PANEL: Planned widget '%s' is not a UPanelWidget and cannot have children."), *NewParent);
+                return false;
+            }
+        }
+        else
+        {
+            OutError = FString::Printf(TEXT("WIDGET_NOT_FOUND: New parent widget '%s' not found."), *NewParent);
+            return false;
+        }
+        return true;
+    }
+
+    OutError = FString::Printf(TEXT("UNSUPPORTED_OP: Unknown widget op '%s'."), *OpName);
+    return false;
 }
 
 } // namespace
@@ -353,6 +638,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetTreeInspectToolResult(
         return Payload;
     }
 
+    Payload->SetBoolField(TEXT("isError"), false);
     Payload->SetStringField(TEXT("assetPath"), AssetPath);
     Payload->SetStringField(TEXT("revision"), Revision);
 
@@ -379,32 +665,23 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetTreeEditToolResult(
 {
     TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
 
-    // --- Validate required fields ---
     FString AssetPath;
     if (!Arguments.IsValid() || !Arguments->TryGetStringField(TEXT("assetPath"), AssetPath) || AssetPath.IsEmpty())
     {
-        Payload->SetBoolField(TEXT("isError"), true);
-        Payload->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Payload->SetStringField(TEXT("message"), TEXT("INVALID_ARGUMENT"));
-        Payload->SetStringField(TEXT("detail"), TEXT("field assetPath is required"));
+        LoomleMutation::SetFailure(Payload, TEXT("INVALID_ARGUMENT"), TEXT("widget.tree.edit requires assetPath."));
         return Payload;
     }
+    AssetPath = NormalizeAssetPath(AssetPath);
 
     const TArray<TSharedPtr<FJsonValue>>* OpsArray = nullptr;
     if (!Arguments->TryGetArrayField(TEXT("ops"), OpsArray) || !OpsArray || OpsArray->IsEmpty())
     {
-        Payload->SetBoolField(TEXT("isError"), true);
-        Payload->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
-        Payload->SetStringField(TEXT("message"), TEXT("INVALID_ARGUMENT"));
-        Payload->SetStringField(TEXT("detail"), TEXT("field ops is required and must be non-empty"));
+        LoomleMutation::SetFailure(Payload, TEXT("INVALID_ARGUMENT"), TEXT("widget.tree.edit requires ops."));
         return Payload;
     }
 
     bool bDryRun = false;
     Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
-
-    bool bContinueOnError = false;
-    Arguments->TryGetBoolField(TEXT("continueOnError"), bContinueOnError);
 
     if (const TSharedPtr<FJsonObject> Blocked = BuildEditorMutationLifecycleBlockResult(
             TEXT("widget.tree.edit"),
@@ -415,8 +692,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetTreeEditToolResult(
         return Blocked;
     }
 
-    // --- Load asset ---
-    FString LoadError;
     FString ObjectPath = AssetPath;
     if (!ObjectPath.Contains(TEXT(".")))
     {
@@ -426,52 +701,65 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetTreeEditToolResult(
     UWidgetBlueprint* WBP = Cast<UWidgetBlueprint>(Loaded);
     if (!WBP || !WBP->WidgetTree)
     {
-        Payload->SetBoolField(TEXT("isError"), true);
-        Payload->SetStringField(TEXT("code"), TEXT("WIDGET_TREE_UNAVAILABLE"));
-        Payload->SetStringField(TEXT("message"), TEXT("WIDGET_TREE_UNAVAILABLE"));
-        Payload->SetStringField(TEXT("detail"), FString::Printf(
-            TEXT("Asset '%s' is not a WidgetBlueprint or has a null WidgetTree."), *AssetPath));
+        LoomleMutation::SetFailure(
+            Payload,
+            TEXT("WIDGET_TREE_UNAVAILABLE"),
+            FString::Printf(TEXT("Asset '%s' is not a WidgetBlueprint or has a null WidgetTree."), *AssetPath));
         return Payload;
     }
 
-    // --- Optimistic concurrency check ---
+    const FString PreviousRevision = FLoomleWidgetAdapter::ComputeRevision_Public(WBP);
     FString ExpectedRevision;
     if (Arguments->TryGetStringField(TEXT("expectedRevision"), ExpectedRevision) && !ExpectedRevision.IsEmpty())
     {
-        const FString CurrentRevision = FLoomleWidgetAdapter::ComputeRevision_Public(WBP);
-        if (CurrentRevision != ExpectedRevision)
+        if (PreviousRevision != ExpectedRevision)
         {
-            Payload->SetBoolField(TEXT("isError"), true);
-            Payload->SetStringField(TEXT("code"), TEXT("REVISION_CONFLICT"));
-            Payload->SetStringField(TEXT("message"), TEXT("REVISION_CONFLICT"));
-            Payload->SetStringField(TEXT("detail"), FString::Printf(
-                TEXT("Expected revision '%s' but current is '%s'."), *ExpectedRevision, *CurrentRevision));
+            LoomleMutation::SetMutationEnvelope(Payload, TEXT("widget.tree.edit"), AssetPath, TEXT("widget.tree.edit"), bDryRun, false, false);
+            LoomleMutation::SetRevisionConflict(Payload, ExpectedRevision, PreviousRevision);
             return Payload;
         }
     }
 
-    const FString PreviousRevision = FLoomleWidgetAdapter::ComputeRevision_Public(WBP);
-
-    // --- Execute ops ---
     TArray<TSharedPtr<FJsonValue>> OpResults;
-    bool bAnyChanged = false;
-    bool bAnyFailed = false;
+    TArray<TSharedPtr<FJsonValue>> Changes;
+    TMap<FString, UClass*> PlannedAdds;
 
     for (int32 i = 0; i < OpsArray->Num(); ++i)
     {
         const TSharedPtr<FJsonObject>* OpObjPtr = nullptr;
         if (!(*OpsArray)[i]->TryGetObject(OpObjPtr) || !OpObjPtr || !(*OpObjPtr).IsValid())
         {
-            OpResults.Add(MakeShared<FJsonValueObject>(
-                MakeWidgetOpResult(i, TEXT(""), false, false, TEXT("INVALID_ARGUMENT"), TEXT("Op entry is not a valid object."))));
-            bAnyFailed = true;
-            if (!bContinueOnError) break;
-            continue;
+            OpResults.Add(MakeShared<FJsonValueObject>(LoomleMutation::MakeOpResult(
+                i,
+                TEXT(""),
+                false,
+                false,
+                TEXT("INVALID_ARGUMENT"),
+                TEXT("Op entry is not a valid object."))));
+            LoomleMutation::SetMutationEnvelope(Payload, TEXT("widget.tree.edit"), AssetPath, TEXT("widget.tree.edit"), bDryRun, false, false);
+            Payload->SetArrayField(TEXT("opResults"), OpResults);
+            LoomleMutation::SetFailure(Payload, TEXT("INVALID_ARGUMENT"), TEXT("Op entry is not a valid object."));
+            LoomleMutation::SetUnchangedRevision(Payload, PreviousRevision);
+            return Payload;
         }
 
         const TSharedPtr<FJsonObject>& OpObj = *OpObjPtr;
         FString OpName;
-        OpObj->TryGetStringField(TEXT("op"), OpName);
+        if (!OpObj->TryGetStringField(TEXT("op"), OpName) || OpName.IsEmpty())
+        {
+            OpResults.Add(MakeShared<FJsonValueObject>(LoomleMutation::MakeOpResult(
+                i,
+                TEXT(""),
+                false,
+                false,
+                TEXT("INVALID_ARGUMENT"),
+                TEXT("Op entry requires op."))));
+            LoomleMutation::SetMutationEnvelope(Payload, TEXT("widget.tree.edit"), AssetPath, TEXT("widget.tree.edit"), bDryRun, false, false);
+            Payload->SetArrayField(TEXT("opResults"), OpResults);
+            LoomleMutation::SetFailure(Payload, TEXT("INVALID_ARGUMENT"), TEXT("Op entry requires op."));
+            LoomleMutation::SetUnchangedRevision(Payload, PreviousRevision);
+            return Payload;
+        }
 
         const TSharedPtr<FJsonObject>* ArgsObjPtr = nullptr;
         TSharedPtr<FJsonObject> Args;
@@ -484,31 +772,101 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetTreeEditToolResult(
             Args = MakeShared<FJsonObject>();
         }
 
-        FString OpError;
-        bool bOpOk = false;
-
-        if (bDryRun)
+        FString ValidationError;
+        if (!ValidateWidgetTreeOp(WBP, OpName, Args, PlannedAdds, ValidationError))
         {
-            // Dry-run: validate op name only, do not touch UE objects
-            const TArray<FString> KnownOps = {
-                TEXT("addWidget"), TEXT("removeWidget"), TEXT("renameWidget"), TEXT("setProperty"), TEXT("reparentWidget")
-            };
-            bOpOk = KnownOps.Contains(OpName);
-            if (!bOpOk)
-            {
-                OpError = FString::Printf(TEXT("Unknown op '%s'."), *OpName);
-            }
-            OpResults.Add(MakeShared<FJsonValueObject>(
-                MakeWidgetOpResult(i, OpName, bOpOk, false,
-                    bOpOk ? FString() : TEXT("INVALID_ARGUMENT"), OpError)));
-            if (!bOpOk)
-            {
-                bAnyFailed = true;
-                if (!bContinueOnError) break;
-            }
-            continue;
+            FString ErrorCode;
+            FString ErrorMessage;
+            SplitWidgetError(ValidationError, ErrorCode, ErrorMessage);
+            OpResults.Add(MakeShared<FJsonValueObject>(LoomleMutation::MakeOpResult(
+                i,
+                OpName,
+                false,
+                false,
+                ErrorCode,
+                ErrorMessage)));
+            LoomleMutation::SetMutationEnvelope(Payload, TEXT("widget.tree.edit"), AssetPath, TEXT("widget.tree.edit"), bDryRun, false, false);
+            Payload->SetArrayField(TEXT("opResults"), OpResults);
+            LoomleMutation::SetFailure(Payload, ErrorCode, ErrorMessage);
+            LoomleMutation::SetUnchangedRevision(Payload, PreviousRevision);
+            return Payload;
         }
 
+        OpResults.Add(MakeShared<FJsonValueObject>(LoomleMutation::MakeOpResult(i, OpName, true, false)));
+
+        FString TargetName;
+        ResolveWidgetName(Args, TargetName);
+        if (OpName.Equals(TEXT("addWidget")))
+        {
+            Args->TryGetStringField(TEXT("name"), TargetName);
+            Changes.Add(MakeShared<FJsonValueObject>(
+                MakeWidgetTreeChange(TEXT("create"), TargetName, nullptr, MakeShared<FJsonValueObject>(Args))));
+        }
+        else if (OpName.Equals(TEXT("renameWidget")))
+        {
+            FString NewName;
+            Args->TryGetStringField(TEXT("newName"), NewName);
+            TSharedPtr<FJsonObject> Before = MakeWidgetRef(TargetName);
+            TSharedPtr<FJsonObject> After = MakeWidgetRef(NewName);
+            Changes.Add(MakeShared<FJsonValueObject>(
+                MakeWidgetTreeChange(TEXT("rename"), TargetName, MakeShared<FJsonValueObject>(Before), MakeShared<FJsonValueObject>(After))));
+        }
+        else if (OpName.Equals(TEXT("removeWidget")))
+        {
+            Changes.Add(MakeShared<FJsonValueObject>(
+                MakeWidgetTreeChange(TEXT("delete"), TargetName, MakeShared<FJsonValueObject>(MakeWidgetRef(TargetName)), nullptr)));
+        }
+        else if (OpName.Equals(TEXT("setProperty")))
+        {
+            Changes.Add(MakeShared<FJsonValueObject>(
+                MakeWidgetTreeChange(TEXT("update"), TargetName, nullptr, MakeShared<FJsonValueObject>(Args))));
+        }
+        else if (OpName.Equals(TEXT("reparentWidget")))
+        {
+            Changes.Add(MakeShared<FJsonValueObject>(
+                MakeWidgetTreeChange(TEXT("reparent"), TargetName, nullptr, MakeShared<FJsonValueObject>(Args))));
+        }
+    }
+
+    TSharedPtr<FJsonObject> Planned = LoomleMutation::BuildBatchPlanFromOpResults(
+        TEXT("widget.tree.edit"),
+        AssetPath,
+        TEXT("widget.tree.edit"),
+        OpsArray->Num(),
+        OpResults);
+
+    Payload->SetObjectField(TEXT("planned"), Planned);
+    const TSharedPtr<FJsonObject>* ResolvedRefs = nullptr;
+    if (Planned->TryGetObjectField(TEXT("resolvedRefs"), ResolvedRefs) && ResolvedRefs != nullptr && ResolvedRefs->IsValid())
+    {
+        Payload->SetObjectField(TEXT("resolvedRefs"), *ResolvedRefs);
+    }
+    Payload->SetArrayField(TEXT("opResults"), OpResults);
+    LoomleMutation::SetDiff(Payload, TEXT("widget.tree"), Changes);
+    LoomleMutation::SetMutationEnvelope(Payload, TEXT("widget.tree.edit"), AssetPath, TEXT("widget.tree.edit"), bDryRun, false, true);
+    LoomleMutation::SetUnchangedRevision(Payload, PreviousRevision);
+
+    if (bDryRun)
+    {
+        return Payload;
+    }
+
+    for (int32 i = 0; i < OpsArray->Num(); ++i)
+    {
+        const TSharedPtr<FJsonObject>* OpObjPtr = nullptr;
+        (*OpsArray)[i]->TryGetObject(OpObjPtr);
+        const TSharedPtr<FJsonObject>& OpObj = *OpObjPtr;
+        FString OpName;
+        OpObj->TryGetStringField(TEXT("op"), OpName);
+        const TSharedPtr<FJsonObject>* ArgsObjPtr = nullptr;
+        TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
+        if (OpObj->TryGetObjectField(TEXT("args"), ArgsObjPtr) && ArgsObjPtr)
+        {
+            Args = *ArgsObjPtr;
+        }
+
+        FString OpError;
+        bool bOpOk = false;
         if (OpName.Equals(TEXT("addWidget")))
         {
             FString WidgetClass, Name, Parent;
@@ -517,7 +875,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetTreeEditToolResult(
             Args->TryGetStringField(TEXT("parentName"), Parent);
             if (Parent.IsEmpty())
             {
-                Args->TryGetStringField(TEXT("parent"), Parent); // legacy alias
+                Args->TryGetStringField(TEXT("parent"), Parent);
             }
             const TSharedPtr<FJsonObject>* SlotObj = nullptr;
             TSharedPtr<FJsonObject> SlotArgs;
@@ -525,147 +883,73 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetTreeEditToolResult(
             {
                 SlotArgs = *SlotObj;
             }
-            if (WidgetClass.IsEmpty() || Name.IsEmpty())
-            {
-                bOpOk = false;
-                OpError = TEXT("addWidget requires widgetClass and name.");
-            }
-            else
-            {
-                bOpOk = FLoomleWidgetAdapter::AddWidget(WBP, WidgetClass, Name, Parent, SlotArgs, OpError);
-            }
+            bOpOk = FLoomleWidgetAdapter::AddWidget(WBP, WidgetClass, Name, Parent, SlotArgs, OpError);
         }
         else if (OpName.Equals(TEXT("removeWidget")))
         {
             FString Name;
-            if (!ResolveWidgetName(Args, Name))
-            {
-                bOpOk = false;
-                OpError = TEXT("removeWidget requires args.name or args.target.name.");
-            }
-            else
-            {
-                bOpOk = FLoomleWidgetAdapter::RemoveWidget(WBP, Name, OpError);
-            }
+            ResolveWidgetName(Args, Name);
+            bOpOk = FLoomleWidgetAdapter::RemoveWidget(WBP, Name, OpError);
         }
         else if (OpName.Equals(TEXT("renameWidget")))
         {
             FString OldName;
             FString NewName;
-            if (!ResolveWidgetName(Args, OldName))
-            {
-                bOpOk = false;
-                OpError = TEXT("renameWidget requires args.name or args.target.name.");
-            }
-            else if (!Args->TryGetStringField(TEXT("newName"), NewName) || NewName.IsEmpty())
-            {
-                bOpOk = false;
-                OpError = TEXT("renameWidget requires args.newName.");
-            }
-            else
-            {
-                bOpOk = FLoomleWidgetAdapter::RenameWidget(WBP, OldName, NewName, OpError);
-            }
+            ResolveWidgetName(Args, OldName);
+            Args->TryGetStringField(TEXT("newName"), NewName);
+            bOpOk = FLoomleWidgetAdapter::RenameWidget(WBP, OldName, NewName, OpError);
         }
         else if (OpName.Equals(TEXT("setProperty")))
         {
             FString Name, PropertyName, Value;
-            if (!ResolveWidgetName(Args, Name))
-            {
-                bOpOk = false;
-                OpError = TEXT("setProperty requires args.name or args.target.name.");
-            }
-            else if (!Args->TryGetStringField(TEXT("property"), PropertyName) || PropertyName.IsEmpty())
-            {
-                bOpOk = false;
-                OpError = TEXT("setProperty requires args.property.");
-            }
-            else if (!Args->TryGetStringField(TEXT("value"), Value))
-            {
-                bOpOk = false;
-                OpError = TEXT("setProperty requires args.value.");
-            }
-            else
-            {
-                bOpOk = FLoomleWidgetAdapter::SetWidgetProperty(WBP, Name, PropertyName, Value, OpError);
-            }
+            ResolveWidgetName(Args, Name);
+            Args->TryGetStringField(TEXT("property"), PropertyName);
+            Args->TryGetStringField(TEXT("value"), Value);
+            bOpOk = FLoomleWidgetAdapter::SetWidgetProperty(WBP, Name, PropertyName, Value, OpError);
         }
         else if (OpName.Equals(TEXT("reparentWidget")))
         {
             FString Name, NewParent;
-            if (!ResolveWidgetName(Args, Name))
+            ResolveWidgetName(Args, Name);
+            Args->TryGetStringField(TEXT("newParent"), NewParent);
+            const TSharedPtr<FJsonObject>* SlotObj = nullptr;
+            TSharedPtr<FJsonObject> SlotArgs;
+            if (Args->TryGetObjectField(TEXT("slot"), SlotObj) && SlotObj)
             {
-                bOpOk = false;
-                OpError = TEXT("reparentWidget requires args.name or args.target.name.");
+                SlotArgs = *SlotObj;
             }
-            else if (!Args->TryGetStringField(TEXT("newParent"), NewParent) || NewParent.IsEmpty())
-            {
-                bOpOk = false;
-                OpError = TEXT("reparentWidget requires args.newParent.");
-            }
-            else
-            {
-                const TSharedPtr<FJsonObject>* SlotObj = nullptr;
-                TSharedPtr<FJsonObject> SlotArgs;
-                if (Args->TryGetObjectField(TEXT("slot"), SlotObj) && SlotObj)
-                {
-                    SlotArgs = *SlotObj;
-                }
-                bOpOk = FLoomleWidgetAdapter::ReparentWidget(WBP, Name, NewParent, SlotArgs, OpError);
-            }
-        }
-        else
-        {
-            bOpOk = false;
-            OpError = FString::Printf(TEXT("Unknown widget op '%s'."), *OpName);
+            bOpOk = FLoomleWidgetAdapter::ReparentWidget(WBP, Name, NewParent, SlotArgs, OpError);
         }
 
-        if (bOpOk)
+        if (!bOpOk)
         {
-            bAnyChanged = true;
-        }
-        else
-        {
-            bAnyFailed = true;
-        }
-
-        // Extract domain code from error string prefix if present
-        FString DomainCode;
-        FString ErrorDetail = OpError;
-        int32 ColonIdx = INDEX_NONE;
-        if (OpError.FindChar(TEXT(':'), ColonIdx) && ColonIdx > 0)
-        {
-            FString Prefix = OpError.Left(ColonIdx);
-            if (!Prefix.Contains(TEXT(" ")))
-            {
-                DomainCode = Prefix;
-                ErrorDetail = OpError.Mid(ColonIdx + 1).TrimStart();
-            }
-        }
-
-        OpResults.Add(MakeShared<FJsonValueObject>(
-            MakeWidgetOpResult(i, OpName, bOpOk, bOpOk, DomainCode, ErrorDetail)));
-
-        if (!bOpOk && !bContinueOnError)
-        {
-            break;
+            FString ErrorCode;
+            FString ErrorMessage;
+            SplitWidgetError(OpError, ErrorCode, ErrorMessage);
+            TArray<TSharedPtr<FJsonValue>> FailedOpResults = OpResults;
+            FailedOpResults[i] = MakeShared<FJsonValueObject>(LoomleMutation::MakeOpResult(i, OpName, false, false, ErrorCode, ErrorMessage));
+            Payload->SetArrayField(TEXT("opResults"), FailedOpResults);
+            LoomleMutation::SetFailure(Payload, ErrorCode, ErrorMessage);
+            LoomleMutation::SetRevision(Payload, PreviousRevision, FLoomleWidgetAdapter::ComputeRevision_Public(WBP));
+            return Payload;
         }
     }
 
-    const FString NewRevision = bAnyChanged
-        ? FLoomleWidgetAdapter::ComputeRevision_Public(WBP)
-        : PreviousRevision;
-
-    const bool bFullyApplied = !bDryRun && !bAnyFailed;
-    const bool bPartialApplied = !bDryRun && bAnyFailed && bAnyChanged;
-
-    Payload->SetBoolField(TEXT("applied"), bFullyApplied);
-    Payload->SetBoolField(TEXT("partialApplied"), bPartialApplied);
-    Payload->SetStringField(TEXT("assetPath"), AssetPath);
-    Payload->SetStringField(TEXT("previousRevision"), PreviousRevision);
-    Payload->SetStringField(TEXT("newRevision"), NewRevision);
+    for (const TSharedPtr<FJsonValue>& OpResultValue : OpResults)
+    {
+        const TSharedPtr<FJsonObject>* OpResultObject = nullptr;
+        if (OpResultValue.IsValid()
+            && OpResultValue->TryGetObject(OpResultObject)
+            && OpResultObject != nullptr
+            && (*OpResultObject).IsValid())
+        {
+            (*OpResultObject)->SetBoolField(TEXT("changed"), true);
+        }
+    }
     Payload->SetArrayField(TEXT("opResults"), OpResults);
-    Payload->SetArrayField(TEXT("diagnostics"), TArray<TSharedPtr<FJsonValue>>{});
+    const FString NewRevision = FLoomleWidgetAdapter::ComputeRevision_Public(WBP);
+    LoomleMutation::SetMutationEnvelope(Payload, TEXT("widget.tree.edit"), AssetPath, TEXT("widget.tree.edit"), false, true, true);
+    LoomleMutation::SetRevision(Payload, PreviousRevision, NewRevision);
     return Payload;
 }
 
