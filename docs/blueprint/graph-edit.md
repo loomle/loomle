@@ -391,7 +391,8 @@ The public command layer maps to UE graph operations through Loomle's bridge:
   when it is backed by a node spawner.
 - link operations call UE schema link validation and pin connection APIs.
 - pin default writes use UE pin default serialization and object/class
-  resolution.
+  resolution. For class pins, Blueprint asset paths resolve to generated
+  classes and class changes trigger UE's node-specific pin refresh path.
 - node movement changes editor graph coordinates, not Blueprint runtime logic.
 
 The public schema should describe agent intent. The bridge may keep lower-level

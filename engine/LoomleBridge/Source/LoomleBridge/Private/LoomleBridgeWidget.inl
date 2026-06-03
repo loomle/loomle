@@ -222,6 +222,28 @@ bool ValidateWidgetTreeOp(
         return true;
     }
 
+    if (OpName.Equals(TEXT("setIsVariable")))
+    {
+        FString Name;
+        if (!ResolveWidgetName(Args, Name))
+        {
+            OutError = TEXT("INVALID_ARGUMENT: setIsVariable requires args.name or args.target.name.");
+            return false;
+        }
+        if (!Args->HasTypedField<EJson::Boolean>(TEXT("value")))
+        {
+            OutError = TEXT("INVALID_ARGUMENT: setIsVariable requires boolean args.value.");
+            return false;
+        }
+        UWidget* Target = nullptr;
+        if (!TryFindWidgetTemplate(WBP, Name, Target) && !PlannedAdds.Contains(Name))
+        {
+            OutError = FString::Printf(TEXT("WIDGET_NOT_FOUND: Widget '%s' not found."), *Name);
+            return false;
+        }
+        return true;
+    }
+
     if (OpName.Equals(TEXT("removeWidget")))
     {
         FString Name;
@@ -840,6 +862,15 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetTreeEditToolResult(
             Changes.Add(MakeShared<FJsonValueObject>(
                 MakeWidgetTreeChange(TEXT("reparent"), TargetName, nullptr, MakeShared<FJsonValueObject>(Args))));
         }
+        else if (OpName.Equals(TEXT("setIsVariable")))
+        {
+            bool bValue = false;
+            Args->TryGetBoolField(TEXT("value"), bValue);
+            TSharedPtr<FJsonObject> After = MakeWidgetRef(TargetName);
+            After->SetBoolField(TEXT("isVariable"), bValue);
+            Changes.Add(MakeShared<FJsonValueObject>(
+                MakeWidgetTreeChange(TEXT("setIsVariable"), TargetName, nullptr, MakeShared<FJsonValueObject>(After))));
+        }
     }
 
     TSharedPtr<FJsonObject> Planned = LoomleMutation::BuildBatchPlanFromOpResults(
@@ -898,6 +929,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetTreeEditToolResult(
                 SlotArgs = *SlotObj;
             }
             bOpOk = FLoomleWidgetAdapter::AddWidget(WBP, WidgetClass, Name, Parent, SlotArgs, OpError);
+            if (bOpOk && Args->HasTypedField<EJson::Boolean>(TEXT("isVariable")))
+            {
+                bool bIsVariable = false;
+                Args->TryGetBoolField(TEXT("isVariable"), bIsVariable);
+                bOpOk = FLoomleWidgetAdapter::SetWidgetIsVariable(WBP, Name, bIsVariable, OpError);
+            }
         }
         else if (OpName.Equals(TEXT("removeWidget")))
         {
@@ -925,6 +962,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetTreeEditToolResult(
                 SlotArgs = *SlotObj;
             }
             bOpOk = FLoomleWidgetAdapter::ReparentWidget(WBP, Name, NewParent, SlotArgs, OpError);
+        }
+        else if (OpName.Equals(TEXT("setIsVariable")))
+        {
+            FString Name;
+            bool bValue = false;
+            ResolveWidgetName(Args, Name);
+            Args->TryGetBoolField(TEXT("value"), bValue);
+            bOpOk = FLoomleWidgetAdapter::SetWidgetIsVariable(WBP, Name, bValue, OpError);
         }
 
         if (!bOpOk)

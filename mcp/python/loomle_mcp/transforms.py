@@ -1457,6 +1457,8 @@ def compile_widget_tree_command(command: dict[str, Any]) -> dict[str, Any]:
             args["parentName"] = parent_name
         if isinstance(command.get("slot"), dict):
             args["slot"] = command["slot"]
+        if isinstance(command.get("isVariable"), bool):
+            args["isVariable"] = command["isVariable"]
         return {"op": "addWidget", "args": args}
 
     if kind == "removeWidget":
@@ -1480,6 +1482,15 @@ def compile_widget_tree_command(command: dict[str, Any]) -> dict[str, Any]:
         if isinstance(command.get("slot"), dict):
             args["slot"] = command["slot"]
         return {"op": "reparentWidget", "args": args}
+
+    if kind == "setIsVariable":
+        name = widget_target_name(command)
+        if name is None:
+            raise TransformError("setIsVariable requires name or target.name.")
+        value = command.get("value")
+        if not isinstance(value, bool):
+            raise TransformError("setIsVariable requires boolean value.")
+        return {"op": "setIsVariable", "args": {"name": name, "value": value}}
 
     raise TransformError(f"Unsupported widget.tree.edit command kind: {kind}.")
 

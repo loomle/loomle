@@ -1149,6 +1149,7 @@ Supported operation families:
   as Switch, Sequence, container, operator, and Format Text nodes.
 - `movePin` for Format Text argument ordering.
 - `restorePins` for SetFieldsInStruct field visibility.
+- `setDelegateFunction` for `UK2Node_CreateDelegate` function/event selection.
 
 Mapping rules:
 
@@ -1169,6 +1170,9 @@ Mapping rules:
   last removable option rather than an arbitrary named option.
 - SetFieldsInStruct `removePin` hides existing struct field pins; `restorePins`
   restores hidden fields. These operations do not create new struct schema.
+- CreateDelegate `setDelegateFunction` follows UE's `SetFunction` and
+  `HandleAnyChange` path. It requires the output delegate pin to expose a
+  signature and validates the selected function against that signature.
 
 ## blueprint.graph.edit
 

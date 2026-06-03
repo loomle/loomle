@@ -1398,6 +1398,20 @@ namespace LoomleBlueprintAdapterInternal
         return true;
     }
 
+    static FString NormalizeAssetObjectPath(const FString& PathOrPackage)
+    {
+        if (PathOrPackage.IsEmpty() || PathOrPackage.Contains(TEXT(".")) || PathOrPackage.StartsWith(TEXT("/Script/")))
+        {
+            return PathOrPackage;
+        }
+        if (FPackageName::IsValidLongPackageName(PathOrPackage))
+        {
+            const FString AssetName = FPackageName::GetLongPackageAssetName(PathOrPackage);
+            return FString::Printf(TEXT("%s.%s"), *PathOrPackage, *AssetName);
+        }
+        return PathOrPackage;
+    }
+
     static UClass* ResolveClass(const FString& ClassPathOrName)
     {
         if (ClassPathOrName.IsEmpty())
@@ -1408,6 +1422,16 @@ namespace LoomleBlueprintAdapterInternal
         if (UClass* LoadedClass = LoadObject<UClass>(nullptr, *ClassPathOrName))
         {
             return LoadedClass;
+        }
+
+        const FString NormalizedObjectPath = NormalizeAssetObjectPath(ClassPathOrName);
+        if (NormalizedObjectPath != ClassPathOrName)
+        {
+            const FString GeneratedClassPath = NormalizedObjectPath + TEXT("_C");
+            if (UClass* LoadedGeneratedClass = LoadObject<UClass>(nullptr, *GeneratedClassPath))
+            {
+                return LoadedGeneratedClass;
+            }
         }
 
         if (UObject* Found = StaticFindObject(UObject::StaticClass(), nullptr, *ClassPathOrName))
@@ -1571,20 +1595,6 @@ namespace LoomleBlueprintAdapterInternal
         return false;
     }
 
-    static FString NormalizeAssetObjectPath(const FString& PathOrPackage)
-    {
-        if (PathOrPackage.IsEmpty() || PathOrPackage.Contains(TEXT(".")) || PathOrPackage.StartsWith(TEXT("/Script/")))
-        {
-            return PathOrPackage;
-        }
-        if (FPackageName::IsValidLongPackageName(PathOrPackage))
-        {
-            const FString AssetName = FPackageName::GetLongPackageAssetName(PathOrPackage);
-            return FString::Printf(TEXT("%s.%s"), *PathOrPackage, *AssetName);
-        }
-        return PathOrPackage;
-    }
-
     static UObject* ResolveDefaultObject(const FString& ObjectPath)
     {
         if (ObjectPath.IsEmpty())
@@ -1595,9 +1605,80 @@ namespace LoomleBlueprintAdapterInternal
         const FString NormalizedPath = NormalizeAssetObjectPath(ObjectPath);
         if (UObject* Loaded = StaticLoadObject(UObject::StaticClass(), nullptr, *NormalizedPath))
         {
+            if (UBlueprint* LoadedBlueprint = Cast<UBlueprint>(Loaded))
+            {
+                if (LoadedBlueprint->GeneratedClass)
+                {
+                    return LoadedBlueprint->GeneratedClass;
+                }
+                if (LoadedBlueprint->SkeletonGeneratedClass)
+                {
+                    return LoadedBlueprint->SkeletonGeneratedClass;
+                }
+            }
             return Loaded;
         }
         return ResolveClass(ObjectPath);
+    }
+
+    static bool ResolveAndValidatePinDefaultObject(
+        UEdGraphPin* Pin,
+        const FString& ObjectPath,
+        UObject*& OutDefaultObject,
+        FString& OutError)
+    {
+        OutDefaultObject = nullptr;
+        if (!Pin)
+        {
+            OutError = TEXT("PIN_REF_NOT_FOUND: target pin was not found.");
+            return false;
+        }
+        if (ObjectPath.IsEmpty())
+        {
+            OutError = TEXT("PIN_DEFAULT_OBJECT_NOT_FOUND: object path is empty.");
+            return false;
+        }
+
+        OutDefaultObject = ResolveDefaultObject(ObjectPath);
+        if (OutDefaultObject == nullptr)
+        {
+            OutError = FString::Printf(TEXT("PIN_DEFAULT_OBJECT_NOT_FOUND: Failed to resolve default object path for pin %s: %s"), *Pin->PinName.ToString(), *ObjectPath);
+            return false;
+        }
+
+        const bool bClassPin =
+            Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Class
+            || Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_SoftClass;
+        if (bClassPin)
+        {
+            UClass* DefaultClass = Cast<UClass>(OutDefaultObject);
+            if (!DefaultClass)
+            {
+                OutError = FString::Printf(TEXT("PIN_DEFAULT_CLASS_REQUIRED: Pin %s requires a class default, but '%s' resolved to %s."), *Pin->PinName.ToString(), *ObjectPath, *OutDefaultObject->GetClass()->GetPathName());
+                return false;
+            }
+            if (const UClass* RequiredBaseClass = Cast<UClass>(Pin->PinType.PinSubCategoryObject.Get()))
+            {
+                if (!DefaultClass->IsChildOf(RequiredBaseClass))
+                {
+                    OutError = FString::Printf(TEXT("PIN_DEFAULT_CLASS_NOT_CHILD_OF_BASE: Class '%s' is not a child of required base '%s' for pin %s."), *DefaultClass->GetPathName(), *RequiredBaseClass->GetPathName(), *Pin->PinName.ToString());
+                    return false;
+                }
+            }
+        }
+
+        const UEdGraphSchema_K2* Schema = GetDefault<UEdGraphSchema_K2>();
+        if (Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_SoftObject
+            && Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_SoftClass)
+        {
+            const FString ValidationError = Schema->IsPinDefaultValid(Pin, FString(), OutDefaultObject, FText::GetEmpty());
+            if (!ValidationError.IsEmpty())
+            {
+                OutError = FString::Printf(TEXT("PIN_DEFAULT_OBJECT_INVALID_FOR_PIN: %s"), *ValidationError);
+                return false;
+            }
+        }
+        return true;
     }
 
     static UEdGraph* GetEventGraph(UBlueprint* Blueprint)
@@ -8946,6 +9027,11 @@ bool FLoomleBlueprintAdapter::SetPinDefaultValue(const FString& BlueprintAssetPa
     return SetPinDefaultValue(BlueprintAssetPath, GraphName, NodeGuid, PinName, Value, TEXT(""), TEXT(""), OutError);
 }
 
+bool FLoomleBlueprintAdapter::ValidatePinDefaultObject(UEdGraphPin* Pin, const FString& ObjectPath, UObject*& OutDefaultObject, FString& OutError)
+{
+    return LoomleBlueprintAdapterInternal::ResolveAndValidatePinDefaultObject(Pin, ObjectPath, OutDefaultObject, OutError);
+}
+
 bool FLoomleBlueprintAdapter::SetPinDefaultValue(
     const FString& BlueprintAssetPath,
     const FString& GraphName,
@@ -8988,24 +9074,14 @@ bool FLoomleBlueprintAdapter::SetPinDefaultValue(
     Node->Modify();
     if (!ObjectPath.IsEmpty())
     {
-        UObject* DefaultObject = LoomleBlueprintAdapterInternal::ResolveDefaultObject(ObjectPath);
-        if (DefaultObject == nullptr)
+        UObject* DefaultObject = nullptr;
+        if (!LoomleBlueprintAdapterInternal::ResolveAndValidatePinDefaultObject(Pin, ObjectPath, DefaultObject, OutError))
         {
-            OutError = FString::Printf(TEXT("PIN_DEFAULT_OBJECT_NOT_FOUND: Failed to resolve default object path for pin %s: %s"), *PinName, *ObjectPath);
             return false;
         }
         const UEdGraphSchema_K2* Schema = GetDefault<UEdGraphSchema_K2>();
-        if (Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_SoftObject
-            && Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_SoftClass)
-        {
-            const FString ValidationError = Schema->IsPinDefaultValid(Pin, FString(), DefaultObject, FText::GetEmpty());
-            if (!ValidationError.IsEmpty())
-            {
-                OutError = FString::Printf(TEXT("PIN_DEFAULT_OBJECT_INVALID_FOR_PIN: %s"), *ValidationError);
-                return false;
-            }
-        }
         Schema->TrySetDefaultObject(*Pin, DefaultObject, false);
+        Node->PinDefaultValueChanged(Pin);
     }
     else if (!TextValue.IsEmpty())
     {

@@ -3232,6 +3232,11 @@ TSharedPtr<FJsonObject> BuildBlueprintNodeEditCapabilities(const TSharedPtr<FJso
         AddBlueprintNodePinEditOperation(Operations, TEXT("restorePins"), TEXT("field"), TEXT("generated"), TEXT("Restore all hidden struct field pins."));
         Notes.Add(MakeShared<FJsonValueString>(TEXT("SetFieldsInStruct edits field visibility; it does not create new schema fields.")));
     }
+    else if (BlueprintNodeClassContains(Node, TEXT("K2Node_CreateDelegate")))
+    {
+        AddBlueprintNodePinEditOperation(Operations, TEXT("setDelegateFunction"), TEXT("delegate"), TEXT("required"), TEXT("Set the target function/event selected by a Create Event node."));
+        Notes.Add(MakeShared<FJsonValueString>(TEXT("CreateDelegate function selection requires the output delegate pin to expose a signature.")));
+    }
 
     Capabilities->SetArrayField(TEXT("pinOperations"), Operations);
     Capabilities->SetBoolField(TEXT("hasPinOperations"), Operations.Num() > 0);
@@ -3600,6 +3605,81 @@ bool ReadBlueprintNodeEditTargetPinName(const TSharedPtr<FJsonObject>& Args, FSt
         (*Target)->TryGetStringField(TEXT("pin"), OutPinName);
     }
     return !OutPinName.IsEmpty();
+}
+
+FString ReadBlueprintNodeEditFunctionName(const TSharedPtr<FJsonObject>& Args)
+{
+    FString FunctionName;
+    if (!Args.IsValid())
+    {
+        return FunctionName;
+    }
+    if (Args->TryGetStringField(TEXT("functionName"), FunctionName) && !FunctionName.IsEmpty())
+    {
+        return FunctionName;
+    }
+    if (Args->TryGetStringField(TEXT("function"), FunctionName) && !FunctionName.IsEmpty())
+    {
+        return FunctionName;
+    }
+    Args->TryGetStringField(TEXT("name"), FunctionName);
+    return FunctionName;
+}
+
+bool ValidateCreateDelegateFunction(
+    UK2Node_CreateDelegate* CreateDelegateNode,
+    const FString& FunctionName,
+    FString& OutErrorCode,
+    FString& OutErrorMessage)
+{
+    OutErrorCode.Empty();
+    OutErrorMessage.Empty();
+    if (CreateDelegateNode == nullptr)
+    {
+        OutErrorCode = TEXT("UNSUPPORTED_NODE_OPERATION");
+        OutErrorMessage = TEXT("setDelegateFunction is only supported by K2Node_CreateDelegate nodes.");
+        return false;
+    }
+    if (FunctionName.IsEmpty())
+    {
+        OutErrorCode = TEXT("INVALID_ARGUMENT");
+        OutErrorMessage = TEXT("setDelegateFunction requires args.functionName.");
+        return false;
+    }
+    const UFunction* Signature = CreateDelegateNode->GetDelegateSignature();
+    if (Signature == nullptr)
+    {
+        OutErrorCode = TEXT("DELEGATE_SIGNATURE_UNAVAILABLE");
+        OutErrorMessage = TEXT("Unable to determine expected delegate signature. Connect the Create Event output delegate pin first.");
+        return false;
+    }
+    UClass* ScopeClass = CreateDelegateNode->GetScopeClass();
+    if (ScopeClass == nullptr)
+    {
+        OutErrorCode = TEXT("DELEGATE_SCOPE_UNAVAILABLE");
+        OutErrorMessage = TEXT("Unable to determine the object scope for the selected function.");
+        return false;
+    }
+    UFunction* Function = ScopeClass->FindFunctionByName(FName(*FunctionName));
+    if (Function == nullptr)
+    {
+        OutErrorCode = TEXT("DELEGATE_FUNCTION_NOT_FOUND");
+        OutErrorMessage = FString::Printf(TEXT("Function or event '%s' was not found on scope class '%s'."), *FunctionName, *ScopeClass->GetPathName());
+        return false;
+    }
+    if (!Signature->IsSignatureCompatibleWith(Function))
+    {
+        OutErrorCode = TEXT("DELEGATE_FUNCTION_SIGNATURE_MISMATCH");
+        OutErrorMessage = FString::Printf(TEXT("Function or event '%s' does not match the delegate signature '%s'."), *FunctionName, *Signature->GetName());
+        return false;
+    }
+    if (!UEdGraphSchema_K2::FunctionCanBeUsedInDelegate(Function))
+    {
+        OutErrorCode = TEXT("DELEGATE_FUNCTION_NOT_BINDABLE");
+        OutErrorMessage = FString::Printf(TEXT("Function or event '%s' cannot be used in a delegate."), *FunctionName);
+        return false;
+    }
+    return true;
 }
 
 void ReconstructBlueprintNodeAfterLocalEdit(UEdGraphNode* Node)
@@ -4323,6 +4403,36 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintNodeEditToolResult(co
         {
             return ReturnNodeEditResult(false, false, TEXT("UNSUPPORTED_NODE_OPERATION"), TEXT("This node does not support restorePins."));
         }
+        FinalizeChanged();
+        return ReturnNodeEditResult(true, true);
+    }
+
+    if (OperationLower.Equals(TEXT("setdelegatefunction")))
+    {
+        UK2Node_CreateDelegate* CreateDelegateNode = Cast<UK2Node_CreateDelegate>(TargetNode);
+        const FString FunctionName = ReadBlueprintNodeEditFunctionName(Args);
+        FString ErrorCode;
+        FString ErrorMessage;
+        if (!ValidateCreateDelegateFunction(CreateDelegateNode, FunctionName, ErrorCode, ErrorMessage))
+        {
+            return ReturnNodeEditResult(false, false, ErrorCode, ErrorMessage);
+        }
+        if (bDryRun)
+        {
+            return ReturnNodeEditResult(true, false);
+        }
+
+        const FName OldFunctionName = CreateDelegateNode->SelectedFunctionName;
+        const FGuid OldFunctionGuid = CreateDelegateNode->SelectedFunctionGuid;
+        const FName NewFunctionName(*FunctionName);
+        if (OldFunctionName == NewFunctionName && OldFunctionGuid.IsValid())
+        {
+            return ReturnNodeEditResult(true, false);
+        }
+
+        PrepareMutation();
+        CreateDelegateNode->SetFunction(NewFunctionName);
+        CreateDelegateNode->HandleAnyChangeWithoutNotifying();
         FinalizeChanged();
         return ReturnNodeEditResult(true, true);
     }
@@ -6244,9 +6354,35 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                             {
                                 SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("PIN_DEFAULT_REQUIRES_UNLINKED_PIN"), TEXT("PIN_DEFAULT_REQUIRES_UNLINKED_PIN: cannot set a default on a linked pin."), TargetNodeId);
                             }
-                            else if (!ObjectPath.IsEmpty() && StaticLoadObject(UObject::StaticClass(), nullptr, *ObjectPath) == nullptr)
+                            else if (!ObjectPath.IsEmpty())
                             {
-                                SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("PIN_DEFAULT_OBJECT_NOT_FOUND"), FString::Printf(TEXT("PIN_DEFAULT_OBJECT_NOT_FOUND: object path could not be loaded: %s"), *ObjectPath), TargetNodeId);
+                                UObject* DefaultObject = nullptr;
+                                FString ObjectError;
+                                if (!FLoomleBlueprintAdapter::ValidatePinDefaultObject(TargetPin, ObjectPath, DefaultObject, ObjectError))
+                                {
+                                    FString ObjectErrorCode = TEXT("PIN_DEFAULT_OBJECT_INVALID_FOR_PIN");
+                                    if (ObjectError.Contains(TEXT(":")))
+                                    {
+                                        ObjectError.Split(TEXT(":"), &ObjectErrorCode, nullptr);
+                                    }
+                                    SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, ObjectErrorCode, ObjectError, TargetNodeId);
+                                }
+                                else
+                                {
+                                    SingleResult = MakeBlueprintGraphEditSingleResult(OpName, true, false, TEXT(""), TEXT(""), TargetNodeId);
+                                    TSharedPtr<FJsonObject> Diff = MakeBlueprintGraphDiff();
+                                    TSharedPtr<FJsonObject> PinDefaultEntry = MakeShared<FJsonObject>();
+                                    PinDefaultEntry->SetStringField(TEXT("nodeId"), TargetNodeId);
+                                    PinDefaultEntry->SetStringField(TEXT("pin"), TargetPinName);
+                                    PinDefaultEntry->SetObjectField(TEXT("before"), MakePinDefaultSummary(TargetNodeId, TargetPinName));
+                                    TSharedPtr<FJsonObject> AfterDefault = MakeShared<FJsonObject>();
+                                    AfterDefault->SetStringField(TEXT("value"), Value);
+                                    AfterDefault->SetStringField(TEXT("object"), ObjectPath);
+                                    AfterDefault->SetStringField(TEXT("text"), TextValue);
+                                    PinDefaultEntry->SetObjectField(TEXT("after"), AfterDefault);
+                                    AppendBlueprintGraphDiffObject(Diff, TEXT("pinDefaultsChanged"), PinDefaultEntry);
+                                    AttachBlueprintGraphDiffToSingleResult(SingleResult, Diff);
+                                }
                             }
                             else
                             {
@@ -6291,6 +6427,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                     else if (!bOk && Error.StartsWith(TEXT("PIN_DEFAULT_OBJECT_INVALID_FOR_PIN")))
                     {
                         SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("PIN_DEFAULT_OBJECT_INVALID_FOR_PIN"), Error, TargetNodeId);
+                    }
+                    else if (!bOk && Error.StartsWith(TEXT("PIN_DEFAULT_CLASS_REQUIRED")))
+                    {
+                        SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("PIN_DEFAULT_CLASS_REQUIRED"), Error, TargetNodeId);
+                    }
+                    else if (!bOk && Error.StartsWith(TEXT("PIN_DEFAULT_CLASS_NOT_CHILD_OF_BASE")))
+                    {
+                        SingleResult = MakeBlueprintGraphEditSingleResult(OpName, false, false, TEXT("PIN_DEFAULT_CLASS_NOT_CHILD_OF_BASE"), Error, TargetNodeId);
                     }
                     else
                     {

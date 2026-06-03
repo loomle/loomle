@@ -803,6 +803,12 @@ def widget_command_from_legacy_op(op: dict) -> dict:
         if isinstance(args.get("slot"), dict):
             command["slot"] = args["slot"]
         return command
+    if op_name == "setIsVariable":
+        return {
+            "kind": "setIsVariable",
+            "target": {"name": args.get("name", "")},
+            "value": args.get("value"),
+        }
     return {"kind": op_name or "unknownOp"}
 
 
@@ -6606,6 +6612,34 @@ def main() -> int:
         if we_existing.get("nodeId") != we_create.get("nodeId"):
             fail(f"W06c widget.event.create repeated call should return same nodeId: {we_existing}")
         print("[PASS] W06c widget.event.create native Button OnClicked event validated")
+
+        # W06d — setIsVariable exposes a designer widget as a Blueprint variable
+        wm_add_grid = widget_tree_edit(client, 5062, {
+            "assetPath": temp_wbp_asset,
+            "ops": [{"op": "addWidget", "args": {
+                "widgetClass": "/Script/UMG.UniformGridPanel",
+                "name": "WorldCardGrid",
+                "parentName": "RootCanvas",
+            }}],
+        })
+        widget_op_ok(wm_add_grid, 0)
+        wm_grid_variable = widget_tree_edit(client, 5063, {
+            "assetPath": temp_wbp_asset,
+            "ops": [{"op": "setIsVariable", "args": {
+                "name": "WorldCardGrid",
+                "value": True,
+            }}],
+        })
+        widget_op_ok(wm_grid_variable, 0)
+        wq_grid_variable = widget_tree_inspect(client, 5064, {
+            "assetPath": temp_wbp_asset,
+            "view": "layout",
+            "filter": {"names": ["WorldCardGrid"]},
+        })
+        grid_matches = wq_grid_variable.get("matches", [])
+        if not isinstance(grid_matches, list) or not grid_matches or grid_matches[0].get("isVariable") is not True:
+            fail(f"W06d setIsVariable should make WorldCardGrid variable: {wq_grid_variable}")
+        print("[PASS] W06d widget.tree.edit setIsVariable validated")
 
         # W07 — layout view confirms child is present
         wq2 = widget_tree_inspect(client, 5060, {

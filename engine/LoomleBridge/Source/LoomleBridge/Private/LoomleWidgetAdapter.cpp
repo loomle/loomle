@@ -655,6 +655,36 @@ bool FLoomleWidgetAdapter::AddWidget(
     return true;
 }
 
+bool FLoomleWidgetAdapter::SetWidgetIsVariable(
+    UWidgetBlueprint* WBP,
+    const FString& Name,
+    bool bIsVariable,
+    FString& OutError)
+{
+    UWidget* Target = FindWidgetByName(WBP, Name);
+    if (!Target)
+    {
+        OutError = FString::Printf(TEXT("WIDGET_NOT_FOUND: Widget '%s' not found."), *Name);
+        return false;
+    }
+
+    EnsureExistingWidgetVariableGuids(WBP);
+    WBP->Modify();
+    Target->SetFlags(RF_Transactional);
+    Target->Modify();
+    Target->bIsVariable = bIsVariable;
+
+#if WITH_EDITORONLY_DATA
+    if (!WBP->WidgetVariableNameToGuidMap.Contains(Target->GetFName()))
+    {
+        WBP->OnVariableAdded(Target->GetFName());
+    }
+#endif
+
+    MarkModified(WBP);
+    return true;
+}
+
 bool FLoomleWidgetAdapter::RemoveWidget(
     UWidgetBlueprint* WBP,
     const FString& Name,

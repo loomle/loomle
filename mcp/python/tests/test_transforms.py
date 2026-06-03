@@ -320,6 +320,12 @@ class TransformTests(unittest.TestCase):
                         },
                         "name": "TitleText",
                         "parent": {"name": "RootCanvas"},
+                        "isVariable": True,
+                    },
+                    {
+                        "kind": "setIsVariable",
+                        "target": {"name": "WorldCardGrid"},
+                        "value": True,
                     }
                 ],
             },
@@ -329,6 +335,11 @@ class TransformTests(unittest.TestCase):
         self.assertEqual(payload["ops"][0]["op"], "addWidget")
         self.assertEqual(payload["ops"][0]["args"]["widgetClass"], "/Script/UMG.TextBlock")
         self.assertEqual(payload["ops"][0]["args"]["parentName"], "RootCanvas")
+        self.assertTrue(payload["ops"][0]["args"]["isVariable"])
+        self.assertEqual(
+            payload["ops"][1],
+            {"op": "setIsVariable", "args": {"name": "WorldCardGrid", "value": True}},
+        )
 
     def test_widget_edit_set_property_transform(self) -> None:
         payload = apply_args_transform(

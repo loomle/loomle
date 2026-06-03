@@ -5596,7 +5596,8 @@
               "insertPin",
               "renamePin",
               "movePin",
-              "restorePins"
+              "restorePins",
+              "setDelegateFunction"
             ]
           },
           "args": {
@@ -6281,6 +6282,57 @@
             ],
             "notes": [
               "Call blueprint.node.inspect first. It returns editCapabilities and the current pin names accepted by these operations."
+            ]
+          },
+          {
+            "name": "setDelegateFunction",
+            "category": "node-local-delegate-state",
+            "summary": "Set the target function/event selected by a Create Event delegate node.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "setDelegateFunction"
+                },
+                "functionName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Existing function or event name on the Create Event node's object scope."
+                }
+              },
+              "required": [
+                "functionName"
+              ],
+              "additionalProperties": false
+            },
+            "examples": [
+              {
+                "assetPath": "/Game/UI/WBP_Menu",
+                "graph": {
+                  "name": "OnBuildCards"
+                },
+                "node": {
+                  "id": "create-event-guid"
+                },
+                "operation": "setDelegateFunction",
+                "args": {
+                  "functionName": "HandleWorldCardClicked"
+                }
+              }
+            ],
+            "errors": [
+              "INVALID_ARGUMENT",
+              "NODE_NOT_FOUND",
+              "UNSUPPORTED_NODE_OPERATION",
+              "DELEGATE_SIGNATURE_UNAVAILABLE",
+              "DELEGATE_SCOPE_UNAVAILABLE",
+              "DELEGATE_FUNCTION_NOT_FOUND",
+              "DELEGATE_FUNCTION_SIGNATURE_MISMATCH",
+              "DELEGATE_FUNCTION_NOT_BINDABLE"
+            ],
+            "notes": [
+              "K2Node_CreateDelegate setDelegateFunction follows the Create Event node SetFunction plus HandleAnyChange path.",
+              "The Create Event output delegate pin must be connected so UE can resolve the expected delegate signature."
             ]
           }
         ]
@@ -7606,7 +7658,57 @@
                   ]
                 }
               }
-            }
+            },
+            "errors": [
+              "PIN_NOT_FOUND",
+              "PIN_DEFAULT_NOT_EDITABLE",
+              "PIN_DEFAULT_REQUIRES_UNLINKED_PIN",
+              "PIN_DEFAULT_OBJECT_NOT_FOUND",
+              "PIN_DEFAULT_OBJECT_INVALID_FOR_PIN",
+              "PIN_DEFAULT_CLASS_REQUIRED",
+              "PIN_DEFAULT_CLASS_NOT_CHILD_OF_BASE"
+            ],
+            "notes": [
+              "setPinDefault must not implicitly break links.",
+              "For object/class pins, pass value.object. Blueprint asset paths resolve to their generated class when the target pin requires a class.",
+              "Class pin updates trigger UE node-specific PinDefaultValueChanged behavior so construct/spawn nodes rebuild dependent pins."
+            ],
+            "examples": [
+              {
+                "kind": "setPinDefault",
+                "target": {
+                  "node": {
+                    "alias": "print"
+                  },
+                  "pin": "InString"
+                },
+                "value": "Hello"
+              },
+              {
+                "kind": "setPinDefault",
+                "target": {
+                  "node": {
+                    "alias": "createCard"
+                  },
+                  "pin": "Class"
+                },
+                "value": {
+                  "object": "/Game/UI/WBP_OasiumWorldCard.WBP_OasiumWorldCard_C"
+                }
+              },
+              {
+                "kind": "setPinDefault",
+                "target": {
+                  "node": {
+                    "alias": "createCard"
+                  },
+                  "pin": "Class"
+                },
+                "value": {
+                  "object": "/Game/UI/WBP_OasiumWorldCard"
+                }
+              }
+            ]
           },
           {
             "name": "removeNode",
@@ -11179,6 +11281,9 @@
                 "slot": {
                   "type": "object",
                   "additionalProperties": true
+                },
+                "isVariable": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -11216,7 +11321,8 @@
                 "name": "TitleText",
                 "parent": {
                   "name": "RootCanvas"
-                }
+                },
+                "isVariable": true
               }
             ],
             "errors": [
@@ -11419,6 +11525,64 @@
             ],
             "notes": [
               "slot values are panel-slot properties and depend on the new parent widget type."
+            ]
+          },
+          {
+            "name": "setIsVariable",
+            "category": "core",
+            "summary": "Set whether one WidgetTree widget is exposed as a Blueprint variable.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "setIsVariable"
+                },
+                "target": {
+                  "$ref": "#/$defs/widgetRef"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "value": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "kind",
+                "value"
+              ],
+              "additionalProperties": false,
+              "$defs": {
+                "widgetRef": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "examples": [
+              {
+                "kind": "setIsVariable",
+                "target": {
+                  "name": "WorldCardGrid"
+                },
+                "value": true
+              }
+            ],
+            "errors": [
+              "WIDGET_NOT_FOUND"
+            ],
+            "notes": [
+              "This is a WidgetBlueprint structure operation, not a reflected widget property edit."
             ]
           }
         ]

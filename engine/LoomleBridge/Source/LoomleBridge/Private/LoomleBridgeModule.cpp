@@ -51,6 +51,7 @@
 #include "Kismet2/KismetEditorUtilities.h"
 #include "EdGraphSchema_K2.h"
 #include "K2Node_AddPinInterface.h"
+#include "K2Node_CreateDelegate.h"
 #include "K2Node_ExecutionSequence.h"
 #include "K2Node_CustomEvent.h"
 #include "K2Node_FormatText.h"

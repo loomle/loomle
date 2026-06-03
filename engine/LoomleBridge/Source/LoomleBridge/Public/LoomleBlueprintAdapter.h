@@ -4,6 +4,9 @@
 
 #include "CoreMinimal.h"
 
+class UEdGraphPin;
+class UObject;
+
 struct LOOMLEBRIDGE_API FLoomleBlueprintNodeListOptions
 {
     TArray<FString> NodeClasses;
@@ -69,6 +72,7 @@ public:
     static bool BreakPinLinks(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, const FString& PinName, FString& OutError);
     static bool RemoveNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, FString& OutError);
     static bool MoveNode(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, int32 NodePosX, int32 NodePosY, FString& OutError);
+    static bool ValidatePinDefaultObject(UEdGraphPin* Pin, const FString& ObjectPath, UObject*& OutDefaultObject, FString& OutError);
     static bool SetPinDefaultValue(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, const FString& PinName, const FString& Value, FString& OutError);
     static bool SetPinDefaultValue(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, const FString& PinName, const FString& Value, const FString& ObjectPath, const FString& TextValue, FString& OutError);
     static bool SetNodeComment(const FString& BlueprintAssetPath, const FString& GraphName, const FString& NodeGuid, const FString& Comment, FString& OutError);

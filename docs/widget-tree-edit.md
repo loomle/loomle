@@ -9,13 +9,14 @@ edit, then stops before mutating UE state.
 
 ## Boundary
 
-`widget.tree.edit` owns WidgetTree structure and instance property edits:
+`widget.tree.edit` owns WidgetTree structure and Blueprint-visible widget
+identity:
 
 - create a widget from a `widget.palette` entry
 - remove a widget subtree
 - rename a widget
-- set one widget or slot property
 - move a widget under another panel widget
+- set whether a widget is exposed as a Blueprint variable
 
 It does not create Blueprint graph event nodes. Use `widget.event.create` for
 component-bound widget events.
@@ -50,9 +51,13 @@ pass the full selected `widget.palette` entry rather than guessing classes.
   },
   "name": "TitleText",
   "parent": { "name": "RootCanvas" },
+  "isVariable": true,
   "slot": {}
 }
 ```
+
+`isVariable` is optional. Set it when the newly created widget must be
+referenced from Blueprint graphs immediately.
 
 `removeWidget` removes one widget. Removing a panel removes its child widgets.
 
@@ -71,15 +76,14 @@ state, bindings, and references where UE exposes the required update path.
 }
 ```
 
-`setProperty` writes one editable property on the widget, or on its current
-slot when the widget class does not own the property.
+`setIsVariable` controls whether one designer widget is exposed as a Blueprint
+variable.
 
 ```json
 {
-  "kind": "setProperty",
+  "kind": "setIsVariable",
   "target": { "name": "TitleText" },
-  "property": "Text",
-  "value": "Hello"
+  "value": true
 }
 ```
 
@@ -138,6 +142,8 @@ GUID and emits ensures when direct tree mutation skips that step.
 Loomle therefore maps edits to UE semantics as follows:
 
 - added widgets call `UWidgetBlueprint::OnVariableAdded`
+- `setIsVariable` writes `UWidget::bIsVariable`, ensures the widget has a
+  variable GUID, and marks the Blueprint structurally modified
 - renamed widgets call `UWidgetBlueprint::OnVariableRenamed`
 - removed widgets and removed descendants call `UWidgetBlueprint::OnVariableRemoved`
 - structural changes call `FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified`

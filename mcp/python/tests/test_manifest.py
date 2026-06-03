@@ -446,7 +446,7 @@ class ToolManifestTests(unittest.TestCase):
         names = {operation["name"] for operation in payload["operations"]}
         self.assertEqual(
             names,
-            {"addFromPalette", "removeWidget", "renameWidget", "reparentWidget"},
+            {"addFromPalette", "removeWidget", "renameWidget", "reparentWidget", "setIsVariable"},
         )
 
     def test_schema_inspect_lists_widget_edit_operations(self) -> None:

@@ -57,6 +57,12 @@ public:
         const TSharedPtr<FJsonObject>& SlotArgs,
         FString& OutError);
 
+    static bool SetWidgetIsVariable(
+        UWidgetBlueprint* WBP,
+        const FString& Name,
+        bool bIsVariable,
+        FString& OutError);
+
     // Create or return the native component-bound event node for one widget event.
     static bool CreateWidgetEvent(
         const FString& AssetPath,

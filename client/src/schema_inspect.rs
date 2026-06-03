@@ -432,6 +432,7 @@ fn blueprint_node_edit_operation_names() -> Vec<&'static str> {
         "renamePin",
         "movePin",
         "restorePins",
+        "setDelegateFunction",
     ]
 }
 
@@ -441,11 +442,18 @@ fn blueprint_node_edit_operation_index() -> Vec<serde_json::Value> {
         .map(|name| {
             serde_json::json!({
                 "name": name,
-                "category": "node-local-pin-structure",
+                "category": node_edit_operation_category(name),
                 "summary": node_edit_operation_summary(name)
             })
         })
         .collect()
+}
+
+fn node_edit_operation_category(operation: &str) -> &'static str {
+    match operation {
+        "setDelegateFunction" => "node-local-delegate-state",
+        _ => "node-local-pin-structure",
+    }
 }
 
 fn node_edit_operation_summary(operation: &str) -> &'static str {
@@ -456,6 +464,7 @@ fn node_edit_operation_summary(operation: &str) -> &'static str {
         "renamePin" => "Rename a node-owned case or argument pin when the UE node exposes a stable backing name list.",
         "movePin" => "Move a node-owned pin/argument before or after another node-owned pin when UE exposes ordering.",
         "restorePins" => "Restore node-local pins hidden by UE node field-visibility actions.",
+        "setDelegateFunction" => "Set the target function/event selected by a Create Event delegate node.",
         _ => "Edit node-local Blueprint pin structure.",
     }
 }
@@ -497,7 +506,7 @@ fn blueprint_node_edit_operation_schema(
         "domain": "blueprint",
         "tool": "blueprint.node.edit",
         "operation": operation,
-        "category": "node-local-pin-structure",
+        "category": node_edit_operation_category(operation),
         "source": {
             "document": "UE K2 node local pin actions",
             "section": operation
@@ -529,7 +538,12 @@ fn blueprint_node_edit_operation_schema(
                 "NODE_NOT_FOUND",
                 "PIN_NOT_FOUND",
                 "UNSUPPORTED_NODE_OPERATION",
-                "UNSUPPORTED_PIN_OPERATION"
+                "UNSUPPORTED_PIN_OPERATION",
+                "DELEGATE_SIGNATURE_UNAVAILABLE",
+                "DELEGATE_SCOPE_UNAVAILABLE",
+                "DELEGATE_FUNCTION_NOT_FOUND",
+                "DELEGATE_FUNCTION_SIGNATURE_MISMATCH",
+                "DELEGATE_FUNCTION_NOT_BINDABLE"
             ]),
         );
     }
@@ -541,7 +555,8 @@ fn blueprint_node_edit_operation_schema(
                 "Use blueprint.graph.edit for graph topology, links, placement, pin defaults, node creation, and node deletion.",
                 "Use blueprint.member.edit for EditablePinBase function, macro, event, and dispatcher signature changes; those are Blueprint members, not node-local K2 add-pin actions.",
                 "UK2Node_Select removePin follows UE's RemoveOptionPinToNode behavior: it removes the last removable option, not an arbitrary named option.",
-                "UK2Node_SetFieldsInStruct removePin hides struct field pins; restorePins restores all hidden struct field pins."
+                "UK2Node_SetFieldsInStruct removePin hides struct field pins; restorePins restores all hidden struct field pins.",
+                "UK2Node_CreateDelegate setDelegateFunction follows the Create Event node's SetFunction plus HandleAnyChange path and validates against the connected delegate signature."
             ]),
         );
     }
@@ -635,6 +650,14 @@ fn node_edit_args_schema(operation: &str) -> serde_json::Value {
             },
             "additionalProperties":false
         }),
+        "setDelegateFunction" => serde_json::json!({
+            "type":"object",
+            "properties":{
+                "functionName":{"type":"string","minLength":1,"description":"Existing function or event name on the Create Event node's object scope."}
+            },
+            "required":["functionName"],
+            "additionalProperties":false
+        }),
         _ => serde_json::json!({"type":"object","additionalProperties":true}),
     }
 }
@@ -682,6 +705,13 @@ fn node_edit_example(operation: &str) -> serde_json::Value {
             "node": {"id": "set-members-guid"},
             "operation": "restorePins",
             "args": {"scope": "all"}
+        }),
+        "setDelegateFunction" => serde_json::json!({
+            "assetPath": "/Game/UI/WBP_Menu",
+            "graph": {"name": "OnBuildCards"},
+            "node": {"id": "create-event-guid"},
+            "operation": "setDelegateFunction",
+            "args": {"functionName": "HandleWorldCardClicked"}
         }),
         _ => serde_json::json!({}),
     }
@@ -1220,10 +1250,23 @@ fn blueprint_graph_edit_operation_schema(
             }),
             vec![
                 serde_json::json!({"kind":"setPinDefault","target":{"node":{"alias":"print"},"pin":"InString"},"value":"Hello"}),
-                serde_json::json!({"kind":"setPinDefault","target":{"node":{"alias":"spawn"},"pin":"Class"},"value":{"object":"/Game/BP_Coin.BP_Coin_C"}}),
+                serde_json::json!({"kind":"setPinDefault","target":{"node":{"alias":"createCard"},"pin":"Class"},"value":{"object":"/Game/UI/WBP_OasiumWorldCard.WBP_OasiumWorldCard_C"}}),
+                serde_json::json!({"kind":"setPinDefault","target":{"node":{"alias":"createCard"},"pin":"Class"},"value":{"object":"/Game/UI/WBP_OasiumWorldCard"}}),
             ],
-            vec!["PIN_NOT_FOUND", "PIN_DEFAULT_NOT_EDITABLE"],
-            vec!["setPinDefault must not implicitly break links."],
+            vec![
+                "PIN_NOT_FOUND",
+                "PIN_DEFAULT_NOT_EDITABLE",
+                "PIN_DEFAULT_REQUIRES_UNLINKED_PIN",
+                "PIN_DEFAULT_OBJECT_NOT_FOUND",
+                "PIN_DEFAULT_OBJECT_INVALID_FOR_PIN",
+                "PIN_DEFAULT_CLASS_REQUIRED",
+                "PIN_DEFAULT_CLASS_NOT_CHILD_OF_BASE",
+            ],
+            vec![
+                "setPinDefault must not implicitly break links.",
+                "For object/class pins, pass value.object. Blueprint asset paths resolve to their generated class when the target pin requires a class.",
+                "Class pin updates trigger UE node-specific PinDefaultValueChanged behavior so construct/spawn nodes rebuild dependent pins.",
+            ],
         ),
         "removeNode" => (
             "core",
@@ -1385,7 +1428,9 @@ fn widget_tree_edit_operation_names() -> Vec<&'static str> {
     vec![
         "addFromPalette",
         "removeWidget",
+        "renameWidget",
         "reparentWidget",
+        "setIsVariable",
     ]
 }
 
@@ -1393,7 +1438,9 @@ fn widget_tree_edit_operation_index() -> Vec<serde_json::Value> {
     vec![
         serde_json::json!({"name":"addFromPalette","category":"core","summary":"Create one UMG widget from a selected widget.palette entry."}),
         serde_json::json!({"name":"removeWidget","category":"core","summary":"Remove one widget from the WidgetTree."}),
+        serde_json::json!({"name":"renameWidget","category":"core","summary":"Rename one widget in the WidgetTree."}),
         serde_json::json!({"name":"reparentWidget","category":"core","summary":"Move one widget under a different parent widget."}),
+        serde_json::json!({"name":"setIsVariable","category":"core","summary":"Set whether one WidgetTree widget is exposed as a Blueprint variable."}),
     ]
 }
 
@@ -1432,12 +1479,13 @@ fn widget_tree_edit_operation_schema(
                     "name":{"type":"string","minLength":1},
                     "parent":{"oneOf":[{"type":"string","minLength":1},{"$ref":"#/$defs/widgetRef"}]},
                     "parentName":{"type":"string","minLength":1},
-                    "slot":{"type":"object","additionalProperties":true}
+                    "slot":{"type":"object","additionalProperties":true},
+                    "isVariable":{"type":"boolean"}
                 },
                 "required":["kind","entry","name"],
                 "additionalProperties":false
             }),
-            vec![serde_json::json!({"kind":"addFromPalette","entry":{"id":"widget.palette:...","kind":"native","payload":{"widgetClass":"/Script/UMG.TextBlock"}},"name":"TitleText","parent":{"name":"RootCanvas"}})],
+            vec![serde_json::json!({"kind":"addFromPalette","entry":{"id":"widget.palette:...","kind":"native","payload":{"widgetClass":"/Script/UMG.TextBlock"}},"name":"TitleText","parent":{"name":"RootCanvas"},"isVariable":true})],
             vec!["PALETTE_ENTRY_NOT_EXECUTABLE", "INVALID_PALETTE_ENTRY"],
             vec!["Use widget.palette first and pass the full selected entry. Do not guess widget classes in public calls.", "parent may be omitted only when creating the root widget."],
         ),
@@ -1449,6 +1497,14 @@ fn widget_tree_edit_operation_schema(
             vec!["WIDGET_NOT_FOUND"],
             vec!["Removing a panel also removes its child widgets."],
         ),
+        "renameWidget" => (
+            "core",
+            "Rename one widget in the WidgetTree.",
+            serde_json::json!({"type":"object","properties":{"kind":{"const":"renameWidget"},"target":{"$ref":"#/$defs/widgetRef"},"oldName":{"type":"string","minLength":1},"name":{"type":"string","minLength":1,"description":"New widget name."},"newName":{"type":"string","minLength":1}},"required":["kind"],"additionalProperties":false}),
+            vec![serde_json::json!({"kind":"renameWidget","target":{"name":"WorldSelect_Card0_Button"},"name":"CardButton"})],
+            vec!["WIDGET_NOT_FOUND", "WIDGET_ALREADY_EXISTS", "RENAME_WIDGET_FAILED"],
+            vec!["Renaming preserves the widget object, slot, layout, style, properties, and bindings."],
+        ),
         "reparentWidget" => (
             "core",
             "Move one widget under a different parent widget.",
@@ -1456,6 +1512,14 @@ fn widget_tree_edit_operation_schema(
             vec![serde_json::json!({"kind":"reparentWidget","target":{"name":"TitleText"},"newParent":{"name":"ContentBox"}})],
             vec!["WIDGET_NOT_FOUND", "PARENT_NOT_FOUND", "REPARENT_FAILED"],
             vec!["slot values are panel-slot properties and depend on the new parent widget type."],
+        ),
+        "setIsVariable" => (
+            "core",
+            "Set whether one WidgetTree widget is exposed as a Blueprint variable.",
+            serde_json::json!({"type":"object","properties":{"kind":{"const":"setIsVariable"},"target":{"$ref":"#/$defs/widgetRef"},"name":{"type":"string","minLength":1},"value":{"type":"boolean"}},"required":["kind","value"],"additionalProperties":false}),
+            vec![serde_json::json!({"kind":"setIsVariable","target":{"name":"WorldCardGrid"},"value":true})],
+            vec!["WIDGET_NOT_FOUND"],
+            vec!["This is a WidgetBlueprint structure operation, not a reflected widget property edit."],
         ),
         _ => return None,
     };
