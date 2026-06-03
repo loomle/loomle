@@ -6324,10 +6324,11 @@ fn manifest_declared_tools_for(target: &str) -> Result<Vec<Tool>, String> {
             .and_then(|value| value.as_object())
             .cloned()
             .ok_or_else(|| format!("{name}.inputSchema must be an object"))?;
+        let listed_input_schema = tools_list_input_schema(name, &input_schema);
         let mut declared_tool = Tool::new(
             name.to_string(),
             description.to_string(),
-            Arc::new(input_schema),
+            Arc::new(listed_input_schema),
         );
         if let Some(title) = tool.get("title").and_then(|value| value.as_str()) {
             declared_tool.title = Some(title.to_string());
@@ -6335,6 +6336,112 @@ fn manifest_declared_tools_for(target: &str) -> Result<Vec<Tool>, String> {
         declared.push(declared_tool);
     }
     Ok(declared)
+}
+
+fn tools_list_input_schema(
+    name: &str,
+    full_schema: &rmcp::model::JsonObject,
+) -> rmcp::model::JsonObject {
+    if name == "schema.inspect" {
+        return full_schema.clone();
+    }
+
+    let mut schema = rmcp::model::JsonObject::new();
+    schema.insert("type".to_string(), serde_json::json!("object"));
+    if let Some(required) = full_schema
+        .get("required")
+        .and_then(|value| value.as_array())
+    {
+        schema.insert(
+            "required".to_string(),
+            serde_json::Value::Array(required.clone()),
+        );
+    }
+
+    let Some(properties) = full_schema
+        .get("properties")
+        .and_then(|value| value.as_object())
+    else {
+        return schema;
+    };
+    let required_names = full_schema
+        .get("required")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|value| value.as_str())
+                .collect::<std::collections::HashSet<_>>()
+        })
+        .unwrap_or_default();
+    let mut thin_properties = serde_json::Map::new();
+    for (property_name, property_schema) in properties {
+        if required_names.contains(property_name.as_str())
+            || tools_list_high_signal_optional(property_name)
+        {
+            thin_properties.insert(
+                property_name.clone(),
+                tools_list_thin_property(property_schema),
+            );
+        }
+    }
+    if !thin_properties.is_empty() || full_schema.contains_key("properties") {
+        schema.insert(
+            "properties".to_string(),
+            serde_json::Value::Object(thin_properties),
+        );
+    }
+    schema
+}
+
+fn tools_list_high_signal_optional(property_name: &str) -> bool {
+    matches!(
+        property_name,
+        "kind"
+            | "view"
+            | "operation"
+            | "memberKind"
+            | "action"
+            | "fn"
+            | "tool"
+            | "domain"
+            | "dryRun"
+            | "expectedRevision"
+    )
+}
+
+fn tools_list_thin_property(property_schema: &serde_json::Value) -> serde_json::Value {
+    let Some(object) = property_schema.as_object() else {
+        return serde_json::json!({});
+    };
+    let mut thin = serde_json::Map::new();
+    for field in ["type", "enum", "const", "minLength", "default"] {
+        if let Some(value) = object.get(field) {
+            thin.insert(field.to_string(), value.clone());
+        }
+    }
+    if let Some(description) = object.get("description").and_then(|value| value.as_str()) {
+        thin.insert(
+            "description".to_string(),
+            serde_json::json!(tools_list_short_description(description)),
+        );
+    }
+    if thin.is_empty() {
+        thin.insert("type".to_string(), serde_json::json!("object"));
+    }
+    serde_json::Value::Object(thin)
+}
+
+fn tools_list_short_description(description: &str) -> String {
+    const LIMIT: usize = 120;
+    if description.len() <= LIMIT {
+        return description.to_string();
+    }
+    let mut end = LIMIT;
+    while !description.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}...", description[..end].trim_end())
 }
 
 fn runtime_declared_tools() -> Vec<Tool> {
@@ -13803,6 +13910,9 @@ mod tests {
         assert_eq!(view_enum, vec!["summary", "exec_flow", "data_flow"]);
         assert!(!properties.contains_key("filter"));
         assert!(!properties.contains_key("page"));
+        assert!(!serde_json::to_string(&graph_inspect.input_schema)
+            .expect("thin input json")
+            .contains("$defs"));
 
         let output_schema = manifest_tool(graph_inspect.name.as_ref())
             .get("outputSchema")
@@ -13925,7 +14035,7 @@ mod tests {
         args.insert("operation".into(), serde_json::json!("addPin"));
         args.insert(
             "include".into(),
-            serde_json::json!(["summary", "schema", "notes"]),
+            serde_json::json!(["summary", "operation", "notes"]),
         );
 
         let result = call_schema_inspect(&args);
@@ -13935,8 +14045,8 @@ mod tests {
             payload.get("operation").and_then(|value| value.as_str()),
             Some("addPin")
         );
-        let schema_text =
-            serde_json::to_string(payload.get("schema").expect("schema")).expect("schema json");
+        let schema_text = serde_json::to_string(payload.get("operationSchema").expect("schema"))
+            .expect("schema json");
         assert!(schema_text.contains("case"));
         assert!(schema_text.contains("argument"));
         let notes_text =
@@ -13952,7 +14062,7 @@ mod tests {
         args.insert("operation".into(), serde_json::json!("addFromPalette"));
         args.insert(
             "include".into(),
-            serde_json::json!(["summary", "schema", "examples", "errors", "notes"]),
+            serde_json::json!(["summary", "operation", "examples", "errors", "notes"]),
         );
 
         let result = call_schema_inspect(&args);
@@ -13964,7 +14074,7 @@ mod tests {
         );
         assert_eq!(
             payload
-                .get("schema")
+                .get("operationSchema")
                 .and_then(|schema| schema.get("properties"))
                 .and_then(|properties| properties.get("kind"))
                 .and_then(|kind| kind.get("const"))
@@ -14132,7 +14242,7 @@ mod tests {
         args.insert("operation".into(), serde_json::json!("addFromPalette"));
         args.insert(
             "include".into(),
-            serde_json::json!(["summary", "schema", "notes"]),
+            serde_json::json!(["summary", "operation", "notes"]),
         );
 
         let result = call_schema_inspect(&args);
@@ -14143,7 +14253,7 @@ mod tests {
             Some("addFromPalette")
         );
         assert!(payload
-            .get("schema")
+            .get("operationSchema")
             .and_then(|schema| schema.get("properties"))
             .and_then(|properties| properties.get("entry"))
             .is_some());
@@ -14162,7 +14272,10 @@ mod tests {
         args.insert("domain".into(), serde_json::json!("material"));
         args.insert("tool".into(), serde_json::json!("material.graph.edit"));
         args.insert("operation".into(), serde_json::json!("addFromPalette"));
-        args.insert("include".into(), serde_json::json!(["summary", "schema"]));
+        args.insert(
+            "include".into(),
+            serde_json::json!(["summary", "operation"]),
+        );
 
         let result = call_schema_inspect(&args);
         assert_eq!(result.is_error, Some(false));
@@ -14172,7 +14285,7 @@ mod tests {
             Some("addFromPalette")
         );
         assert!(payload
-            .get("schema")
+            .get("operationSchema")
             .and_then(|schema| schema.get("properties"))
             .and_then(|properties| properties.get("entry"))
             .is_some());
@@ -14207,7 +14320,10 @@ mod tests {
         args.insert("domain".into(), serde_json::json!("pcg"));
         args.insert("tool".into(), serde_json::json!("pcg.parameter.edit"));
         args.insert("operation".into(), serde_json::json!("create"));
-        args.insert("include".into(), serde_json::json!(["summary", "schema"]));
+        args.insert(
+            "include".into(),
+            serde_json::json!(["summary", "operation"]),
+        );
 
         let result = call_schema_inspect(&args);
         assert_eq!(result.is_error, Some(false));
@@ -14217,7 +14333,7 @@ mod tests {
             Some("create")
         );
         assert!(payload
-            .get("schema")
+            .get("operationSchema")
             .and_then(|schema| schema.get("properties"))
             .and_then(|properties| properties.get("type"))
             .is_some());
@@ -14231,7 +14347,7 @@ mod tests {
         args.insert("operation".into(), serde_json::json!("variable.create"));
         args.insert(
             "include".into(),
-            serde_json::json!(["summary", "schema", "examples", "errors", "notes"]),
+            serde_json::json!(["summary", "operation", "examples", "errors", "notes"]),
         );
 
         let result = call_schema_inspect(&args);
@@ -14243,7 +14359,7 @@ mod tests {
         );
         assert_eq!(
             payload
-                .get("schema")
+                .get("operationSchema")
                 .and_then(|schema| schema.get("properties"))
                 .and_then(|properties| properties.get("memberKind"))
                 .and_then(|member_kind| member_kind.get("const"))
@@ -14252,7 +14368,7 @@ mod tests {
         );
         assert_eq!(
             payload
-                .get("schema")
+                .get("operationSchema")
                 .and_then(|schema| schema.get("properties"))
                 .and_then(|properties| properties.get("operation"))
                 .and_then(|operation| operation.get("const"))
@@ -14318,12 +14434,40 @@ mod tests {
     }
 
     #[test]
+    fn schema_inspect_returns_full_tool_input_schema() {
+        let mut args = JsonObject::new();
+        args.insert("domain".into(), serde_json::json!("blueprint"));
+        args.insert("tool".into(), serde_json::json!("blueprint.graph.inspect"));
+        args.insert("include".into(), serde_json::json!(["input"]));
+
+        let result = call_schema_inspect(&args);
+        assert_ne!(result.is_error, Some(true));
+        let payload = result.structured_content.expect("structured content");
+        assert_eq!(
+            payload
+                .get("hasInputSchema")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
+        let input_properties = payload
+            .get("inputSchema")
+            .and_then(|schema| schema.get("properties"))
+            .and_then(|value| value.as_object())
+            .expect("input properties");
+        assert!(input_properties.contains_key("assetPath"));
+        assert!(input_properties.contains_key("graph"));
+        assert!(input_properties.contains_key("rootNode"));
+        assert!(input_properties.contains_key("rootPin"));
+        assert!(input_properties.contains_key("traversal"));
+    }
+
+    #[test]
     fn schema_inspect_can_include_operation_schema_and_tool_output() {
         let mut args = JsonObject::new();
         args.insert("domain".into(), serde_json::json!("blueprint"));
         args.insert("tool".into(), serde_json::json!("blueprint.graph.edit"));
         args.insert("operation".into(), serde_json::json!("addFromPalette"));
-        args.insert("include".into(), serde_json::json!(["schema", "output"]));
+        args.insert("include".into(), serde_json::json!(["operation", "output"]));
 
         let result = call_schema_inspect(&args);
         assert_ne!(result.is_error, Some(true));
@@ -14332,7 +14476,7 @@ mod tests {
             payload.get("operation").and_then(|value| value.as_str()),
             Some("addFromPalette")
         );
-        assert!(payload.get("schema").is_some());
+        assert!(payload.get("operationSchema").is_some());
         assert!(payload.get("outputSchema").is_some());
         assert_eq!(
             payload

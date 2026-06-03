@@ -10,12 +10,9 @@ Schema inspection provides a second-level lookup path. The first-level tool
 schema stays small, and the agent asks for the exact operation schema only when
 it needs that operation.
 
-Not every Blueprint-facing tool should support schema inspection. Tools whose
-first-level schema fully describes their request shape, such as `asset.create`,
-`asset.inspect`, `asset.edit`, `blueprint.inspect`, `blueprint.class.inspect`,
-and `blueprint.class.edit`, should stay self-contained in `tools/list`.
-`schema.inspect` is reserved for tools with a deliberately compressed
-operation envelope.
+All domain tools may use schema inspection for full input and output schemas.
+Tools with nested edit operations additionally expose operation schemas through
+the same lookup path.
 
 ## Design Principle
 
@@ -34,7 +31,7 @@ Blueprint behavior.
   "domain": "blueprint",
   "tool": "blueprint.member.edit",
   "operation": "variable.create",
-  "include": ["schema", "examples", "errors"]
+  "include": ["operation", "examples", "errors"]
 }
 ```
 
@@ -60,9 +57,9 @@ Blueprint behavior.
       "type": "array",
       "items": {
         "type": "string",
-        "enum": ["summary", "schema", "examples", "errors", "notes"]
+        "enum": ["summary", "input", "operation", "examples", "errors", "notes", "output"]
       },
-      "default": ["summary", "schema"]
+      "default": ["summary", "operation"]
     }
   },
   "required": ["domain", "tool"],
@@ -79,7 +76,7 @@ Blueprint behavior.
   "operation": "addFromPalette",
   "category": "core",
   "summary": "Execute one selected blueprint.graph.palette entry.",
-  "schema": {},
+  "operationSchema": {},
   "examples": [],
   "errors": [],
   "notes": [],

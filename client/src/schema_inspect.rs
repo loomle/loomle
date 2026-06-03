@@ -17,9 +17,9 @@ pub fn schema_inspect_schema() -> JsonObject {
                 "type": "array",
                 "items": {
                     "type": "string",
-                    "enum": ["summary", "schema", "examples", "errors", "notes", "output"]
+                    "enum": ["summary", "input", "operation", "examples", "errors", "notes", "output"]
                 },
-                "default": ["summary", "schema"]
+                "default": ["summary", "operation"]
             }
         },
         "required": ["domain", "tool"],
@@ -153,6 +153,7 @@ fn manifest_schema_inspect(
             operation_value,
             includes,
         );
+        append_tool_input_schema(&mut payload, tool_value, includes);
         append_tool_output_schema(&mut payload, tool_value, includes);
         return CallToolResult::structured(payload);
     }
@@ -163,6 +164,7 @@ fn manifest_schema_inspect(
         "operations": operations.iter().map(manifest_operation_index_entry).collect::<Vec<_>>(),
         "source": schema_inspect.get("source").cloned().unwrap_or_else(|| serde_json::json!({}))
     });
+    append_tool_input_schema(&mut payload, tool_value, includes);
     append_tool_output_schema(&mut payload, tool_value, includes);
     CallToolResult::structured(payload)
 }
@@ -192,8 +194,27 @@ fn manifest_tool_schema_payload(
         "tool": tool_name,
         "operations": []
     });
+    append_tool_input_schema(&mut payload, tool, includes);
     append_tool_output_schema(&mut payload, tool, includes);
     payload
+}
+
+fn append_tool_input_schema(
+    payload: &mut serde_json::Value,
+    tool: &serde_json::Value,
+    includes: &[String],
+) {
+    if !schema_include_requested(includes, "input") {
+        return;
+    }
+    if let Some(object) = payload.as_object_mut() {
+        if let Some(input_schema) = tool.get("inputSchema") {
+            object.insert("hasInputSchema".to_string(), serde_json::json!(true));
+            object.insert("inputSchema".to_string(), input_schema.clone());
+        } else {
+            object.insert("hasInputSchema".to_string(), serde_json::json!(false));
+        }
+    }
 }
 
 fn append_tool_output_schema(
@@ -248,7 +269,11 @@ fn manifest_operation_payload(
         payload.insert("category".to_string(), category.clone());
     }
     for field in includes {
-        if let Some(value) = operation.get(field) {
+        if field == "operation" {
+            if let Some(value) = operation.get("schema") {
+                payload.insert("operationSchema".to_string(), value.clone());
+            }
+        } else if let Some(value) = operation.get(field) {
             payload.insert(field.clone(), value.clone());
         } else if matches!(field.as_str(), "examples" | "errors" | "notes") {
             payload.insert(field.clone(), serde_json::json!([]));
@@ -448,9 +473,17 @@ fn invalid_argument_result(message: impl Into<String>) -> CallToolResult {
 }
 
 fn parse_schema_inspect_includes(args: &JsonObject) -> Result<Vec<String>, CallToolResult> {
-    let allowed = ["summary", "schema", "examples", "errors", "notes", "output"];
+    let allowed = [
+        "summary",
+        "input",
+        "operation",
+        "examples",
+        "errors",
+        "notes",
+        "output",
+    ];
     let Some(include_value) = args.get("include") else {
-        return Ok(vec!["summary".to_string(), "schema".to_string()]);
+        return Ok(vec!["summary".to_string(), "operation".to_string()]);
     };
     let Some(include_items) = include_value.as_array() else {
         return Err(invalid_argument_result(
@@ -580,8 +613,8 @@ fn blueprint_node_edit_operation_schema(
             serde_json::json!(node_edit_operation_summary(operation)),
         );
     }
-    if schema_include_requested(includes, "schema") {
-        payload_object.insert("schema".to_string(), schema);
+    if schema_include_requested(includes, "operation") {
+        payload_object.insert("operationSchema".to_string(), schema);
     }
     if schema_include_requested(includes, "examples") {
         payload_object.insert(
@@ -926,8 +959,8 @@ fn blueprint_member_edit_operation_schema(
             serde_json::json!(member_edit_operation_summary(member_kind, operation)),
         );
     }
-    if schema_include_requested(includes, "schema") {
-        payload_object.insert("schema".to_string(), schema);
+    if schema_include_requested(includes, "operation") {
+        payload_object.insert("operationSchema".to_string(), schema);
     }
     if schema_include_requested(includes, "examples") {
         payload_object.insert("examples".to_string(), serde_json::json!(examples));
@@ -1395,8 +1428,11 @@ fn blueprint_graph_edit_operation_schema(
     if schema_include_requested(includes, "summary") {
         payload_object.insert("summary".to_string(), serde_json::json!(summary));
     }
-    if schema_include_requested(includes, "schema") {
-        payload_object.insert("schema".to_string(), add_graph_edit_schema_defs(schema));
+    if schema_include_requested(includes, "operation") {
+        payload_object.insert(
+            "operationSchema".to_string(),
+            add_graph_edit_schema_defs(schema),
+        );
     }
     if schema_include_requested(includes, "examples") {
         payload_object.insert("examples".to_string(), serde_json::json!(examples));
@@ -1599,9 +1635,9 @@ fn widget_tree_edit_operation_schema(
     if schema_include_requested(includes, "summary") {
         payload_object.insert("summary".to_string(), serde_json::json!(summary));
     }
-    if schema_include_requested(includes, "schema") {
+    if schema_include_requested(includes, "operation") {
         payload_object.insert(
-            "schema".to_string(),
+            "operationSchema".to_string(),
             add_widget_tree_edit_schema_defs(schema),
         );
     }
@@ -1697,8 +1733,8 @@ fn pcg_parameter_edit_operation_schema(
     if schema_include_requested(includes, "summary") {
         payload_object.insert("summary".to_string(), serde_json::json!(summary));
     }
-    if schema_include_requested(includes, "schema") {
-        payload_object.insert("schema".to_string(), schema);
+    if schema_include_requested(includes, "operation") {
+        payload_object.insert("operationSchema".to_string(), schema);
     }
     if schema_include_requested(includes, "examples") {
         payload_object.insert("examples".to_string(), serde_json::json!(examples));
@@ -1802,8 +1838,11 @@ fn pcg_graph_edit_operation_schema(
     if schema_include_requested(includes, "summary") {
         payload_object.insert("summary".to_string(), serde_json::json!(summary));
     }
-    if schema_include_requested(includes, "schema") {
-        payload_object.insert("schema".to_string(), add_graph_edit_schema_defs(schema));
+    if schema_include_requested(includes, "operation") {
+        payload_object.insert(
+            "operationSchema".to_string(),
+            add_graph_edit_schema_defs(schema),
+        );
     }
     if schema_include_requested(includes, "examples") {
         payload_object.insert("examples".to_string(), serde_json::json!(examples));
@@ -1900,8 +1939,11 @@ fn material_graph_edit_operation_schema(
     if schema_include_requested(includes, "summary") {
         payload_object.insert("summary".to_string(), serde_json::json!(summary));
     }
-    if schema_include_requested(includes, "schema") {
-        payload_object.insert("schema".to_string(), add_graph_edit_schema_defs(schema));
+    if schema_include_requested(includes, "operation") {
+        payload_object.insert(
+            "operationSchema".to_string(),
+            add_graph_edit_schema_defs(schema),
+        );
     }
     if schema_include_requested(includes, "examples") {
         payload_object.insert("examples".to_string(), serde_json::json!(examples));

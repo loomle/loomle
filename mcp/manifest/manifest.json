@@ -352,7 +352,8 @@
               "type": "string",
               "enum": [
                 "summary",
-                "schema",
+                "input",
+                "operation",
                 "examples",
                 "errors",
                 "notes",
@@ -361,7 +362,7 @@
             },
             "default": [
               "summary",
-              "schema"
+              "operation"
             ]
           }
         },

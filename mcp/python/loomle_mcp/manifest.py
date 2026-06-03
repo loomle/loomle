@@ -35,7 +35,7 @@ class ToolManifest:
             listed_tool = {
                 "name": tool["name"],
                 "description": tool["description"],
-                "inputSchema": tool["inputSchema"],
+                "inputSchema": thin_input_schema(tool["name"], tool["inputSchema"]),
             }
             tools.append(listed_tool)
         return tools
@@ -54,7 +54,8 @@ class ToolManifest:
         operation: str | None = None,
         include: list[str] | None = None,
     ) -> dict[str, Any]:
-        includes = include or ["summary", "schema"]
+        includes = include or ["summary", "operation"]
+        self._validate_includes(includes)
         tool = self.get_tool(tool_name)
         if tool is None:
             raise ManifestError(f"unknown schema.inspect tool: {tool_name}")
@@ -73,6 +74,7 @@ class ToolManifest:
                 "tool": tool_name,
                 "operations": [],
             }
+            self._append_input_schema(payload, tool, includes)
             self._append_output_schema(payload, tool, includes)
             return payload
 
@@ -94,6 +96,7 @@ class ToolManifest:
                 ],
                 "source": schema_inspect.get("source", {}),
             }
+            self._append_input_schema(payload, tool, includes)
             self._append_output_schema(payload, tool, includes)
             return payload
 
@@ -107,14 +110,15 @@ class ToolManifest:
                 }
                 if "summary" in includes:
                     payload["summary"] = op["summary"]
-                if "schema" in includes:
-                    payload["schema"] = op["schema"]
+                if "operation" in includes:
+                    payload["operationSchema"] = op["schema"]
                 if "examples" in includes:
                     payload["examples"] = op.get("examples", [])
                 if "errors" in includes:
                     payload["errors"] = op.get("errors", [])
                 if "notes" in includes:
                     payload["notes"] = op.get("notes", [])
+                self._append_input_schema(payload, tool, includes)
                 self._append_output_schema(payload, tool, includes)
                 return payload
 
@@ -130,6 +134,15 @@ class ToolManifest:
         name = tool.get("name")
         return isinstance(name, str) and (name == domain or name.startswith(f"{domain}."))
 
+    def _validate_includes(self, includes: list[str]) -> None:
+        allowed = {"summary", "input", "operation", "examples", "errors", "notes", "output"}
+        unsupported = [include for include in includes if include not in allowed]
+        if unsupported:
+            raise ManifestError(
+                f"unsupported schema.inspect include: {unsupported[0]}; "
+                f"available: {sorted(allowed)}"
+            )
+
     def _append_output_schema(
         self,
         payload: dict[str, Any],
@@ -143,6 +156,79 @@ class ToolManifest:
             payload["outputSchema"] = tool["outputSchema"]
         else:
             payload["hasOutputSchema"] = False
+
+    def _append_input_schema(
+        self,
+        payload: dict[str, Any],
+        tool: dict[str, Any],
+        includes: list[str],
+    ) -> None:
+        if "input" not in includes:
+            return
+        if "inputSchema" in tool:
+            payload["hasInputSchema"] = True
+            payload["inputSchema"] = tool["inputSchema"]
+        else:
+            payload["hasInputSchema"] = False
+
+
+def thin_input_schema(name: str, full_schema: dict[str, Any]) -> dict[str, Any]:
+    if name == "schema.inspect":
+        return full_schema
+
+    schema: dict[str, Any] = {"type": "object"}
+    required = full_schema.get("required")
+    if isinstance(required, list):
+        schema["required"] = required
+    properties = full_schema.get("properties")
+    if not isinstance(properties, dict):
+        return schema
+
+    required_names = {item for item in required or [] if isinstance(item, str)}
+    thin_properties: dict[str, Any] = {}
+    for prop_name, prop_schema in properties.items():
+        if prop_name in required_names or _high_signal_optional(prop_name):
+            thin_properties[prop_name] = _thin_property(prop_schema)
+    if thin_properties or "properties" in full_schema:
+        schema["properties"] = thin_properties
+    return schema
+
+
+def _high_signal_optional(prop_name: str) -> bool:
+    return prop_name in {
+        "kind",
+        "view",
+        "operation",
+        "memberKind",
+        "action",
+        "fn",
+        "tool",
+        "domain",
+        "dryRun",
+        "expectedRevision",
+    }
+
+
+def _thin_property(prop_schema: Any) -> dict[str, Any]:
+    if not isinstance(prop_schema, dict):
+        return {}
+    thin: dict[str, Any] = {}
+    for field in ("type", "enum", "const", "minLength", "default"):
+        if field in prop_schema:
+            thin[field] = prop_schema[field]
+    description = prop_schema.get("description")
+    if isinstance(description, str):
+        thin["description"] = _short_description(description)
+    if not thin:
+        thin["type"] = "object"
+    return thin
+
+
+def _short_description(description: str) -> str:
+    limit = 120
+    if len(description) <= limit:
+        return description
+    return description[:limit].rstrip() + "..."
 
 
 def default_manifest_path() -> Path:

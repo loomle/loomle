@@ -42,12 +42,8 @@ def make_server(
     @server.list_tools()
     async def list_tools() -> list[types.Tool]:
         tools = []
-        for tool in manifest.tools_for("python"):
-            declared_tool = {
-                "name": tool["name"],
-                "description": tool["description"],
-                "inputSchema": tool["inputSchema"],
-            }
+        for tool in manifest.list_tools("python"):
+            declared_tool = dict(tool)
             tools.append(types.Tool(**declared_tool))
         return tools
 

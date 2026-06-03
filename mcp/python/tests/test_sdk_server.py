@@ -50,6 +50,8 @@ class PythonMcpSdkServerTests(unittest.IsolatedAsyncioTestCase):
                     if tool.name == "blueprint.graph.inspect"
                 )
                 self.assertIsNone(graph_inspect.outputSchema)
+                self.assertIn("view", graph_inspect.inputSchema["properties"])
+                self.assertNotIn("filter", graph_inspect.inputSchema["properties"])
 
                 output_result = await session.call_tool(
                     "schema.inspect",
@@ -69,6 +71,19 @@ class PythonMcpSdkServerTests(unittest.IsolatedAsyncioTestCase):
                     ],
                     ["summary", "exec_flow", "data_flow"],
                 )
+                input_result = await session.call_tool(
+                    "schema.inspect",
+                    {
+                        "domain": "blueprint",
+                        "tool": "blueprint.graph.inspect",
+                        "include": ["input"],
+                    },
+                )
+                self.assertFalse(input_result.isError)
+                self.assertIn(
+                    "rootNode",
+                    input_result.structuredContent["inputSchema"]["properties"],
+                )
 
                 result = await session.call_tool(
                     "schema.inspect",
@@ -76,7 +91,7 @@ class PythonMcpSdkServerTests(unittest.IsolatedAsyncioTestCase):
                         "domain": "blueprint",
                         "tool": "blueprint.graph.edit",
                         "operation": "addFromPalette",
-                        "include": ["summary", "schema", "errors"],
+                        "include": ["summary", "operation", "errors"],
                     },
                 )
 

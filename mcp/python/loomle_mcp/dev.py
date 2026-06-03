@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     inspect.add_argument(
         "--include",
         action="append",
-        help="Comma-separated include set: summary,schema,examples,errors,notes,output.",
+        help="Comma-separated include set: summary,input,operation,examples,errors,notes,output.",
     )
 
     args = parser.parse_args(argv)

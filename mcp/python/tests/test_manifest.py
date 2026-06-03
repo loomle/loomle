@@ -44,16 +44,36 @@ class ToolManifestTests(unittest.TestCase):
         self.assertNotIn("setup.configure", names)
         self.assertNotIn("project.install", names)
 
-    def test_list_tools_omits_output_schema_by_default(self) -> None:
+    def test_list_tools_exposes_thin_input_schema_by_default(self) -> None:
         manifest = load_manifest(MANIFEST)
         listed_tools = manifest.list_tools("python")
         self.assertTrue(listed_tools)
         self.assertFalse(any("outputSchema" in tool for tool in listed_tools))
+        graph_listed = next(
+            tool for tool in listed_tools
+            if tool["name"] == "blueprint.graph.inspect"
+        )
+        self.assertEqual(graph_listed["inputSchema"]["type"], "object")
+        graph_props = graph_listed["inputSchema"]["properties"]
+        self.assertIn("assetPath", graph_props)
+        self.assertIn("graph", graph_props)
+        self.assertIn("view", graph_props)
+        self.assertNotIn("filter", graph_props)
+        self.assertNotIn("page", graph_props)
+
+        schema_inspect = next(
+            tool for tool in listed_tools
+            if tool["name"] == "schema.inspect"
+        )
+        self.assertIn("include", schema_inspect["inputSchema"]["properties"])
+
         graph_inspect = next(
             tool for tool in manifest.tools_for("python")
             if tool["name"] == "blueprint.graph.inspect"
         )
         self.assertIn("outputSchema", graph_inspect)
+        self.assertIn("rootNode", graph_inspect["inputSchema"]["properties"])
+        self.assertIn("rootPin", graph_inspect["inputSchema"]["properties"])
 
     def test_widget_tree_inspect_manifest_declares_outline_layout_output(self) -> None:
         manifest = load_manifest(MANIFEST)
@@ -437,13 +457,30 @@ class ToolManifestTests(unittest.TestCase):
             domain="blueprint",
             tool_name="blueprint.graph.edit",
             operation="addFromPalette",
-            include=["summary", "schema", "examples", "errors", "notes"],
+            include=["summary", "operation", "examples", "errors", "notes"],
         )
 
         self.assertEqual(payload["operation"], "addFromPalette")
-        self.assertEqual(payload["schema"]["properties"]["kind"]["const"], "addFromPalette")
+        self.assertEqual(payload["operationSchema"]["properties"]["kind"]["const"], "addFromPalette")
         self.assertEqual(payload["errors"], ["PALETTE_ENTRY_NOT_EXECUTABLE"])
         self.assertTrue(payload["examples"])
+
+    def test_schema_inspect_returns_full_tool_input_schema(self) -> None:
+        manifest = load_manifest(MANIFEST)
+        payload = manifest.inspect_schema(
+            domain="blueprint",
+            tool_name="blueprint.graph.inspect",
+            operation=None,
+            include=["input"],
+        )
+
+        self.assertTrue(payload["hasInputSchema"])
+        input_props = payload["inputSchema"]["properties"]
+        self.assertIn("assetPath", input_props)
+        self.assertIn("graph", input_props)
+        self.assertIn("rootNode", input_props)
+        self.assertIn("rootPin", input_props)
+        self.assertIn("traversal", input_props)
 
     def test_schema_inspect_lists_widget_tree_edit_operations(self) -> None:
         manifest = load_manifest(MANIFEST)
@@ -498,11 +535,11 @@ class ToolManifestTests(unittest.TestCase):
             domain="widget",
             tool_name="widget.tree.edit",
             operation="addFromPalette",
-            include=["summary", "schema", "notes"],
+            include=["summary", "operation", "notes"],
         )
 
         self.assertEqual(payload["operation"], "addFromPalette")
-        self.assertIn("entry", payload["schema"]["properties"])
+        self.assertIn("entry", payload["operationSchema"]["properties"])
         self.assertTrue(
             any("full selected entry" in note for note in payload["notes"])
         )
@@ -535,26 +572,26 @@ class ToolManifestTests(unittest.TestCase):
             domain="blueprint",
             tool_name="blueprint.graph.edit",
             operation="connect",
-            include=["schema"],
+            include=["operation"],
         )
-        self.assertEqual(blueprint["schema"]["required"], ["kind", "from", "to"])
-        self.assertIn("$defs", blueprint["schema"])
+        self.assertEqual(blueprint["operationSchema"]["required"], ["kind", "from", "to"])
+        self.assertIn("$defs", blueprint["operationSchema"])
 
         material = manifest.inspect_schema(
             domain="material",
             tool_name="material.graph.edit",
             operation="breakPinLinks",
-            include=["schema"],
+            include=["operation"],
         )
-        self.assertEqual(material["schema"]["required"], ["kind", "target"])
+        self.assertEqual(material["operationSchema"]["required"], ["kind", "target"])
 
         pcg = manifest.inspect_schema(
             domain="pcg",
             tool_name="pcg.graph.edit",
             operation="setNodeProperty",
-            include=["schema"],
+            include=["operation"],
         )
-        self.assertEqual(pcg["schema"]["required"], ["kind", "node", "property", "value"])
+        self.assertEqual(pcg["operationSchema"]["required"], ["kind", "node", "property", "value"])
 
     def test_blueprint_member_edit_operation_schema_is_precise(self) -> None:
         manifest = load_manifest(MANIFEST)
@@ -583,21 +620,21 @@ class ToolManifestTests(unittest.TestCase):
             domain="blueprint",
             tool_name="blueprint.member.edit",
             operation="variable.create",
-            include=["schema"],
+            include=["operation"],
         )
 
-        args_schema = payload["schema"]["properties"]["args"]
+        args_schema = payload["operationSchema"]["properties"]["args"]
         self.assertEqual(args_schema["required"], ["variableName", "type"])
         self.assertIn("defaultValue", args_schema["properties"])
-        self.assertNotIn("returnDiff", payload["schema"]["properties"])
+        self.assertNotIn("returnDiff", payload["operationSchema"]["properties"])
 
         signature_payload = manifest.inspect_schema(
             domain="blueprint",
             tool_name="blueprint.member.edit",
             operation="function.updateSignature",
-            include=["schema"],
+            include=["operation"],
         )
-        signature_args = signature_payload["schema"]["properties"]["args"]
+        signature_args = signature_payload["operationSchema"]["properties"]["args"]
         self.assertEqual(signature_args["required"], ["functionName"])
         self.assertIn("outputs", signature_args["properties"])
 
@@ -620,12 +657,12 @@ class ToolManifestTests(unittest.TestCase):
             domain="blueprint",
             tool_name="blueprint.node.edit",
             operation="addPin",
-            include=["schema"],
+            include=["operation"],
         )
 
-        self.assertNotIn("returnDiff", payload["schema"]["properties"])
-        self.assertNotIn("returnDiagnostics", payload["schema"]["properties"])
-        args_schema = payload["schema"]["properties"]["args"]
+        self.assertNotIn("returnDiff", payload["operationSchema"]["properties"])
+        self.assertNotIn("returnDiagnostics", payload["operationSchema"]["properties"])
+        args_schema = payload["operationSchema"]["properties"]["args"]
         self.assertEqual(args_schema["required"], ["role"])
         self.assertEqual(
             args_schema["properties"]["role"]["enum"],
@@ -638,10 +675,10 @@ class ToolManifestTests(unittest.TestCase):
             domain="pcg",
             tool_name="pcg.parameter.edit",
             operation="rename",
-            include=["schema"],
+            include=["operation"],
         )
 
-        self.assertEqual(payload["schema"]["required"], ["name", "newName"])
+        self.assertEqual(payload["operationSchema"]["required"], ["name", "newName"])
 
 
 if __name__ == "__main__":

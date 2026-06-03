@@ -28,11 +28,11 @@ instances.
 
 ## Tool Schema Exposure
 
-The shared manifest remains the source of truth for both input and output
+The shared manifest remains the source of truth for input, output, and operation
 schemas. MCP `tools/list` intentionally exposes only tool names, descriptions,
-titles, and input schemas so the default agent context stays small. Full output
+titles, and thin input schemas so the default agent context stays small. Full
 schemas stay in `mcp/manifest/manifest.json` and are retrieved on demand with
-`schema.inspect` using `include: ["output"]`.
+`schema.inspect` using `include: ["input"]`, `["output"]`, or `["operation"]`.
 
 ## Build
 
