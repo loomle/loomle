@@ -4170,9 +4170,9 @@ def main() -> int:
             "domain": "blueprint",
             "tool": "blueprint.node.edit",
             "operation": "addPin",
-            "include": ["summary", "schema"],
+            "include": ["summary", "operation"],
         })
-        if add_case_schema.get("operation") != "addPin" or not isinstance(add_case_schema.get("schema"), dict):
+        if add_case_schema.get("operation") != "addPin" or not isinstance(add_case_schema.get("operationSchema"), dict):
             fail(f"schema.inspect blueprint.node.edit addPin schema invalid: {add_case_schema}")
 
         add_case = call_tool(client, 18126, "blueprint.node.edit", {
@@ -4298,9 +4298,9 @@ def main() -> int:
             "domain": "blueprint",
             "tool": "blueprint.node.edit",
             "operation": "movePin",
-            "include": ["summary", "schema"],
+            "include": ["summary", "operation"],
         })
-        if move_arg_schema.get("operation") != "movePin" or not isinstance(move_arg_schema.get("schema"), dict):
+        if move_arg_schema.get("operation") != "movePin" or not isinstance(move_arg_schema.get("operationSchema"), dict):
             fail(f"schema.inspect blueprint.node.edit movePin schema invalid: {move_arg_schema}")
 
         for offset, name in enumerate(("PlayerName", "Score")):
@@ -4376,9 +4376,9 @@ def main() -> int:
             "domain": "blueprint",
             "tool": "blueprint.node.edit",
             "operation": "restorePins",
-            "include": ["summary", "schema"],
+            "include": ["summary", "operation"],
         })
-        if restore_fields_schema.get("operation") != "restorePins" or not isinstance(restore_fields_schema.get("schema"), dict):
+        if restore_fields_schema.get("operation") != "restorePins" or not isinstance(restore_fields_schema.get("operationSchema"), dict):
             fail(f"schema.inspect blueprint.node.edit restorePins schema invalid: {restore_fields_schema}")
         restore_fields_initial = call_tool(client, 18147, "blueprint.node.edit", {
             "assetPath": temp_asset,
