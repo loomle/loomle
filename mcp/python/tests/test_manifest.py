@@ -92,6 +92,23 @@ class ToolManifestTests(unittest.TestCase):
         ]:
             self.assertIn(field, success_properties)
 
+    def test_widget_event_create_manifest_declares_native_event_output(self) -> None:
+        manifest = load_manifest(MANIFEST)
+        tool = next(
+            tool
+            for tool in manifest.list_tools("python")
+            if tool["name"] == "widget.event.create"
+        )
+
+        output_schema = tool["outputSchema"]
+        success_properties = output_schema["oneOf"][0]["properties"]
+        self.assertEqual(
+            success_properties["widget"]["properties"]["name"]["type"],
+            "string",
+        )
+        self.assertEqual(success_properties["node"]["properties"]["nodeClass"]["type"], "string")
+        self.assertEqual(output_schema["oneOf"][1]["properties"]["isError"]["const"], True)
+
     def test_python_manifest_covers_rust_runtime_tools(self) -> None:
         manifest = load_manifest(MANIFEST)
         python_names = {tool["name"] for tool in manifest.list_tools("python")}

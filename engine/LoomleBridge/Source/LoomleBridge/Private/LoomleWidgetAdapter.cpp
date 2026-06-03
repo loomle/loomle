@@ -973,7 +973,9 @@ bool FLoomleWidgetAdapter::CreateWidgetEvent(
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetStringField(TEXT("assetPath"), AssetPath);
-    Result->SetStringField(TEXT("widget"), WidgetName);
+    TSharedPtr<FJsonObject> WidgetRef = MakeShared<FJsonObject>();
+    WidgetRef->SetStringField(TEXT("name"), WidgetName);
+    Result->SetObjectField(TEXT("widget"), WidgetRef);
     Result->SetStringField(TEXT("event"), EventName);
     Result->SetStringField(TEXT("componentPropertyName"), VariableProperty->GetName());
     Result->SetStringField(TEXT("widgetClass"), WidgetClass->GetPathName());

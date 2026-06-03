@@ -11851,116 +11851,170 @@
         "additionalProperties": false
       },
       "outputSchema": {
-        "type": "object",
-        "properties": {
-          "isError": {
-            "type": "boolean"
-          },
-          "assetPath": {
-            "type": "string"
-          },
-          "widget": {
-            "type": "string"
-          },
-          "event": {
-            "type": "string"
-          },
-          "componentPropertyName": {
-            "type": "string"
-          },
-          "delegatePropertyName": {
-            "type": "string"
-          },
-          "widgetClass": {
-            "type": "string"
-          },
-          "created": {
-            "type": "boolean",
-            "description": "True only when this call created a new native component-bound event node."
-          },
-          "existing": {
-            "type": "boolean",
-            "description": "True when the event node already existed before this call."
-          },
-          "wouldCreate": {
-            "type": "boolean",
-            "description": "True when no existing node was found. In dryRun mode the node is not created."
-          },
-          "dryRun": {
-            "type": "boolean"
-          },
-          "nodeId": {
-            "type": "string",
-            "description": "Created or existing graph node GUID for follow-up Blueprint graph operations."
-          },
-          "graphName": {
-            "type": "string"
-          },
-          "graphRef": {
+        "oneOf": [
+          {
             "type": "object",
             "properties": {
+              "isError": {
+                "type": "boolean",
+                "const": false
+              },
               "assetPath": {
                 "type": "string"
               },
-              "graphName": {
+              "widget": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              "event": {
                 "type": "string"
-              }
-            },
-            "required": [
-              "assetPath",
-              "graphName"
-            ],
-            "additionalProperties": false
-          },
-          "node": {
-            "type": "object",
-            "properties": {
+              },
+              "componentPropertyName": {
+                "type": "string"
+              },
+              "delegatePropertyName": {
+                "type": "string"
+              },
+              "widgetClass": {
+                "type": "string"
+              },
+              "created": {
+                "type": "boolean",
+                "description": "True only when this call created a new native component-bound event node."
+              },
+              "existing": {
+                "type": "boolean",
+                "description": "True when the event node already existed before this call."
+              },
+              "wouldCreate": {
+                "type": "boolean",
+                "description": "True when no existing node was found. In dryRun mode the node is not created."
+              },
+              "dryRun": {
+                "type": "boolean"
+              },
               "nodeId": {
-                "type": "string"
-              },
-              "nodeClass": {
-                "type": "string"
-              },
-              "nodeClassPath": {
-                "type": "string"
+                "type": "string",
+                "description": "Created or existing graph node GUID for follow-up Blueprint graph operations."
               },
               "graphName": {
                 "type": "string"
               },
               "graphRef": {
                 "type": "object",
-                "additionalProperties": true
+                "properties": {
+                  "assetPath": {
+                    "type": "string"
+                  },
+                  "graphName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "assetPath",
+                  "graphName"
+                ],
+                "additionalProperties": false
+              },
+              "node": {
+                "type": "object",
+                "properties": {
+                  "nodeId": {
+                    "type": "string"
+                  },
+                  "nodeClass": {
+                    "type": "string"
+                  },
+                  "nodeClassPath": {
+                    "type": "string"
+                  },
+                  "graphName": {
+                    "type": "string"
+                  },
+                  "graphRef": {
+                    "type": "object",
+                    "properties": {
+                      "assetPath": {
+                        "type": "string"
+                      },
+                      "graphName": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "assetPath",
+                      "graphName"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "nodeId",
+                  "nodeClass",
+                  "nodeClassPath",
+                  "graphName",
+                  "graphRef"
+                ],
+                "additionalProperties": false
+              },
+              "previousRevision": {
+                "type": "string"
+              },
+              "newRevision": {
+                "type": "string"
               }
             },
             "required": [
-              "nodeId",
-              "nodeClass",
-              "nodeClassPath",
-              "graphName",
-              "graphRef"
+              "isError",
+              "assetPath",
+              "widget",
+              "event",
+              "componentPropertyName",
+              "delegatePropertyName",
+              "widgetClass",
+              "created",
+              "existing",
+              "wouldCreate",
+              "dryRun",
+              "previousRevision",
+              "newRevision"
             ],
             "additionalProperties": false
           },
-          "previousRevision": {
-            "type": "string"
-          },
-          "newRevision": {
-            "type": "string"
-          },
-          "code": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "detail": {
-            "type": "string"
+          {
+            "type": "object",
+            "properties": {
+              "isError": {
+                "type": "boolean",
+                "const": true
+              },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "isError",
+              "code",
+              "message",
+              "detail"
+            ],
+            "additionalProperties": false
           }
-        },
-        "required": [
-          "isError"
-        ],
-        "additionalProperties": false
+        ]
       },
       "dispatch": {
         "kind": "bridgeRpc",

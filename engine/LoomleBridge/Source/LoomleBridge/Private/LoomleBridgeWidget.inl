@@ -1265,10 +1265,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetEventCreateToolResult(
     }
     if (WidgetName.IsEmpty())
     {
-        Arguments->TryGetStringField(TEXT("widgetName"), WidgetName);
-    }
-    if (WidgetName.IsEmpty())
-    {
         Payload->SetBoolField(TEXT("isError"), true);
         Payload->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
         Payload->SetStringField(TEXT("message"), TEXT("INVALID_ARGUMENT"));

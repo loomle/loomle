@@ -6589,6 +6589,8 @@ def main() -> int:
             fail(f"W06c widget.event.create failed: {we_create}")
         if we_create.get("created") is not True or not we_create.get("nodeId"):
             fail(f"W06c widget.event.create should create node with nodeId: {we_create}")
+        if we_create.get("widget", {}).get("name") != "CardButton":
+            fail(f"W06c widget.event.create should return widget ref object: {we_create}")
         node_obj = we_create.get("node")
         if not isinstance(node_obj, dict) or node_obj.get("nodeClass") != "K2Node_ComponentBoundEvent":
             fail(f"W06c widget.event.create should return K2Node_ComponentBoundEvent: {we_create}")

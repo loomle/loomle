@@ -1209,7 +1209,9 @@ impl LoomleProxyServer {
                     self.runtime_call("widget.inspect", inspect_args).await?,
                 ))
             }
-            "widget.event.create" => Ok(Some(self.runtime_call("widget.event.create", args).await?)),
+            "widget.event.create" => {
+                Ok(Some(self.runtime_call("widget.event.create", args).await?))
+            }
             "widget.compile" => Ok(Some(self.runtime_call("widget.compile", args).await?)),
             _ => Ok(None),
         }
@@ -3217,7 +3219,9 @@ fn translate_widget_edit_args(
         .and_then(|value| value.as_array())
         .ok_or_else(|| invalid_argument_result("widget.edit requires commands."))?;
     if commands.is_empty() {
-        return Err(invalid_argument_result("widget.edit commands must be non-empty."));
+        return Err(invalid_argument_result(
+            "widget.edit commands must be non-empty.",
+        ));
     }
 
     let mut ops = Vec::new();
@@ -9888,12 +9892,12 @@ mod tests {
         translate_material_node_edit_args, translate_material_palette_args,
         translate_pcg_compile_args, translate_pcg_graph_inspect_args,
         translate_pcg_graph_layout_args, translate_pcg_node_inspect_args,
-        translate_pcg_parameter_edit_args, translate_widget_edit_args, translate_widget_inspect_args,
-        translate_widget_tree_edit_args, validate_blueprint_graph_inspect_args,
-        validate_blueprint_graph_inspect_targets, validate_pcg_graph_inspect_args,
-        widget_edit_schema, widget_inspect_schema, widget_palette_schema, widget_tree_edit_schema,
-        widget_tree_inspect_schema, write_public_blueprint_graph_address, Cli, FileLockMetadata,
-        RuntimeProject, UpdateOptions,
+        translate_pcg_parameter_edit_args, translate_widget_edit_args,
+        translate_widget_inspect_args, translate_widget_tree_edit_args,
+        validate_blueprint_graph_inspect_args, validate_blueprint_graph_inspect_targets,
+        validate_pcg_graph_inspect_args, widget_edit_schema, widget_inspect_schema,
+        widget_palette_schema, widget_tree_edit_schema, widget_tree_inspect_schema,
+        write_public_blueprint_graph_address, Cli, FileLockMetadata, RuntimeProject, UpdateOptions,
     };
     use rmcp::model::JsonObject;
     use std::ffi::OsString;
@@ -12532,9 +12536,9 @@ mod tests {
             .get("tools")
             .and_then(|value| value.as_array())
             .and_then(|tools| {
-                tools
-                    .iter()
-                    .find(|tool| tool.get("name").and_then(|value| value.as_str()) == Some("widget.tree.edit"))
+                tools.iter().find(|tool| {
+                    tool.get("name").and_then(|value| value.as_str()) == Some("widget.tree.edit")
+                })
             })
             .expect("widget.tree.edit tool");
         let output_properties = tool
@@ -12623,9 +12627,9 @@ mod tests {
             .get("tools")
             .and_then(|value| value.as_array())
             .and_then(|tools| {
-                tools
-                    .iter()
-                    .find(|tool| tool.get("name").and_then(|value| value.as_str()) == Some("widget.inspect"))
+                tools.iter().find(|tool| {
+                    tool.get("name").and_then(|value| value.as_str()) == Some("widget.inspect")
+                })
             })
             .expect("widget.inspect tool");
         let output_schema = tool.get("outputSchema").expect("output schema");
@@ -12650,6 +12654,41 @@ mod tests {
         ] {
             assert!(success_properties.contains_key(field), "missing {field}");
         }
+    }
+
+    #[test]
+    fn widget_event_create_manifest_output_schema_declares_native_event_shape() {
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../../mcp/manifest/manifest.json"))
+                .expect("manifest json");
+        let tool = manifest
+            .get("tools")
+            .and_then(|value| value.as_array())
+            .and_then(|tools| {
+                tools.iter().find(|tool| {
+                    tool.get("name").and_then(|value| value.as_str()) == Some("widget.event.create")
+                })
+            })
+            .expect("widget.event.create tool");
+        let output_schema = tool.get("outputSchema").expect("output schema");
+        let success_properties = output_schema
+            .get("oneOf")
+            .and_then(|value| value.as_array())
+            .and_then(|one_of| one_of.first())
+            .and_then(|value| value.get("properties"))
+            .and_then(|value| value.as_object())
+            .expect("success properties");
+        assert_eq!(
+            success_properties
+                .get("widget")
+                .and_then(|value| value.get("properties"))
+                .and_then(|value| value.get("name"))
+                .and_then(|value| value.get("type"))
+                .and_then(|value| value.as_str()),
+            Some("string")
+        );
+        assert!(success_properties.contains_key("node"));
+        assert!(success_properties.contains_key("graphRef"));
     }
 
     #[test]
@@ -12851,13 +12890,22 @@ mod tests {
             translated.get("assetPath").and_then(|value| value.as_str()),
             Some("/Game/UI/WBP_Menu")
         );
-        assert_eq!(translated.get("dryRun").and_then(|value| value.as_bool()), Some(true));
+        assert_eq!(
+            translated.get("dryRun").and_then(|value| value.as_bool()),
+            Some(true)
+        );
         let ops = translated
             .get("ops")
             .and_then(|value| value.as_array())
             .expect("ops");
-        assert_eq!(ops[0].get("op").and_then(|value| value.as_str()), Some("setProperty"));
-        assert_eq!(ops[1].get("op").and_then(|value| value.as_str()), Some("setSlotProperty"));
+        assert_eq!(
+            ops[0].get("op").and_then(|value| value.as_str()),
+            Some("setProperty")
+        );
+        assert_eq!(
+            ops[1].get("op").and_then(|value| value.as_str()),
+            Some("setSlotProperty")
+        );
     }
 
     #[test]
