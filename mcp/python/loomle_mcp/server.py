@@ -48,8 +48,6 @@ def make_server(
                 "description": tool["description"],
                 "inputSchema": tool["inputSchema"],
             }
-            if "outputSchema" in tool:
-                declared_tool["outputSchema"] = tool["outputSchema"]
             tools.append(types.Tool(**declared_tool))
         return tools
 

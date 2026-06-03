@@ -17,7 +17,7 @@ pub fn schema_inspect_schema() -> JsonObject {
                 "type": "array",
                 "items": {
                     "type": "string",
-                    "enum": ["summary", "schema", "examples", "errors", "notes"]
+                    "enum": ["summary", "schema", "examples", "errors", "notes", "output"]
                 },
                 "default": ["summary", "schema"]
             }
@@ -83,28 +83,38 @@ fn manifest_schema_inspect(
             "retryable": false
         }));
     };
-    let schema_tools = tools
+    let available_tools = tools
         .iter()
-        .filter_map(|tool| {
-            tool.get("schemaInspect")
-                .and_then(|value| value.as_object())
-                .map(|schema| (tool, schema))
-        })
+        .filter(|tool| manifest_tool_matches_domain(tool, domain))
+        .filter_map(|tool| tool.get("name").and_then(|value| value.as_str()))
         .collect::<Vec<_>>();
-    let available_tools = schema_tools
-        .iter()
-        .filter(|(_, schema)| schema.get("domain").and_then(|value| value.as_str()) == Some(domain))
-        .filter_map(|(tool, _)| tool.get("name").and_then(|value| value.as_str()))
-        .collect::<Vec<_>>();
-    let Some((_, schema_inspect)) = schema_tools.iter().find(|(tool, schema)| {
+    let Some(tool_value) = tools.iter().find(|tool| {
         tool.get("name").and_then(|value| value.as_str()) == Some(tool_name)
-            && schema.get("domain").and_then(|value| value.as_str()) == Some(domain)
+            && manifest_tool_matches_domain(tool, domain)
     }) else {
         return CallToolResult::structured_error(serde_json::json!({
             "isError": true,
             "code": "UNKNOWN_TOOL",
             "message": format!("Unknown schema tool for domain {domain}: {tool_name}"),
             "availableTools": available_tools,
+            "retryable": false
+        }));
+    };
+    let schema_inspect = tool_value
+        .get("schemaInspect")
+        .and_then(|value| value.as_object());
+
+    if operation.is_none() && schema_inspect.is_none() {
+        return CallToolResult::structured(manifest_tool_schema_payload(
+            domain, tool_name, tool_value, includes,
+        ));
+    }
+
+    let Some(schema_inspect) = schema_inspect else {
+        return CallToolResult::structured_error(serde_json::json!({
+            "isError": true,
+            "code": "OPERATION_SCHEMA_UNAVAILABLE",
+            "message": format!("{tool_name} does not expose operation schemas."),
             "retryable": false
         }));
     };
@@ -136,21 +146,72 @@ fn manifest_schema_inspect(
                 "retryable": false
             }));
         };
-        return CallToolResult::structured(manifest_operation_payload(
+        let mut payload = manifest_operation_payload(
             domain,
             tool_name,
             operation_name,
             operation_value,
             includes,
-        ));
+        );
+        append_tool_output_schema(&mut payload, tool_value, includes);
+        return CallToolResult::structured(payload);
     }
 
-    CallToolResult::structured(serde_json::json!({
+    let mut payload = serde_json::json!({
         "domain": domain,
         "tool": tool_name,
         "operations": operations.iter().map(manifest_operation_index_entry).collect::<Vec<_>>(),
         "source": schema_inspect.get("source").cloned().unwrap_or_else(|| serde_json::json!({}))
-    }))
+    });
+    append_tool_output_schema(&mut payload, tool_value, includes);
+    CallToolResult::structured(payload)
+}
+
+fn manifest_tool_matches_domain(tool: &serde_json::Value, domain: &str) -> bool {
+    if tool
+        .get("schemaInspect")
+        .and_then(|value| value.get("domain"))
+        .and_then(|value| value.as_str())
+        == Some(domain)
+    {
+        return true;
+    }
+    tool.get("name")
+        .and_then(|value| value.as_str())
+        .is_some_and(|name| name == domain || name.starts_with(&format!("{domain}.")))
+}
+
+fn manifest_tool_schema_payload(
+    domain: &str,
+    tool_name: &str,
+    tool: &serde_json::Value,
+    includes: &[String],
+) -> serde_json::Value {
+    let mut payload = serde_json::json!({
+        "domain": domain,
+        "tool": tool_name,
+        "operations": []
+    });
+    append_tool_output_schema(&mut payload, tool, includes);
+    payload
+}
+
+fn append_tool_output_schema(
+    payload: &mut serde_json::Value,
+    tool: &serde_json::Value,
+    includes: &[String],
+) {
+    if !schema_include_requested(includes, "output") {
+        return;
+    }
+    if let Some(object) = payload.as_object_mut() {
+        if let Some(output_schema) = tool.get("outputSchema") {
+            object.insert("hasOutputSchema".to_string(), serde_json::json!(true));
+            object.insert("outputSchema".to_string(), output_schema.clone());
+        } else {
+            object.insert("hasOutputSchema".to_string(), serde_json::json!(false));
+        }
+    }
 }
 
 fn parse_tool_manifest() -> Result<serde_json::Value, String> {
@@ -387,7 +448,7 @@ fn invalid_argument_result(message: impl Into<String>) -> CallToolResult {
 }
 
 fn parse_schema_inspect_includes(args: &JsonObject) -> Result<Vec<String>, CallToolResult> {
-    let allowed = ["summary", "schema", "examples", "errors", "notes"];
+    let allowed = ["summary", "schema", "examples", "errors", "notes", "output"];
     let Some(include_value) = args.get("include") else {
         return Ok(vec!["summary".to_string(), "schema".to_string()]);
     };

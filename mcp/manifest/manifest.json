@@ -355,7 +355,8 @@
                 "schema",
                 "examples",
                 "errors",
-                "notes"
+                "notes",
+                "output"
               ]
             },
             "default": [

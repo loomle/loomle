@@ -37,8 +37,6 @@ class ToolManifest:
                 "description": tool["description"],
                 "inputSchema": tool["inputSchema"],
             }
-            if "outputSchema" in tool:
-                listed_tool["outputSchema"] = tool["outputSchema"]
             tools.append(listed_tool)
         return tools
 
@@ -61,20 +59,29 @@ class ToolManifest:
         if tool is None:
             raise ManifestError(f"unknown schema.inspect tool: {tool_name}")
 
+        if not self._tool_matches_domain(tool, domain):
+            raise ManifestError(
+                f"tool {tool_name} does not belong to schema domain {domain}"
+            )
+
         schema_inspect = tool.get("schemaInspect")
         if not isinstance(schema_inspect, dict):
-            raise ManifestError(f"tool does not support schema.inspect: {tool_name}")
-        if schema_inspect.get("domain") != domain:
-            raise ManifestError(
-                f"tool {tool_name} belongs to schema domain {schema_inspect.get('domain')}, not {domain}"
-            )
+            if operation is not None:
+                raise ManifestError(f"tool does not support operation schema.inspect: {tool_name}")
+            payload: dict[str, Any] = {
+                "domain": domain,
+                "tool": tool_name,
+                "operations": [],
+            }
+            self._append_output_schema(payload, tool, includes)
+            return payload
 
         operations = schema_inspect.get("operations")
         if not isinstance(operations, list):
             raise ManifestError(f"{tool_name}.schemaInspect.operations must be an array")
 
         if operation is None:
-            return {
+            payload = {
                 "domain": domain,
                 "tool": tool_name,
                 "operations": [
@@ -87,6 +94,8 @@ class ToolManifest:
                 ],
                 "source": schema_inspect.get("source", {}),
             }
+            self._append_output_schema(payload, tool, includes)
+            return payload
 
         for op in operations:
             if op.get("name") == operation:
@@ -106,12 +115,34 @@ class ToolManifest:
                     payload["errors"] = op.get("errors", [])
                 if "notes" in includes:
                     payload["notes"] = op.get("notes", [])
+                self._append_output_schema(payload, tool, includes)
                 return payload
 
         available = [op.get("name") for op in operations]
         raise ManifestError(
             f"unknown operation for {tool_name}: {operation}; available: {available}"
         )
+
+    def _tool_matches_domain(self, tool: dict[str, Any], domain: str) -> bool:
+        schema_inspect = tool.get("schemaInspect")
+        if isinstance(schema_inspect, dict) and schema_inspect.get("domain") == domain:
+            return True
+        name = tool.get("name")
+        return isinstance(name, str) and (name == domain or name.startswith(f"{domain}."))
+
+    def _append_output_schema(
+        self,
+        payload: dict[str, Any],
+        tool: dict[str, Any],
+        includes: list[str],
+    ) -> None:
+        if "output" not in includes:
+            return
+        if "outputSchema" in tool:
+            payload["hasOutputSchema"] = True
+            payload["outputSchema"] = tool["outputSchema"]
+        else:
+            payload["hasOutputSchema"] = False
 
 
 def default_manifest_path() -> Path:

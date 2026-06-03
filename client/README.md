@@ -26,6 +26,14 @@ Project registration is persistent under `~/.loomle/state/projects`. Runtime
 records under `~/.loomle/state/runtimes` only indicate currently running Bridge
 instances.
 
+## Tool Schema Exposure
+
+The shared manifest remains the source of truth for both input and output
+schemas. MCP `tools/list` intentionally exposes only tool names, descriptions,
+titles, and input schemas so the default agent context stays small. Full output
+schemas stay in `mcp/manifest/manifest.json` and are retrieved on demand with
+`schema.inspect` using `include: ["output"]`.
+
 ## Build
 
 ```bash

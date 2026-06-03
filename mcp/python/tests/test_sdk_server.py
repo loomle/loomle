@@ -44,16 +44,27 @@ class PythonMcpSdkServerTests(unittest.IsolatedAsyncioTestCase):
                     tool for tool in tools.tools
                     if tool.name == "blueprint.graph.palette"
                 )
-                self.assertIsNotNone(palette.outputSchema)
+                self.assertIsNone(palette.outputSchema)
                 graph_inspect = next(
                     tool for tool in tools.tools
                     if tool.name == "blueprint.graph.inspect"
                 )
-                self.assertIsNotNone(graph_inspect.outputSchema)
+                self.assertIsNone(graph_inspect.outputSchema)
+
+                output_result = await session.call_tool(
+                    "schema.inspect",
+                    {
+                        "domain": "blueprint",
+                        "tool": "blueprint.graph.inspect",
+                        "include": ["output"],
+                    },
+                )
+                self.assertFalse(output_result.isError)
+                graph_output_schema = output_result.structuredContent["outputSchema"]
                 self.assertEqual(
                     [
                         entry["properties"]["view"]["const"]
-                        for entry in graph_inspect.outputSchema["oneOf"]
+                        for entry in graph_output_schema["oneOf"]
                         if "view" in entry["properties"]
                     ],
                     ["summary", "exec_flow", "data_flow"],

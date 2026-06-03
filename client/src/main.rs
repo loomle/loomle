@@ -6329,13 +6329,6 @@ fn manifest_declared_tools_for(target: &str) -> Result<Vec<Tool>, String> {
             description.to_string(),
             Arc::new(input_schema),
         );
-        if let Some(output_schema) = tool
-            .get("outputSchema")
-            .and_then(|value| value.as_object())
-            .cloned()
-        {
-            declared_tool.output_schema = Some(Arc::new(output_schema));
-        }
         if let Some(title) = tool.get("title").and_then(|value| value.as_str()) {
             declared_tool.title = Some(title.to_string());
         }
@@ -13592,13 +13585,25 @@ mod tests {
             .collect::<std::collections::HashSet<_>>();
 
         assert_eq!(declared_names, manifest_names);
+        assert!(declared_tools
+            .iter()
+            .all(|tool| tool.output_schema.is_none()));
+        let manifest_tool = |name: &str| {
+            manifest
+                .get("tools")
+                .and_then(|value| value.as_array())
+                .expect("manifest tools")
+                .iter()
+                .find(|tool| tool.get("name").and_then(|value| value.as_str()) == Some(name))
+                .expect("manifest tool")
+        };
         let status_tool = declared_tools
             .iter()
             .find(|tool| tool.name.as_ref() == "status")
             .expect("status");
-        let status_tool_output = status_tool
-            .output_schema
-            .as_ref()
+        let status_tool_output = status_tool.name.as_ref();
+        let status_tool_output = manifest_tool(status_tool_output)
+            .get("outputSchema")
             .and_then(|schema| schema.get("properties"))
             .and_then(|value| value.as_object())
             .expect("status output properties");
@@ -13613,9 +13618,9 @@ mod tests {
             .iter()
             .find(|tool| tool.name.as_ref() == "blueprint.inspect")
             .expect("blueprint.inspect");
-        let blueprint_output_properties = blueprint
-            .output_schema
-            .as_ref()
+        let blueprint_output_properties = blueprint.name.as_ref();
+        let blueprint_output_properties = manifest_tool(blueprint_output_properties)
+            .get("outputSchema")
             .and_then(|schema| schema.get("properties"))
             .and_then(|value| value.as_object())
             .expect("blueprint.inspect output properties");
@@ -13628,9 +13633,9 @@ mod tests {
             .iter()
             .find(|tool| tool.name.as_ref() == "blueprint.class.inspect")
             .expect("blueprint.class.inspect");
-        let blueprint_class_output_properties = blueprint_class
-            .output_schema
-            .as_ref()
+        let blueprint_class_output_properties = blueprint_class.name.as_ref();
+        let blueprint_class_output_properties = manifest_tool(blueprint_class_output_properties)
+            .get("outputSchema")
             .and_then(|schema| schema.get("properties"))
             .and_then(|value| value.as_object())
             .expect("blueprint.class.inspect output properties");
@@ -13645,9 +13650,9 @@ mod tests {
             .iter()
             .find(|tool| tool.name.as_ref() == "blueprint.member.inspect")
             .expect("blueprint.member.inspect");
-        let blueprint_member_output_properties = blueprint_member
-            .output_schema
-            .as_ref()
+        let blueprint_member_output_properties = blueprint_member.name.as_ref();
+        let blueprint_member_output_properties = manifest_tool(blueprint_member_output_properties)
+            .get("outputSchema")
             .and_then(|schema| schema.get("properties"))
             .and_then(|value| value.as_object())
             .expect("blueprint.member.inspect output properties");
@@ -13659,9 +13664,9 @@ mod tests {
             .iter()
             .find(|tool| tool.name.as_ref() == "blueprint.node.inspect")
             .expect("blueprint.node.inspect");
-        let blueprint_node_inspect_output = blueprint_node_inspect
-            .output_schema
-            .as_ref()
+        let blueprint_node_inspect_output = blueprint_node_inspect.name.as_ref();
+        let blueprint_node_inspect_output = manifest_tool(blueprint_node_inspect_output)
+            .get("outputSchema")
             .and_then(|schema| schema.get("oneOf"))
             .and_then(|value| value.as_array())
             .and_then(|items| items.first())
@@ -13695,12 +13700,13 @@ mod tests {
         assert!(!blueprint_member_edit_input.contains_key("returnDiff"));
         assert!(!blueprint_member_edit_input.contains_key("returnDiagnostics"));
         assert!(blueprint_member_edit_input.contains_key("expectedRevision"));
-        let blueprint_member_edit_output_properties = blueprint_member_edit
-            .output_schema
-            .as_ref()
-            .and_then(|schema| schema.get("properties"))
-            .and_then(|value| value.as_object())
-            .expect("blueprint.member.edit output properties");
+        let blueprint_member_edit_output_properties = blueprint_member_edit.name.as_ref();
+        let blueprint_member_edit_output_properties =
+            manifest_tool(blueprint_member_edit_output_properties)
+                .get("outputSchema")
+                .and_then(|schema| schema.get("properties"))
+                .and_then(|value| value.as_object())
+                .expect("blueprint.member.edit output properties");
         assert!(blueprint_member_edit_output_properties.contains_key("applied"));
         assert!(blueprint_member_edit_output_properties.contains_key("valid"));
         assert!(blueprint_member_edit_output_properties.contains_key("resolvedRefs"));
@@ -13739,12 +13745,13 @@ mod tests {
         assert!(!blueprint_class_edit_input.contains_key("returnDiff"));
         assert!(!blueprint_class_edit_input.contains_key("returnDiagnostics"));
         assert!(blueprint_class_edit_input.contains_key("expectedRevision"));
-        let blueprint_class_edit_output_properties = blueprint_class_edit
-            .output_schema
-            .as_ref()
-            .and_then(|schema| schema.get("properties"))
-            .and_then(|value| value.as_object())
-            .expect("blueprint.class.edit output properties");
+        let blueprint_class_edit_output_properties = blueprint_class_edit.name.as_ref();
+        let blueprint_class_edit_output_properties =
+            manifest_tool(blueprint_class_edit_output_properties)
+                .get("outputSchema")
+                .and_then(|schema| schema.get("properties"))
+                .and_then(|value| value.as_object())
+                .expect("blueprint.class.edit output properties");
         assert!(blueprint_class_edit_output_properties.contains_key("applied"));
         assert!(blueprint_class_edit_output_properties.contains_key("valid"));
         assert!(blueprint_class_edit_output_properties.contains_key("resolvedRefs"));
@@ -13764,9 +13771,9 @@ mod tests {
             .and_then(|value| value.as_object())
             .expect("context properties");
         assert!(context_properties.is_empty());
-        let context_output_properties = context
-            .output_schema
-            .as_ref()
+        let context_output_properties = context.name.as_ref();
+        let context_output_properties = manifest_tool(context_output_properties)
+            .get("outputSchema")
             .and_then(|schema| schema.get("properties"))
             .and_then(|value| value.as_object())
             .expect("context output properties");
@@ -13797,9 +13804,8 @@ mod tests {
         assert!(!properties.contains_key("filter"));
         assert!(!properties.contains_key("page"));
 
-        let output_schema = graph_inspect
-            .output_schema
-            .as_ref()
+        let output_schema = manifest_tool(graph_inspect.name.as_ref())
+            .get("outputSchema")
             .expect("blueprint.graph.inspect output schema");
         let output_views = output_schema
             .get("oneOf")
@@ -14256,15 +14262,8 @@ mod tests {
     }
 
     #[test]
-    fn schema_inspect_only_supports_second_layer_blueprint_tools() {
-        for tool in [
-            "asset.create",
-            "asset.inspect",
-            "asset.edit",
-            "blueprint.inspect",
-            "blueprint.class.inspect",
-            "blueprint.class.edit",
-        ] {
+    fn schema_inspect_rejects_tools_outside_domain() {
+        for tool in ["asset.create", "asset.inspect", "asset.edit"] {
             let mut args = JsonObject::new();
             args.insert("domain".into(), serde_json::json!("blueprint"));
             args.insert("tool".into(), serde_json::json!(tool));
@@ -14288,11 +14287,59 @@ mod tests {
                 .iter()
                 .filter_map(|value| value.as_str())
                 .collect::<std::collections::HashSet<_>>();
-            assert_eq!(names.len(), 3);
             assert!(names.contains("blueprint.graph.edit"));
             assert!(names.contains("blueprint.member.edit"));
             assert!(names.contains("blueprint.node.edit"));
+            assert!(names.contains("blueprint.inspect"));
         }
+    }
+
+    #[test]
+    fn schema_inspect_returns_tool_output_schema() {
+        let mut args = JsonObject::new();
+        args.insert("domain".into(), serde_json::json!("blueprint"));
+        args.insert("tool".into(), serde_json::json!("blueprint.graph.inspect"));
+        args.insert("include".into(), serde_json::json!(["output"]));
+
+        let result = call_schema_inspect(&args);
+        assert_ne!(result.is_error, Some(true));
+        let payload = result.structured_content.expect("structured content");
+        assert_eq!(
+            payload
+                .get("hasOutputSchema")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
+        assert!(payload.get("outputSchema").is_some());
+        assert!(payload
+            .get("operations")
+            .and_then(|value| value.as_array())
+            .is_some_and(|operations| operations.is_empty()));
+    }
+
+    #[test]
+    fn schema_inspect_can_include_operation_schema_and_tool_output() {
+        let mut args = JsonObject::new();
+        args.insert("domain".into(), serde_json::json!("blueprint"));
+        args.insert("tool".into(), serde_json::json!("blueprint.graph.edit"));
+        args.insert("operation".into(), serde_json::json!("addFromPalette"));
+        args.insert("include".into(), serde_json::json!(["schema", "output"]));
+
+        let result = call_schema_inspect(&args);
+        assert_ne!(result.is_error, Some(true));
+        let payload = result.structured_content.expect("structured content");
+        assert_eq!(
+            payload.get("operation").and_then(|value| value.as_str()),
+            Some("addFromPalette")
+        );
+        assert!(payload.get("schema").is_some());
+        assert!(payload.get("outputSchema").is_some());
+        assert_eq!(
+            payload
+                .get("hasOutputSchema")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
     }
 
     #[test]

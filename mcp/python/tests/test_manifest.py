@@ -20,7 +20,7 @@ PYTHON_LOCAL_TOOLS = {
 class ToolManifestTests(unittest.TestCase):
     def test_lists_python_tools_without_native_only_install(self) -> None:
         manifest = load_manifest(MANIFEST)
-        names = {tool["name"] for tool in manifest.list_tools("python")}
+        names = {tool["name"] for tool in manifest.tools_for("python")}
 
         self.assertIn("project.list", names)
         self.assertIn("project.attach", names)
@@ -44,11 +44,22 @@ class ToolManifestTests(unittest.TestCase):
         self.assertNotIn("setup.configure", names)
         self.assertNotIn("project.install", names)
 
+    def test_list_tools_omits_output_schema_by_default(self) -> None:
+        manifest = load_manifest(MANIFEST)
+        listed_tools = manifest.list_tools("python")
+        self.assertTrue(listed_tools)
+        self.assertFalse(any("outputSchema" in tool for tool in listed_tools))
+        graph_inspect = next(
+            tool for tool in manifest.tools_for("python")
+            if tool["name"] == "blueprint.graph.inspect"
+        )
+        self.assertIn("outputSchema", graph_inspect)
+
     def test_widget_tree_inspect_manifest_declares_outline_layout_output(self) -> None:
         manifest = load_manifest(MANIFEST)
         tool = next(
             tool
-            for tool in manifest.list_tools("python")
+            for tool in manifest.tools_for("python")
             if tool["name"] == "widget.tree.inspect"
         )
         view_enum = tool["inputSchema"]["properties"]["view"]["enum"]
@@ -74,7 +85,7 @@ class ToolManifestTests(unittest.TestCase):
         manifest = load_manifest(MANIFEST)
         tool = next(
             tool
-            for tool in manifest.list_tools("python")
+            for tool in manifest.tools_for("python")
             if tool["name"] == "widget.inspect"
         )
 
@@ -96,7 +107,7 @@ class ToolManifestTests(unittest.TestCase):
         manifest = load_manifest(MANIFEST)
         tool = next(
             tool
-            for tool in manifest.list_tools("python")
+            for tool in manifest.tools_for("python")
             if tool["name"] == "widget.event.create"
         )
 
@@ -111,7 +122,7 @@ class ToolManifestTests(unittest.TestCase):
 
     def test_python_manifest_covers_rust_runtime_tools(self) -> None:
         manifest = load_manifest(MANIFEST)
-        python_names = {tool["name"] for tool in manifest.list_tools("python")}
+        python_names = {tool["name"] for tool in manifest.tools_for("python")}
         rust_source = (REPO_ROOT / "client" / "src" / "main.rs").read_text()
         rust_names = set(re.findall(r'Tool::new\("([^"]+)"', rust_source))
         rust_names.discard("project.install")
@@ -120,7 +131,7 @@ class ToolManifestTests(unittest.TestCase):
 
     def test_python_manifest_tool_names_match_rust_plus_local_tools(self) -> None:
         manifest = load_manifest(MANIFEST)
-        python_names = {tool["name"] for tool in manifest.list_tools("python")}
+        python_names = {tool["name"] for tool in manifest.tools_for("python")}
         rust_source = (REPO_ROOT / "client" / "src" / "main.rs").read_text()
         rust_names = set(re.findall(r'Tool::new\("([^"]+)"', rust_source))
 
@@ -189,7 +200,7 @@ class ToolManifestTests(unittest.TestCase):
 
         offenders = {
             tool["name"]: tool.get("dispatch", {}).get("tool")
-            for tool in manifest.list_tools("python")
+            for tool in manifest.tools_for("python")
             if tool.get("dispatch", {}).get("tool") in retired
         }
 
@@ -197,14 +208,14 @@ class ToolManifestTests(unittest.TestCase):
 
     def test_status_tool_manifest_is_single_runtime_status_entrypoint(self) -> None:
         manifest = load_manifest(MANIFEST)
-        names = {tool["name"] for tool in manifest.list_tools("python")}
+        names = {tool["name"] for tool in manifest.tools_for("python")}
         self.assertIn("status", names)
         self.assertNotIn("loomle", names)
         self.assertNotIn("setup.status", names)
         self.assertNotIn("setup.configure", names)
 
         tool = next(
-            tool for tool in manifest.list_tools("python")
+            tool for tool in manifest.tools_for("python")
             if tool["name"] == "status"
         )
         self.assertEqual(tool["inputSchema"]["properties"], {})
@@ -219,7 +230,7 @@ class ToolManifestTests(unittest.TestCase):
     def test_blueprint_graph_edit_requires_asset_path_and_commands(self) -> None:
         manifest = load_manifest(MANIFEST)
         tool = next(
-            tool for tool in manifest.list_tools("python")
+            tool for tool in manifest.tools_for("python")
             if tool["name"] == "blueprint.graph.edit"
         )
 
@@ -236,7 +247,7 @@ class ToolManifestTests(unittest.TestCase):
     def test_blueprint_graph_layout_manifest_is_root_tree_only(self) -> None:
         manifest = load_manifest(MANIFEST)
         tool = next(
-            tool for tool in manifest.list_tools("python")
+            tool for tool in manifest.tools_for("python")
             if tool["name"] == "blueprint.graph.layout"
         )
 
@@ -252,7 +263,7 @@ class ToolManifestTests(unittest.TestCase):
     def test_blueprint_graph_palette_manifest_is_graph_scoped(self) -> None:
         manifest = load_manifest(MANIFEST)
         tool = next(
-            tool for tool in manifest.list_tools("python")
+            tool for tool in manifest.tools_for("python")
             if tool["name"] == "blueprint.graph.palette"
         )
 
@@ -271,7 +282,7 @@ class ToolManifestTests(unittest.TestCase):
     def test_blueprint_graph_list_manifest_exposes_inventory_contract(self) -> None:
         manifest = load_manifest(MANIFEST)
         tool = next(
-            tool for tool in manifest.list_tools("python")
+            tool for tool in manifest.tools_for("python")
             if tool["name"] == "blueprint.graph.list"
         )
 
@@ -299,11 +310,11 @@ class ToolManifestTests(unittest.TestCase):
     def test_blueprint_inspect_manifest_is_overview_entrypoint(self) -> None:
         manifest = load_manifest(MANIFEST)
         blueprint_tool = next(
-            tool for tool in manifest.list_tools("python")
+            tool for tool in manifest.tools_for("python")
             if tool["name"] == "blueprint.inspect"
         )
         class_tool = next(
-            tool for tool in manifest.list_tools("python")
+            tool for tool in manifest.tools_for("python")
             if tool["name"] == "blueprint.class.inspect"
         )
 
@@ -326,7 +337,7 @@ class ToolManifestTests(unittest.TestCase):
         self.assertEqual(default_props["comparison"]["const"], "parentClassCDO")
 
         class_edit_tool = next(
-            tool for tool in manifest.list_tools("python")
+            tool for tool in manifest.tools_for("python")
             if tool["name"] == "blueprint.class.edit"
         )
         class_edit_ops = class_edit_tool["inputSchema"]["properties"]["operation"]["enum"]
@@ -356,7 +367,7 @@ class ToolManifestTests(unittest.TestCase):
         self.assertIn("newRevision", class_edit_tool["outputSchema"]["properties"])
 
         node_inspect_tool = next(
-            tool for tool in manifest.list_tools("python")
+            tool for tool in manifest.tools_for("python")
             if tool["name"] == "blueprint.node.inspect"
         )
         self.assertIn("outputSchema", node_inspect_tool)
@@ -371,7 +382,7 @@ class ToolManifestTests(unittest.TestCase):
     def test_blueprint_graph_inspect_manifest_exposes_flow_views(self) -> None:
         manifest = load_manifest(MANIFEST)
         tool = next(
-            tool for tool in manifest.list_tools("python")
+            tool for tool in manifest.tools_for("python")
             if tool["name"] == "blueprint.graph.inspect"
         )
 
@@ -407,7 +418,7 @@ class ToolManifestTests(unittest.TestCase):
     def test_context_manifest_is_empty_input_with_editor_snapshot_output(self) -> None:
         manifest = load_manifest(MANIFEST)
         tool = next(
-            tool for tool in manifest.list_tools("python")
+            tool for tool in manifest.tools_for("python")
             if tool["name"] == "context"
         )
 
@@ -464,7 +475,7 @@ class ToolManifestTests(unittest.TestCase):
     def test_widget_tree_edit_output_schema_declares_mutation_envelope(self) -> None:
         manifest = load_manifest(MANIFEST)
         tool = next(
-            tool for tool in manifest.list_tools("python")
+            tool for tool in manifest.tools_for("python")
             if tool["name"] == "widget.tree.edit"
         )
 
@@ -548,7 +559,7 @@ class ToolManifestTests(unittest.TestCase):
     def test_blueprint_member_edit_operation_schema_is_precise(self) -> None:
         manifest = load_manifest(MANIFEST)
         tool = next(
-            tool for tool in manifest.list_tools("python")
+            tool for tool in manifest.tools_for("python")
             if tool["name"] == "blueprint.member.edit"
         )
         properties = tool["inputSchema"]["properties"]
@@ -593,7 +604,7 @@ class ToolManifestTests(unittest.TestCase):
     def test_blueprint_node_edit_operation_schema_is_precise(self) -> None:
         manifest = load_manifest(MANIFEST)
         tool = next(
-            tool for tool in manifest.list_tools("python")
+            tool for tool in manifest.tools_for("python")
             if tool["name"] == "blueprint.node.edit"
         )
         properties = tool["inputSchema"]["properties"]
