@@ -491,7 +491,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetTreeEditToolResult(
         {
             // Dry-run: validate op name only, do not touch UE objects
             const TArray<FString> KnownOps = {
-                TEXT("addWidget"), TEXT("removeWidget"), TEXT("setProperty"), TEXT("reparentWidget")
+                TEXT("addWidget"), TEXT("removeWidget"), TEXT("renameWidget"), TEXT("setProperty"), TEXT("reparentWidget")
             };
             bOpOk = KnownOps.Contains(OpName);
             if (!bOpOk)
@@ -546,6 +546,25 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetTreeEditToolResult(
             else
             {
                 bOpOk = FLoomleWidgetAdapter::RemoveWidget(WBP, Name, OpError);
+            }
+        }
+        else if (OpName.Equals(TEXT("renameWidget")))
+        {
+            FString OldName;
+            FString NewName;
+            if (!ResolveWidgetName(Args, OldName))
+            {
+                bOpOk = false;
+                OpError = TEXT("renameWidget requires args.name or args.target.name.");
+            }
+            else if (!Args->TryGetStringField(TEXT("newName"), NewName) || NewName.IsEmpty())
+            {
+                bOpOk = false;
+                OpError = TEXT("renameWidget requires args.newName.");
+            }
+            else
+            {
+                bOpOk = FLoomleWidgetAdapter::RenameWidget(WBP, OldName, NewName, OpError);
             }
         }
         else if (OpName.Equals(TEXT("setProperty")))

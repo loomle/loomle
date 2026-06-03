@@ -511,6 +511,42 @@ bool FLoomleWidgetAdapter::RemoveWidget(
     return true;
 }
 
+bool FLoomleWidgetAdapter::RenameWidget(
+    UWidgetBlueprint* WBP,
+    const FString& OldName,
+    const FString& NewName,
+    FString& OutError)
+{
+    if (OldName.IsEmpty() || NewName.IsEmpty())
+    {
+        OutError = TEXT("INVALID_ARGUMENT: renameWidget requires non-empty old and new names.");
+        return false;
+    }
+
+    UWidget* Target = FindWidgetByName(WBP, OldName);
+    if (!Target)
+    {
+        OutError = FString::Printf(TEXT("WIDGET_NOT_FOUND: Widget '%s' not found."), *OldName);
+        return false;
+    }
+
+    if (FindWidgetByName(WBP, NewName))
+    {
+        OutError = FString::Printf(TEXT("WIDGET_ALREADY_EXISTS: A widget named '%s' already exists in the WidgetTree."), *NewName);
+        return false;
+    }
+
+    Target->Modify();
+    if (!Target->Rename(*NewName, WBP->WidgetTree, REN_DontCreateRedirectors | REN_ForceNoResetLoaders))
+    {
+        OutError = FString::Printf(TEXT("RENAME_WIDGET_FAILED: Failed to rename widget '%s' to '%s'."), *OldName, *NewName);
+        return false;
+    }
+
+    MarkModified(WBP);
+    return true;
+}
+
 bool FLoomleWidgetAdapter::SetWidgetProperty(
     UWidgetBlueprint* WBP,
     const FString& TargetName,

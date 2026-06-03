@@ -3068,6 +3068,24 @@ fn compile_widget_tree_command(
             op.insert("op".into(), serde_json::json!("removeWidget"));
             op_args.insert("name".into(), serde_json::json!(name));
         }
+        "renameWidget" => {
+            let old_name = command
+                .get("target")
+                .and_then(|value| value.as_object())
+                .and_then(|target| target.get("name"))
+                .and_then(|value| value.as_str())
+                .or_else(|| command.get("oldName").and_then(|value| value.as_str()))
+                .ok_or_else(|| "renameWidget requires target.name or oldName.".to_owned())?;
+            let new_name = command
+                .get("newName")
+                .or_else(|| command.get("name"))
+                .or_else(|| command.get("to"))
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "renameWidget requires name or newName.".to_owned())?;
+            op.insert("op".into(), serde_json::json!("renameWidget"));
+            op_args.insert("name".into(), serde_json::json!(old_name));
+            op_args.insert("newName".into(), serde_json::json!(new_name));
+        }
         "setProperty" => {
             let name = widget_target_name_from_command(command)
                 .ok_or_else(|| "setProperty requires name or target.name.".to_owned())?;
@@ -12479,6 +12497,43 @@ mod tests {
     }
 
     #[test]
+    fn widget_tree_edit_translates_rename_widget() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/UI/WBP_Menu"));
+        args.insert(
+            "commands".into(),
+            serde_json::json!([{
+                "kind": "renameWidget",
+                "target": {"name": "WorldSelect_Card0_Button"},
+                "name": "CardButton"
+            }]),
+        );
+
+        let translated = translate_widget_tree_edit_args(&args).expect("translated args");
+        let ops = translated
+            .get("ops")
+            .and_then(|value| value.as_array())
+            .expect("ops");
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            ops[0].get("op").and_then(|value| value.as_str()),
+            Some("renameWidget")
+        );
+        let op_args = ops[0]
+            .get("args")
+            .and_then(|value| value.as_object())
+            .expect("op args");
+        assert_eq!(
+            op_args.get("name").and_then(|value| value.as_str()),
+            Some("WorldSelect_Card0_Button")
+        );
+        assert_eq!(
+            op_args.get("newName").and_then(|value| value.as_str()),
+            Some("CardButton")
+        );
+    }
+
+    #[test]
     fn material_palette_accepts_asset_graph_ref() {
         let mut args = JsonObject::new();
         args.insert(
@@ -13262,6 +13317,7 @@ mod tests {
         for expected in [
             "addFromPalette",
             "removeWidget",
+            "renameWidget",
             "setProperty",
             "reparentWidget",
         ] {

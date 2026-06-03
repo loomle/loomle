@@ -10981,6 +10981,72 @@
             ]
           },
           {
+            "name": "renameWidget",
+            "category": "core",
+            "summary": "Rename one widget in the WidgetTree.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "renameWidget"
+                },
+                "target": {
+                  "$ref": "#/$defs/widgetRef"
+                },
+                "oldName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "New widget name."
+                },
+                "newName": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false,
+              "$defs": {
+                "widgetRef": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "examples": [
+              {
+                "kind": "renameWidget",
+                "target": {
+                  "name": "WorldSelect_Card0_Button"
+                },
+                "name": "CardButton"
+              }
+            ],
+            "errors": [
+              "WIDGET_NOT_FOUND",
+              "WIDGET_ALREADY_EXISTS",
+              "RENAME_WIDGET_FAILED"
+            ],
+            "notes": [
+              "Renaming preserves the widget object, slot, layout, style, properties, and bindings.",
+              "Use target.name for the current widget name and name/newName for the destination name."
+            ]
+          },
+          {
             "name": "setProperty",
             "category": "core",
             "summary": "Set one editable property on a widget instance.",

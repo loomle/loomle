@@ -36,6 +36,12 @@ public:
         const FString& Name,
         FString& OutError);
 
+    static bool RenameWidget(
+        UWidgetBlueprint* WBP,
+        const FString& OldName,
+        const FString& NewName,
+        FString& OutError);
+
     static bool SetWidgetProperty(
         UWidgetBlueprint* WBP,
         const FString& TargetName,

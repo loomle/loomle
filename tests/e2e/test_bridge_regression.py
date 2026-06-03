@@ -788,6 +788,12 @@ def widget_command_from_legacy_op(op: dict) -> dict:
         return command
     if op_name == "removeWidget":
         return {"kind": "removeWidget", "target": {"name": args.get("name", "")}}
+    if op_name == "renameWidget":
+        return {
+            "kind": "renameWidget",
+            "target": {"name": args.get("name", args.get("oldName", ""))},
+            "name": args.get("newName", args.get("to", "")),
+        }
     if op_name == "setProperty":
         return {
             "kind": "setProperty",
@@ -6515,6 +6521,37 @@ def main() -> int:
         if not isinstance(revision_2, str) or revision_2 == revision_1:
             fail(f"W06 addWidget TextBlock should update revision: {wm_add_text}")
         print("[PASS] W06 widget.tree.edit addFromPalette TextBlock as child validated")
+
+        # W06b — renameWidget preserves the widget and updates inspect output
+        wm_rename = widget_tree_edit(client, 5055, {
+            "assetPath": temp_wbp_asset,
+            "ops": [{"op": "renameWidget", "args": {
+                "name": "TitleText",
+                "newName": "RenamedTitleText",
+            }}],
+        })
+        widget_op_ok(wm_rename, 0)
+        wq_renamed = widget_tree_inspect(client, 5056, {
+            "assetPath": temp_wbp_asset,
+            "includeSlotProperties": True,
+        })
+        renamed_children = wq_renamed.get("rootWidget", {}).get("children", [])
+        if not isinstance(renamed_children, list) or not any(
+            isinstance(c, dict) and c.get("name") == "RenamedTitleText" for c in renamed_children
+        ):
+            fail(f"W06b RenamedTitleText not found after renameWidget: {wq_renamed}")
+        if any(isinstance(c, dict) and c.get("name") == "TitleText" for c in renamed_children):
+            fail(f"W06b old TitleText still present after renameWidget: {wq_renamed}")
+        wm_rename_back = widget_tree_edit(client, 5057, {
+            "assetPath": temp_wbp_asset,
+            "ops": [{"op": "renameWidget", "args": {
+                "name": "RenamedTitleText",
+                "newName": "TitleText",
+            }}],
+        })
+        widget_op_ok(wm_rename_back, 0)
+        revision_2 = wm_rename_back.get("newRevision")
+        print("[PASS] W06b widget.tree.edit renameWidget validated")
 
         # W07 — query with includeSlotProperties confirms child is present
         wq2 = widget_tree_inspect(client, 5060, {
