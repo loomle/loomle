@@ -11199,6 +11199,173 @@
       }
     },
     {
+      "name": "widget.event.create",
+      "title": "Create Widget Event",
+      "description": "Create or return the native component-bound event node for one WidgetBlueprint widget event, such as a Button OnClicked event.",
+      "availability": [
+        "native",
+        "python"
+      ],
+      "requiresBridge": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "assetPath": {
+            "type": "string",
+            "minLength": 1,
+            "description": "WidgetBlueprint asset path."
+          },
+          "widget": {
+            "type": "object",
+            "description": "WidgetTree instance reference.",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "event": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Multicast delegate property name on the widget class, such as OnClicked."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "assetPath",
+          "widget",
+          "event"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "isError": {
+            "type": "boolean"
+          },
+          "assetPath": {
+            "type": "string"
+          },
+          "widget": {
+            "type": "string"
+          },
+          "event": {
+            "type": "string"
+          },
+          "componentPropertyName": {
+            "type": "string"
+          },
+          "delegatePropertyName": {
+            "type": "string"
+          },
+          "widgetClass": {
+            "type": "string"
+          },
+          "created": {
+            "type": "boolean",
+            "description": "True only when this call created a new native component-bound event node."
+          },
+          "existing": {
+            "type": "boolean",
+            "description": "True when the event node already existed before this call."
+          },
+          "wouldCreate": {
+            "type": "boolean",
+            "description": "True when no existing node was found. In dryRun mode the node is not created."
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "nodeId": {
+            "type": "string",
+            "description": "Created or existing graph node GUID for follow-up Blueprint graph operations."
+          },
+          "graphName": {
+            "type": "string"
+          },
+          "graphRef": {
+            "type": "object",
+            "properties": {
+              "assetPath": {
+                "type": "string"
+              },
+              "graphName": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "assetPath",
+              "graphName"
+            ],
+            "additionalProperties": false
+          },
+          "node": {
+            "type": "object",
+            "properties": {
+              "nodeId": {
+                "type": "string"
+              },
+              "nodeClass": {
+                "type": "string"
+              },
+              "nodeClassPath": {
+                "type": "string"
+              },
+              "graphName": {
+                "type": "string"
+              },
+              "graphRef": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "required": [
+              "nodeId",
+              "nodeClass",
+              "nodeClassPath",
+              "graphName",
+              "graphRef"
+            ],
+            "additionalProperties": false
+          },
+          "previousRevision": {
+            "type": "string"
+          },
+          "newRevision": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "isError"
+        ],
+        "additionalProperties": false
+      },
+      "dispatch": {
+        "kind": "bridgeRpc",
+        "tool": "widget.event.create",
+        "args": "identity",
+        "result": "structured"
+      }
+    },
+    {
       "name": "widget.inspect",
       "title": "Inspect Widget",
       "description": "Inspect one UMG widget class or WidgetTree instance for editable properties.",

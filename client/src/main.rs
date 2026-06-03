@@ -1202,6 +1202,7 @@ impl LoomleProxyServer {
                     self.runtime_call("widget.inspect", inspect_args).await?,
                 ))
             }
+            "widget.event.create" => Ok(Some(self.runtime_call("widget.event.create", args).await?)),
             "widget.compile" => Ok(Some(self.runtime_call("widget.compile", args).await?)),
             _ => Ok(None),
         }
@@ -6305,6 +6306,7 @@ fn runtime_declared_tools() -> Vec<Tool> {
         Tool::new("widget.palette", "Search UE Widget Palette entries for UMG widget creation.", Arc::new(widget_palette_schema())),
         Tool::new("widget.tree.inspect", "Read the UMG WidgetTree of a WidgetBlueprint asset.", Arc::new(widget_tree_inspect_schema())),
         Tool::new("widget.tree.edit", "Apply explicit local edit commands to a WidgetBlueprint WidgetTree. Use widget.palette for widget creation.", Arc::new(widget_tree_edit_schema())),
+        Tool::new("widget.event.create", "Create or return the native component-bound event node for one WidgetBlueprint widget event.", Arc::new(widget_event_create_schema())),
         Tool::new("widget.inspect", "Inspect one UMG widget class or WidgetTree instance for editable properties.", Arc::new(widget_inspect_schema())),
         Tool::new("widget.compile", "Compile a WidgetBlueprint and return diagnostics.", Arc::new(asset_path_only_schema("WidgetBlueprint asset path."))),
     ]
@@ -7824,6 +7826,42 @@ fn widget_tree_edit_schema() -> rmcp::model::JsonObject {
         "type": "object",
         "properties": properties,
         "required": ["assetPath", "commands"],
+        "additionalProperties": false
+    }))
+}
+
+fn widget_event_create_schema() -> rmcp::model::JsonObject {
+    schema_from_value(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "assetPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "WidgetBlueprint asset path."
+            },
+            "widget": {
+                "type": "object",
+                "description": "WidgetTree instance reference.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": ["name"],
+                "additionalProperties": false
+            },
+            "event": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Multicast delegate property name on the widget class, such as OnClicked."
+            },
+            "dryRun": {
+                "type": "boolean",
+                "default": false
+            }
+        },
+        "required": ["assetPath", "widget", "event"],
         "additionalProperties": false
     }))
 }
@@ -12065,6 +12103,16 @@ mod tests {
     }
 
     #[test]
+    fn widget_event_create_tool_is_declared() {
+        let tool_names = runtime_declared_tools()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        assert!(tool_names.contains("widget.event.create"));
+    }
+
+    #[test]
     fn public_widget_surface_is_declared_without_legacy_tools() {
         let tool_names = runtime_declared_tools()
             .into_iter()
@@ -12075,6 +12123,7 @@ mod tests {
             "widget.palette",
             "widget.tree.inspect",
             "widget.tree.edit",
+            "widget.event.create",
             "widget.inspect",
             "widget.compile",
         ] {

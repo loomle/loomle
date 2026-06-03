@@ -36,6 +36,7 @@ class ToolManifestTests(unittest.TestCase):
         self.assertIn("widget.palette", names)
         self.assertIn("widget.tree.inspect", names)
         self.assertIn("widget.tree.edit", names)
+        self.assertIn("widget.event.create", names)
         self.assertIn("widget.compile", names)
         self.assertNotIn("loomle", names)
         self.assertNotIn("setup.status", names)

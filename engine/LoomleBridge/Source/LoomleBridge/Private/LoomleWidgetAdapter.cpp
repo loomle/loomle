@@ -9,7 +9,11 @@
 #include "Components/Widget.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
+#include "EdGraph/EdGraph.h"
+#include "EdGraph/EdGraphNode.h"
+#include "EdGraphSchema_K2_Actions.h"
 #include "EditorFramework/AssetImportData.h"
+#include "K2Node_ComponentBoundEvent.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/CompilerResultsLog.h"
 #include "Kismet2/KismetEditorUtilities.h"
@@ -64,6 +68,59 @@ UWidgetBlueprint* LoadWidgetBlueprintAsset(const FString& AssetPath, FString& Ou
         return nullptr;
     }
     return WBP;
+}
+
+FString NodeGuidString(const UEdGraphNode* Node)
+{
+    return Node ? Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower) : FString();
+}
+
+TSharedPtr<FJsonObject> MakeGraphRefJson(const FString& AssetPath, const UEdGraph* Graph)
+{
+    TSharedPtr<FJsonObject> GraphRef = MakeShared<FJsonObject>();
+    GraphRef->SetStringField(TEXT("assetPath"), AssetPath);
+    GraphRef->SetStringField(TEXT("graphName"), Graph ? Graph->GetName() : FString());
+    return GraphRef;
+}
+
+TSharedPtr<FJsonObject> MakeWidgetEventNodeJson(const FString& AssetPath, const UK2Node_ComponentBoundEvent* Node)
+{
+    TSharedPtr<FJsonObject> NodeJson = MakeShared<FJsonObject>();
+    NodeJson->SetStringField(TEXT("nodeId"), NodeGuidString(Node));
+    NodeJson->SetStringField(TEXT("nodeClass"), Node ? Node->GetClass()->GetName() : FString());
+    NodeJson->SetStringField(TEXT("nodeClassPath"), Node ? Node->GetClass()->GetPathName() : FString());
+    NodeJson->SetStringField(TEXT("graphName"), Node && Node->GetGraph() ? Node->GetGraph()->GetName() : FString());
+    NodeJson->SetObjectField(TEXT("graphRef"), MakeGraphRefJson(AssetPath, Node ? Node->GetGraph() : nullptr));
+    return NodeJson;
+}
+
+FString ComputeWidgetEventRevision(UWidgetBlueprint* WBP)
+{
+    TArray<FString> Tokens;
+
+    if (WBP)
+    {
+        TArray<UK2Node_ComponentBoundEvent*> EventNodes;
+        FBlueprintEditorUtils::GetAllNodesOfClass(WBP, EventNodes);
+        for (const UK2Node_ComponentBoundEvent* Node : EventNodes)
+        {
+            if (!Node)
+            {
+                continue;
+            }
+            Tokens.Add(FString::Printf(
+                TEXT("%s|%s|%s|%s|%d|%d"),
+                *NodeGuidString(Node),
+                *Node->ComponentPropertyName.ToString(),
+                *Node->DelegatePropertyName.ToString(),
+                Node->GetGraph() ? *Node->GetGraph()->GetName() : TEXT(""),
+                Node->NodePosX,
+                Node->NodePosY));
+        }
+    }
+
+    Tokens.Sort();
+    return FMD5::HashAnsiString(*FString::Join(Tokens, TEXT("\n")));
 }
 
 } // namespace
@@ -633,6 +690,132 @@ bool FLoomleWidgetAdapter::ReparentWidget(
     ApplySlotProperties(Slot, SlotArgs);
 
     MarkModified(WBP);
+    return true;
+}
+
+bool FLoomleWidgetAdapter::CreateWidgetEvent(
+    const FString& AssetPath,
+    const FString& WidgetName,
+    const FString& EventName,
+    bool bDryRun,
+    FString& OutJson,
+    FString& OutError)
+{
+    if (AssetPath.IsEmpty() || WidgetName.IsEmpty() || EventName.IsEmpty())
+    {
+        OutError = TEXT("INVALID_ARGUMENT: widget.event.create requires assetPath, widget.name, and event.");
+        return false;
+    }
+
+    UWidgetBlueprint* WBP = LoadWidgetBlueprintAsset(AssetPath, OutError);
+    if (!WBP)
+    {
+        return false;
+    }
+
+    UWidget* Widget = FindWidgetByName(WBP, WidgetName);
+    if (!Widget)
+    {
+        OutError = FString::Printf(TEXT("WIDGET_NOT_FOUND: Widget '%s' not found."), *WidgetName);
+        return false;
+    }
+
+    const FName WidgetFName(*WidgetName);
+    FObjectProperty* VariableProperty = WBP->SkeletonGeneratedClass
+        ? FindFProperty<FObjectProperty>(WBP->SkeletonGeneratedClass, WidgetFName)
+        : nullptr;
+    if (!VariableProperty && WBP->GeneratedClass)
+    {
+        VariableProperty = FindFProperty<FObjectProperty>(WBP->GeneratedClass, WidgetFName);
+    }
+    if (!VariableProperty)
+    {
+        OutError = FString::Printf(
+            TEXT("WIDGET_COMPONENT_PROPERTY_NOT_FOUND: Widget '%s' is not exposed as a component property on the WidgetBlueprint class."),
+            *WidgetName);
+        return false;
+    }
+
+    UClass* WidgetClass = VariableProperty->PropertyClass ? VariableProperty->PropertyClass.Get() : Widget->GetClass();
+    if (!WidgetClass)
+    {
+        OutError = FString::Printf(TEXT("WIDGET_CLASS_NOT_FOUND: Widget '%s' has no resolvable widget class."), *WidgetName);
+        return false;
+    }
+
+    const FName EventFName(*EventName);
+    FMulticastDelegateProperty* DelegateProperty = FindFProperty<FMulticastDelegateProperty>(WidgetClass, EventFName);
+    if (!DelegateProperty)
+    {
+        OutError = FString::Printf(
+            TEXT("WIDGET_EVENT_NOT_FOUND: Widget class '%s' has no multicast delegate event '%s'."),
+            *WidgetClass->GetPathName(),
+            *EventName);
+        return false;
+    }
+
+    const FString PreviousRevision = ComputeWidgetEventRevision(WBP);
+    const UK2Node_ComponentBoundEvent* ExistingNode =
+        FKismetEditorUtilities::FindBoundEventForComponent(WBP, EventFName, VariableProperty->GetFName());
+
+    const bool bWouldCreate = ExistingNode == nullptr;
+    const bool bCreated = bWouldCreate && !bDryRun;
+    const UK2Node_ComponentBoundEvent* ResultNode = ExistingNode;
+
+    if (bCreated)
+    {
+        UEdGraph* TargetGraph = WBP->GetLastEditedUberGraph();
+        if (!TargetGraph)
+        {
+            OutError = TEXT("WIDGET_EVENT_GRAPH_NOT_FOUND: WidgetBlueprint has no editable UberGraph for the component-bound event node.");
+            return false;
+        }
+
+        const FVector2D NewNodePos = TargetGraph->GetGoodPlaceForNewNode();
+        FEdGraphSchemaAction_K2NewNode::SpawnNode<UK2Node_ComponentBoundEvent>(
+            TargetGraph,
+            NewNodePos,
+            EK2NewNodeFlags::None,
+            [VariableProperty, DelegateProperty](UK2Node_ComponentBoundEvent* NewInstance)
+            {
+                NewInstance->InitializeComponentBoundEventParams(VariableProperty, DelegateProperty);
+            });
+        ResultNode = FKismetEditorUtilities::FindBoundEventForComponent(WBP, EventFName, VariableProperty->GetFName());
+        if (!ResultNode)
+        {
+            OutError = FString::Printf(
+                TEXT("CREATE_WIDGET_EVENT_FAILED: UE did not create a component-bound event node for widget '%s' event '%s'."),
+                *WidgetName,
+                *EventName);
+            return false;
+        }
+    }
+
+    const FString NewRevision = bDryRun ? PreviousRevision : ComputeWidgetEventRevision(WBP);
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("assetPath"), AssetPath);
+    Result->SetStringField(TEXT("widget"), WidgetName);
+    Result->SetStringField(TEXT("event"), EventName);
+    Result->SetStringField(TEXT("componentPropertyName"), VariableProperty->GetName());
+    Result->SetStringField(TEXT("widgetClass"), WidgetClass->GetPathName());
+    Result->SetStringField(TEXT("delegatePropertyName"), DelegateProperty->GetName());
+    Result->SetBoolField(TEXT("created"), bCreated);
+    Result->SetBoolField(TEXT("existing"), ExistingNode != nullptr);
+    Result->SetBoolField(TEXT("wouldCreate"), bWouldCreate);
+    Result->SetBoolField(TEXT("dryRun"), bDryRun);
+    Result->SetStringField(TEXT("previousRevision"), PreviousRevision);
+    Result->SetStringField(TEXT("newRevision"), NewRevision);
+
+    if (ResultNode)
+    {
+        Result->SetStringField(TEXT("nodeId"), NodeGuidString(ResultNode));
+        Result->SetStringField(TEXT("graphName"), ResultNode->GetGraph() ? ResultNode->GetGraph()->GetName() : FString());
+        Result->SetObjectField(TEXT("graphRef"), MakeGraphRefJson(AssetPath, ResultNode->GetGraph()));
+        Result->SetObjectField(TEXT("node"), MakeWidgetEventNodeJson(AssetPath, ResultNode));
+    }
+
+    OutJson = JsonObjectToString(Result);
     return true;
 }
 

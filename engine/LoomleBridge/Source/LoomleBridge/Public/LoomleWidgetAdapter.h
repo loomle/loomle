@@ -56,6 +56,15 @@ public:
         const TSharedPtr<FJsonObject>& SlotArgs,
         FString& OutError);
 
+    // Create or return the native component-bound event node for one widget event.
+    static bool CreateWidgetEvent(
+        const FString& AssetPath,
+        const FString& WidgetName,
+        const FString& EventName,
+        bool bDryRun,
+        FString& OutJson,
+        FString& OutError);
+
     // Describe the properties of a widget class (or a live widget instance).
     // ClassInput may be a short name ("TextBlock") or a full class path.
     // If AssetPath and WidgetName are non-empty the result also includes currentValues

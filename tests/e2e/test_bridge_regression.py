@@ -6553,6 +6553,41 @@ def main() -> int:
         revision_2 = wm_rename_back.get("newRevision")
         print("[PASS] W06b widget.tree.edit renameWidget validated")
 
+        # W06c — create native UMG component-bound event for a Button OnClicked
+        wm_add_button = widget_tree_edit(client, 5058, {
+            "assetPath": temp_wbp_asset,
+            "ops": [{"op": "addWidget", "args": {
+                "widgetClass": "/Script/UMG.Button",
+                "name": "CardButton",
+                "parentName": "RootCanvas",
+            }}],
+        })
+        widget_op_ok(wm_add_button, 0)
+        we_create = call_tool(client, 5059, "widget.event.create", {
+            "assetPath": temp_wbp_asset,
+            "widget": {"name": "CardButton"},
+            "event": "OnClicked",
+        })
+        if we_create.get("isError"):
+            fail(f"W06c widget.event.create failed: {we_create}")
+        if we_create.get("created") is not True or not we_create.get("nodeId"):
+            fail(f"W06c widget.event.create should create node with nodeId: {we_create}")
+        node_obj = we_create.get("node")
+        if not isinstance(node_obj, dict) or node_obj.get("nodeClass") != "K2Node_ComponentBoundEvent":
+            fail(f"W06c widget.event.create should return K2Node_ComponentBoundEvent: {we_create}")
+        we_existing = call_tool(client, 5061, "widget.event.create", {
+            "assetPath": temp_wbp_asset,
+            "widget": {"name": "CardButton"},
+            "event": "OnClicked",
+        })
+        if we_existing.get("isError"):
+            fail(f"W06c widget.event.create idempotent call failed: {we_existing}")
+        if we_existing.get("created") is not False or we_existing.get("existing") is not True:
+            fail(f"W06c widget.event.create should return existing node on repeated call: {we_existing}")
+        if we_existing.get("nodeId") != we_create.get("nodeId"):
+            fail(f"W06c widget.event.create repeated call should return same nodeId: {we_existing}")
+        print("[PASS] W06c widget.event.create native Button OnClicked event validated")
+
         # W07 — query with includeSlotProperties confirms child is present
         wq2 = widget_tree_inspect(client, 5060, {
             "assetPath": temp_wbp_asset,

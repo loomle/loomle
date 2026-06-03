@@ -751,6 +751,92 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetInspectToolResult(
 }
 
 // ---------------------------------------------------------------------------
+// widget.event.create
+// ---------------------------------------------------------------------------
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetEventCreateToolResult(
+    const TSharedPtr<FJsonObject>& Arguments)
+{
+    TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+
+    FString AssetPath;
+    if (!Arguments.IsValid() || !Arguments->TryGetStringField(TEXT("assetPath"), AssetPath) || AssetPath.IsEmpty())
+    {
+        Payload->SetBoolField(TEXT("isError"), true);
+        Payload->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Payload->SetStringField(TEXT("message"), TEXT("INVALID_ARGUMENT"));
+        Payload->SetStringField(TEXT("detail"), TEXT("field assetPath is required"));
+        return Payload;
+    }
+
+    FString WidgetName;
+    const TSharedPtr<FJsonObject>* WidgetObj = nullptr;
+    if (Arguments->TryGetObjectField(TEXT("widget"), WidgetObj) && WidgetObj && WidgetObj->IsValid())
+    {
+        (*WidgetObj)->TryGetStringField(TEXT("name"), WidgetName);
+    }
+    if (WidgetName.IsEmpty())
+    {
+        Arguments->TryGetStringField(TEXT("widgetName"), WidgetName);
+    }
+    if (WidgetName.IsEmpty())
+    {
+        Payload->SetBoolField(TEXT("isError"), true);
+        Payload->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Payload->SetStringField(TEXT("message"), TEXT("INVALID_ARGUMENT"));
+        Payload->SetStringField(TEXT("detail"), TEXT("widget.event.create requires widget.name."));
+        return Payload;
+    }
+
+    FString EventName;
+    if (!Arguments->TryGetStringField(TEXT("event"), EventName) || EventName.IsEmpty())
+    {
+        Payload->SetBoolField(TEXT("isError"), true);
+        Payload->SetStringField(TEXT("code"), TEXT("INVALID_ARGUMENT"));
+        Payload->SetStringField(TEXT("message"), TEXT("INVALID_ARGUMENT"));
+        Payload->SetStringField(TEXT("detail"), TEXT("widget.event.create requires event."));
+        return Payload;
+    }
+
+    bool bDryRun = false;
+    Arguments->TryGetBoolField(TEXT("dryRun"), bDryRun);
+
+    FString ResultJson;
+    FString Error;
+    if (!FLoomleWidgetAdapter::CreateWidgetEvent(AssetPath, WidgetName, EventName, bDryRun, ResultJson, Error))
+    {
+        FString DomainCode = TEXT("INTERNAL_ERROR");
+        if (Error.Contains(TEXT(":")))
+        {
+            Error.Split(TEXT(":"), &DomainCode, nullptr);
+        }
+        Payload->SetBoolField(TEXT("isError"), true);
+        Payload->SetStringField(TEXT("code"), DomainCode);
+        Payload->SetStringField(TEXT("message"), DomainCode);
+        Payload->SetStringField(TEXT("detail"), Error);
+        return Payload;
+    }
+
+    TSharedPtr<FJsonObject> ResultObj;
+    TSharedRef<TJsonReader<TCHAR>> Reader = TJsonReaderFactory<TCHAR>::Create(ResultJson);
+    if (!FJsonSerializer::Deserialize(Reader, ResultObj) || !ResultObj.IsValid())
+    {
+        Payload->SetBoolField(TEXT("isError"), true);
+        Payload->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+        Payload->SetStringField(TEXT("message"), TEXT("INTERNAL_ERROR"));
+        Payload->SetStringField(TEXT("detail"), TEXT("Failed to parse widget event result."));
+        return Payload;
+    }
+
+    Payload->SetBoolField(TEXT("isError"), false);
+    for (const auto& Pair : ResultObj->Values)
+    {
+        Payload->SetField(Pair.Key, Pair.Value);
+    }
+    return Payload;
+}
+
+// ---------------------------------------------------------------------------
 // widget.compile
 // ---------------------------------------------------------------------------
 
