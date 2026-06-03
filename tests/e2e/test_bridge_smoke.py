@@ -3673,10 +3673,14 @@ def main() -> int:
             "assetPath": temp_wbp_asset,
             "widget": {"name": "SmokeCanvas"},
         })
+        if wi.get("isError") is not False:
+            fail(f"widget.inspect instance should report isError=false: {wi}")
         if not isinstance(wi.get("properties"), list) or not wi.get("properties"):
             fail(f"widget.inspect instance missing properties[]: {wi}")
         if not isinstance(wi.get("currentValues"), dict):
             fail(f"widget.inspect instance missing currentValues: {wi}")
+        if not isinstance(wi.get("slotCurrentValues"), dict):
+            fail(f"widget.inspect instance missing slotCurrentValues: {wi}")
         print("[PASS] widget.inspect instance validated")
 
         wv = call_tool(client, 203, "widget.compile", {"assetPath": temp_wbp_asset})

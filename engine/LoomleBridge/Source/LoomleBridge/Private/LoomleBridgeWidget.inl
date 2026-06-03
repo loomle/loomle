@@ -1004,6 +1004,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetInspectToolResult(
         {
             DomainCode = TEXT("WIDGET_NOT_FOUND");
         }
+        else if (Error.StartsWith(TEXT("WIDGET_CLASS_MISMATCH")))
+        {
+            DomainCode = TEXT("WIDGET_CLASS_MISMATCH");
+        }
         else if (Error.StartsWith(TEXT("WIDGET_TREE_UNAVAILABLE")))
         {
             DomainCode = TEXT("WIDGET_TREE_UNAVAILABLE");
@@ -1027,6 +1031,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildWidgetInspectToolResult(
     }
 
     // Merge describe object fields into payload
+    Payload->SetBoolField(TEXT("isError"), false);
     for (const auto& Pair : DescribeObj->Values)
     {
         Payload->SetField(Pair.Key, Pair.Value);

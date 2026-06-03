@@ -398,12 +398,9 @@ bool FLoomleWidgetAdapter::DescribeWidgetClass(
     FString& OutJson,
     FString& OutError)
 {
-    // --- Resolve the UClass ---
-    FString ResolvedClassInput = ClassInput;
-
-    // If caller provided asset+widget but no explicit class, derive the class from the live instance.
+    const bool bHasInstanceInput = !AssetPath.IsEmpty() && !WidgetName.IsEmpty();
     UWidget* LiveInstance = nullptr;
-    if (ResolvedClassInput.IsEmpty() && !AssetPath.IsEmpty() && !WidgetName.IsEmpty())
+    if (bHasInstanceInput)
     {
         UWidgetBlueprint* WBP = LoadWidgetBlueprintAsset(AssetPath, OutError);
         if (!WBP)
@@ -417,31 +414,32 @@ bool FLoomleWidgetAdapter::DescribeWidgetClass(
                 TEXT("WIDGET_NOT_FOUND: Widget '%s' not found in '%s'."), *WidgetName, *AssetPath);
             return false;
         }
-        ResolvedClassInput = LiveInstance->GetClass()->GetPathName();
     }
 
-    UClass* WidgetClass = ResolveWidgetClassByName(ResolvedClassInput, OutError);
+    UClass* ExpectedClass = nullptr;
+    if (!ClassInput.IsEmpty())
+    {
+        ExpectedClass = ResolveWidgetClassByName(ClassInput, OutError);
+        if (!ExpectedClass)
+        {
+            return false;
+        }
+    }
+
+    UClass* WidgetClass = LiveInstance ? LiveInstance->GetClass() : ExpectedClass;
     if (!WidgetClass)
     {
+        OutError = TEXT("WIDGET_CLASS_NOT_FOUND: widgetClass is required when assetPath and widgetName are not provided.");
         return false;
     }
-
-    // If we have an asset+widget but didn't load the instance yet (class was given explicitly),
-    // try to find the live instance now so we can attach currentValues.
-    if (!LiveInstance && !AssetPath.IsEmpty() && !WidgetName.IsEmpty())
+    if (LiveInstance && ExpectedClass && !LiveInstance->IsA(ExpectedClass))
     {
-        UWidgetBlueprint* WBP = LoadWidgetBlueprintAsset(AssetPath, OutError);
-        if (!WBP)
-        {
-            return false;
-        }
-        LiveInstance = FindWidgetByName(WBP, WidgetName);
-        if (!LiveInstance)
-        {
-            OutError = FString::Printf(
-                TEXT("WIDGET_NOT_FOUND: Widget '%s' not found in '%s'."), *WidgetName, *AssetPath);
-            return false;
-        }
+        OutError = FString::Printf(
+            TEXT("WIDGET_CLASS_MISMATCH: Widget '%s' is class '%s', not assignable to requested class '%s'."),
+            *WidgetName,
+            *LiveInstance->GetClass()->GetPathName(),
+            *ExpectedClass->GetPathName());
+        return false;
     }
 
     // --- Enumerate widget properties ---
@@ -469,6 +467,7 @@ bool FLoomleWidgetAdapter::DescribeWidgetClass(
 
     // --- Enumerate slot properties (from the instance's current slot class, if available) ---
     TArray<TSharedPtr<FJsonValue>> SlotProperties;
+    TSharedPtr<FJsonObject> SlotCurrentValues = MakeShared<FJsonObject>();
     if (LiveInstance && LiveInstance->Slot)
     {
         UPanelSlot* Slot = LiveInstance->Slot;
@@ -479,12 +478,12 @@ bool FLoomleWidgetAdapter::DescribeWidgetClass(
             {
                 continue;
             }
-            TSharedPtr<FJsonObject> SPObj = MakeShared<FJsonObject>();
-            SPObj->SetStringField(TEXT("name"), Prop->GetName());
-            SPObj->SetStringField(TEXT("type"), Prop->GetCPPType());
-            const bool bWritable = !Prop->HasAnyPropertyFlags(CPF_BlueprintReadOnly);
-            SPObj->SetBoolField(TEXT("writable"), bWritable);
-            SlotProperties.Add(MakeShared<FJsonValueObject>(SPObj));
+            SlotProperties.Add(MakeShared<FJsonValueObject>(SerializePropertyDescriptor(Prop)));
+
+            FString ValueStr;
+            const void* PropPtr = Prop->ContainerPtrToValuePtr<void>(Slot);
+            Prop->ExportTextItem_Direct(ValueStr, PropPtr, nullptr, nullptr, PPF_None);
+            SlotCurrentValues->SetStringField(Prop->GetName(), ValueStr);
         }
     }
 
@@ -495,7 +494,20 @@ bool FLoomleWidgetAdapter::DescribeWidgetClass(
     Result->SetArrayField(TEXT("slotProperties"), SlotProperties);
     if (bHasCurrentValues)
     {
+        Result->SetStringField(TEXT("assetPath"), AssetPath);
+        TSharedPtr<FJsonObject> WidgetRef = MakeShared<FJsonObject>();
+        WidgetRef->SetStringField(TEXT("name"), WidgetName);
+        Result->SetObjectField(TEXT("widget"), WidgetRef);
         Result->SetObjectField(TEXT("currentValues"), CurrentValues);
+        if (LiveInstance && LiveInstance->Slot)
+        {
+            Result->SetStringField(TEXT("slotClass"), LiveInstance->Slot->GetClass()->GetPathName());
+        }
+        else
+        {
+            Result->SetField(TEXT("slotClass"), MakeShared<FJsonValueNull>());
+        }
+        Result->SetObjectField(TEXT("slotCurrentValues"), SlotCurrentValues);
     }
 
     OutJson = JsonObjectToString(Result);

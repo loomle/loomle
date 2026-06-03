@@ -6789,6 +6789,8 @@ def main() -> int:
 
         # W19 — widget.inspect by short class name
         wd_short = widget_inspect(client, 5166, {"widgetClass": "TextBlock"})
+        if wd_short.get("isError") is not False:
+            fail(f"W19 widget.inspect TextBlock should report isError=false: {wd_short}")
         if "properties" not in wd_short or not isinstance(wd_short["properties"], list):
             fail(f"W19 widget.inspect TextBlock missing properties[]: {wd_short}")
         if not wd_short.get("widgetClass", "").endswith("TextBlock"):
@@ -6799,6 +6801,8 @@ def main() -> int:
             fail(f"W19 widget.inspect missing slotProperties[]: {wd_short}")
         if "currentValues" in wd_short:
             fail(f"W19 widget.inspect without instance should NOT have currentValues: {wd_short}")
+        if "slotCurrentValues" in wd_short:
+            fail(f"W19 widget.inspect without instance should NOT have slotCurrentValues: {wd_short}")
         print("[PASS] W19 widget.inspect by short class name (TextBlock)")
 
         # W20 — widget.inspect by full class path
@@ -6815,13 +6819,43 @@ def main() -> int:
             "assetPath": temp_wbp_asset,
             "widgetName": "RootCanvas"
         })
+        if wd_inst.get("isError") is not False:
+            fail(f"W21 widget.inspect instance should report isError=false: {wd_inst}")
+        if wd_inst.get("assetPath") != temp_wbp_asset or wd_inst.get("widget", {}).get("name") != "RootCanvas":
+            fail(f"W21 widget.inspect instance missing assetPath/widget ref: {wd_inst}")
         if not wd_inst.get("widgetClass", "").endswith("CanvasPanel"):
             fail(f"W21 widget.inspect instance widgetClass mismatch: {wd_inst.get('widgetClass')!r}")
         if "properties" not in wd_inst or not isinstance(wd_inst["properties"], list):
             fail(f"W21 widget.inspect instance missing properties[]: {wd_inst}")
         if "currentValues" not in wd_inst or not isinstance(wd_inst["currentValues"], dict):
             fail(f"W21 widget.inspect instance should have currentValues dict: {wd_inst}")
+        if "slotCurrentValues" not in wd_inst or not isinstance(wd_inst["slotCurrentValues"], dict):
+            fail(f"W21 widget.inspect instance should have slotCurrentValues dict: {wd_inst}")
         print("[PASS] W21 widget.inspect by assetPath+widget includes currentValues")
+
+        # W21b — widget.inspect instance uses the real widget class and reports slot values
+        wd_child_inst = widget_inspect(client, 51681, {
+            "assetPath": temp_wbp_batch,
+            "widgetName": "BatchChild",
+            "widgetClass": "Widget",
+        })
+        if not wd_child_inst.get("widgetClass", "").endswith("TextBlock"):
+            fail(f"W21b widget.inspect should return real instance class TextBlock: {wd_child_inst}")
+        if not isinstance(wd_child_inst.get("slotClass"), str) or not wd_child_inst["slotClass"].endswith("Slot"):
+            fail(f"W21b widget.inspect child should report slotClass: {wd_child_inst}")
+        if not isinstance(wd_child_inst.get("slotCurrentValues"), dict):
+            fail(f"W21b widget.inspect child should report slotCurrentValues: {wd_child_inst}")
+        wd_mismatch = widget_inspect(client, 51682, {
+            "assetPath": temp_wbp_batch,
+            "widgetName": "BatchChild",
+            "widgetClass": "Button",
+        }, expect_error=True)
+        if not wd_mismatch.get("isError") or (
+            wd_mismatch.get("code") != "WIDGET_CLASS_MISMATCH"
+            and wd_mismatch.get("message") != "WIDGET_CLASS_MISMATCH"
+        ):
+            fail(f"W21b widget.inspect class mismatch should return WIDGET_CLASS_MISMATCH: {wd_mismatch}")
+        print("[PASS] W21b widget.inspect instance class validation and slot values validated")
 
         # W22 — widget.inspect unknown class returns WIDGET_CLASS_NOT_FOUND
         wd_bad = widget_inspect(client, 5169, {"widgetClass": "NonExistentWidget_XYZ"}, expect_error=True)

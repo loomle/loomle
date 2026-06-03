@@ -69,6 +69,28 @@ class ToolManifestTests(unittest.TestCase):
         self.assertIn("slotClass", node_schema["properties"])
         self.assertIn("slot", node_schema["properties"])
 
+    def test_widget_inspect_manifest_declares_property_output(self) -> None:
+        manifest = load_manifest(MANIFEST)
+        tool = next(
+            tool
+            for tool in manifest.list_tools("python")
+            if tool["name"] == "widget.inspect"
+        )
+
+        output_schema = tool["outputSchema"]
+        self.assertIn("widgetProperty", output_schema["$defs"])
+        success_properties = output_schema["oneOf"][0]["properties"]
+        for field in [
+            "isError",
+            "widgetClass",
+            "properties",
+            "slotClass",
+            "slotProperties",
+            "currentValues",
+            "slotCurrentValues",
+        ]:
+            self.assertIn(field, success_properties)
+
     def test_python_manifest_covers_rust_runtime_tools(self) -> None:
         manifest = load_manifest(MANIFEST)
         python_names = {tool["name"] for tool in manifest.list_tools("python")}

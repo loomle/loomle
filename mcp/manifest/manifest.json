@@ -11705,6 +11705,129 @@
         },
         "additionalProperties": false
       },
+      "outputSchema": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "isError": {
+                "type": "boolean",
+                "const": false
+              },
+              "widgetClass": {
+                "type": "string"
+              },
+              "assetPath": {
+                "type": "string"
+              },
+              "widget": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              "properties": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/widgetProperty"
+                }
+              },
+              "slotClass": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "slotProperties": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/widgetProperty"
+                }
+              },
+              "currentValues": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "slotCurrentValues": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "isError",
+              "widgetClass",
+              "properties",
+              "slotProperties"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "isError": {
+                "type": "boolean",
+                "const": true
+              },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "isError",
+              "code",
+              "message",
+              "detail"
+            ],
+            "additionalProperties": false
+          }
+        ],
+        "$defs": {
+          "widgetProperty": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string"
+              },
+              "writable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "type",
+              "category",
+              "writable"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
       "dispatch": {
         "kind": "bridgeRpc",
         "tool": "widget.inspect",

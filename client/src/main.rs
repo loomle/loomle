@@ -12490,6 +12490,44 @@ mod tests {
     }
 
     #[test]
+    fn widget_inspect_manifest_output_schema_declares_property_values() {
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../../mcp/manifest/manifest.json"))
+                .expect("manifest json");
+        let tool = manifest
+            .get("tools")
+            .and_then(|value| value.as_array())
+            .and_then(|tools| {
+                tools
+                    .iter()
+                    .find(|tool| tool.get("name").and_then(|value| value.as_str()) == Some("widget.inspect"))
+            })
+            .expect("widget.inspect tool");
+        let output_schema = tool.get("outputSchema").expect("output schema");
+        assert!(output_schema
+            .get("$defs")
+            .and_then(|value| value.get("widgetProperty"))
+            .is_some());
+        let success_properties = output_schema
+            .get("oneOf")
+            .and_then(|value| value.as_array())
+            .and_then(|one_of| one_of.first())
+            .and_then(|value| value.get("properties"))
+            .and_then(|value| value.as_object())
+            .expect("success properties");
+        for field in [
+            "widgetClass",
+            "properties",
+            "slotClass",
+            "slotProperties",
+            "currentValues",
+            "slotCurrentValues",
+        ] {
+            assert!(success_properties.contains_key(field), "missing {field}");
+        }
+    }
+
+    #[test]
     fn widget_inspect_translates_widget_ref_to_legacy_describe_args() {
         let mut args = JsonObject::new();
         args.insert("assetPath".into(), serde_json::json!("/Game/UI/WBP_Menu"));
