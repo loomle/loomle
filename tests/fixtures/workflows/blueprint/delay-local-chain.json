@@ -1,5 +1,5 @@
 {
-  "tool": "blueprint.graph.edit",
+  "tool": "blueprint_graph_edit",
   "commands": [
     {
       "kind": "addNode",

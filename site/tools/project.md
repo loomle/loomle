@@ -13,23 +13,23 @@ these before asset, Blueprint, Material, PCG, or Widget tools.
 ## Recommended Flow
 
 1. Call `loomle.status` to see whether the session is already attached.
-2. Call `project.list` to find online projects.
-3. Call `project.attach` with the target `projectId` or `projectRoot`.
+2. Call `project_list` to find online projects.
+3. Call `project_attach` with the target `projectId` or `projectRoot`.
 4. Call `loomle` to verify bridge health.
 5. Call `context` when you want to start from the user's active UE editor state.
 
 If a project is missing LOOMLE support, close that project's Unreal Editor
-instance and call `project.install`.
+instance and call `project_install`.
 
 ## Tool Summary
 
 | Tool | Purpose |
 | --- | --- |
 | `loomle.status` | Report session attachment, project counts, update state, and observability state. |
-| `project.list` | List known UE projects, online by default. |
-| `project.attach` | Attach this MCP session to one online project. |
-| `project.install` | Install or update project-local `Plugins/LoomleBridge`. |
-| `schema.inspect` | Read second-level operation schemas for compact edit tools. |
+| `project_list` | List known UE projects, online by default. |
+| `project_attach` | Attach this MCP session to one online project. |
+| `project_install` | Install or update project-local `Plugins/LoomleBridge`. |
+| `schema_inspect` | Read second-level operation schemas for compact edit tools. |
 | `loomle` | Check attached bridge health and runtime capabilities. |
 | `context` | Read active editor context, active window, and selection. |
 
@@ -54,9 +54,9 @@ No arguments.
 | `update` | Latest-version check and suggested update command. |
 | `observability` | Runtime diagnostic/log state when attached. |
 
-## `project.list`
+## `project_list`
 
-Use `project.list` to discover projects that LOOMLE knows about. Online
+Use `project_list` to discover projects that LOOMLE knows about. Online
 projects come from running Unreal Editor instances with `LoomleBridge` loaded.
 Offline projects come from the global LOOMLE project registry.
 
@@ -73,12 +73,12 @@ Offline projects come from the global LOOMLE project registry.
 
 | Field | Meaning |
 | --- | --- |
-| `projectId` | Stable LOOMLE project id. Prefer this for `project.attach`. |
+| `projectId` | Stable LOOMLE project id. Prefer this for `project_attach`. |
 | `name` | Project display name. |
 | `projectRoot` | Project root directory. |
 | `uproject` | `.uproject` path when known. |
 | `status` | `online` or `offline`. |
-| `attachable` | Whether `project.attach` can use this project now. |
+| `attachable` | Whether `project_attach` can use this project now. |
 | `pluginInstalled` | Whether `Plugins/LoomleBridge` exists. |
 | `pluginVersion` | Installed or reported bridge version. |
 | `protocolVersion` | Runtime protocol version when reported. |
@@ -89,20 +89,20 @@ Offline projects come from the global LOOMLE project registry.
 ### Common Errors
 
 - Invalid `status`: use `online`, `offline`, or `all`.
-- Empty result: open the project in Unreal Editor, or run `project.install` if
+- Empty result: open the project in Unreal Editor, or run `project_install` if
   the project does not have LOOMLE support.
 
-## `project.attach`
+## `project_attach`
 
-Use `project.attach` after `project.list` returns the target project as online.
+Use `project_attach` after `project_list` returns the target project as online.
 Attach state is per MCP session; it is not a global active project.
 
 ### Parameters
 
 | Field | Required | Notes |
 | --- | --- | --- |
-| `projectId` | one of `projectId` or `projectRoot` | Preferred target from `project.list`. |
-| `projectRoot` | one of `projectId` or `projectRoot` | Exact project root string from `project.list`. |
+| `projectId` | one of `projectId` or `projectRoot` | Preferred target from `project_list`. |
+| `projectRoot` | one of `projectId` or `projectRoot` | Exact project root string from `project_list`. |
 
 ### Returns
 
@@ -116,17 +116,17 @@ Attach state is per MCP session; it is not a global active project.
 
 ### Common Errors
 
-- `project.attach requires projectId or projectRoot`: pass one target field.
-- `No online project matched projectId/projectRoot`: call `project.list` with
+- `project_attach requires projectId or projectRoot`: pass one target field.
+- `No online project matched projectId/projectRoot`: call `project_list` with
   `status: online` and use an exact returned value.
 - `Project is not attachable`: inspect the project's `reason` and diagnostics.
 
-## `project.install`
+## `project_install`
 
-Use `project.install` when a UE project does not yet have LOOMLE support, or
+Use `project_install` when a UE project does not yet have LOOMLE support, or
 when its project-local bridge needs to be synced to the active global version.
 
-`project.install` copies the active global plugin cache into
+`project_install` copies the active global plugin cache into
 `<ProjectRoot>/Plugins/LoomleBridge/`, writes the LOOMLE project registry
 record, and applies the required editor support setting. It refuses to run
 while that project is online.
@@ -152,15 +152,15 @@ while that project is online.
 
 ### Common Errors
 
-- `project.install requires projectRoot`: pass a project root.
+- `project_install requires projectRoot`: pass a project root.
 - Invalid project root: choose the directory that contains the `.uproject`.
 - `Project is online`: close Unreal Editor for that project and retry.
 - Missing global active install state or plugin cache: reinstall or update
   LOOMLE globally, then retry.
 
-## `schema.inspect`
+## `schema_inspect`
 
-Use `schema.inspect` only when a tool description says operation-specific
+Use `schema_inspect` only when a tool description says operation-specific
 arguments are intentionally omitted from `tools/list`.
 
 ### Parameters
@@ -174,13 +174,13 @@ arguments are intentionally omitted from `tools/list`.
 
 ### Supported Tools
 
-- `blueprint.graph.edit`
-- `blueprint.member.edit`
-- `blueprint.node.edit`
-- `material.graph.edit`
-- `pcg.graph.edit`
-- `pcg.parameter.edit`
-- `widget.tree.edit`
+- `blueprint_graph_edit`
+- `blueprint_member_edit`
+- `blueprint_node_edit`
+- `material_graph_edit`
+- `pcg_graph_edit`
+- `pcg_parameter_edit`
+- `widget_tree_edit`
 
 ### Common Errors
 

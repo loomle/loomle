@@ -52,13 +52,13 @@ STABILITY_CASES = [
         "id": "query_snapshot_repeatability_roundtrip",
         "fixture": "pcg_graph",
         "families": ["create", "transform"],
-        "summary": "Repeated pcg.graph.inspect and engine readback should stay stable for a simple roundtrip node.",
+        "summary": "Repeated pcg_graph_inspect and engine readback should stay stable for a simple roundtrip node.",
     },
     {
         "id": "verify_repeatability_workflow",
         "fixture": "pcg_graph_with_world_actor",
         "families": ["sample", "source", "spawn"],
-        "summary": "Repeated pcg.compile calls should keep the same compiled surface on a workflow graph.",
+        "summary": "Repeated pcg_compile calls should keep the same compiled surface on a workflow graph.",
         "workflowCaseId": "surface_sample_to_static_mesh",
     },
     {
@@ -136,7 +136,7 @@ def add_node_by_class(client: McpStdioClient, request_id: int, *, asset_path: st
     payload = call_tool(
         client,
         request_id,
-        "pcg.graph.edit",
+        "pcg_graph_edit",
         pcg_edit_args_from_legacy_payload(
             {"assetPath": asset_path, "ops": [{"op": "addNode.byClass", "nodeClassPath": node_class_path}]}
         ),
@@ -219,7 +219,7 @@ def execute_verify_repeatability_workflow(
     payload = load_case_payload(workflow_case)
     payload["assetPath"] = asset_path
     mutate_args = {key: value for key, value in payload.items() if key != "tool"}
-    mutate_result = call_tool(client, request_id_base + 1, "pcg.graph.edit", mutate_args)
+    mutate_result = call_tool(client, request_id_base + 1, "pcg_graph_edit", mutate_args)
     surface_matrix["mutate"] = "pass"
 
     ref_map = build_client_ref_map(mutate_args, mutate_result)

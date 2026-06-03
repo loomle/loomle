@@ -34,7 +34,7 @@ editor context, compile diagnostics, and play sessions.
   focus, diagnostics, logs, and play sessions.
 - Palette-driven creation so agents use UE's own creation model instead of
   guessing classes.
-- Compact first-level schemas with `schema.inspect` for detailed operation
+- Compact first-level schemas with `schema_inspect` for detailed operation
   schemas when a tool intentionally has a second layer.
 
 ## Why LOOMLE Exists
@@ -56,8 +56,8 @@ LOOMLE has three moving parts:
   Fab plugin.
 - Unreal bridge plugin: `LoomleBridge`, loaded by Unreal Editor through either
   a project-local plugin install or Fab/Epic Launcher.
-- Project attach: the current MCP session uses `project.list` and
-  `project.attach` to select one online Unreal project.
+- Project attach: the current MCP session uses `project_list` and
+  `project_attach` to select one online Unreal project.
 
 Both install paths expose the same tool surface after attach. Native install is
 best for CLI-first workflows and direct updates. Fab install is best for
@@ -76,7 +76,7 @@ In practice:
   Blueprint, Material, PCG, Widget, asset, project, or editor.
 - Use palettes for creation so agents follow UE's own creation model instead
   of guessing classes.
-- Use `schema.inspect` only when a tool description says operation-specific
+- Use `schema_inspect` only when a tool description says operation-specific
   arguments are intentionally omitted from `tools/list`.
 
 Start with [Install](install.html), then follow the [Quickstart](quickstart.html).

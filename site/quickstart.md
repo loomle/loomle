@@ -29,7 +29,7 @@ continuing.
 Call:
 
 ```text
-project.list
+project_list
 ```
 
 Use the returned `projectId` or `projectRoot` for the next step.
@@ -39,7 +39,7 @@ Use the returned `projectId` or `projectRoot` for the next step.
 Call:
 
 ```text
-project.attach
+project_attach
 ```
 
 After attach succeeds, LOOMLE exposes the UE-facing tool surface for the active
@@ -59,26 +59,26 @@ and resolved graph references. It is the fastest way to start from the user's
 visible UE state instead of guessing asset paths or graph names.
 
 `context` does not attach the MCP session to a project. Use it after
-`project.attach` succeeds.
+`project_attach` succeeds.
 
 ## 5. Inspect Before Editing
 
 Use the domain-specific inspect tool before editing:
 
-- Blueprint: `blueprint.inspect`, `blueprint.graph.inspect`,
-  `blueprint.member.inspect`, or `blueprint.node.inspect`.
-- Material: `material.graph.inspect` or `material.node.inspect`.
-- PCG: `pcg.graph.inspect`, `pcg.node.inspect`, or `pcg.parameter.inspect`.
-- Widget: `widget.tree.inspect` or `widget.inspect`.
+- Blueprint: `blueprint_inspect`, `blueprint_graph_inspect`,
+  `blueprint_member_inspect`, or `blueprint_node_inspect`.
+- Material: `material_graph_inspect` or `material_node_inspect`.
+- PCG: `pcg_graph_inspect`, `pcg_node_inspect`, or `pcg_parameter_inspect`.
+- Widget: `widget_tree_inspect` or `widget_inspect`.
 
 ## 6. Use Palettes for Creation
 
 When adding graph nodes or widgets, query the relevant palette first:
 
-- `blueprint.palette`
-- `material.palette`
-- `pcg.palette`
-- `widget.palette`
+- `blueprint_graph_palette`
+- `material_palette`
+- `pcg_palette`
+- `widget_palette`
 
 Then pass the selected palette entry to the matching edit tool.
 
@@ -86,23 +86,23 @@ Then pass the selected palette entry to the matching edit tool.
 
 Use explicit local edits:
 
-- `blueprint.graph.edit`
-- `blueprint.member.edit`
-- `blueprint.node.edit`
-- `material.graph.edit`
-- `material.node.edit`
-- `pcg.graph.edit`
-- `pcg.parameter.edit`
-- `widget.tree.edit`
+- `blueprint_graph_edit`
+- `blueprint_member_edit`
+- `blueprint_node_edit`
+- `material_graph_edit`
+- `material_node_edit`
+- `pcg_graph_edit`
+- `pcg_parameter_edit`
+- `widget_tree_edit`
 
-For tools with compact first-level schemas, call `schema.inspect` for the
+For tools with compact first-level schemas, call `schema_inspect` for the
 specific operation before editing.
 
 ## 8. Compile or Verify
 
 Compile after meaningful asset changes:
 
-- `blueprint.compile`
-- `material.compile`
-- `pcg.compile`
-- `widget.compile`
+- `blueprint_compile`
+- `material_compile`
+- `pcg_compile`
+- `widget_compile`

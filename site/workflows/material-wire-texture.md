@@ -9,14 +9,14 @@ nav_order: 3
 
 Recommended sequence:
 
-1. `material.graph.inspect` to find the current material graph.
-2. `material.palette` to find the expression node to add.
-3. `schema.inspect` for `material.graph.edit` operation `addFromPalette`.
-4. `material.graph.edit` to add the expression.
-5. `schema.inspect` for the connect operation.
-6. `material.graph.edit` to connect explicit pins.
-7. `material.graph.layout` for the touched node selection.
-8. `material.compile`.
+1. `material_graph_inspect` to find the current material graph.
+2. `material_palette` to find the expression node to add.
+3. `schema_inspect` for `material_graph_edit` operation `addFromPalette`.
+4. `material_graph_edit` to add the expression.
+5. `schema_inspect` for the connect operation.
+6. `material_graph_edit` to connect explicit pins.
+7. `material_graph_layout` for the touched node selection.
+8. `material_compile`.
 
-Use `material.node.inspect` and `material.node.edit` only when changing
+Use `material_node_inspect` and `material_node_edit` only when changing
 expression properties.

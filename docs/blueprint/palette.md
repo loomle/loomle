@@ -2,21 +2,21 @@
 
 ## Intent
 
-`blueprint.graph.palette` exposes Unreal Engine's Blueprint Action Menu to agents.
+`blueprint_graph_palette` exposes Unreal Engine's Blueprint Action Menu to agents.
 
 Its purpose is creation discovery. An agent should use it to find what UE can
 add to a Blueprint graph in a specific context, then execute the selected entry
-through `blueprint.graph.edit`.
+through `blueprint_graph_edit`.
 
-`blueprint.graph.palette` is not a static node database and not a Loomle-curated node
+`blueprint_graph_palette` is not a static node database and not a Loomle-curated node
 catalog. It should return entries derived from UE's own action menu machinery
 for the requested Blueprint, graph, and optional pin context.
 
 The standard agent-facing node creation flow should be:
 
-1. Query `blueprint.graph.palette`.
+1. Query `blueprint_graph_palette`.
 2. Select a returned palette entry.
-3. Execute that entry with `blueprint.graph.edit` using `addFromPalette`.
+3. Execute that entry with `blueprint_graph_edit` using `addFromPalette`.
 
 This moves node creation away from agents guessing K2 node classes or internal
 construction details, and toward UE's own creation semantics.
@@ -38,23 +38,23 @@ because that is the editor-facing concept. Internally, most executable entries
 will resolve to UE action/spawner objects.
 
 Loomle should not expose raw UE spawner objects directly. It should serialize
-enough stable information to let `blueprint.graph.edit` resolve and execute the
+enough stable information to let `blueprint_graph_edit` resolve and execute the
 selected entry in the matching context.
 
 ## Tool Boundary
 
-`blueprint.graph.palette` is read-only.
+`blueprint_graph_palette` is read-only.
 
 It searches UE-supported creation actions. It does not create nodes, choose
 positions, assign aliases, connect pins, or mutate the graph.
 
-Mutation belongs to `blueprint.graph.edit`.
+Mutation belongs to `blueprint_graph_edit`.
 
 The recommended creation operation is `addFromPalette`. Lower-level by-class
 creation may still exist for fallback or specialized cases, but it should not be
 the primary agent-facing path for ordinary Blueprint node creation.
 
-## `blueprint.graph.palette`
+## `blueprint_graph_palette`
 
 ### Input Schema
 
@@ -69,7 +69,7 @@ the primary agent-facing path for ordinary Blueprint node creation.
     },
     "graph": {
       "type": "object",
-      "description": "Graph reference from blueprint.graph.list or blueprint.graph.inspect. Use {\"id\":\"...\"} when available, otherwise {\"name\":\"EventGraph\"}."
+      "description": "Graph reference from blueprint_graph_list or blueprint_graph_inspect. Use {\"id\":\"...\"} when available, otherwise {\"name\":\"EventGraph\"}."
     },
     "query": {
       "type": "string",
@@ -295,12 +295,12 @@ query text, pin context, or edit operation input.
 
 ## `addFromPalette`
 
-`addFromPalette` is a `blueprint.graph.edit` operation that executes one
+`addFromPalette` is a `blueprint_graph_edit` operation that executes one
 selected palette entry.
 
 The operation consumes the selected entry and provides mutation choices such as
 position, alias, and optional pin context. These are agent decisions and should
-not be returned by `blueprint.graph.palette`.
+not be returned by `blueprint_graph_palette`.
 
 ```json
 {
@@ -390,7 +390,7 @@ when the generated name would collide.
 
 ## Internal Implementation
 
-`blueprint.graph.palette` should build the same kind of action context UE uses for
+`blueprint_graph_palette` should build the same kind of action context UE uses for
 the Blueprint Action Menu:
 
 1. Load and validate the Blueprint asset.
@@ -434,12 +434,12 @@ The guarded spawner families are:
 - delegate spawners, which require a valid delegate property owner
 - bound-event spawners, which require a valid event delegate owner
 
-When a guarded entry is unsafe, `blueprint.graph.palette` returns it with
+When a guarded entry is unsafe, `blueprint_graph_palette` returns it with
 `executable=false` and an `unavailableReason`; `addFromPalette` returns the
 same structured diagnostic instead of calling `FBlueprintActionMenuItem` and
 risking an editor crash.
 
-Within one `blueprint.graph.edit` request, repeated `addFromPalette` commands
+Within one `blueprint_graph_edit` request, repeated `addFromPalette` commands
 with the same Blueprint action context should reuse the request-local action
 menu builder result. Building the Blueprint Action Menu can scan and filter a
 large UE action set, so repeated node creation in one batch should not rebuild
@@ -459,7 +459,7 @@ Each discovered action should be classified along two axes.
 
 Discovery coverage:
 
-- `listed`: Loomle can return the entry from `blueprint.graph.palette`.
+- `listed`: Loomle can return the entry from `blueprint_graph_palette`.
 - `filtered`: UE returns the entry only in specific contexts.
 - `hidden`: Loomle cannot currently surface the entry.
 
@@ -478,7 +478,7 @@ Current audit baseline:
 - Project: Loomle test project
 - Blueprint: temporary Actor Blueprint generated by
   `tools/audit_blueprint_palette.py`
-- Measurement: live `blueprint.graph.palette` pagination over UE Action Menu results
+- Measurement: live `blueprint_graph_palette` pagination over UE Action Menu results
 - Audit command:
   `python3 tools/audit_blueprint_palette.py --json-out .tmp/blueprint-palette-audit.json --markdown-out .tmp/blueprint-palette-audit.md`
 - Execution sample command:
@@ -565,11 +565,11 @@ Current grouped audit result with one sample per group:
 Schema actions are still listed because UE includes them in Action Menu results,
 but `addFromPalette` rejects them explicitly because they are not node spawners.
 This is an execution-path distinction, not a reason to hide them from
-`blueprint.graph.palette`.
+`blueprint_graph_palette`.
 
 ## Non-Goals
 
-`blueprint.graph.palette` should not:
+`blueprint_graph_palette` should not:
 
 - return a complete static list of all Blueprint node classes
 - maintain a Loomle-specific node catalog as the primary source of truth
@@ -582,7 +582,7 @@ This is an execution-path distinction, not a reason to hide them from
 
 - Can an agent discover actions that UE would show in the same graph context?
 - Can an agent create ordinary Blueprint nodes without guessing K2 node classes?
-- Can a selected palette entry be executed through `blueprint.graph.edit`?
+- Can a selected palette entry be executed through `blueprint_graph_edit`?
 - Are context-sensitive pin-drag actions represented clearly?
 - Are errors actionable enough for the agent to adjust the next call?
 - Does the implementation use UE's action menu/spawner path instead of a second

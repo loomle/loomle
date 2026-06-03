@@ -1,10 +1,10 @@
 {
-  "tool": "pcg.graph.edit",
+  "tool": "pcg_graph_edit",
   "commands": [
     {
       "kind": "addFromPalette",
       "entry": {
-        "id": "pcg.palette:/Script/PCG.PCGCreatePointsSettings",
+        "id": "pcg_palette:/Script/PCG.PCGCreatePointsSettings",
         "kind": "native",
         "payload": {
           "settingsClass": "/Script/PCG.PCGCreatePointsSettings"
@@ -15,7 +15,7 @@
     {
       "kind": "addFromPalette",
       "entry": {
-        "id": "pcg.palette:/Script/PCG.PCGStaticMeshSpawnerSettings",
+        "id": "pcg_palette:/Script/PCG.PCGStaticMeshSpawnerSettings",
         "kind": "native",
         "payload": {
           "settingsClass": "/Script/PCG.PCGStaticMeshSpawnerSettings"
@@ -41,7 +41,7 @@
     {
       "kind": "addFromPalette",
       "entry": {
-        "id": "pcg.palette:/Script/PCG.PCGDensityFilterSettings",
+        "id": "pcg_palette:/Script/PCG.PCGDensityFilterSettings",
         "kind": "native",
         "payload": {
           "settingsClass": "/Script/PCG.PCGDensityFilterSettings"

@@ -206,7 +206,7 @@ def graph_pin_ref_from_legacy(endpoint: dict[str, Any], *, default_pin: str | No
 
 def material_palette_entry_from_class(node_class_path: str) -> dict[str, Any]:
     return {
-        "id": f"material.palette:{node_class_path}",
+        "id": f"material_palette:{node_class_path}",
         "kind": "expression",
         "payload": {"nodeClassPath": node_class_path},
     }
@@ -214,7 +214,7 @@ def material_palette_entry_from_class(node_class_path: str) -> dict[str, Any]:
 
 def pcg_palette_entry_from_class(settings_class: str) -> dict[str, Any]:
     return {
-        "id": f"pcg.palette:{settings_class}",
+        "id": f"pcg_palette:{settings_class}",
         "kind": "native",
         "payload": {"settingsClass": settings_class},
     }

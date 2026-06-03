@@ -13,20 +13,20 @@ domain-specific tools for graph, member, parameter, or WidgetTree edits.
 
 ## Recommended Flow
 
-1. Use `asset.create` when the target asset does not exist.
-2. Use `asset.inspect` to confirm the asset kind and asset-level state.
-3. Use `asset.edit` only for metadata or enum-entry compatibility edits.
+1. Use `asset_create` when the target asset does not exist.
+2. Use `asset_inspect` to confirm the asset kind and asset-level state.
+3. Use `asset_edit` only for metadata or enum-entry compatibility edits.
 4. Continue with Blueprint, Material, PCG, or Widget tools for domain edits.
 
 ## Tool Summary
 
 | Tool | Purpose |
 | --- | --- |
-| `asset.create` | Create supported Unreal assets. |
-| `asset.inspect` | Inspect an asset through the matching public domain surface. |
-| `asset.edit` | Edit asset-level metadata; enum entries are a compatibility case. |
+| `asset_create` | Create supported Unreal assets. |
+| `asset_inspect` | Inspect an asset through the matching public domain surface. |
+| `asset_edit` | Edit asset-level metadata; enum entries are a compatibility case. |
 
-## `asset.create`
+## `asset_create`
 
 Creates a supported Unreal asset.
 
@@ -48,10 +48,10 @@ Creates a supported Unreal asset.
 
 ### Next Step
 
-Use `asset.inspect`, then switch to the domain tool: `blueprint.*`,
+Use `asset_inspect`, then switch to the domain tool: `blueprint.*`,
 `material.*`, `pcg.*`, or `widget.*`.
 
-## `asset.inspect`
+## `asset_inspect`
 
 Inspects an asset through its public domain surface.
 
@@ -59,7 +59,7 @@ Inspects an asset through its public domain surface.
 
 | Field | Required | Notes |
 | --- | --- | --- |
-| `kind` | yes | Same kind set as `asset.create`. |
+| `kind` | yes | Same kind set as `asset_create`. |
 | `assetPath` | yes | Unreal asset path. |
 | `view` | no | PCG or WidgetTree view: `overview`, `pins`, `links`, `defaults`, `full`, `outline`, `layout`, or `details`. |
 | `filter` | no | `nodeIds`, `names`, or fuzzy `text`, depending on asset kind. |
@@ -72,7 +72,7 @@ Inspects an asset through its public domain surface.
 Use this when the asset kind is known but the next step depends on asset-level
 metadata or routing to the correct domain tool.
 
-## `asset.edit`
+## `asset_edit`
 
 Edits asset metadata. `updateEntries` remains for enum entry compatibility, but
 general asset editing should be metadata-only.
@@ -97,5 +97,5 @@ general asset editing should be metadata-only.
 
 ### Boundary
 
-Do not use `asset.edit` for graph nodes, Blueprint members, PCG parameters, or
+Do not use `asset_edit` for graph nodes, Blueprint members, PCG parameters, or
 WidgetTree hierarchy. Use the matching domain tool for those changes.

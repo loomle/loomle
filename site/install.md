@@ -27,7 +27,7 @@ Native install:
 - Installs a global `loomle` command under `~/.loomle` by default.
 - Provides `loomle mcp` for MCP hosts.
 - Can install or update project-local `Plugins/LoomleBridge` with
-  `project.install`.
+  `project_install`.
 - Updates through `loomle update` or the website installer.
 
 ### Option B: Fab Install
@@ -120,19 +120,19 @@ closed.
 ### Native Project Setup
 
 1. Close Unreal Editor for the target project.
-2. Call `project.install` with the target `projectRoot`.
+2. Call `project_install` with the target `projectRoot`.
 3. Open or restart Unreal Editor for that project.
-4. Call `project.list`.
-5. Call `project.attach` with the target online project.
+4. Call `project_list`.
+5. Call `project_attach` with the target online project.
 
-`project.install` copies the cached global plugin into
+`project_install` copies the cached global plugin into
 `<ProjectRoot>/Plugins/LoomleBridge/`, records the project under the global
 LOOMLE state directory, and applies LOOMLE's required editor support setting.
 It refuses to run while that project is online in Unreal Editor.
 
 When Unreal Editor starts with `LoomleBridge` loaded, the plugin reports a
-runtime endpoint for that project. `project.list` discovers those online
-projects, and `project.attach` selects one for the current MCP session. Attach
+runtime endpoint for that project. `project_list` discovers those online
+projects, and `project_attach` selects one for the current MCP session. Attach
 state is per MCP session; there is no global active Unreal project.
 
 ## Fab Install
@@ -147,7 +147,7 @@ state is per MCP session; there is no global active Unreal project.
    server is configured, LOOMLE can configure the Fab Python MCP server.
 6. If a native `loomle mcp` setup already exists, keep using it. The native MCP
    server can connect to the Fab-installed plugin.
-7. Restart the AI host, then call `project.list` and `project.attach`.
+7. Restart the AI host, then call `project_list` and `project_attach`.
 
 Fab install does not create a global `~/.loomle/bin/loomle` command. Plugin
 updates are owned by Fab/Epic Launcher. If you later install native LOOMLE, the
@@ -240,14 +240,14 @@ the same command:
 
 This runs the Python MCP server from the Fab-installed plugin resources. The
 server discovers online Unreal projects through LOOMLE runtime records, so once
-Unreal Editor is open with `LoomleBridge` loaded, use `project.list` and
-`project.attach` from the MCP host.
+Unreal Editor is open with `LoomleBridge` loaded, use `project_list` and
+`project_attach` from the MCP host.
 
 ## How the Paths Work Together
 
 - Native CLI can connect to a Fab-installed `LoomleBridge` plugin.
 - Fab setup does not replace an existing native `loomle mcp` configuration.
-- Native `project.install` should not overwrite a Fab-managed plugin.
+- Native `project_install` should not overwrite a Fab-managed plugin.
 - Native updates are owned by `loomle update` or the website installer.
 - Fab plugin updates are owned by Fab/Epic Launcher.
 

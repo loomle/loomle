@@ -7,10 +7,10 @@ nav_order: 6
 
 # Blueprint Compile
 
-Use `blueprint.compile` after meaningful Blueprint changes. Compile diagnostics
+Use `blueprint_compile` after meaningful Blueprint changes. Compile diagnostics
 should guide the next inspect or edit step.
 
-## `blueprint.compile`
+## `blueprint_compile`
 
 ### Parameters
 

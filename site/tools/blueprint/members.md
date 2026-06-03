@@ -15,10 +15,10 @@ components.
 
 | Tool | Purpose |
 | --- | --- |
-| `blueprint.member.inspect` | Inspect Blueprint-owned members. |
-| `blueprint.member.edit` | Edit Blueprint-owned members. |
+| `blueprint_member_inspect` | Inspect Blueprint-owned members. |
+| `blueprint_member_edit` | Edit Blueprint-owned members. |
 
-## `blueprint.member.inspect`
+## `blueprint_member_inspect`
 
 ### Parameters
 
@@ -31,7 +31,7 @@ components.
 Use this before editing members, and when deciding whether an operation belongs
 to member tools or graph tools.
 
-## `blueprint.member.edit`
+## `blueprint_member_edit`
 
 ### Parameters
 
@@ -40,13 +40,13 @@ to member tools or graph tools.
 | `assetPath` | yes | Blueprint asset path. |
 | `memberKind` | yes | Same member kind set as inspect. |
 | `operation` | yes | Operation within the member kind. |
-| `args` | yes | Operation-specific arguments from `schema.inspect`. |
+| `args` | yes | Operation-specific arguments from `schema_inspect`. |
 | `dryRun` | no | Validate without applying. |
 | `returnDiff` | no | Include diff when supported. |
 | `returnDiagnostics` | no | Defaults to true. |
 | `expectedRevision` | no | Optimistic mutation guard when supported. |
 
-Call `schema.inspect` with `domain: blueprint`, `tool: blueprint.member.edit`,
+Call `schema_inspect` with `domain: blueprint`, `tool: blueprint_member_edit`,
 and `operation: <memberKind>.<operation>` before editing.
 
 For inherited native Blueprint events/functions, use `memberKind: "function"`

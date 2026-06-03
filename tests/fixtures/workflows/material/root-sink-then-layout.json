@@ -1,10 +1,10 @@
 {
-  "tool": "material.graph.edit",
+  "tool": "material_graph_edit",
   "commands": [
     {
       "kind": "addFromPalette",
       "entry": {
-        "id": "material.palette:/Script/Engine.MaterialExpressionScalarParameter",
+        "id": "material_palette:/Script/Engine.MaterialExpressionScalarParameter",
         "kind": "expression",
         "payload": {
           "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"
@@ -15,7 +15,7 @@
     {
       "kind": "addFromPalette",
       "entry": {
-        "id": "material.palette:/Script/Engine.MaterialExpressionScalarParameter",
+        "id": "material_palette:/Script/Engine.MaterialExpressionScalarParameter",
         "kind": "expression",
         "payload": {
           "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"
@@ -26,7 +26,7 @@
     {
       "kind": "addFromPalette",
       "entry": {
-        "id": "material.palette:/Script/Engine.MaterialExpressionMultiply",
+        "id": "material_palette:/Script/Engine.MaterialExpressionMultiply",
         "kind": "expression",
         "payload": {
           "nodeClassPath": "/Script/Engine.MaterialExpressionMultiply"

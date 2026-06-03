@@ -771,55 +771,43 @@ impl ServerHandler for LoomleProxyServer {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        if is_local_tool(request.name.as_ref()) {
-            return Ok(self.call_pre_attach_tool(request).await);
+        let public_name = request.name.as_ref();
+        let internal_name = public_tool_name_to_internal(public_name);
+        let args = request.arguments.clone().unwrap_or_default();
+        if is_local_tool(&internal_name) {
+            return Ok(self.call_pre_attach_tool(&internal_name, args).await);
         }
         if let Some(result) = self
-            .call_public_asset_tool(
-                request.name.as_ref(),
-                request.arguments.clone().unwrap_or_default(),
-            )
+            .call_public_asset_tool(&internal_name, args.clone())
             .await?
         {
             return Ok(result);
         }
         if let Some(result) = self
-            .call_public_blueprint_tool(
-                request.name.as_ref(),
-                request.arguments.clone().unwrap_or_default(),
-            )
+            .call_public_blueprint_tool(&internal_name, args.clone())
             .await?
         {
             return Ok(result);
         }
         if let Some(result) = self
-            .call_public_material_tool(
-                request.name.as_ref(),
-                request.arguments.clone().unwrap_or_default(),
-            )
+            .call_public_material_tool(&internal_name, args.clone())
             .await?
         {
             return Ok(result);
         }
         if let Some(result) = self
-            .call_public_pcg_tool(
-                request.name.as_ref(),
-                request.arguments.clone().unwrap_or_default(),
-            )
+            .call_public_pcg_tool(&internal_name, args.clone())
             .await?
         {
             return Ok(result);
         }
         if let Some(result) = self
-            .call_public_widget_tool(
-                request.name.as_ref(),
-                request.arguments.clone().unwrap_or_default(),
-            )
+            .call_public_widget_tool(&internal_name, args.clone())
             .await?
         {
             return Ok(result);
         }
-        if request.name.as_ref() == "play"
+        if internal_name == "play"
             && request
                 .arguments
                 .as_ref()
@@ -827,19 +815,19 @@ impl ServerHandler for LoomleProxyServer {
                 .and_then(|value| value.as_str())
                 == Some("wait")
         {
-            return self
-                .call_play_wait(request.arguments.unwrap_or_default())
-                .await;
+            return self.call_play_wait(args).await;
         }
-        self.runtime_call(request.name.as_ref(), request.arguments.unwrap_or_default())
-            .await
+        self.runtime_call(&internal_name, args).await
     }
 }
 
 impl LoomleProxyServer {
-    async fn call_pre_attach_tool(&self, request: CallToolRequestParams) -> CallToolResult {
-        let args = request.arguments.unwrap_or_default();
-        match request.name.as_ref() {
+    async fn call_pre_attach_tool(
+        &self,
+        internal_name: &str,
+        args: rmcp::model::JsonObject,
+    ) -> CallToolResult {
+        match internal_name {
             "status" => self.call_status().await,
             "project.list" => call_project_list(&args),
             "project.attach" => self.call_project_attach(&args).await,
@@ -1267,7 +1255,7 @@ impl LoomleProxyServer {
             "routes": {
                 "class": "blueprint.class.inspect",
                 "members": "blueprint.member.inspect",
-                "graphs": "blueprint.graph.list"
+                "graphs": "blueprint_graph_list"
             },
             "summary": {
                 "interfaceCount": interfaces,
@@ -2162,7 +2150,7 @@ fn translate_material_graph_inspect_args(
 fn translate_material_palette_args(
     args: &rmcp::model::JsonObject,
 ) -> Result<rmcp::model::JsonObject, CallToolResult> {
-    let graph_asset_path = extract_query_graph_asset_path(args, "material.palette")?;
+    let graph_asset_path = extract_query_graph_asset_path(args, "material_palette")?;
     let direct_asset_path = args
         .get("assetPath")
         .and_then(|value| value.as_str())
@@ -2170,7 +2158,7 @@ fn translate_material_palette_args(
     let asset_path = graph_asset_path
         .as_deref()
         .or(direct_asset_path)
-        .ok_or_else(|| invalid_argument_result("material.palette requires assetPath or graph."))?;
+        .ok_or_else(|| invalid_argument_result("material_palette requires assetPath or graph."))?;
 
     let mut translated = rmcp::model::JsonObject::new();
     translated.insert("assetPath".into(), serde_json::json!(asset_path));
@@ -2186,14 +2174,14 @@ fn compile_material_add_from_palette_command(
     let entry = command
         .get("entry")
         .and_then(|value| value.as_object())
-        .ok_or_else(|| "addFromPalette requires entry from material.palette.".to_owned())?;
+        .ok_or_else(|| "addFromPalette requires entry from material_palette.".to_owned())?;
     let entry_id = entry
         .get("id")
         .and_then(|value| value.as_str())
         .ok_or_else(|| "addFromPalette requires entry.id.".to_owned())?;
     if entry.get("executable").and_then(|value| value.as_bool()) == Some(false) {
         return Err(format!(
-            "material.palette entry is not executable: {entry_id}"
+            "material_palette entry is not executable: {entry_id}"
         ));
     }
     let payload = entry
@@ -2203,7 +2191,7 @@ fn compile_material_add_from_palette_command(
     let node_class_path = payload
         .get("nodeClassPath")
         .and_then(|value| value.as_str())
-        .ok_or_else(|| "material.palette entry.payload requires nodeClassPath.".to_owned())?;
+        .ok_or_else(|| "material_palette entry.payload requires nodeClassPath.".to_owned())?;
 
     let mut op = serde_json::Map::new();
     op.insert("op".into(), serde_json::json!("addNode.byClass"));
@@ -2778,7 +2766,7 @@ fn pcg_graph_inspect_view(args: &rmcp::model::JsonObject) -> &str {
 fn translate_pcg_palette_args(
     args: &rmcp::model::JsonObject,
 ) -> Result<rmcp::model::JsonObject, CallToolResult> {
-    let graph_asset_path = extract_query_graph_asset_path(args, "pcg.palette")?;
+    let graph_asset_path = extract_query_graph_asset_path(args, "pcg_palette")?;
     let direct_asset_path = args
         .get("assetPath")
         .and_then(|value| value.as_str())
@@ -2786,7 +2774,7 @@ fn translate_pcg_palette_args(
     let asset_path = graph_asset_path
         .as_deref()
         .or(direct_asset_path)
-        .ok_or_else(|| invalid_argument_result("pcg.palette requires assetPath or graph."))?;
+        .ok_or_else(|| invalid_argument_result("pcg_palette requires assetPath or graph."))?;
 
     let mut translated = rmcp::model::JsonObject::new();
     translated.insert("assetPath".into(), serde_json::json!(asset_path));
@@ -2802,13 +2790,13 @@ fn compile_pcg_add_from_palette_command(
     let entry = command
         .get("entry")
         .and_then(|value| value.as_object())
-        .ok_or_else(|| "addFromPalette requires entry from pcg.palette.".to_owned())?;
+        .ok_or_else(|| "addFromPalette requires entry from pcg_palette.".to_owned())?;
     let entry_id = entry
         .get("id")
         .and_then(|value| value.as_str())
         .ok_or_else(|| "addFromPalette requires entry.id.".to_owned())?;
     if entry.get("executable").and_then(|value| value.as_bool()) == Some(false) {
-        return Err(format!("pcg.palette entry is not executable: {entry_id}"));
+        return Err(format!("pcg_palette entry is not executable: {entry_id}"));
     }
 
     let mut op = serde_json::Map::new();
@@ -3048,14 +3036,14 @@ fn compile_widget_tree_command(
             let entry = command
                 .get("entry")
                 .and_then(|value| value.as_object())
-                .ok_or_else(|| "addFromPalette requires entry from widget.palette.".to_owned())?;
+                .ok_or_else(|| "addFromPalette requires entry from widget_palette.".to_owned())?;
             let entry_id = entry
                 .get("id")
                 .and_then(|value| value.as_str())
                 .ok_or_else(|| "addFromPalette requires entry.id.".to_owned())?;
             if entry.get("executable").and_then(|value| value.as_bool()) == Some(false) {
                 return Err(format!(
-                    "widget.palette entry is not executable: {entry_id}"
+                    "widget_palette entry is not executable: {entry_id}"
                 ));
             }
             let payload = entry
@@ -3065,7 +3053,7 @@ fn compile_widget_tree_command(
             let widget_class = payload
                 .get("widgetClass")
                 .and_then(|value| value.as_str())
-                .ok_or_else(|| "widget.palette entry.payload requires widgetClass.".to_owned())?;
+                .ok_or_else(|| "widget_palette entry.payload requires widgetClass.".to_owned())?;
             let name = command
                 .get("name")
                 .and_then(|value| value.as_str())
@@ -3410,7 +3398,7 @@ fn translate_widget_inspect_args(
         translated.get("assetPath").is_some() && translated.get("widgetName").is_some();
     if !has_class && !has_instance {
         return Err(invalid_argument_result(
-            "widget.inspect requires widgetClass, or assetPath plus widget.name.",
+            "widget_inspect requires widgetClass, or assetPath plus widget.name.",
         ));
     }
     Ok(translated)
@@ -3419,7 +3407,7 @@ fn translate_widget_inspect_args(
 fn translate_blueprint_graph_list_args(
     args: &rmcp::model::JsonObject,
 ) -> Result<rmcp::model::JsonObject, CallToolResult> {
-    let asset_path = read_required_asset_path(args, "blueprint.graph.list")?;
+    let asset_path = read_required_asset_path(args, "blueprint_graph_list")?;
     let mut translated = rmcp::model::JsonObject::new();
     translated.insert("assetPath".into(), serde_json::json!(asset_path));
     copy_if_present(args, &mut translated, "includeCompositeSubgraphs");
@@ -3429,11 +3417,11 @@ fn translate_blueprint_graph_list_args(
 fn translate_blueprint_graph_inspect_args(
     args: &rmcp::model::JsonObject,
 ) -> Result<rmcp::model::JsonObject, CallToolResult> {
-    let asset_path = read_required_asset_path(args, "blueprint.graph.inspect")?;
+    let asset_path = read_required_asset_path(args, "blueprint_graph_inspect")?;
     let mut translated = rmcp::model::JsonObject::new();
     translated.insert("assetPath".into(), serde_json::json!(asset_path));
     let graph_address =
-        read_required_graph_object_address(args, &asset_path, "blueprint.graph.inspect")?;
+        read_required_graph_object_address(args, &asset_path, "blueprint_graph_inspect")?;
     write_optional_graph_address(&mut translated, Some(graph_address));
 
     translated.insert("includeConnections".into(), serde_json::json!(true));
@@ -3444,22 +3432,22 @@ fn translate_blueprint_graph_inspect_args(
 fn translate_blueprint_node_inspect_args(
     args: &rmcp::model::JsonObject,
 ) -> Result<rmcp::model::JsonObject, CallToolResult> {
-    let asset_path = read_required_asset_path(args, "blueprint.node.inspect")?;
+    let asset_path = read_required_asset_path(args, "blueprint_node_inspect")?;
     let mut translated = rmcp::model::JsonObject::new();
     translated.insert("assetPath".into(), serde_json::json!(asset_path));
     let graph_address =
-        read_required_graph_object_address(args, &asset_path, "blueprint.node.inspect")?;
+        read_required_graph_object_address(args, &asset_path, "blueprint_node_inspect")?;
     write_optional_graph_address(&mut translated, Some(graph_address));
 
     let node = args
         .get("node")
         .and_then(|value| value.as_object())
-        .ok_or_else(|| invalid_argument_result("blueprint.node.inspect requires node."))?;
+        .ok_or_else(|| invalid_argument_result("blueprint_node_inspect requires node."))?;
     let node_id = node
         .get("id")
         .and_then(|value| value.as_str())
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| invalid_argument_result("blueprint.node.inspect requires node.id."))?;
+        .ok_or_else(|| invalid_argument_result("blueprint_node_inspect requires node.id."))?;
     translated.insert("nodeId".into(), serde_json::json!(node_id));
     Ok(translated)
 }
@@ -3545,7 +3533,7 @@ fn validate_blueprint_graph_inspect_args(
             "assetPath" | "graph" | "view" | "rootNode" | "rootPin" | "traversal"
         ) {
             return Err(invalid_argument_result(format!(
-                "blueprint.graph.inspect does not support top-level {key}; use assetPath, graph, view, rootNode, rootPin, and traversal."
+                "blueprint_graph_inspect does not support top-level {key}; use assetPath, graph, view, rootNode, rootPin, and traversal."
             )));
         }
     }
@@ -3564,7 +3552,7 @@ fn validate_blueprint_graph_inspect_args(
     ] {
         if args.contains_key(field) {
             return Err(invalid_argument_result(format!(
-                "blueprint.graph.inspect no longer accepts top-level {field}; use graph, view, rootNode, rootPin, and traversal."
+                "blueprint_graph_inspect no longer accepts top-level {field}; use graph, view, rootNode, rootPin, and traversal."
             )));
         }
     }
@@ -3572,7 +3560,7 @@ fn validate_blueprint_graph_inspect_args(
     let view = blueprint_graph_inspect_view(args);
     if !matches!(view, "summary" | "exec_flow" | "data_flow") {
         return Err(invalid_argument_result(format!(
-            "Unsupported blueprint.graph.inspect view: {view}."
+            "Unsupported blueprint_graph_inspect view: {view}."
         )));
     }
 
@@ -3580,14 +3568,14 @@ fn validate_blueprint_graph_inspect_args(
         "summary" => {
             if args.contains_key("rootNode") || args.contains_key("rootPin") {
                 return Err(invalid_argument_result(format!(
-                    "blueprint.graph.inspect view=summary does not accept rootNode or rootPin."
+                    "blueprint_graph_inspect view=summary does not accept rootNode or rootPin."
                 )));
             }
         }
         "exec_flow" => {
             let Some(root_node) = args.get("rootNode").and_then(|value| value.as_object()) else {
                 return Err(invalid_argument_result(
-                    "blueprint.graph.inspect view=exec_flow requires rootNode.id.",
+                    "blueprint_graph_inspect view=exec_flow requires rootNode.id.",
                 ));
             };
             if root_node
@@ -3597,19 +3585,19 @@ fn validate_blueprint_graph_inspect_args(
                 .is_none()
             {
                 return Err(invalid_argument_result(
-                    "blueprint.graph.inspect view=exec_flow requires rootNode.id.",
+                    "blueprint_graph_inspect view=exec_flow requires rootNode.id.",
                 ));
             }
             if args.contains_key("rootPin") {
                 return Err(invalid_argument_result(format!(
-                    "blueprint.graph.inspect view=exec_flow does not accept rootPin."
+                    "blueprint_graph_inspect view=exec_flow does not accept rootPin."
                 )));
             }
         }
         "data_flow" => {
             let Some(root_pin) = args.get("rootPin").and_then(|value| value.as_object()) else {
                 return Err(invalid_argument_result(
-                    "blueprint.graph.inspect view=data_flow requires rootPin.node.id and rootPin.pin.",
+                    "blueprint_graph_inspect view=data_flow requires rootPin.node.id and rootPin.pin.",
                 ));
             };
             let node_ok = root_pin
@@ -3626,12 +3614,12 @@ fn validate_blueprint_graph_inspect_args(
                 .is_some();
             if !node_ok || !pin_ok {
                 return Err(invalid_argument_result(
-                    "blueprint.graph.inspect view=data_flow requires rootPin.node.id and rootPin.pin.",
+                    "blueprint_graph_inspect view=data_flow requires rootPin.node.id and rootPin.pin.",
                 ));
             }
             if args.contains_key("rootNode") {
                 return Err(invalid_argument_result(format!(
-                    "blueprint.graph.inspect view=data_flow does not accept rootNode."
+                    "blueprint_graph_inspect view=data_flow does not accept rootNode."
                 )));
             }
         }
@@ -3642,21 +3630,21 @@ fn validate_blueprint_graph_inspect_args(
         && !args.get("traversal").is_some_and(|value| value.is_object())
     {
         return Err(invalid_argument_result(
-            "blueprint.graph.inspect traversal must be an object.",
+            "blueprint_graph_inspect traversal must be an object.",
         ));
     }
     if let Some(traversal) = args.get("traversal").and_then(|value| value.as_object()) {
         for key in traversal.keys() {
             if !matches!(key.as_str(), "direction" | "maxDepth" | "maxNodes") {
                 return Err(invalid_argument_result(format!(
-                    "blueprint.graph.inspect traversal does not support {key}."
+                    "blueprint_graph_inspect traversal does not support {key}."
                 )));
             }
         }
         if let Some(direction) = traversal.get("direction").and_then(|value| value.as_str()) {
             if !matches!(direction, "upstream" | "downstream" | "both") {
                 return Err(invalid_argument_result(format!(
-                    "Unsupported blueprint.graph.inspect traversal.direction: {direction}."
+                    "Unsupported blueprint_graph_inspect traversal.direction: {direction}."
                 )));
             }
         }
@@ -3683,12 +3671,12 @@ fn validate_blueprint_graph_traversal_bound(
     };
     let Some(number) = value.as_i64() else {
         return Err(invalid_argument_result(format!(
-            "blueprint.graph.inspect traversal.{field} must be an integer."
+            "blueprint_graph_inspect traversal.{field} must be an integer."
         )));
     };
     if number < min || number > max {
         return Err(invalid_argument_result(format!(
-            "blueprint.graph.inspect traversal.{field} must be between {min} and {max}."
+            "blueprint_graph_inspect traversal.{field} must be between {min} and {max}."
         )));
     }
     Ok(())
@@ -3993,7 +3981,7 @@ fn validate_blueprint_graph_inspect_targets(
             return Some(tool_error_result(
                 "NODE_NOT_FOUND",
                 format!(
-                    "blueprint.graph.inspect view=exec_flow rootNode.id was not found: {root_id}."
+                    "blueprint_graph_inspect view=exec_flow rootNode.id was not found: {root_id}."
                 ),
             ));
         }
@@ -4015,13 +4003,13 @@ fn validate_blueprint_graph_inspect_targets(
         if !node_map.contains_key(root_node_id) {
             return Some(tool_error_result(
                 "NODE_NOT_FOUND",
-                format!("blueprint.graph.inspect view=data_flow rootPin.node.id was not found: {root_node_id}."),
+                format!("blueprint_graph_inspect view=data_flow rootPin.node.id was not found: {root_node_id}."),
             ));
         }
         if !pin_map.contains_key(&pin_lookup_key(root_node_id, root_pin)) {
             return Some(tool_error_result(
                 "PIN_NOT_FOUND",
-                format!("blueprint.graph.inspect view=data_flow rootPin.pin was not found on node {root_node_id}: {root_pin}."),
+                format!("blueprint_graph_inspect view=data_flow rootPin.pin was not found on node {root_node_id}: {root_pin}."),
             ));
         }
     }
@@ -5343,7 +5331,7 @@ fn build_blueprint_layout_nodes(
         .and_then(|value| value.get("nodes"))
         .and_then(|value| value.as_array())
         .ok_or_else(|| {
-            "blueprint.graph.inspect result missing semanticSnapshot.nodes.".to_string()
+            "blueprint_graph_inspect result missing semanticSnapshot.nodes.".to_string()
         })?;
     let mut result = std::collections::HashMap::new();
     let mut raw_nodes = std::collections::HashMap::new();
@@ -6261,22 +6249,22 @@ fn pre_attach_tools() -> Vec<Tool> {
             Arc::new(empty_schema()),
         ),
         Tool::new(
-            "project.list",
+            "project_list",
             "List Unreal Engine projects known to LOOMLE. Defaults to online projects.",
             Arc::new(project_list_schema()),
         ),
         Tool::new(
-            "project.attach",
+            "project_attach",
             "Attach this MCP session to an online LOOMLE-enabled Unreal Engine project.",
             Arc::new(project_attach_schema()),
         ),
         Tool::new(
-            "project.install",
+            "project_install",
             "Install or update LOOMLE support for an Unreal Engine project, including the LoomleBridge plugin and required project settings.",
             Arc::new(project_install_schema()),
         ),
         Tool::new(
-            "schema.inspect",
+            "schema_inspect",
             "Inspect documented second-level Loomle tool schemas, such as Blueprint graph edit command schemas.",
             Arc::new(schema_inspect_schema()),
         ),
@@ -6342,7 +6330,7 @@ fn tools_list_input_schema(
     name: &str,
     full_schema: &rmcp::model::JsonObject,
 ) -> rmcp::model::JsonObject {
-    if name == "schema.inspect" {
+    if name == "schema_inspect" {
         return full_schema.clone();
     }
 
@@ -6445,58 +6433,7 @@ fn tools_list_short_description(description: &str) -> String {
 }
 
 fn runtime_declared_tools() -> Vec<Tool> {
-    use std::sync::Arc;
-    vec![
-        Tool::new("context", "Read active editor context and selection.", Arc::new(context_schema())),
-        Tool::new("execute", "Execute Unreal-side Python inside the editor process.", Arc::new(execute_schema())),
-        Tool::new("jobs", "Inspect or retrieve long-running job state, results, and logs.", Arc::new(jobs_schema())),
-        Tool::new("profiling", "Bridge official Unreal profiling data families such as stat unit, stat groups, ticks, memory reports, and capture workflows.", Arc::new(profiling_schema())),
-        Tool::new("play", "Inspect and control Unreal play sessions; supports PIE status, start, stop, and wait.", Arc::new(play_schema())),
-        Tool::new("asset.create", "Create an Unreal asset such as a Blueprint, enum, UserDefinedStruct, Material, PCG graph, or WidgetBlueprint.", Arc::new(asset_create_schema())),
-        Tool::new("asset.inspect", "Inspect an Unreal asset through a kind-specific public surface such as Blueprint, enum, UserDefinedStruct, Material, PCG graph, or WidgetBlueprint.", Arc::new(asset_inspect_schema())),
-        Tool::new("asset.edit", "Edit asset-level metadata. Enum entry editing remains as a compatibility special case.", Arc::new(asset_edit_schema())),
-        Tool::new("editor.open", "Open or focus the editor for a specific Unreal asset path.", Arc::new(editor_open_schema())),
-        Tool::new("editor.focus", "Focus a semantic panel inside an asset editor, such as graph, viewport, details, palette, or find.", Arc::new(editor_focus_schema())),
-        Tool::new("editor.screenshot", "Capture a PNG of the active editor window and return the written file path.", Arc::new(editor_screenshot_schema())),
-        Tool::new("blueprint.inspect", "Inspect a Blueprint overview and route to class, member, and graph detail tools.", Arc::new(blueprint_inspect_schema())),
-        Tool::new("blueprint.class.inspect", "Inspect Blueprint class contract, settings, default overrides, metadata, and implemented interfaces.", Arc::new(blueprint_class_inspect_schema())),
-        Tool::new("blueprint.class.edit", "Edit Blueprint class contract such as parent class and implemented interfaces.", Arc::new(blueprint_class_edit_schema())),
-        Tool::new("blueprint.member.inspect", "Inspect Blueprint members such as variables, functions, macros, dispatchers, events, and components.", Arc::new(blueprint_member_inspect_schema())),
-        Tool::new("blueprint.member.edit", "Edit Blueprint members such as variables, functions, macros, dispatchers, events, and components.", Arc::new(blueprint_member_edit_schema())),
-        Tool::new("blueprint.graph.list", "List Blueprint graphs in an asset.", Arc::new(blueprint_graph_list_schema())),
-        Tool::new("blueprint.graph.inspect", "Read Blueprint graph summary, execution-flow, and data-flow views.", Arc::new(blueprint_graph_inspect_schema())),
-        Tool::new("blueprint.graph.edit", "Apply explicit local graph edit commands to a Blueprint graph.", Arc::new(blueprint_graph_edit_schema())),
-        Tool::new("blueprint.graph.layout", "Format a Blueprint execution tree from a root node without changing graph semantics.", Arc::new(blueprint_graph_layout_schema())),
-        Tool::new("blueprint.node.inspect", "Inspect one Blueprint graph node for pins, defaults, node-local state, and edit capabilities.", Arc::new(blueprint_node_inspect_schema())),
-        Tool::new("blueprint.node.edit", "Edit node-local Blueprint structure such as switch cases, sequence pins, and format-text arguments. Use schema.inspect for operation-specific args.", Arc::new(blueprint_node_edit_schema())),
-        Tool::new("blueprint.graph.palette", "Search UE Blueprint Action Menu entries for graph node creation.", Arc::new(blueprint_palette_schema())),
-        Tool::new("blueprint.compile", "Compile a Blueprint asset.", Arc::new(blueprint_compile_schema())),
-        Tool::new("material.list", "List material expressions in a material asset.", Arc::new(asset_path_only_schema("Material asset path."))),
-        Tool::new("material.graph.inspect", "Read expression nodes and pin data from a Material graph.", Arc::new(material_graph_inspect_schema())),
-        Tool::new("material.graph.edit", "Apply explicit local edit commands to a Material graph. Use material.palette for node creation.", Arc::new(material_graph_edit_schema())),
-        Tool::new("material.graph.layout", "Format an explicit Material graph node selection without changing graph semantics.", Arc::new(material_graph_layout_schema())),
-        Tool::new("material.compile", "Compile a Material asset and return diagnostics.", Arc::new(asset_path_only_schema("Material asset path."))),
-        Tool::new("material.node.inspect", "Inspect one Material expression instance or expression class for pins and editable properties.", Arc::new(material_node_inspect_schema())),
-        Tool::new("material.node.edit", "Set one editable property on a Material expression node.", Arc::new(material_node_edit_schema())),
-        Tool::new("material.palette", "Search UE Material Editor palette actions for expression node creation.", Arc::new(material_palette_schema())),
-        Tool::new("pcg.graph.inspect", "Read PCG graph nodes, pins, links, and defaults with task-oriented views.", Arc::new(pcg_graph_inspect_schema())),
-        Tool::new("pcg.palette", "Search UE PCG graph palette actions for node creation.", Arc::new(pcg_palette_schema())),
-        Tool::new("pcg.node.inspect", "Inspect one PCG node instance or settings class for editable pins and properties.", Arc::new(pcg_node_inspect_schema())),
-        Tool::new("pcg.parameter.inspect", "Inspect PCG graph user parameters exposed by the graph's Parameters panel.", Arc::new(pcg_parameter_inspect_schema())),
-        Tool::new("pcg.parameter.edit", "Edit PCG graph user parameters. Use schema.inspect for operation-specific args.", Arc::new(pcg_parameter_edit_schema())),
-        Tool::new("pcg.graph.edit", "Apply explicit local edit commands to a PCG graph. Use pcg.palette for node creation.", Arc::new(pcg_graph_edit_schema())),
-        Tool::new("pcg.graph.layout", "Format an explicit PCG graph node selection without changing graph semantics.", Arc::new(pcg_graph_layout_schema())),
-        Tool::new("pcg.compile", "Validate and compile-confirm a PCG graph after edits.", Arc::new(pcg_compile_schema())),
-        Tool::new("diagnostic.tail", "Read persisted structured diagnostics incrementally by sequence cursor.", Arc::new(diagnostic_tail_schema())),
-        Tool::new("log.tail", "Read persisted Unreal output log events incrementally by sequence cursor.", Arc::new(log_tail_schema())),
-        Tool::new("widget.palette", "Search UE Widget Palette entries for UMG widget creation.", Arc::new(widget_palette_schema())),
-        Tool::new("widget.tree.inspect", "Read the UMG WidgetTree of a WidgetBlueprint asset.", Arc::new(widget_tree_inspect_schema())),
-        Tool::new("widget.tree.edit", "Apply explicit local edit commands to a WidgetBlueprint WidgetTree. Use widget.palette for widget creation.", Arc::new(widget_tree_edit_schema())),
-        Tool::new("widget.edit", "Apply explicit local property edit commands to WidgetTree widget instances.", Arc::new(widget_edit_schema())),
-        Tool::new("widget.event.create", "Create or return the native component-bound event node for one WidgetBlueprint widget event.", Arc::new(widget_event_create_schema())),
-        Tool::new("widget.inspect", "Inspect one UMG widget class or WidgetTree instance for editable properties.", Arc::new(widget_inspect_schema())),
-        Tool::new("widget.compile", "Compile a WidgetBlueprint and return diagnostics.", Arc::new(asset_path_only_schema("WidgetBlueprint asset path."))),
-    ]
+    all_declared_tools()
 }
 
 fn bridge_unavailable_result(reason: &str) -> CallToolResult {
@@ -6510,6 +6447,61 @@ fn is_local_tool(name: &str) -> bool {
         name,
         "status" | "project.list" | "project.attach" | "project.install" | "schema.inspect"
     )
+}
+
+fn public_tool_name_to_internal(name: &str) -> String {
+    match name {
+        "project_list" => "project.list",
+        "project_attach" => "project.attach",
+        "project_install" => "project.install",
+        "schema_inspect" => "schema.inspect",
+        "asset_create" => "asset.create",
+        "asset_inspect" => "asset.inspect",
+        "asset_edit" => "asset.edit",
+        "editor_open" => "editor.open",
+        "editor_focus" => "editor.focus",
+        "editor_screenshot" => "editor.screenshot",
+        "blueprint_graph_list" => "blueprint.graph.list",
+        "blueprint_inspect" => "blueprint.inspect",
+        "blueprint_class_inspect" => "blueprint.class.inspect",
+        "blueprint_class_edit" => "blueprint.class.edit",
+        "blueprint_member_inspect" => "blueprint.member.inspect",
+        "blueprint_member_edit" => "blueprint.member.edit",
+        "blueprint_graph_inspect" => "blueprint.graph.inspect",
+        "blueprint_node_inspect" => "blueprint.node.inspect",
+        "blueprint_graph_layout" => "blueprint.graph.layout",
+        "blueprint_node_edit" => "blueprint.node.edit",
+        "blueprint_graph_palette" => "blueprint.graph.palette",
+        "blueprint_compile" => "blueprint.compile",
+        "blueprint_graph_edit" => "blueprint.graph.edit",
+        "material_list" => "material.list",
+        "material_graph_inspect" => "material.graph.inspect",
+        "material_graph_edit" => "material.graph.edit",
+        "material_graph_layout" => "material.graph.layout",
+        "material_compile" => "material.compile",
+        "material_node_inspect" => "material.node.inspect",
+        "material_node_edit" => "material.node.edit",
+        "material_palette" => "material.palette",
+        "pcg_palette" => "pcg.palette",
+        "pcg_graph_inspect" => "pcg.graph.inspect",
+        "pcg_node_inspect" => "pcg.node.inspect",
+        "pcg_parameter_inspect" => "pcg.parameter.inspect",
+        "pcg_parameter_edit" => "pcg.parameter.edit",
+        "pcg_compile" => "pcg.compile",
+        "pcg_graph_edit" => "pcg.graph.edit",
+        "pcg_graph_layout" => "pcg.graph.layout",
+        "widget_palette" => "widget.palette",
+        "diagnostic_tail" => "diagnostic.tail",
+        "log_tail" => "log.tail",
+        "widget_tree_inspect" => "widget.tree.inspect",
+        "widget_tree_edit" => "widget.tree.edit",
+        "widget_edit" => "widget.edit",
+        "widget_event_create" => "widget.event.create",
+        "widget_inspect" => "widget.inspect",
+        "widget_compile" => "widget.compile",
+        _ => name,
+    }
+    .to_string()
 }
 
 fn runtime_invoke_failure_payload(error: loomle::RpcInvokeFailure) -> serde_json::Value {
@@ -6959,7 +6951,7 @@ fn blueprint_list_schema() -> rmcp::model::JsonObject {
 fn graph_ref_schema() -> serde_json::Value {
     serde_json::json!({
         "type":"object",
-        "description":"Recommended graph address. Prefer {\"id\":\"...\"} when available from blueprint.graph.list or blueprint.graph.inspect; use {\"name\":\"EventGraph\"} when id is not available.",
+        "description":"Recommended graph address. Prefer {\"id\":\"...\"} when available from blueprint_graph_list or blueprint_graph_inspect; use {\"name\":\"EventGraph\"} when id is not available.",
         "properties":{
             "id":{"type":"string","minLength":1},
             "name":{"type":"string","minLength":1}
@@ -7102,7 +7094,7 @@ fn blueprint_member_edit_schema() -> rmcp::model::JsonObject {
         serde_json::json!({
             "type":"string",
             "enum":["variable","function","macro","dispatcher","event","component"],
-            "description":"Blueprint member domain. Use schema.inspect with domain='blueprint' and tool='blueprint.member.edit' to list supported memberKind.operation entries."
+            "description":"Blueprint member domain. Use schema_inspect with domain='blueprint' and tool='blueprint_member_edit' to list supported memberKind.operation entries."
         }),
     );
     properties.insert(
@@ -7110,14 +7102,14 @@ fn blueprint_member_edit_schema() -> rmcp::model::JsonObject {
         serde_json::json!({
             "type":"string",
             "minLength":1,
-            "description":"Operation within memberKind. Use schema.inspect with domain='blueprint', tool='blueprint.member.edit', and operation='<memberKind>.<operation>' for the operation-specific request schema."
+            "description":"Operation within memberKind. Use schema_inspect with domain='blueprint', tool='blueprint_member_edit', and operation='<memberKind>.<operation>' for the operation-specific request schema."
         }),
     );
     properties.insert(
         "args".into(),
         serde_json::json!({
             "type":"object",
-            "description":"Operation-specific arguments. The shape is intentionally omitted from tools/list; call schema.inspect for the selected memberKind.operation."
+            "description":"Operation-specific arguments. The shape is intentionally omitted from tools/list; call schema_inspect for the selected memberKind.operation."
         }),
     );
     properties.insert(
@@ -7146,7 +7138,7 @@ fn blueprint_graph_inspect_schema() -> rmcp::model::JsonObject {
         "properties":{
             "assetPath":{"type":"string","minLength":1},
             "graph": graph_ref_schema(),
-            "view":{"type":"string","enum":["summary","exec_flow","data_flow"],"default":"summary","description":"Task-oriented result view. summary returns graph boundary, entry/root refs, chain summaries, and a de-duplicated nodes dictionary. exec_flow traces execution links from rootNode.id and returns lightweight nodes[] plus links[]. data_flow traces data links from rootPin.node.id/rootPin.pin with the same nodes[] plus links[] shape. Use blueprint.node.inspect for exact pins, defaults, and wiring preparation."},
+            "view":{"type":"string","enum":["summary","exec_flow","data_flow"],"default":"summary","description":"Task-oriented result view. summary returns graph boundary, entry/root refs, chain summaries, and a de-duplicated nodes dictionary. exec_flow traces execution links from rootNode.id and returns lightweight nodes[] plus links[]. data_flow traces data links from rootPin.node.id/rootPin.pin with the same nodes[] plus links[] shape. Use blueprint_node_inspect for exact pins, defaults, and wiring preparation."},
             "rootNode":{
                 "type":"object",
                 "properties":{
@@ -7192,7 +7184,7 @@ fn blueprint_node_inspect_schema() -> rmcp::model::JsonObject {
             "graph": graph_ref_schema(),
             "node":{
                 "type":"object",
-                "description":"Blueprint graph node reference from blueprint.graph.inspect. Use this when a graph node has hasNodeEditCapabilities=true or when full pin/default details are needed for one node.",
+                "description":"Blueprint graph node reference from blueprint_graph_inspect. Use this when a graph node has hasNodeEditCapabilities=true or when full pin/default details are needed for one node.",
                 "properties":{
                     "id":{"type":"string","minLength":1}
                 },
@@ -7216,7 +7208,7 @@ fn blueprint_node_edit_schema() -> rmcp::model::JsonObject {
         "node".into(),
         serde_json::json!({
             "type":"object",
-            "description":"Blueprint graph node reference. Inspect the node first with blueprint.node.inspect to confirm editCapabilities and current pin names.",
+            "description":"Blueprint graph node reference. Inspect the node first with blueprint_node_inspect to confirm editCapabilities and current pin names.",
             "properties":{"id":{"type":"string","minLength":1}},
             "required":["id"],
             "additionalProperties": false
@@ -7227,14 +7219,14 @@ fn blueprint_node_edit_schema() -> rmcp::model::JsonObject {
         serde_json::json!({
             "type":"string",
             "enum":["addPin","removePin","insertPin","renamePin","movePin","restorePins","setDelegateFunction"],
-            "description":"Node-local structural edit. Use schema.inspect with domain='blueprint', tool='blueprint.node.edit', and operation='<operation>' for operation-specific args."
+            "description":"Node-local structural edit. Use schema_inspect with domain='blueprint', tool='blueprint_node_edit', and operation='<operation>' for operation-specific args."
         }),
     );
     properties.insert(
         "args".into(),
         serde_json::json!({
             "type":"object",
-            "description":"Operation-specific arguments. The shape is intentionally omitted from tools/list; call schema.inspect for the selected operation."
+            "description":"Operation-specific arguments. The shape is intentionally omitted from tools/list; call schema_inspect for the selected operation."
         }),
     );
     properties.insert(
@@ -7306,10 +7298,10 @@ fn blueprint_graph_edit_schema() -> rmcp::model::JsonObject {
         "commands".into(),
         serde_json::json!({
             "type":"array",
-            "description":"Ordered Blueprint graph edit commands. Each command requires kind. If unsure which kinds are available, call schema.inspect with domain='blueprint' and tool='blueprint.graph.edit'. For a command-specific schema, call schema.inspect with operation=<kind>.",
+            "description":"Ordered Blueprint graph edit commands. Each command requires kind. If unsure which kinds are available, call schema_inspect with domain='blueprint' and tool='blueprint_graph_edit'. For a command-specific schema, call schema_inspect with operation=<kind>.",
             "items":{
                 "type":"object",
-                "description":"Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema.inspect.",
+                "description":"Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema_inspect.",
                 "properties":{
                     "kind":{"type":"string","minLength":1},
                     "alias":{"type":"string","minLength":1}
@@ -7350,10 +7342,10 @@ fn pcg_graph_edit_schema() -> rmcp::model::JsonObject {
         "commands".into(),
         serde_json::json!({
             "type":"array",
-            "description":"Ordered PCG graph edit commands. Each command requires kind. Use schema.inspect with domain='pcg' and tool='pcg.graph.edit' to list supported command kinds. For a command-specific schema, call schema.inspect with operation=<kind>. Use pcg.palette first and pass the selected entry to addFromPalette instead of guessing settings classes.",
+            "description":"Ordered PCG graph edit commands. Each command requires kind. Use schema_inspect with domain='pcg' and tool='pcg_graph_edit' to list supported command kinds. For a command-specific schema, call schema_inspect with operation=<kind>. Use pcg_palette first and pass the selected entry to addFromPalette instead of guessing settings classes.",
             "items":{
                 "type":"object",
-                "description":"Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema.inspect.",
+                "description":"Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema_inspect.",
                 "properties":{
                     "kind":{"type":"string","minLength":1},
                     "alias":{"type":"string","minLength":1}
@@ -7400,10 +7392,10 @@ fn material_graph_edit_schema() -> rmcp::model::JsonObject {
         "commands".into(),
         serde_json::json!({
             "type":"array",
-            "description":"Ordered Material graph edit commands. Each command requires kind. Use schema.inspect with domain='material' and tool='material.graph.edit' to list supported command kinds. For a command-specific schema, call schema.inspect with operation=<kind>. Use material.palette first and pass the selected entry to addFromPalette instead of guessing expression classes.",
+            "description":"Ordered Material graph edit commands. Each command requires kind. Use schema_inspect with domain='material' and tool='material_graph_edit' to list supported command kinds. For a command-specific schema, call schema_inspect with operation=<kind>. Use material_palette first and pass the selected entry to addFromPalette instead of guessing expression classes.",
             "items":{
                 "type":"object",
-                "description":"Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema.inspect.",
+                "description":"Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema_inspect.",
                 "properties":{
                     "kind":{"type":"string","minLength":1},
                     "alias":{"type":"string","minLength":1}
@@ -7479,7 +7471,7 @@ fn blueprint_graph_layout_schema() -> rmcp::model::JsonObject {
         "root".into(),
         serde_json::json!({
             "$ref": "#/$defs/nodeRef",
-            "description": "Root node id from blueprint.graph.inspect. Layout follows Blueprint exec output pins downstream from this node."
+            "description": "Root node id from blueprint_graph_inspect. Layout follows Blueprint exec output pins downstream from this node."
         }),
     );
     properties.insert(
@@ -7517,9 +7509,9 @@ fn blueprint_graph_layout_schema() -> rmcp::model::JsonObject {
         "$defs": {
             "nodeRef": {
                 "type":"object",
-                "description":"Stable Blueprint graph node reference from blueprint.graph.inspect.",
+                "description":"Stable Blueprint graph node reference from blueprint_graph_inspect.",
                 "properties": {
-                    "id": { "type":"string", "minLength": 1, "description":"Stable node id returned by blueprint.graph.inspect." }
+                    "id": { "type":"string", "minLength": 1, "description":"Stable node id returned by blueprint_graph_inspect." }
                 },
                 "required": ["id"],
                 "additionalProperties": false
@@ -7658,7 +7650,7 @@ fn material_node_edit_schema() -> rmcp::model::JsonObject {
         "node".into(),
         serde_json::json!({
             "type":"object",
-            "description":"Material expression node reference. Use id from material.graph.inspect/material.graph.edit results, or alias from an earlier edit command in the same request.",
+            "description":"Material expression node reference. Use id from material_graph_inspect/material_graph_edit results, or alias from an earlier edit command in the same request.",
             "properties":{
                 "id":{"type":"string","minLength":1},
                 "alias":{"type":"string","minLength":1}
@@ -7835,14 +7827,14 @@ fn pcg_parameter_edit_schema() -> rmcp::model::JsonObject {
         serde_json::json!({
             "type": "string",
             "enum": ["create", "update", "rename", "delete", "setDefault"],
-            "description": "PCG parameter edit operation. Use schema.inspect with domain='pcg', tool='pcg.parameter.edit', and operation='<operation>' for operation-specific args."
+            "description": "PCG parameter edit operation. Use schema_inspect with domain='pcg', tool='pcg_parameter_edit', and operation='<operation>' for operation-specific args."
         }),
     );
     properties.insert(
         "args".into(),
         serde_json::json!({
             "type": "object",
-            "description": "Operation-specific arguments. The shape is intentionally omitted from tools/list; call schema.inspect for the selected pcg.parameter.edit operation.",
+            "description": "Operation-specific arguments. The shape is intentionally omitted from tools/list; call schema_inspect for the selected pcg_parameter_edit operation.",
             "additionalProperties": true
         }),
     );
@@ -7995,10 +7987,10 @@ fn widget_tree_edit_schema() -> rmcp::model::JsonObject {
         "commands".into(),
         serde_json::json!({
             "type": "array",
-            "description": "Ordered WidgetTree edit commands. Each command requires kind. Use schema.inspect with domain='widget' and tool='widget.tree.edit' to list supported command kinds. For a command-specific schema, call schema.inspect with operation=<kind>. Use widget.palette first and pass the selected entry to addFromPalette instead of guessing widget classes.",
+            "description": "Ordered WidgetTree edit commands. Each command requires kind. Use schema_inspect with domain='widget' and tool='widget_tree_edit' to list supported command kinds. For a command-specific schema, call schema_inspect with operation=<kind>. Use widget_palette first and pass the selected entry to addFromPalette instead of guessing widget classes.",
             "items": {
                 "type": "object",
-                "description": "Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema.inspect.",
+                "description": "Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema_inspect.",
                 "properties": {
                     "kind": { "type": "string", "minLength": 1 }
                 },
@@ -8043,10 +8035,10 @@ fn widget_edit_schema() -> rmcp::model::JsonObject {
         "commands".into(),
         serde_json::json!({
             "type": "array",
-            "description": "Ordered widget instance edit commands. Each command requires kind. Use schema.inspect with domain='widget' and tool='widget.edit' to list supported command kinds. Use widget.inspect to discover writable property names and serialized value expectations.",
+            "description": "Ordered widget instance edit commands. Each command requires kind. Use schema_inspect with domain='widget' and tool='widget_edit' to list supported command kinds. Use widget_inspect to discover writable property names and serialized value expectations.",
             "items": {
                 "type": "object",
-                "description": "Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema.inspect.",
+                "description": "Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema_inspect.",
                 "properties": {
                     "kind": { "type": "string", "minLength": 1 }
                 },
@@ -10186,10 +10178,10 @@ mod tests {
         pcg_compile_schema, pcg_graph_inspect_schema, pcg_graph_layout_schema,
         pcg_node_inspect_schema, pcg_palette_schema, pcg_parameter_edit_schema,
         play_participant_wait_conditions_met, play_schema,
-        play_wait_participant_conditions_from_args, read_cached_latest_version,
-        read_file_lock_metadata, read_modules_manifest_build_id, read_plugin_version,
-        runtime_declared_tools, shape_blueprint_graph_inspect_result, shape_pcg_compile_result,
-        shape_pcg_graph_inspect_result, shape_pcg_node_inspect_result,
+        play_wait_participant_conditions_from_args, public_tool_name_to_internal,
+        read_cached_latest_version, read_file_lock_metadata, read_modules_manifest_build_id,
+        read_plugin_version, runtime_declared_tools, shape_blueprint_graph_inspect_result,
+        shape_pcg_compile_result, shape_pcg_graph_inspect_result, shape_pcg_node_inspect_result,
         shape_widget_tree_inspect_payload, switch_to_installed_version,
         sync_project_support_to_version, sync_registered_project_support,
         translate_blueprint_graph_edit_args, translate_blueprint_graph_inspect_args,
@@ -10539,7 +10531,7 @@ mod tests {
         assert!(!required.contains("operation"));
         let schema_text = serde_json::to_string(&schema).expect("schema json");
         assert!(schema_text.contains("Layout follows Blueprint exec output pins"));
-        assert!(schema_text.contains("blueprint.graph.inspect"));
+        assert!(schema_text.contains("blueprint_graph_inspect"));
         assert!(schema_text.contains("Defaults to {x:360,y:180}"));
     }
 
@@ -11729,7 +11721,7 @@ mod tests {
                         "className": "K2Node_CallFunction",
                         "title": "Print String",
                         "hasNodeEditCapabilities": true,
-                        "inspectWith": "blueprint.node.inspect",
+                        "inspectWith": "blueprint_node_inspect",
                         "pins": [
                             {
                                 "name": "execute",
@@ -11765,7 +11757,7 @@ mod tests {
             .expect("print node");
         assert_eq!(
             print.get("inspectWith").and_then(|value| value.as_str()),
-            Some("blueprint.node.inspect")
+            Some("blueprint_node_inspect")
         );
         assert!(print.get("pins").is_none());
         assert_eq!(
@@ -12021,7 +12013,7 @@ mod tests {
         assert!(properties.contains_key("graph"));
         assert!(properties.contains_key("node"));
         let schema_text = serde_json::to_string(&schema).expect("schema text");
-        assert!(!schema_text.contains("schema.inspect"));
+        assert!(!schema_text.contains("schema_inspect"));
     }
 
     #[test]
@@ -12035,12 +12027,12 @@ mod tests {
             .get("operation")
             .and_then(|value| value.get("description"))
             .and_then(|value| value.as_str())
-            .is_some_and(|description| description.contains("schema.inspect")));
+            .is_some_and(|description| description.contains("schema_inspect")));
         assert!(properties
             .get("args")
             .and_then(|value| value.get("description"))
             .and_then(|value| value.as_str())
-            .is_some_and(|description| description.contains("schema.inspect")));
+            .is_some_and(|description| description.contains("schema_inspect")));
         assert!(!properties.contains_key("returnDiff"));
         assert!(!properties.contains_key("returnDiagnostics"));
         assert!(properties.contains_key("expectedRevision"));
@@ -12155,7 +12147,7 @@ mod tests {
         for keyword in ["oneOf", "anyOf", "allOf", "enum", "not"] {
             assert!(
                 !schema.contains_key(keyword),
-                "material.graph.inspect schema should not expose top-level {keyword}"
+                "material_graph_inspect schema should not expose top-level {keyword}"
             );
         }
     }
@@ -12310,7 +12302,7 @@ mod tests {
         for keyword in ["oneOf", "anyOf", "allOf", "enum", "not"] {
             assert!(
                 !schema.contains_key(keyword),
-                "pcg.graph.inspect schema should not expose top-level {keyword}"
+                "pcg_graph_inspect schema should not expose top-level {keyword}"
             );
         }
     }
@@ -12619,7 +12611,7 @@ mod tests {
             .map(|tool| tool.name.to_string())
             .collect::<std::collections::HashSet<_>>();
 
-        assert!(tool_names.contains("pcg.palette"));
+        assert!(tool_names.contains("pcg_palette"));
     }
 
     #[test]
@@ -12629,7 +12621,7 @@ mod tests {
             .map(|tool| tool.name.to_string())
             .collect::<std::collections::HashSet<_>>();
 
-        assert!(tool_names.contains("material.palette"));
+        assert!(tool_names.contains("material_palette"));
     }
 
     #[test]
@@ -12639,7 +12631,7 @@ mod tests {
             .map(|tool| tool.name.to_string())
             .collect::<std::collections::HashSet<_>>();
 
-        assert!(tool_names.contains("widget.palette"));
+        assert!(tool_names.contains("widget_palette"));
     }
 
     #[test]
@@ -12649,7 +12641,7 @@ mod tests {
             .map(|tool| tool.name.to_string())
             .collect::<std::collections::HashSet<_>>();
 
-        assert!(tool_names.contains("widget.tree.edit"));
+        assert!(tool_names.contains("widget_tree_edit"));
     }
 
     #[test]
@@ -12659,7 +12651,7 @@ mod tests {
             .map(|tool| tool.name.to_string())
             .collect::<std::collections::HashSet<_>>();
 
-        assert!(tool_names.contains("widget.tree.inspect"));
+        assert!(tool_names.contains("widget_tree_inspect"));
     }
 
     #[test]
@@ -12669,7 +12661,7 @@ mod tests {
             .map(|tool| tool.name.to_string())
             .collect::<std::collections::HashSet<_>>();
 
-        assert!(tool_names.contains("widget.inspect"));
+        assert!(tool_names.contains("widget_inspect"));
     }
 
     #[test]
@@ -12679,7 +12671,7 @@ mod tests {
             .map(|tool| tool.name.to_string())
             .collect::<std::collections::HashSet<_>>();
 
-        assert!(tool_names.contains("widget.compile"));
+        assert!(tool_names.contains("widget_compile"));
     }
 
     #[test]
@@ -12689,7 +12681,7 @@ mod tests {
             .map(|tool| tool.name.to_string())
             .collect::<std::collections::HashSet<_>>();
 
-        assert!(tool_names.contains("widget.event.create"));
+        assert!(tool_names.contains("widget_event_create"));
     }
 
     #[test]
@@ -12700,13 +12692,13 @@ mod tests {
             .collect::<std::collections::HashSet<_>>();
 
         for expected in [
-            "widget.palette",
-            "widget.tree.inspect",
-            "widget.tree.edit",
-            "widget.edit",
-            "widget.event.create",
-            "widget.inspect",
-            "widget.compile",
+            "widget_palette",
+            "widget_tree_inspect",
+            "widget_tree_edit",
+            "widget_edit",
+            "widget_event_create",
+            "widget_inspect",
+            "widget_compile",
         ] {
             assert!(tool_names.contains(expected), "missing tool {expected}");
         }
@@ -12731,12 +12723,12 @@ mod tests {
             .map(|tool| tool.name.to_string())
             .collect::<std::collections::HashSet<_>>();
 
-        assert!(tool_names.contains("material.graph.edit"));
-        assert!(tool_names.contains("material.graph.layout"));
-        assert!(tool_names.contains("material.graph.inspect"));
-        assert!(tool_names.contains("material.compile"));
-        assert!(tool_names.contains("material.node.inspect"));
-        assert!(tool_names.contains("material.node.edit"));
+        assert!(tool_names.contains("material_graph_edit"));
+        assert!(tool_names.contains("material_graph_layout"));
+        assert!(tool_names.contains("material_graph_inspect"));
+        assert!(tool_names.contains("material_compile"));
+        assert!(tool_names.contains("material_node_inspect"));
+        assert!(tool_names.contains("material_node_edit"));
         assert!(!tool_names.contains("material.query"));
         assert!(!tool_names.contains("material.mutate"));
         assert!(!tool_names.contains("material.verify"));
@@ -12750,7 +12742,7 @@ mod tests {
             .map(|tool| tool.name.to_string())
             .collect::<std::collections::HashSet<_>>();
 
-        assert!(tool_names.contains("pcg.graph.inspect"));
+        assert!(tool_names.contains("pcg_graph_inspect"));
     }
 
     #[test]
@@ -12760,7 +12752,7 @@ mod tests {
             .map(|tool| tool.name.to_string())
             .collect::<std::collections::HashSet<_>>();
 
-        assert!(tool_names.contains("pcg.node.inspect"));
+        assert!(tool_names.contains("pcg_node_inspect"));
     }
 
     #[test]
@@ -12770,7 +12762,7 @@ mod tests {
             .map(|tool| tool.name.to_string())
             .collect::<std::collections::HashSet<_>>();
 
-        assert!(tool_names.contains("pcg.compile"));
+        assert!(tool_names.contains("pcg_compile"));
     }
 
     #[test]
@@ -12780,8 +12772,8 @@ mod tests {
             .map(|tool| tool.name.to_string())
             .collect::<std::collections::HashSet<_>>();
 
-        assert!(tool_names.contains("pcg.graph.edit"));
-        assert!(tool_names.contains("pcg.graph.layout"));
+        assert!(tool_names.contains("pcg_graph_edit"));
+        assert!(tool_names.contains("pcg_graph_layout"));
     }
 
     #[test]
@@ -12791,8 +12783,8 @@ mod tests {
             .map(|tool| tool.name.to_string())
             .collect::<std::collections::HashSet<_>>();
 
-        assert!(tool_names.contains("pcg.parameter.inspect"));
-        assert!(tool_names.contains("pcg.parameter.edit"));
+        assert!(tool_names.contains("pcg_parameter_inspect"));
+        assert!(tool_names.contains("pcg_parameter_edit"));
     }
 
     #[test]
@@ -12806,12 +12798,12 @@ mod tests {
             .get("operation")
             .and_then(|value| value.get("description"))
             .and_then(|value| value.as_str())
-            .is_some_and(|description| description.contains("schema.inspect")));
+            .is_some_and(|description| description.contains("schema_inspect")));
         assert!(properties
             .get("args")
             .and_then(|value| value.get("description"))
             .and_then(|value| value.as_str())
-            .is_some_and(|description| description.contains("schema.inspect")));
+            .is_some_and(|description| description.contains("schema_inspect")));
     }
 
     #[test]
@@ -12851,13 +12843,13 @@ mod tests {
             .collect::<std::collections::HashSet<_>>();
 
         for expected in [
-            "pcg.graph.inspect",
-            "pcg.node.inspect",
-            "pcg.parameter.inspect",
-            "pcg.parameter.edit",
-            "pcg.palette",
-            "pcg.graph.edit",
-            "pcg.compile",
+            "pcg_graph_inspect",
+            "pcg_node_inspect",
+            "pcg_parameter_inspect",
+            "pcg_parameter_edit",
+            "pcg_palette",
+            "pcg_graph_edit",
+            "pcg_compile",
         ] {
             assert!(tool_names.contains(expected), "missing tool {expected}");
         }
@@ -12886,7 +12878,7 @@ mod tests {
         for keyword in ["oneOf", "anyOf", "allOf", "not"] {
             assert!(
                 !schema.contains_key(keyword),
-                "pcg.palette schema should not expose top-level {keyword}"
+                "pcg_palette schema should not expose top-level {keyword}"
             );
         }
         let properties = schema
@@ -12907,7 +12899,7 @@ mod tests {
         for keyword in ["oneOf", "anyOf", "allOf", "not"] {
             assert!(
                 !schema.contains_key(keyword),
-                "material.palette schema should not expose top-level {keyword}"
+                "material_palette schema should not expose top-level {keyword}"
             );
         }
         let properties = schema
@@ -12928,7 +12920,7 @@ mod tests {
         for keyword in ["oneOf", "anyOf", "allOf", "not"] {
             assert!(
                 !schema.contains_key(keyword),
-                "widget.palette schema should not expose top-level {keyword}"
+                "widget_palette schema should not expose top-level {keyword}"
             );
         }
         let properties = schema
@@ -12951,8 +12943,8 @@ mod tests {
             .and_then(|value| value.get("description"))
             .and_then(|value| value.as_str())
             .expect("commands description");
-        assert!(commands_description.contains("schema.inspect"));
-        assert!(commands_description.contains("widget.palette"));
+        assert!(commands_description.contains("schema_inspect"));
+        assert!(commands_description.contains("widget_palette"));
         assert!(properties.contains_key("dryRun"));
         assert!(properties.contains_key("expectedRevision"));
         assert!(!properties.contains_key("continueOnError"));
@@ -12973,8 +12965,8 @@ mod tests {
             .and_then(|value| value.get("description"))
             .and_then(|value| value.as_str())
             .expect("commands description");
-        assert!(commands_description.contains("schema.inspect"));
-        assert!(commands_description.contains("widget.inspect"));
+        assert!(commands_description.contains("schema_inspect"));
+        assert!(commands_description.contains("widget_inspect"));
         assert!(properties.contains_key("dryRun"));
         assert!(properties.contains_key("expectedRevision"));
     }
@@ -12989,10 +12981,10 @@ mod tests {
             .and_then(|value| value.as_array())
             .and_then(|tools| {
                 tools.iter().find(|tool| {
-                    tool.get("name").and_then(|value| value.as_str()) == Some("widget.tree.edit")
+                    tool.get("name").and_then(|value| value.as_str()) == Some("widget_tree_edit")
                 })
             })
-            .expect("widget.tree.edit tool");
+            .expect("widget_tree_edit tool");
         let output_properties = tool
             .get("outputSchema")
             .and_then(|value| value.get("oneOf"))
@@ -13023,7 +13015,7 @@ mod tests {
         for keyword in ["oneOf", "anyOf", "allOf", "not"] {
             assert!(
                 !schema.contains_key(keyword),
-                "widget.tree.inspect schema should not expose top-level {keyword}"
+                "widget_tree_inspect schema should not expose top-level {keyword}"
             );
         }
         let properties = schema
@@ -13047,7 +13039,7 @@ mod tests {
             vec!["outline", "layout"]
         );
         let schema_text = serde_json::to_string(&schema).expect("schema json");
-        assert!(!schema_text.contains("schema.inspect"));
+        assert!(!schema_text.contains("schema_inspect"));
     }
 
     #[test]
@@ -13056,7 +13048,7 @@ mod tests {
         for keyword in ["oneOf", "anyOf", "allOf", "not"] {
             assert!(
                 !schema.contains_key(keyword),
-                "widget.inspect schema should not expose top-level {keyword}"
+                "widget_inspect schema should not expose top-level {keyword}"
             );
         }
         let properties = schema
@@ -13067,7 +13059,7 @@ mod tests {
         assert!(properties.contains_key("assetPath"));
         assert!(properties.contains_key("widget"));
         let schema_text = serde_json::to_string(&schema).expect("schema json");
-        assert!(!schema_text.contains("schema.inspect"));
+        assert!(!schema_text.contains("schema_inspect"));
     }
 
     #[test]
@@ -13080,10 +13072,10 @@ mod tests {
             .and_then(|value| value.as_array())
             .and_then(|tools| {
                 tools.iter().find(|tool| {
-                    tool.get("name").and_then(|value| value.as_str()) == Some("widget.inspect")
+                    tool.get("name").and_then(|value| value.as_str()) == Some("widget_inspect")
                 })
             })
-            .expect("widget.inspect tool");
+            .expect("widget_inspect tool");
         let output_schema = tool.get("outputSchema").expect("output schema");
         assert!(output_schema
             .get("$defs")
@@ -13118,10 +13110,10 @@ mod tests {
             .and_then(|value| value.as_array())
             .and_then(|tools| {
                 tools.iter().find(|tool| {
-                    tool.get("name").and_then(|value| value.as_str()) == Some("widget.event.create")
+                    tool.get("name").and_then(|value| value.as_str()) == Some("widget_event_create")
                 })
             })
-            .expect("widget.event.create tool");
+            .expect("widget_event_create tool");
         let output_schema = tool.get("outputSchema").expect("output schema");
         let success_properties = output_schema
             .get("oneOf")
@@ -13243,7 +13235,7 @@ mod tests {
             serde_json::json!([{
                 "kind": "addFromPalette",
                 "entry": {
-                    "id": "widget.palette:text",
+                    "id": "widget_palette:text",
                     "kind": "native",
                     "payload": {"widgetClass": "/Script/UMG.TextBlock"},
                     "executable": true
@@ -13432,7 +13424,7 @@ mod tests {
                 {
                     "kind": "addFromPalette",
                     "entry": {
-                        "id": "material.palette:multiply",
+                        "id": "material_palette:multiply",
                         "kind": "expression",
                         "payload": {"nodeClassPath": "/Script/Engine.MaterialExpressionMultiply"}
                     },
@@ -13476,8 +13468,8 @@ mod tests {
             .and_then(|commands| commands.get("description"))
             .and_then(|value| value.as_str())
             .unwrap_or_default();
-        assert!(commands_description.contains("schema.inspect"));
-        assert!(commands_description.contains("material.palette"));
+        assert!(commands_description.contains("schema_inspect"));
+        assert!(commands_description.contains("material_palette"));
     }
 
     #[test]
@@ -13517,7 +13509,7 @@ mod tests {
         for keyword in ["oneOf", "anyOf", "allOf", "not"] {
             assert!(
                 !schema.contains_key(keyword),
-                "material.node.edit schema should not expose top-level {keyword}"
+                "material_node_edit schema should not expose top-level {keyword}"
             );
         }
         let properties = schema
@@ -13528,7 +13520,7 @@ mod tests {
         assert!(properties.contains_key("property"));
         assert!(properties.contains_key("value"));
         let schema_text = serde_json::to_string(&schema).expect("schema json");
-        assert!(!schema_text.contains("schema.inspect"));
+        assert!(!schema_text.contains("schema_inspect"));
     }
 
     #[test]
@@ -13600,9 +13592,9 @@ mod tests {
             .collect::<std::collections::HashSet<_>>();
 
         assert!(tool_names.contains("play"));
-        assert!(tool_names.contains("diagnostic.tail"));
-        assert!(tool_names.contains("log.tail"));
-        assert!(tool_names.contains("blueprint.graph.layout"));
+        assert!(tool_names.contains("diagnostic_tail"));
+        assert!(tool_names.contains("log_tail"));
+        assert!(tool_names.contains("blueprint_graph_layout"));
         assert!(!tool_names.contains("log.subscribe"));
         assert!(!tool_names.contains("diag.tail"));
     }
@@ -13615,22 +13607,22 @@ mod tests {
             .collect::<std::collections::HashSet<_>>();
 
         for expected in [
-            "asset.create",
-            "asset.inspect",
-            "asset.edit",
-            "blueprint.inspect",
-            "blueprint.class.inspect",
-            "blueprint.class.edit",
-            "blueprint.member.inspect",
-            "blueprint.member.edit",
-            "blueprint.graph.list",
-            "blueprint.graph.inspect",
-            "blueprint.graph.edit",
-            "blueprint.graph.layout",
-            "blueprint.node.inspect",
-            "blueprint.node.edit",
-            "blueprint.graph.palette",
-            "blueprint.compile",
+            "asset_create",
+            "asset_inspect",
+            "asset_edit",
+            "blueprint_inspect",
+            "blueprint_class_inspect",
+            "blueprint_class_edit",
+            "blueprint_member_inspect",
+            "blueprint_member_edit",
+            "blueprint_graph_list",
+            "blueprint_graph_inspect",
+            "blueprint_graph_edit",
+            "blueprint_graph_layout",
+            "blueprint_node_inspect",
+            "blueprint_node_edit",
+            "blueprint_graph_palette",
+            "blueprint_compile",
         ] {
             assert!(tool_names.contains(expected), "missing tool {expected}");
         }
@@ -13658,10 +13650,58 @@ mod tests {
             .collect::<std::collections::HashSet<_>>();
 
         assert!(tool_names.contains("status"));
-        assert!(tool_names.contains("schema.inspect"));
+        assert!(tool_names.contains("schema_inspect"));
         assert!(!tool_names.contains("loomle"));
         assert!(!tool_names.contains("setup.status"));
         assert!(!tool_names.contains("setup.configure"));
+    }
+
+    #[test]
+    fn public_tool_names_map_to_internal_bridge_names() {
+        for (public, internal) in [
+            ("schema_inspect", "schema.inspect"),
+            ("blueprint_graph_list", "blueprint.graph.list"),
+            ("blueprint_graph_inspect", "blueprint.graph.inspect"),
+            ("blueprint_node_inspect", "blueprint.node.inspect"),
+            ("material_palette", "material.palette"),
+            ("pcg_palette", "pcg.palette"),
+            ("widget_palette", "widget.palette"),
+            ("widget_inspect", "widget.inspect"),
+        ] {
+            assert_eq!(public_tool_name_to_internal(public), internal);
+        }
+    }
+
+    #[test]
+    fn public_tool_name_mapping_restores_dotted_internal_routes() {
+        let manifest: serde_json::Value =
+            serde_json::from_str(super::TOOL_MANIFEST_JSON).expect("manifest json");
+        for tool in manifest
+            .get("tools")
+            .and_then(|value| value.as_array())
+            .expect("manifest tools")
+        {
+            let availability = tool
+                .get("availability")
+                .and_then(|value| value.as_array())
+                .expect("availability");
+            if !availability
+                .iter()
+                .any(|value| value.as_str() == Some("native"))
+            {
+                continue;
+            }
+            let public_name = tool
+                .get("name")
+                .and_then(|value| value.as_str())
+                .expect("tool name");
+            let internal_name = public_name.replace('_', ".");
+            assert_eq!(
+                public_tool_name_to_internal(public_name),
+                internal_name,
+                "{public_name} should route to the dotted internal route"
+            );
+        }
     }
 
     #[test]
@@ -13723,14 +13763,14 @@ mod tests {
 
         let blueprint = declared_tools
             .iter()
-            .find(|tool| tool.name.as_ref() == "blueprint.inspect")
-            .expect("blueprint.inspect");
+            .find(|tool| tool.name.as_ref() == "blueprint_inspect")
+            .expect("blueprint_inspect");
         let blueprint_output_properties = blueprint.name.as_ref();
         let blueprint_output_properties = manifest_tool(blueprint_output_properties)
             .get("outputSchema")
             .and_then(|schema| schema.get("properties"))
             .and_then(|value| value.as_object())
-            .expect("blueprint.inspect output properties");
+            .expect("blueprint_inspect output properties");
         assert!(blueprint_output_properties.contains_key("routes"));
         assert!(blueprint_output_properties.contains_key("summary"));
         assert!(blueprint_output_properties.contains_key("variables"));
@@ -13738,14 +13778,14 @@ mod tests {
 
         let blueprint_class = declared_tools
             .iter()
-            .find(|tool| tool.name.as_ref() == "blueprint.class.inspect")
-            .expect("blueprint.class.inspect");
+            .find(|tool| tool.name.as_ref() == "blueprint_class_inspect")
+            .expect("blueprint_class_inspect");
         let blueprint_class_output_properties = blueprint_class.name.as_ref();
         let blueprint_class_output_properties = manifest_tool(blueprint_class_output_properties)
             .get("outputSchema")
             .and_then(|schema| schema.get("properties"))
             .and_then(|value| value.as_object())
-            .expect("blueprint.class.inspect output properties");
+            .expect("blueprint_class_inspect output properties");
         assert!(blueprint_class_output_properties.contains_key("class"));
         assert!(blueprint_class_output_properties.contains_key("settings"));
         assert!(blueprint_class_output_properties.contains_key("implementedInterfaces"));
@@ -13755,22 +13795,22 @@ mod tests {
 
         let blueprint_member = declared_tools
             .iter()
-            .find(|tool| tool.name.as_ref() == "blueprint.member.inspect")
-            .expect("blueprint.member.inspect");
+            .find(|tool| tool.name.as_ref() == "blueprint_member_inspect")
+            .expect("blueprint_member_inspect");
         let blueprint_member_output_properties = blueprint_member.name.as_ref();
         let blueprint_member_output_properties = manifest_tool(blueprint_member_output_properties)
             .get("outputSchema")
             .and_then(|schema| schema.get("properties"))
             .and_then(|value| value.as_object())
-            .expect("blueprint.member.inspect output properties");
+            .expect("blueprint_member_inspect output properties");
         assert!(blueprint_member_output_properties.contains_key("assetPath"));
         assert!(blueprint_member_output_properties.contains_key("memberKind"));
         assert!(blueprint_member_output_properties.contains_key("items"));
 
         let blueprint_node_inspect = declared_tools
             .iter()
-            .find(|tool| tool.name.as_ref() == "blueprint.node.inspect")
-            .expect("blueprint.node.inspect");
+            .find(|tool| tool.name.as_ref() == "blueprint_node_inspect")
+            .expect("blueprint_node_inspect");
         let blueprint_node_inspect_output = blueprint_node_inspect.name.as_ref();
         let blueprint_node_inspect_output = manifest_tool(blueprint_node_inspect_output)
             .get("outputSchema")
@@ -13779,7 +13819,7 @@ mod tests {
             .and_then(|items| items.first())
             .and_then(|schema| schema.get("properties"))
             .and_then(|value| value.as_object())
-            .expect("blueprint.node.inspect output properties");
+            .expect("blueprint_node_inspect output properties");
         assert!(blueprint_node_inspect_output.contains_key("node"));
         assert!(blueprint_node_inspect_output.contains_key("editState"));
         assert!(blueprint_node_inspect_output.contains_key("editCapabilities"));
@@ -13789,13 +13829,13 @@ mod tests {
 
         let blueprint_member_edit = declared_tools
             .iter()
-            .find(|tool| tool.name.as_ref() == "blueprint.member.edit")
-            .expect("blueprint.member.edit");
+            .find(|tool| tool.name.as_ref() == "blueprint_member_edit")
+            .expect("blueprint_member_edit");
         let blueprint_member_edit_input = blueprint_member_edit
             .input_schema
             .get("properties")
             .and_then(|value| value.as_object())
-            .expect("blueprint.member.edit input properties");
+            .expect("blueprint_member_edit input properties");
         let member_kind_enum = blueprint_member_edit_input
             .get("memberKind")
             .and_then(|value| value.get("enum"))
@@ -13813,7 +13853,7 @@ mod tests {
                 .get("outputSchema")
                 .and_then(|schema| schema.get("properties"))
                 .and_then(|value| value.as_object())
-                .expect("blueprint.member.edit output properties");
+                .expect("blueprint_member_edit output properties");
         assert!(blueprint_member_edit_output_properties.contains_key("applied"));
         assert!(blueprint_member_edit_output_properties.contains_key("valid"));
         assert!(blueprint_member_edit_output_properties.contains_key("resolvedRefs"));
@@ -13825,15 +13865,15 @@ mod tests {
 
         let blueprint_class_edit = declared_tools
             .iter()
-            .find(|tool| tool.name.as_ref() == "blueprint.class.edit")
-            .expect("blueprint.class.edit");
+            .find(|tool| tool.name.as_ref() == "blueprint_class_edit")
+            .expect("blueprint_class_edit");
         let blueprint_class_edit_ops = blueprint_class_edit
             .input_schema
             .get("properties")
             .and_then(|value| value.get("operation"))
             .and_then(|value| value.get("enum"))
             .and_then(|value| value.as_array())
-            .expect("blueprint.class.edit operation enum");
+            .expect("blueprint_class_edit operation enum");
         assert_eq!(
             blueprint_class_edit_ops,
             &[
@@ -13848,7 +13888,7 @@ mod tests {
             .input_schema
             .get("properties")
             .and_then(|value| value.as_object())
-            .expect("blueprint.class.edit input properties");
+            .expect("blueprint_class_edit input properties");
         assert!(!blueprint_class_edit_input.contains_key("returnDiff"));
         assert!(!blueprint_class_edit_input.contains_key("returnDiagnostics"));
         assert!(blueprint_class_edit_input.contains_key("expectedRevision"));
@@ -13858,7 +13898,7 @@ mod tests {
                 .get("outputSchema")
                 .and_then(|schema| schema.get("properties"))
                 .and_then(|value| value.as_object())
-                .expect("blueprint.class.edit output properties");
+                .expect("blueprint_class_edit output properties");
         assert!(blueprint_class_edit_output_properties.contains_key("applied"));
         assert!(blueprint_class_edit_output_properties.contains_key("valid"));
         assert!(blueprint_class_edit_output_properties.contains_key("resolvedRefs"));
@@ -13892,8 +13932,8 @@ mod tests {
 
         let graph_inspect = declared_tools
             .iter()
-            .find(|tool| tool.name.as_ref() == "blueprint.graph.inspect")
-            .expect("blueprint.graph.inspect");
+            .find(|tool| tool.name.as_ref() == "blueprint_graph_inspect")
+            .expect("blueprint_graph_inspect");
         let properties = graph_inspect
             .input_schema
             .get("properties")
@@ -13916,7 +13956,7 @@ mod tests {
 
         let output_schema = manifest_tool(graph_inspect.name.as_ref())
             .get("outputSchema")
-            .expect("blueprint.graph.inspect output schema");
+            .expect("blueprint_graph_inspect output schema");
         let output_views = output_schema
             .get("oneOf")
             .and_then(|value| value.as_array())
@@ -13953,7 +13993,7 @@ mod tests {
     fn schema_inspect_lists_blueprint_graph_edit_operations() {
         let mut args = JsonObject::new();
         args.insert("domain".into(), serde_json::json!("blueprint"));
-        args.insert("tool".into(), serde_json::json!("blueprint.graph.edit"));
+        args.insert("tool".into(), serde_json::json!("blueprint_graph_edit"));
 
         let result = call_schema_inspect(&args);
         assert_eq!(result.is_error, Some(false));
@@ -14000,7 +14040,7 @@ mod tests {
     fn schema_inspect_lists_blueprint_node_edit_operations() {
         let mut args = JsonObject::new();
         args.insert("domain".into(), serde_json::json!("blueprint"));
-        args.insert("tool".into(), serde_json::json!("blueprint.node.edit"));
+        args.insert("tool".into(), serde_json::json!("blueprint_node_edit"));
 
         let result = call_schema_inspect(&args);
         assert_eq!(result.is_error, Some(false));
@@ -14031,7 +14071,7 @@ mod tests {
     fn schema_inspect_returns_blueprint_node_edit_operation_schema() {
         let mut args = JsonObject::new();
         args.insert("domain".into(), serde_json::json!("blueprint"));
-        args.insert("tool".into(), serde_json::json!("blueprint.node.edit"));
+        args.insert("tool".into(), serde_json::json!("blueprint_node_edit"));
         args.insert("operation".into(), serde_json::json!("addPin"));
         args.insert(
             "include".into(),
@@ -14051,14 +14091,14 @@ mod tests {
         assert!(schema_text.contains("argument"));
         let notes_text =
             serde_json::to_string(payload.get("notes").expect("notes")).expect("notes json");
-        assert!(notes_text.contains("blueprint.node.inspect"));
+        assert!(notes_text.contains("blueprint_node_inspect"));
     }
 
     #[test]
     fn schema_inspect_returns_add_from_palette_schema() {
         let mut args = JsonObject::new();
         args.insert("domain".into(), serde_json::json!("blueprint"));
-        args.insert("tool".into(), serde_json::json!("blueprint.graph.edit"));
+        args.insert("tool".into(), serde_json::json!("blueprint_graph_edit"));
         args.insert("operation".into(), serde_json::json!("addFromPalette"));
         args.insert(
             "include".into(),
@@ -14095,7 +14135,7 @@ mod tests {
     fn schema_inspect_lists_blueprint_member_edit_operations() {
         let mut args = JsonObject::new();
         args.insert("domain".into(), serde_json::json!("blueprint"));
-        args.insert("tool".into(), serde_json::json!("blueprint.member.edit"));
+        args.insert("tool".into(), serde_json::json!("blueprint_member_edit"));
 
         let result = call_schema_inspect(&args);
         assert_eq!(result.is_error, Some(false));
@@ -14123,7 +14163,7 @@ mod tests {
     fn schema_inspect_lists_pcg_graph_edit_operations() {
         let mut args = JsonObject::new();
         args.insert("domain".into(), serde_json::json!("pcg"));
-        args.insert("tool".into(), serde_json::json!("pcg.graph.edit"));
+        args.insert("tool".into(), serde_json::json!("pcg_graph_edit"));
 
         let result = call_schema_inspect(&args);
         assert_eq!(result.is_error, Some(false));
@@ -14154,7 +14194,7 @@ mod tests {
     fn schema_inspect_lists_material_graph_edit_operations() {
         let mut args = JsonObject::new();
         args.insert("domain".into(), serde_json::json!("material"));
-        args.insert("tool".into(), serde_json::json!("material.graph.edit"));
+        args.insert("tool".into(), serde_json::json!("material_graph_edit"));
 
         let result = call_schema_inspect(&args);
         assert_eq!(result.is_error, Some(false));
@@ -14186,7 +14226,7 @@ mod tests {
     fn schema_inspect_lists_widget_tree_edit_operations() {
         let mut args = JsonObject::new();
         args.insert("domain".into(), serde_json::json!("widget"));
-        args.insert("tool".into(), serde_json::json!("widget.tree.edit"));
+        args.insert("tool".into(), serde_json::json!("widget_tree_edit"));
 
         let result = call_schema_inspect(&args);
         assert_eq!(result.is_error, Some(false));
@@ -14216,7 +14256,7 @@ mod tests {
     fn schema_inspect_lists_widget_edit_operations() {
         let mut args = JsonObject::new();
         args.insert("domain".into(), serde_json::json!("widget"));
-        args.insert("tool".into(), serde_json::json!("widget.edit"));
+        args.insert("tool".into(), serde_json::json!("widget_edit"));
 
         let result = call_schema_inspect(&args);
         assert_eq!(result.is_error, Some(false));
@@ -14238,7 +14278,7 @@ mod tests {
     fn schema_inspect_returns_widget_add_from_palette_schema() {
         let mut args = JsonObject::new();
         args.insert("domain".into(), serde_json::json!("widget"));
-        args.insert("tool".into(), serde_json::json!("widget.tree.edit"));
+        args.insert("tool".into(), serde_json::json!("widget_tree_edit"));
         args.insert("operation".into(), serde_json::json!("addFromPalette"));
         args.insert(
             "include".into(),
@@ -14270,7 +14310,7 @@ mod tests {
     fn schema_inspect_returns_material_add_from_palette_schema() {
         let mut args = JsonObject::new();
         args.insert("domain".into(), serde_json::json!("material"));
-        args.insert("tool".into(), serde_json::json!("material.graph.edit"));
+        args.insert("tool".into(), serde_json::json!("material_graph_edit"));
         args.insert("operation".into(), serde_json::json!("addFromPalette"));
         args.insert(
             "include".into(),
@@ -14295,7 +14335,7 @@ mod tests {
     fn schema_inspect_lists_pcg_parameter_edit_operations() {
         let mut args = JsonObject::new();
         args.insert("domain".into(), serde_json::json!("pcg"));
-        args.insert("tool".into(), serde_json::json!("pcg.parameter.edit"));
+        args.insert("tool".into(), serde_json::json!("pcg_parameter_edit"));
 
         let result = call_schema_inspect(&args);
         assert_eq!(result.is_error, Some(false));
@@ -14318,7 +14358,7 @@ mod tests {
     fn schema_inspect_returns_pcg_parameter_edit_operation_schema() {
         let mut args = JsonObject::new();
         args.insert("domain".into(), serde_json::json!("pcg"));
-        args.insert("tool".into(), serde_json::json!("pcg.parameter.edit"));
+        args.insert("tool".into(), serde_json::json!("pcg_parameter_edit"));
         args.insert("operation".into(), serde_json::json!("create"));
         args.insert(
             "include".into(),
@@ -14343,7 +14383,7 @@ mod tests {
     fn schema_inspect_returns_member_edit_operation_schema() {
         let mut args = JsonObject::new();
         args.insert("domain".into(), serde_json::json!("blueprint"));
-        args.insert("tool".into(), serde_json::json!("blueprint.member.edit"));
+        args.insert("tool".into(), serde_json::json!("blueprint_member_edit"));
         args.insert("operation".into(), serde_json::json!("variable.create"));
         args.insert(
             "include".into(),
@@ -14379,7 +14419,7 @@ mod tests {
 
     #[test]
     fn schema_inspect_rejects_tools_outside_domain() {
-        for tool in ["asset.create", "asset.inspect", "asset.edit"] {
+        for tool in ["asset_create", "asset_inspect", "asset_edit"] {
             let mut args = JsonObject::new();
             args.insert("domain".into(), serde_json::json!("blueprint"));
             args.insert("tool".into(), serde_json::json!(tool));
@@ -14388,7 +14428,7 @@ mod tests {
             assert_eq!(
                 result.is_error,
                 Some(true),
-                "{tool} should not use schema.inspect"
+                "{tool} should not use schema_inspect"
             );
             let payload = result.structured_content.expect("structured content");
             assert_eq!(
@@ -14403,10 +14443,10 @@ mod tests {
                 .iter()
                 .filter_map(|value| value.as_str())
                 .collect::<std::collections::HashSet<_>>();
-            assert!(names.contains("blueprint.graph.edit"));
-            assert!(names.contains("blueprint.member.edit"));
-            assert!(names.contains("blueprint.node.edit"));
-            assert!(names.contains("blueprint.inspect"));
+            assert!(names.contains("blueprint_graph_edit"));
+            assert!(names.contains("blueprint_member_edit"));
+            assert!(names.contains("blueprint_node_edit"));
+            assert!(names.contains("blueprint_inspect"));
         }
     }
 
@@ -14414,7 +14454,7 @@ mod tests {
     fn schema_inspect_returns_tool_output_schema() {
         let mut args = JsonObject::new();
         args.insert("domain".into(), serde_json::json!("blueprint"));
-        args.insert("tool".into(), serde_json::json!("blueprint.graph.inspect"));
+        args.insert("tool".into(), serde_json::json!("blueprint_graph_inspect"));
         args.insert("include".into(), serde_json::json!(["output"]));
 
         let result = call_schema_inspect(&args);
@@ -14437,7 +14477,7 @@ mod tests {
     fn schema_inspect_returns_full_tool_input_schema() {
         let mut args = JsonObject::new();
         args.insert("domain".into(), serde_json::json!("blueprint"));
-        args.insert("tool".into(), serde_json::json!("blueprint.graph.inspect"));
+        args.insert("tool".into(), serde_json::json!("blueprint_graph_inspect"));
         args.insert("include".into(), serde_json::json!(["input"]));
 
         let result = call_schema_inspect(&args);
@@ -14465,7 +14505,7 @@ mod tests {
     fn schema_inspect_can_include_operation_schema_and_tool_output() {
         let mut args = JsonObject::new();
         args.insert("domain".into(), serde_json::json!("blueprint"));
-        args.insert("tool".into(), serde_json::json!("blueprint.graph.edit"));
+        args.insert("tool".into(), serde_json::json!("blueprint_graph_edit"));
         args.insert("operation".into(), serde_json::json!("addFromPalette"));
         args.insert("include".into(), serde_json::json!(["operation", "output"]));
 
@@ -14490,7 +14530,7 @@ mod tests {
     fn schema_inspect_rejects_unknown_operation_with_available_operations() {
         let mut args = JsonObject::new();
         args.insert("domain".into(), serde_json::json!("blueprint"));
-        args.insert("tool".into(), serde_json::json!("blueprint.graph.edit"));
+        args.insert("tool".into(), serde_json::json!("blueprint_graph_edit"));
         args.insert("operation".into(), serde_json::json!("connectPin"));
 
         let result = call_schema_inspect(&args);

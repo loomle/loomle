@@ -15,10 +15,10 @@ option pins, Format Text arguments, and SetFieldsInStruct field visibility.
 
 | Tool | Purpose |
 | --- | --- |
-| `blueprint.node.inspect` | Inspect one node's pins, defaults, node-local state, and edit capabilities. |
-| `blueprint.node.edit` | Edit node-local structure on one existing node. |
+| `blueprint_node_inspect` | Inspect one node's pins, defaults, node-local state, and edit capabilities. |
+| `blueprint_node_edit` | Edit node-local structure on one existing node. |
 
-## `blueprint.node.inspect`
+## `blueprint_node_inspect`
 
 ### Parameters
 
@@ -26,13 +26,13 @@ option pins, Format Text arguments, and SetFieldsInStruct field visibility.
 | --- | --- | --- |
 | `assetPath` | yes | Blueprint asset path. |
 | `graph` | yes | Preferred graph address: `{id}` or `{name}`. |
-| `node.id` | yes | Node id from `blueprint.graph.inspect`. |
+| `node.id` | yes | Node id from `blueprint_graph_inspect`. |
 
-Use this when `blueprint.graph.inspect` marks a node with
+Use this when `blueprint_graph_inspect` marks a node with
 `hasNodeEditCapabilities: true`, or when full pin/default details are needed for
 one node.
 
-## `blueprint.node.edit`
+## `blueprint_node_edit`
 
 ### Parameters
 
@@ -42,18 +42,18 @@ one node.
 | `graph` | yes | Preferred graph address. |
 | `node.id` | yes | Existing graph node id. |
 | `operation` | yes | `addPin`, `removePin`, `insertPin`, `renamePin`, `movePin`, or `restorePins`. |
-| `args` | yes | Operation-specific arguments from `schema.inspect`. |
+| `args` | yes | Operation-specific arguments from `schema_inspect`. |
 | `dryRun` | no | Validate without applying. |
 | `returnDiff` | no | Include diff when supported. |
 | `returnDiagnostics` | no | Defaults to true. |
 | `expectedRevision` | no | Optimistic mutation guard when supported. |
 
-Call `schema.inspect` with `domain: blueprint`, `tool: blueprint.node.edit`,
+Call `schema_inspect` with `domain: blueprint`, `tool: blueprint_node_edit`,
 and the selected operation before editing.
 
 ## Boundary
 
-Use `blueprint.node.edit` only for structure owned by one existing node. Use
-`blueprint.graph.edit` for links, pin defaults, comments, enabled state, node
-creation, movement, and removal. Use `blueprint.member.edit` for Blueprint-owned
+Use `blueprint_node_edit` only for structure owned by one existing node. Use
+`blueprint_graph_edit` for links, pin defaults, comments, enabled state, node
+creation, movement, and removal. Use `blueprint_member_edit` for Blueprint-owned
 member signatures.

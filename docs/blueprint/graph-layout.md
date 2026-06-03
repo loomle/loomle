@@ -2,7 +2,7 @@
 
 ## Intent
 
-`blueprint.graph.layout` is the visual formatting surface for Blueprint graphs.
+`blueprint_graph_layout` is the visual formatting surface for Blueprint graphs.
 
 It exists so agents can make a recently edited graph region readable without
 changing Blueprint behavior. The first version is intentionally narrow: it
@@ -11,7 +11,7 @@ entire graph.
 
 ## Tool Boundary
 
-`blueprint.graph.layout` owns visual organization:
+`blueprint_graph_layout` owns visual organization:
 
 - choose a set of existing nodes
 - compute target node positions
@@ -20,11 +20,11 @@ entire graph.
 
 It does not own:
 
-- node creation, which belongs to `blueprint.graph.edit`
-- pin connection changes, which belong to explicit `blueprint.graph.edit`
+- node creation, which belongs to `blueprint_graph_edit`
+- pin connection changes, which belong to explicit `blueprint_graph_edit`
   commands
 - structural transformations; callers should inspect first and compose explicit
-  `blueprint.graph.edit` commands
+  `blueprint_graph_edit` commands
 - recipe expansion as a separate public abstraction
 - whole-graph formatting
 - reroute insertion, reroute cleanup, or wire routing in the first version

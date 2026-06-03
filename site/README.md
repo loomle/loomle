@@ -23,7 +23,7 @@ This site keeps install scripts at stable root URLs:
 - they install LOOMLE globally from the release manifest and platform zip
 - they do not download a temporary installer binary
 - they do not install into an Unreal project
-- project plugin install/update happens later through MCP `project.install`
+- project plugin install/update happens later through MCP `project_install`
 
 The documentation pages use the Just the Docs Jekyll theme.
 

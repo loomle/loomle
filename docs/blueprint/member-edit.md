@@ -1,6 +1,6 @@
 # Blueprint Member Edit
 
-`blueprint.member.edit` edits Blueprint-owned definitions: variables,
+`blueprint_member_edit` edits Blueprint-owned definitions: variables,
 functions, macros, dispatchers, events, and components. It should not be used
 for graph-local node placement or pin wiring.
 
@@ -16,7 +16,7 @@ participate in runtime dispatch.
 
 Top-level requests use `assetPath`, `memberKind`, `operation`, optional `args`,
 and optional `dryRun`. Operation-specific argument schemas are exposed through
-`schema.inspect`.
+`schema_inspect`.
 
 `memberKind="event"` is the edit surface for Custom Events. The narrower
 `memberKind="customEvent"` name is inspect-only.

@@ -134,11 +134,11 @@ def material_mutate_args(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def call_material_mutate(client: McpStdioClient, req_id: int, payload: dict[str, Any]) -> dict[str, Any]:
-    return call_tool(client, req_id, "material.graph.edit", material_mutate_args(payload))
+    return call_tool(client, req_id, "material_graph_edit", material_mutate_args(payload))
 
 
 def call_material_mutate_allow_error(client: McpStdioClient, req_id: int, payload: dict[str, Any]) -> tuple[dict[str, Any], bool]:
-    return call_tool_allow_error(client, req_id, "material.graph.edit", material_mutate_args(payload))
+    return call_tool_allow_error(client, req_id, "material_graph_edit", material_mutate_args(payload))
 
 
 def add_node_by_class(client: McpStdioClient, request_id: int, *, asset_path: str, node_class_path: str) -> str:
@@ -170,7 +170,7 @@ def query_material_revision_and_node_count(client: McpStdioClient, request_id: i
     payload = call_tool(
         client,
         request_id,
-        "material.graph.inspect",
+        "material_graph_inspect",
         {"assetPath": asset_path, "includeConnections": True},
     )
     revision = payload.get("revision")
@@ -324,7 +324,7 @@ def run_set_pin_default_unsupported(client: McpStdioClient, request_id_base: int
             f"setPinDefault was accepted for material: {compact_json(payload)}",
             details={"surfaceMatrix": surface_matrix, "unexpectedPayload": payload},
         )
-    expect_error_contains(payload, "Unsupported material.graph.edit command kind: setPinDefault", kind="contract_surface_gap")
+    expect_error_contains(payload, "Unsupported material_graph_edit command kind: setPinDefault", kind="contract_surface_gap")
     return {
         "surfaceMatrix": surface_matrix,
         "errorPayload": payload,

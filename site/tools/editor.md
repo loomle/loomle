@@ -15,11 +15,11 @@ themselves.
 
 | Tool | Purpose |
 | --- | --- |
-| `editor.open` | Open or focus an Unreal asset editor. |
-| `editor.focus` | Focus a semantic panel inside an asset editor. |
-| `editor.screenshot` | Capture the active editor window to a PNG file. |
+| `editor_open` | Open or focus an Unreal asset editor. |
+| `editor_focus` | Focus a semantic panel inside an asset editor. |
+| `editor_screenshot` | Capture the active editor window to a PNG file. |
 
-## `editor.open`
+## `editor_open`
 
 Open or focus the editor for a specific asset.
 
@@ -34,7 +34,7 @@ Open or focus the editor for a specific asset.
 Call `context` after opening if the next operation depends on the active editor
 or current selection.
 
-## `editor.focus`
+## `editor_focus`
 
 Focuses a semantic panel inside an asset editor.
 
@@ -50,7 +50,7 @@ Focuses a semantic panel inside an asset editor.
 Use focus tools for editor navigation only. Use domain tools for asset data
 changes.
 
-## `editor.screenshot`
+## `editor_screenshot`
 
 Captures the active editor window.
 

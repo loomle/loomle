@@ -208,11 +208,11 @@ def query_blueprint_snapshot(client: McpStdioClient, request_id: int, asset_path
     payload = safe_call_tool(
         client,
         request_id,
-        "blueprint.graph.inspect",
+        "blueprint_graph_inspect",
         {"assetPath": asset_path, "graph": {"name": "EventGraph"}, "view": "summary"},
     )
     if payload.get("view") != "summary":
-        raise BlueprintWorkflowSuiteError("query_gap", f"blueprint.graph.inspect missing summary view: {compact_json(payload)}")
+        raise BlueprintWorkflowSuiteError("query_gap", f"blueprint_graph_inspect missing summary view: {compact_json(payload)}")
     node_ids: list[str] = []
     for key in ("roots", "looseNodes"):
         value = payload.get(key)
@@ -247,7 +247,7 @@ def query_blueprint_snapshot(client: McpStdioClient, request_id: int, asset_path
         node_payload = safe_call_tool(
             client,
             request_id + 100 + index,
-            "blueprint.node.inspect",
+            "blueprint_node_inspect",
             {"assetPath": asset_path, "graph": {"name": "EventGraph"}, "node": {"id": node_id}},
         )
         node = node_payload.get("node")
@@ -285,7 +285,7 @@ def query_blueprint_snapshot(client: McpStdioClient, request_id: int, asset_path
 def find_event_begin_play_node_id(snapshot: dict[str, Any]) -> str:
     nodes = snapshot.get("nodes")
     if not isinstance(nodes, list):
-        raise BlueprintWorkflowSuiteError("query_gap", "blueprint.graph.inspect missing nodes[] while resolving EventBeginPlay")
+        raise BlueprintWorkflowSuiteError("query_gap", "blueprint_graph_inspect missing nodes[] while resolving EventBeginPlay")
     for node in nodes:
         if not isinstance(node, dict):
             continue
@@ -317,17 +317,17 @@ def verify_blueprint_graph(client: McpStdioClient, request_id: int, asset_path: 
     payload = safe_call_tool(
         client,
         request_id,
-        "blueprint.compile",
+        "blueprint_compile",
         {"assetPath": asset_path, "graphName": "EventGraph", "limit": 200},
     )
     if payload.get("status") not in {"ok", "warn"}:
-        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint.compile returned error: {compact_json(payload)}")
+        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint_compile returned error: {compact_json(payload)}")
     compile_report = payload.get("compileReport")
     if not isinstance(compile_report, dict) or compile_report.get("compiled") is not True:
-        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint.compile missing compiled=true: {compact_json(payload)}")
+        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint_compile missing compiled=true: {compact_json(payload)}")
     diagnostics = payload.get("diagnostics")
     if not isinstance(diagnostics, list):
-        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint.compile missing diagnostics[]: {compact_json(payload)}")
+        raise BlueprintWorkflowSuiteError("verify_gap", f"blueprint_compile missing diagnostics[]: {compact_json(payload)}")
     return {
         "status": payload.get("status"),
         "compiled": True,
@@ -495,7 +495,7 @@ def run_workflow_case(client: McpStdioClient, *, request_id_base: int, case: dic
             if isinstance(payload.get("commands"), list)
             else blueprint_edit_args_from_legacy_payload(payload)
         )
-        mutate_result = safe_call_tool(client, request_id_base + 10, "blueprint.graph.edit", edit_payload)
+        mutate_result = safe_call_tool(client, request_id_base + 10, "blueprint_graph_edit", edit_payload)
         surface_matrix["mutate"] = "pass"
         ref_map = build_client_ref_map(edit_payload, mutate_result)
         snapshot = query_blueprint_snapshot(client, request_id_base + 20, asset_path)

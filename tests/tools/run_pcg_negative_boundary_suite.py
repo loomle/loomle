@@ -154,11 +154,11 @@ def pcg_mutate_args(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def call_pcg_mutate(client: McpStdioClient, req_id: int, payload: dict[str, Any], *, expect_error: bool = False) -> dict[str, Any]:
-    return call_tool(client, req_id, "pcg.graph.edit", pcg_mutate_args(payload), expect_error=expect_error)
+    return call_tool(client, req_id, "pcg_graph_edit", pcg_mutate_args(payload), expect_error=expect_error)
 
 
 def call_pcg_mutate_allow_error(client: McpStdioClient, req_id: int, payload: dict[str, Any]) -> tuple[dict[str, Any], bool]:
-    return call_tool_allow_error(client, req_id, "pcg.graph.edit", pcg_mutate_args(payload))
+    return call_tool_allow_error(client, req_id, "pcg_graph_edit", pcg_mutate_args(payload))
 
 
 def add_node_by_class(client: McpStdioClient, request_id: int, *, asset_path: str, node_class_path: str) -> str:

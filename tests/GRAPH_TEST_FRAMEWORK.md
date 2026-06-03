@@ -351,9 +351,9 @@ The shared harness should provide:
 
 Owns:
 
-- `blueprint.graph.inspect`
-- `blueprint.graph.edit`
-- `blueprint.compile`
+- `blueprint_graph_inspect`
+- `blueprint_graph_edit`
+- `blueprint_compile`
 - exec/data pin semantics
 - variable and function fixtures
 - event/context recipes
@@ -363,9 +363,9 @@ Owns:
 
 Owns:
 
-- `material.graph.inspect`
-- `material.graph.edit`
-- `material.compile`
+- `material_graph_inspect`
+- `material_graph_edit`
+- `material_compile`
 - root sink rules
 - expression-chain assertions
 - function call recipes
@@ -376,15 +376,15 @@ Owns:
 
 Owns:
 
-- `pcg.graph.inspect`
-- `pcg.graph.edit`
-- `pcg.compile`
+- `pcg_graph_inspect`
+- `pcg_graph_edit`
+- `pcg_compile`
 - pipeline fixtures
 - source/filter/route/spawn recipes
 - selector and synthetic pin validation
 - settings truth vs query truth comparisons
 - selector-truth classification for selector-backed fields such as attribute selectors, actor selectors, and mesh selectors
-- strict query-truth assertions when generated cases can prove Unreal-side truth but `pcg.graph.inspect` does not surface it
+- strict query-truth assertions when generated cases can prove Unreal-side truth but `pcg_graph_inspect` does not surface it
 - workflow-truth suites that exercise insert/replace/preserve-interface edits over live PCG pipelines
 
 ## Recommended First Priorities

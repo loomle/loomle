@@ -2,7 +2,7 @@
 
 ## Intent
 
-`blueprint.graph.edit` is the explicit local mutation surface for Blueprint
+`blueprint_graph_edit` is the explicit local mutation surface for Blueprint
 graphs.
 
 It is for changes where the agent already knows the target graph, target nodes,
@@ -15,7 +15,7 @@ loaded on demand through the schema inspection flow.
 
 ## Tool Boundary
 
-`blueprint.graph.edit` owns local graph edits:
+`blueprint_graph_edit` owns local graph edits:
 
 - create one node from a selected UE palette entry
 - connect or disconnect explicit pins
@@ -26,11 +26,11 @@ loaded on demand through the schema inspection flow.
 
 It does not own:
 
-- palette discovery, which belongs to `blueprint.graph.palette`
+- palette discovery, which belongs to `blueprint_graph_palette`
 - fuzzy or semantic refactor planning; callers should inspect first and compose
   explicit edit commands
 - recipe expansion as a separate public abstraction
-- visual formatting, which belongs to `blueprint.graph.layout`
+- visual formatting, which belongs to `blueprint_graph_layout`
 - compile or validate
 - graph management such as add, rename, or delete graph
 
@@ -58,7 +58,7 @@ The `tools/list` schema should expose only the stable command envelope:
         "required": ["kind"],
         "additionalProperties": true
       },
-      "description": "Ordered Blueprint graph edit commands. Use schema.inspect with tool='blueprint.graph.edit' and operation=<kind> for command-specific schema."
+      "description": "Ordered Blueprint graph edit commands. Use schema_inspect with tool='blueprint_graph_edit' and operation=<kind> for command-specific schema."
     },
     "dryRun": { "type": "boolean" },
     "expectedRevision": { "type": "string" },
@@ -81,7 +81,7 @@ These are the first-class public command vocabulary:
 
 | Command | Purpose |
 | --- | --- |
-| `addFromPalette` | Execute one selected `blueprint.graph.palette` entry. |
+| `addFromPalette` | Execute one selected `blueprint_graph_palette` entry. |
 | `connect` | Create one explicit pin link. |
 | `disconnect` | Remove one explicit pin link. |
 | `breakLinks` | Remove all links from one pin. |
@@ -111,22 +111,22 @@ but they are not part of the core graph construction workflow.
 
 ### Retired Operations
 
-These operations are not accepted by `blueprint.graph.edit`. Use the dedicated
+These operations are not accepted by `blueprint_graph_edit`. Use the dedicated
 surface instead:
 
 | Operation | Preferred Surface |
 | --- | --- |
 | `rebindMatchingPins` | Retired; connect pins explicitly. |
 | `moveInputLinks` | Retired; disconnect and reconnect explicit pins. |
-| `layoutGraph` | `blueprint.graph.layout` with a root execution-tree request. |
-| `compile` | `blueprint.compile`. |
-| `moveNodes` | Retired; use explicit `moveNode` commands for hand placement, or `blueprint.graph.layout` to format a root execution tree. |
+| `layoutGraph` | `blueprint_graph_layout` with a root execution-tree request. |
+| `compile` | `blueprint_compile`. |
+| `moveNodes` | Retired; use explicit `moveNode` commands for hand placement, or `blueprint_graph_layout` to format a root execution tree. |
 | `addGraph` / `addFunctionGraph` / `addMacroGraph` | Future graph management surface. |
 | `renameGraph` | Future graph management surface. |
 | `deleteGraph` | Future graph management surface. |
 
 Keeping these out of the primary public vocabulary prevents
-`blueprint.graph.edit` from becoming a dump of bridge internals.
+`blueprint_graph_edit` from becoming a dump of bridge internals.
 
 ## Shared Reference Types
 
@@ -159,13 +159,13 @@ the same request.
 ```
 
 Pins are always node-qualified. Fuzzy pin lookup is not part of
-`blueprint.graph.edit`.
+`blueprint_graph_edit`.
 
 ## Core Command Schemas
 
 ### addFromPalette
 
-Creates a node by executing one entry returned from `blueprint.graph.palette`.
+Creates a node by executing one entry returned from `blueprint_graph_palette`.
 
 ```json
 {
@@ -192,7 +192,7 @@ Optional fields:
 
 Rules:
 
-- `entry` should be the full palette entry returned by `blueprint.graph.palette`.
+- `entry` should be the full palette entry returned by `blueprint_graph_palette`.
 - `context` is normally inherited from `entry.context`; agents should pass the
   full returned entry for component/widget bound events.
 - `eventName` applies to palette actions that create an attached
@@ -200,7 +200,7 @@ Rules:
   the generated companion event name is unique in the owning Blueprint.
 - `alias` is request-local and is chosen by the agent.
 - dry run must resolve the same palette entry but must not mutate the graph.
-- schema actions are listed by `blueprint.graph.palette` but rejected with
+- schema actions are listed by `blueprint_graph_palette` but rejected with
   `PALETTE_ENTRY_NOT_EXECUTABLE`.
 
 ### connect
@@ -398,7 +398,7 @@ The public command layer maps to UE graph operations through Loomle's bridge:
 The public schema should describe agent intent. The bridge may keep lower-level
 legacy operations internally, but those operations are not the public contract.
 
-`blueprint.graph.edit` is a batch operation at the UE boundary. A single request
+`blueprint_graph_edit` is a batch operation at the UE boundary. A single request
 should resolve the target Blueprint and graph once per graph scope, reuse those
 resolved objects while executing local graph edits, and avoid broadcasting graph
 or Blueprint dirty notifications after every command. Commands that mutate the

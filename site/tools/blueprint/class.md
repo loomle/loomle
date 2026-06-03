@@ -15,11 +15,11 @@ signatures, or pin defaults.
 
 | Tool | Purpose |
 | --- | --- |
-| `blueprint.inspect` | Inspect a Blueprint asset and class-level contract. |
-| `blueprint.class.inspect` | Inspect parent class and implemented interfaces. |
-| `blueprint.class.edit` | Edit parent class and implemented interfaces. |
+| `blueprint_inspect` | Inspect a Blueprint asset and class-level contract. |
+| `blueprint_class_inspect` | Inspect parent class and implemented interfaces. |
+| `blueprint_class_edit` | Edit parent class and implemented interfaces. |
 
-## `blueprint.inspect`
+## `blueprint_inspect`
 
 ### Parameters
 
@@ -30,7 +30,7 @@ signatures, or pin defaults.
 Use this for an asset-level Blueprint summary before choosing class, member, or
 graph tools.
 
-## `blueprint.class.inspect`
+## `blueprint_class_inspect`
 
 ### Parameters
 
@@ -40,7 +40,7 @@ graph tools.
 
 Use this when the task is about parent class or interfaces.
 
-## `blueprint.class.edit`
+## `blueprint_class_edit`
 
 ### Parameters
 

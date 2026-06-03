@@ -1,15 +1,15 @@
-# widget.edit
+# widget_edit
 
 ## Intent
 
-`widget.edit` mutates properties on existing WidgetTree widget instances.
+`widget_edit` mutates properties on existing WidgetTree widget instances.
 
-It is separate from `widget.tree.edit`:
+It is separate from `widget_tree_edit`:
 
-- `widget.tree.edit` changes hierarchy: create, remove, rename, reparent.
-- `widget.edit` changes widget or slot property values.
+- `widget_tree_edit` changes hierarchy: create, remove, rename, reparent.
+- `widget_edit` changes widget or slot property values.
 
-Use `widget.tree.inspect` to find widget instances, then `widget.inspect` to
+Use `widget_tree_inspect` to find widget instances, then `widget_inspect` to
 discover writable property names and serialized value formats.
 
 ## Input
@@ -50,7 +50,7 @@ Sets one reflected property on the widget instance itself.
 Sets one reflected property on the widget's current `UPanelSlot`.
 
 Slot properties depend on the parent panel. Use
-`widget.tree.inspect view="layout"` or instance-mode `widget.inspect` to see the
+`widget_tree_inspect view="layout"` or instance-mode `widget_inspect` to see the
 current slot class and values.
 
 ## Output
@@ -79,4 +79,4 @@ failure is command-specific.
 ## Revision
 
 Widget revisions include hierarchy, slot layout, and reflected widget property
-values. A successful `widget.edit` property mutation updates the revision.
+values. A successful `widget_edit` property mutation updates the revision.

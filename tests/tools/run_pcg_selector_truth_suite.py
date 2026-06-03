@@ -79,7 +79,7 @@ SELECTOR_CASES = [
         "families": ["filter", "route"],
         "selectorFields": ["TargetAttribute"],
         "querySurfaceKind": "pin_default",
-        "summary": "FilterByAttribute should surface plain attribute selectors through pcg.graph.inspect and engine truth.",
+        "summary": "FilterByAttribute should surface plain attribute selectors through pcg_graph_inspect and engine truth.",
         "setupKind": "filter_target_attribute",
         "selectorValue": "Desert_Cactus",
         "expectedEngine": {
@@ -556,7 +556,7 @@ def _run_selector_case(
         snapshot = query_pcg_snapshot(client, request_id_base + 100, asset_path)
         node = find_node(snapshot, node_id)
         if not isinstance(node, dict):
-            raise SelectorSuiteError("query_selector_unsurfaced", f"selector case missing node in pcg.graph.inspect: {node_id}")
+            raise SelectorSuiteError("query_selector_unsurfaced", f"selector case missing node in pcg_graph_inspect: {node_id}")
         surface_matrix["queryStructure"] = "pass"
         verify_details = verify_graph(client, request_id_base + 110, asset_path)
         surface_matrix["verify"] = "pass"

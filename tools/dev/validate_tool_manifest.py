@@ -3,8 +3,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
+
+
+CLAUDE_TOOL_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+CLAUDE_RESERVED_SERVER_NAMES = {"workspace"}
 
 
 def fail(message: str) -> None:
@@ -34,6 +39,16 @@ def require_array(value: object, label: str) -> list:
     return value
 
 
+def validate_claude_server_name(server_name: str) -> None:
+    if not CLAUDE_TOOL_NAME_RE.fullmatch(server_name):
+        fail(
+            f"Claude MCP server name {server_name!r} must match "
+            r"^[a-zA-Z0-9_-]{1,64}$"
+        )
+    if server_name in CLAUDE_RESERVED_SERVER_NAMES:
+        fail(f"Claude MCP server name {server_name!r} is reserved")
+
+
 def validate_manifest(manifest: dict) -> None:
     if manifest.get("schemaVersion") != 1:
         fail("manifest.schemaVersion must be 1")
@@ -49,6 +64,13 @@ def validate_manifest(manifest: dict) -> None:
         name = tool.get("name")
         if not isinstance(name, str) or not name:
             fail(f"tools[{index}].name must be a non-empty string")
+        if not CLAUDE_TOOL_NAME_RE.fullmatch(name):
+            fail(
+                f"{name}.name must be Claude-safe: "
+                r"^[a-zA-Z0-9_-]{1,64}$"
+            )
+        if name in CLAUDE_RESERVED_SERVER_NAMES:
+            fail(f"{name}.name must not use a Claude reserved MCP server name")
         if name in seen_tools:
             fail(f"duplicate tool name: {name}")
         seen_tools.add(name)
@@ -116,8 +138,14 @@ def main() -> int:
         default="mcp/manifest/manifest.json",
         help="Path to the tool manifest JSON.",
     )
+    parser.add_argument(
+        "--claude-server-name",
+        default="loomle",
+        help="MCP server name to validate against Claude Code naming rules.",
+    )
     args = parser.parse_args()
 
+    validate_claude_server_name(args.claude_server_name)
     manifest_path = Path(args.manifest)
     manifest = require_object(load_json(manifest_path), str(manifest_path))
     validate_manifest(manifest)

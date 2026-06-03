@@ -51,23 +51,23 @@ Public MCP tools should still be compressed where usage is low-frequency and sch
 
 Recommended compressed public surface for non-graph Blueprint operations:
 
-- `asset.create`
-- `asset.inspect`
-- `asset.edit`
-- `blueprint.inspect`
-- `blueprint.class.inspect`
-- `blueprint.class.edit`
-- `blueprint.member.inspect`
-- `blueprint.member.edit`
+- `asset_create`
+- `asset_inspect`
+- `asset_edit`
+- `blueprint_inspect`
+- `blueprint_class_inspect`
+- `blueprint_class_edit`
+- `blueprint_member_inspect`
+- `blueprint_member_edit`
 
 Recommended public graph surface:
 
-- `blueprint.graph.list`
-- `blueprint.graph.inspect`
-- `blueprint.graph.edit`
-- `blueprint.graph.layout`
-- `blueprint.graph.palette`
-- `blueprint.compile`
+- `blueprint_graph_list`
+- `blueprint_graph_inspect`
+- `blueprint_graph_edit`
+- `blueprint_graph_layout`
+- `blueprint_graph_palette`
+- `blueprint_compile`
 
 ## Domain 1: Asset
 
@@ -77,21 +77,21 @@ belong on the `asset.*` surface.
 
 ### Tools
 
-- `asset.create`
-- `asset.inspect`
-- `asset.edit`
-- `blueprint.inspect`
+- `asset_create`
+- `asset_inspect`
+- `asset_edit`
+- `blueprint_inspect`
 
 ### Asset Edit Operations
 
 Current `asset.*` coverage:
 
-- `asset.create` creates Blueprint, enum, UserDefinedStruct, Material,
+- `asset_create` creates Blueprint, enum, UserDefinedStruct, Material,
   MaterialFunction, PCG graph, and WidgetBlueprint assets.
-- `asset.inspect` reads Blueprint, enum, UserDefinedStruct, Material,
+- `asset_inspect` reads Blueprint, enum, UserDefinedStruct, Material,
   MaterialFunction, PCG graph, and WidgetBlueprint assets through the requested
   `kind`.
-- `asset.edit` edits asset-level metadata through `operation=updateMetadata`.
+- `asset_edit` edits asset-level metadata through `operation=updateMetadata`.
   Enum entries remain available through `kind=enum` and
   `operation=updateEntries` as a compatibility special case. UserDefinedStruct
   field edits are available through `kind=userDefinedStruct` field operations.
@@ -105,29 +105,29 @@ Current `asset.*` coverage:
 
 ### Notes
 
-- `asset.create` is the preferred creation entrypoint for supported asset
+- `asset_create` is the preferred creation entrypoint for supported asset
   categories.
-- `asset.inspect` and `asset.edit` are the preferred generic asset-facing
+- `asset_inspect` and `asset_edit` are the preferred generic asset-facing
   entrypoints for asset identity, summaries, and metadata.
-- `asset.inspect` may delegate to existing domain readers for graph-shaped
+- `asset_inspect` may delegate to existing domain readers for graph-shaped
   assets, but structural graph/node/member edits remain on their domain tools.
-- `asset.edit` should not absorb structural Blueprint, Material, PCG, or Widget
+- `asset_edit` should not absorb structural Blueprint, Material, PCG, or Widget
   editing operations.
-- `blueprint.inspect` remains the canonical Blueprint overview entrypoint. It
+- `blueprint_inspect` remains the canonical Blueprint overview entrypoint. It
   returns asset/class identity, lightweight member lists, counts, and routing
   hints to dedicated class, member, and graph inspect tools. It should not
-  inspect a specific graph node; use `blueprint.node.inspect` for node details.
+  inspect a specific graph node; use `blueprint_node_inspect` for node details.
 
 ## Domain 2: Inheritance / Interfaces
 
 Inheritance and interfaces are Blueprint class contract operations. Public MCP
-tools should expose them through `blueprint.class.inspect` and
-`blueprint.class.edit`.
+tools should expose them through `blueprint_class_inspect` and
+`blueprint_class_edit`.
 
 ### Tools
 
-- `blueprint.class.inspect`
-- `blueprint.class.edit`
+- `blueprint_class_inspect`
+- `blueprint_class_edit`
 
 ### Class Edit Operations
 
@@ -160,9 +160,9 @@ Recommended asset-level operations for this domain:
     deprecated properties, and arbitrary nested object mutation stay unsupported
     until there is a dedicated inspect/edit surface for those shapes.
 
-Implemented interfaces are read through `blueprint.class.inspect`; read-only
-queries should not be modeled as `blueprint.class.edit` operations.
-`blueprint.class.edit` accepts `dryRun` and `expectedRevision` as mutation
+Implemented interfaces are read through `blueprint_class_inspect`; read-only
+queries should not be modeled as `blueprint_class_edit` operations.
+`blueprint_class_edit` accepts `dryRun` and `expectedRevision` as mutation
 controls. It does not expose `returnDiff` or `returnDiagnostics`; implemented
 diff and diagnostics are always returned in the mutation envelope.
 
@@ -183,7 +183,7 @@ as inert metadata.
 
 ### Class Default Write Mapping
 
-`blueprint.class.inspect` reports class defaults from the generated class CDO,
+`blueprint_class_inspect` reports class defaults from the generated class CDO,
 compared against the direct parent class CDO. `setDefault` should write the same
 storage: `Blueprint->GeneratedClass->GetDefaultObject(false)`.
 
@@ -197,7 +197,7 @@ and whether the property is now overridden.
 Defaults for Blueprint-owned member variables still belong to this class-default
 operation because their actual runtime default lives on the generated class CDO.
 Variable declaration, type, metadata, category, replication, and exposure flags
-remain `blueprint.member.edit` concerns.
+remain `blueprint_member_edit` concerns.
 
 ### Scope
 
@@ -212,7 +212,7 @@ remain `blueprint.member.edit` concerns.
 
 ### Notes
 
-- `blueprint.class.inspect` is read-oriented and summarizes the Blueprint class
+- `blueprint_class_inspect` is read-oriented and summarizes the Blueprint class
   lineage, implemented interface contract, Class Settings, CDO overrides, and
   metadata.
 - Class Defaults are intentionally simple: the tool takes no extra query
@@ -223,12 +223,12 @@ remain `blueprint.member.edit` concerns.
 
 ## Domain 3: Variable
 
-Variable is a conceptual member domain. Public MCP tools should expose variable operations through `blueprint.member.inspect` and `blueprint.member.edit`.
+Variable is a conceptual member domain. Public MCP tools should expose variable operations through `blueprint_member_inspect` and `blueprint_member_edit`.
 
 ### Tools
 
-- `blueprint.member.inspect`
-- `blueprint.member.edit`
+- `blueprint_member_inspect`
+- `blueprint_member_edit`
 
 ### Member Edit Operations
 
@@ -261,12 +261,12 @@ Recommended member-level operations for this domain:
 
 ## Domain 4: Function
 
-Function is a conceptual member domain. Public MCP tools should expose function operations through `blueprint.member.inspect` and `blueprint.member.edit`.
+Function is a conceptual member domain. Public MCP tools should expose function operations through `blueprint_member_inspect` and `blueprint_member_edit`.
 
 ### Tools
 
-- `blueprint.member.inspect`
-- `blueprint.member.edit`
+- `blueprint_member_inspect`
+- `blueprint_member_edit`
 
 ### Member Edit Operations
 
@@ -296,12 +296,12 @@ Recommended member-level operations for this domain:
 
 ## Domain 5: Macro
 
-Macro is a conceptual member domain. Public MCP tools should expose macro operations through `blueprint.member.inspect` and `blueprint.member.edit`.
+Macro is a conceptual member domain. Public MCP tools should expose macro operations through `blueprint_member_inspect` and `blueprint_member_edit`.
 
 ### Tools
 
-- `blueprint.member.inspect`
-- `blueprint.member.edit`
+- `blueprint_member_inspect`
+- `blueprint_member_edit`
 
 ### Member Edit Operations
 
@@ -326,12 +326,12 @@ Recommended member-level operations for this domain:
 
 ## Domain 6: Dispatcher
 
-Dispatcher is a conceptual member domain. Public MCP tools should expose dispatcher operations through `blueprint.member.inspect` and `blueprint.member.edit`.
+Dispatcher is a conceptual member domain. Public MCP tools should expose dispatcher operations through `blueprint_member_inspect` and `blueprint_member_edit`.
 
 ### Tools
 
-- `blueprint.member.inspect`
-- `blueprint.member.edit`
+- `blueprint_member_inspect`
+- `blueprint_member_edit`
 
 ### Member Edit Operations
 
@@ -356,9 +356,9 @@ Recommended member-level operations for this domain:
 
 ## Domain 7: Custom Event
 
-Custom Event is a conceptual member domain. Public MCP tools should expose custom event operations through `blueprint.member.inspect` and `blueprint.member.edit`; graph edit may create the visible event node, but deeper signature and RPC metadata belongs to the member surface.
+Custom Event is a conceptual member domain. Public MCP tools should expose custom event operations through `blueprint_member_inspect` and `blueprint_member_edit`; graph edit may create the visible event node, but deeper signature and RPC metadata belongs to the member surface.
 
-`blueprint.member.inspect` accepts both `memberKind="event"` and
+`blueprint_member_inspect` accepts both `memberKind="event"` and
 `memberKind="customEvent"`. `event` returns all event signature nodes discovered
 in Blueprint ubergraph pages, including native engine event nodes and custom
 event nodes. `customEvent` is a narrower view over the same UE source data and
@@ -366,8 +366,8 @@ returns only `UK2Node_CustomEvent` entries.
 
 ### Tools
 
-- `blueprint.member.inspect`
-- `blueprint.member.edit`
+- `blueprint_member_inspect`
+- `blueprint_member_edit`
 
 ### Member Edit Operations
 
@@ -397,12 +397,12 @@ Recommended member-level operations for this domain:
 
 ## Domain 8: Component
 
-Component is a conceptual member domain. Public MCP tools should expose component operations through `blueprint.member.inspect` and `blueprint.member.edit`.
+Component is a conceptual member domain. Public MCP tools should expose component operations through `blueprint_member_inspect` and `blueprint_member_edit`.
 
 ### Tools
 
-- `blueprint.member.inspect`
-- `blueprint.member.edit`
+- `blueprint_member_inspect`
+- `blueprint_member_edit`
 
 ### Member Edit Operations
 
@@ -432,7 +432,7 @@ Recommended member-level operations for this domain:
 
 ## Blueprint Member Edit Contract
 
-`blueprint.member.edit` is the current mutation surface for Blueprint-owned
+`blueprint_member_edit` is the current mutation surface for Blueprint-owned
 variables, functions, macros, dispatchers, custom events, and components.
 
 ### Request Shape
@@ -445,7 +445,7 @@ The public top-level request is intentionally small:
 - `args`
 - `dryRun`
 
-`schema.inspect` is the source of truth for each `memberKind.operation` args
+`schema_inspect` is the source of truth for each `memberKind.operation` args
 shape. `memberKind="event"` is the edit surface for Custom Events. The narrower
 `memberKind="customEvent"` name is inspect-only, where it filters event nodes to
 `UK2Node_CustomEvent` entries.
@@ -487,11 +487,11 @@ Graph is a conceptual domain. Public MCP tools should keep high-frequency graph 
 
 ### Tools
 
-- `blueprint.graph.list`
-- `blueprint.graph.inspect`
-- `blueprint.graph.edit`
-- `blueprint.graph.layout`
-- `blueprint.graph.palette`
+- `blueprint_graph_list`
+- `blueprint_graph_inspect`
+- `blueprint_graph_edit`
+- `blueprint_graph_layout`
+- `blueprint_graph_palette`
 
 ### Graph Management Operations
 
@@ -515,7 +515,7 @@ Conceptually required graph-level operations:
 ### Notes
 
 - Graphs are child resources inside the Blueprint asset.
-- `blueprint.graph.list` inventories Blueprint-owned top-level graphs from the
+- `blueprint_graph_list` inventories Blueprint-owned top-level graphs from the
   same UE asset arrays Loomle can resolve later: event/ubergraph pages,
   function graphs, macro graphs, delegate signature graphs, and implemented
   interface graphs.
@@ -630,10 +630,10 @@ Recommended `kind` values:
 Notes:
 
 - `nodeTypeId` points to the corresponding `NodeType`.
-- `blueprint.graph.inspect` defaults to `view="summary"` for graph
+- `blueprint_graph_inspect` defaults to `view="summary"` for graph
   orientation. It does not expose a raw node-list view.
 - Exact pin names, pin defaults, and connection details are read through
-  `blueprint.node.inspect` after `blueprint.graph.inspect` identifies the
+  `blueprint_node_inspect` after `blueprint_graph_inspect` identifies the
   relevant node or flow.
 
 ### GraphPin
@@ -824,7 +824,7 @@ Rules:
 - public graph-facing requests should prefer the `graph` object
 - `graph.id` is preferred after the graph has been discovered
 - `graph.name` is the recommended name-based form
-- `blueprint.graph.inspect` should not expose top-level `graphName`
+- `blueprint_graph_inspect` should not expose top-level `graphName`
 - inspect returns stable ids
 - edit should prefer `id` and request-local `alias`
 - fuzzy selectors should not be part of low-level edit
@@ -834,7 +834,7 @@ Rules:
 
 The following should not become top-level Blueprint tool families:
 
-- `blueprint.node.*`
+- `blueprint_node_*`
 - `blueprint.pin.*`
 - `blueprint.link.*`
 
@@ -848,11 +848,11 @@ Reason:
 Graph-facing mutation should be split into explicit edit and visual layout
 interfaces:
 
-- `blueprint.graph.edit`
-- `blueprint.graph.layout`
+- `blueprint_graph_edit`
+- `blueprint_graph_layout`
 
 Structural replacement, wrapping, and snippet generation should be composed from
-explicit `blueprint.graph.edit` commands after inspection rather than exposed as
+explicit `blueprint_graph_edit` commands after inspection rather than exposed as
 separate public abstractions.
 
 ### Design Intent
@@ -865,9 +865,9 @@ separate public abstractions.
 
 This split is the core agent-facing editing model for Blueprint graphs.
 
-## blueprint.graph.layout
+## blueprint_graph_layout
 
-`blueprint.graph.layout` is the visual formatting interface.
+`blueprint_graph_layout` is the visual formatting interface.
 
 It should be used when:
 
@@ -877,7 +877,7 @@ It should be used when:
 - the caller wants a dry-run movement plan before applying layout
 
 It should not be used for one-off placement of a single node or a small
-hand-picked set of unrelated nodes. Use `blueprint.graph.edit` with explicit
+hand-picked set of unrelated nodes. Use `blueprint_graph_edit` with explicit
 `moveNode` commands for manual positioning.
 
 ### Required Properties
@@ -926,7 +926,7 @@ Recommended request fields:
 Rules:
 
 - `assetPath`, `graph`, and `root` are required.
-- `root` is a stable node id returned by `blueprint.graph.inspect`.
+- `root` is a stable node id returned by `blueprint_graph_inspect`.
 - If `origin` is omitted, the root keeps its current graph-space position.
 - `dryRun` and `expectedRevision` follow the unified mutation contract.
 
@@ -971,7 +971,7 @@ for real Blueprint graphs.
 
 ### Layout Source Rules
 
-`blueprint.node.inspect` and graph inspection can expose node layout and exec
+`blueprint_node_inspect` and graph inspection can expose node layout and exec
 pin anchor data. The formatter should prefer the most reliable available source
 but should not fail only because layout geometry is estimated.
 
@@ -998,7 +998,7 @@ Dry run and execution should share the same shape:
   "valid": true,
   "applied": false,
   "dryRun": true,
-  "operation": "blueprint.graph.layout",
+  "operation": "blueprint_graph_layout",
   "assetPath": "/Game/Example/BP_Test",
   "graphRef": { "name": "EventGraph" },
   "root": { "id": "branch1" },
@@ -1019,7 +1019,7 @@ Dry run and execution should share the same shape:
     ]
   },
   "diff": {
-    "scope": "blueprint.graph.layout",
+    "scope": "blueprint_graph_layout",
     "changes": []
   },
   "diagnostics": []
@@ -1044,9 +1044,9 @@ revision. Diff entries describe node position changes only.
 - comment fitting
 - data-flow-only tree traversal
 
-## blueprint.graph.inspect
+## blueprint_graph_inspect
 
-`blueprint.graph.inspect` is the read surface for graph orientation and targeted
+`blueprint_graph_inspect` is the read surface for graph orientation and targeted
 edit preparation. It should stay one tool, but callers choose response size with
 `view`.
 
@@ -1079,15 +1079,15 @@ Recommended views:
 - `traversal.maxDepth` is bounded to `1..128`, and `traversal.maxNodes` is
   bounded to `1..1000`; out-of-range values return `INVALID_ARGUMENT`.
 
-`wiring` is intentionally not a `blueprint.graph.inspect` view. Exact pin
+`wiring` is intentionally not a `blueprint_graph_inspect` view. Exact pin
 names, defaults, and link details for connection-oriented edits belong to
-`blueprint.node.inspect` after the relevant node is known.
+`blueprint_node_inspect` after the relevant node is known.
 
 Readability notes:
 
 - Local `K2Node_MacroInstance` nodes are two-hop readable when their macro graph
   exists on the same Blueprint asset. The caller should use the macro extension
-  fields and then inspect the matching graph from `blueprint.graph.list`.
+  fields and then inspect the matching graph from `blueprint_graph_list`.
 - External macro instances expose their call surface in the current graph, but
   their body is not same-asset readback.
 - `K2Node_Tunnel` nodes are graph boundary/interface nodes, not hidden bodies.
@@ -1097,15 +1097,15 @@ Readability notes:
   authored curve keyframes and interpolation remain a separate deeper readback
   concern until Timeline curve serialization is added.
 
-## blueprint.node.inspect and blueprint.node.edit
+## blueprint_node_inspect and blueprint_node_edit
 
-`blueprint.node.inspect` is the focused read surface for one graph node after
-`blueprint.graph.inspect` has identified that the node has node-local structure.
+`blueprint_node_inspect` is the focused read surface for one graph node after
+`blueprint_graph_inspect` has identified that the node has node-local structure.
 It returns the full serialized node, node-local editable state, and
-`editCapabilities` so callers know whether `blueprint.node.edit` is applicable.
+`editCapabilities` so callers know whether `blueprint_node_edit` is applicable.
 
-`blueprint.graph.inspect` marks such nodes with `hasNodeEditCapabilities: true`
-and `inspectWith: "blueprint.node.inspect"`. That routing hint comes from the
+`blueprint_graph_inspect` marks such nodes with `hasNodeEditCapabilities: true`
+and `inspectWith: "blueprint_node_inspect"`. That routing hint comes from the
 bridge's UE-node capability calculation, not from client-side class-name
 guessing.
 
@@ -1139,9 +1139,9 @@ absolute graph-space position. Non-exec pins do not expose pin layout in the
 first version. The initial implementation uses `estimate`; a later Slate-backed
 pass may return `source: "slate"` when the graph widget has reliable geometry.
 
-`blueprint.node.edit` is limited to UE-native node-local structural actions. It
-does not replace `blueprint.graph.edit` for graph wiring/layout, and it does not
-replace `blueprint.member.edit` for member signatures.
+`blueprint_node_edit` is limited to UE-native node-local structural actions. It
+does not replace `blueprint_graph_edit` for graph wiring/layout, and it does not
+replace `blueprint_member_edit` for member signatures.
 
 Supported operation families:
 
@@ -1153,9 +1153,9 @@ Supported operation families:
 
 Mapping rules:
 
-- Call `blueprint.node.inspect` first and use current pin names from its
+- Call `blueprint_node_inspect` first and use current pin names from its
   `node.pins` or node-specific `editState`.
-- Use `schema.inspect` with `tool: "blueprint.node.edit"` and an operation name
+- Use `schema_inspect` with `tool: "blueprint_node_edit"` and an operation name
   for the second-layer operation schema.
 - Public request fields are `assetPath`, `graph`, `node`, `operation`, `args`,
   optional `dryRun`, and optional `expectedRevision`.
@@ -1174,9 +1174,9 @@ Mapping rules:
   `HandleAnyChange` path. It requires the output delegate pin to expose a
   signature and validates the selected function against that signature.
 
-## blueprint.graph.edit
+## blueprint_graph_edit
 
-`blueprint.graph.edit` is the low-level public editing interface.
+`blueprint_graph_edit` is the low-level public editing interface.
 
 It should be used when:
 
@@ -1313,7 +1313,7 @@ Rules:
 
 #### addFromPalette
 
-Creates one node by executing a selected `blueprint.graph.palette` entry.
+Creates one node by executing a selected `blueprint_graph_palette` entry.
 
 Required fields:
 
@@ -1333,7 +1333,7 @@ Recommended shape:
 {
   "kind": "addFromPalette",
   "entry": {
-    "id": "blueprint.palette:..."
+    "id": "blueprint_graph_palette:..."
   },
   "alias": "print1",
   "position": { "x": 100, "y": 200 },
@@ -1349,7 +1349,7 @@ Recommended shape:
 Rules:
 
 - `alias` is strongly recommended
-- `entry` should come directly from `blueprint.graph.palette`; callers should not
+- `entry` should come directly from `blueprint_graph_palette`; callers should not
   guess Blueprint node classes in public requests
 - `defaults` only initializes pin defaults on the new node
 - when `position` is omitted, `addFromPalette` uses deterministic default
@@ -1360,7 +1360,7 @@ Rules:
 - `addFromPalette` does not implicitly attach the node to existing structure
   except where UE's palette action uses `fromPins` for native autowiring
 - Self references, macro instances, and schema actions are selected through
-  `blueprint.graph.palette`
+  `blueprint_graph_palette`
 
 #### removeNode
 
@@ -1707,9 +1707,9 @@ follow-up editing surface and the result diagnostics may include an informationa
 
 Examples:
 
-- `UK2Node_Timeline` -> `blueprint.member.edit` with `memberKind="timeline"`
-- `UK2Node_CustomEvent` -> `blueprint.member.edit` with `memberKind="event"`
-- `UK2Node_AddComponent` -> `blueprint.member.edit` with `memberKind="component"`
+- `UK2Node_Timeline` -> `blueprint_member_edit` with `memberKind="timeline"`
+- `UK2Node_CustomEvent` -> `blueprint_member_edit` with `memberKind="event"`
+- `UK2Node_AddComponent` -> `blueprint_member_edit` with `memberKind="component"`
 
 #### setNodeComment
 
@@ -1806,7 +1806,7 @@ Recommended shape:
 
 ### Execution Rules
 
-The following rules are fixed for the first version of `blueprint.graph.edit`:
+The following rules are fixed for the first version of `blueprint_graph_edit`:
 
 - `moveNode` does not support multi-node movement in a single command
 - `setPinDefault` on a linked pin fails with a constructive error
@@ -1816,7 +1816,7 @@ The following rules are fixed for the first version of `blueprint.graph.edit`:
 
 ### Explicitly Excluded From Edit
 
-The following do not belong in `blueprint.graph.edit`:
+The following do not belong in `blueprint_graph_edit`:
 
 - graph layout
 - compile
@@ -1829,7 +1829,7 @@ The following do not belong in `blueprint.graph.edit`:
 
 ### Constructive Error Requirement
 
-`blueprint.graph.edit` errors must be constructive.
+`blueprint_graph_edit` errors must be constructive.
 
 Error reporting should help an agent understand:
 
@@ -1877,13 +1877,13 @@ The former public graph transformation and generation tools are retired:
 - `blueprint.graph.generate`
 - `blueprint.graph.recipe.*`
 
-They remain archived as design history in `docs/archive/legacy/BLUEPRINT_GRAPH_REFACTOR_GENERATE_RETIRED.md`. The public path is explicit `blueprint.graph.inspect`, `blueprint.graph.palette`, `blueprint.graph.edit`, and `blueprint.graph.layout`.
+They remain archived as design history in `docs/archive/legacy/BLUEPRINT_GRAPH_REFACTOR_GENERATE_RETIRED.md`. The public path is explicit `blueprint_graph_inspect`, `blueprint_graph_palette`, `blueprint_graph_edit`, and `blueprint_graph_layout`.
 
 ## Graph Mutation Boundary Summary
 
-Use `blueprint.graph.edit` when the caller wants explicit, local graph changes.
+Use `blueprint_graph_edit` when the caller wants explicit, local graph changes.
 
-Use `blueprint.graph.layout` when the caller wants visual graph formatting
+Use `blueprint_graph_layout` when the caller wants visual graph formatting
 without semantic changes.
 
 ## Unified Mutation Contract
@@ -2029,20 +2029,20 @@ should remain consistent across all Blueprint write interfaces.
 
 The current recommended public Blueprint surface for these domains is:
 
-- `asset.create`
-- `asset.inspect`
-- `asset.edit`
-- `blueprint.inspect`
-- `blueprint.class.inspect`
-- `blueprint.class.edit`
-- `blueprint.member.inspect`
-- `blueprint.member.edit`
-- `blueprint.graph.list`
-- `blueprint.graph.inspect`
-- `blueprint.graph.edit`
-- `blueprint.graph.layout`
-- `blueprint.graph.palette`
-- `blueprint.compile`
+- `asset_create`
+- `asset_inspect`
+- `asset_edit`
+- `blueprint_inspect`
+- `blueprint_class_inspect`
+- `blueprint_class_edit`
+- `blueprint_member_inspect`
+- `blueprint_member_edit`
+- `blueprint_graph_list`
+- `blueprint_graph_inspect`
+- `blueprint_graph_edit`
+- `blueprint_graph_layout`
+- `blueprint_graph_palette`
+- `blueprint_compile`
 
 ## Deferred Topics
 

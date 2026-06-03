@@ -113,7 +113,7 @@ public schema and documentation must say so. Do not expose `expectedRevision`,
 `returnDiff`, or rich dry-run result fields unless the bridge actually enforces
 or returns them.
 
-`blueprint.member.edit` and `blueprint.class.edit` are the first validation
+`blueprint_member_edit` and `blueprint_class_edit` are the first validation
 surfaces for this contract. New mutation refactors should use the same shared
 helper before migrating more complex graph, material, PCG, and widget edit
 tools.

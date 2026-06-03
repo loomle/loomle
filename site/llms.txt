@@ -40,10 +40,10 @@ https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428
 
 After installing from Fab, open Unreal Editor and use the Loomle toolbar to
 check setup status. Native and Fab installs expose the same tools after
-`project.attach`.
+`project_attach`.
 
 After attach, inspect before editing, use palettes for creation, and call
-`schema.inspect` when a tool intentionally has operation-specific schemas.
+`schema_inspect` when a tool intentionally has operation-specific schemas.
 
 Search terms: Unreal Engine MCP server, UE MCP, Claude Code Unreal, Codex
 Unreal, Blueprint MCP, PCG MCP, UMG MCP, Unreal Editor AI agent tooling.

@@ -143,7 +143,7 @@ def execute_query_snapshot_repeatability_roundtrip(
         raise MaterialStabilitySuiteError("case_definition_gap", "material stability example payload is not an object")
     payload["assetPath"] = asset_path
     mutate_args = {key: value for key, value in payload.items() if key != "tool"}
-    mutate_result = call_tool(client, request_id_base + 1, "material.graph.edit", mutate_args)
+    mutate_result = call_tool(client, request_id_base + 1, "material_graph_edit", mutate_args)
     op_results = mutate_result.get("opResults")
     if not isinstance(op_results, list) or len(op_results) < 2:
         raise MaterialStabilitySuiteError("runner_error", f"missing material setup opResults: {compact_json(mutate_result)}")
@@ -184,7 +184,7 @@ def execute_verify_repeatability_workflow(
     payload = load_case_payload(workflow_case)
     payload["assetPath"] = asset_path
     mutate_args = {key: value for key, value in payload.items() if key != "tool"}
-    mutate_result = call_tool(client, request_id_base + 1, "material.graph.edit", mutate_args)
+    mutate_result = call_tool(client, request_id_base + 1, "material_graph_edit", mutate_args)
     surface_matrix["mutate"] = "pass"
 
     ref_map = build_client_ref_map(mutate_args, mutate_result)

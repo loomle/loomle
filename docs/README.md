@@ -25,7 +25,7 @@ interface contract.
 - `blueprint/graph-edit.md`: Blueprint graph edit command design.
 - `blueprint/schema-inspect.md`: Blueprint second-level schema inspection design.
 - `TOOL_SCHEMA_EXPOSURE_CONTRACT.md`: default `tools/list` thin schema and
-  on-demand `schema.inspect` contract.
+  on-demand `schema_inspect` contract.
 - `pcg-graph-inspect.md`: PCG graph inspect readback boundary and fallback model.
 - `runtime-execute.md`: Runtime `execute` boundary, asset-load guard, and recovery model.
 

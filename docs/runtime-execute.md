@@ -49,8 +49,8 @@ connection may disappear before Loomle can produce a normal execute result.
 After reconnect, callers should inspect:
 
 - `status` for attachment and runtime health
-- `diagnostic.tail` for recent structured Loomle errors
-- `log.tail` for Unreal output log context
+- `diagnostic_tail` for recent structured Loomle errors
+- `log_tail` for Unreal output log context
 - project `Saved/Crashes` for UE crash context when available
 
 If `execute` reports `Python runtime is not initialized`, retry after the editor

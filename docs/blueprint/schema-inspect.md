@@ -24,12 +24,12 @@ Blueprint behavior.
 
 ## Proposed Tool
 
-`schema.inspect`
+`schema_inspect`
 
 ```json
 {
   "domain": "blueprint",
-  "tool": "blueprint.member.edit",
+  "tool": "blueprint_member_edit",
   "operation": "variable.create",
   "include": ["operation", "examples", "errors"]
 }
@@ -72,10 +72,10 @@ Blueprint behavior.
 ```json
 {
   "domain": "blueprint",
-  "tool": "blueprint.graph.edit",
+  "tool": "blueprint_graph_edit",
   "operation": "addFromPalette",
   "category": "core",
-  "summary": "Execute one selected blueprint.graph.palette entry.",
+  "summary": "Execute one selected blueprint_graph_palette entry.",
   "operationSchema": {},
   "examples": [],
   "errors": [],
@@ -93,7 +93,7 @@ index:
 ```json
 {
   "domain": "blueprint",
-  "tool": "blueprint.graph.edit",
+  "tool": "blueprint_graph_edit",
   "operations": [
     { "name": "addFromPalette", "category": "core" },
     { "name": "connect", "category": "core" },
@@ -106,49 +106,49 @@ index:
 
 For Blueprint graph node creation:
 
-1. Call `blueprint.graph.palette` to find a UE Action Menu entry.
-2. Call `schema.inspect` with `tool="blueprint.graph.edit"` and
+1. Call `blueprint_graph_palette` to find a UE Action Menu entry.
+2. Call `schema_inspect` with `tool="blueprint_graph_edit"` and
    `operation="addFromPalette"`.
-3. Call `blueprint.graph.edit` with the returned command shape.
+3. Call `blueprint_graph_edit` with the returned command shape.
 
 For pin editing:
 
-1. Inspect the graph with `blueprint.graph.inspect` using `view="summary"` or
+1. Inspect the graph with `blueprint_graph_inspect` using `view="summary"` or
    `view="exec_flow"` to identify the relevant node.
    `summary` returns node references plus a de-duplicated `nodes` dictionary;
    `exec_flow` returns the reachable execution subgraph as lightweight
    `nodes[]` and `links[]`.
-2. Inspect the node with `blueprint.node.inspect` to read exact pins and link
+2. Inspect the node with `blueprint_node_inspect` to read exact pins and link
    details.
-3. Call `schema.inspect` for `connect`, `disconnect`, `breakLinks`, or
+3. Call `schema_inspect` for `connect`, `disconnect`, `breakLinks`, or
    `setPinDefault`.
-4. Call `blueprint.graph.edit`.
+4. Call `blueprint_graph_edit`.
 
 For Blueprint member editing:
 
-1. Call `schema.inspect` with `tool="blueprint.member.edit"` and no operation
+1. Call `schema_inspect` with `tool="blueprint_member_edit"` and no operation
    to list supported `memberKind.operation` entries.
-2. Call `schema.inspect` again with an operation such as `variable.create`,
+2. Call `schema_inspect` again with an operation such as `variable.create`,
    `event.addInput`, or `component.create`.
-3. Call `blueprint.member.edit` using the returned top-level request shape.
+3. Call `blueprint_member_edit` using the returned top-level request shape.
 
 ## Relationship To Resources
 
-Resources are a good transport for full documents. `schema.inspect` is a small
+Resources are a good transport for full documents. `schema_inspect` is a small
 structured retrieval tool on top of those documents.
 
 The preferred architecture is:
 
 - documents define design intent and schemas
 - resources expose complete documents when the client supports them well
-- `schema.inspect` returns focused machine-readable slices for agent runtime use
+- `schema_inspect` returns focused machine-readable slices for agent runtime use
 
 This keeps `tools/list` small while still giving agents a reliable way to avoid
 guessing nested schemas.
 
 ## Boundaries
 
-`schema.inspect` should not:
+`schema_inspect` should not:
 
 - list UE palette entries
 - search Blueprint nodes
@@ -183,11 +183,11 @@ the agent recover without guessing.
 
 The first implementation should cover:
 
-- `blueprint.graph.edit` operation index
+- `blueprint_graph_edit` operation index
 - core graph edit commands
 - secondary graph edit commands as non-core entries
-- `blueprint.graph.palette` entry and `addFromPalette` relationship
-- `blueprint.member.edit` operation index
+- `blueprint_graph_palette` entry and `addFromPalette` relationship
+- `blueprint_member_edit` operation index
 - common member edit request schemas for variable, function, macro, dispatcher,
   event, and component operations
 

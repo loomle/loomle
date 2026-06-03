@@ -224,7 +224,7 @@
       }
     },
     {
-      "name": "project.list",
+      "name": "project_list",
       "title": "List Projects",
       "description": "List Unreal Engine projects known to LOOMLE. Defaults to online projects.",
       "availability": [
@@ -256,7 +256,7 @@
       }
     },
     {
-      "name": "project.attach",
+      "name": "project_attach",
       "title": "Attach Project",
       "description": "Attach this MCP session to an online LOOMLE-enabled Unreal Engine project.",
       "availability": [
@@ -283,7 +283,7 @@
       }
     },
     {
-      "name": "project.install",
+      "name": "project_install",
       "title": "Install Project Support",
       "description": "Install or update LOOMLE support for an Unreal Engine project, including the LoomleBridge plugin and required project settings.",
       "availability": [
@@ -313,12 +313,12 @@
       "unavailableIn": {
         "python": {
           "code": "NATIVE_CLI_REQUIRED",
-          "message": "project.install is only available in the native LOOMLE CLI. Fab-managed plugins are installed and updated by Fab/Epic Launcher."
+          "message": "project_install is only available in the native LOOMLE CLI. Fab-managed plugins are installed and updated by Fab/Epic Launcher."
         }
       }
     },
     {
-      "name": "schema.inspect",
+      "name": "schema_inspect",
       "title": "Inspect Tool Schema",
       "description": "Inspect documented second-level Loomle tool schemas, such as Blueprint graph edit command schemas.",
       "availability": [
@@ -934,7 +934,7 @@
       }
     },
     {
-      "name": "asset.create",
+      "name": "asset_create",
       "title": "Create Asset",
       "description": "Create an Unreal asset such as a Blueprint, enum, Material, PCG graph, or WidgetBlueprint.",
       "availability": [
@@ -1019,7 +1019,7 @@
       }
     },
     {
-      "name": "asset.inspect",
+      "name": "asset_inspect",
       "title": "Inspect Asset",
       "description": "Inspect an Unreal asset through a kind-specific public surface such as Blueprint, enum, Material, PCG graph, or WidgetBlueprint.",
       "availability": [
@@ -1093,7 +1093,7 @@
       }
     },
     {
-      "name": "asset.edit",
+      "name": "asset_edit",
       "title": "Edit Asset",
       "description": "Edit asset-level metadata. Enum entry editing remains as a compatibility special case.",
       "availability": [
@@ -1195,7 +1195,7 @@
       }
     },
     {
-      "name": "editor.open",
+      "name": "editor_open",
       "title": "Open Editor",
       "description": "Open or focus the editor for a specific Unreal asset path.",
       "availability": [
@@ -1224,7 +1224,7 @@
       }
     },
     {
-      "name": "editor.focus",
+      "name": "editor_focus",
       "title": "Focus Editor Panel",
       "description": "Focus a semantic panel inside an asset editor, such as graph, viewport, details, palette, or find.",
       "availability": [
@@ -1258,7 +1258,7 @@
       }
     },
     {
-      "name": "editor.screenshot",
+      "name": "editor_screenshot",
       "title": "Editor Screenshot",
       "description": "Capture a PNG of the active editor window and return the written file path.",
       "availability": [
@@ -1283,7 +1283,7 @@
       }
     },
     {
-      "name": "blueprint.graph.list",
+      "name": "blueprint_graph_list",
       "title": "List Blueprint Graphs",
       "description": "List Blueprint graphs in an asset.",
       "availability": [
@@ -1476,7 +1476,7 @@
       }
     },
     {
-      "name": "blueprint.inspect",
+      "name": "blueprint_inspect",
       "title": "Inspect Blueprint",
       "description": "Inspect a Blueprint overview and route to class, member, and graph detail tools.",
       "availability": [
@@ -1586,13 +1586,13 @@
             "description": "Dedicated tools to use for deeper inspection after reading the overview.",
             "properties": {
               "class": {
-                "const": "blueprint.class.inspect"
+                "const": "blueprint_class_inspect"
               },
               "members": {
-                "const": "blueprint.member.inspect"
+                "const": "blueprint_member_inspect"
               },
               "graphs": {
-                "const": "blueprint.graph.list"
+                "const": "blueprint_graph_list"
               }
             },
             "required": [
@@ -1669,7 +1669,7 @@
       }
     },
     {
-      "name": "blueprint.class.inspect",
+      "name": "blueprint_class_inspect",
       "title": "Inspect Blueprint Class",
       "description": "Inspect Blueprint class contract, settings, default overrides, metadata, and implemented interfaces.",
       "availability": [
@@ -1832,9 +1832,9 @@
       }
     },
     {
-      "name": "blueprint.class.edit",
+      "name": "blueprint_class_edit",
       "title": "Edit Blueprint Class",
-      "description": "Edit Blueprint class contract such as parent class and implemented interfaces. Read the current contract with blueprint.class.inspect.",
+      "description": "Edit Blueprint class contract such as parent class and implemented interfaces. Read the current contract with blueprint_class_inspect.",
       "availability": [
         "native",
         "python"
@@ -2110,7 +2110,7 @@
       }
     },
     {
-      "name": "blueprint.member.inspect",
+      "name": "blueprint_member_inspect",
       "title": "Inspect Blueprint Members",
       "description": "Inspect Blueprint members such as variables, functions, macros, dispatchers, events, and components.",
       "availability": [
@@ -2249,7 +2249,7 @@
       }
     },
     {
-      "name": "blueprint.member.edit",
+      "name": "blueprint_member_edit",
       "title": "Edit Blueprint Members",
       "description": "Edit Blueprint members such as variables, functions, macros, dispatchers, events, and components.",
       "availability": [
@@ -2274,12 +2274,12 @@
               "event",
               "component"
             ],
-            "description": "Use schema.inspect with domain='blueprint' and tool='blueprint.member.edit' to list supported memberKind.operation entries."
+            "description": "Use schema_inspect with domain='blueprint' and tool='blueprint_member_edit' to list supported memberKind.operation entries."
           },
           "operation": {
             "type": "string",
             "minLength": 1,
-            "description": "Use schema.inspect with operation='<memberKind>.<operation>' for the operation-specific request schema."
+            "description": "Use schema_inspect with operation='<memberKind>.<operation>' for the operation-specific request schema."
           },
           "args": {
             "type": "object"
@@ -2301,7 +2301,7 @@
       },
       "schemaInspect": {
         "domain": "blueprint",
-        "tool": "blueprint.member.edit",
+        "tool": "blueprint_member_edit",
         "source": {
           "document": "docs/BLUEPRINT_INTERFACE_DESIGN.md",
           "section": "Blueprint member edit operations"
@@ -2369,7 +2369,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -2429,7 +2429,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -2494,7 +2494,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -2567,7 +2567,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -2629,7 +2629,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -2689,7 +2689,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -2767,7 +2767,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -2857,7 +2857,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -3006,7 +3006,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -3066,7 +3066,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -3126,7 +3126,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -3204,7 +3204,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -3294,7 +3294,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -3359,7 +3359,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -3419,7 +3419,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -3497,7 +3497,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -3579,7 +3579,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -3644,7 +3644,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -3704,7 +3704,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -3786,7 +3786,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -3853,7 +3853,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -3925,7 +3925,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -3985,7 +3985,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -4050,7 +4050,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -4110,7 +4110,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -4179,7 +4179,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -4239,7 +4239,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -4304,7 +4304,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -4369,7 +4369,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -4442,7 +4442,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           },
           {
@@ -4502,7 +4502,7 @@
               "MEMBER_EDIT_FAILED"
             ],
             "notes": [
-              "Operation names in schema.inspect use memberKind.operation; blueprint.member.edit requests pass memberKind and operation separately."
+              "Operation names in schema_inspect use memberKind.operation; blueprint_member_edit requests pass memberKind and operation separately."
             ]
           }
         ]
@@ -4624,7 +4624,7 @@
       }
     },
     {
-      "name": "blueprint.graph.inspect",
+      "name": "blueprint_graph_inspect",
       "title": "Inspect Blueprint Graph",
       "description": "Read graph, node, pin, and link data from a Blueprint graph.",
       "availability": [
@@ -4673,7 +4673,7 @@
               "data_flow"
             ],
             "default": "summary",
-            "description": "Task-oriented result view. summary returns graph boundary, entry/root refs, chain summaries, and a de-duplicated nodes dictionary. exec_flow traces execution links from rootNode.id and returns lightweight nodes[] plus links[]. data_flow traces data links from rootPin.node.id/rootPin.pin with the same nodes[] plus links[] shape. Use blueprint.node.inspect for exact pins, defaults, and wiring preparation."
+            "description": "Task-oriented result view. summary returns graph boundary, entry/root refs, chain summaries, and a de-duplicated nodes dictionary. exec_flow traces execution links from rootNode.id and returns lightweight nodes[] plus links[]. data_flow traces data links from rootPin.node.id/rootPin.pin with the same nodes[] plus links[] shape. Use blueprint_node_inspect for exact pins, defaults, and wiring preparation."
           },
           "rootNode": {
             "type": "object",
@@ -5178,7 +5178,7 @@
       }
     },
     {
-      "name": "blueprint.node.inspect",
+      "name": "blueprint_node_inspect",
       "title": "Inspect Blueprint Node",
       "description": "Inspect one Blueprint graph node for pins, defaults, node-local state, and edit capabilities.",
       "availability": [
@@ -5356,7 +5356,7 @@
                     "type": "boolean"
                   },
                   "inspectWith": {
-                    "const": "blueprint.node.inspect"
+                    "const": "blueprint_node_inspect"
                   }
                 },
                 "required": [
@@ -5367,7 +5367,7 @@
               },
               "editState": {
                 "type": "object",
-                "description": "Node-local editable pin state used by blueprint.node.edit, such as casePins, execPins, argumentPins, optionPins, fieldPins, or inputPins.",
+                "description": "Node-local editable pin state used by blueprint_node_edit, such as casePins, execPins, argumentPins, optionPins, fieldPins, or inputPins.",
                 "additionalProperties": true
               },
               "editCapabilities": {
@@ -5454,7 +5454,7 @@
       }
     },
     {
-      "name": "blueprint.graph.layout",
+      "name": "blueprint_graph_layout",
       "title": "Layout Blueprint Graph",
       "description": "Format a Blueprint execution tree from a root node without changing graph semantics.",
       "availability": [
@@ -5497,7 +5497,7 @@
           },
           "root": {
             "type": "object",
-            "description": "Root node id from blueprint.graph.inspect. Layout follows Blueprint exec output pins downstream from this node.",
+            "description": "Root node id from blueprint_graph_inspect. Layout follows Blueprint exec output pins downstream from this node.",
             "properties": {
               "id": {
                 "type": "string",
@@ -5536,9 +5536,9 @@
       }
     },
     {
-      "name": "blueprint.node.edit",
+      "name": "blueprint_node_edit",
       "title": "Edit Blueprint Node",
-      "description": "Edit node-local Blueprint structure such as switch cases, sequence pins, and format-text arguments. Use schema.inspect for operation-specific args.",
+      "description": "Edit node-local Blueprint structure such as switch cases, sequence pins, and format-text arguments. Use schema_inspect for operation-specific args.",
       "availability": [
         "native",
         "python"
@@ -5624,7 +5624,7 @@
       },
       "schemaInspect": {
         "domain": "blueprint",
-        "tool": "blueprint.node.edit",
+        "tool": "blueprint_node_edit",
         "source": {
           "document": "UE K2 node local pin actions",
           "section": "Node-local pin operations"
@@ -5696,7 +5696,7 @@
                         "option",
                         "argument"
                       ],
-                      "description": "Semantic role from blueprint.node.inspect editCapabilities. Examples: case for Switch, exec for Sequence/MultiGate, pair for MakeMap, argument for FormatText."
+                      "description": "Semantic role from blueprint_node_inspect editCapabilities. Examples: case for Switch, exec for Sequence/MultiGate, pair for MakeMap, argument for FormatText."
                     },
                     "name": {
                       "type": "string",
@@ -5736,7 +5736,7 @@
               "UNSUPPORTED_PIN_OPERATION"
             ],
             "notes": [
-              "Call blueprint.node.inspect first. It returns editCapabilities and the current pin names accepted by these operations."
+              "Call blueprint_node_inspect first. It returns editCapabilities and the current pin names accepted by these operations."
             ]
           },
           {
@@ -5798,7 +5798,7 @@
                     "pin": {
                       "type": "string",
                       "minLength": 1,
-                      "description": "Current pin name from blueprint.node.inspect node.pins/editState. Optional only for Select, where UE removes the last option."
+                      "description": "Current pin name from blueprint_node_inspect node.pins/editState. Optional only for Select, where UE removes the last option."
                     },
                     "mode": {
                       "type": "string",
@@ -5852,7 +5852,7 @@
               "UNSUPPORTED_PIN_OPERATION"
             ],
             "notes": [
-              "Call blueprint.node.inspect first. It returns editCapabilities and the current pin names accepted by these operations."
+              "Call blueprint_node_inspect first. It returns editCapabilities and the current pin names accepted by these operations."
             ]
           },
           {
@@ -5965,7 +5965,7 @@
               "UNSUPPORTED_PIN_OPERATION"
             ],
             "notes": [
-              "Call blueprint.node.inspect first. It returns editCapabilities and the current pin names accepted by these operations."
+              "Call blueprint_node_inspect first. It returns editCapabilities and the current pin names accepted by these operations."
             ]
           },
           {
@@ -6027,7 +6027,7 @@
                     "pin": {
                       "type": "string",
                       "minLength": 1,
-                      "description": "Current pin name from blueprint.node.inspect node.pins/editState."
+                      "description": "Current pin name from blueprint_node_inspect node.pins/editState."
                     },
                     "name": {
                       "type": "string",
@@ -6068,7 +6068,7 @@
               "UNSUPPORTED_PIN_OPERATION"
             ],
             "notes": [
-              "Call blueprint.node.inspect first. It returns editCapabilities and the current pin names accepted by these operations."
+              "Call blueprint_node_inspect first. It returns editCapabilities and the current pin names accepted by these operations."
             ]
           },
           {
@@ -6130,7 +6130,7 @@
                     "pin": {
                       "type": "string",
                       "minLength": 1,
-                      "description": "Current pin name from blueprint.node.inspect node.pins/editState."
+                      "description": "Current pin name from blueprint_node_inspect node.pins/editState."
                     },
                     "target": {
                       "type": "object",
@@ -6187,7 +6187,7 @@
               "UNSUPPORTED_PIN_OPERATION"
             ],
             "notes": [
-              "Call blueprint.node.inspect first. It returns editCapabilities and the current pin names accepted by these operations."
+              "Call blueprint_node_inspect first. It returns editCapabilities and the current pin names accepted by these operations."
             ]
           },
           {
@@ -6283,7 +6283,7 @@
               "UNSUPPORTED_PIN_OPERATION"
             ],
             "notes": [
-              "Call blueprint.node.inspect first. It returns editCapabilities and the current pin names accepted by these operations."
+              "Call blueprint_node_inspect first. It returns editCapabilities and the current pin names accepted by these operations."
             ]
           },
           {
@@ -6476,7 +6476,7 @@
       }
     },
     {
-      "name": "blueprint.graph.palette",
+      "name": "blueprint_graph_palette",
       "title": "Blueprint Palette",
       "description": "Search UE Blueprint Action Menu entries for graph node creation.",
       "availability": [
@@ -6493,7 +6493,7 @@
           },
           "graph": {
             "type": "object",
-            "description": "Recommended graph address. Prefer {\"id\":\"...\"} when available from blueprint.graph.list or blueprint.graph.inspect; use {\"name\":\"EventGraph\"} when id is not available.",
+            "description": "Recommended graph address. Prefer {\"id\":\"...\"} when available from blueprint_graph_list or blueprint_graph_inspect; use {\"name\":\"EventGraph\"} when id is not available.",
             "properties": {
               "id": {
                 "type": "string",
@@ -6719,7 +6719,7 @@
       }
     },
     {
-      "name": "blueprint.compile",
+      "name": "blueprint_compile",
       "title": "Compile Blueprint",
       "description": "Compile a Blueprint asset.",
       "availability": [
@@ -6736,7 +6736,7 @@
           },
           "graph": {
             "type": "object",
-            "description": "Recommended graph address. Prefer {\"id\":\"...\"} when available from blueprint.graph.list or blueprint.graph.inspect; use {\"name\":\"EventGraph\"} when id is not available.",
+            "description": "Recommended graph address. Prefer {\"id\":\"...\"} when available from blueprint_graph_list or blueprint_graph_inspect; use {\"name\":\"EventGraph\"} when id is not available.",
             "properties": {
               "id": {
                 "type": "string",
@@ -6799,7 +6799,7 @@
       }
     },
     {
-      "name": "blueprint.graph.edit",
+      "name": "blueprint_graph_edit",
       "title": "Edit Blueprint Graph",
       "description": "Apply explicit local graph edit commands to a Blueprint graph.",
       "availability": [
@@ -6972,7 +6972,7 @@
       },
       "schemaInspect": {
         "domain": "blueprint",
-        "tool": "blueprint.graph.edit",
+        "tool": "blueprint_graph_edit",
         "source": {
           "document": "docs/blueprint/graph-edit.md",
           "section": "Command Classification"
@@ -6981,7 +6981,7 @@
           {
             "name": "addFromPalette",
             "category": "core",
-            "summary": "Execute one selected blueprint.graph.palette entry.",
+            "summary": "Execute one selected blueprint_graph_palette entry.",
             "schema": {
               "type": "object",
               "properties": {
@@ -7106,7 +7106,7 @@
               "PALETTE_ENTRY_NOT_EXECUTABLE"
             ],
             "notes": [
-              "entry should be the full object returned by blueprint.graph.palette."
+              "entry should be the full object returned by blueprint_graph_palette."
             ]
           },
           {
@@ -7940,7 +7940,7 @@
       }
     },
     {
-      "name": "material.list",
+      "name": "material_list",
       "title": "List Material Expressions",
       "description": "List material expressions in a Material asset.",
       "availability": [
@@ -7970,7 +7970,7 @@
       }
     },
     {
-      "name": "material.graph.inspect",
+      "name": "material_graph_inspect",
       "title": "Inspect Material Graph",
       "description": "Read expression nodes and pin data from a Material graph.",
       "availability": [
@@ -8063,9 +8063,9 @@
       }
     },
     {
-      "name": "material.graph.edit",
+      "name": "material_graph_edit",
       "title": "Edit Material Graph",
-      "description": "Apply explicit local edit commands to a Material graph. Use material.palette for node creation.",
+      "description": "Apply explicit local edit commands to a Material graph. Use material_palette for node creation.",
       "availability": [
         "native",
         "python"
@@ -8099,7 +8099,7 @@
           },
           "commands": {
             "type": "array",
-            "description": "Ordered Material graph edit commands. Each command requires kind. Use schema.inspect with domain='material' and tool='material.graph.edit' for command-specific schemas.",
+            "description": "Ordered Material graph edit commands. Each command requires kind. Use schema_inspect with domain='material' and tool='material_graph_edit' for command-specific schemas.",
             "items": {
               "type": "object",
               "properties": {
@@ -8150,7 +8150,7 @@
       },
       "schemaInspect": {
         "domain": "material",
-        "tool": "material.graph.edit",
+        "tool": "material_graph_edit",
         "source": {
           "document": "UE Material Editor palette and expression graph actions",
           "section": "Material graph edit command set"
@@ -8159,7 +8159,7 @@
           {
             "name": "addFromPalette",
             "category": "core",
-            "summary": "Create one Material expression node from a selected material.palette entry.",
+            "summary": "Create one Material expression node from a selected material_palette entry.",
             "schema": {
               "type": "object",
               "properties": {
@@ -8292,7 +8292,7 @@
               {
                 "kind": "addFromPalette",
                 "entry": {
-                  "id": "material.palette:...",
+                  "id": "material_palette:...",
                   "kind": "expression",
                   "payload": {
                     "nodeClassPath": "/Script/Engine.MaterialExpressionMultiply"
@@ -8310,7 +8310,7 @@
               "INVALID_PALETTE_ENTRY"
             ],
             "notes": [
-              "Use material.palette first and pass the full selected entry. Do not guess expression classes in public calls."
+              "Use material_palette first and pass the full selected entry. Do not guess expression classes in public calls."
             ]
           },
           {
@@ -8863,7 +8863,7 @@
       }
     },
     {
-      "name": "material.graph.layout",
+      "name": "material_graph_layout",
       "title": "Layout Material Graph",
       "description": "Format an explicit Material graph node selection without changing graph semantics.",
       "availability": [
@@ -8939,7 +8939,7 @@
       }
     },
     {
-      "name": "material.compile",
+      "name": "material_compile",
       "title": "Compile Material",
       "description": "Compile a Material asset and return diagnostics.",
       "availability": [
@@ -8969,7 +8969,7 @@
       }
     },
     {
-      "name": "material.node.inspect",
+      "name": "material_node_inspect",
       "title": "Inspect Material Node",
       "description": "Inspect one Material expression instance or expression class for pins and editable properties.",
       "availability": [
@@ -9003,7 +9003,7 @@
       }
     },
     {
-      "name": "material.node.edit",
+      "name": "material_node_edit",
       "title": "Edit Material Node",
       "description": "Set one editable property on a Material expression node.",
       "availability": [
@@ -9078,7 +9078,7 @@
       }
     },
     {
-      "name": "material.palette",
+      "name": "material_palette",
       "title": "Material Palette",
       "description": "Search UE Material Editor palette actions for expression node creation.",
       "availability": [
@@ -9152,7 +9152,7 @@
       }
     },
     {
-      "name": "pcg.palette",
+      "name": "pcg_palette",
       "title": "PCG Palette",
       "description": "Search UE PCG graph palette actions for node creation.",
       "availability": [
@@ -9232,7 +9232,7 @@
       }
     },
     {
-      "name": "pcg.graph.inspect",
+      "name": "pcg_graph_inspect",
       "title": "Inspect PCG Graph",
       "description": "Read PCG graph nodes, pins, links, and defaults with task-oriented views.",
       "availability": [
@@ -9326,7 +9326,7 @@
       }
     },
     {
-      "name": "pcg.node.inspect",
+      "name": "pcg_node_inspect",
       "title": "Inspect PCG Node",
       "description": "Inspect one PCG node instance or settings class for editable pins and properties.",
       "availability": [
@@ -9381,7 +9381,7 @@
       }
     },
     {
-      "name": "pcg.parameter.inspect",
+      "name": "pcg_parameter_inspect",
       "title": "Inspect PCG Parameters",
       "description": "Inspect PCG graph user parameters exposed by the graph's Parameters panel.",
       "availability": [
@@ -9435,9 +9435,9 @@
       }
     },
     {
-      "name": "pcg.parameter.edit",
+      "name": "pcg_parameter_edit",
       "title": "Edit PCG Parameters",
-      "description": "Edit PCG graph user parameters. Use schema.inspect for operation-specific args.",
+      "description": "Edit PCG graph user parameters. Use schema_inspect for operation-specific args.",
       "availability": [
         "native",
         "python"
@@ -9495,7 +9495,7 @@
       },
       "schemaInspect": {
         "domain": "pcg",
-        "tool": "pcg.parameter.edit",
+        "tool": "pcg_parameter_edit",
         "source": {
           "document": "UE PCG graph User Parameters",
           "section": "FInstancedPropertyBag operations"
@@ -9709,7 +9709,7 @@
       }
     },
     {
-      "name": "pcg.compile",
+      "name": "pcg_compile",
       "title": "Compile PCG Graph",
       "description": "Validate and compile-confirm a PCG graph after edits.",
       "availability": [
@@ -9760,9 +9760,9 @@
       }
     },
     {
-      "name": "pcg.graph.edit",
+      "name": "pcg_graph_edit",
       "title": "Edit PCG Graph",
-      "description": "Apply explicit local edit commands to a PCG graph. Use pcg.palette for node creation.",
+      "description": "Apply explicit local edit commands to a PCG graph. Use pcg_palette for node creation.",
       "availability": [
         "native",
         "python"
@@ -9831,7 +9831,7 @@
       },
       "schemaInspect": {
         "domain": "pcg",
-        "tool": "pcg.graph.edit",
+        "tool": "pcg_graph_edit",
         "source": {
           "document": "UE PCG editor schema actions",
           "section": "PCG graph edit command set"
@@ -9840,7 +9840,7 @@
           {
             "name": "addFromPalette",
             "category": "core",
-            "summary": "Create one PCG node from a selected pcg.palette entry.",
+            "summary": "Create one PCG node from a selected pcg_palette entry.",
             "schema": {
               "type": "object",
               "properties": {
@@ -9967,7 +9967,7 @@
               {
                 "kind": "addFromPalette",
                 "entry": {
-                  "id": "pcg.palette:...",
+                  "id": "pcg_palette:...",
                   "kind": "native",
                   "payload": {}
                 },
@@ -9983,7 +9983,7 @@
               "INVALID_PALETTE_ENTRY"
             ],
             "notes": [
-              "Use pcg.palette first and pass the full selected entry. Do not guess settings classes in public calls."
+              "Use pcg_palette first and pass the full selected entry. Do not guess settings classes in public calls."
             ]
           },
           {
@@ -10544,7 +10544,7 @@
       }
     },
     {
-      "name": "pcg.graph.layout",
+      "name": "pcg_graph_layout",
       "title": "Layout PCG Graph",
       "description": "Format an explicit PCG graph node selection without changing graph semantics.",
       "availability": [
@@ -10620,7 +10620,7 @@
       }
     },
     {
-      "name": "widget.palette",
+      "name": "widget_palette",
       "title": "Widget Palette",
       "description": "Search UE Widget Palette entries for UMG widget creation.",
       "availability": [
@@ -10673,7 +10673,7 @@
       }
     },
     {
-      "name": "diagnostic.tail",
+      "name": "diagnostic_tail",
       "title": "Diagnostic Tail",
       "description": "Read persisted structured diagnostics incrementally by sequence cursor.",
       "availability": [
@@ -10724,7 +10724,7 @@
       }
     },
     {
-      "name": "log.tail",
+      "name": "log_tail",
       "title": "Log Tail",
       "description": "Read persisted Unreal output log events incrementally by sequence cursor.",
       "availability": [
@@ -10781,7 +10781,7 @@
       }
     },
     {
-      "name": "widget.tree.inspect",
+      "name": "widget_tree_inspect",
       "title": "Inspect Widget Tree",
       "description": "Read the UMG WidgetTree of a WidgetBlueprint asset.",
       "availability": [
@@ -10997,9 +10997,9 @@
       }
     },
     {
-      "name": "widget.tree.edit",
+      "name": "widget_tree_edit",
       "title": "Edit Widget Tree",
-      "description": "Apply explicit local edit commands to a WidgetBlueprint WidgetTree. Use widget.palette for widget creation.",
+      "description": "Apply explicit local edit commands to a WidgetBlueprint WidgetTree. Use widget_palette for widget creation.",
       "availability": [
         "native",
         "python"
@@ -11015,10 +11015,10 @@
           },
           "commands": {
             "type": "array",
-            "description": "Ordered WidgetTree edit commands. Each command requires kind. Use schema.inspect with domain='widget' and tool='widget.tree.edit' to list supported command kinds. For a command-specific schema, call schema.inspect with operation=<kind>. Use widget.palette first and pass the selected entry to addFromPalette instead of guessing widget classes.",
+            "description": "Ordered WidgetTree edit commands. Each command requires kind. Use schema_inspect with domain='widget' and tool='widget_tree_edit' to list supported command kinds. For a command-specific schema, call schema_inspect with operation=<kind>. Use widget_palette first and pass the selected entry to addFromPalette instead of guessing widget classes.",
             "items": {
               "type": "object",
-              "description": "Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema.inspect.",
+              "description": "Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema_inspect.",
               "properties": {
                 "kind": {
                   "type": "string",
@@ -11212,7 +11212,7 @@
       },
       "schemaInspect": {
         "domain": "widget",
-        "tool": "widget.tree.edit",
+        "tool": "widget_tree_edit",
         "source": {
           "document": "UE UMG WidgetTree and Widget Palette",
           "section": "WidgetTree edit command set"
@@ -11221,7 +11221,7 @@
           {
             "name": "addFromPalette",
             "category": "core",
-            "summary": "Create one UMG widget from a selected widget.palette entry.",
+            "summary": "Create one UMG widget from a selected widget_palette entry.",
             "schema": {
               "type": "object",
               "properties": {
@@ -11314,7 +11314,7 @@
               {
                 "kind": "addFromPalette",
                 "entry": {
-                  "id": "widget.palette:...",
+                  "id": "widget_palette:...",
                   "kind": "native",
                   "payload": {
                     "widgetClass": "/Script/UMG.TextBlock"
@@ -11332,7 +11332,7 @@
               "INVALID_PALETTE_ENTRY"
             ],
             "notes": [
-              "Use widget.palette first and pass the full selected entry. Do not guess widget classes in public calls.",
+              "Use widget_palette first and pass the full selected entry. Do not guess widget classes in public calls.",
               "parent may be omitted only when creating the root widget."
             ]
           },
@@ -11599,9 +11599,9 @@
       }
     },
     {
-      "name": "widget.edit",
+      "name": "widget_edit",
       "title": "Edit Widget",
-      "description": "Apply explicit local property edit commands to WidgetTree widget instances. Use widget.inspect to discover writable property names and serialized value expectations.",
+      "description": "Apply explicit local property edit commands to WidgetTree widget instances. Use widget_inspect to discover writable property names and serialized value expectations.",
       "availability": [
         "native",
         "python"
@@ -11617,10 +11617,10 @@
           },
           "commands": {
             "type": "array",
-            "description": "Ordered widget instance edit commands. Each command requires kind. Use schema.inspect with domain='widget' and tool='widget.edit' to list supported command kinds.",
+            "description": "Ordered widget instance edit commands. Each command requires kind. Use schema_inspect with domain='widget' and tool='widget_edit' to list supported command kinds.",
             "items": {
               "type": "object",
-              "description": "Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema.inspect.",
+              "description": "Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema_inspect.",
               "properties": {
                 "kind": {
                   "type": "string",
@@ -11814,7 +11814,7 @@
       },
       "schemaInspect": {
         "domain": "widget",
-        "tool": "widget.edit",
+        "tool": "widget_edit",
         "source": {
           "document": "UE UMG Widget and PanelSlot reflected properties",
           "section": "Widget instance edit command set"
@@ -11885,7 +11885,7 @@
               "PROPERTY_SET_FAILED"
             ],
             "notes": [
-              "Use widget.inspect to discover editable widget property names and serialized value expectations."
+              "Use widget_inspect to discover editable widget property names and serialized value expectations."
             ]
           },
           {
@@ -11954,7 +11954,7 @@
               "PROPERTY_SET_FAILED"
             ],
             "notes": [
-              "Slot properties depend on the current parent panel. Use widget.tree.inspect view='layout' or instance-mode widget.inspect to discover the slot class and values."
+              "Slot properties depend on the current parent panel. Use widget_tree_inspect view='layout' or instance-mode widget_inspect to discover the slot class and values."
             ]
           }
         ]
@@ -11969,7 +11969,7 @@
       }
     },
     {
-      "name": "widget.event.create",
+      "name": "widget_event_create",
       "title": "Create Widget Event",
       "description": "Create or return the native component-bound event node for one WidgetBlueprint widget event, such as a Button OnClicked event.",
       "availability": [
@@ -12190,7 +12190,7 @@
       }
     },
     {
-      "name": "widget.inspect",
+      "name": "widget_inspect",
       "title": "Inspect Widget",
       "description": "Inspect one UMG widget class or WidgetTree instance for editable properties.",
       "availability": [
@@ -12361,7 +12361,7 @@
       }
     },
     {
-      "name": "widget.compile",
+      "name": "widget_compile",
       "title": "Compile Widget Blueprint",
       "description": "Compile a WidgetBlueprint and return diagnostics.",
       "availability": [

@@ -60,7 +60,7 @@ publish exploratory design history as if it were current contract.
 | `docs/archive/legacy/spec-graph-domain-split.md` | archive | Historical design context only. |
 | `docs/archive/legacy/BLUEPRINT_GRAPH_REFACTOR_GENERATE_RETIRED.md` | archive | Useful history for retired tools; do not publish in primary docs. |
 | `docs/archive/legacy/PCG_LEARNING_RESOURCES_UE57.md` | rewrite | Potential source list for PCG docs; verify links and UE version before publishing. |
-| `docs/archive/legacy/PCG_OFFICIAL_CATEGORIES_AND_SEMANTIC_TAXONOMY.md` | rewrite | Valuable PCG semantic source; rewrite around current `pcg.palette`, `pcg.graph.*`, `pcg.node.inspect`, and `pcg.parameter.*`. |
+| `docs/archive/legacy/PCG_OFFICIAL_CATEGORIES_AND_SEMANTIC_TAXONOMY.md` | rewrite | Valuable PCG semantic source; rewrite around current `pcg_palette`, `pcg_graph_*`, `pcg_node_inspect`, and `pcg_parameter_*`. |
 | `docs/archive/legacy/PCG_SEMANTIC_OPS_FINAL_DRAFT.md` | archive | Likely superseded by current PCG public tool shape; mine for terminology only. |
 
 ## Local Issue Docs
@@ -92,14 +92,14 @@ publish exploratory design history as if it were current contract.
 The first public site skeleton exists, but these pages need real content before
 the docs can be considered externally complete:
 
-- `tools/project`: `loomle`, `project.list`, `project.attach`, `project.install`, `schema.inspect`
-- `tools/asset`: `asset.create`, `asset.inspect`, `asset.edit`
+- `tools/project`: `loomle`, `project_list`, `project_attach`, `project_install`, `schema_inspect`
+- `tools/asset`: `asset_create`, `asset_inspect`, `asset_edit`
 - `tools/blueprint`: graph inspect/edit/layout, palette, member/class/node docs, compile
 - `tools/material`: palette, graph inspect/edit/layout, node inspect/edit, compile
 - `tools/pcg`: palette, graph inspect/edit/layout, node inspect, parameter inspect/edit, compile
 - `tools/widget`: palette, tree inspect/edit, widget inspect, compile
-- `tools/editor`: `editor.open`, `editor.focus`, `editor.screenshot`, `play`
-- `tools/observability`: `diagnostic.tail`, `log.tail`, `jobs`, `execute`
+- `tools/editor`: `editor_open`, `editor_focus`, `editor_screenshot`, `play`
+- `tools/observability`: `diagnostic_tail`, `log_tail`, `jobs`, `execute`
 - workflow pages with tested examples
 
 ## Recommended Next Steps

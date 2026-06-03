@@ -69,9 +69,9 @@ for read-only serialization.
 
 Public asset tools should expose `userDefinedStruct` as an asset kind:
 
-- `asset.create` with `kind: "userDefinedStruct"`
-- `asset.inspect` with `kind: "userDefinedStruct"`
-- `asset.edit` with `kind: "userDefinedStruct"` for field and tooltip edits
+- `asset_create` with `kind: "userDefinedStruct"`
+- `asset_inspect` with `kind: "userDefinedStruct"`
+- `asset_edit` with `kind: "userDefinedStruct"` for field and tooltip edits
 
 The bridge should use Blueprint-domain internal tools, mirroring current enum
 support:
@@ -84,7 +84,7 @@ selection. The internal `blueprint.struct.*` tools keep the UE implementation
 surface explicit and testable.
 
 This feature should not add a generic struct graph model and should not make
-`asset.edit` absorb unrelated Blueprint class, graph, Material, PCG, or Widget
+`asset_edit` absorb unrelated Blueprint class, graph, Material, PCG, or Widget
 editing operations.
 
 ## First-Version Scope
@@ -116,7 +116,7 @@ Out of scope for the first version:
 
 ## Public Schemas
 
-### `asset.create`
+### `asset_create`
 
 Add `userDefinedStruct` to `kind`.
 
@@ -161,7 +161,7 @@ should be rejected with `INVALID_ARGUMENT`, because UE creates a default member
 and does not allow the final field to be removed. Requiring at least one field
 avoids exposing a false "empty struct" model.
 
-### `asset.inspect`
+### `asset_inspect`
 
 ```json
 {
@@ -215,7 +215,7 @@ The result should include:
 }
 ```
 
-### `asset.edit`
+### `asset_edit`
 
 For `kind=userDefinedStruct`, add operations:
 
@@ -363,7 +363,7 @@ Behavior:
   or final-field removal.
 
 `create` is implemented as a `blueprint.struct.edit` operation for parity with
-`blueprint.enum.edit`. Public `asset.create kind=userDefinedStruct` transforms
+`blueprint.enum.edit`. Public `asset_create kind=userDefinedStruct` transforms
 to this internal path.
 
 ## Create Semantics
@@ -394,7 +394,7 @@ The revision should be deterministic over:
 - field type objects;
 - defaults, tooltips, metadata, and exposed flags.
 
-`asset.edit` should support `expectedRevision` and return
+`asset_edit` should support `expectedRevision` and return
 `REVISION_CONFLICT` when the current revision differs.
 
 ## Error Responses

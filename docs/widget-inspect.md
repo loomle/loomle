@@ -1,9 +1,9 @@
-# widget.inspect
+# widget_inspect
 
 ## Intent
 
-`widget.inspect` describes editable UMG widget properties. It complements
-`widget.tree.inspect`: the tree tool returns hierarchy and layout context, while
+`widget_inspect` describes editable UMG widget properties. It complements
+`widget_tree_inspect`: the tree tool returns hierarchy and layout context, while
 this tool returns property descriptors and current instance values.
 
 ## Input Modes
@@ -42,7 +42,7 @@ instance is not assignable to the requested class, the tool returns
   inspected widget class.
 - Slot properties come from the instance's `UWidget::Slot`, when present.
 - Values are exported with UE's text property serialization format, matching the
-  format accepted by `widget.tree.edit` `setProperty`.
+  format accepted by `widget_tree_edit` `setProperty`.
 
 ## Output
 

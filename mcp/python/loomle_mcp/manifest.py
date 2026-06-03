@@ -132,7 +132,11 @@ class ToolManifest:
         if isinstance(schema_inspect, dict) and schema_inspect.get("domain") == domain:
             return True
         name = tool.get("name")
-        return isinstance(name, str) and (name == domain or name.startswith(f"{domain}."))
+        return isinstance(name, str) and (
+            name == domain
+            or name.startswith(f"{domain}.")
+            or name.startswith(f"{domain}_")
+        )
 
     def _validate_includes(self, includes: list[str]) -> None:
         allowed = {"summary", "input", "operation", "examples", "errors", "notes", "output"}
@@ -173,7 +177,7 @@ class ToolManifest:
 
 
 def thin_input_schema(name: str, full_schema: dict[str, Any]) -> dict[str, Any]:
-    if name == "schema.inspect":
+    if name == "schema_inspect":
         return full_schema
 
     schema: dict[str, Any] = {"type": "object"}

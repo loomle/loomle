@@ -127,7 +127,7 @@ def query_blueprint_revision_and_node_count(client: McpStdioClient, request_id: 
     payload = call_tool_ok(
         client,
         request_id,
-        "blueprint.graph.inspect",
+        "blueprint_graph_inspect",
         {"assetPath": asset_path, "graph": {"name": "EventGraph"}, "view": "summary"},
     )
     revision = payload.get("revision")
@@ -144,7 +144,7 @@ def add_branch_node(client: McpStdioClient, request_id: int, *, asset_path: str,
     payload = call_tool_ok(
         client,
         request_id,
-        "blueprint.graph.edit",
+        "blueprint_graph_edit",
         {
             "assetPath": asset_path,
             "graphName": "EventGraph",
@@ -173,7 +173,7 @@ def run_stale_expected_revision_conflict(client: McpStdioClient, request_id_base
     apply_payload = call_tool_ok(
         client,
         request_id_base + 2,
-        "blueprint.graph.edit",
+        "blueprint_graph_edit",
         {
             "assetPath": asset_path,
             "graphName": "EventGraph",
@@ -200,7 +200,7 @@ def run_stale_expected_revision_conflict(client: McpStdioClient, request_id_base
     payload, has_error = call_tool_allow_error(
         client,
         request_id_base + 4,
-        "blueprint.graph.edit",
+        "blueprint_graph_edit",
         {
             "assetPath": asset_path,
             "graphName": "EventGraph",
@@ -238,7 +238,7 @@ def run_duplicate_client_ref_rejected(client: McpStdioClient, request_id_base: i
     payload, has_error = call_tool_allow_error(
         client,
         request_id_base + 1,
-        "blueprint.graph.edit",
+        "blueprint_graph_edit",
         {
             "assetPath": asset_path,
             "graphName": "EventGraph",
@@ -298,7 +298,7 @@ def run_set_pin_default_bad_target_diagnostics(client: McpStdioClient, request_i
     payload, has_error = call_tool_allow_error(
         client,
         request_id_base + 2,
-        "blueprint.graph.edit",
+        "blueprint_graph_edit",
         {
             "assetPath": asset_path,
             "graphName": "EventGraph",
@@ -376,7 +376,7 @@ def run_invalid_command_batch_preflight(client: McpStdioClient, request_id_base:
     payload, has_error = call_tool_allow_error(
         client,
         request_id_base + 3,
-        "blueprint.graph.edit",
+        "blueprint_graph_edit",
         {
             "assetPath": asset_path,
             "graphName": "EventGraph",

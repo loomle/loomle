@@ -1,8 +1,8 @@
-# widget.event.create
+# widget_event_create
 
 ## Intent
 
-`widget.event.create` creates or returns the native Blueprint graph node for a
+`widget_event_create` creates or returns the native Blueprint graph node for a
 WidgetBlueprint widget event.
 
 This tool maps to UE's component-bound event model. It creates

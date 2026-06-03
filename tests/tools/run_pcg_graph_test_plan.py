@@ -152,15 +152,15 @@ def query_pcg_snapshot(client: McpStdioClient, request_id: int, asset_path: str)
     payload = call_tool(
         client,
         request_id,
-        "pcg.graph.inspect",
+        "pcg_graph_inspect",
         {"assetPath": asset_path, "includeConnections": True},
     )
     snapshot = payload.get("semanticSnapshot")
     if not isinstance(snapshot, dict):
-        raise RuntimeError(f"pcg.graph.inspect missing semanticSnapshot: {compact_json(payload)}")
+        raise RuntimeError(f"pcg_graph_inspect missing semanticSnapshot: {compact_json(payload)}")
     nodes = snapshot.get("nodes")
     if not isinstance(nodes, list):
-        raise RuntimeError(f"pcg.graph.inspect missing nodes[]: {compact_json(payload)}")
+        raise RuntimeError(f"pcg_graph_inspect missing nodes[]: {compact_json(payload)}")
     return snapshot
 
 
@@ -175,7 +175,7 @@ def add_node(client: McpStdioClient, request_id: int, *, asset_path: str, node_c
     payload = call_tool(
         client,
         request_id,
-        "pcg.graph.edit",
+        "pcg_graph_edit",
         pcg_edit_args_from_legacy_payload(
             {"assetPath": asset_path, "ops": [{"op": "addNode.byClass", "nodeClassPath": node_class_path}]}
         ),
@@ -196,7 +196,7 @@ def set_pin_default(client: McpStdioClient, request_id: int, *, asset_path: str,
     payload = call_tool(
         client,
         request_id,
-        "pcg.graph.edit",
+        "pcg_graph_edit",
         pcg_edit_args_from_legacy_payload(
             {
                 "assetPath": asset_path,
@@ -376,7 +376,7 @@ def execute_construct_case(client: McpStdioClient, request_id: int, *, asset_pat
     snapshot = query_pcg_snapshot(client, request_id + 1, asset_path)
     node = find_node(snapshot, node_id)
     if not isinstance(node, dict):
-        raise RuntimeError(f"pcg.graph.inspect did not return added node {node_id}")
+        raise RuntimeError(f"pcg_graph_inspect did not return added node {node_id}")
     surface_matrix = blank_surface_matrix()
     surface_matrix["mutate"] = "pass"
     surface_matrix["queryStructure"] = "pass"
@@ -540,7 +540,7 @@ def execute_dynamic_case(
     before_node = find_node(before_snapshot, node_id)
     if not isinstance(before_node, dict):
         surface_matrix["queryStructure"] = "fail"
-        raise RuntimeError(f"pcg.graph.inspect did not return dynamic node before mutation {node_id}")
+        raise RuntimeError(f"pcg_graph_inspect did not return dynamic node before mutation {node_id}")
     before_pins = before_node.get("pins")
     before_count = len(before_pins) if isinstance(before_pins, list) else 0
 
@@ -557,7 +557,7 @@ def execute_dynamic_case(
     after_node = find_node(after_snapshot, node_id)
     if not isinstance(after_node, dict):
         surface_matrix["queryStructure"] = "fail"
-        raise RuntimeError(f"pcg.graph.inspect did not return dynamic node after mutation {node_id}")
+        raise RuntimeError(f"pcg_graph_inspect did not return dynamic node after mutation {node_id}")
     after_pins = after_node.get("pins")
     after_count = len(after_pins) if isinstance(after_pins, list) else 0
     if after_count == before_count:

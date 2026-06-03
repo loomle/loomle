@@ -149,7 +149,7 @@ def execute_query_snapshot_repeatability_roundtrip(
     payload["assetPath"] = asset_path
     payload["graphName"] = "EventGraph"
     edit_payload = blueprint_edit_args_from_legacy_payload(payload)
-    mutate_result = call_tool(client, request_id_base + 1, "blueprint.graph.edit", edit_payload)
+    mutate_result = call_tool(client, request_id_base + 1, "blueprint_graph_edit", edit_payload)
     op_results = mutate_result.get("opResults")
     if not isinstance(op_results, list) or len(op_results) < 1:
         raise BlueprintStabilitySuiteError("runner_error", f"missing blueprint setup opResults: {compact_json(mutate_result)}")
@@ -193,7 +193,7 @@ def execute_verify_repeatability_workflow(
     initial_snapshot = query_blueprint_snapshot(client, request_id_base, asset_path)
     payload = rewrite_live_node_ids(payload, initial_snapshot)
     edit_payload = blueprint_edit_args_from_legacy_payload(payload)
-    mutate_result = call_tool(client, request_id_base + 1, "blueprint.graph.edit", edit_payload)
+    mutate_result = call_tool(client, request_id_base + 1, "blueprint_graph_edit", edit_payload)
     surface_matrix["mutate"] = "pass"
 
     ref_map = build_client_ref_map(edit_payload, mutate_result)

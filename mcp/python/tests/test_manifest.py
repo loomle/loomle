@@ -9,12 +9,8 @@ from loomle_mcp.manifest import load_manifest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MANIFEST = REPO_ROOT / "mcp" / "manifest" / "manifest.json"
-PYTHON_LOCAL_TOOLS = {
-    "status",
-    "project.attach",
-    "project.list",
-    "schema.inspect",
-}
+PYTHON_ONLY_TOOLS: set[str] = set()
+CLAUDE_TOOL_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
 
 class ToolManifestTests(unittest.TestCase):
@@ -22,27 +18,27 @@ class ToolManifestTests(unittest.TestCase):
         manifest = load_manifest(MANIFEST)
         names = {tool["name"] for tool in manifest.tools_for("python")}
 
-        self.assertIn("project.list", names)
-        self.assertIn("project.attach", names)
-        self.assertIn("schema.inspect", names)
+        self.assertIn("project_list", names)
+        self.assertIn("project_attach", names)
+        self.assertIn("schema_inspect", names)
         self.assertIn("context", names)
-        self.assertIn("blueprint.graph.list", names)
-        self.assertIn("blueprint.graph.palette", names)
-        self.assertIn("blueprint.compile", names)
-        self.assertIn("blueprint.graph.edit", names)
-        self.assertIn("material.palette", names)
-        self.assertIn("pcg.palette", names)
-        self.assertIn("pcg.compile", names)
-        self.assertIn("widget.palette", names)
-        self.assertIn("widget.tree.inspect", names)
-        self.assertIn("widget.tree.edit", names)
-        self.assertIn("widget.edit", names)
-        self.assertIn("widget.event.create", names)
-        self.assertIn("widget.compile", names)
+        self.assertIn("blueprint_graph_list", names)
+        self.assertIn("blueprint_graph_palette", names)
+        self.assertIn("blueprint_compile", names)
+        self.assertIn("blueprint_graph_edit", names)
+        self.assertIn("material_palette", names)
+        self.assertIn("pcg_palette", names)
+        self.assertIn("pcg_compile", names)
+        self.assertIn("widget_palette", names)
+        self.assertIn("widget_tree_inspect", names)
+        self.assertIn("widget_tree_edit", names)
+        self.assertIn("widget_edit", names)
+        self.assertIn("widget_event_create", names)
+        self.assertIn("widget_compile", names)
         self.assertNotIn("loomle", names)
         self.assertNotIn("setup.status", names)
         self.assertNotIn("setup.configure", names)
-        self.assertNotIn("project.install", names)
+        self.assertNotIn("project_install", names)
 
     def test_list_tools_exposes_thin_input_schema_by_default(self) -> None:
         manifest = load_manifest(MANIFEST)
@@ -51,7 +47,7 @@ class ToolManifestTests(unittest.TestCase):
         self.assertFalse(any("outputSchema" in tool for tool in listed_tools))
         graph_listed = next(
             tool for tool in listed_tools
-            if tool["name"] == "blueprint.graph.inspect"
+            if tool["name"] == "blueprint_graph_inspect"
         )
         self.assertEqual(graph_listed["inputSchema"]["type"], "object")
         graph_props = graph_listed["inputSchema"]["properties"]
@@ -63,13 +59,13 @@ class ToolManifestTests(unittest.TestCase):
 
         schema_inspect = next(
             tool for tool in listed_tools
-            if tool["name"] == "schema.inspect"
+            if tool["name"] == "schema_inspect"
         )
         self.assertIn("include", schema_inspect["inputSchema"]["properties"])
 
         graph_inspect = next(
             tool for tool in manifest.tools_for("python")
-            if tool["name"] == "blueprint.graph.inspect"
+            if tool["name"] == "blueprint_graph_inspect"
         )
         self.assertIn("outputSchema", graph_inspect)
         self.assertIn("rootNode", graph_inspect["inputSchema"]["properties"])
@@ -80,7 +76,7 @@ class ToolManifestTests(unittest.TestCase):
         tool = next(
             tool
             for tool in manifest.tools_for("python")
-            if tool["name"] == "widget.tree.inspect"
+            if tool["name"] == "widget_tree_inspect"
         )
         view_enum = tool["inputSchema"]["properties"]["view"]["enum"]
         self.assertEqual(view_enum, ["outline", "layout"])
@@ -106,7 +102,7 @@ class ToolManifestTests(unittest.TestCase):
         tool = next(
             tool
             for tool in manifest.tools_for("python")
-            if tool["name"] == "widget.inspect"
+            if tool["name"] == "widget_inspect"
         )
 
         output_schema = tool["outputSchema"]
@@ -128,7 +124,7 @@ class ToolManifestTests(unittest.TestCase):
         tool = next(
             tool
             for tool in manifest.tools_for("python")
-            if tool["name"] == "widget.event.create"
+            if tool["name"] == "widget_event_create"
         )
 
         output_schema = tool["outputSchema"]
@@ -143,19 +139,28 @@ class ToolManifestTests(unittest.TestCase):
     def test_python_manifest_covers_rust_runtime_tools(self) -> None:
         manifest = load_manifest(MANIFEST)
         python_names = {tool["name"] for tool in manifest.tools_for("python")}
-        rust_source = (REPO_ROOT / "client" / "src" / "main.rs").read_text()
-        rust_names = set(re.findall(r'Tool::new\("([^"]+)"', rust_source))
-        rust_names.discard("project.install")
+        native_names = {tool["name"] for tool in manifest.tools_for("native")}
+        native_names.discard("project_install")
 
-        self.assertFalse(rust_names - python_names)
+        self.assertFalse(native_names - python_names)
 
     def test_python_manifest_tool_names_match_rust_plus_local_tools(self) -> None:
         manifest = load_manifest(MANIFEST)
         python_names = {tool["name"] for tool in manifest.tools_for("python")}
-        rust_source = (REPO_ROOT / "client" / "src" / "main.rs").read_text()
-        rust_names = set(re.findall(r'Tool::new\("([^"]+)"', rust_source))
+        native_names = {tool["name"] for tool in manifest.tools_for("native")}
+        native_names.discard("project_install")
 
-        self.assertEqual(python_names - rust_names, PYTHON_LOCAL_TOOLS)
+        self.assertEqual(python_names - native_names, PYTHON_ONLY_TOOLS)
+
+    def test_public_tool_names_are_claude_safe(self) -> None:
+        manifest = load_manifest(MANIFEST)
+        offenders = [
+            tool["name"]
+            for tool in manifest.tools_for("python")
+            if not CLAUDE_TOOL_NAME_RE.fullmatch(tool["name"])
+        ]
+
+        self.assertEqual(offenders, [])
 
     def test_manifest_dispatch_transforms_are_implemented(self) -> None:
         manifest = load_manifest(MANIFEST)
@@ -180,23 +185,24 @@ class ToolManifestTests(unittest.TestCase):
             for tool in manifest.tools_for("python")
             if isinstance(tool.get("schemaInspect"), dict)
         }
-        rust_source = (REPO_ROOT / "client" / "src" / "schema_inspect.rs").read_text()
-        available = set(re.findall(r'"((?:blueprint|material|pcg|widget)\.[^":]+)"', rust_source))
 
         self.assertEqual(
             manifest_tools,
             {
-                "blueprint.graph.edit",
-                "blueprint.member.edit",
-                "blueprint.node.edit",
-                "material.graph.edit",
-                "pcg.graph.edit",
-                "pcg.parameter.edit",
-                "widget.tree.edit",
-                "widget.edit",
+                "blueprint_graph_edit",
+                "blueprint_member_edit",
+                "blueprint_node_edit",
+                "material_graph_edit",
+                "pcg_graph_edit",
+                "pcg_parameter_edit",
+                "widget_tree_edit",
+                "widget_edit",
             },
         )
-        self.assertTrue(manifest_tools <= available)
+        for tool in manifest.tools_for("python"):
+            schema_inspect = tool.get("schemaInspect")
+            if isinstance(schema_inspect, dict):
+                self.assertEqual(schema_inspect["tool"], tool["name"])
 
     def test_bridge_rpc_dispatch_does_not_use_retired_tool_names(self) -> None:
         manifest = load_manifest(MANIFEST)
@@ -251,7 +257,7 @@ class ToolManifestTests(unittest.TestCase):
         manifest = load_manifest(MANIFEST)
         tool = next(
             tool for tool in manifest.tools_for("python")
-            if tool["name"] == "blueprint.graph.edit"
+            if tool["name"] == "blueprint_graph_edit"
         )
 
         required = set(tool["inputSchema"]["required"])
@@ -268,7 +274,7 @@ class ToolManifestTests(unittest.TestCase):
         manifest = load_manifest(MANIFEST)
         tool = next(
             tool for tool in manifest.tools_for("python")
-            if tool["name"] == "blueprint.graph.layout"
+            if tool["name"] == "blueprint_graph_layout"
         )
 
         input_schema = tool["inputSchema"]
@@ -284,7 +290,7 @@ class ToolManifestTests(unittest.TestCase):
         manifest = load_manifest(MANIFEST)
         tool = next(
             tool for tool in manifest.tools_for("python")
-            if tool["name"] == "blueprint.graph.palette"
+            if tool["name"] == "blueprint_graph_palette"
         )
 
         input_schema = tool["inputSchema"]
@@ -303,7 +309,7 @@ class ToolManifestTests(unittest.TestCase):
         manifest = load_manifest(MANIFEST)
         tool = next(
             tool for tool in manifest.tools_for("python")
-            if tool["name"] == "blueprint.graph.list"
+            if tool["name"] == "blueprint_graph_list"
         )
 
         input_props = tool["inputSchema"]["properties"]
@@ -331,11 +337,11 @@ class ToolManifestTests(unittest.TestCase):
         manifest = load_manifest(MANIFEST)
         blueprint_tool = next(
             tool for tool in manifest.tools_for("python")
-            if tool["name"] == "blueprint.inspect"
+            if tool["name"] == "blueprint_inspect"
         )
         class_tool = next(
             tool for tool in manifest.tools_for("python")
-            if tool["name"] == "blueprint.class.inspect"
+            if tool["name"] == "blueprint_class_inspect"
         )
 
         blueprint_output = blueprint_tool["outputSchema"]["properties"]
@@ -358,7 +364,7 @@ class ToolManifestTests(unittest.TestCase):
 
         class_edit_tool = next(
             tool for tool in manifest.tools_for("python")
-            if tool["name"] == "blueprint.class.edit"
+            if tool["name"] == "blueprint_class_edit"
         )
         class_edit_ops = class_edit_tool["inputSchema"]["properties"]["operation"]["enum"]
         self.assertEqual(
@@ -388,7 +394,7 @@ class ToolManifestTests(unittest.TestCase):
 
         node_inspect_tool = next(
             tool for tool in manifest.tools_for("python")
-            if tool["name"] == "blueprint.node.inspect"
+            if tool["name"] == "blueprint_node_inspect"
         )
         self.assertIn("outputSchema", node_inspect_tool)
         node_output = node_inspect_tool["outputSchema"]["oneOf"][0]["properties"]
@@ -403,7 +409,7 @@ class ToolManifestTests(unittest.TestCase):
         manifest = load_manifest(MANIFEST)
         tool = next(
             tool for tool in manifest.tools_for("python")
-            if tool["name"] == "blueprint.graph.inspect"
+            if tool["name"] == "blueprint_graph_inspect"
         )
 
         schema = tool["inputSchema"]
@@ -455,7 +461,7 @@ class ToolManifestTests(unittest.TestCase):
         manifest = load_manifest(MANIFEST)
         payload = manifest.inspect_schema(
             domain="blueprint",
-            tool_name="blueprint.graph.edit",
+            tool_name="blueprint_graph_edit",
             operation="addFromPalette",
             include=["summary", "operation", "examples", "errors", "notes"],
         )
@@ -469,7 +475,7 @@ class ToolManifestTests(unittest.TestCase):
         manifest = load_manifest(MANIFEST)
         payload = manifest.inspect_schema(
             domain="blueprint",
-            tool_name="blueprint.graph.inspect",
+            tool_name="blueprint_graph_inspect",
             operation=None,
             include=["input"],
         )
@@ -486,7 +492,7 @@ class ToolManifestTests(unittest.TestCase):
         manifest = load_manifest(MANIFEST)
         payload = manifest.inspect_schema(
             domain="widget",
-            tool_name="widget.tree.edit",
+            tool_name="widget_tree_edit",
             operation=None,
             include=None,
         )
@@ -501,7 +507,7 @@ class ToolManifestTests(unittest.TestCase):
         manifest = load_manifest(MANIFEST)
         payload = manifest.inspect_schema(
             domain="widget",
-            tool_name="widget.edit",
+            tool_name="widget_edit",
             operation=None,
             include=None,
         )
@@ -513,7 +519,7 @@ class ToolManifestTests(unittest.TestCase):
         manifest = load_manifest(MANIFEST)
         tool = next(
             tool for tool in manifest.tools_for("python")
-            if tool["name"] == "widget.tree.edit"
+            if tool["name"] == "widget_tree_edit"
         )
 
         self.assertIn("outputSchema", tool)
@@ -533,7 +539,7 @@ class ToolManifestTests(unittest.TestCase):
         manifest = load_manifest(MANIFEST)
         payload = manifest.inspect_schema(
             domain="widget",
-            tool_name="widget.tree.edit",
+            tool_name="widget_tree_edit",
             operation="addFromPalette",
             include=["summary", "operation", "notes"],
         )
@@ -549,7 +555,7 @@ class ToolManifestTests(unittest.TestCase):
 
         material = manifest.inspect_schema(
             domain="material",
-            tool_name="material.graph.edit",
+            tool_name="material_graph_edit",
             operation=None,
             include=None,
         )
@@ -558,7 +564,7 @@ class ToolManifestTests(unittest.TestCase):
 
         pcg = manifest.inspect_schema(
             domain="pcg",
-            tool_name="pcg.graph.edit",
+            tool_name="pcg_graph_edit",
             operation=None,
             include=None,
         )
@@ -570,7 +576,7 @@ class ToolManifestTests(unittest.TestCase):
 
         blueprint = manifest.inspect_schema(
             domain="blueprint",
-            tool_name="blueprint.graph.edit",
+            tool_name="blueprint_graph_edit",
             operation="connect",
             include=["operation"],
         )
@@ -579,7 +585,7 @@ class ToolManifestTests(unittest.TestCase):
 
         material = manifest.inspect_schema(
             domain="material",
-            tool_name="material.graph.edit",
+            tool_name="material_graph_edit",
             operation="breakPinLinks",
             include=["operation"],
         )
@@ -587,7 +593,7 @@ class ToolManifestTests(unittest.TestCase):
 
         pcg = manifest.inspect_schema(
             domain="pcg",
-            tool_name="pcg.graph.edit",
+            tool_name="pcg_graph_edit",
             operation="setNodeProperty",
             include=["operation"],
         )
@@ -597,7 +603,7 @@ class ToolManifestTests(unittest.TestCase):
         manifest = load_manifest(MANIFEST)
         tool = next(
             tool for tool in manifest.tools_for("python")
-            if tool["name"] == "blueprint.member.edit"
+            if tool["name"] == "blueprint_member_edit"
         )
         properties = tool["inputSchema"]["properties"]
         self.assertEqual(
@@ -618,7 +624,7 @@ class ToolManifestTests(unittest.TestCase):
 
         payload = manifest.inspect_schema(
             domain="blueprint",
-            tool_name="blueprint.member.edit",
+            tool_name="blueprint_member_edit",
             operation="variable.create",
             include=["operation"],
         )
@@ -630,7 +636,7 @@ class ToolManifestTests(unittest.TestCase):
 
         signature_payload = manifest.inspect_schema(
             domain="blueprint",
-            tool_name="blueprint.member.edit",
+            tool_name="blueprint_member_edit",
             operation="function.updateSignature",
             include=["operation"],
         )
@@ -642,7 +648,7 @@ class ToolManifestTests(unittest.TestCase):
         manifest = load_manifest(MANIFEST)
         tool = next(
             tool for tool in manifest.tools_for("python")
-            if tool["name"] == "blueprint.node.edit"
+            if tool["name"] == "blueprint_node_edit"
         )
         properties = tool["inputSchema"]["properties"]
         self.assertNotIn("returnDiff", properties)
@@ -655,7 +661,7 @@ class ToolManifestTests(unittest.TestCase):
 
         payload = manifest.inspect_schema(
             domain="blueprint",
-            tool_name="blueprint.node.edit",
+            tool_name="blueprint_node_edit",
             operation="addPin",
             include=["operation"],
         )
@@ -673,7 +679,7 @@ class ToolManifestTests(unittest.TestCase):
         manifest = load_manifest(MANIFEST)
         payload = manifest.inspect_schema(
             domain="pcg",
-            tool_name="pcg.parameter.edit",
+            tool_name="pcg_parameter_edit",
             operation="rename",
             include=["operation"],
         )

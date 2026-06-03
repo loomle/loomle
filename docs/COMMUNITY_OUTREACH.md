@@ -38,7 +38,7 @@ Short version:
 > semantic edits instead of guessing internal node classes.
 >
 > I’m looking for the first Unreal developer willing to try it on a real
-> project. The smallest useful test is install -> project.attach -> context ->
+> project. The smallest useful test is install -> project_attach -> context ->
 > one inspect tool. If it fails or feels unclear, that feedback is exactly what
 > I need.
 >
@@ -59,7 +59,7 @@ Ask testers to do only this:
 
 1. Install LOOMLE.
 2. Open an Unreal project.
-3. Attach the MCP session with `project.list` and `project.attach`.
+3. Attach the MCP session with `project_list` and `project_attach`.
 4. Call `context`.
 5. Run one inspect tool for an asset they already have open.
 

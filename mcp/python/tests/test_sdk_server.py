@@ -28,36 +28,36 @@ class PythonMcpSdkServerTests(unittest.IsolatedAsyncioTestCase):
 
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
-                self.assertIn("schema.inspect", tool_names)
+                self.assertIn("schema_inspect", tool_names)
                 self.assertIn("context", tool_names)
-                self.assertIn("blueprint.graph.list", tool_names)
-                self.assertIn("blueprint.graph.palette", tool_names)
-                self.assertIn("blueprint.compile", tool_names)
-                self.assertIn("blueprint.graph.edit", tool_names)
-                self.assertIn("material.palette", tool_names)
-                self.assertIn("pcg.palette", tool_names)
-                self.assertIn("widget.palette", tool_names)
-                self.assertIn("widget.tree.inspect", tool_names)
-                self.assertIn("widget.tree.edit", tool_names)
-                self.assertNotIn("project.install", tool_names)
+                self.assertIn("blueprint_graph_list", tool_names)
+                self.assertIn("blueprint_graph_palette", tool_names)
+                self.assertIn("blueprint_compile", tool_names)
+                self.assertIn("blueprint_graph_edit", tool_names)
+                self.assertIn("material_palette", tool_names)
+                self.assertIn("pcg_palette", tool_names)
+                self.assertIn("widget_palette", tool_names)
+                self.assertIn("widget_tree_inspect", tool_names)
+                self.assertIn("widget_tree_edit", tool_names)
+                self.assertNotIn("project_install", tool_names)
                 palette = next(
                     tool for tool in tools.tools
-                    if tool.name == "blueprint.graph.palette"
+                    if tool.name == "blueprint_graph_palette"
                 )
                 self.assertIsNone(palette.outputSchema)
                 graph_inspect = next(
                     tool for tool in tools.tools
-                    if tool.name == "blueprint.graph.inspect"
+                    if tool.name == "blueprint_graph_inspect"
                 )
                 self.assertIsNone(graph_inspect.outputSchema)
                 self.assertIn("view", graph_inspect.inputSchema["properties"])
                 self.assertNotIn("filter", graph_inspect.inputSchema["properties"])
 
                 output_result = await session.call_tool(
-                    "schema.inspect",
+                    "schema_inspect",
                     {
                         "domain": "blueprint",
-                        "tool": "blueprint.graph.inspect",
+                        "tool": "blueprint_graph_inspect",
                         "include": ["output"],
                     },
                 )
@@ -72,10 +72,10 @@ class PythonMcpSdkServerTests(unittest.IsolatedAsyncioTestCase):
                     ["summary", "exec_flow", "data_flow"],
                 )
                 input_result = await session.call_tool(
-                    "schema.inspect",
+                    "schema_inspect",
                     {
                         "domain": "blueprint",
-                        "tool": "blueprint.graph.inspect",
+                        "tool": "blueprint_graph_inspect",
                         "include": ["input"],
                     },
                 )
@@ -86,10 +86,10 @@ class PythonMcpSdkServerTests(unittest.IsolatedAsyncioTestCase):
                 )
 
                 result = await session.call_tool(
-                    "schema.inspect",
+                    "schema_inspect",
                     {
                         "domain": "blueprint",
-                        "tool": "blueprint.graph.edit",
+                        "tool": "blueprint_graph_edit",
                         "operation": "addFromPalette",
                         "include": ["summary", "operation", "errors"],
                     },

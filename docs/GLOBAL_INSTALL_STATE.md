@@ -34,7 +34,7 @@ Required fields for startup handoff:
 - `launcherPath`
 - `activeClientPath`
 
-`project.install`, `project.sync`, and registered project maintenance may read
+`project_install`, `project.sync`, and registered project maintenance may read
 `activeVersion`; for compatibility they may fall back to `installedVersion`.
 
 ## Encoding

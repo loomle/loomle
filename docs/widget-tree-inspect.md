@@ -1,12 +1,12 @@
-# widget.tree.inspect
+# widget_tree_inspect
 
 ## Intent
 
-`widget.tree.inspect` returns the designer `UWidgetTree` for a
+`widget_tree_inspect` returns the designer `UWidgetTree` for a
 `UWidgetBlueprint` in UE terms. It is the tree snapshot an agent uses before
 editing hierarchy, parentage, slot layout, or widget references.
 
-This tool does not describe arbitrary widget properties. Use `widget.inspect`
+This tool does not describe arbitrary widget properties. Use `widget_inspect`
 for class and instance property descriptors and current values.
 
 ## UE Mapping
@@ -104,5 +104,5 @@ Error:
 ## Notes
 
 `details` is intentionally not a view. The previous behavior only meant
-"filtered matches" and overlapped with `widget.inspect`, so filtering is now a
+"filtered matches" and overlapped with `widget_inspect`, so filtering is now a
 view-independent feature.

@@ -228,7 +228,7 @@ The test side should not yet assume:
 
 ## Suggested Manual Probe
 
-Start `loomle mcp`, attach the target project with `project.attach`, then call
+Start `loomle mcp`, attach the target project with `project_attach`, then call
 the `execute` MCP tool with:
 
 ```json

@@ -12,27 +12,27 @@ graph structure, node settings, and graph user parameters. Keep those separate.
 
 ## Recommended Flow
 
-1. Inspect the graph with `pcg.graph.inspect`.
-2. Use `pcg.palette` before adding a node.
-3. Use `schema.inspect` before `pcg.graph.edit` commands.
-4. Use `pcg.node.inspect` before editing node settings.
-5. Use `pcg.parameter.inspect` before editing graph parameters.
-6. Run `pcg.compile` after meaningful changes.
+1. Inspect the graph with `pcg_graph_inspect`.
+2. Use `pcg_palette` before adding a node.
+3. Use `schema_inspect` before `pcg_graph_edit` commands.
+4. Use `pcg_node_inspect` before editing node settings.
+5. Use `pcg_parameter_inspect` before editing graph parameters.
+6. Run `pcg_compile` after meaningful changes.
 
 ## Tool Summary
 
 | Tool | Purpose |
 | --- | --- |
-| `pcg.graph.inspect` | Inspect graph nodes, pins, links, and defaults. |
-| `pcg.palette` | Search UE PCG palette actions for node creation. |
-| `pcg.node.inspect` | Inspect one PCG node instance or settings class. |
-| `pcg.parameter.inspect` | Inspect graph user parameters. |
-| `pcg.parameter.edit` | Edit graph user parameters. |
-| `pcg.graph.edit` | Apply explicit PCG graph edit commands. |
-| `pcg.graph.layout` | Format selected PCG graph nodes. |
-| `pcg.compile` | Validate and compile-confirm a PCG graph. |
+| `pcg_graph_inspect` | Inspect graph nodes, pins, links, and defaults. |
+| `pcg_palette` | Search UE PCG palette actions for node creation. |
+| `pcg_node_inspect` | Inspect one PCG node instance or settings class. |
+| `pcg_parameter_inspect` | Inspect graph user parameters. |
+| `pcg_parameter_edit` | Edit graph user parameters. |
+| `pcg_graph_edit` | Apply explicit PCG graph edit commands. |
+| `pcg_graph_layout` | Format selected PCG graph nodes. |
+| `pcg_compile` | Validate and compile-confirm a PCG graph. |
 
-## `pcg.graph.inspect`
+## `pcg_graph_inspect`
 
 ### Parameters
 
@@ -51,12 +51,12 @@ connections or defaults.
 
 ### Readback Limits
 
-`pcg.graph.inspect` is the first stop for topology, pins, links, defaults, and
+`pcg_graph_inspect` is the first stop for topology, pins, links, defaults, and
 known `effectiveSettings`. It is not a guaranteed full Details-panel export for
 every PCG settings object.
 
-For ordinary node inspection, stay inside `pcg.graph.inspect` and
-`pcg.node.inspect` when the needed value appears in pins, defaults, or
+For ordinary node inspection, stay inside `pcg_graph_inspect` and
+`pcg_node_inspect` when the needed value appears in pins, defaults, or
 `effectiveSettings`. If a task depends on exact instance-level settings that are
 not surfaced yet, inspect the live settings object with `execute` and cite that
 fallback explicitly.
@@ -81,12 +81,12 @@ For `Filter By Attribute`, verify value filters through
 `valid` so agents can distinguish full-vector targets from component targets
 such as `Position.Z`.
 
-Use `pcg.node.inspect` for detailed selector property discovery. Selector-backed
+Use `pcg_node_inspect` for detailed selector property discovery. Selector-backed
 settings include `valueKind: "pcgSelector"` and accept both compact UE strings
-and structured selector objects in `pcg.graph.edit` `setPinDefault` or
+and structured selector objects in `pcg_graph_edit` `setPinDefault` or
 `setProperty`.
 
-## `pcg.palette`
+## `pcg_palette`
 
 ### Parameters
 
@@ -99,10 +99,10 @@ and structured selector objects in `pcg.graph.edit` `setPinDefault` or
 | `limit` | no | Defaults to 50, maximum 500. |
 | `offset` | no | Paging offset. |
 
-Pass the selected palette entry to `pcg.graph.edit` rather than guessing
+Pass the selected palette entry to `pcg_graph_edit` rather than guessing
 settings classes.
 
-## `pcg.graph.edit`
+## `pcg_graph_edit`
 
 ### Parameters
 
@@ -117,10 +117,10 @@ settings classes.
 | `expectedRevision` | no | Optimistic mutation guard when supported. |
 
 Command-specific fields are intentionally omitted from `tools/list`. Call
-`schema.inspect` with `domain: pcg`, `tool: pcg.graph.edit`, and the selected
+`schema_inspect` with `domain: pcg`, `tool: pcg_graph_edit`, and the selected
 `operation`.
 
-## `pcg.node.inspect`
+## `pcg_node_inspect`
 
 ### Parameters
 
@@ -135,7 +135,7 @@ Command-specific fields are intentionally omitted from `tools/list`. Call
 Use this before editing node settings or when you need to understand a settings
 class returned by the palette.
 
-## `pcg.parameter.inspect`
+## `pcg_parameter_inspect`
 
 ### Parameters
 
@@ -147,7 +147,7 @@ class returned by the palette.
 
 PCG graph parameters are graph-owned user parameters, not graph nodes.
 
-## `pcg.parameter.edit`
+## `pcg_parameter_edit`
 
 ### Parameters
 
@@ -156,16 +156,16 @@ PCG graph parameters are graph-owned user parameters, not graph nodes.
 | `assetPath` | yes | PCG graph asset path. |
 | `graph` | no | Optional graph reference. |
 | `operation` | yes | `create`, `update`, `rename`, `delete`, or `setDefault`. |
-| `args` | yes | Operation-specific arguments from `schema.inspect`. |
+| `args` | yes | Operation-specific arguments from `schema_inspect`. |
 | `dryRun` | no | Validate without applying. |
 | `returnDiff` | no | Include diff when supported. |
 | `returnDiagnostics` | no | Defaults to true. |
 | `expectedRevision` | no | Optimistic mutation guard when supported. |
 
-Call `schema.inspect` with `domain: pcg`, `tool: pcg.parameter.edit`, and the
+Call `schema_inspect` with `domain: pcg`, `tool: pcg_parameter_edit`, and the
 selected operation before editing.
 
-## `pcg.graph.layout`
+## `pcg_graph_layout`
 
 ### Parameters
 
@@ -179,7 +179,7 @@ selected operation before editing.
 
 Layout changes positions only; it does not change PCG behavior.
 
-## `pcg.compile`
+## `pcg_compile`
 
 ### Parameters
 

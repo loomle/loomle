@@ -315,7 +315,7 @@ class TransformTests(unittest.TestCase):
                     {
                         "kind": "addFromPalette",
                         "entry": {
-                            "id": "widget.palette:text",
+                            "id": "widget_palette:text",
                             "payload": {"widgetClass": "/Script/UMG.TextBlock"},
                         },
                         "name": "TitleText",
@@ -397,7 +397,7 @@ class TransformTests(unittest.TestCase):
                     {
                         "kind": "addFromPalette",
                         "entry": {
-                            "id": "material.palette:multiply",
+                            "id": "material_palette:multiply",
                             "payload": {
                                 "nodeClassPath": "/Script/Engine.MaterialExpressionMultiply"
                             },

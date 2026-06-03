@@ -1,10 +1,10 @@
 {
-  "tool": "pcg.graph.edit",
+  "tool": "pcg_graph_edit",
   "commands": [
     {
       "kind": "addFromPalette",
       "entry": {
-        "id": "pcg.palette:/Script/PCG.PCGCreatePointsSettings",
+        "id": "pcg_palette:/Script/PCG.PCGCreatePointsSettings",
         "kind": "native",
         "payload": {
           "settingsClass": "/Script/PCG.PCGCreatePointsSettings"
@@ -15,7 +15,7 @@
     {
       "kind": "addFromPalette",
       "entry": {
-        "id": "pcg.palette:/Script/PCG.PCGSubgraphSettings",
+        "id": "pcg_palette:/Script/PCG.PCGSubgraphSettings",
         "kind": "native",
         "payload": {
           "settingsClass": "/Script/PCG.PCGSubgraphSettings"
@@ -26,7 +26,7 @@
     {
       "kind": "addFromPalette",
       "entry": {
-        "id": "pcg.palette:/Script/PCG.PCGGetSubgraphDepthSettings",
+        "id": "pcg_palette:/Script/PCG.PCGGetSubgraphDepthSettings",
         "kind": "native",
         "payload": {
           "settingsClass": "/Script/PCG.PCGGetSubgraphDepthSettings"
@@ -37,7 +37,7 @@
     {
       "kind": "addFromPalette",
       "entry": {
-        "id": "pcg.palette:/Script/PCG.PCGAddTagSettings",
+        "id": "pcg_palette:/Script/PCG.PCGAddTagSettings",
         "kind": "native",
         "payload": {
           "settingsClass": "/Script/PCG.PCGAddTagSettings"

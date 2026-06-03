@@ -7,14 +7,20 @@ but MCP `tools/list` is not the place to expose every detail by default.
 
 Agent startup context should describe what tools exist and how to make a basic
 call without embedding every nested request and response shape. Full contracts
-remain available on demand through `schema.inspect`.
+remain available on demand through `schema_inspect`.
 
 ## `tools/list`
 
 Every listed tool must include an MCP-valid `inputSchema` with
 `type: "object"`.
 
-`schema.inspect` is the bootstrap exception and exposes its full input schema in
+Public MCP tool names must be Claude-safe: `^[a-zA-Z0-9_-]{1,64}$`.
+Use underscore names such as `blueprint_graph_inspect` in `tools/list`,
+documentation, tests, and agent-facing examples. Dotted names remain valid only
+inside Loomle implementation boundaries such as bridge RPC dispatch tools,
+transform identifiers, and operation names like `variable.create`.
+
+`schema_inspect` is the bootstrap exception and exposes its full input schema in
 `tools/list`.
 
 All other tools expose a thin input schema:
@@ -31,9 +37,9 @@ All other tools expose a thin input schema:
 Thin schemas must not expose nested `properties`, `$defs`, `oneOf`, `anyOf`, or
 operation-specific command payloads.
 
-## `schema.inspect`
+## `schema_inspect`
 
-`schema.inspect` reads the complete contract from the manifest:
+`schema_inspect` reads the complete contract from the manifest:
 
 - `include: ["input"]` returns the full tool-level `inputSchema`
 - `include: ["output"]` returns the full tool-level `outputSchema`
@@ -51,5 +57,5 @@ field.
 Tests should verify both surfaces:
 
 - `tools/list` stays protocol-valid and thin by default
-- `schema.inspect` can retrieve full input, output, and operation schemas
+- `schema_inspect` can retrieve full input, output, and operation schemas
 - Rust native and Python MCP expose the same public contract

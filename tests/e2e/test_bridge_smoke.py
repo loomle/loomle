@@ -21,53 +21,53 @@ TEST_FIXTURES_DIR = REPO_ROOT / "tests" / "fixtures"
 
 REQUIRED_TOOLS = {
     "status",
-    "asset.create",
-    "asset.inspect",
-    "asset.edit",
-    "blueprint.inspect",
-    "blueprint.class.inspect",
-    "blueprint.class.edit",
-    "blueprint.member.inspect",
-    "blueprint.member.edit",
-    "blueprint.graph.list",
-    "blueprint.graph.inspect",
-    "blueprint.graph.edit",
-    "blueprint.graph.layout",
-    "blueprint.node.inspect",
-    "blueprint.node.edit",
-    "blueprint.graph.palette",
-    "blueprint.compile",
-    "material.list",
-    "material.graph.inspect",
-    "material.graph.edit",
-    "material.graph.layout",
-    "material.compile",
-    "material.node.inspect",
-    "material.node.edit",
-    "material.palette",
-    "pcg.graph.inspect",
-    "pcg.node.inspect",
-    "pcg.parameter.inspect",
-    "pcg.parameter.edit",
-    "pcg.palette",
-    "pcg.graph.edit",
-    "pcg.graph.layout",
-    "pcg.compile",
-    "diagnostic.tail",
-    "log.tail",
+    "asset_create",
+    "asset_inspect",
+    "asset_edit",
+    "blueprint_inspect",
+    "blueprint_class_inspect",
+    "blueprint_class_edit",
+    "blueprint_member_inspect",
+    "blueprint_member_edit",
+    "blueprint_graph_list",
+    "blueprint_graph_inspect",
+    "blueprint_graph_edit",
+    "blueprint_graph_layout",
+    "blueprint_node_inspect",
+    "blueprint_node_edit",
+    "blueprint_graph_palette",
+    "blueprint_compile",
+    "material_list",
+    "material_graph_inspect",
+    "material_graph_edit",
+    "material_graph_layout",
+    "material_compile",
+    "material_node_inspect",
+    "material_node_edit",
+    "material_palette",
+    "pcg_graph_inspect",
+    "pcg_node_inspect",
+    "pcg_parameter_inspect",
+    "pcg_parameter_edit",
+    "pcg_palette",
+    "pcg_graph_edit",
+    "pcg_graph_layout",
+    "pcg_compile",
+    "diagnostic_tail",
+    "log_tail",
     "context",
     "jobs",
     "play",
-    "editor.open",
-    "editor.focus",
-    "editor.screenshot",
+    "editor_open",
+    "editor_focus",
+    "editor_screenshot",
     "execute",
-    "widget.palette",
-    "widget.tree.inspect",
-    "widget.tree.edit",
-    "widget.edit",
-    "widget.inspect",
-    "widget.compile",
+    "widget_palette",
+    "widget_tree_inspect",
+    "widget_tree_edit",
+    "widget_edit",
+    "widget_inspect",
+    "widget_compile",
 }
 
 EXPECTED_ARCHIVED_WORKSPACE_EXAMPLES = {
@@ -401,7 +401,7 @@ def _require_payload_fixture(case: dict[str, Any], expected_tool: str) -> None:
     _require(payload.get("tool") == expected_tool, f"payloadFixture tool mismatch for {fixture}: {payload}")
     _require("graphType" not in payload, f"payloadFixture should not carry legacy graphType: {fixture}")
     _require(payload.get("tool") != "graph.mutate", f"payloadFixture should not use legacy graph.mutate: {fixture}")
-    if expected_tool in {"material.graph.edit", "pcg.graph.edit"}:
+    if expected_tool in {"material_graph_edit", "pcg_graph_edit"}:
         _require("ops" not in payload, f"{expected_tool} payloadFixture should not carry legacy ops: {fixture}")
         _require(isinstance(payload.get("commands"), list), f"{expected_tool} payloadFixture missing commands[]: {fixture}")
 
@@ -1762,7 +1762,7 @@ def validate_generated_blueprint_workflow_truth_suite() -> None:
     _require(isinstance(cases, list) and len(cases) == EXPECTED_BLUEPRINT_WORKFLOW_SUITE_SUMMARY["totalCases"], f"blueprint workflow suite cases mismatch: {suite}")
     for case in cases:
         _require(isinstance(case, dict), f"blueprint workflow case must be an object: {case}")
-        _require_payload_fixture(case, "blueprint.graph.edit")
+        _require_payload_fixture(case, "blueprint_graph_edit")
     case_by_id = {
         case.get("id"): case
         for case in cases
@@ -1771,19 +1771,19 @@ def validate_generated_blueprint_workflow_truth_suite() -> None:
 
     branch_case = case_by_id.get("branch_local_subgraph")
     _require(isinstance(branch_case, dict), "blueprint workflow suite missing branch_local_subgraph")
-    _require_payload_fixture(branch_case, "blueprint.graph.edit")
+    _require_payload_fixture(branch_case, "blueprint_graph_edit")
     _require(branch_case.get("expectedNodes") == 3, f"blueprint branch workflow expectedNodes mismatch: {branch_case}")
     _require(branch_case.get("expectedEdges") == 2, f"blueprint branch workflow expectedEdges mismatch: {branch_case}")
 
     replace_branch_case = case_by_id.get("replace_branch_with_sequence")
     _require(isinstance(replace_branch_case, dict), "blueprint workflow suite missing replace_branch_with_sequence")
-    _require_payload_fixture(replace_branch_case, "blueprint.graph.edit")
+    _require_payload_fixture(replace_branch_case, "blueprint_graph_edit")
     _require(replace_branch_case.get("expectedNodes") == 4, f"blueprint replace-branch expectedNodes mismatch: {replace_branch_case}")
     _require(replace_branch_case.get("expectedEdges") == 3, f"blueprint replace-branch expectedEdges mismatch: {replace_branch_case}")
 
     replace_delay_case = case_by_id.get("replace_delay_with_do_once")
     _require(isinstance(replace_delay_case, dict), "blueprint workflow suite missing replace_delay_with_do_once")
-    _require_payload_fixture(replace_delay_case, "blueprint.graph.edit")
+    _require_payload_fixture(replace_delay_case, "blueprint_graph_edit")
     _require(
         replace_delay_case.get("families") == ["function_call", "struct", "utility"],
         f"blueprint replace-delay workflow families mismatch: {replace_delay_case}",
@@ -2103,7 +2103,7 @@ def validate_generated_material_workflow_truth_suite() -> None:
     _require(isinstance(cases, list) and len(cases) == EXPECTED_MATERIAL_WORKFLOW_SUITE_SUMMARY["totalCases"], f"material workflow suite cases mismatch: {suite}")
     for case in cases:
         _require(isinstance(case, dict), f"material workflow case must be an object: {case}")
-        _require_payload_fixture(case, "material.graph.edit")
+        _require_payload_fixture(case, "material_graph_edit")
     case_by_id = {
         case.get("id"): case
         for case in cases
@@ -2112,13 +2112,13 @@ def validate_generated_material_workflow_truth_suite() -> None:
 
     replace_lerp = case_by_id.get("replace_multiply_with_lerp")
     _require(isinstance(replace_lerp, dict), "material workflow suite missing replace_multiply_with_lerp")
-    _require_payload_fixture(replace_lerp, "material.graph.edit")
+    _require_payload_fixture(replace_lerp, "material_graph_edit")
     _require(replace_lerp.get("expectedNodes") == 4, f"material replace_multiply_with_lerp expectedNodes mismatch: {replace_lerp}")
     _require(replace_lerp.get("expectedEdges") == 4, f"material replace_multiply_with_lerp expectedEdges mismatch: {replace_lerp}")
 
     root_sink = case_by_id.get("root_sink_then_layout")
     _require(isinstance(root_sink, dict), "material workflow suite missing root_sink_then_layout")
-    _require_payload_fixture(root_sink, "material.graph.edit")
+    _require_payload_fixture(root_sink, "material_graph_edit")
     _require(root_sink.get("expectedNodes") == 3, f"material root_sink_then_layout expectedNodes mismatch: {root_sink}")
     _require(root_sink.get("expectedEdges") == 3, f"material root_sink_then_layout expectedEdges mismatch: {root_sink}")
 
@@ -2330,7 +2330,7 @@ def validate_generated_pcg_workflow_truth_suite() -> None:
     for case in cases:
         _require(isinstance(case, dict), f"pcg workflow case must be an object: {case}")
         if case.get("payloadFixture") is not None:
-            _require_payload_fixture(case, "pcg.graph.edit")
+            _require_payload_fixture(case, "pcg_graph_edit")
     case_by_id = {
         case.get("id"): case
         for case in cases
@@ -2339,21 +2339,21 @@ def validate_generated_pcg_workflow_truth_suite() -> None:
 
     actor_route = case_by_id.get("actor_data_tag_route")
     _require(isinstance(actor_route, dict), "pcg workflow suite missing actor_data_tag_route")
-    _require_payload_fixture(actor_route, "pcg.graph.edit")
+    _require_payload_fixture(actor_route, "pcg_graph_edit")
     _require(actor_route.get("fixture") == "pcg_graph_with_world_actor", f"pcg actor route fixture mismatch: {actor_route}")
     _require(actor_route.get("families") == ["source", "route", "meta"], f"pcg actor route families mismatch: {actor_route}")
     _require(actor_route.get("queryDefaults") == 2, f"pcg actor route queryDefaults mismatch: {actor_route}")
 
     density_insert = case_by_id.get("insert_density_filter_before_static_mesh")
     _require(isinstance(density_insert, dict), "pcg workflow suite missing insert_density_filter_before_static_mesh")
-    _require_payload_fixture(density_insert, "pcg.graph.edit")
+    _require_payload_fixture(density_insert, "pcg_graph_edit")
     _require(density_insert.get("fixture") == "pcg_graph", f"pcg density insert fixture mismatch: {density_insert}")
     _require(density_insert.get("families") == ["create", "filter", "spawn"], f"pcg density insert families mismatch: {density_insert}")
     _require(density_insert.get("expectedEdges") == 2, f"pcg density insert expectedEdges mismatch: {density_insert}")
 
     attribute_route = case_by_id.get("replace_tag_route_with_attribute_route")
     _require(isinstance(attribute_route, dict), "pcg workflow suite missing replace_tag_route_with_attribute_route")
-    _require_payload_fixture(attribute_route, "pcg.graph.edit")
+    _require_payload_fixture(attribute_route, "pcg_graph_edit")
     _require(
         attribute_route.get("families") == ["create", "filter", "route", "meta"],
         f"pcg attribute route families mismatch: {attribute_route}",
@@ -3136,14 +3136,14 @@ def attach_project(client: McpStdioClient, req_id: int, project_root: Path) -> d
     payload = call_tool(
         client,
         req_id,
-        "project.attach",
+        "project_attach",
         {"projectRoot": str(project_root)},
     )
     if payload.get("attached") is not True:
-        fail(f"project.attach did not attach {project_root}: {_compact_json(payload)}")
+        fail(f"project_attach did not attach {project_root}: {_compact_json(payload)}")
     attached_root = payload.get("projectRoot")
     if attached_root != str(project_root):
-        fail(f"project.attach selected unexpected project root: {_compact_json(payload)}")
+        fail(f"project_attach selected unexpected project root: {_compact_json(payload)}")
     return payload
 
 
@@ -3312,7 +3312,7 @@ def main() -> int:
         "--mcp-server",
         choices=["rust", "python"],
         default="rust",
-        help="MCP server runtime to validate. Both runtimes attach through project.attach.",
+        help="MCP server runtime to validate. Both runtimes attach through project_attach.",
     )
     args = parser.parse_args()
 
@@ -3346,7 +3346,7 @@ def main() -> int:
         print(f"[PASS] tools/list includes required baseline tools ({len(REQUIRED_TOOLS)})")
 
         attach_project(client, 3, project_root)
-        print(f"[PASS] project.attach selected {project_root}")
+        print(f"[PASS] project_attach selected {project_root}")
 
         status_payload = wait_for_status_ready(client, 4000)
         print("[PASS] status query succeeded")
@@ -3371,49 +3371,49 @@ def main() -> int:
             fail(f"play.status missing observability: {play_payload}")
         print("[PASS] play.status is available")
 
-        diagnostic_payload = call_tool(client, 31, "diagnostic.tail", {"fromSeq": 0, "limit": 10})
+        diagnostic_payload = call_tool(client, 31, "diagnostic_tail", {"fromSeq": 0, "limit": 10})
         items = diagnostic_payload.get("items")
         if not isinstance(items, list):
-            fail(f"diagnostic.tail missing items[]: {diagnostic_payload}")
+            fail(f"diagnostic_tail missing items[]: {diagnostic_payload}")
         next_seq = diagnostic_payload.get("nextSeq")
         next_from_seq = diagnostic_payload.get("nextFromSeq")
         latest_seq = diagnostic_payload.get("latestSeq")
         high_watermark = diagnostic_payload.get("highWatermark")
         if not isinstance(next_seq, int) or next_seq < 0:
-            fail(f"diagnostic.tail invalid nextSeq: {diagnostic_payload}")
+            fail(f"diagnostic_tail invalid nextSeq: {diagnostic_payload}")
         if not isinstance(next_from_seq, int) or next_from_seq < 0:
-            fail(f"diagnostic.tail invalid nextFromSeq: {diagnostic_payload}")
+            fail(f"diagnostic_tail invalid nextFromSeq: {diagnostic_payload}")
         if not isinstance(latest_seq, int) or latest_seq < 0:
-            fail(f"diagnostic.tail invalid latestSeq: {diagnostic_payload}")
+            fail(f"diagnostic_tail invalid latestSeq: {diagnostic_payload}")
         if not isinstance(high_watermark, int) or high_watermark < 0:
-            fail(f"diagnostic.tail invalid highWatermark: {diagnostic_payload}")
+            fail(f"diagnostic_tail invalid highWatermark: {diagnostic_payload}")
         if latest_seq != high_watermark:
-            fail(f"diagnostic.tail latestSeq/highWatermark mismatch: {diagnostic_payload}")
+            fail(f"diagnostic_tail latestSeq/highWatermark mismatch: {diagnostic_payload}")
         if not isinstance(diagnostic_payload.get("hasMore"), bool):
-            fail(f"diagnostic.tail invalid hasMore: {diagnostic_payload}")
-        print("[PASS] diagnostic.tail is available")
+            fail(f"diagnostic_tail invalid hasMore: {diagnostic_payload}")
+        print("[PASS] diagnostic_tail is available")
 
-        log_payload = call_tool(client, 32, "log.tail", {"fromSeq": 0, "limit": 10})
+        log_payload = call_tool(client, 32, "log_tail", {"fromSeq": 0, "limit": 10})
         log_items = log_payload.get("items")
         if not isinstance(log_items, list):
-            fail(f"log.tail missing items[]: {log_payload}")
+            fail(f"log_tail missing items[]: {log_payload}")
         log_next_seq = log_payload.get("nextSeq")
         log_next_from_seq = log_payload.get("nextFromSeq")
         log_latest_seq = log_payload.get("latestSeq")
         log_high_watermark = log_payload.get("highWatermark")
         if not isinstance(log_next_seq, int) or log_next_seq < 0:
-            fail(f"log.tail invalid nextSeq: {log_payload}")
+            fail(f"log_tail invalid nextSeq: {log_payload}")
         if not isinstance(log_next_from_seq, int) or log_next_from_seq < 0:
-            fail(f"log.tail invalid nextFromSeq: {log_payload}")
+            fail(f"log_tail invalid nextFromSeq: {log_payload}")
         if not isinstance(log_latest_seq, int) or log_latest_seq < 0:
-            fail(f"log.tail invalid latestSeq: {log_payload}")
+            fail(f"log_tail invalid latestSeq: {log_payload}")
         if not isinstance(log_high_watermark, int) or log_high_watermark < 0:
-            fail(f"log.tail invalid highWatermark: {log_payload}")
+            fail(f"log_tail invalid highWatermark: {log_payload}")
         if log_latest_seq != log_high_watermark:
-            fail(f"log.tail latestSeq/highWatermark mismatch: {log_payload}")
+            fail(f"log_tail latestSeq/highWatermark mismatch: {log_payload}")
         if not isinstance(log_payload.get("hasMore"), bool):
-            fail(f"log.tail invalid hasMore: {log_payload}")
-        print("[PASS] log.tail is available")
+            fail(f"log_tail invalid hasMore: {log_payload}")
+        print("[PASS] log_tail is available")
 
         _ = call_execute_exec_with_retry(
             client=client,
@@ -3474,45 +3474,45 @@ def main() -> int:
         )
         print(f"[PASS] temporary blueprint created: {temp_asset}")
 
-        blueprint_describe = call_tool(client, 6, "blueprint.inspect", {"assetPath": temp_asset})
+        blueprint_describe = call_tool(client, 6, "blueprint_inspect", {"assetPath": temp_asset})
         if blueprint_describe.get("assetPath") != temp_asset:
-            fail(f"blueprint.inspect assetPath mismatch: {blueprint_describe}")
+            fail(f"blueprint_inspect assetPath mismatch: {blueprint_describe}")
         if not isinstance(blueprint_describe.get("variables"), list):
-            fail(f"blueprint.inspect missing variables[]: {blueprint_describe}")
+            fail(f"blueprint_inspect missing variables[]: {blueprint_describe}")
         if not isinstance(blueprint_describe.get("functions"), list):
-            fail(f"blueprint.inspect missing functions[]: {blueprint_describe}")
+            fail(f"blueprint_inspect missing functions[]: {blueprint_describe}")
         if not isinstance(blueprint_describe.get("components"), list):
-            fail(f"blueprint.inspect missing components[]: {blueprint_describe}")
+            fail(f"blueprint_inspect missing components[]: {blueprint_describe}")
 
         material_describe = call_tool(
             client,
             7,
-            "material.node.inspect",
+            "material_node_inspect",
             {"nodeClass": "/Script/Engine.MaterialExpressionConstant"},
         )
         if material_describe.get("mode") != "class":
-            fail(f"material.node.inspect class mode mismatch: {material_describe}")
+            fail(f"material_node_inspect class mode mismatch: {material_describe}")
         if not isinstance(material_describe.get("inputPins"), list):
-            fail(f"material.node.inspect missing inputPins[]: {material_describe}")
+            fail(f"material_node_inspect missing inputPins[]: {material_describe}")
         if not isinstance(material_describe.get("outputPins"), list):
-            fail(f"material.node.inspect missing outputPins[]: {material_describe}")
+            fail(f"material_node_inspect missing outputPins[]: {material_describe}")
         if not isinstance(material_describe.get("properties"), list):
-            fail(f"material.node.inspect missing properties[]: {material_describe}")
+            fail(f"material_node_inspect missing properties[]: {material_describe}")
 
         pcg_describe = call_tool(
             client,
             8,
-            "pcg.node.inspect",
+            "pcg_node_inspect",
             {"nodeClass": "/Script/PCG.PCGTransformPointsSettings"},
         )
         if pcg_describe.get("mode") != "class":
-            fail(f"pcg.node.inspect class mode mismatch: {pcg_describe}")
+            fail(f"pcg_node_inspect class mode mismatch: {pcg_describe}")
         if not isinstance(pcg_describe.get("inputPins"), list):
-            fail(f"pcg.node.inspect missing inputPins[]: {pcg_describe}")
+            fail(f"pcg_node_inspect missing inputPins[]: {pcg_describe}")
         if not isinstance(pcg_describe.get("outputPins"), list):
-            fail(f"pcg.node.inspect missing outputPins[]: {pcg_describe}")
+            fail(f"pcg_node_inspect missing outputPins[]: {pcg_describe}")
         if not isinstance(pcg_describe.get("properties"), list):
-            fail(f"pcg.node.inspect missing properties[]: {pcg_describe}")
+            fail(f"pcg_node_inspect missing properties[]: {pcg_describe}")
         print("[PASS] domain describe class-mode smoke validated")
 
         # --- UserDefinedStruct asset smoke ---
@@ -3520,7 +3520,7 @@ def main() -> int:
         struct_create = call_tool(
             client,
             90,
-            "asset.create",
+            "asset_create",
             {
                 "kind": "userDefinedStruct",
                 "assetPath": temp_struct_asset,
@@ -3536,32 +3536,32 @@ def main() -> int:
         )
         struct_payload = struct_create.get("struct")
         if not isinstance(struct_payload, dict):
-            fail(f"asset.create userDefinedStruct missing struct payload: {struct_create}")
+            fail(f"asset_create userDefinedStruct missing struct payload: {struct_create}")
         if struct_payload.get("assetPath") != temp_struct_asset:
-            fail(f"asset.create userDefinedStruct assetPath mismatch: {struct_create}")
+            fail(f"asset_create userDefinedStruct assetPath mismatch: {struct_create}")
         if struct_payload.get("fieldCount") != 1:
-            fail(f"asset.create userDefinedStruct expected one field: {struct_create}")
+            fail(f"asset_create userDefinedStruct expected one field: {struct_create}")
         print(f"[PASS] temporary UserDefinedStruct created: {temp_struct_asset}")
 
         struct_inspect = call_tool(
             client,
             91,
-            "asset.inspect",
+            "asset_inspect",
             {"kind": "userDefinedStruct", "assetPath": temp_struct_asset},
         )
         fields = struct_inspect.get("fields")
         if not isinstance(fields, list) or not fields:
-            fail(f"asset.inspect userDefinedStruct missing fields: {struct_inspect}")
+            fail(f"asset_inspect userDefinedStruct missing fields: {struct_inspect}")
         if fields[0].get("name") != "DisplayName":
-            fail(f"asset.inspect userDefinedStruct field name mismatch: {struct_inspect}")
+            fail(f"asset_inspect userDefinedStruct field name mismatch: {struct_inspect}")
         if not isinstance(struct_inspect.get("revision"), str) or not struct_inspect.get("revision"):
-            fail(f"asset.inspect userDefinedStruct missing revision: {struct_inspect}")
-        print("[PASS] asset.inspect userDefinedStruct validated")
+            fail(f"asset_inspect userDefinedStruct missing revision: {struct_inspect}")
+        print("[PASS] asset_inspect userDefinedStruct validated")
 
         struct_edit = call_tool(
             client,
             92,
-            "asset.edit",
+            "asset_edit",
             {
                 "kind": "userDefinedStruct",
                 "assetPath": temp_struct_asset,
@@ -3575,11 +3575,11 @@ def main() -> int:
         )
         edited_struct = struct_edit.get("struct")
         if not isinstance(edited_struct, dict) or edited_struct.get("fieldCount") != 2:
-            fail(f"asset.edit userDefinedStruct addField did not add a field: {struct_edit}")
+            fail(f"asset_edit userDefinedStruct addField did not add a field: {struct_edit}")
         edited_fields = edited_struct.get("fields")
         if not isinstance(edited_fields, list) or not any(field.get("name") == "Score" for field in edited_fields):
-            fail(f"asset.edit userDefinedStruct missing added Score field: {struct_edit}")
-        print("[PASS] asset.edit userDefinedStruct addField validated")
+            fail(f"asset_edit userDefinedStruct missing added Score field: {struct_edit}")
+        print("[PASS] asset_edit userDefinedStruct addField validated")
 
         validate_active_test_fixtures_are_current_contract()
         validate_archived_workspace_catalogs()
@@ -3626,34 +3626,34 @@ def main() -> int:
         )
         print(f"[PASS] temporary WidgetBlueprint created: {temp_wbp_asset}")
 
-        wp = call_tool(client, 2005, "widget.palette", {"assetPath": temp_wbp_asset, "query": "TextBlock", "limit": 10})
+        wp = call_tool(client, 2005, "widget_palette", {"assetPath": temp_wbp_asset, "query": "TextBlock", "limit": 10})
         widget_entries = wp.get("entries")
         if not isinstance(widget_entries, list) or not widget_entries:
-            fail(f"widget.palette query TextBlock returned no entries: {wp}")
+            fail(f"widget_palette query TextBlock returned no entries: {wp}")
         text_entry = next((entry for entry in widget_entries if "Text" in str(entry.get("label", "")) or "TextBlock" in str(entry)), widget_entries[0])
         if not text_entry.get("executable"):
-            fail(f"widget.palette TextBlock entry should be executable: {text_entry}")
+            fail(f"widget_palette TextBlock entry should be executable: {text_entry}")
         payload = text_entry.get("payload")
         if not isinstance(payload, dict) or not isinstance(payload.get("widgetClass"), str) or not payload.get("widgetClass"):
-            fail(f"widget.palette TextBlock entry missing payload.widgetClass: {text_entry}")
-        print("[PASS] widget.palette TextBlock query validated")
+            fail(f"widget_palette TextBlock entry missing payload.widgetClass: {text_entry}")
+        print("[PASS] widget_palette TextBlock query validated")
 
-        canvas_palette = call_tool(client, 2006, "widget.palette", {"assetPath": temp_wbp_asset, "query": "CanvasPanel", "limit": 20})
+        canvas_palette = call_tool(client, 2006, "widget_palette", {"assetPath": temp_wbp_asset, "query": "CanvasPanel", "limit": 20})
         canvas_entries = canvas_palette.get("entries")
         if not isinstance(canvas_entries, list) or not canvas_entries:
-            fail(f"widget.palette query CanvasPanel returned no entries: {canvas_palette}")
+            fail(f"widget_palette query CanvasPanel returned no entries: {canvas_palette}")
         canvas_entry = next((entry for entry in canvas_entries if "CanvasPanel" in str(entry.get("payload", {}))), canvas_entries[0])
 
-        wq = call_tool(client, 201, "widget.tree.inspect", {"assetPath": temp_wbp_asset})
+        wq = call_tool(client, 201, "widget_tree_inspect", {"assetPath": temp_wbp_asset})
         if not isinstance(wq.get("assetPath"), str) or wq.get("assetPath") != temp_wbp_asset:
-            fail(f"widget.tree.inspect missing or wrong assetPath: {wq}")
+            fail(f"widget_tree_inspect missing or wrong assetPath: {wq}")
         if not isinstance(wq.get("revision"), str) or not wq.get("revision"):
-            fail(f"widget.tree.inspect missing revision: {wq}")
+            fail(f"widget_tree_inspect missing revision: {wq}")
         if not isinstance(wq.get("diagnostics"), list):
-            fail(f"widget.tree.inspect missing diagnostics[]: {wq}")
-        print("[PASS] widget.tree.inspect structure validated")
+            fail(f"widget_tree_inspect missing diagnostics[]: {wq}")
+        print("[PASS] widget_tree_inspect structure validated")
 
-        wm = call_tool(client, 202, "widget.tree.edit", {
+        wm = call_tool(client, 202, "widget_tree_edit", {
             "assetPath": temp_wbp_asset,
             "commands": [{"kind": "addFromPalette",
                 "entry": canvas_entry,
@@ -3662,36 +3662,36 @@ def main() -> int:
             }],
         })
         if not isinstance(wm.get("opResults"), list) or not wm.get("opResults"):
-            fail(f"widget.tree.edit missing opResults: {wm}")
+            fail(f"widget_tree_edit missing opResults: {wm}")
         first_op = wm["opResults"][0] if isinstance(wm["opResults"][0], dict) else {}
         if not first_op.get("ok"):
-            fail(f"widget.tree.edit addFromPalette failed: {first_op}")
+            fail(f"widget_tree_edit addFromPalette failed: {first_op}")
         if wm.get("newRevision") == wm.get("previousRevision"):
-            fail(f"widget.tree.edit did not update revision: {wm}")
-        print("[PASS] widget.tree.edit addFromPalette validated")
+            fail(f"widget_tree_edit did not update revision: {wm}")
+        print("[PASS] widget_tree_edit addFromPalette validated")
 
-        wi = call_tool(client, 2025, "widget.inspect", {
+        wi = call_tool(client, 2025, "widget_inspect", {
             "assetPath": temp_wbp_asset,
             "widget": {"name": "SmokeCanvas"},
         })
         if wi.get("isError") is not False:
-            fail(f"widget.inspect instance should report isError=false: {wi}")
+            fail(f"widget_inspect instance should report isError=false: {wi}")
         if not isinstance(wi.get("properties"), list) or not wi.get("properties"):
-            fail(f"widget.inspect instance missing properties[]: {wi}")
+            fail(f"widget_inspect instance missing properties[]: {wi}")
         if not isinstance(wi.get("currentValues"), dict):
-            fail(f"widget.inspect instance missing currentValues: {wi}")
+            fail(f"widget_inspect instance missing currentValues: {wi}")
         if not isinstance(wi.get("slotCurrentValues"), dict):
-            fail(f"widget.inspect instance missing slotCurrentValues: {wi}")
-        print("[PASS] widget.inspect instance validated")
+            fail(f"widget_inspect instance missing slotCurrentValues: {wi}")
+        print("[PASS] widget_inspect instance validated")
 
-        wv = call_tool(client, 203, "widget.compile", {"assetPath": temp_wbp_asset})
+        wv = call_tool(client, 203, "widget_compile", {"assetPath": temp_wbp_asset})
         if wv.get("status") not in {"ok", "error"}:
-            fail(f"widget.compile unexpected status: {wv}")
+            fail(f"widget_compile unexpected status: {wv}")
         if wv.get("assetPath") != temp_wbp_asset:
-            fail(f"widget.compile wrong assetPath: {wv}")
+            fail(f"widget_compile wrong assetPath: {wv}")
         if not isinstance(wv.get("diagnostics"), list):
-            fail(f"widget.compile missing diagnostics[]: {wv}")
-        print("[PASS] widget.compile validated")
+            fail(f"widget_compile missing diagnostics[]: {wv}")
+        print("[PASS] widget_compile validated")
 
         print("[PASS] Bridge verification complete")
         return 0

@@ -14,10 +14,10 @@ use sequence cursors so an agent can continue from the last seen event.
 
 | Tool | Purpose |
 | --- | --- |
-| `diagnostic.tail` | Read structured LOOMLE diagnostic events. |
-| `log.tail` | Read Unreal output log events. |
+| `diagnostic_tail` | Read structured LOOMLE diagnostic events. |
+| `log_tail` | Read Unreal output log events. |
 
-## `diagnostic.tail`
+## `diagnostic_tail`
 
 Reads structured LOOMLE diagnostic events.
 
@@ -37,7 +37,7 @@ Reads structured LOOMLE diagnostic events.
 Use diagnostics when the issue is likely in LOOMLE's structured runtime events:
 tool errors, bridge state, validation failures, or asset-specific diagnostics.
 
-## `log.tail`
+## `log_tail`
 
 Reads Unreal output log events.
 

@@ -15,7 +15,7 @@ Usage:
   install.sh [--version <Version>] [--manifest-url <URL>] [--asset-url <URL>] [--install-root <Path>]
 
 Installs LOOMLE globally for the current user. Unreal projects are prepared
-later through the MCP tool project.install.
+later through the MCP tool project_install.
 EOF
 }
 

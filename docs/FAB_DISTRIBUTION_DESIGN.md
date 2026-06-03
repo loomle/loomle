@@ -17,7 +17,7 @@ The Fab package should make first install easier for Unreal users:
 The goal is one product with two installation entrypoints:
 
 - Website/GitHub release installer: installs the global CLI first, then
-  installs project support with `project.install`.
+  installs project support with `project_install`.
 - Fab installer: installs the UE plugin first, then exposes a bundled Python
   MCP server from inside the plugin package.
 
@@ -434,9 +434,9 @@ Fab installs need one clear rule:
 - Native `loomle` owns only the native CLI and native project-local plugin
   installs.
 
-If native `project.install` detects a Fab/Engine-managed `LoomleBridge`, it
+If native `project_install` detects a Fab/Engine-managed `LoomleBridge`, it
 must not overwrite it. The native MCP server can still connect to the running
-Fab plugin through `project.attach`.
+Fab plugin through `project_attach`.
 
 The plugin should report:
 
@@ -486,7 +486,7 @@ The first Fab technical review made the package rules more concrete:
   dependency metadata under plugin resources.
 - Fab may require the Python MCP runtime to be documented as a developer tool
   dependency rather than an editor runtime feature.
-- A Fab Engine Plugin install changes the meaning of `project.install`; the
+- A Fab Engine Plugin install changes the meaning of `project_install`; the
   CLI must not overwrite a plugin that Fab manages.
 - Automatic Claude/Codex config writes from inside UE may feel surprising. The
   panel must make this explainable by writing only after the user opens the

@@ -180,7 +180,11 @@ fn manifest_tool_matches_domain(tool: &serde_json::Value, domain: &str) -> bool 
     }
     tool.get("name")
         .and_then(|value| value.as_str())
-        .is_some_and(|name| name == domain || name.starts_with(&format!("{domain}.")))
+        .is_some_and(|name| {
+            name == domain
+                || name.starts_with(&format!("{domain}."))
+                || name.starts_with(&format!("{domain}_"))
+        })
 }
 
 fn manifest_tool_schema_payload(

@@ -185,7 +185,7 @@ def make_server(
                 }
             )
 
-        if name == "project.list":
+        if name == "project_list":
             try:
                 status = str(arguments.get("status") or "online")
                 include_diagnostics = bool(arguments.get("includeDiagnostics") or False)
@@ -208,7 +208,7 @@ def make_server(
                 }
             )
 
-        if name == "project.attach":
+        if name == "project_attach":
             project_id = arguments.get("projectId")
             project_root = arguments.get("projectRoot")
             if not isinstance(project_id, str):
@@ -256,7 +256,7 @@ def make_server(
                 }
             )
 
-        if name == "schema.inspect":
+        if name == "schema_inspect":
             return structured_result(
                 manifest.inspect_schema(
                     domain=str(arguments.get("domain", "")),

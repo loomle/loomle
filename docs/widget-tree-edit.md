@@ -1,6 +1,6 @@
 # Widget Tree Edit
 
-`widget.tree.edit` mutates a WidgetBlueprint's `WidgetTree`.
+`widget_tree_edit` mutates a WidgetBlueprint's `WidgetTree`.
 
 The tool follows the shared
 [`Mutation Dry Run Contract`](MUTATION_DRY_RUN_CONTRACT.md): `dryRun=true`
@@ -9,16 +9,16 @@ edit, then stops before mutating UE state.
 
 ## Boundary
 
-`widget.tree.edit` owns WidgetTree structure and Blueprint-visible widget
+`widget_tree_edit` owns WidgetTree structure and Blueprint-visible widget
 identity:
 
-- create a widget from a `widget.palette` entry
+- create a widget from a `widget_palette` entry
 - remove a widget subtree
 - rename a widget
 - move a widget under another panel widget
 - set whether a widget is exposed as a Blueprint variable
 
-It does not create Blueprint graph event nodes. Use `widget.event.create` for
+It does not create Blueprint graph event nodes. Use `widget_event_create` for
 component-bound widget events.
 
 ## Inputs
@@ -40,13 +40,13 @@ continuing past a known failure.
 ## Commands
 
 `addFromPalette` creates one widget from a palette entry. Public calls should
-pass the full selected `widget.palette` entry rather than guessing classes.
+pass the full selected `widget_palette` entry rather than guessing classes.
 
 ```json
 {
   "kind": "addFromPalette",
   "entry": {
-    "id": "widget.palette:TextBlock",
+    "id": "widget_palette:TextBlock",
     "payload": { "widgetClass": "/Script/UMG.TextBlock" }
   },
   "name": "TitleText",
@@ -110,12 +110,12 @@ Successful dry runs and successful applies return the same structural envelope:
   "dryRun": true,
   "applied": false,
   "assetPath": "/Game/UI/WBP_Menu",
-  "operation": "widget.tree.edit",
+  "operation": "widget_tree_edit",
   "previousRevision": "rev-a",
   "newRevision": "rev-a",
   "planned": {
-    "tool": "widget.tree.edit",
-    "operation": "widget.tree.edit",
+    "tool": "widget_tree_edit",
+    "operation": "widget_tree_edit",
     "commandCount": 1,
     "commands": []
   },

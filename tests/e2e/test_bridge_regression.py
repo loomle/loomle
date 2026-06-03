@@ -64,17 +64,17 @@ def call_domain_tool(
     tool_name = f"{domain}.{action}"
     if domain == "blueprint":
         tool_name = {
-            "list": "blueprint.graph.list",
-            "query": "blueprint.graph.inspect",
-            "mutate": "blueprint.graph.edit",
-            "describe": "blueprint.inspect",
-            "compile": "blueprint.compile",
+            "list": "blueprint_graph_list",
+            "query": "blueprint_graph_inspect",
+            "mutate": "blueprint_graph_edit",
+            "describe": "blueprint_inspect",
+            "compile": "blueprint_compile",
         }.get(action, tool_name)
         if action == "query":
             arguments = blueprint_graph_inspect_args(arguments)
     elif domain == "material":
         if action == "query":
-            return call_tool(client, request_id, "material.graph.inspect", arguments, expect_error=expect_error)
+            return call_tool(client, request_id, "material_graph_inspect", arguments, expect_error=expect_error)
         if action == "mutate":
             return call_material_graph_edit_for_regression(client, request_id, arguments, expect_error=expect_error)
     elif domain == "pcg":
@@ -92,9 +92,9 @@ def call_domain_tool(
         if action == "mutate":
             return call_pcg_graph_edit_for_regression(client, request_id, arguments, expect_error=expect_error)
         if action == "describe":
-            return call_tool(client, request_id, "pcg.node.inspect", arguments, expect_error=expect_error)
+            return call_tool(client, request_id, "pcg_node_inspect", arguments, expect_error=expect_error)
         if action == "verify":
-            return call_tool(client, request_id, "pcg.compile", arguments, expect_error=expect_error)
+            return call_tool(client, request_id, "pcg_compile", arguments, expect_error=expect_error)
     return call_tool(client, request_id, tool_name, arguments, expect_error=expect_error)
 
 
@@ -133,7 +133,7 @@ PCG_PALETTE_ENTRY_BY_CLASS: dict[str, dict] = {}
 
 def bp_branch(position: dict | None = None, *, alias: str | None = None) -> dict:
     if BP_BRANCH_ENTRY is None:
-        fail("bp_branch helper used before blueprint.graph.palette Branch entry was resolved")
+        fail("bp_branch helper used before blueprint_graph_palette Branch entry was resolved")
     command = {"kind": "addFromPalette", "entry": BP_BRANCH_ENTRY}
     if position is not None:
         command["position"] = position
@@ -150,7 +150,7 @@ def find_palette_entry(
     preferred_label: str | None = None,
     preferred_node_class: str | None = None,
 ) -> dict:
-    payload = call_tool(client, request_id, "blueprint.graph.palette", {
+    payload = call_tool(client, request_id, "blueprint_graph_palette", {
         "assetPath": asset_path,
         "graph": {"name": "EventGraph"},
         "query": query,
@@ -158,7 +158,7 @@ def find_palette_entry(
     })
     entries = payload.get("entries")
     if not isinstance(entries, list) or not entries:
-        fail(f"blueprint.graph.palette query {query!r} returned no entries: {payload}")
+        fail(f"blueprint_graph_palette query {query!r} returned no entries: {payload}")
     if preferred_node_class is not None:
         entry = next((
             item for item in entries
@@ -167,15 +167,15 @@ def find_palette_entry(
         ), None)
         if entry is None:
             label_suffix = f" with label {preferred_label!r}" if preferred_label is not None else ""
-            fail(f"blueprint.graph.palette query {query!r} did not return nodeClass {preferred_node_class!r}{label_suffix}: {payload}")
+            fail(f"blueprint_graph_palette query {query!r} did not return nodeClass {preferred_node_class!r}{label_suffix}: {payload}")
     elif preferred_label is None:
         entry = entries[0]
     else:
         entry = next((item for item in entries if item.get("label") == preferred_label), None)
         if entry is None:
-            fail(f"blueprint.graph.palette query {query!r} did not return label {preferred_label!r}: {payload}")
+            fail(f"blueprint_graph_palette query {query!r} did not return label {preferred_label!r}: {payload}")
     if not isinstance(entry, dict) or not entry.get("id"):
-        fail(f"blueprint.graph.palette query {query!r} entry missing id: {entry}")
+        fail(f"blueprint_graph_palette query {query!r} entry missing id: {entry}")
     return entry
 
 
@@ -192,7 +192,7 @@ def find_pcg_palette_entry_by_class(
     payload = call_tool(
         client,
         request_id,
-        "pcg.palette",
+        "pcg_palette",
         {
             "assetPath": asset_path,
             "query": settings_class,
@@ -202,7 +202,7 @@ def find_pcg_palette_entry_by_class(
     )
     entries = payload.get("entries")
     if not isinstance(entries, list) or not entries:
-        fail(f"pcg.palette query for settingsClass {settings_class!r} returned no entries: {payload}")
+        fail(f"pcg_palette query for settingsClass {settings_class!r} returned no entries: {payload}")
 
     entry = next(
         (
@@ -215,7 +215,7 @@ def find_pcg_palette_entry_by_class(
         None,
     )
     if not isinstance(entry, dict):
-        fail(f"pcg.palette query did not return settingsClass {settings_class!r}: {payload}")
+        fail(f"pcg_palette query did not return settingsClass {settings_class!r}: {payload}")
     PCG_PALETTE_ENTRY_BY_CLASS[settings_class] = entry
     return entry
 
@@ -233,7 +233,7 @@ def find_material_palette_entry_by_class(
     payload = call_tool(
         client,
         request_id,
-        "material.palette",
+        "material_palette",
         {
             "assetPath": asset_path,
             "query": node_class_path,
@@ -243,7 +243,7 @@ def find_material_palette_entry_by_class(
     )
     entries = payload.get("entries")
     if not isinstance(entries, list) or not entries:
-        fail(f"material.palette query for nodeClassPath {node_class_path!r} returned no entries: {payload}")
+        fail(f"material_palette query for nodeClassPath {node_class_path!r} returned no entries: {payload}")
 
     entry = next(
         (
@@ -256,7 +256,7 @@ def find_material_palette_entry_by_class(
         None,
     )
     if not isinstance(entry, dict):
-        fail(f"material.palette query did not return nodeClassPath {node_class_path!r}: {payload}")
+        fail(f"material_palette query did not return nodeClassPath {node_class_path!r}: {payload}")
     MATERIAL_PALETTE_ENTRY_BY_CLASS[node_class_path] = entry
     return entry
 
@@ -401,7 +401,7 @@ def call_material_graph_edit_for_regression(
             }
             continue
         if op_name == "compile":
-            compile_payload = call_tool(client, request_id * 100 + index, "material.compile", {"assetPath": asset_path})
+            compile_payload = call_tool(client, request_id * 100 + index, "material_compile", {"assetPath": asset_path})
             compat_results[index] = {
                 "index": index,
                 "op": "compile",
@@ -415,7 +415,7 @@ def call_material_graph_edit_for_regression(
             commands.append(command)
 
     if not commands and compat_results:
-        revision_payload = call_tool(client, request_id * 1000 + 99, "material.graph.inspect", {"assetPath": asset_path})
+        revision_payload = call_tool(client, request_id * 1000 + 99, "material_graph_inspect", {"assetPath": asset_path})
         revision = revision_payload.get("revision", "compat")
         return {
             "isError": False,
@@ -430,7 +430,7 @@ def call_material_graph_edit_for_regression(
     payload = call_tool(
         client,
         request_id,
-        "material.graph.edit",
+        "material_graph_edit",
         {
             "assetPath": asset_path,
             "commands": commands,
@@ -581,7 +581,7 @@ def call_pcg_graph_inspect_for_regression(client: McpStdioClient, request_id: in
             supported_filter["text"] = filter_args["text"]
     if supported_filter:
         graph_args["filter"] = supported_filter
-    payload = call_tool(client, request_id, "pcg.graph.inspect", graph_args)
+    payload = call_tool(client, request_id, "pcg_graph_inspect", graph_args)
     if isinstance(node_classes, list):
         snapshot = payload.get("semanticSnapshot")
         nodes = snapshot.get("nodes") if isinstance(snapshot, dict) else None
@@ -623,7 +623,7 @@ def call_pcg_graph_edit_for_regression(
         payload = {
             "isError": True,
             "code": "UNSUPPORTED_OP",
-            "message": "pcg.graph.edit does not support runScript.",
+            "message": "pcg_graph_edit does not support runScript.",
             "opResults": [{
                 "index": 0,
                 "op": "runscript",
@@ -631,7 +631,7 @@ def call_pcg_graph_edit_for_regression(
                 "skipped": False,
                 "changed": False,
                 "errorCode": "UNSUPPORTED_OP",
-                "errorMessage": "pcg.graph.edit does not support runScript.",
+                "errorMessage": "pcg_graph_edit does not support runScript.",
             }],
         }
         if not expect_error:
@@ -675,7 +675,7 @@ def call_pcg_graph_edit_for_regression(
             }
             continue
         if str(op.get("op", "")).lower() == "compile":
-            compile_payload = call_tool(client, request_id * 100 + index, "pcg.compile", {"assetPath": asset_path})
+            compile_payload = call_tool(client, request_id * 100 + index, "pcg_compile", {"assetPath": asset_path})
             compiled = (
                 compile_payload.get("compileReport", {}).get("compiled")
                 if isinstance(compile_payload.get("compileReport"), dict)
@@ -716,7 +716,7 @@ def call_pcg_graph_edit_for_regression(
     payload = call_tool(
         client,
         request_id,
-        "pcg.graph.edit",
+        "pcg_graph_edit",
         {
             "assetPath": asset_path,
             "commands": commands,
@@ -750,17 +750,17 @@ def bp_set_default(node_id: str, pin: str, value) -> dict:
 def widget_op_ok(payload: dict, index: int = 0) -> dict:
     op_results = payload.get("opResults")
     if not isinstance(op_results, list) or len(op_results) <= index:
-        fail(f"widget.tree.edit opResults missing at index {index}: {payload}")
+        fail(f"widget_tree_edit opResults missing at index {index}: {payload}")
     entry = op_results[index] if isinstance(op_results[index], dict) else {}
     if not entry.get("ok"):
-        fail(f"widget.tree.edit op[{index}] not ok: {entry}")
+        fail(f"widget_tree_edit op[{index}] not ok: {entry}")
     return entry
 
 
 def widget_palette_entry(widget_class: str) -> dict:
     class_name = widget_class.rsplit(".", 1)[-1].rsplit("/", 1)[-1]
     return {
-        "id": f"widget.palette:test:{class_name}",
+        "id": f"widget_palette:test:{class_name}",
         "kind": "native",
         "label": class_name,
         "executable": True,
@@ -826,7 +826,7 @@ def widget_tree_edit(
     for field in ["dryRun", "expectedRevision"]:
         if field in arguments:
             payload[field] = arguments[field]
-    return call_tool(client, request_id, "widget.tree.edit", payload, expect_error=expect_error)
+    return call_tool(client, request_id, "widget_tree_edit", payload, expect_error=expect_error)
 
 
 def widget_edit(
@@ -852,7 +852,7 @@ def widget_edit(
     for field in ["dryRun", "expectedRevision"]:
         if field in arguments:
             payload[field] = arguments[field]
-    return call_tool(client, request_id, "widget.edit", payload, expect_error=expect_error)
+    return call_tool(client, request_id, "widget_edit", payload, expect_error=expect_error)
 
 
 def widget_tree_inspect(
@@ -866,7 +866,7 @@ def widget_tree_inspect(
     for field in ["view", "filter"]:
         if field in arguments:
             payload[field] = arguments[field]
-    return call_tool(client, request_id, "widget.tree.inspect", payload, expect_error=expect_error)
+    return call_tool(client, request_id, "widget_tree_inspect", payload, expect_error=expect_error)
 
 
 def widget_inspect(
@@ -879,7 +879,7 @@ def widget_inspect(
     payload = dict(arguments)
     if "widgetName" in payload:
         payload["widget"] = {"name": payload.pop("widgetName")}
-    return call_tool(client, request_id, "widget.inspect", payload, expect_error=expect_error)
+    return call_tool(client, request_id, "widget_inspect", payload, expect_error=expect_error)
 
 
 def mutate_with_plan_steps(
@@ -971,11 +971,11 @@ def query_nodes(
         except SystemExit:
             if attempt >= max_attempts:
                 raise
-            print(f"[WARN] blueprint.graph.inspect retrying after failure ({attempt}/{max_attempts})...")
+            print(f"[WARN] blueprint_graph_inspect retrying after failure ({attempt}/{max_attempts})...")
             time.sleep(retry_delay_s)
 
     if payload is None:
-        fail("blueprint.graph.inspect retry loop ended without payload")
+        fail("blueprint_graph_inspect retry loop ended without payload")
 
     return blueprint_summary_nodes(payload)
 
@@ -1034,13 +1034,13 @@ def query_blueprint_graph_summary(
     payload = call_tool(
         client,
         request_id,
-        "blueprint.graph.inspect",
+        "blueprint_graph_inspect",
         {"assetPath": asset_path, "graph": {"name": graph_name}, "view": "summary"},
     )
     if payload.get("view") != "summary":
-        fail(f"blueprint.graph.inspect summary returned wrong view: {payload}")
+        fail(f"blueprint_graph_inspect summary returned wrong view: {payload}")
     if not isinstance(payload.get("meta"), dict):
-        fail(f"blueprint.graph.inspect summary missing meta: {payload}")
+        fail(f"blueprint_graph_inspect summary missing meta: {payload}")
     return payload
 
 
@@ -1048,7 +1048,7 @@ def blueprint_total_nodes(payload: dict) -> int:
     meta = payload.get("meta")
     value = meta.get("totalNodes") if isinstance(meta, dict) else None
     if not isinstance(value, int):
-        fail(f"blueprint.graph.inspect summary missing meta.totalNodes: {payload}")
+        fail(f"blueprint_graph_inspect summary missing meta.totalNodes: {payload}")
     return value
 
 
@@ -1064,12 +1064,12 @@ def inspect_blueprint_node(
     payload = call_tool(
         client,
         request_id,
-        "blueprint.node.inspect",
+        "blueprint_node_inspect",
         {"assetPath": asset_path, "graph": {"name": graph_name}, "node": {"id": node_id}},
         expect_error=expect_error,
     )
     if not expect_error and not isinstance(payload.get("node"), dict):
-        fail(f"blueprint.node.inspect missing node: {payload}")
+        fail(f"blueprint_node_inspect missing node: {payload}")
     return payload
 
 
@@ -1169,7 +1169,7 @@ def query_graph_payload(
         arguments["cursor"] = cursor
     payload = call_domain_tool(client, request_id, "blueprint", "query", arguments)
     if not isinstance(payload.get("meta"), dict):
-        fail(f"blueprint.graph.inspect missing meta: {payload}")
+        fail(f"blueprint_graph_inspect missing meta: {payload}")
     return payload
 
 
@@ -1342,7 +1342,7 @@ def main() -> int:
         "--mcp-server",
         choices=["rust", "python"],
         default="rust",
-        help="MCP server runtime to validate. Both runtimes attach through project.attach.",
+        help="MCP server runtime to validate. Both runtimes attach through project_attach.",
     )
     parser.add_argument(
         "--close-editor-on-success",
@@ -1388,7 +1388,7 @@ def main() -> int:
         print("[PASS] tools/list baseline tools available")
 
         attach_project(client, 3, project_root)
-        print(f"[PASS] project.attach selected {project_root}")
+        print(f"[PASS] project_attach selected {project_root}")
 
         wait_for_bridge_ready(client)
 
@@ -1524,19 +1524,19 @@ def main() -> int:
 
         blueprint_desc = call_domain_tool(client, 3, "blueprint", "describe", {"assetPath": temp_asset}, expect_error=True)
         if extract_nested_error_code(blueprint_desc) not in {"ASSET_NOT_FOUND", "LOAD_ASSET_FAILED", "INVALID_ARGUMENT"}:
-            fail(f"blueprint.inspect pre-create error shape mismatch: {blueprint_desc}")
-        print("[PASS] blueprint.inspect error path validated")
+            fail(f"blueprint_inspect pre-create error shape mismatch: {blueprint_desc}")
+        print("[PASS] blueprint_inspect error path validated")
 
         missing_graph_list = call_tool(
             client,
             31,
-            "blueprint.graph.list",
+            "blueprint_graph_list",
             {"assetPath": temp_asset},
             expect_error=True,
         )
         if extract_nested_error_code(missing_graph_list) != "ASSET_NOT_FOUND":
-            fail(f"blueprint.graph.list missing-asset error code mismatch: {missing_graph_list}")
-        print("[PASS] blueprint.graph.list missing-asset error path validated")
+            fail(f"blueprint_graph_list missing-asset error code mismatch: {missing_graph_list}")
+        print("[PASS] blueprint_graph_list missing-asset error path validated")
 
         create_payload = call_tool(
             client,
@@ -1562,29 +1562,29 @@ def main() -> int:
 
         global BP_BRANCH_ENTRY
         BP_BRANCH_ENTRY = find_palette_entry(client, 401, temp_asset, "Branch", "Branch")
-        print("[PASS] blueprint.graph.palette Branch entry resolved")
+        print("[PASS] blueprint_graph_palette Branch entry resolved")
 
         blueprint_list = call_domain_tool(client, 5, "blueprint", "list", {"assetPath": temp_asset})
         graphs = blueprint_list.get("graphs")
         if not isinstance(graphs, list):
-            fail(f"blueprint.graph.list missing graphs[]: {blueprint_list}")
+            fail(f"blueprint_graph_list missing graphs[]: {blueprint_list}")
         if not any(isinstance(g, dict) and g.get("graphName") == "EventGraph" for g in graphs):
-            fail(f"blueprint.graph.list did not include EventGraph: {blueprint_list}")
+            fail(f"blueprint_graph_list did not include EventGraph: {blueprint_list}")
         event_graph = next(
             (g for g in graphs if isinstance(g, dict) and g.get("graphName") == "EventGraph"),
             None,
         )
         if not isinstance(event_graph, dict):
-            fail(f"blueprint.graph.list event graph entry missing: {blueprint_list}")
+            fail(f"blueprint_graph_list event graph entry missing: {blueprint_list}")
         event_graph_ref = event_graph.get("graphRef")
         if not isinstance(event_graph_ref, dict) or event_graph_ref.get("kind") != "asset":
             fail(f"graph.list event graph graphRef missing/invalid: {event_graph}")
-        print("[PASS] blueprint.graph.list validated")
+        print("[PASS] blueprint_graph_list validated")
 
         enum_create_payload = call_tool(
             client,
             580,
-            "asset.create",
+            "asset_create",
             {
                 "kind": "enum",
                 "assetPath": temp_enum_asset,
@@ -1595,18 +1595,18 @@ def main() -> int:
             },
         )
         if enum_create_payload.get("applied") is not True:
-            fail(f"asset.create enum did not apply: {enum_create_payload}")
+            fail(f"asset_create enum did not apply: {enum_create_payload}")
         enum_path = enum_create_payload.get("enumPath")
         if not isinstance(enum_path, str) or "." not in enum_path:
-            fail(f"asset.create enum missing enumPath: {enum_create_payload}")
-        enum_inspect_payload = call_tool(client, 581, "asset.inspect", {"kind": "enum", "assetPath": temp_enum_asset})
+            fail(f"asset_create enum missing enumPath: {enum_create_payload}")
+        enum_inspect_payload = call_tool(client, 581, "asset_inspect", {"kind": "enum", "assetPath": temp_enum_asset})
         enum_entries = enum_inspect_payload.get("entries")
         if not isinstance(enum_entries, list) or [entry.get("name") for entry in enum_entries if isinstance(entry, dict)] != ["Idle", "Active"]:
-            fail(f"asset.inspect enum entries mismatch: {enum_inspect_payload}")
+            fail(f"asset_inspect enum entries mismatch: {enum_inspect_payload}")
         enum_update_payload = call_tool(
             client,
             582,
-            "asset.edit",
+            "asset_edit",
             {
                 "kind": "enum",
                 "assetPath": temp_enum_asset,
@@ -1616,14 +1616,14 @@ def main() -> int:
             },
         )
         if enum_update_payload.get("applied") is not True:
-            fail(f"asset.edit enum updateEntries did not apply: {enum_update_payload}")
+            fail(f"asset_edit enum updateEntries did not apply: {enum_update_payload}")
         enum_updated_entries = enum_update_payload.get("entries")
         if not isinstance(enum_updated_entries, list) or [entry.get("name") for entry in enum_updated_entries if isinstance(entry, dict)] != ["Idle", "Active", "Complete"]:
-            fail(f"asset.edit enum updateEntries entries mismatch: {enum_update_payload}")
+            fail(f"asset_edit enum updateEntries entries mismatch: {enum_update_payload}")
         metadata_payload = call_tool(
             client,
             583,
-            "asset.edit",
+            "asset_edit",
             {
                 "assetPath": temp_enum_asset,
                 "operation": "updateMetadata",
@@ -1631,11 +1631,11 @@ def main() -> int:
             },
         )
         if metadata_payload.get("applied") is not True:
-            fail(f"asset.edit updateMetadata did not apply: {metadata_payload}")
+            fail(f"asset_edit updateMetadata did not apply: {metadata_payload}")
         metadata_remove_payload = call_tool(
             client,
             584,
-            "asset.edit",
+            "asset_edit",
             {
                 "assetPath": temp_enum_asset,
                 "operation": "updateMetadata",
@@ -1643,7 +1643,7 @@ def main() -> int:
             },
         )
         if metadata_remove_payload.get("applied") is not True:
-            fail(f"asset.edit updateMetadata removeKeys did not apply: {metadata_remove_payload}")
+            fail(f"asset_edit updateMetadata removeKeys did not apply: {metadata_remove_payload}")
         metadata_check = call_tool(
             client,
             585,
@@ -1662,7 +1662,7 @@ def main() -> int:
         )
         metadata_result = parse_execute_json(metadata_check)
         if metadata_result.get("purpose") != "asset-edit-metadata" or metadata_result.get("removed"):
-            fail(f"asset.edit metadata values mismatch: {metadata_result}")
+            fail(f"asset_edit metadata values mismatch: {metadata_result}")
         print("[PASS] asset enum lifecycle validated")
 
         asset_create_cases = [
@@ -1675,26 +1675,26 @@ def main() -> int:
             create_payload = call_tool(
                 client,
                 586 + offset,
-                "asset.create",
+                "asset_create",
                 {"kind": kind, "assetPath": asset_path},
             )
             if create_payload.get("applied") is not True:
-                fail(f"asset.create {kind} did not apply: {create_payload}")
+                fail(f"asset_create {kind} did not apply: {create_payload}")
             if create_payload.get("assetPath") != asset_path:
-                fail(f"asset.create {kind} assetPath mismatch: {create_payload}")
-        inspect_material_create = call_tool(client, 590, "asset.inspect", {"kind": "material", "assetPath": temp_asset_create_material})
+                fail(f"asset_create {kind} assetPath mismatch: {create_payload}")
+        inspect_material_create = call_tool(client, 590, "asset_inspect", {"kind": "material", "assetPath": temp_asset_create_material})
         if inspect_material_create.get("assetPath") != temp_asset_create_material:
-            fail(f"asset.inspect material created asset mismatch: {inspect_material_create}")
-        inspect_function_create = call_tool(client, 591, "asset.inspect", {"kind": "materialFunction", "assetPath": temp_asset_create_function})
+            fail(f"asset_inspect material created asset mismatch: {inspect_material_create}")
+        inspect_function_create = call_tool(client, 591, "asset_inspect", {"kind": "materialFunction", "assetPath": temp_asset_create_function})
         if inspect_function_create.get("assetPath") != temp_asset_create_function:
-            fail(f"asset.inspect materialFunction created asset mismatch: {inspect_function_create}")
-        inspect_pcg_create = call_tool(client, 592, "asset.inspect", {"kind": "pcgGraph", "assetPath": temp_asset_create_pcg})
+            fail(f"asset_inspect materialFunction created asset mismatch: {inspect_function_create}")
+        inspect_pcg_create = call_tool(client, 592, "asset_inspect", {"kind": "pcgGraph", "assetPath": temp_asset_create_pcg})
         if inspect_pcg_create.get("assetPath") != temp_asset_create_pcg:
-            fail(f"asset.inspect pcgGraph created asset mismatch: {inspect_pcg_create}")
-        inspect_widget_create = call_tool(client, 593, "asset.inspect", {"kind": "widgetBlueprint", "assetPath": temp_asset_create_widget})
+            fail(f"asset_inspect pcgGraph created asset mismatch: {inspect_pcg_create}")
+        inspect_widget_create = call_tool(client, 593, "asset_inspect", {"kind": "widgetBlueprint", "assetPath": temp_asset_create_widget})
         if inspect_widget_create.get("assetPath") != temp_asset_create_widget:
-            fail(f"asset.inspect widgetBlueprint created asset mismatch: {inspect_widget_create}")
-        print("[PASS] asset.create extended asset categories validated")
+            fail(f"asset_inspect widgetBlueprint created asset mismatch: {inspect_widget_create}")
+        print("[PASS] asset_create extended asset categories validated")
 
         interface_fixture_payload = call_tool(
             client,
@@ -1727,7 +1727,7 @@ def main() -> int:
         dry_run_interface_payload = call_tool(
             client,
             606,
-            "blueprint.class.edit",
+            "blueprint_class_edit",
             {
                 "assetPath": temp_asset,
                 "operation": "addInterface",
@@ -1736,20 +1736,20 @@ def main() -> int:
             },
         )
         if dry_run_interface_payload.get("applied") is not False or dry_run_interface_payload.get("dryRun") is not True:
-            fail(f"blueprint.class.edit addInterface dryRun shape mismatch: {dry_run_interface_payload}")
+            fail(f"blueprint_class_edit addInterface dryRun shape mismatch: {dry_run_interface_payload}")
         if dry_run_interface_payload.get("valid") is not True:
-            fail(f"blueprint.class.edit addInterface dryRun should report valid=true: {dry_run_interface_payload}")
+            fail(f"blueprint_class_edit addInterface dryRun should report valid=true: {dry_run_interface_payload}")
         interface_revision = assert_revision_pair(
             dry_run_interface_payload,
-            "blueprint.class.edit addInterface dryRun",
+            "blueprint_class_edit addInterface dryRun",
             unchanged=True,
         )
         if not isinstance(dry_run_interface_payload.get("planned"), dict):
-            fail(f"blueprint.class.edit addInterface dryRun planned summary missing: {dry_run_interface_payload}")
+            fail(f"blueprint_class_edit addInterface dryRun planned summary missing: {dry_run_interface_payload}")
         if not isinstance(dry_run_interface_payload.get("resolvedRefs"), dict):
-            fail(f"blueprint.class.edit addInterface dryRun resolved refs missing: {dry_run_interface_payload}")
+            fail(f"blueprint_class_edit addInterface dryRun resolved refs missing: {dry_run_interface_payload}")
         if not isinstance(dry_run_interface_payload.get("diagnostics"), list):
-            fail(f"blueprint.class.edit addInterface dryRun diagnostics missing: {dry_run_interface_payload}")
+            fail(f"blueprint_class_edit addInterface dryRun diagnostics missing: {dry_run_interface_payload}")
         dry_run_interface_diff = dry_run_interface_payload.get("diff")
         if (
             not isinstance(dry_run_interface_diff, dict)
@@ -1761,11 +1761,11 @@ def main() -> int:
                 for change in dry_run_interface_diff.get("changes", [])
             )
         ):
-            fail(f"blueprint.class.edit addInterface dryRun diff invalid: {dry_run_interface_payload}")
+            fail(f"blueprint_class_edit addInterface dryRun diff invalid: {dry_run_interface_payload}")
         dry_run_list_payload = call_tool(
             client,
             607,
-            "blueprint.class.inspect",
+            "blueprint_class_inspect",
             {"assetPath": temp_asset},
         )
         dry_run_interfaces = dry_run_list_payload.get("implementedInterfaces")
@@ -1773,11 +1773,11 @@ def main() -> int:
             isinstance(entry, dict) and entry.get("classPath") == interface_class_path
             for entry in dry_run_interfaces
         ):
-            fail(f"blueprint.class.inspect dryRun unexpectedly added interface: {dry_run_list_payload}")
+            fail(f"blueprint_class_inspect dryRun unexpectedly added interface: {dry_run_list_payload}")
         add_interface_payload = call_tool(
             client,
             601,
-            "blueprint.class.edit",
+            "blueprint_class_edit",
             {
                 "assetPath": temp_asset,
                 "operation": "addInterface",
@@ -1785,12 +1785,12 @@ def main() -> int:
             },
         )
         if add_interface_payload.get("applied") is not True:
-            fail(f"blueprint.class.edit addInterface did not apply: {add_interface_payload}")
-        assert_revision_pair(add_interface_payload, "blueprint.class.edit addInterface")
+            fail(f"blueprint_class_edit addInterface did not apply: {add_interface_payload}")
+        assert_revision_pair(add_interface_payload, "blueprint_class_edit addInterface")
         revision_conflict_payload = call_tool(
             client,
             6011,
-            "blueprint.class.edit",
+            "blueprint_class_edit",
             {
                 "assetPath": temp_asset,
                 "operation": "removeInterface",
@@ -1803,16 +1803,16 @@ def main() -> int:
             extract_nested_error_code(revision_conflict_payload) != "REVISION_CONFLICT"
             or revision_conflict_payload.get("applied") is not False
         ):
-            fail(f"blueprint.class.edit revision conflict mismatch: {revision_conflict_payload}")
+            fail(f"blueprint_class_edit revision conflict mismatch: {revision_conflict_payload}")
         assert_revision_pair(
             structured_detail_or_payload(revision_conflict_payload),
-            "blueprint.class.edit revision conflict",
+            "blueprint_class_edit revision conflict",
             unchanged=True,
         )
         list_interface_payload = call_tool(
             client,
             602,
-            "blueprint.class.inspect",
+            "blueprint_class_inspect",
             {"assetPath": temp_asset},
         )
         listed_interfaces = list_interface_payload.get("implementedInterfaces")
@@ -1820,18 +1820,18 @@ def main() -> int:
             isinstance(entry, dict) and entry.get("classPath") == interface_class_path
             for entry in listed_interfaces
         ):
-            fail(f"blueprint.class.inspect missing added interface: {list_interface_payload}")
-        asset_inspect_payload = call_tool(client, 603, "blueprint.inspect", {"assetPath": temp_asset})
+            fail(f"blueprint_class_inspect missing added interface: {list_interface_payload}")
+        asset_inspect_payload = call_tool(client, 603, "blueprint_inspect", {"assetPath": temp_asset})
         inspected_interfaces = asset_inspect_payload.get("implementedInterfaces")
         if not isinstance(inspected_interfaces, list) or not any(
             isinstance(entry, dict) and entry.get("classPath") == interface_class_path
             for entry in inspected_interfaces
         ):
-            fail(f"blueprint.inspect missing implementedInterfaces entry: {asset_inspect_payload}")
+            fail(f"blueprint_inspect missing implementedInterfaces entry: {asset_inspect_payload}")
         remove_interface_payload = call_tool(
             client,
             604,
-            "blueprint.class.edit",
+            "blueprint_class_edit",
             {
                 "assetPath": temp_asset,
                 "operation": "removeInterface",
@@ -1839,11 +1839,11 @@ def main() -> int:
             },
         )
         if remove_interface_payload.get("applied") is not True:
-            fail(f"blueprint.class.edit removeInterface did not apply: {remove_interface_payload}")
+            fail(f"blueprint_class_edit removeInterface did not apply: {remove_interface_payload}")
         list_after_remove_payload = call_tool(
             client,
             605,
-            "blueprint.class.inspect",
+            "blueprint_class_inspect",
             {"assetPath": temp_asset},
         )
         interfaces_after_remove = list_after_remove_payload.get("implementedInterfaces")
@@ -1851,13 +1851,13 @@ def main() -> int:
             isinstance(entry, dict) and entry.get("classPath") == interface_class_path
             for entry in interfaces_after_remove
         ):
-            fail(f"blueprint.class.inspect still lists removed interface: {list_after_remove_payload}")
-        print("[PASS] blueprint.class.edit interface lifecycle validated")
+            fail(f"blueprint_class_inspect still lists removed interface: {list_after_remove_payload}")
+        print("[PASS] blueprint_class_edit interface lifecycle validated")
 
         dry_run_settings_payload = call_tool(
             client,
             608,
-            "blueprint.class.edit",
+            "blueprint_class_edit",
             {
                 "assetPath": temp_asset,
                 "operation": "setSettings",
@@ -1866,10 +1866,10 @@ def main() -> int:
             },
         )
         if dry_run_settings_payload.get("applied") is not False or dry_run_settings_payload.get("dryRun") is not True:
-            fail(f"blueprint.class.edit setSettings dryRun shape mismatch: {dry_run_settings_payload}")
+            fail(f"blueprint_class_edit setSettings dryRun shape mismatch: {dry_run_settings_payload}")
         if dry_run_settings_payload.get("valid") is not True or not isinstance(dry_run_settings_payload.get("planned"), dict):
-            fail(f"blueprint.class.edit setSettings dryRun plan missing: {dry_run_settings_payload}")
-        assert_revision_pair(dry_run_settings_payload, "blueprint.class.edit setSettings dryRun", unchanged=True)
+            fail(f"blueprint_class_edit setSettings dryRun plan missing: {dry_run_settings_payload}")
+        assert_revision_pair(dry_run_settings_payload, "blueprint_class_edit setSettings dryRun", unchanged=True)
         dry_run_settings_diff = dry_run_settings_payload.get("diff")
         if (
             not isinstance(dry_run_settings_diff, dict)
@@ -1882,11 +1882,11 @@ def main() -> int:
                 for change in dry_run_settings_diff.get("changes", [])
             )
         ):
-            fail(f"blueprint.class.edit setSettings dryRun diff invalid: {dry_run_settings_payload}")
+            fail(f"blueprint_class_edit setSettings dryRun diff invalid: {dry_run_settings_payload}")
         settings_payload = call_tool(
             client,
             609,
-            "blueprint.class.edit",
+            "blueprint_class_edit",
             {
                 "assetPath": temp_asset,
                 "operation": "setSettings",
@@ -1902,20 +1902,20 @@ def main() -> int:
             },
         )
         if settings_payload.get("applied") is not True:
-            fail(f"blueprint.class.edit setSettings did not apply: {settings_payload}")
-        assert_revision_pair(settings_payload, "blueprint.class.edit setSettings")
-        inspected_settings_payload = call_tool(client, 610, "blueprint.class.inspect", {"assetPath": temp_asset})
+            fail(f"blueprint_class_edit setSettings did not apply: {settings_payload}")
+        assert_revision_pair(settings_payload, "blueprint_class_edit setSettings")
+        inspected_settings_payload = call_tool(client, 610, "blueprint_class_inspect", {"assetPath": temp_asset})
         inspected_settings = inspected_settings_payload.get("settings")
         if not isinstance(inspected_settings, dict):
-            fail(f"blueprint.class.inspect missing settings after setSettings: {inspected_settings_payload}")
+            fail(f"blueprint_class_inspect missing settings after setSettings: {inspected_settings_payload}")
         if (
             inspected_settings.get("displayName") != "Loomle Regression Actor"
             or inspected_settings.get("category") != "Loomle|Regression"
             or inspected_settings.get("runConstructionScriptOnDrag") is not False
             or "Rendering" not in inspected_settings.get("hideCategories", [])
         ):
-            fail(f"blueprint.class.edit setSettings state mismatch: {inspected_settings_payload}")
-        print("[PASS] blueprint.class.edit setSettings validated")
+            fail(f"blueprint_class_edit setSettings state mismatch: {inspected_settings_payload}")
+        print("[PASS] blueprint_class_edit setSettings validated")
 
         graph_query = call_domain_tool(
             client,
@@ -1929,24 +1929,24 @@ def main() -> int:
             },
         )
         if graph_query.get("view") != "summary":
-            fail(f"blueprint.graph.inspect summary view mismatch: {graph_query}")
+            fail(f"blueprint_graph_inspect summary view mismatch: {graph_query}")
         if not isinstance(graph_query.get("roots"), list) or not isinstance(graph_query.get("chains"), list):
-            fail(f"blueprint.graph.inspect invalid summary shape: {graph_query}")
+            fail(f"blueprint_graph_inspect invalid summary shape: {graph_query}")
         query_meta = graph_query.get("meta")
         if not isinstance(query_meta, dict):
-            fail(f"blueprint.graph.inspect missing meta: {graph_query}")
+            fail(f"blueprint_graph_inspect missing meta: {graph_query}")
         layout_caps = query_meta.get("layoutCapabilities")
         if not isinstance(layout_caps, dict):
-            fail(f"blueprint.graph.inspect missing layoutCapabilities: {graph_query}")
+            fail(f"blueprint_graph_inspect missing layoutCapabilities: {graph_query}")
         if layout_caps.get("canReadPosition") is not True:
-            fail(f"blueprint.graph.inspect layoutCapabilities missing canReadPosition=true: {query_meta}")
+            fail(f"blueprint_graph_inspect layoutCapabilities missing canReadPosition=true: {query_meta}")
         query_diagnostics = graph_query.get("diagnostics")
         if not isinstance(query_diagnostics, list):
-            fail(f"blueprint.graph.inspect diagnostics missing or invalid: {graph_query}")
+            fail(f"blueprint_graph_inspect diagnostics missing or invalid: {graph_query}")
         missing_exec_root = call_tool(
             client,
             6410,
-            "blueprint.graph.inspect",
+            "blueprint_graph_inspect",
             {
                 "assetPath": temp_asset,
                 "graph": {"name": "EventGraph"},
@@ -1956,8 +1956,8 @@ def main() -> int:
             expect_error=True,
         )
         if extract_nested_error_code(missing_exec_root) != "NODE_NOT_FOUND":
-            fail(f"blueprint.graph.inspect missing exec root should return NODE_NOT_FOUND: {missing_exec_root}")
-        print("[PASS] blueprint.graph.inspect structure validated")
+            fail(f"blueprint_graph_inspect missing exec root should return NODE_NOT_FOUND: {missing_exec_root}")
+        print("[PASS] blueprint_graph_inspect structure validated")
 
         blueprint_compile = call_domain_tool(
             client,
@@ -1970,10 +1970,10 @@ def main() -> int:
             },
         )
         if blueprint_compile.get("compiled") is not True:
-            fail(f"blueprint.compile returned unexpected result: {blueprint_compile}")
+            fail(f"blueprint_compile returned unexpected result: {blueprint_compile}")
         if not isinstance(blueprint_compile.get("diagnostics"), list):
-            fail(f"blueprint.compile missing diagnostics[]: {blueprint_compile}")
-        print("[PASS] blueprint.compile summary validated")
+            fail(f"blueprint_compile missing diagnostics[]: {blueprint_compile}")
+        print("[PASS] blueprint_compile summary validated")
 
         member_ops = [
             ("component create root", {
@@ -2311,10 +2311,10 @@ def main() -> int:
             }),
         ]
         for index, (label, request) in enumerate(member_ops, start=1):
-            payload = call_tool(client, 6460 + index, "blueprint.member.edit", request)
+            payload = call_tool(client, 6460 + index, "blueprint_member_edit", request)
             if payload.get("applied") is not True:
-                fail(f"blueprint.member.edit {label} did not apply: {payload}")
-            assert_revision_pair(payload, f"blueprint.member.edit {label}")
+                fail(f"blueprint_member_edit {label} did not apply: {payload}")
+            assert_revision_pair(payload, f"blueprint_member_edit {label}")
 
         event_member_ops = [
             (
@@ -2425,15 +2425,15 @@ def main() -> int:
             ),
         ]
         for index, (label, request) in enumerate(event_member_ops, start=1):
-            payload = call_tool(client, 6510 + index, "blueprint.member.edit", request)
+            payload = call_tool(client, 6510 + index, "blueprint_member_edit", request)
             if payload.get("applied") is not True:
-                fail(f"blueprint.member.edit {label} did not apply: {payload}")
-            assert_revision_pair(payload, f"blueprint.member.edit {label}")
+                fail(f"blueprint_member_edit {label} did not apply: {payload}")
+            assert_revision_pair(payload, f"blueprint_member_edit {label}")
 
         duplicate_event_input = call_tool(
             client,
             6519,
-            "blueprint.member.edit",
+            "blueprint_member_edit",
             {
                 "assetPath": temp_asset,
                 "memberKind": "event",
@@ -2448,7 +2448,7 @@ def main() -> int:
         )
         duplicate_details = duplicate_event_input.get("details")
         if duplicate_event_input.get("reason") != "pinNameConflict" or not isinstance(duplicate_details, dict):
-            fail(f"blueprint.member.edit event addInput duplicate missing structured diagnostics: {duplicate_event_input}")
+            fail(f"blueprint_member_edit event addInput duplicate missing structured diagnostics: {duplicate_event_input}")
         requested_input = duplicate_details.get("requestedInput")
         actual_inputs = duplicate_details.get("actualInputs")
         if not isinstance(requested_input, dict) or requested_input.get("inputName") != "CoinId":
@@ -2456,43 +2456,43 @@ def main() -> int:
         if not isinstance(actual_inputs, list) or not any(isinstance(pin, dict) and pin.get("name") == "CoinId" for pin in actual_inputs):
             fail(f"event addInput duplicate missing actualInputs: {duplicate_event_input}")
 
-        compiled_member_bp = call_tool(client, 6520, "blueprint.compile", {"assetPath": temp_asset})
+        compiled_member_bp = call_tool(client, 6520, "blueprint_compile", {"assetPath": temp_asset})
         if compiled_member_bp.get("compiled") is not True:
-            fail(f"blueprint.compile after member.edit failed: {compiled_member_bp}")
+            fail(f"blueprint_compile after member.edit failed: {compiled_member_bp}")
         variable_inspect_payload = call_tool(
             client,
             6522,
-            "blueprint.member.inspect",
+            "blueprint_member_inspect",
             {"assetPath": temp_asset, "memberKind": "variable"},
         )
         variable_items = variable_inspect_payload.get("items")
         if not isinstance(variable_items, list):
-            fail(f"blueprint.member.inspect variable items missing: {variable_inspect_payload}")
+            fail(f"blueprint_member_inspect variable items missing: {variable_inspect_payload}")
         enum_variable = next((item for item in variable_items if isinstance(item, dict) and item.get("name") == "EnumState"), None)
         enum_variable_type = enum_variable.get("type") if isinstance(enum_variable, dict) else None
         if not isinstance(enum_variable_type, dict) or enum_variable_type.get("kind") != "enum" or enum_variable_type.get("objectClassPath") != enum_path:
-            fail(f"blueprint.member.inspect enum variable type mismatch: {variable_inspect_payload}")
+            fail(f"blueprint_member_inspect enum variable type mismatch: {variable_inspect_payload}")
         if enum_variable.get("isReplicated") is not False or enum_variable.get("isRepNotify") is not False:
-            fail(f"blueprint.member.inspect enum variable replication flags mismatch: {enum_variable}")
+            fail(f"blueprint_member_inspect enum variable replication flags mismatch: {enum_variable}")
         if enum_variable.get("replication") != "none":
-            fail(f"blueprint.member.inspect enum variable replication mode mismatch: {enum_variable}")
+            fail(f"blueprint_member_inspect enum variable replication mode mismatch: {enum_variable}")
         if enum_variable.get("replicationCondition") != "COND_None":
-            fail(f"blueprint.member.inspect enum variable replicationCondition not reset to COND_None: {enum_variable}")
+            fail(f"blueprint_member_inspect enum variable replicationCondition not reset to COND_None: {enum_variable}")
         if enum_variable.get("replicationConditionValue") != 0:
-            fail(f"blueprint.member.inspect enum variable replicationConditionValue not reset to 0: {enum_variable}")
+            fail(f"blueprint_member_inspect enum variable replicationConditionValue not reset to 0: {enum_variable}")
         component_inspect_payload = call_tool(
             client,
             6523,
-            "blueprint.member.inspect",
+            "blueprint_member_inspect",
             {"assetPath": temp_asset, "memberKind": "component"},
         )
         component_items = component_inspect_payload.get("items")
         if not isinstance(component_items, list):
-            fail(f"blueprint.member.inspect component items missing: {component_inspect_payload}")
+            fail(f"blueprint_member_inspect component items missing: {component_inspect_payload}")
         dry_run_member_payload = call_tool(
             client,
             6529,
-            "blueprint.member.edit",
+            "blueprint_member_edit",
             {
                 "assetPath": temp_asset,
                 "memberKind": "variable",
@@ -2502,12 +2502,12 @@ def main() -> int:
             },
         )
         if dry_run_member_payload.get("applied") is not False or dry_run_member_payload.get("dryRun") is not True:
-            fail(f"blueprint.member.edit dryRun shape mismatch: {dry_run_member_payload}")
+            fail(f"blueprint_member_edit dryRun shape mismatch: {dry_run_member_payload}")
         if dry_run_member_payload.get("valid") is not True:
-            fail(f"blueprint.member.edit dryRun should report valid=true: {dry_run_member_payload}")
+            fail(f"blueprint_member_edit dryRun should report valid=true: {dry_run_member_payload}")
         member_revision = assert_revision_pair(
             dry_run_member_payload,
-            "blueprint.member.edit dryRun",
+            "blueprint_member_edit dryRun",
             unchanged=True,
         )
         dry_run_planned = dry_run_member_payload.get("planned")
@@ -2517,12 +2517,12 @@ def main() -> int:
             or dry_run_planned.get("operation") != "create"
             or dry_run_planned.get("memberName") != "DryRunVariable"
         ):
-            fail(f"blueprint.member.edit dryRun planned summary invalid: {dry_run_member_payload}")
+            fail(f"blueprint_member_edit dryRun planned summary invalid: {dry_run_member_payload}")
         dry_run_refs = dry_run_member_payload.get("resolvedRefs")
         if not isinstance(dry_run_refs, dict) or dry_run_refs.get("member", {}).get("name") != "DryRunVariable":
-            fail(f"blueprint.member.edit dryRun resolved refs invalid: {dry_run_member_payload}")
+            fail(f"blueprint_member_edit dryRun resolved refs invalid: {dry_run_member_payload}")
         if not isinstance(dry_run_member_payload.get("diagnostics"), list):
-            fail(f"blueprint.member.edit dryRun diagnostics missing: {dry_run_member_payload}")
+            fail(f"blueprint_member_edit dryRun diagnostics missing: {dry_run_member_payload}")
         dry_run_diff = dry_run_member_payload.get("diff")
         if (
             not isinstance(dry_run_diff, dict)
@@ -2534,11 +2534,11 @@ def main() -> int:
                 for change in dry_run_diff.get("changes", [])
             )
         ):
-            fail(f"blueprint.member.edit dryRun diff invalid: {dry_run_member_payload}")
+            fail(f"blueprint_member_edit dryRun diff invalid: {dry_run_member_payload}")
         member_revision_conflict_payload = call_tool(
             client,
             65291,
-            "blueprint.member.edit",
+            "blueprint_member_edit",
             {
                 "assetPath": temp_asset,
                 "memberKind": "variable",
@@ -2552,16 +2552,16 @@ def main() -> int:
             extract_nested_error_code(member_revision_conflict_payload) != "REVISION_CONFLICT"
             or member_revision_conflict_payload.get("applied") is not False
         ):
-            fail(f"blueprint.member.edit revision conflict mismatch: {member_revision_conflict_payload}")
+            fail(f"blueprint_member_edit revision conflict mismatch: {member_revision_conflict_payload}")
         assert_revision_pair(
             structured_detail_or_payload(member_revision_conflict_payload),
-            "blueprint.member.edit revision conflict",
+            "blueprint_member_edit revision conflict",
             unchanged=True,
         )
         dry_run_unsupported_member_payload = call_tool(
             client,
             6530,
-            "blueprint.member.edit",
+            "blueprint_member_edit",
             {
                 "assetPath": temp_asset,
                 "memberKind": "variable",
@@ -2577,11 +2577,11 @@ def main() -> int:
             or "Unsupported variable operation: add" not in dry_run_unsupported_message
             or "Did you mean create?" not in dry_run_unsupported_message
         ):
-            fail(f"blueprint.member.edit dryRun unsupported operation mismatch: {dry_run_unsupported_member_payload}")
+            fail(f"blueprint_member_edit dryRun unsupported operation mismatch: {dry_run_unsupported_member_payload}")
         real_unsupported_member_payload = call_tool(
             client,
             65300,
-            "blueprint.member.edit",
+            "blueprint_member_edit",
             {
                 "assetPath": temp_asset,
                 "memberKind": "variable",
@@ -2596,11 +2596,11 @@ def main() -> int:
             or "Unsupported variable operation: add" not in real_unsupported_message
             or "Did you mean create?" not in real_unsupported_message
         ):
-            fail(f"blueprint.member.edit real unsupported operation mismatch: {real_unsupported_member_payload}")
+            fail(f"blueprint_member_edit real unsupported operation mismatch: {real_unsupported_member_payload}")
         dry_run_missing_arg_payload = call_tool(
             client,
             65301,
-            "blueprint.member.edit",
+            "blueprint_member_edit",
             {
                 "assetPath": temp_asset,
                 "memberKind": "variable",
@@ -2615,15 +2615,15 @@ def main() -> int:
             extract_nested_error_code(dry_run_missing_arg_payload) != "INVALID_ARGUMENT"
             or "variable create requires variableName" not in dry_run_missing_arg_message
         ):
-            fail(f"blueprint.member.edit dryRun missing arg mismatch: {dry_run_missing_arg_payload}")
+            fail(f"blueprint_member_edit dryRun missing arg mismatch: {dry_run_missing_arg_payload}")
         if dry_run_missing_arg_payload.get("valid") is not False or dry_run_missing_arg_payload.get("applied") is not False:
-            fail(f"blueprint.member.edit dryRun missing arg should be invalid and unapplied: {dry_run_missing_arg_payload}")
+            fail(f"blueprint_member_edit dryRun missing arg should be invalid and unapplied: {dry_run_missing_arg_payload}")
         if not isinstance(dry_run_missing_arg_payload.get("diagnostics"), list):
-            fail(f"blueprint.member.edit dryRun missing arg diagnostics missing: {dry_run_missing_arg_payload}")
+            fail(f"blueprint_member_edit dryRun missing arg diagnostics missing: {dry_run_missing_arg_payload}")
         macro_inspect_payload = call_tool(
             client,
             6531,
-            "blueprint.member.inspect",
+            "blueprint_member_inspect",
             {"assetPath": temp_asset, "memberKind": "macro"},
         )
         macro_items = macro_inspect_payload.get("items")
@@ -2631,11 +2631,11 @@ def main() -> int:
             isinstance(entry, dict) and entry.get("name") == "GuardMacroRenamed"
             for entry in macro_items
         ):
-            fail(f"blueprint.member.inspect macro items missing renamed macro: {macro_inspect_payload}")
+            fail(f"blueprint_member_inspect macro items missing renamed macro: {macro_inspect_payload}")
         dispatcher_inspect_payload = call_tool(
             client,
             6532,
-            "blueprint.member.inspect",
+            "blueprint_member_inspect",
             {"assetPath": temp_asset, "memberKind": "dispatcher"},
         )
         dispatcher_items = dispatcher_inspect_payload.get("items")
@@ -2643,16 +2643,16 @@ def main() -> int:
             isinstance(entry, dict) and entry.get("name") == "OnReadyChanged"
             for entry in dispatcher_items
         ):
-            fail(f"blueprint.member.inspect dispatcher items missing renamed dispatcher: {dispatcher_inspect_payload}")
+            fail(f"blueprint_member_inspect dispatcher items missing renamed dispatcher: {dispatcher_inspect_payload}")
         event_inspect_payload = call_tool(
             client,
             6533,
-            "blueprint.member.inspect",
+            "blueprint_member_inspect",
             {"assetPath": temp_asset, "memberKind": "event"},
         )
         event_items = event_inspect_payload.get("items")
         if not isinstance(event_items, list):
-            fail(f"blueprint.member.inspect event items missing: {event_inspect_payload}")
+            fail(f"blueprint_member_inspect event items missing: {event_inspect_payload}")
         renamed_event = next(
             (
                 entry
@@ -2662,20 +2662,20 @@ def main() -> int:
             None,
         )
         if not isinstance(renamed_event, dict) or renamed_event.get("eventKind") != "custom":
-            fail(f"blueprint.member.inspect event missing renamed custom event: {event_inspect_payload}")
+            fail(f"blueprint_member_inspect event missing renamed custom event: {event_inspect_payload}")
         if renamed_event.get("replication") != "netMulticast" or renamed_event.get("reliable") is not False:
-            fail(f"blueprint.member.inspect event missing multicast flags: {event_inspect_payload}")
+            fail(f"blueprint_member_inspect event missing multicast flags: {event_inspect_payload}")
         renamed_event_pins = renamed_event.get("pins")
         if not isinstance(renamed_event_pins, list) or not any(
             isinstance(pin, dict) and pin.get("name") == "bReady"
             for pin in renamed_event_pins
         ):
-            fail(f"blueprint.member.inspect event missing updated input pin: {event_inspect_payload}")
+            fail(f"blueprint_member_inspect event missing updated input pin: {event_inspect_payload}")
         if not any(
             isinstance(pin, dict) and pin.get("name") == "CoinId"
             for pin in renamed_event_pins
         ):
-            fail(f"blueprint.member.inspect event missing addInput pin: {event_inspect_payload}")
+            fail(f"blueprint_member_inspect event missing addInput pin: {event_inspect_payload}")
         client_event = next(
             (
                 entry
@@ -2685,22 +2685,22 @@ def main() -> int:
             None,
         )
         if not isinstance(client_event, dict) or client_event.get("replication") != "owningClient" or client_event.get("reliable") is not True:
-            fail(f"blueprint.member.inspect event missing owning-client reliable flags: {event_inspect_payload}")
+            fail(f"blueprint_member_inspect event missing owning-client reliable flags: {event_inspect_payload}")
         custom_event_inspect_payload = call_tool(
             client,
             6534,
-            "blueprint.member.inspect",
+            "blueprint_member_inspect",
             {"assetPath": temp_asset, "memberKind": "customEvent"},
         )
         custom_event_items = custom_event_inspect_payload.get("items")
         if not isinstance(custom_event_items, list) or not custom_event_items:
-            fail(f"blueprint.member.inspect customEvent items missing: {custom_event_inspect_payload}")
+            fail(f"blueprint_member_inspect customEvent items missing: {custom_event_inspect_payload}")
         if any(isinstance(entry, dict) and entry.get("isCustomEvent") is not True for entry in custom_event_items):
-            fail(f"blueprint.member.inspect customEvent returned non-custom events: {custom_event_inspect_payload}")
-        graph_list_payload = call_tool(client, 6524, "blueprint.graph.list", {"assetPath": temp_asset})
+            fail(f"blueprint_member_inspect customEvent returned non-custom events: {custom_event_inspect_payload}")
+        graph_list_payload = call_tool(client, 6524, "blueprint_graph_list", {"assetPath": temp_asset})
         listed_graphs = graph_list_payload.get("graphs")
         if not isinstance(listed_graphs, list):
-            fail(f"blueprint.graph.list missing graphs[]: {graph_list_payload}")
+            fail(f"blueprint_graph_list missing graphs[]: {graph_list_payload}")
         dispatcher_graph_entry = next(
             (
                 entry
@@ -2710,29 +2710,29 @@ def main() -> int:
             None,
         )
         if not isinstance(dispatcher_graph_entry, dict) or dispatcher_graph_entry.get("graphKind") != "delegate_signature":
-            fail(f"blueprint.graph.list missing dispatcher delegate signature graph: {graph_list_payload}")
+            fail(f"blueprint_graph_list missing dispatcher delegate signature graph: {graph_list_payload}")
         compute_graph_payload = call_tool(
             client,
             6525,
-            "blueprint.graph.inspect",
+            "blueprint_graph_inspect",
             {"assetPath": temp_asset, "graph": {"name": "ComputeValueRenamed"}, "view": "summary"},
         )
         guard_graph_payload = call_tool(
             client,
             6526,
-            "blueprint.graph.inspect",
+            "blueprint_graph_inspect",
             {"assetPath": temp_asset, "graph": {"name": "GuardMacroRenamed"}, "view": "summary"},
         )
         dispatcher_graph_payload = call_tool(
             client,
             6527,
-            "blueprint.graph.inspect",
+            "blueprint_graph_inspect",
             {"assetPath": temp_asset, "graph": {"name": "OnReadyChanged"}, "view": "summary"},
         )
         deleted_dispatcher_graph = call_tool(
             client,
             6528,
-            "blueprint.graph.inspect",
+            "blueprint_graph_inspect",
             {"assetPath": temp_asset, "graph": {"name": "TempDeleteDispatcher"}},
             expect_error=True,
         )
@@ -2811,7 +2811,7 @@ def main() -> int:
         dry_run_class_default = call_tool(
             client,
             65221,
-            "blueprint.class.edit",
+            "blueprint_class_edit",
             {
                 "assetPath": temp_asset,
                 "operation": "setDefault",
@@ -2820,10 +2820,10 @@ def main() -> int:
             },
         )
         if dry_run_class_default.get("applied") is not False or dry_run_class_default.get("dryRun") is not True:
-            fail(f"blueprint.class.edit setDefault dryRun shape mismatch: {dry_run_class_default}")
+            fail(f"blueprint_class_edit setDefault dryRun shape mismatch: {dry_run_class_default}")
         if dry_run_class_default.get("valid") is not True or not isinstance(dry_run_class_default.get("planned"), dict):
-            fail(f"blueprint.class.edit setDefault dryRun plan missing: {dry_run_class_default}")
-        assert_revision_pair(dry_run_class_default, "blueprint.class.edit setDefault dryRun", unchanged=True)
+            fail(f"blueprint_class_edit setDefault dryRun plan missing: {dry_run_class_default}")
+        assert_revision_pair(dry_run_class_default, "blueprint_class_edit setDefault dryRun", unchanged=True)
         dry_run_default_diff = dry_run_class_default.get("diff")
         if (
             not isinstance(dry_run_default_diff, dict)
@@ -2835,11 +2835,11 @@ def main() -> int:
                 for change in dry_run_default_diff.get("changes", [])
             )
         ):
-            fail(f"blueprint.class.edit setDefault dryRun diff invalid: {dry_run_class_default}")
+            fail(f"blueprint_class_edit setDefault dryRun diff invalid: {dry_run_class_default}")
         set_class_default = call_tool(
             client,
             65222,
-            "blueprint.class.edit",
+            "blueprint_class_edit",
             {
                 "assetPath": temp_asset,
                 "operation": "setDefault",
@@ -2847,11 +2847,11 @@ def main() -> int:
             },
         )
         if set_class_default.get("applied") is not True:
-            fail(f"blueprint.class.edit setDefault did not apply: {set_class_default}")
-        assert_revision_pair(set_class_default, "blueprint.class.edit setDefault")
+            fail(f"blueprint_class_edit setDefault did not apply: {set_class_default}")
+        assert_revision_pair(set_class_default, "blueprint_class_edit setDefault")
         default_entry = set_class_default.get("default")
         if not isinstance(default_entry, dict) or default_entry.get("name") != "ItemCount" or default_entry.get("value") != "12":
-            fail(f"blueprint.class.edit setDefault result mismatch: {set_class_default}")
+            fail(f"blueprint_class_edit setDefault result mismatch: {set_class_default}")
         class_default_state_payload = call_execute_exec_with_retry(
             client,
             req_id_base=65223,
@@ -2866,8 +2866,8 @@ def main() -> int:
         )
         class_default_state = parse_execute_json(class_default_state_payload)
         if class_default_state.get("itemCountDefault") != 12:
-            fail(f"blueprint.class.edit setDefault CDO state mismatch: {class_default_state}")
-        print("[PASS] blueprint.class.edit setDefault validated")
+            fail(f"blueprint_class_edit setDefault CDO state mismatch: {class_default_state}")
+        print("[PASS] blueprint_class_edit setDefault validated")
         graph_names = [entry.get("graphName") for entry in listed_graphs if isinstance(entry, dict)]
         if "ComputeValueRenamed" not in graph_names or "TempDeleteFunction" in graph_names:
             fail(f"member.edit function graph state mismatch: {graph_list_payload}")
@@ -2968,7 +2968,7 @@ def main() -> int:
         ]
         if component_names != ["RootScene", "BoxVolume", "VisualMeshRenamed"]:
             fail(f"member.edit component reorder mismatch: inspect={component_inspect_payload} state={member_state}")
-        print("[PASS] blueprint.member.edit full member workflow validated")
+        print("[PASS] blueprint_member_edit full member workflow validated")
 
         pcg_fixture_payload = call_execute_exec_with_retry(
             client=client,
@@ -3031,11 +3031,11 @@ def main() -> int:
         )
         queried_snapshot = queried_pcg.get("semanticSnapshot")
         if not isinstance(queried_snapshot, dict):
-            fail(f"pcg.graph.inspect missing semanticSnapshot for direct asset read: {queried_pcg}")
+            fail(f"pcg_graph_inspect missing semanticSnapshot for direct asset read: {queried_pcg}")
         queried_graph_ref = queried_pcg.get("graphRef")
         if not isinstance(queried_graph_ref, dict) or queried_graph_ref.get("assetPath") != temp_pcg_asset:
-            fail(f"pcg.graph.inspect did not echo expected asset graphRef: {queried_pcg}")
-        print("[PASS] pcg.graph.inspect direct asset addressing validated")
+            fail(f"pcg_graph_inspect did not echo expected asset graphRef: {queried_pcg}")
+        print("[PASS] pcg_graph_inspect direct asset addressing validated")
 
         pcg_class_desc = call_domain_tool(
             client,
@@ -3045,13 +3045,13 @@ def main() -> int:
             {"nodeClass": "/Script/PCG.PCGTransformPointsSettings"},
         )
         if pcg_class_desc.get("mode") != "class":
-            fail(f"pcg.node.inspect class mode mismatch: {pcg_class_desc}")
+            fail(f"pcg_node_inspect class mode mismatch: {pcg_class_desc}")
         if not isinstance(pcg_class_desc.get("inputPins"), list):
-            fail(f"pcg.node.inspect missing inputPins[]: {pcg_class_desc}")
+            fail(f"pcg_node_inspect missing inputPins[]: {pcg_class_desc}")
         if not isinstance(pcg_class_desc.get("outputPins"), list):
-            fail(f"pcg.node.inspect missing outputPins[]: {pcg_class_desc}")
+            fail(f"pcg_node_inspect missing outputPins[]: {pcg_class_desc}")
         if not isinstance(pcg_class_desc.get("properties"), list):
-            fail(f"pcg.node.inspect missing properties[]: {pcg_class_desc}")
+            fail(f"pcg_node_inspect missing properties[]: {pcg_class_desc}")
 
         pcg_dry_run_script = call_domain_tool(
             client,
@@ -3092,7 +3092,7 @@ def main() -> int:
             expect_error=True,
         )
         _ = bad_query
-        print("[PASS] blueprint.graph.inspect error path validated")
+        print("[PASS] blueprint_graph_inspect error path validated")
 
         bad_remove = call_domain_tool(
             client,
@@ -3108,8 +3108,8 @@ def main() -> int:
         )
         bad_remove_struct = structured_detail_or_payload(bad_remove)
         if bad_remove_struct.get("code") != "INVALID_ARGUMENT":
-            fail(f"blueprint.graph.edit invalid command should return INVALID_ARGUMENT: {bad_remove_struct}")
-        print("[PASS] blueprint.graph.edit command validation error path validated")
+            fail(f"blueprint_graph_edit invalid command should return INVALID_ARGUMENT: {bad_remove_struct}")
+        print("[PASS] blueprint_graph_edit command validation error path validated")
 
         add_a = call_domain_tool(
             client,
@@ -3128,7 +3128,7 @@ def main() -> int:
         missing_data_pin = call_tool(
             client,
             1010,
-            "blueprint.graph.inspect",
+            "blueprint_graph_inspect",
             {
                 "assetPath": temp_asset,
                 "graph": {"name": "EventGraph"},
@@ -3138,7 +3138,7 @@ def main() -> int:
             expect_error=True,
         )
         if extract_nested_error_code(missing_data_pin) != "PIN_NOT_FOUND":
-            fail(f"blueprint.graph.inspect missing data root pin should return PIN_NOT_FOUND: {missing_data_pin}")
+            fail(f"blueprint_graph_inspect missing data root pin should return PIN_NOT_FOUND: {missing_data_pin}")
 
         add_b = call_domain_tool(
             client,
@@ -3154,7 +3154,7 @@ def main() -> int:
         node_b = op_ok(add_b).get("nodeId")
         if not isinstance(node_b, str) or not node_b:
             fail(f"addFromPalette did not return nodeId for second node: {add_b}")
-        print("[PASS] blueprint.graph.edit addFromPalette validated")
+        print("[PASS] blueprint_graph_edit addFromPalette validated")
 
         gate_entry = find_palette_entry(client, 1011, temp_asset, "Gate", "Gate")
 
@@ -3184,10 +3184,10 @@ def main() -> int:
             fail(f"addFromPalette Gate did not create K2Node_MacroInstance: {macro_node}")
         macro_ext = macro_node.get("k2Extensions", {}).get("macro") if isinstance(macro_node.get("k2Extensions"), dict) else None
         if not isinstance(macro_ext, dict) or macro_ext.get("macroGraphName") != "Gate":
-            fail(f"blueprint.graph.inspect missing macro identity for addFromPalette Gate: {macro_node}")
+            fail(f"blueprint_graph_inspect missing macro identity for addFromPalette Gate: {macro_node}")
         if macro_ext.get("macroLibraryAssetPath") != "/Engine/EditorBlueprintResources/StandardMacros":
-            fail(f"blueprint.graph.inspect macro library mismatch: {macro_node}")
-        print("[PASS] blueprint.graph.palette MacroInstance creation validated")
+            fail(f"blueprint_graph_inspect macro library mismatch: {macro_node}")
+        print("[PASS] blueprint_graph_palette MacroInstance creation validated")
 
         self_entry = find_palette_entry(
             client,
@@ -3228,20 +3228,20 @@ def main() -> int:
         )
         self_results = self_graph_edit.get("opResults")
         if not isinstance(self_results, list) or len(self_results) != 3:
-            fail(f"blueprint.graph.edit self node opResults mismatch: {self_graph_edit}")
+            fail(f"blueprint_graph_edit self node opResults mismatch: {self_graph_edit}")
         self_node_id = self_results[0].get("nodeId") if isinstance(self_results[0], dict) else None
         if not isinstance(self_node_id, str) or not self_node_id:
-            fail(f"blueprint.graph.edit K2Node_Self did not return nodeId: {self_graph_edit}")
+            fail(f"blueprint_graph_edit K2Node_Self did not return nodeId: {self_graph_edit}")
         if not all(isinstance(entry, dict) and entry.get("ok") for entry in self_results):
-            fail(f"blueprint.graph.edit K2Node_Self/connect op failed: {self_graph_edit}")
+            fail(f"blueprint_graph_edit K2Node_Self/connect op failed: {self_graph_edit}")
         self_diff = self_graph_edit.get("diff")
         if not isinstance(self_diff, dict):
-            fail(f"blueprint.graph.edit missing structured diff: {self_graph_edit}")
+            fail(f"blueprint_graph_edit missing structured diff: {self_graph_edit}")
         self_nodes_added = self_diff.get("nodesAdded")
         if not isinstance(self_nodes_added, list) or not any(
             isinstance(entry, dict) and entry.get("nodeId") == self_node_id for entry in self_nodes_added
         ):
-            fail(f"blueprint.graph.edit diff missing Self node addition: {self_graph_edit}")
+            fail(f"blueprint_graph_edit diff missing Self node addition: {self_graph_edit}")
         self_links_added = self_diff.get("linksAdded")
         if not isinstance(self_links_added, list) or not any(
             isinstance(entry, dict)
@@ -3250,28 +3250,28 @@ def main() -> int:
             and entry.get("toPin") == "Object"
             for entry in self_links_added
         ):
-            fail(f"blueprint.graph.edit diff missing Self link addition: {self_graph_edit}")
+            fail(f"blueprint_graph_edit diff missing Self link addition: {self_graph_edit}")
         first_op_diff = self_results[0].get("diff") if isinstance(self_results[0], dict) else None
         if not isinstance(first_op_diff, dict) or not isinstance(first_op_diff.get("nodesAdded"), list):
-            fail(f"blueprint.graph.edit opResults diff missing node addition: {self_graph_edit}")
+            fail(f"blueprint_graph_edit opResults diff missing node addition: {self_graph_edit}")
 
         self_query = inspect_blueprint_node(client, 13, temp_asset, "EventGraph", self_node_id)
         self_node = self_query.get("node", {})
         if self_node.get("className") != "K2Node_Self":
-            fail(f"blueprint.graph.inspect self node class mismatch: {self_node}")
+            fail(f"blueprint_graph_inspect self node class mismatch: {self_node}")
         self_pins = self_node.get("pins")
         if not isinstance(self_pins, list) or not any(
             isinstance(pin, dict) and pin.get("name") == "self" and pin.get("direction") == "output"
             for pin in self_pins
         ):
-            fail(f"blueprint.graph.inspect self node output pin missing: {self_node}")
+            fail(f"blueprint_graph_inspect self node output pin missing: {self_node}")
         if not any(
             isinstance(pin, dict)
             and pin.get("name") == "self"
             and any(isinstance(link, dict) and link.get("toPin") == "Object" for link in pin.get("links", []))
             for pin in self_pins
         ):
-            fail(f"blueprint.graph.inspect self node link to UObject/Actor input missing: {self_node}")
+            fail(f"blueprint_graph_inspect self node link to UObject/Actor input missing: {self_node}")
         self_external_query = inspect_blueprint_node(client, 1310, temp_asset, "EventGraph", self_node_id)
         self_external_node = self_external_query.get("node", {})
         self_external_pins = self_external_node.get("pins")
@@ -3281,7 +3281,7 @@ def main() -> int:
             and any(isinstance(link, dict) and link.get("toPin") == "Object" for link in pin.get("links", []))
             for pin in self_external_pins
         ):
-            fail(f"blueprint.graph.inspect includeConnections pruned external link: {self_external_node}")
+            fail(f"blueprint_graph_inspect includeConnections pruned external link: {self_external_node}")
 
         connect_dry_run = call_domain_tool(
             client,
@@ -3299,12 +3299,12 @@ def main() -> int:
         )
         connect_dry_run_results = connect_dry_run.get("opResults")
         if not isinstance(connect_dry_run_results, list) or len(connect_dry_run_results) != 1:
-            fail(f"blueprint.graph.edit connect dryRun opResults mismatch: {connect_dry_run}")
+            fail(f"blueprint_graph_edit connect dryRun opResults mismatch: {connect_dry_run}")
         if connect_dry_run_results[0].get("ok") is not True or connect_dry_run_results[0].get("changed") is not False:
-            fail(f"blueprint.graph.edit connect dryRun should validate existing pins without changing graph: {connect_dry_run}")
+            fail(f"blueprint_graph_edit connect dryRun should validate existing pins without changing graph: {connect_dry_run}")
         if connect_dry_run.get("applied") is not False or connect_dry_run.get("valid") is not True:
-            fail(f"blueprint.graph.edit connect dryRun should report applied=false and valid=true: {connect_dry_run}")
-        print("[PASS] blueprint.graph.edit dryRun existing-pin connection validated")
+            fail(f"blueprint_graph_edit connect dryRun should report applied=false and valid=true: {connect_dry_run}")
+        print("[PASS] blueprint_graph_edit dryRun existing-pin connection validated")
 
         reconstruct_payload = call_domain_tool(
             client,
@@ -3319,19 +3319,19 @@ def main() -> int:
         )
         reconstruct_results = reconstruct_payload.get("opResults")
         if not isinstance(reconstruct_results, list) or len(reconstruct_results) != 1:
-            fail(f"blueprint.graph.edit reconstructNode opResults mismatch: {reconstruct_payload}")
+            fail(f"blueprint_graph_edit reconstructNode opResults mismatch: {reconstruct_payload}")
         reconstruct_first = reconstruct_results[0] if isinstance(reconstruct_results[0], dict) else {}
         if reconstruct_first.get("ok") is not True:
-            fail(f"blueprint.graph.edit reconstructNode failed: {reconstruct_payload}")
+            fail(f"blueprint_graph_edit reconstructNode failed: {reconstruct_payload}")
         if not isinstance(reconstruct_first.get("pinsBefore"), list) or not isinstance(reconstruct_first.get("pinsAfter"), list):
-            fail(f"blueprint.graph.edit reconstructNode missing pin summaries: {reconstruct_payload}")
+            fail(f"blueprint_graph_edit reconstructNode missing pin summaries: {reconstruct_payload}")
         if reconstruct_first.get("linksPreserved") != 1:
-            fail(f"blueprint.graph.edit reconstructNode should preserve Self link: {reconstruct_payload}")
+            fail(f"blueprint_graph_edit reconstructNode should preserve Self link: {reconstruct_payload}")
         reconstruct_dropped = reconstruct_first.get("linksDropped")
         if not isinstance(reconstruct_dropped, list) or reconstruct_dropped:
-            fail(f"blueprint.graph.edit reconstructNode unexpectedly dropped links: {reconstruct_payload}")
-        print("[PASS] blueprint.graph.edit K2Node_Self creation/connect/inspect validated")
-        print("[PASS] blueprint.graph.edit reconstructNode preserveLinks validated")
+            fail(f"blueprint_graph_edit reconstructNode unexpectedly dropped links: {reconstruct_payload}")
+        print("[PASS] blueprint_graph_edit K2Node_Self creation/connect/inspect validated")
+        print("[PASS] blueprint_graph_edit reconstructNode preserveLinks validated")
 
         blueprint_revision_before = query_graph_payload(
             client,
@@ -3470,7 +3470,7 @@ def main() -> int:
         )
         if extract_nested_error_code(bad_graph_command) != "INVALID_ARGUMENT":
             fail(f"Blueprint unsupported graph.edit command should surface INVALID_ARGUMENT: {bad_graph_command}")
-        print("[PASS] blueprint.graph.edit unsupported command rejected")
+        print("[PASS] blueprint_graph_edit unsupported command rejected")
 
         partial_apply_node = call_domain_tool(
             client,
@@ -3524,7 +3524,7 @@ def main() -> int:
         partial_apply_node_readback = inspect_blueprint_node(client, 10927, temp_asset, "EventGraph", partial_apply_node_id)
         if partial_apply_node_readback.get("isError") is True:
             fail(f"Blueprint invalid command batch should not remove earlier node: {partial_apply_after}")
-        print("[PASS] blueprint.graph.edit invalid command batch preflight validated")
+        print("[PASS] blueprint_graph_edit invalid command batch preflight validated")
 
         blueprint_idem_key = "bp-idem-1"
         blueprint_idem_before = query_graph_payload(
@@ -3629,18 +3629,18 @@ def main() -> int:
         duplicate_client_ref_struct = structured_detail_or_payload(duplicate_client_ref)
         duplicate_client_ref_results = duplicate_client_ref_struct.get("opResults")
         if not isinstance(duplicate_client_ref_results, list) or len(duplicate_client_ref_results) < 2:
-            fail(f"blueprint.graph.edit duplicate clientRef missing opResults: {duplicate_client_ref}")
+            fail(f"blueprint_graph_edit duplicate clientRef missing opResults: {duplicate_client_ref}")
         duplicate_client_ref_second = duplicate_client_ref_results[1] if isinstance(duplicate_client_ref_results[1], dict) else {}
         if duplicate_client_ref_second.get("errorCode") != "INVALID_ARGUMENT":
-            fail(f"blueprint.graph.edit duplicate clientRef wrong errorCode: {duplicate_client_ref_second}")
+            fail(f"blueprint_graph_edit duplicate clientRef wrong errorCode: {duplicate_client_ref_second}")
         if "Duplicate clientRef" not in str(duplicate_client_ref_second.get("errorMessage", "")):
-            fail(f"blueprint.graph.edit duplicate clientRef wrong errorMessage: {duplicate_client_ref_second}")
+            fail(f"blueprint_graph_edit duplicate clientRef wrong errorMessage: {duplicate_client_ref_second}")
         print("[PASS] blueprint duplicate clientRef rejected")
 
         legacy_page = call_tool(
             client,
             110,
-            "blueprint.graph.inspect",
+            "blueprint_graph_inspect",
             {
                 "assetPath": temp_asset,
                 "graph": {"name": "EventGraph"},
@@ -3650,7 +3650,7 @@ def main() -> int:
             expect_error=True,
         )
         if legacy_page.get("isError") is not True:
-            fail(f"blueprint.graph.inspect should reject legacy pagination: {legacy_page}")
+            fail(f"blueprint_graph_inspect should reject legacy pagination: {legacy_page}")
         print("[PASS] graph.inspect legacy pagination rejected")
 
         connect_payload = call_domain_tool(
@@ -3713,12 +3713,12 @@ def main() -> int:
         )
         insert_exec_results = insert_exec_payload.get("opResults")
         if not isinstance(insert_exec_results, list) or len(insert_exec_results) != 2:
-            fail(f"blueprint.graph.edit insertExec opResults mismatch: {insert_exec_payload}")
+            fail(f"blueprint_graph_edit insertExec opResults mismatch: {insert_exec_payload}")
         inserted_exec_node = insert_exec_results[0].get("nodeId") if isinstance(insert_exec_results[0], dict) else None
         if not isinstance(inserted_exec_node, str) or not inserted_exec_node:
-            fail(f"blueprint.graph.edit insertExec setup did not return inserted nodeId: {insert_exec_payload}")
+            fail(f"blueprint_graph_edit insertExec setup did not return inserted nodeId: {insert_exec_payload}")
         if not isinstance(insert_exec_results[1], dict) or insert_exec_results[1].get("ok") is not True:
-            fail(f"blueprint.graph.edit insertExec op failed: {insert_exec_payload}")
+            fail(f"blueprint_graph_edit insertExec op failed: {insert_exec_payload}")
 
         def diff_has_link(diff: dict, field: str, from_node_id: str, from_pin: str, to_node_id: str, to_pin: str) -> bool:
             links = diff.get(field)
@@ -3740,13 +3740,13 @@ def main() -> int:
 
         insert_exec_diff = insert_exec_results[1].get("diff") if isinstance(insert_exec_results[1], dict) else None
         if not isinstance(insert_exec_diff, dict):
-            fail(f"blueprint.graph.edit insertExec missing op diff: {insert_exec_payload}")
+            fail(f"blueprint_graph_edit insertExec missing op diff: {insert_exec_payload}")
         if not diff_has_link(insert_exec_diff, "linksAdded", node_a, "then", inserted_exec_node, "execute"):
-            fail(f"blueprint.graph.edit insertExec did not connect source to inserted node: {insert_exec_payload}")
+            fail(f"blueprint_graph_edit insertExec did not connect source to inserted node: {insert_exec_payload}")
         if not diff_has_link(insert_exec_diff, "linksAdded", inserted_exec_node, "then", node_b, "execute"):
-            fail(f"blueprint.graph.edit insertExec did not connect inserted node to target: {insert_exec_payload}")
+            fail(f"blueprint_graph_edit insertExec did not connect inserted node to target: {insert_exec_payload}")
         if not diff_has_link(insert_exec_diff, "linksRemoved", node_a, "then", node_b, "execute"):
-            fail(f"blueprint.graph.edit insertExec did not remove original direct link: {insert_exec_payload}")
+            fail(f"blueprint_graph_edit insertExec did not remove original direct link: {insert_exec_payload}")
 
         bypass_exec_payload = call_domain_tool(
             client,
@@ -3762,22 +3762,22 @@ def main() -> int:
         bypass_exec_op = op_ok(bypass_exec_payload)
         bypass_exec_diff = bypass_exec_op.get("diff")
         if not isinstance(bypass_exec_diff, dict):
-            fail(f"blueprint.graph.edit bypassExec missing op diff: {bypass_exec_payload}")
+            fail(f"blueprint_graph_edit bypassExec missing op diff: {bypass_exec_payload}")
         if not diff_has_link(bypass_exec_diff, "linksAdded", node_a, "then", node_b, "execute"):
-            fail(f"blueprint.graph.edit bypassExec did not restore direct exec link: {bypass_exec_payload}")
+            fail(f"blueprint_graph_edit bypassExec did not restore direct exec link: {bypass_exec_payload}")
         if not diff_has_link(bypass_exec_diff, "linksRemoved", node_a, "then", inserted_exec_node, "execute"):
-            fail(f"blueprint.graph.edit bypassExec did not remove source-to-bypassed link: {bypass_exec_payload}")
+            fail(f"blueprint_graph_edit bypassExec did not remove source-to-bypassed link: {bypass_exec_payload}")
         if not diff_has_link(bypass_exec_diff, "linksRemoved", inserted_exec_node, "then", node_b, "execute"):
-            fail(f"blueprint.graph.edit bypassExec did not remove bypassed-to-target link: {bypass_exec_payload}")
+            fail(f"blueprint_graph_edit bypassExec did not remove bypassed-to-target link: {bypass_exec_payload}")
         bypass_removed_nodes = bypass_exec_diff.get("nodesRemoved")
         if not isinstance(bypass_removed_nodes, list) or not any(
             isinstance(node, dict) and str(node.get("nodeId", "")).lower() == inserted_exec_node.lower()
             for node in bypass_removed_nodes
         ):
-            fail(f"blueprint.graph.edit bypassExec did not remove bypassed node: {bypass_exec_payload}")
+            fail(f"blueprint_graph_edit bypassExec did not remove bypassed node: {bypass_exec_payload}")
         nodes_after_bypass_exec = query_nodes(client, 144, temp_asset, "EventGraph")
         require_node_absent(nodes_after_bypass_exec, inserted_exec_node)
-        print("[PASS] blueprint.graph.edit insertExec/bypassExec validated")
+        print("[PASS] blueprint_graph_edit insertExec/bypassExec validated")
 
         disconnect_payload = call_domain_tool(
             client,
@@ -3824,26 +3824,26 @@ def main() -> int:
                 try:
                     bad_set_default_struct = json.loads(bad_set_default_detail)
                 except Exception as exc:
-                    fail(f"blueprint.graph.edit bad setPinDefault detail is not valid JSON: {exc} payload={bad_set_default_payload}")
+                    fail(f"blueprint_graph_edit bad setPinDefault detail is not valid JSON: {exc} payload={bad_set_default_payload}")
                 bad_set_default_results = bad_set_default_struct.get("opResults")
         if not isinstance(bad_set_default_results, list) or not bad_set_default_results:
-            fail(f"blueprint.graph.edit bad setPinDefault missing opResults: {bad_set_default_payload}")
+            fail(f"blueprint_graph_edit bad setPinDefault missing opResults: {bad_set_default_payload}")
         bad_set_default_first = bad_set_default_results[0] if isinstance(bad_set_default_results[0], dict) else {}
         if bad_set_default_first.get("errorCode") not in {"TARGET_NOT_FOUND", "INVALID_ARGUMENT", "INTERNAL_ERROR"}:
-            fail(f"blueprint.graph.edit bad setPinDefault wrong errorCode: {bad_set_default_first}")
+            fail(f"blueprint_graph_edit bad setPinDefault wrong errorCode: {bad_set_default_first}")
         details = bad_set_default_first.get("details")
         if isinstance(details, dict):
             expected_target_forms = details.get("expectedTargetForms")
             if not isinstance(expected_target_forms, list) or not expected_target_forms:
-                fail(f"blueprint.graph.edit bad setPinDefault missing expectedTargetForms: {details}")
+                fail(f"blueprint_graph_edit bad setPinDefault missing expectedTargetForms: {details}")
             candidate_pins = details.get("candidatePins")
             if not isinstance(candidate_pins, list) or not candidate_pins:
-                fail(f"blueprint.graph.edit bad setPinDefault missing candidatePins: {details}")
+                fail(f"blueprint_graph_edit bad setPinDefault missing candidatePins: {details}")
             if not any(isinstance(pin, dict) and pin.get("pinName") == "Condition" for pin in candidate_pins):
-                fail(f"blueprint.graph.edit bad setPinDefault candidatePins missing Condition: {candidate_pins}")
+                fail(f"blueprint_graph_edit bad setPinDefault candidatePins missing Condition: {candidate_pins}")
         elif "DefinitelyMissingPin" not in str(bad_set_default_first.get("errorMessage", "")):
-            fail(f"blueprint.graph.edit bad setPinDefault should surface the missing pin name: {bad_set_default_first}")
-        print("[PASS] blueprint.graph.edit setPinDefault diagnostics validated")
+            fail(f"blueprint_graph_edit bad setPinDefault should surface the missing pin name: {bad_set_default_first}")
+        print("[PASS] blueprint_graph_edit setPinDefault diagnostics validated")
 
         move_payload = call_domain_tool(
             client,
@@ -3910,10 +3910,10 @@ def main() -> int:
         node_a_layout = require_layout(node_a_info)
         node_b_layout = require_layout(node_b_info)
         if node_a_layout.get("position", {}).get("x") != 16 or node_a_layout.get("position", {}).get("y") != 0:
-            fail(f"blueprint.graph.edit moveNode delta did not update node_a layout as expected: {node_a_info}")
+            fail(f"blueprint_graph_edit moveNode delta did not update node_a layout as expected: {node_a_info}")
         node_b_pos = node_b_layout.get("position", {})
         if node_b_pos.get("x") != 656 or node_b_pos.get("y") not in {144, 160}:
-            fail(f"blueprint.graph.edit moveNode position/delta did not update node_b layout as expected: {node_b_info}")
+            fail(f"blueprint_graph_edit moveNode position/delta did not update node_b layout as expected: {node_b_info}")
 
         add_without_position = call_domain_tool(
             client,
@@ -3990,27 +3990,27 @@ def main() -> int:
             },
         )
         op_ok(disalign_f)
-        layout_dry_run = call_tool(client, 18086, "blueprint.graph.layout", {
+        layout_dry_run = call_tool(client, 18086, "blueprint_graph_layout", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "root": {"id": node_e},
             "dryRun": True,
         })
         if layout_dry_run.get("applied") is not False or layout_dry_run.get("valid") is not True:
-            fail(f"blueprint.graph.layout dryRun should validate without applying: {layout_dry_run}")
+            fail(f"blueprint_graph_layout dryRun should validate without applying: {layout_dry_run}")
         planned_moves = layout_dry_run.get("planned", {}).get("moves")
         if not isinstance(planned_moves, list) or not any(
             isinstance(move, dict) and move.get("node", {}).get("id") == node_f
             for move in planned_moves
         ):
-            fail(f"blueprint.graph.layout dryRun should plan a move for disaligned exec child: {layout_dry_run}")
-        layout_apply = call_tool(client, 18087, "blueprint.graph.layout", {
+            fail(f"blueprint_graph_layout dryRun should plan a move for disaligned exec child: {layout_dry_run}")
+        layout_apply = call_tool(client, 18087, "blueprint_graph_layout", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "root": {"id": node_e},
         })
         if layout_apply.get("applied") is not True or layout_apply.get("valid") is not True:
-            fail(f"blueprint.graph.layout apply should move the execution tree: {layout_apply}")
+            fail(f"blueprint_graph_layout apply should move the execution tree: {layout_apply}")
         node_e_after_layout = inspect_blueprint_node(client, 18088, temp_asset, "EventGraph", node_e).get("node", {})
         node_f_after_layout = inspect_blueprint_node(client, 18089, temp_asset, "EventGraph", node_f).get("node", {})
         from_anchor_after_layout = exec_anchor_y(node_e_after_layout, "then")
@@ -4021,10 +4021,10 @@ def main() -> int:
             or abs(from_anchor_after_layout - to_anchor_after_layout) > 1
         ):
             fail(
-                "blueprint.graph.layout did not restore straight exec anchor alignment: "
+                "blueprint_graph_layout did not restore straight exec anchor alignment: "
                 f"from={node_e_after_layout} to={node_f_after_layout} payload={layout_apply}"
             )
-        print("[PASS] blueprint.graph.layout root exec-tree formatting validated")
+        print("[PASS] blueprint_graph_layout root exec-tree formatting validated")
         remove_f = call_domain_tool(
             client,
             18083,
@@ -4049,9 +4049,9 @@ def main() -> int:
             },
         )
         op_ok(remove_e)
-        print("[PASS] blueprint.graph.edit addFromPalette auto-placement validated")
+        print("[PASS] blueprint_graph_edit addFromPalette auto-placement validated")
 
-        palette_branch = call_tool(client, 1809, "blueprint.graph.palette", {
+        palette_branch = call_tool(client, 1809, "blueprint_graph_palette", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "query": "Branch",
@@ -4059,15 +4059,15 @@ def main() -> int:
         })
         palette_entries = palette_branch.get("entries")
         if not isinstance(palette_entries, list) or not palette_entries:
-            fail(f"blueprint.graph.palette query Branch returned no entries: {palette_branch}")
+            fail(f"blueprint_graph_palette query Branch returned no entries: {palette_branch}")
         branch_entry = next((entry for entry in palette_entries if entry.get("label") == "Branch"), palette_entries[0])
         if not branch_entry.get("id"):
-            fail(f"blueprint.graph.palette entry missing id: {branch_entry}")
+            fail(f"blueprint_graph_palette entry missing id: {branch_entry}")
         if branch_entry.get("actionType") not in {"nodeSpawner", "schemaAction"}:
-            fail(f"blueprint.graph.palette entry has unexpected actionType: {branch_entry}")
+            fail(f"blueprint_graph_palette entry has unexpected actionType: {branch_entry}")
         if branch_entry.get("contextSensitive") is not True or branch_entry.get("executable") is not True:
-            fail(f"blueprint.graph.palette nodeSpawner metadata mismatch: {branch_entry}")
-        dry_palette = call_tool(client, 18095, "blueprint.graph.edit", {
+            fail(f"blueprint_graph_palette nodeSpawner metadata mismatch: {branch_entry}")
+        dry_palette = call_tool(client, 18095, "blueprint_graph_edit", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "dryRun": True,
@@ -4083,7 +4083,7 @@ def main() -> int:
         dry_palette_first = op_ok(dry_palette)
         if dry_palette_first.get("changed") is not False:
             fail(f"addFromPalette dryRun should validate without changing graph: {dry_palette}")
-        add_from_palette = call_tool(client, 1810, "blueprint.graph.edit", {
+        add_from_palette = call_tool(client, 1810, "blueprint_graph_edit", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "commands": [{
@@ -4112,7 +4112,7 @@ def main() -> int:
             },
         )
         op_ok(remove_palette_node)
-        print("[PASS] blueprint.graph.palette and addFromPalette Branch creation validated")
+        print("[PASS] blueprint_graph_palette and addFromPalette Branch creation validated")
 
         switch_name_entry = find_palette_entry(
             client,
@@ -4121,7 +4121,7 @@ def main() -> int:
             "Switch on Name",
             preferred_node_class="/Script/BlueprintGraph.K2Node_SwitchName",
         )
-        add_switch_name = call_tool(client, 18122, "blueprint.graph.edit", {
+        add_switch_name = call_tool(client, 18122, "blueprint_graph_edit", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "commands": [{
@@ -4137,45 +4137,45 @@ def main() -> int:
 
         graph_overview = inspect_blueprint_node(client, 18123, temp_asset, "EventGraph", switch_name_node)
         overview_node = graph_overview.get("node", {})
-        if overview_node.get("hasNodeEditCapabilities") is not True or overview_node.get("inspectWith") != "blueprint.node.inspect":
-            fail(f"blueprint.graph.inspect should route Switch on Name to blueprint.node.inspect: {overview_node}")
+        if overview_node.get("hasNodeEditCapabilities") is not True or overview_node.get("inspectWith") != "blueprint_node_inspect":
+            fail(f"blueprint_graph_inspect should route Switch on Name to blueprint_node_inspect: {overview_node}")
 
-        switch_inspect_before = call_tool(client, 18124, "blueprint.node.inspect", {
+        switch_inspect_before = call_tool(client, 18124, "blueprint_node_inspect", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "node": {"id": switch_name_node},
         })
         capabilities = switch_inspect_before.get("editCapabilities")
         if not isinstance(capabilities, dict) or capabilities.get("hasPinOperations") is not True:
-            fail(f"blueprint.node.inspect missing Switch on Name editCapabilities: {switch_inspect_before}")
+            fail(f"blueprint_node_inspect missing Switch on Name editCapabilities: {switch_inspect_before}")
         operations = capabilities.get("pinOperations")
         operation_names = {item.get("operation") for item in operations if isinstance(item, dict)} if isinstance(operations, list) else set()
         if "addPin" not in operation_names or "renamePin" not in operation_names:
-            fail(f"blueprint.node.inspect missing Switch on Name pin operations: {switch_inspect_before}")
+            fail(f"blueprint_node_inspect missing Switch on Name pin operations: {switch_inspect_before}")
         switch_node_before = switch_inspect_before.get("node", {})
         switch_exec_pins = [
             pin for pin in switch_node_before.get("pins", [])
             if isinstance(pin, dict) and pin.get("category") == "exec"
         ] if isinstance(switch_node_before, dict) else []
         if not switch_exec_pins:
-            fail(f"blueprint.node.inspect Switch on Name missing exec pins: {switch_inspect_before}")
+            fail(f"blueprint_node_inspect Switch on Name missing exec pins: {switch_inspect_before}")
         for pin in switch_exec_pins:
             pin_layout = pin.get("layout")
             if not isinstance(pin_layout, dict) or pin_layout.get("source") != "estimate":
-                fail(f"blueprint.node.inspect exec pin missing estimated layout: {pin}")
+                fail(f"blueprint_node_inspect exec pin missing estimated layout: {pin}")
             if not isinstance(pin_layout.get("offset"), dict) or not isinstance(pin_layout.get("anchor"), dict):
-                fail(f"blueprint.node.inspect exec pin layout missing offset/anchor: {pin_layout}")
+                fail(f"blueprint_node_inspect exec pin layout missing offset/anchor: {pin_layout}")
 
-        add_case_schema = call_tool(client, 18125, "schema.inspect", {
+        add_case_schema = call_tool(client, 18125, "schema_inspect", {
             "domain": "blueprint",
-            "tool": "blueprint.node.edit",
+            "tool": "blueprint_node_edit",
             "operation": "addPin",
             "include": ["summary", "operation"],
         })
         if add_case_schema.get("operation") != "addPin" or not isinstance(add_case_schema.get("operationSchema"), dict):
-            fail(f"schema.inspect blueprint.node.edit addPin schema invalid: {add_case_schema}")
+            fail(f"schema_inspect blueprint_node_edit addPin schema invalid: {add_case_schema}")
 
-        add_case = call_tool(client, 18126, "blueprint.node.edit", {
+        add_case = call_tool(client, 18126, "blueprint_node_edit", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "node": {"id": switch_name_node},
@@ -4184,9 +4184,9 @@ def main() -> int:
         })
         add_case_result = op_ok(add_case)
         if add_case_result.get("changed") is not True:
-            fail(f"blueprint.node.edit addPin should change Switch on Name: {add_case}")
+            fail(f"blueprint_node_edit addPin should change Switch on Name: {add_case}")
 
-        switch_inspect_after = call_tool(client, 18127, "blueprint.node.inspect", {
+        switch_inspect_after = call_tool(client, 18127, "blueprint_node_inspect", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "node": {"id": switch_name_node},
@@ -4199,8 +4199,8 @@ def main() -> int:
             if isinstance(pin, dict) and isinstance(pin.get("name"), str)
         } if isinstance(pins_after, list) else set()
         if "Paused" not in pin_names_after and (not isinstance(case_pins, list) or "Paused" not in case_pins):
-            fail(f"blueprint.node.edit addPin did not expose added Switch on Name case: {switch_inspect_after}")
-        print("[PASS] blueprint.node.inspect/edit Switch on Name case pin validated")
+            fail(f"blueprint_node_edit addPin did not expose added Switch on Name case: {switch_inspect_after}")
+        print("[PASS] blueprint_node_inspect/edit Switch on Name case pin validated")
 
         select_entry = find_palette_entry(
             client,
@@ -4209,7 +4209,7 @@ def main() -> int:
             "Select",
             preferred_node_class="/Script/BlueprintGraph.K2Node_Select",
         )
-        add_select = call_tool(client, 18129, "blueprint.graph.edit", {
+        add_select = call_tool(client, 18129, "blueprint_graph_edit", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "commands": [{
@@ -4223,7 +4223,7 @@ def main() -> int:
         if not isinstance(select_node, str) or not select_node:
             fail(f"Select addFromPalette did not return nodeId: {add_select}")
 
-        select_inspect_before = call_tool(client, 18130, "blueprint.node.inspect", {
+        select_inspect_before = call_tool(client, 18130, "blueprint_node_inspect", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "node": {"id": select_node},
@@ -4232,10 +4232,10 @@ def main() -> int:
         select_ops = select_caps.get("pinOperations") if isinstance(select_caps, dict) else []
         select_op_names = {item.get("operation") for item in select_ops if isinstance(item, dict)} if isinstance(select_ops, list) else set()
         if "addPin" not in select_op_names or "removePin" not in select_op_names:
-            fail(f"blueprint.node.inspect missing Select option operations: {select_inspect_before}")
+            fail(f"blueprint_node_inspect missing Select option operations: {select_inspect_before}")
         select_pins_before = select_inspect_before.get("editState", {}).get("optionPins")
         select_count_before = len(select_pins_before) if isinstance(select_pins_before, list) else -1
-        add_select_option = call_tool(client, 18131, "blueprint.node.edit", {
+        add_select_option = call_tool(client, 18131, "blueprint_node_edit", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "node": {"id": select_node},
@@ -4243,8 +4243,8 @@ def main() -> int:
             "args": {"role": "option"},
         })
         if op_ok(add_select_option).get("changed") is not True:
-            fail(f"blueprint.node.edit addPin should change Select options: {add_select_option}")
-        select_inspect_added = call_tool(client, 18132, "blueprint.node.inspect", {
+            fail(f"blueprint_node_edit addPin should change Select options: {add_select_option}")
+        select_inspect_added = call_tool(client, 18132, "blueprint_node_inspect", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "node": {"id": select_node},
@@ -4252,8 +4252,8 @@ def main() -> int:
         select_pins_added = select_inspect_added.get("editState", {}).get("optionPins")
         select_count_added = len(select_pins_added) if isinstance(select_pins_added, list) else -1
         if select_count_added <= select_count_before:
-            fail(f"blueprint.node.edit addPin did not add Select option pin: {select_inspect_added}")
-        remove_select_option = call_tool(client, 18133, "blueprint.node.edit", {
+            fail(f"blueprint_node_edit addPin did not add Select option pin: {select_inspect_added}")
+        remove_select_option = call_tool(client, 18133, "blueprint_node_edit", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "node": {"id": select_node},
@@ -4261,8 +4261,8 @@ def main() -> int:
             "args": {},
         })
         if op_ok(remove_select_option).get("changed") is not True:
-            fail(f"blueprint.node.edit removePin should change Select options: {remove_select_option}")
-        select_inspect_removed = call_tool(client, 18134, "blueprint.node.inspect", {
+            fail(f"blueprint_node_edit removePin should change Select options: {remove_select_option}")
+        select_inspect_removed = call_tool(client, 18134, "blueprint_node_inspect", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "node": {"id": select_node},
@@ -4270,8 +4270,8 @@ def main() -> int:
         select_pins_removed = select_inspect_removed.get("editState", {}).get("optionPins")
         select_count_removed = len(select_pins_removed) if isinstance(select_pins_removed, list) else -1
         if select_count_removed != select_count_before:
-            fail(f"blueprint.node.edit removePin should remove Select's last option: {select_inspect_removed}")
-        print("[PASS] blueprint.node.edit Select option add/remove validated")
+            fail(f"blueprint_node_edit removePin should remove Select's last option: {select_inspect_removed}")
+        print("[PASS] blueprint_node_edit Select option add/remove validated")
 
         format_text_entry = find_palette_entry(
             client,
@@ -4280,7 +4280,7 @@ def main() -> int:
             "Format Text",
             preferred_node_class="/Script/BlueprintGraph.K2Node_FormatText",
         )
-        add_format_text = call_tool(client, 18136, "blueprint.graph.edit", {
+        add_format_text = call_tool(client, 18136, "blueprint_graph_edit", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "commands": [{
@@ -4294,17 +4294,17 @@ def main() -> int:
         if not isinstance(format_text_node, str) or not format_text_node:
             fail(f"Format Text addFromPalette did not return nodeId: {add_format_text}")
 
-        move_arg_schema = call_tool(client, 18137, "schema.inspect", {
+        move_arg_schema = call_tool(client, 18137, "schema_inspect", {
             "domain": "blueprint",
-            "tool": "blueprint.node.edit",
+            "tool": "blueprint_node_edit",
             "operation": "movePin",
             "include": ["summary", "operation"],
         })
         if move_arg_schema.get("operation") != "movePin" or not isinstance(move_arg_schema.get("operationSchema"), dict):
-            fail(f"schema.inspect blueprint.node.edit movePin schema invalid: {move_arg_schema}")
+            fail(f"schema_inspect blueprint_node_edit movePin schema invalid: {move_arg_schema}")
 
         for offset, name in enumerate(("PlayerName", "Score")):
-            add_argument = call_tool(client, 18138 + offset, "blueprint.node.edit", {
+            add_argument = call_tool(client, 18138 + offset, "blueprint_node_edit", {
                 "assetPath": temp_asset,
                 "graph": {"name": "EventGraph"},
                 "node": {"id": format_text_node},
@@ -4312,8 +4312,8 @@ def main() -> int:
                 "args": {"role": "argument", "name": name},
             })
             if op_ok(add_argument).get("changed") is not True:
-                fail(f"blueprint.node.edit addPin should change Format Text arguments: {add_argument}")
-        move_argument = call_tool(client, 18140, "blueprint.node.edit", {
+                fail(f"blueprint_node_edit addPin should change Format Text arguments: {add_argument}")
+        move_argument = call_tool(client, 18140, "blueprint_node_edit", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "node": {"id": format_text_node},
@@ -4321,8 +4321,8 @@ def main() -> int:
             "args": {"pin": "Score", "target": {"pin": "PlayerName"}, "position": "before"},
         })
         if op_ok(move_argument).get("changed") is not True:
-            fail(f"blueprint.node.edit movePin should change Format Text arguments: {move_argument}")
-        rename_argument = call_tool(client, 18141, "blueprint.node.edit", {
+            fail(f"blueprint_node_edit movePin should change Format Text arguments: {move_argument}")
+        rename_argument = call_tool(client, 18141, "blueprint_node_edit", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "node": {"id": format_text_node},
@@ -4330,8 +4330,8 @@ def main() -> int:
             "args": {"pin": "Score", "name": "PlayerScore"},
         })
         if op_ok(rename_argument).get("changed") is not True:
-            fail(f"blueprint.node.edit renamePin should change Format Text arguments: {rename_argument}")
-        remove_argument = call_tool(client, 18142, "blueprint.node.edit", {
+            fail(f"blueprint_node_edit renamePin should change Format Text arguments: {rename_argument}")
+        remove_argument = call_tool(client, 18142, "blueprint_node_edit", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "node": {"id": format_text_node},
@@ -4339,16 +4339,16 @@ def main() -> int:
             "args": {"pin": "PlayerName"},
         })
         if op_ok(remove_argument).get("changed") is not True:
-            fail(f"blueprint.node.edit removePin should change Format Text arguments: {remove_argument}")
-        format_text_inspect = call_tool(client, 18143, "blueprint.node.inspect", {
+            fail(f"blueprint_node_edit removePin should change Format Text arguments: {remove_argument}")
+        format_text_inspect = call_tool(client, 18143, "blueprint_node_inspect", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "node": {"id": format_text_node},
         })
         argument_pins = format_text_inspect.get("editState", {}).get("argumentPins")
         if not isinstance(argument_pins, list) or "PlayerScore" not in argument_pins or "PlayerName" in argument_pins:
-            fail(f"blueprint.node.edit Format Text argument operations produced unexpected state: {format_text_inspect}")
-        print("[PASS] blueprint.node.edit Format Text argument add/move/rename/remove validated")
+            fail(f"blueprint_node_edit Format Text argument operations produced unexpected state: {format_text_inspect}")
+        print("[PASS] blueprint_node_edit Format Text argument add/move/rename/remove validated")
 
         set_fields_entry = find_palette_entry(
             client,
@@ -4358,7 +4358,7 @@ def main() -> int:
             preferred_label="Set members in Vector Parameter Value",
             preferred_node_class="/Script/BlueprintGraph.K2Node_SetFieldsInStruct",
         )
-        add_set_fields = call_tool(client, 18145, "blueprint.graph.edit", {
+        add_set_fields = call_tool(client, 18145, "blueprint_graph_edit", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "commands": [{
@@ -4372,15 +4372,15 @@ def main() -> int:
         if not isinstance(set_fields_node, str) or not set_fields_node:
             fail(f"SetFieldsInStruct addFromPalette did not return nodeId: {add_set_fields}")
 
-        restore_fields_schema = call_tool(client, 18146, "schema.inspect", {
+        restore_fields_schema = call_tool(client, 18146, "schema_inspect", {
             "domain": "blueprint",
-            "tool": "blueprint.node.edit",
+            "tool": "blueprint_node_edit",
             "operation": "restorePins",
             "include": ["summary", "operation"],
         })
         if restore_fields_schema.get("operation") != "restorePins" or not isinstance(restore_fields_schema.get("operationSchema"), dict):
-            fail(f"schema.inspect blueprint.node.edit restorePins schema invalid: {restore_fields_schema}")
-        restore_fields_initial = call_tool(client, 18147, "blueprint.node.edit", {
+            fail(f"schema_inspect blueprint_node_edit restorePins schema invalid: {restore_fields_schema}")
+        restore_fields_initial = call_tool(client, 18147, "blueprint_node_edit", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "node": {"id": set_fields_node},
@@ -4388,7 +4388,7 @@ def main() -> int:
             "args": {"scope": "all"},
         })
         op_ok(restore_fields_initial)
-        set_fields_inspect_restored = call_tool(client, 18148, "blueprint.node.inspect", {
+        set_fields_inspect_restored = call_tool(client, 18148, "blueprint_node_inspect", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "node": {"id": set_fields_node},
@@ -4402,7 +4402,7 @@ def main() -> int:
                     break
         if not removable_field:
             fail(f"SetFieldsInStruct restorePins did not expose removable field pins: {set_fields_inspect_restored}")
-        remove_field = call_tool(client, 18149, "blueprint.node.edit", {
+        remove_field = call_tool(client, 18149, "blueprint_node_edit", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "node": {"id": set_fields_node},
@@ -4410,16 +4410,16 @@ def main() -> int:
             "args": {"pin": removable_field},
         })
         if op_ok(remove_field).get("changed") is not True:
-            fail(f"blueprint.node.edit removePin should hide SetFieldsInStruct field: {remove_field}")
-        set_fields_inspect_hidden = call_tool(client, 18150, "blueprint.node.inspect", {
+            fail(f"blueprint_node_edit removePin should hide SetFieldsInStruct field: {remove_field}")
+        set_fields_inspect_hidden = call_tool(client, 18150, "blueprint_node_inspect", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "node": {"id": set_fields_node},
         })
         hidden_field_pins = set_fields_inspect_hidden.get("editState", {}).get("fieldPins")
         if isinstance(hidden_field_pins, list) and removable_field in hidden_field_pins:
-            fail(f"blueprint.node.edit removePin did not hide SetFieldsInStruct field: {set_fields_inspect_hidden}")
-        restore_fields_final = call_tool(client, 18151, "blueprint.node.edit", {
+            fail(f"blueprint_node_edit removePin did not hide SetFieldsInStruct field: {set_fields_inspect_hidden}")
+        restore_fields_final = call_tool(client, 18151, "blueprint_node_edit", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "node": {"id": set_fields_node},
@@ -4427,18 +4427,18 @@ def main() -> int:
             "args": {"scope": "all"},
         })
         if op_ok(restore_fields_final).get("changed") is not True:
-            fail(f"blueprint.node.edit restorePins should restore SetFieldsInStruct fields: {restore_fields_final}")
-        set_fields_inspect_final = call_tool(client, 18152, "blueprint.node.inspect", {
+            fail(f"blueprint_node_edit restorePins should restore SetFieldsInStruct fields: {restore_fields_final}")
+        set_fields_inspect_final = call_tool(client, 18152, "blueprint_node_inspect", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "node": {"id": set_fields_node},
         })
         final_field_pins = set_fields_inspect_final.get("editState", {}).get("fieldPins")
         if not isinstance(final_field_pins, list) or removable_field not in final_field_pins:
-            fail(f"blueprint.node.edit restorePins did not restore SetFieldsInStruct field: {set_fields_inspect_final}")
-        print("[PASS] blueprint.node.edit SetFieldsInStruct field hide/restore validated")
+            fail(f"blueprint_node_edit restorePins did not restore SetFieldsInStruct field: {set_fields_inspect_final}")
+        print("[PASS] blueprint_node_edit SetFieldsInStruct field hide/restore validated")
 
-        palette_schema = call_tool(client, 1813, "blueprint.graph.palette", {
+        palette_schema = call_tool(client, 1813, "blueprint_graph_palette", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "query": "Select a Component",
@@ -4446,13 +4446,13 @@ def main() -> int:
         })
         schema_entries = palette_schema.get("entries")
         if not isinstance(schema_entries, list) or not schema_entries:
-            fail(f"blueprint.graph.palette schema action query returned no entries: {palette_schema}")
+            fail(f"blueprint_graph_palette schema action query returned no entries: {palette_schema}")
         schema_entry = next((entry for entry in schema_entries if entry.get("actionType") == "schemaAction"), None)
         if not isinstance(schema_entry, dict):
-            fail(f"blueprint.graph.palette schema action missing from query: {palette_schema}")
+            fail(f"blueprint_graph_palette schema action missing from query: {palette_schema}")
         if schema_entry.get("executable") is not False:
-            fail(f"blueprint.graph.palette schema action should report executable=false: {schema_entry}")
-        schema_dry_run = call_tool(client, 1814, "blueprint.graph.edit", {
+            fail(f"blueprint_graph_palette schema action should report executable=false: {schema_entry}")
+        schema_dry_run = call_tool(client, 1814, "blueprint_graph_edit", {
             "assetPath": temp_asset,
             "graph": {"name": "EventGraph"},
             "dryRun": True,
@@ -4465,7 +4465,7 @@ def main() -> int:
         schema_result = schema_dry_run.get("opResults", [{}])[0]
         if schema_result.get("errorCode") != "PALETTE_ENTRY_NOT_EXECUTABLE":
             fail(f"schema action addFromPalette dryRun should fail as not executable: {schema_dry_run}")
-        print("[PASS] blueprint.graph.palette schema action non-executable metadata validated")
+        print("[PASS] blueprint_graph_palette schema action non-executable metadata validated")
 
         remove_a = call_domain_tool(
             client,
@@ -4557,8 +4557,8 @@ def main() -> int:
         nodes_after_remove_d = query_nodes(client, 30, temp_asset, "EventGraph")
         require_node_absent(nodes_after_remove_d, node_d)
 
-        print("[PASS] blueprint.graph.edit removeNode validated for stable node ids")
-        print("[PASS] blueprint.graph.edit graph-scoped mutate validated")
+        print("[PASS] blueprint_graph_edit removeNode validated for stable node ids")
+        print("[PASS] blueprint_graph_edit graph-scoped mutate validated")
 
         bulk_branch_ops = []
         for index in range(60):
@@ -4637,7 +4637,7 @@ def main() -> int:
         material_palette = call_tool(
             client,
             10008,
-            "material.palette",
+            "material_palette",
             {"assetPath": material_asset_path, "query": "Multiply", "limit": 20},
         )
         material_palette_entries = material_palette.get("entries")
@@ -4647,8 +4647,8 @@ def main() -> int:
             and entry["payload"].get("nodeClassPath") == "/Script/Engine.MaterialExpressionMultiply"
             for entry in material_palette_entries
         ):
-            fail(f"material.palette missing Multiply expression entry: {material_palette}")
-        print("[PASS] material.palette expression lookup validated")
+            fail(f"material_palette missing Multiply expression entry: {material_palette}")
+        print("[PASS] material_palette expression lookup validated")
         material_graph_list_without_type = call_domain_tool(
             client,
             10009,
@@ -4657,14 +4657,14 @@ def main() -> int:
             {"assetPath": material_asset_path},
         )
         if material_graph_list_without_type.get("assetPath") != material_asset_path:
-            fail(f"material.list assetPath mismatch: {material_graph_list_without_type}")
+            fail(f"material_list assetPath mismatch: {material_graph_list_without_type}")
         material_expressions = material_graph_list_without_type.get("expressions")
         if not isinstance(material_expressions, list):
-            fail(f"material.list missing expressions[]: {material_graph_list_without_type}")
+            fail(f"material_list missing expressions[]: {material_graph_list_without_type}")
         material_output_count = material_graph_list_without_type.get("outputCount")
         if not isinstance(material_output_count, int) or material_output_count < 1:
-            fail(f"material.list missing valid outputCount: {material_graph_list_without_type}")
-        print("[PASS] material.list validated")
+            fail(f"material_list missing valid outputCount: {material_graph_list_without_type}")
+        print("[PASS] material_list validated")
 
         material_add = call_domain_tool(
             client,
@@ -4692,7 +4692,7 @@ def main() -> int:
         material_param_rename = call_tool(
             client,
             100100,
-            "material.node.edit",
+            "material_node_edit",
             {
                 "assetPath": material_asset_path,
                 "node": {"id": material_param_id},
@@ -4702,13 +4702,13 @@ def main() -> int:
         )
         material_param_rename_op = op_ok(material_param_rename)
         if material_param_rename_op.get("op") != "setproperty" or material_param_rename_op.get("nodeId") != material_param_id:
-            fail(f"material.node.edit ParameterName returned unexpected op result: {material_param_rename}")
-        print("[PASS] material.node.edit editable property update validated")
+            fail(f"material_node_edit ParameterName returned unexpected op result: {material_param_rename}")
+        print("[PASS] material_node_edit editable property update validated")
 
         material_selection_layout = call_tool(
             client,
             1001001,
-            "material.graph.layout",
+            "material_graph_layout",
             {
                 "assetPath": material_asset_path,
                 "operation": "format",
@@ -4720,8 +4720,8 @@ def main() -> int:
         )
         material_selection_layout_op = op_ok(material_selection_layout)
         if material_selection_layout_op.get("op") != "layoutgraph":
-            fail(f"material.graph.layout selection returned unexpected op result: {material_selection_layout}")
-        print("[PASS] material.graph.layout selection validated")
+            fail(f"material_graph_layout selection returned unexpected op result: {material_selection_layout}")
+        print("[PASS] material_graph_layout selection validated")
 
         material_revision_before = call_domain_tool(
             client,
@@ -4963,12 +4963,12 @@ def main() -> int:
         material_duplicate_struct = structured_detail_or_payload(material_duplicate_client_ref)
         material_duplicate_results = material_duplicate_struct.get("opResults")
         if not isinstance(material_duplicate_results, list) or len(material_duplicate_results) < 2:
-            fail(f"material.graph.edit duplicate clientRef missing opResults: {material_duplicate_client_ref}")
+            fail(f"material_graph_edit duplicate clientRef missing opResults: {material_duplicate_client_ref}")
         material_duplicate_second = material_duplicate_results[1] if isinstance(material_duplicate_results[1], dict) else {}
         if material_duplicate_second.get("errorCode") != "INVALID_ARGUMENT":
-            fail(f"material.graph.edit duplicate clientRef wrong errorCode: {material_duplicate_second}")
+            fail(f"material_graph_edit duplicate clientRef wrong errorCode: {material_duplicate_second}")
         if "Duplicate clientRef" not in str(material_duplicate_second.get("errorMessage", "")):
-            fail(f"material.graph.edit duplicate clientRef wrong errorMessage: {material_duplicate_second}")
+            fail(f"material_graph_edit duplicate clientRef wrong errorMessage: {material_duplicate_second}")
         print("[PASS] material duplicate clientRef rejected")
 
         material_compile = call_domain_tool(
@@ -5011,13 +5011,13 @@ def main() -> int:
             },
         )
         if material_compile.get("status") != "ok":
-            fail(f"material.compile should succeed for material fixture: {material_compile}")
+            fail(f"material_compile should succeed for material fixture: {material_compile}")
         if not isinstance(material_compile.get("queryReport"), dict):
-            fail(f"material.compile missing queryReport: {material_compile}")
+            fail(f"material_compile missing queryReport: {material_compile}")
         compile_report = material_compile.get("compileReport")
         if not isinstance(compile_report, dict) or compile_report.get("compiled") is not True:
-            fail(f"material.compile missing compiled=true: {material_compile}")
-        print("[PASS] material.compile summary validated")
+            fail(f"material_compile missing compiled=true: {material_compile}")
+        print("[PASS] material_compile summary validated")
 
 
         material_connect = call_domain_tool(
@@ -5105,7 +5105,7 @@ def main() -> int:
         )
         material_query_without_type_snapshot = material_query_without_type.get("semanticSnapshot")
         if not isinstance(material_query_without_type_snapshot, dict):
-            fail(f"material.graph.inspect without explicit graphName missing semanticSnapshot: {material_query_without_type}")
+            fail(f"material_graph_inspect without explicit graphName missing semanticSnapshot: {material_query_without_type}")
         if material_query_without_type_snapshot.get("signature") != material_snapshot.get("signature"):
             fail(
                 "Material query without explicit graphName should resolve the same single-graph asset snapshot: "
@@ -5429,11 +5429,11 @@ def main() -> int:
             {"assetPath": temp_pcg_asset},
         )
         if pcg_graph_list_without_type.get("assetPath") != temp_pcg_asset:
-            fail(f"pcg.graph.inspect list-view assetPath mismatch: {pcg_graph_list_without_type}")
+            fail(f"pcg_graph_inspect list-view assetPath mismatch: {pcg_graph_list_without_type}")
         pcg_list_nodes = pcg_graph_list_without_type.get("nodes")
         if not isinstance(pcg_list_nodes, list) or len(pcg_list_nodes) < 6:
-            fail(f"pcg.graph.inspect list-view missing nodes[]: {pcg_graph_list_without_type}")
-        print("[PASS] pcg.graph.inspect list-view validated")
+            fail(f"pcg_graph_inspect list-view missing nodes[]: {pcg_graph_list_without_type}")
+        print("[PASS] pcg_graph_inspect list-view validated")
 
         pcg_spawn_property = call_domain_tool(
             client,
@@ -5468,7 +5468,7 @@ def main() -> int:
         pcg_selection_layout = call_tool(
             client,
             1010051,
-            "pcg.graph.layout",
+            "pcg_graph_layout",
             {
                 "assetPath": temp_pcg_asset,
                 "operation": "format",
@@ -5480,8 +5480,8 @@ def main() -> int:
         )
         pcg_selection_layout_op = op_ok(pcg_selection_layout)
         if pcg_selection_layout_op.get("op") != "layoutgraph":
-            fail(f"pcg.graph.layout selection returned unexpected op result: {pcg_selection_layout}")
-        print("[PASS] pcg.graph.layout selection validated")
+            fail(f"pcg_graph_layout selection returned unexpected op result: {pcg_selection_layout}")
+        print("[PASS] pcg_graph_layout selection validated")
         pcg_spawn_property_snapshot = query_snapshot(client, 101007, temp_pcg_asset, "pcg", "PCGGraph")
         pcg_spawn_property_node = require_node(
             [node for node in pcg_spawn_property_snapshot.get("nodes", []) if isinstance(node, dict)],
@@ -5494,7 +5494,7 @@ def main() -> int:
         )
         if not isinstance(pcg_spawn_behavior, dict) or pcg_spawn_behavior.get("deleteActorsBeforeGeneration") is not True:
             fail(f"PCG setProperty did not update SpawnActor behavior: {pcg_spawn_property_node}")
-        print("[PASS] pcg.graph.edit setNodeProperty updates node settings")
+        print("[PASS] pcg_graph_edit setNodeProperty updates node settings")
 
         pcg_connect = call_domain_tool(
             client,
@@ -5557,14 +5557,14 @@ def main() -> int:
         bad_pcg_connect_struct = structured_detail_or_payload(bad_pcg_connect)
         bad_pcg_connect_results = bad_pcg_connect_struct.get("opResults")
         if not isinstance(bad_pcg_connect_results, list) or not bad_pcg_connect_results:
-            fail(f"pcg.graph.edit bad connect missing opResults: {bad_pcg_connect}")
+            fail(f"pcg_graph_edit bad connect missing opResults: {bad_pcg_connect}")
         bad_pcg_connect_first = bad_pcg_connect_results[0] if isinstance(bad_pcg_connect_results[0], dict) else {}
         if bad_pcg_connect_first.get("errorCode") not in {"TARGET_NOT_FOUND", "PIN_NOT_FOUND"}:
-            fail(f"pcg.graph.edit bad connect wrong errorCode: {bad_pcg_connect_first}")
+            fail(f"pcg_graph_edit bad connect wrong errorCode: {bad_pcg_connect_first}")
         if bad_pcg_connect_first.get("ok") is not False:
-            fail(f"pcg.graph.edit bad connect should fail explicitly: {bad_pcg_connect_first}")
+            fail(f"pcg_graph_edit bad connect should fail explicitly: {bad_pcg_connect_first}")
         if bad_pcg_connect_first.get("changed") is not False:
-            fail(f"pcg.graph.edit bad connect should not report changed=true: {bad_pcg_connect_first}")
+            fail(f"pcg_graph_edit bad connect should not report changed=true: {bad_pcg_connect_first}")
         pcg_snapshot_after_bad_connect = query_snapshot(client, 101022, temp_pcg_asset, "pcg", "PCGGraph")
         pcg_edges_after_bad_connect = pcg_snapshot_after_bad_connect.get("edges")
         if not isinstance(pcg_edges_after_bad_connect, list):
@@ -5578,7 +5578,7 @@ def main() -> int:
             for edge in pcg_edges_after_bad_connect
         ):
             fail(f"PCG graph inspect should not contain invalid Out->In edge after failed connect: {pcg_edges_after_bad_connect}")
-        print("[PASS] pcg.graph.edit invalid connect target is rejected")
+        print("[PASS] pcg_graph_edit invalid connect target is rejected")
         pcg_snapshot_without_graph_name = query_snapshot(client, 10103, temp_pcg_asset, "pcg", None)
         if pcg_snapshot_without_graph_name.get("signature") != pcg_snapshot.get("signature"):
             fail(
@@ -5640,10 +5640,10 @@ def main() -> int:
         )
         if pcg_revision_after_compile.get("revision") != pcg_compile_second.get("newRevision"):
             fail(
-                "PCG compile revision metadata should match pcg.graph.inspect: "
+                "PCG compile revision metadata should match pcg_graph_inspect: "
                 f"compile={pcg_compile_second} inspect={pcg_revision_after_compile}"
             )
-        print("[PASS] pcg.compile revision metadata validated")
+        print("[PASS] pcg_compile revision metadata validated")
 
         create_pos = require_layout(require_node(pcg_nodes, pcg_create_id)).get("position", {})
         tag_a_pos = require_layout(require_node(pcg_nodes, pcg_tag_a_id)).get("position", {})
@@ -5880,7 +5880,7 @@ def main() -> int:
             fail(f"PCG StaticMeshSpawner attributeName missing from meshSelector: {mesh_selector_settings}")
         if static_mesh_spawner_settings.get("outAttributeName") != "ChosenMesh":
             fail(f"PCG StaticMeshSpawner outAttributeName missing from effectiveSettings: {static_mesh_spawner_settings}")
-        print("[PASS] pcg.graph.inspect settings and diagnostics validated")
+        print("[PASS] pcg_graph_inspect settings and diagnostics validated")
 
         pcg_health_fixture_payload = call_execute_exec_with_retry(
             client=client,
@@ -5935,19 +5935,19 @@ def main() -> int:
         )
         if pcg_verify.get("status") == "error":
             fail(
-                "pcg.compile should not become an error just because a PCG graph is not connected to Output: "
+                "pcg_compile should not become an error just because a PCG graph is not connected to Output: "
                 f"{pcg_verify}"
             )
         if not isinstance(pcg_verify.get("queryReport"), dict):
-            fail(f"pcg.compile missing queryReport for pcg graph: {pcg_verify}")
+            fail(f"pcg_compile missing queryReport for pcg graph: {pcg_verify}")
         pcg_compile_report = pcg_verify.get("compileReport")
         if not isinstance(pcg_compile_report, dict):
-            fail(f"pcg.compile missing compileReport for pcg graph: {pcg_verify}")
+            fail(f"pcg_compile missing compileReport for pcg graph: {pcg_verify}")
         if pcg_compile_report.get("compiled") is not True:
-            fail(f"pcg.compile should preserve compileReport.compiled=true for disconnected-output pcg graph: {pcg_verify}")
+            fail(f"pcg_compile should preserve compileReport.compiled=true for disconnected-output pcg graph: {pcg_verify}")
         pcg_health_diagnostics = pcg_verify.get("diagnostics")
         if not isinstance(pcg_health_diagnostics, list):
-            fail(f"pcg.compile missing diagnostics[]: {pcg_verify}")
+            fail(f"pcg_compile missing diagnostics[]: {pcg_verify}")
         pcg_health_codes = {
             diag.get("code")
             for diag in pcg_health_diagnostics
@@ -5960,8 +5960,8 @@ def main() -> int:
             "PCG_SPAWNER_NOT_CONNECTED_TO_OUTPUT",
         }:
             if unexpected_code in pcg_health_codes:
-                fail(f"pcg.compile should not invent {unexpected_code} for a disconnected-output pcg graph: {pcg_verify}")
-        print("[PASS] pcg.compile no longer invents disconnected-output failures")
+                fail(f"pcg_compile should not invent {unexpected_code} for a disconnected-output pcg graph: {pcg_verify}")
+        print("[PASS] pcg_compile no longer invents disconnected-output failures")
 
         pcg_remove_fixture_payload = call_execute_exec_with_retry(
             client=client,
@@ -6138,7 +6138,7 @@ def main() -> int:
             fail(f"PCG setPinDefault did not update Radius: {pcg_set_default_verify}")
         if pcg_set_default_verify.get("longitudinalSegments") != 8:
             fail(f"PCG setPinDefault did not update LongitudinalSegments: {pcg_set_default_verify}")
-        print("[PASS] pcg.graph.edit setPinDefault supports overridable inputs")
+        print("[PASS] pcg_graph_edit setPinDefault supports overridable inputs")
 
         pcg_filter_add = call_domain_tool(
             client,
@@ -6172,13 +6172,13 @@ def main() -> int:
         semantic_snapshot = pcg_filter_query.get("semanticSnapshot")
         snapshot_nodes = semantic_snapshot.get("nodes") if isinstance(semantic_snapshot, dict) else None
         if not isinstance(snapshot_nodes, list):
-            fail(f"PCG FilterByAttribute pcg.graph.inspect missing semanticSnapshot.nodes: {pcg_filter_query}")
+            fail(f"PCG FilterByAttribute pcg_graph_inspect missing semanticSnapshot.nodes: {pcg_filter_query}")
         filter_node = next(
             (node for node in snapshot_nodes if isinstance(node, dict) and node.get("id") == pcg_filter_node_id),
             None,
         )
         if not isinstance(filter_node, dict):
-            fail(f"PCG FilterByAttribute node not present in pcg.graph.inspect snapshot: {pcg_filter_query}")
+            fail(f"PCG FilterByAttribute node not present in pcg_graph_inspect snapshot: {pcg_filter_query}")
         filter_pins = filter_node.get("pins")
         if not isinstance(filter_pins, list):
             fail(f"PCG FilterByAttribute node missing pins[]: {filter_node}")
@@ -6282,7 +6282,7 @@ def main() -> int:
             fail(f"PCG FilterByAttribute threshold type did not update to Double: {pcg_filter_verify}")
         if abs(float(pcg_filter_verify.get("thresholdDoubleValue", 0.0)) - 0.5) > 1e-6:
             fail(f"PCG FilterByAttribute threshold constant did not update: {pcg_filter_verify}")
-        print("[PASS] pcg.graph.edit setPinDefault supports selector and constant threshold paths")
+        print("[PASS] pcg_graph_edit setPinDefault supports selector and constant threshold paths")
 
         pcg_filter_component_mutate = call_domain_tool(
             client,
@@ -6337,7 +6337,7 @@ def main() -> int:
         pcg_filter_node_describe = call_tool(
             client,
             101201,
-            "pcg.node.inspect",
+            "pcg_node_inspect",
             {"assetPath": temp_pcg_asset, "node": {"id": pcg_filter_node_id}},
         )
         describe_properties = pcg_filter_node_describe.get("properties", [])
@@ -6352,17 +6352,17 @@ def main() -> int:
             None,
         )
         if not isinstance(target_property, dict):
-            fail(f"pcg.node.inspect did not expose TargetAttribute as a selector property: {pcg_filter_node_describe}")
+            fail(f"pcg_node_inspect did not expose TargetAttribute as a selector property: {pcg_filter_node_describe}")
         accepted_input = target_property.get("acceptedInput", [])
         if "string" not in accepted_input or "pcgSelector" not in accepted_input:
-            fail(f"pcg.node.inspect TargetAttribute acceptedInput mismatch: {target_property}")
+            fail(f"pcg_node_inspect TargetAttribute acceptedInput mismatch: {target_property}")
         node_inspect_value = target_property.get("value")
         if not isinstance(node_inspect_value, dict):
-            fail(f"pcg.node.inspect TargetAttribute missing structured current value: {target_property}")
+            fail(f"pcg_node_inspect TargetAttribute missing structured current value: {target_property}")
         if node_inspect_value.get("kind") != "pcgSelector" or node_inspect_value.get("text") != "Position.Z":
-            fail(f"pcg.node.inspect TargetAttribute selector value mismatch: {target_property}")
+            fail(f"pcg_node_inspect TargetAttribute selector value mismatch: {target_property}")
         if node_inspect_value.get("accessors") != ["Z"] or node_inspect_value.get("valid") is not True:
-            fail(f"pcg.node.inspect TargetAttribute selector decomposition mismatch: {target_property}")
+            fail(f"pcg_node_inspect TargetAttribute selector decomposition mismatch: {target_property}")
 
         pcg_filter_structured_mutate = call_domain_tool(
             client,
@@ -6472,16 +6472,16 @@ def main() -> int:
         )
         print(f"[PASS] W01 WidgetBlueprint fixture created: {temp_wbp_asset}")
 
-        # W02 — widget.tree.inspect baseline structure
+        # W02 — widget_tree_inspect baseline structure
         wq0 = widget_tree_inspect(client, 5010, {"assetPath": temp_wbp_asset})
         if wq0.get("assetPath") != temp_wbp_asset:
-            fail(f"W02 widget.tree.inspect wrong assetPath: {wq0}")
+            fail(f"W02 widget_tree_inspect wrong assetPath: {wq0}")
         revision_0 = wq0.get("revision")
         if not isinstance(revision_0, str) or not revision_0:
-            fail(f"W02 widget.tree.inspect missing revision: {wq0}")
+            fail(f"W02 widget_tree_inspect missing revision: {wq0}")
         if not isinstance(wq0.get("diagnostics"), list):
-            fail(f"W02 widget.tree.inspect missing diagnostics[]: {wq0}")
-        print("[PASS] W02 widget.tree.inspect baseline structure validated")
+            fail(f"W02 widget_tree_inspect missing diagnostics[]: {wq0}")
+        print("[PASS] W02 widget_tree_inspect baseline structure validated")
 
         # W03 — dryRun: op validated but nothing changes
         wm_dry = widget_tree_edit(client, 5020, {
@@ -6502,7 +6502,7 @@ def main() -> int:
             fail(f"W03 dryRun changed should be False: {dry_op}")
         if wm_dry.get("newRevision") != wm_dry.get("previousRevision"):
             fail(f"W03 dryRun must not change revision: {wm_dry}")
-        print("[PASS] W03 widget.tree.edit dryRun validated")
+        print("[PASS] W03 widget_tree_edit dryRun validated")
 
         # W04 — addWidget CanvasPanel as root
         wm_add_canvas = widget_tree_edit(client, 5030, {
@@ -6519,16 +6519,16 @@ def main() -> int:
         revision_1 = wm_add_canvas.get("newRevision")
         if not isinstance(revision_1, str) or revision_1 == revision_0:
             fail(f"W04 addWidget should update revision: {wm_add_canvas}")
-        print("[PASS] W04 widget.tree.edit addFromPalette CanvasPanel validated")
+        print("[PASS] W04 widget_tree_edit addFromPalette CanvasPanel validated")
 
         # W05 — query confirms rootWidget now exists
         wq1 = widget_tree_inspect(client, 5040, {"assetPath": temp_wbp_asset})
         root_widget = wq1.get("rootWidget")
         if not isinstance(root_widget, dict):
-            fail(f"W05 widget.tree.inspect rootWidget should be object after addFromPalette: {wq1}")
+            fail(f"W05 widget_tree_inspect rootWidget should be object after addFromPalette: {wq1}")
         if root_widget.get("name") != "RootCanvas":
             fail(f"W05 rootWidget name mismatch: {root_widget}")
-        print("[PASS] W05 widget.tree.inspect reflects added CanvasPanel root")
+        print("[PASS] W05 widget_tree_inspect reflects added CanvasPanel root")
 
         # W06 — addWidget TextBlock as child of RootCanvas (uses parentName field)
         wm_add_text = widget_tree_edit(client, 5050, {
@@ -6543,7 +6543,7 @@ def main() -> int:
         revision_2 = wm_add_text.get("newRevision")
         if not isinstance(revision_2, str) or revision_2 == revision_1:
             fail(f"W06 addWidget TextBlock should update revision: {wm_add_text}")
-        print("[PASS] W06 widget.tree.edit addFromPalette TextBlock as child validated")
+        print("[PASS] W06 widget_tree_edit addFromPalette TextBlock as child validated")
 
         # W06b — renameWidget preserves the widget and updates inspect output
         wm_rename = widget_tree_edit(client, 5055, {
@@ -6574,7 +6574,7 @@ def main() -> int:
         })
         widget_op_ok(wm_rename_back, 0)
         revision_2 = wm_rename_back.get("newRevision")
-        print("[PASS] W06b widget.tree.edit renameWidget validated")
+        print("[PASS] W06b widget_tree_edit renameWidget validated")
 
         # W06c — create native UMG component-bound event for a Button OnClicked
         wm_add_button = widget_tree_edit(client, 5058, {
@@ -6586,32 +6586,32 @@ def main() -> int:
             }}],
         })
         widget_op_ok(wm_add_button, 0)
-        we_create = call_tool(client, 5059, "widget.event.create", {
+        we_create = call_tool(client, 5059, "widget_event_create", {
             "assetPath": temp_wbp_asset,
             "widget": {"name": "CardButton"},
             "event": "OnClicked",
         })
         if we_create.get("isError"):
-            fail(f"W06c widget.event.create failed: {we_create}")
+            fail(f"W06c widget_event_create failed: {we_create}")
         if we_create.get("created") is not True or not we_create.get("nodeId"):
-            fail(f"W06c widget.event.create should create node with nodeId: {we_create}")
+            fail(f"W06c widget_event_create should create node with nodeId: {we_create}")
         if we_create.get("widget", {}).get("name") != "CardButton":
-            fail(f"W06c widget.event.create should return widget ref object: {we_create}")
+            fail(f"W06c widget_event_create should return widget ref object: {we_create}")
         node_obj = we_create.get("node")
         if not isinstance(node_obj, dict) or node_obj.get("nodeClass") != "K2Node_ComponentBoundEvent":
-            fail(f"W06c widget.event.create should return K2Node_ComponentBoundEvent: {we_create}")
-        we_existing = call_tool(client, 5061, "widget.event.create", {
+            fail(f"W06c widget_event_create should return K2Node_ComponentBoundEvent: {we_create}")
+        we_existing = call_tool(client, 5061, "widget_event_create", {
             "assetPath": temp_wbp_asset,
             "widget": {"name": "CardButton"},
             "event": "OnClicked",
         })
         if we_existing.get("isError"):
-            fail(f"W06c widget.event.create idempotent call failed: {we_existing}")
+            fail(f"W06c widget_event_create idempotent call failed: {we_existing}")
         if we_existing.get("created") is not False or we_existing.get("existing") is not True:
-            fail(f"W06c widget.event.create should return existing node on repeated call: {we_existing}")
+            fail(f"W06c widget_event_create should return existing node on repeated call: {we_existing}")
         if we_existing.get("nodeId") != we_create.get("nodeId"):
-            fail(f"W06c widget.event.create repeated call should return same nodeId: {we_existing}")
-        print("[PASS] W06c widget.event.create native Button OnClicked event validated")
+            fail(f"W06c widget_event_create repeated call should return same nodeId: {we_existing}")
+        print("[PASS] W06c widget_event_create native Button OnClicked event validated")
 
         # W06d — setIsVariable exposes a designer widget as a Blueprint variable
         wm_add_grid = widget_tree_edit(client, 5062, {
@@ -6639,7 +6639,7 @@ def main() -> int:
         grid_matches = wq_grid_variable.get("matches", [])
         if not isinstance(grid_matches, list) or not grid_matches or grid_matches[0].get("isVariable") is not True:
             fail(f"W06d setIsVariable should make WorldCardGrid variable: {wq_grid_variable}")
-        print("[PASS] W06d widget.tree.edit setIsVariable validated")
+        print("[PASS] W06d widget_tree_edit setIsVariable validated")
 
         # W07 — layout view confirms child is present
         wq2 = widget_tree_inspect(client, 5060, {
@@ -6651,9 +6651,9 @@ def main() -> int:
             isinstance(c, dict) and c.get("name") == "TitleText" for c in root_children
         ):
             fail(f"W07 TitleText not found in rootWidget.children: {wq2}")
-        print("[PASS] W07 widget.tree.inspect layout view shows TextBlock child")
+        print("[PASS] W07 widget_tree_inspect layout view shows TextBlock child")
 
-        # W08 — widget.edit setProperty on TextBlock (Text / a known FText property)
+        # W08 — widget_edit setProperty on TextBlock (Text / a known FText property)
         wm_set_prop = widget_edit(client, 5070, {
             "assetPath": temp_wbp_asset,
             "ops": [{"op": "setProperty", "args": {
@@ -6664,8 +6664,8 @@ def main() -> int:
         })
         widget_op_ok(wm_set_prop, 0)
         if wm_set_prop.get("newRevision") == wm_set_prop.get("previousRevision"):
-            fail(f"W08 widget.edit setProperty should update revision: {wm_set_prop}")
-        print("[PASS] W08 widget.edit setProperty validated")
+            fail(f"W08 widget_edit setProperty should update revision: {wm_set_prop}")
+        print("[PASS] W08 widget_edit setProperty validated")
 
         # W09 — addWidget second panel for reparent source (uses parentName field)
         wm_add_panel2 = widget_tree_edit(client, 5080, {
@@ -6678,7 +6678,7 @@ def main() -> int:
         })
         widget_op_ok(wm_add_panel2, 0)
         revision_3 = wm_add_panel2.get("newRevision")
-        print("[PASS] W09 widget.tree.edit addFromPalette VerticalBox validated")
+        print("[PASS] W09 widget_tree_edit addFromPalette VerticalBox validated")
 
         # W10 — reparentWidget: move TitleText from RootCanvas to SecondPanel
         wm_reparent = widget_tree_edit(client, 5090, {
@@ -6692,7 +6692,7 @@ def main() -> int:
         revision_4 = wm_reparent.get("newRevision")
         if not isinstance(revision_4, str) or revision_4 == revision_3:
             fail(f"W10 reparentWidget should update revision: {wm_reparent}")
-        print("[PASS] W10 widget.tree.edit reparentWidget validated")
+        print("[PASS] W10 widget_tree_edit reparentWidget validated")
 
         # W11 — removeWidget
         wm_remove = widget_tree_edit(client, 5100, {
@@ -6703,7 +6703,7 @@ def main() -> int:
         revision_5 = wm_remove.get("newRevision")
         if not isinstance(revision_5, str) or revision_5 == revision_4:
             fail(f"W11 removeWidget should update revision: {wm_remove}")
-        print("[PASS] W11 widget.tree.edit removeWidget validated")
+        print("[PASS] W11 widget_tree_edit removeWidget validated")
 
         # W12 — expectedRevision conflict: pass stale revision
         wm_stale = widget_tree_edit(client, 5110, {
@@ -6720,7 +6720,7 @@ def main() -> int:
         stale_code = wm_stale.get("code", "")
         if stale_code not in {"REVISION_CONFLICT", 1008} and wm_stale.get("message") != "REVISION_CONFLICT":
             fail(f"W12 expected REVISION_CONFLICT code, got: {stale_code}")
-        print("[PASS] W12 widget.tree.edit stale expectedRevision raises REVISION_CONFLICT")
+        print("[PASS] W12 widget_tree_edit stale expectedRevision raises REVISION_CONFLICT")
 
         # W13 — batch preflight failure stops before later commands are applied
         wm_unknown = widget_tree_edit(client, 5120, {
@@ -6746,7 +6746,7 @@ def main() -> int:
         stopped_children = root_after_stop.get("children", []) if isinstance(root_after_stop, dict) else []
         if any(isinstance(c, dict) and c.get("name") == "AfterStoppedFailure" for c in stopped_children):
             fail(f"W13 later command should not be applied after preflight failure: {wq_after_stop}")
-        print("[PASS] W13 widget.tree.edit preflight failure stops batch before mutation")
+        print("[PASS] W13 widget_tree_edit preflight failure stops batch before mutation")
 
         # W14 — removeWidget for non-existent widget (op-level error)
         wm_notfound = widget_tree_edit(client, 5130, {
@@ -6756,26 +6756,26 @@ def main() -> int:
         op_nf = wm_notfound.get("opResults", [{}])[0] if wm_notfound.get("opResults") else {}
         if not isinstance(op_nf, dict) or op_nf.get("ok") is not False:
             fail(f"W14 removeWidget non-existent should be ok=False: {op_nf}")
-        print("[PASS] W14 widget.tree.edit removeWidget non-existent widget returns op error")
+        print("[PASS] W14 widget_tree_edit removeWidget non-existent widget returns op error")
 
-        # W15 — widget.tree.inspect on a non-WBP asset (Blueprint, should fail)
+        # W15 — widget_tree_inspect on a non-WBP asset (Blueprint, should fail)
         wq_err = widget_tree_inspect(client, 5140, {"assetPath": temp_asset}, expect_error=True)
         if not wq_err.get("isError"):
-            fail(f"W15 widget.tree.inspect on non-WBP asset should isError: {wq_err}")
+            fail(f"W15 widget_tree_inspect on non-WBP asset should isError: {wq_err}")
         err_code = wq_err.get("code", "")
         if err_code not in {"WIDGET_TREE_UNAVAILABLE", 1023} and wq_err.get("message") != "WIDGET_TREE_UNAVAILABLE":
             fail(f"W15 expected WIDGET_TREE_UNAVAILABLE, got: {err_code}")
-        print("[PASS] W15 widget.tree.inspect on non-WBP asset raises WIDGET_TREE_UNAVAILABLE")
+        print("[PASS] W15 widget_tree_inspect on non-WBP asset raises WIDGET_TREE_UNAVAILABLE")
 
-        # W16 — widget.compile
-        wv = call_tool(client, 5150, "widget.compile", {"assetPath": temp_wbp_asset})
+        # W16 — widget_compile
+        wv = call_tool(client, 5150, "widget_compile", {"assetPath": temp_wbp_asset})
         if wv.get("status") not in {"ok", "error"}:
-            fail(f"W16 widget.compile unexpected status: {wv}")
+            fail(f"W16 widget_compile unexpected status: {wv}")
         if wv.get("assetPath") != temp_wbp_asset:
-            fail(f"W16 widget.compile wrong assetPath: {wv}")
+            fail(f"W16 widget_compile wrong assetPath: {wv}")
         if not isinstance(wv.get("diagnostics"), list):
-            fail(f"W16 widget.compile missing diagnostics[]: {wv}")
-        print("[PASS] W16 widget.compile validated")
+            fail(f"W16 widget_compile missing diagnostics[]: {wv}")
+        print("[PASS] W16 widget_compile validated")
 
         # W17 — issue #140: batch addWidget with parentName keeps root intact
         # Both ops in a single mutate call: first adds a VerticalBox as root,
@@ -6844,64 +6844,64 @@ def main() -> int:
             fail(f"W18 LegacyChild not found in BatchRoot.children: {legacy_children}")
         print("[PASS] W18 legacy parent field alias routes child correctly")
 
-        # W19 — widget.inspect by short class name
+        # W19 — widget_inspect by short class name
         wd_short = widget_inspect(client, 5166, {"widgetClass": "TextBlock"})
         if wd_short.get("isError") is not False:
-            fail(f"W19 widget.inspect TextBlock should report isError=false: {wd_short}")
+            fail(f"W19 widget_inspect TextBlock should report isError=false: {wd_short}")
         if "properties" not in wd_short or not isinstance(wd_short["properties"], list):
-            fail(f"W19 widget.inspect TextBlock missing properties[]: {wd_short}")
+            fail(f"W19 widget_inspect TextBlock missing properties[]: {wd_short}")
         if not wd_short.get("widgetClass", "").endswith("TextBlock"):
-            fail(f"W19 widget.inspect widgetClass mismatch: {wd_short.get('widgetClass')!r}")
+            fail(f"W19 widget_inspect widgetClass mismatch: {wd_short.get('widgetClass')!r}")
         if not any(p.get("name") == "Text" for p in wd_short["properties"]):
-            fail(f"W19 widget.inspect TextBlock should have Text property: {[p['name'] for p in wd_short['properties']]}")
+            fail(f"W19 widget_inspect TextBlock should have Text property: {[p['name'] for p in wd_short['properties']]}")
         if not isinstance(wd_short.get("slotProperties"), list):
-            fail(f"W19 widget.inspect missing slotProperties[]: {wd_short}")
+            fail(f"W19 widget_inspect missing slotProperties[]: {wd_short}")
         if "currentValues" in wd_short:
-            fail(f"W19 widget.inspect without instance should NOT have currentValues: {wd_short}")
+            fail(f"W19 widget_inspect without instance should NOT have currentValues: {wd_short}")
         if "slotCurrentValues" in wd_short:
-            fail(f"W19 widget.inspect without instance should NOT have slotCurrentValues: {wd_short}")
-        print("[PASS] W19 widget.inspect by short class name (TextBlock)")
+            fail(f"W19 widget_inspect without instance should NOT have slotCurrentValues: {wd_short}")
+        print("[PASS] W19 widget_inspect by short class name (TextBlock)")
 
-        # W20 — widget.inspect by full class path
+        # W20 — widget_inspect by full class path
         wd_full = widget_inspect(client, 5167, {"widgetClass": "/Script/UMG.TextBlock"})
         if not wd_full.get("widgetClass", "").endswith("TextBlock"):
-            fail(f"W20 widget.inspect full path widgetClass mismatch: {wd_full.get('widgetClass')!r}")
+            fail(f"W20 widget_inspect full path widgetClass mismatch: {wd_full.get('widgetClass')!r}")
         if "properties" not in wd_full or not isinstance(wd_full["properties"], list):
-            fail(f"W20 widget.inspect full path missing properties[]: {wd_full}")
-        print("[PASS] W20 widget.inspect by full class path (/Script/UMG.TextBlock)")
+            fail(f"W20 widget_inspect full path missing properties[]: {wd_full}")
+        print("[PASS] W20 widget_inspect by full class path (/Script/UMG.TextBlock)")
 
-        # W21 — widget.inspect by assetPath+widgetName returns currentValues
+        # W21 — widget_inspect by assetPath+widgetName returns currentValues
         # Use "RootCanvas" (CanvasPanel) which persists throughout the test sequence
         wd_inst = widget_inspect(client, 5168, {
             "assetPath": temp_wbp_asset,
             "widgetName": "RootCanvas"
         })
         if wd_inst.get("isError") is not False:
-            fail(f"W21 widget.inspect instance should report isError=false: {wd_inst}")
+            fail(f"W21 widget_inspect instance should report isError=false: {wd_inst}")
         if wd_inst.get("assetPath") != temp_wbp_asset or wd_inst.get("widget", {}).get("name") != "RootCanvas":
-            fail(f"W21 widget.inspect instance missing assetPath/widget ref: {wd_inst}")
+            fail(f"W21 widget_inspect instance missing assetPath/widget ref: {wd_inst}")
         if not wd_inst.get("widgetClass", "").endswith("CanvasPanel"):
-            fail(f"W21 widget.inspect instance widgetClass mismatch: {wd_inst.get('widgetClass')!r}")
+            fail(f"W21 widget_inspect instance widgetClass mismatch: {wd_inst.get('widgetClass')!r}")
         if "properties" not in wd_inst or not isinstance(wd_inst["properties"], list):
-            fail(f"W21 widget.inspect instance missing properties[]: {wd_inst}")
+            fail(f"W21 widget_inspect instance missing properties[]: {wd_inst}")
         if "currentValues" not in wd_inst or not isinstance(wd_inst["currentValues"], dict):
-            fail(f"W21 widget.inspect instance should have currentValues dict: {wd_inst}")
+            fail(f"W21 widget_inspect instance should have currentValues dict: {wd_inst}")
         if "slotCurrentValues" not in wd_inst or not isinstance(wd_inst["slotCurrentValues"], dict):
-            fail(f"W21 widget.inspect instance should have slotCurrentValues dict: {wd_inst}")
-        print("[PASS] W21 widget.inspect by assetPath+widget includes currentValues")
+            fail(f"W21 widget_inspect instance should have slotCurrentValues dict: {wd_inst}")
+        print("[PASS] W21 widget_inspect by assetPath+widget includes currentValues")
 
-        # W21b — widget.inspect instance uses the real widget class and reports slot values
+        # W21b — widget_inspect instance uses the real widget class and reports slot values
         wd_child_inst = widget_inspect(client, 51681, {
             "assetPath": temp_wbp_batch,
             "widgetName": "BatchChild",
             "widgetClass": "Widget",
         })
         if not wd_child_inst.get("widgetClass", "").endswith("TextBlock"):
-            fail(f"W21b widget.inspect should return real instance class TextBlock: {wd_child_inst}")
+            fail(f"W21b widget_inspect should return real instance class TextBlock: {wd_child_inst}")
         if not isinstance(wd_child_inst.get("slotClass"), str) or not wd_child_inst["slotClass"].endswith("Slot"):
-            fail(f"W21b widget.inspect child should report slotClass: {wd_child_inst}")
+            fail(f"W21b widget_inspect child should report slotClass: {wd_child_inst}")
         if not isinstance(wd_child_inst.get("slotCurrentValues"), dict):
-            fail(f"W21b widget.inspect child should report slotCurrentValues: {wd_child_inst}")
+            fail(f"W21b widget_inspect child should report slotCurrentValues: {wd_child_inst}")
         wd_mismatch = widget_inspect(client, 51682, {
             "assetPath": temp_wbp_batch,
             "widgetName": "BatchChild",
@@ -6911,19 +6911,19 @@ def main() -> int:
             wd_mismatch.get("code") != "WIDGET_CLASS_MISMATCH"
             and wd_mismatch.get("message") != "WIDGET_CLASS_MISMATCH"
         ):
-            fail(f"W21b widget.inspect class mismatch should return WIDGET_CLASS_MISMATCH: {wd_mismatch}")
-        print("[PASS] W21b widget.inspect instance class validation and slot values validated")
+            fail(f"W21b widget_inspect class mismatch should return WIDGET_CLASS_MISMATCH: {wd_mismatch}")
+        print("[PASS] W21b widget_inspect instance class validation and slot values validated")
 
-        # W22 — widget.inspect unknown class returns WIDGET_CLASS_NOT_FOUND
+        # W22 — widget_inspect unknown class returns WIDGET_CLASS_NOT_FOUND
         wd_bad = widget_inspect(client, 5169, {"widgetClass": "NonExistentWidget_XYZ"}, expect_error=True)
         if not wd_bad.get("isError"):
             fail(f"W22 expected error for unknown class, got: {wd_bad}")
         err_code = wd_bad.get("code", "")
         if err_code not in {"WIDGET_CLASS_NOT_FOUND", 1025} and wd_bad.get("message") != "WIDGET_CLASS_NOT_FOUND":
             fail(f"W22 expected WIDGET_CLASS_NOT_FOUND, got: {err_code}")
-        print("[PASS] W22 widget.inspect unknown class returns WIDGET_CLASS_NOT_FOUND")
+        print("[PASS] W22 widget_inspect unknown class returns WIDGET_CLASS_NOT_FOUND")
 
-        # W23 — widget.edit setSlotProperty can write a CanvasPanelSlot ZOrder
+        # W23 — widget_edit setSlotProperty can write a CanvasPanelSlot ZOrder
         # SecondPanel is a VerticalBox child of RootCanvas — its slot is FCanvasPanelSlot.
         wm_slot_zorder = widget_edit(client, 5200, {
             "assetPath": temp_wbp_asset,
@@ -6934,9 +6934,9 @@ def main() -> int:
             }}],
         })
         widget_op_ok(wm_slot_zorder, 0)
-        print("[PASS] W23 widget.edit setSlotProperty writes CanvasPanelSlot ZOrder")
+        print("[PASS] W23 widget_edit setSlotProperty writes CanvasPanelSlot ZOrder")
 
-        # W24 — widget.edit setSlotProperty can write CanvasPanelSlot LayoutData (struct slot property)
+        # W24 — widget_edit setSlotProperty can write CanvasPanelSlot LayoutData (struct slot property)
         wm_slot_layout = widget_edit(client, 5210, {
             "assetPath": temp_wbp_asset,
             "ops": [{"op": "setSlotProperty", "args": {
@@ -6946,9 +6946,9 @@ def main() -> int:
             }}],
         })
         widget_op_ok(wm_slot_layout, 0)
-        print("[PASS] W24 widget.edit setSlotProperty writes CanvasPanelSlot LayoutData")
+        print("[PASS] W24 widget_edit setSlotProperty writes CanvasPanelSlot LayoutData")
 
-        # W25 — widget.edit setProperty with an unknown widget property returns PROPERTY_NOT_FOUND
+        # W25 — widget_edit setProperty with an unknown widget property returns PROPERTY_NOT_FOUND
         wm_bad_prop = widget_edit(client, 5220, {
             "assetPath": temp_wbp_asset,
             "ops": [{"op": "setProperty", "args": {
@@ -6962,7 +6962,7 @@ def main() -> int:
             fail(f"W25 expected setProperty to fail for unknown property, but got ok: {op25}")
         if wm_bad_prop.get("message") != "PROPERTY_NOT_FOUND" and wm_bad_prop.get("code") != "PROPERTY_NOT_FOUND":
             fail(f"W25 expected PROPERTY_NOT_FOUND, got: {wm_bad_prop}")
-        print("[PASS] W25 widget.edit setProperty unknown property returns op-level error")
+        print("[PASS] W25 widget_edit setProperty unknown property returns op-level error")
 
         print("[PASS] widget.* regression complete")
 
@@ -6975,10 +6975,10 @@ def main() -> int:
         print(f"[WARN] cleanup skipped for temporary asset: {temp_asset}")
         print(f"[WARN] cleanup skipped for temporary enum asset: {temp_enum_asset}")
         print(f"[WARN] cleanup skipped for temporary material asset: {temp_material_asset}")
-        print(f"[WARN] cleanup skipped for temporary asset.create material asset: {temp_asset_create_material}")
-        print(f"[WARN] cleanup skipped for temporary asset.create material function asset: {temp_asset_create_function}")
-        print(f"[WARN] cleanup skipped for temporary asset.create PCG asset: {temp_asset_create_pcg}")
-        print(f"[WARN] cleanup skipped for temporary asset.create widget asset: {temp_asset_create_widget}")
+        print(f"[WARN] cleanup skipped for temporary asset_create material asset: {temp_asset_create_material}")
+        print(f"[WARN] cleanup skipped for temporary asset_create material function asset: {temp_asset_create_function}")
+        print(f"[WARN] cleanup skipped for temporary asset_create PCG asset: {temp_asset_create_pcg}")
+        print(f"[WARN] cleanup skipped for temporary asset_create widget asset: {temp_asset_create_widget}")
         print(f"[WARN] cleanup skipped for temporary PCG asset: {temp_pcg_asset}")
         print(f"[WARN] cleanup skipped for temporary PCG health asset: {temp_pcg_health_asset}")
         print(f"[WARN] cleanup skipped for temporary PCG remove asset: {temp_pcg_remove_asset}")

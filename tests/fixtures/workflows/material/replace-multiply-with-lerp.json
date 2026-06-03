@@ -1,10 +1,10 @@
 {
-  "tool": "material.graph.edit",
+  "tool": "material_graph_edit",
   "commands": [
     {
       "kind": "addFromPalette",
       "entry": {
-        "id": "material.palette:/Script/Engine.MaterialExpressionVectorParameter",
+        "id": "material_palette:/Script/Engine.MaterialExpressionVectorParameter",
         "kind": "expression",
         "payload": {
           "nodeClassPath": "/Script/Engine.MaterialExpressionVectorParameter"
@@ -15,7 +15,7 @@
     {
       "kind": "addFromPalette",
       "entry": {
-        "id": "material.palette:/Script/Engine.MaterialExpressionVectorParameter",
+        "id": "material_palette:/Script/Engine.MaterialExpressionVectorParameter",
         "kind": "expression",
         "payload": {
           "nodeClassPath": "/Script/Engine.MaterialExpressionVectorParameter"
@@ -26,7 +26,7 @@
     {
       "kind": "addFromPalette",
       "entry": {
-        "id": "material.palette:/Script/Engine.MaterialExpressionMultiply",
+        "id": "material_palette:/Script/Engine.MaterialExpressionMultiply",
         "kind": "expression",
         "payload": {
           "nodeClassPath": "/Script/Engine.MaterialExpressionMultiply"
@@ -82,7 +82,7 @@
     {
       "kind": "addFromPalette",
       "entry": {
-        "id": "material.palette:/Script/Engine.MaterialExpressionScalarParameter",
+        "id": "material_palette:/Script/Engine.MaterialExpressionScalarParameter",
         "kind": "expression",
         "payload": {
           "nodeClassPath": "/Script/Engine.MaterialExpressionScalarParameter"
@@ -93,7 +93,7 @@
     {
       "kind": "addFromPalette",
       "entry": {
-        "id": "material.palette:/Script/Engine.MaterialExpressionLinearInterpolate",
+        "id": "material_palette:/Script/Engine.MaterialExpressionLinearInterpolate",
         "kind": "expression",
         "payload": {
           "nodeClassPath": "/Script/Engine.MaterialExpressionLinearInterpolate"

@@ -2,7 +2,7 @@
 
 ## Intent
 
-`pcg.graph.inspect` is the primary read surface for PCG graph structure,
+`pcg_graph_inspect` is the primary read surface for PCG graph structure,
 node-level pins, links, defaults, and known structured settings.
 
 The product direction is to keep routine PCG readback inside semantic PCG
@@ -11,15 +11,15 @@ every inspection.
 
 ## Current Boundary
 
-`pcg.graph.inspect` can explain graph topology, common pins, default values, and
+`pcg_graph_inspect` can explain graph topology, common pins, default values, and
 structured `effectiveSettings` for supported settings families. It is not yet a
 complete mirror of every PCG Details-panel instance field.
 
 When the task depends on exact values that are not surfaced in graph or node
 inspect output, the caller should:
 
-1. Use `pcg.graph.inspect` to identify the node.
-2. Use `pcg.node.inspect` or catalog metadata to identify the settings class and
+1. Use `pcg_graph_inspect` to identify the node.
+2. Use `pcg_node_inspect` or catalog metadata to identify the settings class and
    expected fields.
 3. Use `execute` to inspect the live settings object directly.
 4. State that the value came from fallback readback.
@@ -51,12 +51,12 @@ at least:
 setting. Its `effectiveSettings.targetAttribute` should be the authoritative
 place to verify filters such as `Position.Z` after mutation.
 
-`pcg.node.inspect` is the detailed property discovery surface. In class mode,
+`pcg_node_inspect` is the detailed property discovery surface. In class mode,
 selector-backed properties are returned with `valueKind: "pcgSelector"`,
 `acceptedInput: ["string", "pcgSelector"]`, string-compatible `defaultValue`,
 and structured `default` fields. In instance mode, the same property includes
 the current selector object under `value`, plus `valueString`/`valueText` for
-compatibility. Edits still accept compact UE strings, and `pcg.graph.edit`
+compatibility. Edits still accept compact UE strings, and `pcg_graph_edit`
 `setPinDefault`/`setProperty` also accepts the structured selector object.
 
 ## Spawn Actor

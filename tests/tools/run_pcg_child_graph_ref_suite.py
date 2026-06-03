@@ -91,12 +91,12 @@ def _query_pcg_by_ref(client: McpStdioClient, request_id: int, *, graph_ref: dic
     payload = call_tool(
         client,
         request_id,
-        "pcg.graph.inspect",
+        "pcg_graph_inspect",
         {"graph": graph_ref, "includeConnections": True},
     )
     snapshot = payload.get("semanticSnapshot")
     if not isinstance(snapshot, dict):
-        raise ChildGraphRefSuiteError("child_graph_ref_unqueryable", f"pcg.graph.inspect(graph) missing semanticSnapshot: {compact_json(payload)}")
+        raise ChildGraphRefSuiteError("child_graph_ref_unqueryable", f"pcg_graph_inspect(graph) missing semanticSnapshot: {compact_json(payload)}")
     return snapshot
 
 
@@ -104,12 +104,12 @@ def _query_pcg_asset(client: McpStdioClient, request_id: int, *, asset_path: str
     payload = call_tool(
         client,
         request_id,
-        "pcg.graph.inspect",
+        "pcg_graph_inspect",
         {"assetPath": asset_path, "includeConnections": True},
     )
     snapshot = payload.get("semanticSnapshot")
     if not isinstance(snapshot, dict):
-        raise ChildGraphRefSuiteError("child_graph_ref_unqueryable", f"pcg.graph.inspect(assetPath) missing semanticSnapshot: {compact_json(payload)}")
+        raise ChildGraphRefSuiteError("child_graph_ref_unqueryable", f"pcg_graph_inspect(assetPath) missing semanticSnapshot: {compact_json(payload)}")
     return snapshot
 
 
@@ -186,7 +186,7 @@ def execute_case_with_fresh_client(
 
         child_graph_ref = node.get("childGraphRef")
         if not isinstance(child_graph_ref, dict):
-            raise ChildGraphRefSuiteError("child_graph_ref_unsurfaced", f"pcg.graph.inspect missing childGraphRef: {compact_json(node)}")
+            raise ChildGraphRefSuiteError("child_graph_ref_unsurfaced", f"pcg_graph_inspect missing childGraphRef: {compact_json(node)}")
 
         child_ref_asset_path = child_graph_ref.get("assetPath")
         if child_ref_asset_path != child_asset_path:

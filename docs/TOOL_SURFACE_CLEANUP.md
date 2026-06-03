@@ -3,8 +3,8 @@
 ## Intent
 
 Loomle's public MCP tool surface now uses UE-domain names such as
-`blueprint.graph.inspect`, `material.graph.edit`, `pcg.compile`, and
-`widget.tree.inspect`. Internal bridge implementation, transform names, tests,
+`blueprint_graph_inspect`, `material_graph_edit`, `pcg_compile`, and
+`widget_tree_inspect`. Internal bridge implementation, transform names, tests,
 and diagnostics should use the same terms unless they are explicitly asserting
 that a retired tool name is absent.
 
@@ -22,7 +22,7 @@ tests for the current graph edit tools.
 - Runtime error messages for Material and PCG graph operations report current
   tool names.
 - Diagnostic `sourceKind` for graph edit failures is `graph.edit`.
-- Python MCP result transform naming uses `blueprint.graph.edit.result.v1`
+- Python MCP result transform naming uses `blueprint_graph_edit.result.v1`
   instead of the retired Blueprint mutate name.
 - Retired names may still appear in tests that assert those tools are not
   declared by the public manifest.
@@ -32,7 +32,7 @@ tests for the current graph edit tools.
 The Python manifest is allowed to expose local setup/project tools in addition
 to the Rust runtime tools. Tests enforce that the local-only set is explicit,
 that every manifest dispatch transform is implemented by the Python MCP
-transform layer, and that `schema.inspect` tools match the Rust
+transform layer, and that `schema_inspect` tools match the Rust
 second-layer schema inspector.
 
 ## Runtime Threading
@@ -47,8 +47,8 @@ like other UE object operations.
 
 Graph and tree mutation tools reject work while the editor is shutting down,
 while PIE is active, or while PIE is starting/stopping. This applies to
-`blueprint.graph.edit`, `blueprint.node.edit`, `material.graph.edit`,
-`pcg.graph.edit`, and `widget.tree.edit`.
+`blueprint_graph_edit`, `blueprint_node_edit`, `material_graph_edit`,
+`pcg_graph_edit`, and `widget_tree_edit`.
 
 Blocked mutations return a stable lifecycle code such as
 `EDITOR_SHUTTING_DOWN`, `PIE_STARTING`, `PIE_ACTIVE`, or `PIE_STOPPING`.

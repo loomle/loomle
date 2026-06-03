@@ -14,12 +14,12 @@ layout, and node placement. They do not edit Blueprint member signatures.
 
 | Tool | Purpose |
 | --- | --- |
-| `blueprint.graph.list` | List graphs in a Blueprint asset. |
-| `blueprint.graph.inspect` | Inspect nodes, links, and graph views. |
-| `blueprint.graph.edit` | Apply explicit graph edit commands. |
-| `blueprint.graph.layout` | Format selected graph regions. |
+| `blueprint_graph_list` | List graphs in a Blueprint asset. |
+| `blueprint_graph_inspect` | Inspect nodes, links, and graph views. |
+| `blueprint_graph_edit` | Apply explicit graph edit commands. |
+| `blueprint_graph_layout` | Format selected graph regions. |
 
-## `blueprint.graph.list`
+## `blueprint_graph_list`
 
 ### Parameters
 
@@ -30,7 +30,7 @@ layout, and node placement. They do not edit Blueprint member signatures.
 
 Use graph ids from this tool when possible.
 
-## `blueprint.graph.inspect`
+## `blueprint_graph_inspect`
 
 ### Parameters
 
@@ -45,7 +45,7 @@ Use graph ids from this tool when possible.
 | `page.cursor` | no | Pagination cursor. |
 
 Use `overview` first. Use `wiring` when planning connections. If a node has
-`hasNodeEditCapabilities: true`, inspect it with `blueprint.node.inspect` before
+`hasNodeEditCapabilities: true`, inspect it with `blueprint_node_inspect` before
 editing local pins.
 
 In `wiring` view, pin-local `linkedTo` is a UE-style reciprocal peer list. For
@@ -55,12 +55,12 @@ pin.
 
 ### Readability Tiers
 
-Most nodes are one-shot readable through `blueprint.graph.inspect`: variables,
+Most nodes are one-shot readable through `blueprint_graph_inspect`: variables,
 function calls, branches, casts, math, and ordinary flow-control nodes expose
 their relevant pins and references directly.
 
 Some nodes need a second graph read. For a local `K2Node_MacroInstance`, inspect
-`k2Extensions.macro.macroGraph`, then call `blueprint.graph.list` on the same
+`k2Extensions.macro.macroGraph`, then call `blueprint_graph_list` on the same
 asset. If that graph exists on the same Blueprint, inspect it to read the macro
 body. If it does not, treat the node as an external or library macro and rely on
 the call surface exposed in the current graph.
@@ -75,11 +75,11 @@ subgraph to inspect.
 Timeline nodes expose structural/template summary through
 `embeddedTemplate` / `effectiveSettings` where available, including timeline
 identity and high-level settings. Keyframe-level curve truth is not guaranteed
-by `blueprint.graph.inspect`; use `execute` to inspect Blueprint timeline
+by `blueprint_graph_inspect`; use `execute` to inspect Blueprint timeline
 templates or backing curve assets when a task depends on authored key times,
 values, interpolation, or curve samples.
 
-## `blueprint.graph.edit`
+## `blueprint_graph_edit`
 
 ### Parameters
 
@@ -96,7 +96,7 @@ values, interpolation, or curve samples.
 | `expectedRevision` | no | Optimistic mutation guard when supported. |
 
 Command-specific fields are intentionally omitted from `tools/list`. Call
-`schema.inspect` with `domain: blueprint`, `tool: blueprint.graph.edit`, and
+`schema_inspect` with `domain: blueprint`, `tool: blueprint_graph_edit`, and
 the selected `operation`.
 
 ### Edit Boundary
@@ -109,10 +109,10 @@ Use graph edit for:
 - Removing or moving a node.
 - Editing node comments or enabled state.
 
-Use `blueprint.member.edit` for member signatures. Use `blueprint.node.edit` for
+Use `blueprint_member_edit` for member signatures. Use `blueprint_node_edit` for
 node-local structures such as switch cases or Format Text arguments.
 
-## `blueprint.graph.layout`
+## `blueprint_graph_layout`
 
 ### Parameters
 

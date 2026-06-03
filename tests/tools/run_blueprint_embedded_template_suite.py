@@ -163,13 +163,13 @@ def list_cases_payload() -> dict[str, Any]:
 def _find_node(snapshot: dict[str, Any], node_class_path: str) -> dict[str, Any]:
     nodes = snapshot.get("nodes")
     if not isinstance(nodes, list):
-        raise BlueprintEmbeddedTemplateSuiteError("query_gap", "blueprint.graph.inspect missing nodes[]")
+        raise BlueprintEmbeddedTemplateSuiteError("query_gap", "blueprint_graph_inspect missing nodes[]")
     for node in nodes:
         if isinstance(node, dict) and node.get("nodeClassPath") == node_class_path:
             return node
     raise BlueprintEmbeddedTemplateSuiteError(
         "query_gap",
-        f"blueprint.graph.inspect missing node {node_class_path}: {compact_json(snapshot)}",
+        f"blueprint_graph_inspect missing node {node_class_path}: {compact_json(snapshot)}",
     )
 
 
@@ -210,7 +210,7 @@ def _run_case(client: McpStdioClient, *, request_id_base: int, case: dict[str, A
                 ],
             }
         )
-        payload = safe_call_tool(client, request_id_base + 10, "blueprint.graph.edit", edit_args)
+        payload = safe_call_tool(client, request_id_base + 10, "blueprint_graph_edit", edit_args)
         op_results = payload.get("opResults")
         if not isinstance(op_results, list) or not op_results or not isinstance(op_results[0], dict) or op_results[0].get("ok") is not True:
             raise BlueprintEmbeddedTemplateSuiteError(
@@ -227,13 +227,13 @@ def _run_case(client: McpStdioClient, *, request_id_base: int, case: dict[str, A
         if not isinstance(embedded_template, dict):
             raise BlueprintEmbeddedTemplateSuiteError(
                 "embedded_template_unsurfaced",
-                f"blueprint.graph.inspect missing embeddedTemplate surface: {compact_json(node)}",
+                f"blueprint_graph_inspect missing embeddedTemplate surface: {compact_json(node)}",
             )
         effective_settings = node.get("effectiveSettings")
         if not isinstance(effective_settings, dict):
             raise BlueprintEmbeddedTemplateSuiteError(
                 "embedded_template_unsurfaced",
-                f"blueprint.graph.inspect missing effectiveSettings mirror for embedded template node: {compact_json(node)}",
+                f"blueprint_graph_inspect missing effectiveSettings mirror for embedded template node: {compact_json(node)}",
             )
 
         _assert_surface(case, embedded_template, label="embeddedTemplate")

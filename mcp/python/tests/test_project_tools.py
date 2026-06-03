@@ -97,7 +97,7 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
                     await session.initialize()
 
                     listed = await session.call_tool(
-                        "project.list",
+                        "project_list",
                         {"status": "online", "includeDiagnostics": True},
                     )
                     self.assertFalse(listed.isError)
@@ -107,7 +107,7 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
                     self.assertTrue(projects[0]["attachable"])
 
                     attached = await session.call_tool(
-                        "project.attach",
+                        "project_attach",
                         {"projectId": project_id},
                     )
                     self.assertFalse(attached.isError)
@@ -220,7 +220,7 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
                     async with ClientSession(read_stream, write_stream) as session:
                         await session.initialize()
                         result = await session.call_tool(
-                            "blueprint.graph.edit",
+                            "blueprint_graph_edit",
                             {
                                 "assetPath": "/Game/Test/BP_Test",
                                 "graph": {"name": "EventGraph"},
@@ -236,9 +236,9 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
                 await server.wait_closed()
 
             self.assertFalse(result.isError, result)
-            self.assertEqual(result.structuredContent["operation"], "blueprint.graph.edit")
+            self.assertEqual(result.structuredContent["operation"], "blueprint_graph_edit")
             self.assertEqual(seen["method"], "rpc.invoke")
-            self.assertEqual(seen["tool"], "blueprint.graph.edit")
+            self.assertEqual(seen["tool"], "blueprint_graph_edit")
 
 
 if __name__ == "__main__":
