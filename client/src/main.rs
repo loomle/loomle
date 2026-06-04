@@ -1468,12 +1468,13 @@ impl LoomleProxyServer {
             Ok(value) => value,
             Err(error) => return Ok(error),
         };
-        let payload = self
+        let mut payload = self
             .runtime_payload("blueprint.node.inspect", translated)
             .await?;
         if payload.get("isError").and_then(|value| value.as_bool()) == Some(true) {
             return Ok(CallToolResult::structured_error(payload));
         }
+        normalize_blueprint_node_inspect_result(&mut payload);
         Ok(structured_result(payload))
     }
 
@@ -3692,6 +3693,33 @@ fn copy_json_field(
     }
 }
 
+fn public_blueprint_tool_name(name: &str) -> &str {
+    match name {
+        "blueprint.node.inspect" => "blueprint_node_inspect",
+        _ => name,
+    }
+}
+
+fn normalize_blueprint_inspect_with(node: &mut serde_json::Map<String, serde_json::Value>) {
+    if let Some(inspect_with) = node.get_mut("inspectWith") {
+        if let Some(name) = inspect_with.as_str() {
+            let public_name = public_blueprint_tool_name(name);
+            if public_name != name {
+                *inspect_with = serde_json::Value::String(public_name.to_string());
+            }
+        }
+    }
+}
+
+fn normalize_blueprint_node_inspect_result(payload: &mut serde_json::Value) {
+    let Some(root) = payload.as_object_mut() else {
+        return;
+    };
+    if let Some(node) = root.get_mut("node").and_then(|value| value.as_object_mut()) {
+        normalize_blueprint_inspect_with(node);
+    }
+}
+
 fn prune_blueprint_graph_pin(
     pin: &mut serde_json::Map<String, serde_json::Value>,
     include_pin_defaults: bool,
@@ -3783,6 +3811,7 @@ fn compact_blueprint_graph_node(
     ] {
         copy_json_field(node, &mut compact, field);
     }
+    normalize_blueprint_inspect_with(&mut compact);
     prune_blueprint_graph_comment_fields(&mut compact, include_comments);
 
     if include_pins {
@@ -11619,7 +11648,7 @@ mod tests {
                         "className": "K2Node_CallFunction",
                         "title": "Print String",
                         "hasNodeEditCapabilities": true,
-                        "inspectWith": "blueprint_node_inspect",
+                        "inspectWith": "blueprint.node.inspect",
                         "pins": [
                             {
                                 "name": "execute",

@@ -1,7 +1,7 @@
 {
   "FileVersion": 3,
-  "Version": 101,
-  "VersionName": "0.6.17",
+  "Version": 102,
+  "VersionName": "0.6.18",
   "EngineVersion": "5.7.0",
   "FriendlyName": "Loomle Bridge",
   "Description": "Local bridge for UE5 Editor via platform-native local RPC transport.",

@@ -5261,7 +5261,9 @@
         "args": {
           "transform": "blueprint.node.inspect.args.v1"
         },
-        "result": "structured"
+        "result": {
+          "transform": "blueprint.node.inspect.result.v1"
+        }
       },
       "outputSchema": {
         "oneOf": [

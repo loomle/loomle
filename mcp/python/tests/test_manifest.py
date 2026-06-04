@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from loomle_mcp.manifest import load_manifest
+from loomle_mcp.transforms import apply_result_transform
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -431,6 +432,26 @@ class ToolManifestTests(unittest.TestCase):
         self.assertNotIn("pins", node_output)
         self.assertNotIn("state", node_output)
         self.assertNotIn("graphName", node_output)
+        self.assertEqual(
+            node_inspect_tool["dispatch"]["result"],
+            {"transform": "blueprint.node.inspect.result.v1"},
+        )
+
+    def test_blueprint_node_inspect_result_aliases_bridge_tool_hint(self) -> None:
+        payload = {
+            "node": {
+                "id": "node-1",
+                "inspectWith": "blueprint.node.inspect",
+            }
+        }
+
+        result = apply_result_transform(
+            {"transform": "blueprint.node.inspect.result.v1"},
+            payload,
+            {},
+        )
+
+        self.assertEqual(result["node"]["inspectWith"], "blueprint_node_inspect")
 
     def test_blueprint_graph_inspect_manifest_exposes_flow_views(self) -> None:
         manifest = load_manifest(MANIFEST)

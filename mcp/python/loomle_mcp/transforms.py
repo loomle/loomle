@@ -141,6 +141,8 @@ def apply_result_transform(
         return shape_blueprint_member_inspect_result(payload, original_arguments)
     if name == "blueprint.graph.inspect.result.v1":
         return shape_blueprint_graph_inspect_result(payload, original_arguments)
+    if name == "blueprint.node.inspect.result.v1":
+        return shape_blueprint_node_inspect_result(payload)
     if name == "blueprint.graph.edit.result.v1":
         return augment_blueprint_graph_edit_result(payload)
     if name == "blueprint.compile.result.v1":
@@ -1093,10 +1095,33 @@ def compact_blueprint_graph_node(node: dict[str, Any]) -> dict[str, Any]:
         "graphBoundarySummary", "hasNodeEditCapabilities", "inspectWith",
     ]
     out = {field: node[field] for field in fields if field in node}
+    normalize_blueprint_inspect_with(out)
     if isinstance(out.get("k2Extensions"), dict):
         out["k2Extensions"] = dict(out["k2Extensions"])
         out["k2Extensions"].pop("comment", None)
     return out
+
+
+def public_blueprint_tool_name(tool_name: str) -> str:
+    if tool_name == "blueprint.node.inspect":
+        return "blueprint_node_inspect"
+    return tool_name
+
+
+def normalize_blueprint_inspect_with(node: dict[str, Any]) -> None:
+    value = node.get("inspectWith")
+    if isinstance(value, str):
+        node["inspectWith"] = public_blueprint_tool_name(value)
+
+
+def shape_blueprint_node_inspect_result(payload: dict[str, Any]) -> dict[str, Any]:
+    result = dict(payload)
+    node = result.get("node")
+    if isinstance(node, dict):
+        node = dict(node)
+        normalize_blueprint_inspect_with(node)
+        result["node"] = node
+    return result
 
 
 def node_id(node: dict[str, Any]) -> str | None:
