@@ -91,6 +91,49 @@ def validate_manifest(manifest: dict) -> None:
         if input_schema.get("type") != "object":
             fail(f"{name}.inputSchema.type must be object")
 
+        schema_hints = tool.get("schemaHints")
+        if schema_hints is not None:
+            schema_hints = require_array(schema_hints, f"{name}.schemaHints")
+            if not schema_hints:
+                fail(f"{name}.schemaHints must not be empty")
+            for hint_index, raw_hint in enumerate(schema_hints):
+                hint = require_object(raw_hint, f"{name}.schemaHints[{hint_index}]")
+                if hint.get("purpose") != "operation_schema":
+                    fail(f"{name}.schemaHints[{hint_index}].purpose must be operation_schema")
+                if hint.get("schemaTool") != "schema_inspect":
+                    fail(f"{name}.schemaHints[{hint_index}].schemaTool must be schema_inspect")
+                if hint.get("tool") != name:
+                    fail(f"{name}.schemaHints[{hint_index}].tool must match the tool name")
+                if not isinstance(hint.get("domain"), str) or not hint["domain"]:
+                    fail(f"{name}.schemaHints[{hint_index}].domain must be a non-empty string")
+                has_operation = isinstance(hint.get("operation"), str) and bool(hint["operation"])
+                has_operation_from = isinstance(hint.get("operationFrom"), str) and bool(
+                    hint["operationFrom"]
+                )
+                if has_operation == has_operation_from:
+                    fail(
+                        f"{name}.schemaHints[{hint_index}] must set exactly one of "
+                        "operation or operationFrom"
+                    )
+                include = hint.get("include")
+                if include is not None:
+                    include = require_array(include, f"{name}.schemaHints[{hint_index}].include")
+                    allowed_include = {
+                        "summary",
+                        "input",
+                        "operation",
+                        "examples",
+                        "errors",
+                        "notes",
+                        "output",
+                    }
+                    for item in include:
+                        if item not in allowed_include:
+                            fail(
+                                f"{name}.schemaHints[{hint_index}].include contains "
+                                f"unsupported section: {item!r}"
+                            )
+
         dispatch = require_object(tool.get("dispatch"), f"{name}.dispatch")
         dispatch_kind = dispatch.get("kind")
         if dispatch_kind not in {"local", "bridgeRpc", "unavailable"}:
@@ -100,6 +143,8 @@ def validate_manifest(manifest: dict) -> None:
 
         schema_inspect = tool.get("schemaInspect")
         if schema_inspect is not None:
+            if schema_hints is None:
+                fail(f"{name}.schemaInspect tools must declare schemaHints")
             schema_inspect = require_object(schema_inspect, f"{name}.schemaInspect")
             domain = schema_inspect.get("domain")
             schema_tool = schema_inspect.get("tool")
@@ -107,6 +152,12 @@ def validate_manifest(manifest: dict) -> None:
                 fail(f"{name}.schemaInspect.domain must be a non-empty string")
             if schema_tool != name:
                 fail(f"{name}.schemaInspect.tool must match the public tool name")
+            for hint_index, hint in enumerate(schema_hints):
+                if hint.get("domain") != domain:
+                    fail(
+                        f"{name}.schemaHints[{hint_index}].domain must match "
+                        "schemaInspect.domain"
+                    )
             key = (domain, schema_tool)
             if key in schema_tools:
                 fail(f"duplicate schema.inspect registration: {domain}/{schema_tool}")

@@ -40,7 +40,7 @@ class ToolManifestTests(unittest.TestCase):
         self.assertNotIn("setup.configure", names)
         self.assertNotIn("project_install", names)
 
-    def test_list_tools_exposes_thin_input_schema_by_default(self) -> None:
+    def test_list_tools_exposes_first_level_input_schema(self) -> None:
         manifest = load_manifest(MANIFEST)
         listed_tools = manifest.list_tools("python")
         self.assertTrue(listed_tools)
@@ -54,8 +54,30 @@ class ToolManifestTests(unittest.TestCase):
         self.assertIn("assetPath", graph_props)
         self.assertIn("graph", graph_props)
         self.assertIn("view", graph_props)
+        self.assertIn("rootNode", graph_props)
+        self.assertIn("rootPin", graph_props)
+        self.assertIn("traversal", graph_props)
         self.assertNotIn("filter", graph_props)
         self.assertNotIn("page", graph_props)
+
+        palette_listed = next(
+            tool for tool in listed_tools
+            if tool["name"] == "material_palette"
+        )
+        palette_props = palette_listed["inputSchema"]["properties"]
+        self.assertIn("assetPath", palette_props)
+        self.assertIn("graph", palette_props)
+        self.assertIn("query", palette_props)
+        self.assertIn("limit", palette_props)
+
+        graph_edit = next(
+            tool for tool in listed_tools
+            if tool["name"] == "blueprint_graph_edit"
+        )
+        self.assertEqual(
+            graph_edit["_meta"]["schemaHints"][0]["operationFrom"],
+            "commands[].kind",
+        )
 
         schema_inspect = next(
             tool for tool in listed_tools
@@ -203,6 +225,11 @@ class ToolManifestTests(unittest.TestCase):
             schema_inspect = tool.get("schemaInspect")
             if isinstance(schema_inspect, dict):
                 self.assertEqual(schema_inspect["tool"], tool["name"])
+                hints = tool.get("schemaHints", [])
+                self.assertTrue(hints)
+                self.assertEqual(hints[0]["schemaTool"], "schema_inspect")
+                self.assertEqual(hints[0]["domain"], schema_inspect["domain"])
+                self.assertEqual(hints[0]["tool"], tool["name"])
 
     def test_bridge_rpc_dispatch_does_not_use_retired_tool_names(self) -> None:
         manifest = load_manifest(MANIFEST)

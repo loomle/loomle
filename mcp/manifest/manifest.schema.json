@@ -69,6 +69,11 @@
         "outputSchema": {
           "type": "object"
         },
+        "schemaHints": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/schemaHint" },
+          "minItems": 1
+        },
         "schemaInspect": {
           "$ref": "#/$defs/schemaInspect"
         },
@@ -80,6 +85,53 @@
           "additionalProperties": { "$ref": "#/$defs/unavailable" }
         }
       },
+      "additionalProperties": false
+    },
+    "schemaHint": {
+      "type": "object",
+      "required": ["purpose", "schemaTool", "domain", "tool"],
+      "properties": {
+        "purpose": {
+          "type": "string",
+          "enum": ["operation_schema"]
+        },
+        "schemaTool": {
+          "type": "string",
+          "const": "schema_inspect"
+        },
+        "domain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tool": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operationFrom": {
+          "type": "string",
+          "minLength": 1
+        },
+        "include": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["summary", "input", "operation", "examples", "errors", "notes", "output"]
+          },
+          "uniqueItems": true
+        },
+        "usedAfter": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "oneOf": [
+        { "required": ["operation"] },
+        { "required": ["operationFrom"] }
+      ],
       "additionalProperties": false
     },
     "schemaInspect": {

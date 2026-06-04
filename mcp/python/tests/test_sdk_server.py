@@ -51,7 +51,16 @@ class PythonMcpSdkServerTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertIsNone(graph_inspect.outputSchema)
                 self.assertIn("view", graph_inspect.inputSchema["properties"])
+                self.assertIn("rootNode", graph_inspect.inputSchema["properties"])
                 self.assertNotIn("filter", graph_inspect.inputSchema["properties"])
+                graph_edit = next(
+                    tool for tool in tools.tools
+                    if tool.name == "blueprint_graph_edit"
+                )
+                self.assertEqual(
+                    graph_edit.meta["schemaHints"][0]["operationFrom"],
+                    "commands[].kind",
+                )
 
                 output_result = await session.call_tool(
                     "schema_inspect",

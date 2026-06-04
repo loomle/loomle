@@ -11,7 +11,7 @@ use loomle::{
 use rmcp::{
     model::{
         CallToolRequestParams, CallToolResult, Implementation, ListToolsResult,
-        PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
+        Meta, PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
     },
     service::RequestContext,
     transport::stdio,
@@ -6265,7 +6265,7 @@ fn pre_attach_tools() -> Vec<Tool> {
         ),
         Tool::new(
             "schema_inspect",
-            "Inspect documented second-level Loomle tool schemas, such as Blueprint graph edit command schemas.",
+            "Inspect Loomle schema details beyond tools/list: operation-specific edit payloads, full input/output schemas, examples, errors, and notes. Use when schemaHints points here or output/operation details are needed.",
             Arc::new(schema_inspect_schema()),
         ),
     ]
@@ -6312,124 +6312,22 @@ fn manifest_declared_tools_for(target: &str) -> Result<Vec<Tool>, String> {
             .and_then(|value| value.as_object())
             .cloned()
             .ok_or_else(|| format!("{name}.inputSchema must be an object"))?;
-        let listed_input_schema = tools_list_input_schema(name, &input_schema);
         let mut declared_tool = Tool::new(
             name.to_string(),
             description.to_string(),
-            Arc::new(listed_input_schema),
+            Arc::new(input_schema),
         );
         if let Some(title) = tool.get("title").and_then(|value| value.as_str()) {
             declared_tool.title = Some(title.to_string());
         }
+        if let Some(schema_hints) = tool.get("schemaHints") {
+            let mut meta = rmcp::model::JsonObject::new();
+            meta.insert("schemaHints".to_string(), schema_hints.clone());
+            declared_tool.meta = Some(Meta(meta));
+        }
         declared.push(declared_tool);
     }
     Ok(declared)
-}
-
-fn tools_list_input_schema(
-    name: &str,
-    full_schema: &rmcp::model::JsonObject,
-) -> rmcp::model::JsonObject {
-    if name == "schema_inspect" {
-        return full_schema.clone();
-    }
-
-    let mut schema = rmcp::model::JsonObject::new();
-    schema.insert("type".to_string(), serde_json::json!("object"));
-    if let Some(required) = full_schema
-        .get("required")
-        .and_then(|value| value.as_array())
-    {
-        schema.insert(
-            "required".to_string(),
-            serde_json::Value::Array(required.clone()),
-        );
-    }
-
-    let Some(properties) = full_schema
-        .get("properties")
-        .and_then(|value| value.as_object())
-    else {
-        return schema;
-    };
-    let required_names = full_schema
-        .get("required")
-        .and_then(|value| value.as_array())
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|value| value.as_str())
-                .collect::<std::collections::HashSet<_>>()
-        })
-        .unwrap_or_default();
-    let mut thin_properties = serde_json::Map::new();
-    for (property_name, property_schema) in properties {
-        if required_names.contains(property_name.as_str())
-            || tools_list_high_signal_optional(property_name)
-        {
-            thin_properties.insert(
-                property_name.clone(),
-                tools_list_thin_property(property_schema),
-            );
-        }
-    }
-    if !thin_properties.is_empty() || full_schema.contains_key("properties") {
-        schema.insert(
-            "properties".to_string(),
-            serde_json::Value::Object(thin_properties),
-        );
-    }
-    schema
-}
-
-fn tools_list_high_signal_optional(property_name: &str) -> bool {
-    matches!(
-        property_name,
-        "kind"
-            | "view"
-            | "operation"
-            | "memberKind"
-            | "action"
-            | "fn"
-            | "tool"
-            | "domain"
-            | "dryRun"
-            | "expectedRevision"
-    )
-}
-
-fn tools_list_thin_property(property_schema: &serde_json::Value) -> serde_json::Value {
-    let Some(object) = property_schema.as_object() else {
-        return serde_json::json!({});
-    };
-    let mut thin = serde_json::Map::new();
-    for field in ["type", "enum", "const", "minLength", "default"] {
-        if let Some(value) = object.get(field) {
-            thin.insert(field.to_string(), value.clone());
-        }
-    }
-    if let Some(description) = object.get("description").and_then(|value| value.as_str()) {
-        thin.insert(
-            "description".to_string(),
-            serde_json::json!(tools_list_short_description(description)),
-        );
-    }
-    if thin.is_empty() {
-        thin.insert("type".to_string(), serde_json::json!("object"));
-    }
-    serde_json::Value::Object(thin)
-}
-
-fn tools_list_short_description(description: &str) -> String {
-    const LIMIT: usize = 120;
-    if description.len() <= LIMIT {
-        return description.to_string();
-    }
-    let mut end = LIMIT;
-    while !description.is_char_boundary(end) {
-        end -= 1;
-    }
-    format!("{}...", description[..end].trim_end())
 }
 
 fn runtime_declared_tools() -> Vec<Tool> {
@@ -13948,11 +13846,32 @@ mod tests {
             .filter_map(|value| value.as_str())
             .collect::<Vec<_>>();
         assert_eq!(view_enum, vec!["summary", "exec_flow", "data_flow"]);
+        assert!(properties.contains_key("rootNode"));
+        assert!(properties.contains_key("rootPin"));
+        assert!(properties.contains_key("traversal"));
         assert!(!properties.contains_key("filter"));
         assert!(!properties.contains_key("page"));
         assert!(!serde_json::to_string(&graph_inspect.input_schema)
-            .expect("thin input json")
+            .expect("input schema json")
             .contains("$defs"));
+
+        let graph_edit = declared_tools
+            .iter()
+            .find(|tool| tool.name.as_ref() == "blueprint_graph_edit")
+            .expect("blueprint_graph_edit");
+        let graph_edit_schema_hints = graph_edit
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.0.get("schemaHints"))
+            .and_then(|value| value.as_array())
+            .expect("schema hints");
+        assert_eq!(
+            graph_edit_schema_hints
+                .first()
+                .and_then(|hint| hint.get("operationFrom"))
+                .and_then(|value| value.as_str()),
+            Some("commands[].kind")
+        );
 
         let output_schema = manifest_tool(graph_inspect.name.as_ref())
             .get("outputSchema")

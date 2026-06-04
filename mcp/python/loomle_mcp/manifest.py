@@ -35,8 +35,10 @@ class ToolManifest:
             listed_tool = {
                 "name": tool["name"],
                 "description": tool["description"],
-                "inputSchema": thin_input_schema(tool["name"], tool["inputSchema"]),
+                "inputSchema": tool["inputSchema"],
             }
+            if "schemaHints" in tool:
+                listed_tool["_meta"] = {"schemaHints": tool["schemaHints"]}
             tools.append(listed_tool)
         return tools
 
@@ -174,65 +176,6 @@ class ToolManifest:
             payload["inputSchema"] = tool["inputSchema"]
         else:
             payload["hasInputSchema"] = False
-
-
-def thin_input_schema(name: str, full_schema: dict[str, Any]) -> dict[str, Any]:
-    if name == "schema_inspect":
-        return full_schema
-
-    schema: dict[str, Any] = {"type": "object"}
-    required = full_schema.get("required")
-    if isinstance(required, list):
-        schema["required"] = required
-    properties = full_schema.get("properties")
-    if not isinstance(properties, dict):
-        return schema
-
-    required_names = {item for item in required or [] if isinstance(item, str)}
-    thin_properties: dict[str, Any] = {}
-    for prop_name, prop_schema in properties.items():
-        if prop_name in required_names or _high_signal_optional(prop_name):
-            thin_properties[prop_name] = _thin_property(prop_schema)
-    if thin_properties or "properties" in full_schema:
-        schema["properties"] = thin_properties
-    return schema
-
-
-def _high_signal_optional(prop_name: str) -> bool:
-    return prop_name in {
-        "kind",
-        "view",
-        "operation",
-        "memberKind",
-        "action",
-        "fn",
-        "tool",
-        "domain",
-        "dryRun",
-        "expectedRevision",
-    }
-
-
-def _thin_property(prop_schema: Any) -> dict[str, Any]:
-    if not isinstance(prop_schema, dict):
-        return {}
-    thin: dict[str, Any] = {}
-    for field in ("type", "enum", "const", "minLength", "default"):
-        if field in prop_schema:
-            thin[field] = prop_schema[field]
-    description = prop_schema.get("description")
-    if isinstance(description, str):
-        thin["description"] = _short_description(description)
-    if not thin:
-        thin["type"] = "object"
-    return thin
-
-
-def _short_description(description: str) -> str:
-    limit = 120
-    if len(description) <= limit:
-        return description
-    return description[:limit].rstrip() + "..."
 
 
 def default_manifest_path() -> Path:

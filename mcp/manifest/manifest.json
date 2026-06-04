@@ -320,7 +320,7 @@
     {
       "name": "schema_inspect",
       "title": "Inspect Tool Schema",
-      "description": "Inspect documented second-level Loomle tool schemas, such as Blueprint graph edit command schemas.",
+      "description": "Inspect Loomle schema details beyond tools/list: operation-specific edit payloads, full input/output schemas, examples, errors, and notes. Use when schemaHints points here or output/operation details are needed.",
       "availability": [
         "native",
         "python"
@@ -2252,6 +2252,21 @@
       "name": "blueprint_member_edit",
       "title": "Edit Blueprint Members",
       "description": "Edit Blueprint members such as variables, functions, macros, dispatchers, events, and components.",
+      "schemaHints": [
+        {
+          "purpose": "operation_schema",
+          "schemaTool": "schema_inspect",
+          "domain": "blueprint",
+          "tool": "blueprint_member_edit",
+          "operationFrom": "memberKind + '.' + operation",
+          "include": [
+            "operation",
+            "examples",
+            "errors",
+            "notes"
+          ]
+        }
+      ],
       "availability": [
         "native",
         "python"
@@ -5539,6 +5554,21 @@
       "name": "blueprint_node_edit",
       "title": "Edit Blueprint Node",
       "description": "Edit node-local Blueprint structure such as switch cases, sequence pins, and format-text arguments. Use schema_inspect for operation-specific args.",
+      "schemaHints": [
+        {
+          "purpose": "operation_schema",
+          "schemaTool": "schema_inspect",
+          "domain": "blueprint",
+          "tool": "blueprint_node_edit",
+          "operationFrom": "operation",
+          "include": [
+            "operation",
+            "examples",
+            "errors",
+            "notes"
+          ]
+        }
+      ],
       "availability": [
         "native",
         "python"
@@ -6802,6 +6832,21 @@
       "name": "blueprint_graph_edit",
       "title": "Edit Blueprint Graph",
       "description": "Apply explicit local graph edit commands to a Blueprint graph.",
+      "schemaHints": [
+        {
+          "purpose": "operation_schema",
+          "schemaTool": "schema_inspect",
+          "domain": "blueprint",
+          "tool": "blueprint_graph_edit",
+          "operationFrom": "commands[].kind",
+          "include": [
+            "operation",
+            "examples",
+            "errors",
+            "notes"
+          ]
+        }
+      ],
       "availability": [
         "native",
         "python"
@@ -8066,6 +8111,21 @@
       "name": "material_graph_edit",
       "title": "Edit Material Graph",
       "description": "Apply explicit local edit commands to a Material graph. Use material_palette for node creation.",
+      "schemaHints": [
+        {
+          "purpose": "operation_schema",
+          "schemaTool": "schema_inspect",
+          "domain": "material",
+          "tool": "material_graph_edit",
+          "operationFrom": "commands[].kind",
+          "include": [
+            "operation",
+            "examples",
+            "errors",
+            "notes"
+          ]
+        }
+      ],
       "availability": [
         "native",
         "python"
@@ -9438,6 +9498,21 @@
       "name": "pcg_parameter_edit",
       "title": "Edit PCG Parameters",
       "description": "Edit PCG graph user parameters. Use schema_inspect for operation-specific args.",
+      "schemaHints": [
+        {
+          "purpose": "operation_schema",
+          "schemaTool": "schema_inspect",
+          "domain": "pcg",
+          "tool": "pcg_parameter_edit",
+          "operationFrom": "operation",
+          "include": [
+            "operation",
+            "examples",
+            "errors",
+            "notes"
+          ]
+        }
+      ],
       "availability": [
         "native",
         "python"
@@ -9763,6 +9838,21 @@
       "name": "pcg_graph_edit",
       "title": "Edit PCG Graph",
       "description": "Apply explicit local edit commands to a PCG graph. Use pcg_palette for node creation.",
+      "schemaHints": [
+        {
+          "purpose": "operation_schema",
+          "schemaTool": "schema_inspect",
+          "domain": "pcg",
+          "tool": "pcg_graph_edit",
+          "operationFrom": "commands[].kind",
+          "include": [
+            "operation",
+            "examples",
+            "errors",
+            "notes"
+          ]
+        }
+      ],
       "availability": [
         "native",
         "python"
@@ -11000,6 +11090,21 @@
       "name": "widget_tree_edit",
       "title": "Edit Widget Tree",
       "description": "Apply explicit local edit commands to a WidgetBlueprint WidgetTree. Use widget_palette for widget creation.",
+      "schemaHints": [
+        {
+          "purpose": "operation_schema",
+          "schemaTool": "schema_inspect",
+          "domain": "widget",
+          "tool": "widget_tree_edit",
+          "operationFrom": "commands[].kind",
+          "include": [
+            "operation",
+            "examples",
+            "errors",
+            "notes"
+          ]
+        }
+      ],
       "availability": [
         "native",
         "python"
@@ -11602,6 +11707,21 @@
       "name": "widget_edit",
       "title": "Edit Widget",
       "description": "Apply explicit local property edit commands to WidgetTree widget instances. Use widget_inspect to discover writable property names and serialized value expectations.",
+      "schemaHints": [
+        {
+          "purpose": "operation_schema",
+          "schemaTool": "schema_inspect",
+          "domain": "widget",
+          "tool": "widget_edit",
+          "operationFrom": "commands[].kind",
+          "include": [
+            "operation",
+            "examples",
+            "errors",
+            "notes"
+          ]
+        }
+      ],
       "availability": [
         "native",
         "python"
