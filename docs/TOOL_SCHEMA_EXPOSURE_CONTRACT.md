@@ -162,6 +162,15 @@ looked up through `schema_inspect`.
 and mutation controls in `tools/list`. The exact `args` schema is selected by
 `memberKind + "." + operation` and is returned by `schema_inspect`.
 
+### `blueprint_class_edit`
+
+`blueprint_class_edit` keeps `assetPath`, `operation`, `args`, `dryRun`, and
+`expectedRevision` in `tools/list`. The exact `args` schema is selected by
+`operation` and returned by `schema_inspect`. This keeps heavyweight
+operation-specific details such as Class Settings fields and CDO default value
+formats out of `tools/list` while preserving a directly callable first-level
+tool contract.
+
 ## Audit Expectations
 
 Tests should verify both surfaces:

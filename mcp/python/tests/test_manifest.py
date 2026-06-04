@@ -212,6 +212,7 @@ class ToolManifestTests(unittest.TestCase):
         self.assertEqual(
             manifest_tools,
             {
+                "blueprint_class_edit",
                 "blueprint_graph_edit",
                 "blueprint_member_edit",
                 "blueprint_node_edit",
@@ -399,15 +400,16 @@ class ToolManifestTests(unittest.TestCase):
             class_edit_ops,
             ["setParent", "setSettings", "setDefault", "addInterface", "removeInterface"],
         )
-        class_edit_args = class_edit_tool["inputSchema"]["properties"]["args"]["properties"]
+        class_edit_args = class_edit_tool["inputSchema"]["properties"]["args"]
         class_edit_props = class_edit_tool["inputSchema"]["properties"]
-        self.assertIn("settings", class_edit_args)
-        self.assertIn("generateAbstractClass", class_edit_args["settings"]["properties"])
-        self.assertIn("property", class_edit_args)
-        self.assertIn("value", class_edit_args)
+        self.assertNotIn("properties", class_edit_args)
         self.assertNotIn("returnDiff", class_edit_props)
         self.assertNotIn("returnDiagnostics", class_edit_props)
         self.assertIn("expectedRevision", class_edit_props)
+        self.assertEqual(
+            class_edit_tool["schemaHints"][0]["operationFrom"],
+            "operation",
+        )
         self.assertIn("outputSchema", class_edit_tool)
         self.assertIn("applied", class_edit_tool["outputSchema"]["properties"])
         self.assertIn("settings", class_edit_tool["outputSchema"]["properties"])
@@ -419,6 +421,25 @@ class ToolManifestTests(unittest.TestCase):
         self.assertIn("diff", class_edit_tool["outputSchema"]["properties"])
         self.assertIn("previousRevision", class_edit_tool["outputSchema"]["properties"])
         self.assertIn("newRevision", class_edit_tool["outputSchema"]["properties"])
+
+        set_settings = manifest.inspect_schema(
+            domain="blueprint",
+            tool_name="blueprint_class_edit",
+            operation="setSettings",
+            include=["operation"],
+        )
+        settings_props = set_settings["operationSchema"]["properties"]["args"]["properties"]["settings"]["properties"]
+        self.assertIn("generateAbstractClass", settings_props)
+
+        set_default = manifest.inspect_schema(
+            domain="blueprint",
+            tool_name="blueprint_class_edit",
+            operation="setDefault",
+            include=["operation"],
+        )
+        set_default_args = set_default["operationSchema"]["properties"]["args"]["properties"]
+        self.assertIn("property", set_default_args)
+        self.assertIn("value", set_default_args)
 
         node_inspect_tool = next(
             tool for tool in manifest.tools_for("python")

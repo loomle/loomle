@@ -10,8 +10,8 @@ use loomle::{
 };
 use rmcp::{
     model::{
-        CallToolRequestParams, CallToolResult, Implementation, ListToolsResult,
-        Meta, PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
+        CallToolRequestParams, CallToolResult, Implementation, ListToolsResult, Meta,
+        PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
     },
     service::RequestContext,
     transport::stdio,
@@ -6943,49 +6943,7 @@ fn blueprint_class_edit_schema() -> rmcp::model::JsonObject {
         "args".into(),
         serde_json::json!({
             "type":"object",
-            "properties":{
-                "parentClassPath":{
-                    "type":"string",
-                    "description":"Required for setParent. UE class path for the new Blueprint parent class."
-                },
-                "interfaceClassPath":{
-                    "type":"string",
-                    "description":"Required for addInterface and removeInterface. UE generated interface class path."
-                },
-                "preserveFunctions":{
-                    "type":"boolean",
-                    "default":false,
-                    "description":"removeInterface only. Preserve interface function graphs when removing the interface contract."
-                },
-                "settings":{
-                    "type":"object",
-                    "description":"Required for setSettings. Editable Blueprint Class Settings.",
-                    "properties":{
-                        "displayName":{"type":"string"},
-                        "description":{"type":"string"},
-                        "namespace":{"type":"string"},
-                        "category":{"type":"string"},
-                        "hideCategories":{"type":"array","items":{"type":"string"}},
-                        "runConstructionScriptOnDrag":{"type":"boolean"},
-                        "runConstructionScriptInSequencer":{"type":"boolean"},
-                        "generateConstClass":{"type":"boolean"},
-                        "generateAbstractClass":{"type":"boolean"},
-                        "deprecated":{"type":"boolean"},
-                        "shouldCookPropertyGuids":{"type":"string"},
-                        "compileMode":{"type":"string"}
-                    },
-                    "additionalProperties":false
-                },
-                "property":{
-                    "type":"string",
-                    "description":"Required for setDefault. Editable generated-class CDO property name."
-                },
-                "value":{
-                    "description":"Required for setDefault. UE import-text value, or a JSON string/number/boolean converted to import text.",
-                    "oneOf":[{"type":"string"},{"type":"number"},{"type":"boolean"}]
-                }
-            },
-            "additionalProperties":false
+            "description":"Operation-specific args. Use schema_inspect with domain='blueprint', tool='blueprint_class_edit', and operation='<operation>' for the exact schema."
         }),
     );
     execution_control_fields(&mut properties);
@@ -13816,9 +13774,56 @@ mod tests {
             .get("properties")
             .and_then(|value| value.as_object())
             .expect("blueprint_class_edit input properties");
+        let blueprint_class_edit_args = blueprint_class_edit_input
+            .get("args")
+            .and_then(|value| value.as_object())
+            .expect("blueprint_class_edit args schema");
+        assert!(!blueprint_class_edit_args.contains_key("properties"));
         assert!(!blueprint_class_edit_input.contains_key("returnDiff"));
         assert!(!blueprint_class_edit_input.contains_key("returnDiagnostics"));
         assert!(blueprint_class_edit_input.contains_key("expectedRevision"));
+        let blueprint_class_edit_schema_hints = blueprint_class_edit
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.0.get("schemaHints"))
+            .and_then(|value| value.as_array())
+            .expect("blueprint_class_edit schema hints");
+        assert_eq!(
+            blueprint_class_edit_schema_hints
+                .first()
+                .and_then(|hint| hint.get("operationFrom"))
+                .and_then(|value| value.as_str()),
+            Some("operation")
+        );
+        let blueprint_class_edit_manifest = manifest_tool(blueprint_class_edit.name.as_ref());
+        let blueprint_class_operations = blueprint_class_edit_manifest
+            .get("schemaInspect")
+            .and_then(|schema_inspect| schema_inspect.get("operations"))
+            .and_then(|value| value.as_array())
+            .expect("blueprint_class_edit schemaInspect operations");
+        let set_settings_schema = blueprint_class_operations
+            .iter()
+            .find(|operation| {
+                operation.get("name").and_then(|value| value.as_str()) == Some("setSettings")
+            })
+            .and_then(|operation| operation.get("schema"))
+            .expect("setSettings schema");
+        assert!(set_settings_schema
+            .pointer("/properties/args/properties/settings/properties/generateAbstractClass")
+            .is_some());
+        let set_default_schema = blueprint_class_operations
+            .iter()
+            .find(|operation| {
+                operation.get("name").and_then(|value| value.as_str()) == Some("setDefault")
+            })
+            .and_then(|operation| operation.get("schema"))
+            .expect("setDefault schema");
+        assert!(set_default_schema
+            .pointer("/properties/args/properties/property")
+            .is_some());
+        assert!(set_default_schema
+            .pointer("/properties/args/properties/value")
+            .is_some());
         let blueprint_class_edit_output_properties = blueprint_class_edit.name.as_ref();
         let blueprint_class_edit_output_properties =
             manifest_tool(blueprint_class_edit_output_properties)

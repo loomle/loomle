@@ -1834,12 +1834,28 @@
     {
       "name": "blueprint_class_edit",
       "title": "Edit Blueprint Class",
-      "description": "Edit Blueprint class contract such as parent class and implemented interfaces. Read the current contract with blueprint_class_inspect.",
+      "description": "Edit Blueprint class contract such as parent class and implemented interfaces. Use schema_inspect for operation-specific args.",
       "availability": [
         "native",
         "python"
       ],
       "requiresBridge": true,
+      "schemaHints": [
+        {
+          "purpose": "operation_schema",
+          "schemaTool": "schema_inspect",
+          "domain": "blueprint",
+          "tool": "blueprint_class_edit",
+          "operationFrom": "operation",
+          "include": [
+            "summary",
+            "operation",
+            "examples",
+            "errors",
+            "notes"
+          ]
+        }
+      ],
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1859,86 +1875,7 @@
           },
           "args": {
             "type": "object",
-            "properties": {
-              "parentClassPath": {
-                "type": "string",
-                "description": "Required for setParent. UE class path for the new Blueprint parent class."
-              },
-              "interfaceClassPath": {
-                "type": "string",
-                "description": "Required for addInterface and removeInterface. UE generated interface class path."
-              },
-              "preserveFunctions": {
-                "type": "boolean",
-                "default": false,
-                "description": "removeInterface only. Preserve interface function graphs when removing the interface contract."
-              },
-              "settings": {
-                "type": "object",
-                "description": "Required for setSettings. Editable Blueprint Class Settings.",
-                "properties": {
-                  "displayName": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "type": "string"
-                  },
-                  "namespace": {
-                    "type": "string"
-                  },
-                  "category": {
-                    "type": "string"
-                  },
-                  "hideCategories": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "runConstructionScriptOnDrag": {
-                    "type": "boolean"
-                  },
-                  "runConstructionScriptInSequencer": {
-                    "type": "boolean"
-                  },
-                  "generateConstClass": {
-                    "type": "boolean"
-                  },
-                  "generateAbstractClass": {
-                    "type": "boolean"
-                  },
-                  "deprecated": {
-                    "type": "boolean"
-                  },
-                  "shouldCookPropertyGuids": {
-                    "type": "string"
-                  },
-                  "compileMode": {
-                    "type": "string"
-                  }
-                },
-                "additionalProperties": false
-              },
-              "property": {
-                "type": "string",
-                "description": "Required for setDefault. Editable generated-class CDO property name."
-              },
-              "value": {
-                "description": "Required for setDefault. UE import-text value, or a JSON string/number/boolean converted to import text.",
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "boolean"
-                  }
-                ]
-              }
-            },
-            "additionalProperties": false
+            "description": "Operation-specific args. Use schema_inspect with domain='blueprint', tool='blueprint_class_edit', and operation='<operation>' for the exact schema."
           },
           "dryRun": {
             "type": "boolean",
@@ -2107,6 +2044,401 @@
           "applied"
         ],
         "additionalProperties": true
+      },
+      "schemaInspect": {
+        "domain": "blueprint",
+        "tool": "blueprint_class_edit",
+        "source": {
+          "document": "docs/BLUEPRINT_INTERFACE_DESIGN.md",
+          "section": "Inheritance, interfaces, Class Settings, and CDO defaults"
+        },
+        "operations": [
+          {
+            "name": "setParent",
+            "category": "class-contract",
+            "summary": "Set the Blueprint parent class using a UE class path.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "assetPath": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "operation": {
+                  "const": "setParent"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "parentClassPath": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "UE class path for the new Blueprint parent class."
+                    }
+                  },
+                  "required": [
+                    "parentClassPath"
+                  ],
+                  "additionalProperties": false
+                },
+                "dryRun": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "expectedRevision": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "assetPath",
+                "operation",
+                "args"
+              ],
+              "additionalProperties": false
+            },
+            "examples": [
+              {
+                "assetPath": "/Game/BP_Test",
+                "operation": "setParent",
+                "args": {
+                  "parentClassPath": "/Script/Engine.Actor"
+                },
+                "dryRun": true
+              }
+            ],
+            "errors": [
+              "INVALID_ARGUMENT",
+              "ASSET_NOT_FOUND",
+              "CLASS_NOT_FOUND",
+              "REVISION_CONFLICT",
+              "BLUEPRINT_CLASS_EDIT_FAILED"
+            ],
+            "notes": [
+              "Read the current parent and revision with blueprint_class_inspect before changing inheritance."
+            ]
+          },
+          {
+            "name": "setSettings",
+            "category": "class-settings",
+            "summary": "Set editable Blueprint Class Settings fields.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "assetPath": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "operation": {
+                  "const": "setSettings"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "settings": {
+                      "type": "object",
+                      "properties": {
+                        "displayName": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string"
+                        },
+                        "namespace": {
+                          "type": "string"
+                        },
+                        "category": {
+                          "type": "string"
+                        },
+                        "hideCategories": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "runConstructionScriptOnDrag": {
+                          "type": "boolean"
+                        },
+                        "runConstructionScriptInSequencer": {
+                          "type": "boolean"
+                        },
+                        "generateConstClass": {
+                          "type": "boolean"
+                        },
+                        "generateAbstractClass": {
+                          "type": "boolean"
+                        },
+                        "deprecated": {
+                          "type": "boolean"
+                        },
+                        "shouldCookPropertyGuids": {
+                          "type": "string"
+                        },
+                        "compileMode": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "settings"
+                  ],
+                  "additionalProperties": false
+                },
+                "dryRun": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "expectedRevision": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "assetPath",
+                "operation",
+                "args"
+              ],
+              "additionalProperties": false
+            },
+            "examples": [
+              {
+                "assetPath": "/Game/BP_Test",
+                "operation": "setSettings",
+                "args": {
+                  "settings": {
+                    "displayName": "Bridge Test",
+                    "generateAbstractClass": false
+                  }
+                },
+                "dryRun": true
+              }
+            ],
+            "errors": [
+              "INVALID_ARGUMENT",
+              "ASSET_NOT_FOUND",
+              "REVISION_CONFLICT",
+              "BLUEPRINT_CLASS_EDIT_FAILED"
+            ],
+            "notes": [
+              "Only fields present in settings are changed.",
+              "Use blueprint_class_inspect to read current settings before editing."
+            ]
+          },
+          {
+            "name": "setDefault",
+            "category": "class-defaults",
+            "summary": "Set one generated-class CDO property default.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "assetPath": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "operation": {
+                  "const": "setDefault"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "property": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Editable generated-class CDO property name."
+                    },
+                    "value": {
+                      "description": "UE import-text value, or a JSON string/number/boolean converted to import text.",
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "boolean"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "property",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                },
+                "dryRun": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "expectedRevision": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "assetPath",
+                "operation",
+                "args"
+              ],
+              "additionalProperties": false
+            },
+            "examples": [
+              {
+                "assetPath": "/Game/BP_Test",
+                "operation": "setDefault",
+                "args": {
+                  "property": "MyFloat",
+                  "value": "2.5"
+                },
+                "dryRun": true
+              }
+            ],
+            "errors": [
+              "INVALID_ARGUMENT",
+              "ASSET_NOT_FOUND",
+              "PROPERTY_NOT_FOUND",
+              "REVISION_CONFLICT",
+              "BLUEPRINT_CLASS_EDIT_FAILED"
+            ],
+            "notes": [
+              "Use blueprint_class_inspect classDefaults to find editable property names and current values."
+            ]
+          },
+          {
+            "name": "addInterface",
+            "category": "class-contract",
+            "summary": "Add one implemented Blueprint interface.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "assetPath": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "operation": {
+                  "const": "addInterface"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "interfaceClassPath": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "UE generated interface class path."
+                    }
+                  },
+                  "required": [
+                    "interfaceClassPath"
+                  ],
+                  "additionalProperties": false
+                },
+                "dryRun": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "expectedRevision": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "assetPath",
+                "operation",
+                "args"
+              ],
+              "additionalProperties": false
+            },
+            "examples": [
+              {
+                "assetPath": "/Game/BP_Test",
+                "operation": "addInterface",
+                "args": {
+                  "interfaceClassPath": "/Game/BPI_Test.BPI_Test_C"
+                },
+                "dryRun": true
+              }
+            ],
+            "errors": [
+              "INVALID_ARGUMENT",
+              "ASSET_NOT_FOUND",
+              "INTERFACE_NOT_FOUND",
+              "REVISION_CONFLICT",
+              "BLUEPRINT_CLASS_EDIT_FAILED"
+            ],
+            "notes": [
+              "Use asset creation or inspection to resolve the generated interface class path before editing."
+            ]
+          },
+          {
+            "name": "removeInterface",
+            "category": "class-contract",
+            "summary": "Remove one implemented Blueprint interface.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "assetPath": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "operation": {
+                  "const": "removeInterface"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "interfaceClassPath": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "UE generated interface class path."
+                    },
+                    "preserveFunctions": {
+                      "type": "boolean",
+                      "default": false,
+                      "description": "Preserve interface function graphs when removing the interface contract."
+                    }
+                  },
+                  "required": [
+                    "interfaceClassPath"
+                  ],
+                  "additionalProperties": false
+                },
+                "dryRun": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "expectedRevision": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "assetPath",
+                "operation",
+                "args"
+              ],
+              "additionalProperties": false
+            },
+            "examples": [
+              {
+                "assetPath": "/Game/BP_Test",
+                "operation": "removeInterface",
+                "args": {
+                  "interfaceClassPath": "/Game/BPI_Test.BPI_Test_C",
+                  "preserveFunctions": true
+                },
+                "dryRun": true
+              }
+            ],
+            "errors": [
+              "INVALID_ARGUMENT",
+              "ASSET_NOT_FOUND",
+              "INTERFACE_NOT_FOUND",
+              "REVISION_CONFLICT",
+              "BLUEPRINT_CLASS_EDIT_FAILED"
+            ],
+            "notes": [
+              "Set preserveFunctions=true only when keeping implementation graphs after removing the formal interface contract is intentional."
+            ]
+          }
+        ]
       }
     },
     {

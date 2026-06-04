@@ -165,6 +165,11 @@ queries should not be modeled as `blueprint_class_edit` operations.
 `blueprint_class_edit` accepts `dryRun` and `expectedRevision` as mutation
 controls. It does not expose `returnDiff` or `returnDiagnostics`; implemented
 diff and diagnostics are always returned in the mutation envelope.
+`tools/list` exposes only the first-level class edit envelope:
+`assetPath`, `operation`, `args`, `dryRun`, and `expectedRevision`. Exact
+operation-specific `args` schemas are returned by `schema_inspect` using
+`domain: "blueprint"`, `tool: "blueprint_class_edit"`, and
+`operation: "<operation>"`.
 
 ### Class Settings Write Mapping
 
