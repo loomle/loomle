@@ -236,9 +236,9 @@ class PythonMcpProjectToolTests(unittest.IsolatedAsyncioTestCase):
                 await server.wait_closed()
 
             self.assertFalse(result.isError, result)
-            self.assertEqual(result.structuredContent["operation"], "blueprint_graph_edit")
+            self.assertEqual(result.structuredContent["operation"], "blueprint.graph.edit")
             self.assertEqual(seen["method"], "rpc.invoke")
-            self.assertEqual(seen["tool"], "blueprint_graph_edit")
+            self.assertEqual(seen["tool"], "blueprint.graph.edit")
 
 
 if __name__ == "__main__":
