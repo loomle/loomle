@@ -186,8 +186,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "BuildPlugin failed with exit code $LASTEXITCODE"
           }
-          Get-ChildItem -LiteralPath $packageDir -Filter UnrealEditor.modules -Recurse -File -ErrorAction SilentlyContinue |
-            Remove-Item -Force
 
           New-Item -ItemType Directory -Force -Path $pluginDst | Out-Null
           Copy-Item -Path (Join-Path $packageDir "*") -Destination $pluginDst -Recurse -Force
