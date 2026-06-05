@@ -5020,7 +5020,7 @@
               "data_flow"
             ],
             "default": "summary",
-            "description": "Task-oriented result view. summary returns graph boundary, entry/root refs, chain summaries, and a de-duplicated nodes dictionary. exec_flow traces execution links from rootNode.id and returns lightweight nodes[] plus links[]. data_flow traces data links from rootPin.node.id/rootPin.pin with the same nodes[] plus links[] shape. Use blueprint_node_inspect for exact pins, defaults, and wiring preparation."
+            "description": "summary orients the graph. exec_flow traces from rootNode.id. data_flow traces from rootPin.node.id/rootPin.pin. Use blueprint_node_inspect for exact pins/defaults."
           },
           "rootNode": {
             "type": "object",
@@ -5072,7 +5072,7 @@
                   "downstream",
                   "both"
                 ],
-                "description": "exec_flow defaults to downstream; data_flow defaults to upstream."
+                "description": "Defaults: exec_flow downstream, data_flow upstream."
               },
               "maxDepth": {
                 "type": "integer",
@@ -8493,7 +8493,7 @@
           },
           "commands": {
             "type": "array",
-            "description": "Ordered Material graph edit commands. Each command requires kind. Use schema_inspect with domain='material' and tool='material_graph_edit' for command-specific schemas.",
+            "description": "Ordered commands; each needs kind. Use schema_inspect for fields and material_palette for addFromPalette.",
             "items": {
               "type": "object",
               "properties": {
@@ -9490,7 +9490,7 @@
           },
           "graph": {
             "type": "object",
-            "description": "Optional Material graph reference. For Material this currently resolves to graph.assetPath.",
+            "description": "Optional asset graph reference.",
             "properties": {
               "kind": {
                 "type": "string",
@@ -9510,11 +9510,11 @@
           },
           "query": {
             "type": "string",
-            "description": "Case-insensitive fuzzy search over UE Material palette label, category, tooltip, keywords, and action payload."
+            "description": "Fuzzy search label, category, tooltip, keywords, and payload."
           },
           "elementTypes": {
             "type": "array",
-            "description": "UE Material palette element families to include. Defaults to all.",
+            "description": "Element families to include; defaults to all.",
             "items": {
               "type": "string",
               "enum": [

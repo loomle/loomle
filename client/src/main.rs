@@ -7023,7 +7023,7 @@ fn blueprint_graph_inspect_schema() -> rmcp::model::JsonObject {
         "properties":{
             "assetPath":{"type":"string","minLength":1},
             "graph": graph_ref_schema(),
-            "view":{"type":"string","enum":["summary","exec_flow","data_flow"],"default":"summary","description":"Task-oriented result view. summary returns graph boundary, entry/root refs, chain summaries, and a de-duplicated nodes dictionary. exec_flow traces execution links from rootNode.id and returns lightweight nodes[] plus links[]. data_flow traces data links from rootPin.node.id/rootPin.pin with the same nodes[] plus links[] shape. Use blueprint_node_inspect for exact pins, defaults, and wiring preparation."},
+            "view":{"type":"string","enum":["summary","exec_flow","data_flow"],"default":"summary","description":"summary orients the graph. exec_flow traces from rootNode.id. data_flow traces from rootPin.node.id/rootPin.pin. Use blueprint_node_inspect for exact pins/defaults."},
             "rootNode":{
                 "type":"object",
                 "properties":{
@@ -7049,7 +7049,7 @@ fn blueprint_graph_inspect_schema() -> rmcp::model::JsonObject {
             "traversal":{
                 "type":"object",
                 "properties":{
-                    "direction":{"type":"string","enum":["upstream","downstream","both"],"description":"exec_flow defaults to downstream; data_flow defaults to upstream."},
+                    "direction":{"type":"string","enum":["upstream","downstream","both"],"description":"Defaults: exec_flow downstream, data_flow upstream."},
                     "maxDepth":{"type":"integer","minimum":1,"maximum":128,"default":64},
                     "maxNodes":{"type":"integer","minimum":1,"maximum":1000,"default":250}
                 },
@@ -7256,7 +7256,7 @@ fn pcg_graph_layout_schema() -> rmcp::model::JsonObject {
 fn material_graph_ref_schema() -> serde_json::Value {
     serde_json::json!({
         "type":"object",
-        "description":"Optional Material graph reference. For Material this resolves to graph.assetPath.",
+        "description":"Optional asset graph reference.",
         "properties":{
             "kind":{"type":"string","enum":["asset"]},
             "assetPath":{"type":"string","minLength":1}
@@ -7277,10 +7277,10 @@ fn material_graph_edit_schema() -> rmcp::model::JsonObject {
         "commands".into(),
         serde_json::json!({
             "type":"array",
-            "description":"Ordered Material graph edit commands. Each command requires kind. Use schema_inspect with domain='material' and tool='material_graph_edit' to list supported command kinds. For a command-specific schema, call schema_inspect with operation=<kind>. Use material_palette first and pass the selected entry to addFromPalette instead of guessing expression classes.",
+            "description":"Ordered commands; each needs kind. Use schema_inspect for fields and material_palette for addFromPalette.",
             "items":{
                 "type":"object",
-                "description":"Command envelope. Command-specific fields are intentionally omitted from tools/list and documented through schema_inspect.",
+                "description":"Command envelope; kind-specific fields are in schema_inspect.",
                 "properties":{
                     "kind":{"type":"string","minLength":1},
                     "alias":{"type":"string","minLength":1}
@@ -7535,7 +7535,7 @@ fn material_node_edit_schema() -> rmcp::model::JsonObject {
         "node".into(),
         serde_json::json!({
             "type":"object",
-            "description":"Material expression node reference. Use id from material_graph_inspect/material_graph_edit results, or alias from an earlier edit command in the same request.",
+            "description":"Material node ref: id from inspect/edit results or same-request alias.",
             "properties":{
                 "id":{"type":"string","minLength":1},
                 "alias":{"type":"string","minLength":1}
@@ -7548,13 +7548,13 @@ fn material_node_edit_schema() -> rmcp::model::JsonObject {
         serde_json::json!({
             "type":"string",
             "minLength":1,
-            "description":"Editable property name from material.node.inspect properties[].name."
+            "description":"Editable property name from material_node_inspect."
         }),
     );
     properties.insert(
         "value".into(),
         serde_json::json!({
-            "description":"New property value. Use JSON string/number/boolean/null for scalar properties, or {\"importText\":\"...\"} for UE import text values."
+            "description":"New value; use {\"importText\":\"...\"} for UE import text."
         }),
     );
     mutation_control_fields(&mut properties);
@@ -7577,7 +7577,7 @@ fn material_palette_schema() -> rmcp::model::JsonObject {
             },
             "graph": {
                 "type": "object",
-                "description": "Optional Material graph reference. For Material this currently resolves to graph.assetPath.",
+                "description": "Optional asset graph reference.",
                 "properties": {
                     "kind": { "type": "string", "enum": ["asset"] },
                     "assetPath": { "type": "string", "minLength": 1 }
@@ -7587,11 +7587,11 @@ fn material_palette_schema() -> rmcp::model::JsonObject {
             },
             "query": {
                 "type": "string",
-                "description": "Case-insensitive fuzzy search over UE Material palette label, category, tooltip, keywords, and action payload."
+                "description": "Fuzzy search label, category, tooltip, keywords, and payload."
             },
             "elementTypes": {
                 "type": "array",
-                "description": "UE Material palette element families to include. Defaults to all.",
+                "description": "Element families to include; defaults to all.",
                 "items": {
                     "type": "string",
                     "enum": ["expression"]
