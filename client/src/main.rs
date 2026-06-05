@@ -291,6 +291,27 @@ struct LoomleProxyServer {
     env_info: Mutex<Option<Arc<Environment>>>,
 }
 
+fn status_health_probe_timeout_runtime() -> serde_json::Value {
+    serde_json::json!({
+        "state": "ready",
+        "rpcConnected": true,
+        "listenerReady": true,
+        "isPIE": false,
+        "editorBusyReason": "HEALTH_PROBE_TIMEOUT",
+        "health": null,
+        "capabilities": null,
+    })
+}
+
+fn status_health_probe_timeout_issue() -> serde_json::Value {
+    serde_json::json!({
+        "code": "HEALTH_PROBE_TIMEOUT",
+        "severity": "info",
+        "domain": "runtime",
+        "message": "The runtime listener is present, but the fast status health probe did not finish before the deadline."
+    })
+}
+
 impl LoomleProxyServer {
     fn new(env_info: Option<Environment>) -> Self {
         Self {
@@ -912,21 +933,8 @@ impl LoomleProxyServer {
                     }
                 }
                 Err(_) => {
-                    runtime = serde_json::json!({
-                        "state": "degraded",
-                        "rpcConnected": false,
-                        "listenerReady": true,
-                        "isPIE": false,
-                        "editorBusyReason": "RUNTIME_BUSY",
-                        "health": null,
-                        "capabilities": null,
-                    });
-                    issues.push(serde_json::json!({
-                        "code": "RUNTIME_BUSY",
-                        "severity": "warning",
-                        "domain": "runtime",
-                        "message": "The LOOMLE runtime did not answer the status health probe before the fast-return deadline."
-                    }));
+                    runtime = status_health_probe_timeout_runtime();
+                    issues.push(status_health_probe_timeout_issue());
                 }
                 Ok(Err(RpcClientError::Startup(err))) => {
                     runtime = serde_json::json!({
@@ -9965,16 +9973,16 @@ mod tests {
         call_schema_inspect, compare_semver, current_platform_client_binary_name,
         infer_attached_project_root, material_graph_edit_schema, material_graph_inspect_schema,
         material_graph_layout_schema, material_node_edit_schema, material_palette_schema,
-        parse_active_install_state_json, parse_blueprint_graph_layout_request,
-        pcg_compile_schema, pcg_graph_inspect_schema, pcg_graph_layout_schema,
-        pcg_node_inspect_schema, pcg_palette_schema, pcg_parameter_edit_schema,
-        play_participant_wait_conditions_met, play_schema,
-        play_wait_participant_conditions_from_args, public_tool_name_to_internal,
+        parse_active_install_state_json, parse_blueprint_graph_layout_request, pcg_compile_schema,
+        pcg_graph_inspect_schema, pcg_graph_layout_schema, pcg_node_inspect_schema,
+        pcg_palette_schema, pcg_parameter_edit_schema, play_participant_wait_conditions_met,
+        play_schema, play_wait_participant_conditions_from_args, public_tool_name_to_internal,
         read_cached_latest_version, read_file_lock_metadata, read_plugin_version,
         remove_unreal_editor_modules_manifests, runtime_declared_tools,
         shape_blueprint_graph_inspect_result, shape_pcg_compile_result,
         shape_pcg_graph_inspect_result, shape_pcg_node_inspect_result,
-        shape_widget_tree_inspect_payload, switch_to_installed_version,
+        shape_widget_tree_inspect_payload, status_health_probe_timeout_issue,
+        status_health_probe_timeout_runtime, switch_to_installed_version,
         sync_project_support_to_version, sync_registered_project_support,
         translate_blueprint_graph_edit_args, translate_blueprint_graph_inspect_args,
         translate_blueprint_node_edit_args, translate_blueprint_node_inspect_args,
@@ -10029,6 +10037,21 @@ mod tests {
             Cli::Mcp { project_root } => assert!(project_root.is_none()),
             _ => panic!("expected mcp"),
         }
+    }
+
+    #[test]
+    fn status_health_probe_timeout_is_non_blocking() {
+        let runtime = status_health_probe_timeout_runtime();
+        assert_eq!(runtime["state"], "ready");
+        assert_eq!(runtime["rpcConnected"], true);
+        assert_eq!(runtime["listenerReady"], true);
+        assert_eq!(runtime["editorBusyReason"], "HEALTH_PROBE_TIMEOUT");
+        assert!(runtime["health"].is_null());
+
+        let issue = status_health_probe_timeout_issue();
+        assert_eq!(issue["code"], "HEALTH_PROBE_TIMEOUT");
+        assert_eq!(issue["severity"], "info");
+        assert_eq!(issue["domain"], "runtime");
     }
 
     #[test]
@@ -10143,7 +10166,10 @@ mod tests {
                 fs::read_to_string(repo_root.join("client").join(name)).expect("client script");
             let site_script =
                 fs::read_to_string(repo_root.join("site").join(name)).expect("site script");
-            assert_eq!(site_script, client_script, "{name} drifted from client source");
+            assert_eq!(
+                site_script, client_script,
+                "{name} drifted from client source"
+            );
         }
     }
 

@@ -204,15 +204,19 @@ No arguments.
 | --- | --- |
 | `status` | Runtime health status. |
 | `message` | Error or status message. |
-| `runtime.rpcConnected` | Whether the client reached the runtime endpoint. |
+| `runtime.rpcConnected` | Whether the client considers the runtime endpoint reachable. |
 | `runtime.listenerReady` | Whether the runtime listener is ready. |
 | `runtime.isPIE` | Whether Unreal is in PIE. |
 | `runtime.editorBusyReason` | Busy/unavailable reason when reported. |
-| `runtime.rpcHealth` | Raw bridge health payload. |
+| `runtime.health` | Raw bridge health payload when the fast health probe completes. |
 | `runtime.capabilities` | Runtime capability payload when available. |
 
 If no project is attached, `loomle` returns `status: "error"` with
 `editorBusyReason: "NO_PROJECT_ATTACHED"`.
+
+If the runtime listener is present but the fast health probe misses its
+deadline, `loomle` keeps the runtime state ready and reports an informational
+`HEALTH_PROBE_TIMEOUT` issue instead of treating ordinary RPCs as unavailable.
 
 ## `context`
 
