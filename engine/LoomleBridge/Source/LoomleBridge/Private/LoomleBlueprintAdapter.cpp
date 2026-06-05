@@ -7487,6 +7487,66 @@ namespace
         return LoomleBlueprintAdapterInternal::JsonObjectToCondensedString(Context);
     }
 
+    static void LoomleApplyEntryPaletteContextFallback(TSharedPtr<FJsonObject>& Payload)
+    {
+        if (!Payload.IsValid())
+        {
+            return;
+        }
+
+        const TSharedPtr<FJsonObject>* EntryObject = nullptr;
+        if (!Payload->TryGetObjectField(TEXT("entry"), EntryObject)
+            || EntryObject == nullptr
+            || !(*EntryObject).IsValid())
+        {
+            return;
+        }
+
+        bool bContextSensitive = true;
+        const TSharedPtr<FJsonObject>* PaletteContext = nullptr;
+        const bool bHasPaletteContext = (*EntryObject)->TryGetObjectField(TEXT("paletteContext"), PaletteContext)
+            && PaletteContext != nullptr
+            && (*PaletteContext).IsValid();
+
+        if (bHasPaletteContext
+            && !Payload->HasField(TEXT("contextSensitive"))
+            && (*PaletteContext)->TryGetBoolField(TEXT("contextSensitive"), bContextSensitive))
+        {
+            Payload->SetBoolField(TEXT("contextSensitive"), bContextSensitive);
+        }
+        if (!Payload->HasField(TEXT("contextSensitive"))
+            && (*EntryObject)->TryGetBoolField(TEXT("contextSensitive"), bContextSensitive))
+        {
+            Payload->SetBoolField(TEXT("contextSensitive"), bContextSensitive);
+        }
+
+        const TSharedPtr<FJsonObject>* ContextObject = nullptr;
+        if (bHasPaletteContext
+            && !Payload->HasField(TEXT("context"))
+            && (*PaletteContext)->TryGetObjectField(TEXT("context"), ContextObject)
+            && ContextObject != nullptr
+            && (*ContextObject).IsValid())
+        {
+            Payload->SetObjectField(TEXT("context"), *ContextObject);
+        }
+        if (!Payload->HasField(TEXT("context"))
+            && (*EntryObject)->TryGetObjectField(TEXT("context"), ContextObject)
+            && ContextObject != nullptr
+            && (*ContextObject).IsValid())
+        {
+            Payload->SetObjectField(TEXT("context"), *ContextObject);
+        }
+
+        const TArray<TSharedPtr<FJsonValue>>* FromPins = nullptr;
+        if (bHasPaletteContext
+            && !Payload->HasField(TEXT("fromPins"))
+            && (*PaletteContext)->TryGetArrayField(TEXT("fromPins"), FromPins)
+            && FromPins != nullptr)
+        {
+            Payload->SetArrayField(TEXT("fromPins"), *FromPins);
+        }
+    }
+
     static bool LoomleApplyPaletteContextSelectedObjects(
         UBlueprint* Blueprint,
         const TSharedPtr<FJsonObject>& Payload,
@@ -8117,6 +8177,25 @@ namespace
         return FString::Printf(TEXT("palette:%s"), *FMD5::HashAnsiString(*LoomlePaletteActionStableText(Action, Index)));
     }
 
+    static TArray<TSharedPtr<FJsonValue>> LoomleSerializePaletteContextPins(const TArray<UEdGraphPin*>& FromPins)
+    {
+        TArray<TSharedPtr<FJsonValue>> Pins;
+        for (const UEdGraphPin* Pin : FromPins)
+        {
+            const UEdGraphNode* Node = Pin != nullptr ? Pin->GetOwningNode() : nullptr;
+            if (Node == nullptr)
+            {
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> PinObject = MakeShared<FJsonObject>();
+            PinObject->SetStringField(TEXT("nodeId"), Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
+            PinObject->SetStringField(TEXT("pin"), Pin->PinName.ToString());
+            Pins.Add(MakeShared<FJsonValueObject>(PinObject));
+        }
+        return Pins;
+    }
+
     static bool LoomlePaletteActionMatchesQuery(const TSharedPtr<FEdGraphSchemaAction>& Action, const FString& Query)
     {
         if (!Action.IsValid() || Query.IsEmpty())
@@ -8184,7 +8263,7 @@ namespace
         return 100;
     }
 
-    static TSharedPtr<FJsonObject> LoomleSerializePaletteAction(const TSharedPtr<FEdGraphSchemaAction>& Action, int32 Index, bool bContextSensitive, const TSharedPtr<FJsonObject>& Payload)
+    static TSharedPtr<FJsonObject> LoomleSerializePaletteAction(const TSharedPtr<FEdGraphSchemaAction>& Action, int32 Index, bool bContextSensitive, const TSharedPtr<FJsonObject>& Payload, const TArray<UEdGraphPin*>& FromPins)
     {
         TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
         Entry->SetStringField(TEXT("id"), LoomlePaletteActionId(Action, Index));
@@ -8195,6 +8274,13 @@ namespace
         Entry->SetStringField(TEXT("actionType"), ActionType);
         Entry->SetBoolField(TEXT("requiresContext"), true);
         Entry->SetBoolField(TEXT("contextSensitive"), bContextSensitive);
+        TSharedPtr<FJsonObject> PaletteContext = MakeShared<FJsonObject>();
+        PaletteContext->SetBoolField(TEXT("contextSensitive"), bContextSensitive);
+        const TArray<TSharedPtr<FJsonValue>> SerializedFromPins = LoomleSerializePaletteContextPins(FromPins);
+        if (SerializedFromPins.Num() > 0)
+        {
+            PaletteContext->SetArrayField(TEXT("fromPins"), SerializedFromPins);
+        }
         FString SafetyError;
         const bool bSafeToSpawn = ValidatePaletteActionBeforeSpawn(Action, SafetyError);
         Entry->SetBoolField(TEXT("executable"), ActionType.Equals(TEXT("nodeSpawner"), ESearchCase::CaseSensitive) && bSafeToSpawn);
@@ -8217,6 +8303,7 @@ namespace
                 && SelectedObjectValues->Num() > 0)
             {
                 Entry->SetObjectField(TEXT("context"), Context);
+                PaletteContext->SetObjectField(TEXT("context"), Context);
                 const TSharedPtr<FJsonObject>* FirstSelectedObject = nullptr;
                 if ((*SelectedObjectValues)[0].IsValid()
                     && (*SelectedObjectValues)[0]->TryGetObject(FirstSelectedObject)
@@ -8234,6 +8321,7 @@ namespace
                 }
             }
         }
+        Entry->SetObjectField(TEXT("paletteContext"), PaletteContext);
 
         const FString NodeClass = LoomlePaletteActionNodeClass(Action);
         if (!NodeClass.IsEmpty())
@@ -8361,7 +8449,7 @@ bool FLoomleBlueprintAdapter::SearchBlueprintPalette(const FString& BlueprintAss
 	    for (int32 MatchIndex = Offset; MatchIndex < Matches.Num() && Entries.Num() < Limit; ++MatchIndex)
 	    {
 	        const FMatchedPaletteAction& Match = Matches[MatchIndex];
-	        Entries.Add(MakeShared<FJsonValueObject>(LoomleSerializePaletteAction(Match.Action, Match.Index, bContextSensitive, Payload)));
+	        Entries.Add(MakeShared<FJsonValueObject>(LoomleSerializePaletteAction(Match.Action, Match.Index, bContextSensitive, Payload, FromPins)));
 	    }
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
@@ -8396,6 +8484,7 @@ bool FLoomleBlueprintAdapter::AddNodeFromPalette(const FString& BlueprintAssetPa
         OutError = TEXT("Invalid addFromPalette payload JSON.");
         return false;
     }
+    LoomleApplyEntryPaletteContextFallback(Payload);
 
     UBlueprint* Blueprint = nullptr;
     UEdGraph* TargetGraph = nullptr;

@@ -3808,6 +3808,99 @@ TSharedPtr<FJsonObject> MakeBlueprintGraphNodeDiffEntry(const FString& NodeId, c
     return Entry;
 }
 
+FString BlueprintGraphEditPinDirectionToString(const EEdGraphPinDirection Direction)
+{
+    switch (Direction)
+    {
+    case EGPD_Input:
+        return TEXT("input");
+    case EGPD_Output:
+        return TEXT("output");
+    default:
+        return TEXT("unknown");
+    }
+}
+
+FString BlueprintGraphEditPinContainerToString(const EPinContainerType Container)
+{
+    switch (Container)
+    {
+    case EPinContainerType::Array:
+        return TEXT("array");
+    case EPinContainerType::Set:
+        return TEXT("set");
+    case EPinContainerType::Map:
+        return TEXT("map");
+    case EPinContainerType::None:
+    default:
+        return TEXT("none");
+    }
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintGraphEditCreatedPinSnapshot(const UEdGraphPin* Pin)
+{
+    TSharedPtr<FJsonObject> PinObject = MakeShared<FJsonObject>();
+    if (Pin == nullptr)
+    {
+        return PinObject;
+    }
+
+    PinObject->SetStringField(TEXT("name"), Pin->PinName.ToString());
+    PinObject->SetStringField(TEXT("direction"), BlueprintGraphEditPinDirectionToString(Pin->Direction));
+    PinObject->SetStringField(TEXT("category"), Pin->PinType.PinCategory.ToString());
+    PinObject->SetStringField(TEXT("subCategory"), Pin->PinType.PinSubCategory.ToString());
+    PinObject->SetStringField(TEXT("subCategoryObject"), Pin->PinType.PinSubCategoryObject.IsValid() ? Pin->PinType.PinSubCategoryObject->GetPathName() : TEXT(""));
+    PinObject->SetBoolField(TEXT("isReference"), Pin->PinType.bIsReference);
+    PinObject->SetBoolField(TEXT("isConst"), Pin->PinType.bIsConst);
+    PinObject->SetBoolField(TEXT("isArray"), Pin->PinType.ContainerType == EPinContainerType::Array);
+
+    TSharedPtr<FJsonObject> Type = MakeShared<FJsonObject>();
+    Type->SetStringField(TEXT("category"), Pin->PinType.PinCategory.ToString());
+    Type->SetStringField(TEXT("subCategory"), Pin->PinType.PinSubCategory.ToString());
+    Type->SetStringField(TEXT("object"), Pin->PinType.PinSubCategoryObject.IsValid() ? Pin->PinType.PinSubCategoryObject->GetPathName() : TEXT(""));
+    Type->SetStringField(TEXT("container"), BlueprintGraphEditPinContainerToString(Pin->PinType.ContainerType));
+    PinObject->SetObjectField(TEXT("type"), Type);
+    return PinObject;
+}
+
+TSharedPtr<FJsonObject> MakeBlueprintGraphEditCreatedNodeSnapshot(const UEdGraphNode* Node)
+{
+    TSharedPtr<FJsonObject> NodeObject = MakeShared<FJsonObject>();
+    if (Node == nullptr)
+    {
+        return NodeObject;
+    }
+
+    const FString NodeId = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+    const FString NodeClassPath = Node->GetClass() ? Node->GetClass()->GetPathName() : TEXT("");
+    const FString NodeTitle = Node->GetNodeTitle(ENodeTitleType::ListView).ToString();
+    NodeObject->SetStringField(TEXT("id"), NodeId);
+    NodeObject->SetStringField(TEXT("guid"), NodeId);
+    NodeObject->SetStringField(TEXT("name"), Node->GetName());
+    NodeObject->SetStringField(TEXT("title"), NodeTitle);
+    NodeObject->SetStringField(TEXT("nodeTitle"), NodeTitle);
+    NodeObject->SetStringField(TEXT("className"), Node->GetClass() ? Node->GetClass()->GetName() : TEXT(""));
+    NodeObject->SetStringField(TEXT("classPath"), NodeClassPath);
+    NodeObject->SetStringField(TEXT("nodeClassPath"), NodeClassPath);
+
+    TSharedPtr<FJsonObject> Position = MakeShared<FJsonObject>();
+    Position->SetNumberField(TEXT("x"), Node->NodePosX);
+    Position->SetNumberField(TEXT("y"), Node->NodePosY);
+    NodeObject->SetObjectField(TEXT("position"), Position);
+
+    TArray<TSharedPtr<FJsonValue>> Pins;
+    for (const UEdGraphPin* Pin : Node->Pins)
+    {
+        if (Pin == nullptr || Pin->bHidden)
+        {
+            continue;
+        }
+        Pins.Add(MakeShared<FJsonValueObject>(MakeBlueprintGraphEditCreatedPinSnapshot(Pin)));
+    }
+    NodeObject->SetArrayField(TEXT("pins"), Pins);
+    return NodeObject;
+}
+
 void AttachBlueprintGraphDiffToSingleResult(const TSharedPtr<FJsonObject>& Result, const TSharedPtr<FJsonObject>& Diff)
 {
     if (!Result.IsValid() || !Diff.IsValid())
@@ -3821,6 +3914,23 @@ void AttachBlueprintGraphDiffToSingleResult(const TSharedPtr<FJsonObject>& Resul
         if ((*OpResultsArray)[0].IsValid() && (*OpResultsArray)[0]->TryGetObject(OpResultObject) && OpResultObject != nullptr && (*OpResultObject).IsValid())
         {
             (*OpResultObject)->SetObjectField(TEXT("diff"), Diff);
+        }
+    }
+}
+
+void AttachBlueprintGraphCreatedNodeToSingleResult(const TSharedPtr<FJsonObject>& Result, const TSharedPtr<FJsonObject>& Node)
+{
+    if (!Result.IsValid() || !Node.IsValid())
+    {
+        return;
+    }
+    const TArray<TSharedPtr<FJsonValue>>* OpResultsArray = nullptr;
+    if (Result->TryGetArrayField(TEXT("opResults"), OpResultsArray) && OpResultsArray != nullptr && OpResultsArray->Num() > 0)
+    {
+        const TSharedPtr<FJsonObject>* OpResultObject = nullptr;
+        if ((*OpResultsArray)[0].IsValid() && (*OpResultsArray)[0]->TryGetObject(OpResultObject) && OpResultObject != nullptr && (*OpResultObject).IsValid())
+        {
+            (*OpResultObject)->SetObjectField(TEXT("node"), Node);
         }
     }
 }
@@ -5506,6 +5616,17 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildBlueprintGraphEditToolResult(c
                     else
                     {
                         AttachNodeAddedDiff(SingleResult, NewNodeId, TEXT("palette"));
+                        FString SnapshotError;
+                        FBlueprintGraphEditResolvedGraph Resolved;
+                        if (ResolveCachedGraph(EffectiveGraphName, Resolved, SnapshotError))
+                        {
+                            if (UEdGraphNode* NewNode = ResolveBlueprintGraphNodeByToken(Resolved.Graph, NewNodeId))
+                            {
+                                AttachBlueprintGraphCreatedNodeToSingleResult(
+                                    SingleResult,
+                                    MakeBlueprintGraphEditCreatedNodeSnapshot(NewNode));
+                            }
+                        }
                     }
                 }
             }

@@ -5794,10 +5794,18 @@ fn compile_add_from_palette_command(
         "anchor",
         "from",
         "contextSensitive",
-        "context",
         "eventName",
     ] {
         copy_if_present(command, &mut args, field);
+    }
+    if let Some(context) = command.get("context") {
+        args.insert("context".into(), context.clone());
+    } else if let Some(context) = entry
+        .get("paletteContext")
+        .and_then(|value| value.as_object())
+        .and_then(|palette_context| palette_context.get("context"))
+    {
+        args.insert("context".into(), context.clone());
     }
     if !args.contains_key("context") {
         if let Some(context) = entry.get("context") {
@@ -5810,8 +5818,27 @@ fn compile_add_from_palette_command(
             normalize_blueprint_graph_edit_from_pins(from_pins)?,
         );
     }
+    if !args.contains_key("fromPins") {
+        if let Some(from_pins) = entry
+            .get("paletteContext")
+            .and_then(|value| value.as_object())
+            .and_then(|palette_context| palette_context.get("fromPins"))
+        {
+            args.insert("fromPins".into(), from_pins.clone());
+        }
+    }
     if !args.contains_key("contextSensitive") {
         if let Some(context_sensitive) = entry
+            .get("paletteContext")
+            .and_then(|value| value.as_object())
+            .and_then(|palette_context| palette_context.get("contextSensitive"))
+            .and_then(|value| value.as_bool())
+        {
+            args.insert(
+                "contextSensitive".into(),
+                serde_json::json!(context_sensitive),
+            );
+        } else if let Some(context_sensitive) = entry
             .get("contextSensitive")
             .and_then(|value| value.as_bool())
         {
@@ -11321,6 +11348,64 @@ mod tests {
     }
 
     #[test]
+    fn blueprint_graph_edit_replays_palette_entry_context() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graph".into(), serde_json::json!({ "name": "EventGraph" }));
+        args.insert(
+            "commands".into(),
+            serde_json::json!([
+                {
+                    "kind": "addFromPalette",
+                    "alias": "clear",
+                    "entry": {
+                        "id": "palette:clear_children",
+                        "paletteContext": {
+                            "contextSensitive": true,
+                            "fromPins": [
+                                { "nodeId": "widget-node", "pin": "AvatarTypeOptionsBox" }
+                            ],
+                            "context": {
+                                "selectedObjects": [
+                                    { "kind": "component_property", "name": "AvatarTypeOptionsBox" }
+                                ]
+                            }
+                        }
+                    }
+                }
+            ]),
+        );
+
+        let translated = translate_blueprint_graph_edit_args(&args).expect("translated args");
+        let op_args = translated
+            .get("ops")
+            .and_then(|value| value.as_array())
+            .and_then(|ops| ops.first())
+            .and_then(|op| op.get("args"))
+            .expect("op args");
+        assert_eq!(
+            op_args.get("fromPins"),
+            Some(&serde_json::json!([{ "nodeId": "widget-node", "pin": "AvatarTypeOptionsBox" }]))
+        );
+        assert_eq!(
+            op_args
+                .get("contextSensitive")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
+        assert_eq!(
+            op_args
+                .get("context")
+                .and_then(|value| value.get("selectedObjects"))
+                .and_then(|value| value.as_array())
+                .and_then(|items| items.first())
+                .and_then(|value| value.get("name"))
+                .and_then(|value| value.as_str()),
+            Some("AvatarTypeOptionsBox")
+        );
+    }
+
+    #[test]
     fn blueprint_graph_edit_rejects_add_from_palette_defaults_without_alias() {
         let mut args = JsonObject::new();
         args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
@@ -14576,6 +14661,50 @@ mod tests {
                 .and_then(|value| value.as_bool()),
             Some(true)
         );
+    }
+
+    #[test]
+    fn blueprint_graph_edit_output_declares_created_node_pin_snapshot() {
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../../mcp/manifest/manifest.json"))
+                .expect("manifest json");
+        let output_schema = manifest
+            .get("tools")
+            .and_then(|value| value.as_array())
+            .and_then(|tools| {
+                tools.iter().find(|tool| {
+                    tool.get("name").and_then(|value| value.as_str())
+                        == Some("blueprint_graph_edit")
+                })
+            })
+            .expect("blueprint_graph_edit tool")
+            .get("outputSchema")
+            .expect("blueprint_graph_edit output schema");
+        let op_result_properties = output_schema
+            .get("oneOf")
+            .and_then(|value| value.as_array())
+            .and_then(|one_of| one_of.first())
+            .and_then(|value| value.get("properties"))
+            .and_then(|properties| properties.get("opResults"))
+            .and_then(|op_results| op_results.get("items"))
+            .and_then(|items| items.get("properties"))
+            .and_then(|properties| properties.as_object())
+            .expect("op result properties");
+        let node_properties = op_result_properties
+            .get("node")
+            .and_then(|node| node.get("properties"))
+            .and_then(|properties| properties.as_object())
+            .expect("created node properties");
+        assert!(node_properties.contains_key("pins"));
+        let pin_properties = node_properties
+            .get("pins")
+            .and_then(|pins| pins.get("items"))
+            .and_then(|items| items.get("properties"))
+            .and_then(|properties| properties.as_object())
+            .expect("created node pin properties");
+        for field in ["name", "direction", "category", "subCategory", "type"] {
+            assert!(pin_properties.contains_key(field), "missing {field}");
+        }
     }
 
     #[test]

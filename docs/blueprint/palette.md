@@ -245,6 +245,10 @@ event actions when their component property is selected.
           "type": "object",
           "description": "Normalized UE action-menu object context required to execute this entry."
         },
+        "paletteContext": {
+          "type": "object",
+          "description": "Replay context captured from this palette query. It may include contextSensitive, fromPins, and selected-object context."
+        },
         "bindingKind": {
           "type": "string",
           "description": "Binding class for bound-event entries, such as component_property."
@@ -299,8 +303,9 @@ query text, pin context, or edit operation input.
 selected palette entry.
 
 The operation consumes the selected entry and provides mutation choices such as
-position, alias, and optional pin context. These are agent decisions and should
-not be returned by `blueprint_graph_palette`.
+position and alias. Agents should pass the full returned entry object. Loomle
+uses its `paletteContext` to replay pin-based and selected-object Action Menu
+context without requiring the agent to repeat it manually.
 
 ```json
 {
@@ -388,6 +393,14 @@ the owning Blueprint. If the caller provides `eventName`, Loomle validates and
 uses that exact name; otherwise it applies UE-style deterministic suffixing only
 when the generated name would collide.
 
+On successful non-dry-run apply, the `addFromPalette` op result includes a
+lightweight `node` snapshot for the created node. The snapshot is read from the
+actual UE node after creation and includes visible `pins` with real names,
+directions, and type fields. Agents can use those pins to continue wiring
+dynamic UMG or delegate graphs without an immediate `blueprint_node_inspect`;
+full node inspection remains the path for defaults, links, layout detail, and
+member metadata.
+
 ## Internal Implementation
 
 `blueprint_graph_palette` should build the same kind of action context UE uses for
@@ -410,6 +423,11 @@ object to `addFromPalette`; they do not need to repeat the context manually.
 This is how UE component-bound event actions such as `Button.OnClicked` or
 `BoxComponent.OnComponentBeginOverlap` remain a normal palette/edit flow instead
 of a separate Loomle event API.
+
+For entries that depend on a dragged-from pin, the returned palette entry
+carries `paletteContext.fromPins`. `addFromPalette` restores that context when
+the full entry is passed, so the selected action is resolved against the same
+UE pin-based Action Menu rather than a plain graph Action Menu.
 
 ### Spawner Safety
 

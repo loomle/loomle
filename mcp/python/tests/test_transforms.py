@@ -483,6 +483,48 @@ class TransformTests(unittest.TestCase):
         self.assertEqual(alias_payload["ops"][5]["args"]["nodeRef"], "print")
         self.assertNotIn("clientRef", alias_payload["ops"][3]["args"]["to"])
 
+        replay_payload = apply_args_transform(
+            {"transform": "blueprint.graph.edit.args.v1"},
+            {
+                "assetPath": "/Game/BP_Test",
+                "graph": {"name": "EventGraph"},
+                "commands": [
+                    {
+                        "kind": "addFromPalette",
+                        "entry": {
+                            "id": "palette:clear_children",
+                            "paletteContext": {
+                                "contextSensitive": True,
+                                "fromPins": [
+                                    {"nodeId": "widget-node", "pin": "AvatarTypeOptionsBox"}
+                                ],
+                                "context": {
+                                    "selectedObjects": [
+                                        {
+                                            "kind": "component_property",
+                                            "name": "AvatarTypeOptionsBox",
+                                        }
+                                    ]
+                                },
+                            },
+                        },
+                        "alias": "clear",
+                    }
+                ],
+            },
+        )
+
+        replay_args = replay_payload["ops"][0]["args"]
+        self.assertEqual(
+            replay_args["fromPins"],
+            [{"nodeId": "widget-node", "pin": "AvatarTypeOptionsBox"}],
+        )
+        self.assertTrue(replay_args["contextSensitive"])
+        self.assertEqual(
+            replay_args["context"]["selectedObjects"][0]["name"],
+            "AvatarTypeOptionsBox",
+        )
+
         with self.assertRaisesRegex(TransformError, "defaults requires alias"):
             apply_args_transform(
                 {"transform": "blueprint.graph.edit.args.v1"},
@@ -517,11 +559,20 @@ class TransformTests(unittest.TestCase):
                 "graph": {"name": "EventGraph"},
                 "limit": 500,
                 "fromPins": [{"node": {"id": "node-1"}, "pin": "Then"}],
+                "context": {
+                    "selectedObjects": [
+                        {"kind": "component_property", "name": "AvatarTypeOptionsBox"}
+                    ]
+                },
             },
         )
 
         self.assertEqual(payload["graphName"], "EventGraph")
         self.assertEqual(payload["fromPins"], [{"nodeId": "node-1", "pin": "Then"}])
+        self.assertEqual(
+            payload["context"]["selectedObjects"][0]["name"],
+            "AvatarTypeOptionsBox",
+        )
         with self.assertRaises(TransformError):
             apply_args_transform(
                 {"transform": "blueprint.graph.palette.args.v1"},

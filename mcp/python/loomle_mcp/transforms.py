@@ -510,6 +510,8 @@ def blueprint_palette_args(arguments: dict[str, Any]) -> dict[str, Any]:
     write_graph_address(out, graph_name, graph_ref)
     for field in ["query", "contextSensitive", "limit", "offset"]:
         copy_if_present(arguments, out, field)
+    if "context" in arguments:
+        out["context"] = arguments["context"]
     if "fromPins" in arguments:
         out["fromPins"] = normalize_blueprint_palette_from_pins(arguments["fromPins"], "blueprint.graph.palette")
     validate_int_range(out, "limit", 1, 500, "blueprint.graph.palette")
@@ -579,8 +581,18 @@ def compile_blueprint_graph_command(command: Any) -> list[dict[str, Any]]:
         if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
             raise TransformError("addFromPalette requires entry.id.")
         args: dict[str, Any] = {"entryId": entry["id"], "entry": entry}
-        for field in ["position", "anchor", "from", "contextSensitive"]:
+        for field in ["position", "anchor", "from", "contextSensitive", "context", "eventName"]:
             copy_if_present(command, args, field)
+        palette_context = entry.get("paletteContext")
+        if isinstance(palette_context, dict):
+            if "context" not in args and isinstance(palette_context.get("context"), dict):
+                args["context"] = palette_context["context"]
+            if "fromPins" not in command and isinstance(palette_context.get("fromPins"), list):
+                args["fromPins"] = palette_context["fromPins"]
+            if "contextSensitive" not in args and isinstance(palette_context.get("contextSensitive"), bool):
+                args["contextSensitive"] = palette_context["contextSensitive"]
+        if "context" not in args and isinstance(entry.get("context"), dict):
+            args["context"] = entry["context"]
         if "fromPins" in command:
             args["fromPins"] = normalize_blueprint_graph_edit_from_pins(command["fromPins"])
         if "contextSensitive" not in args and isinstance(entry.get("contextSensitive"), bool):

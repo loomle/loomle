@@ -7053,6 +7053,41 @@
               "contextSensitive": {
                 "type": "boolean"
               },
+              "paletteContext": {
+                "type": "object",
+                "description": "Replay context captured from this palette query. Pass the full entry to addFromPalette so fromPins/context/contextSensitive can be restored.",
+                "properties": {
+                  "contextSensitive": {
+                    "type": "boolean"
+                  },
+                  "fromPins": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "nodeId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "pin": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "nodeId",
+                        "pin"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "context": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
+                "additionalProperties": false
+              },
               "executable": {
                 "type": "boolean"
               },
@@ -7272,7 +7307,88 @@
                 "type": "array"
               },
               "opResults": {
-                "type": "array"
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "op": {
+                      "type": "string"
+                    },
+                    "operation": {
+                      "type": "string"
+                    },
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    },
+                    "nodeId": {
+                      "type": "string"
+                    },
+                    "node": {
+                      "type": "object",
+                      "description": "Created node snapshot returned by successful addFromPalette apply; includes real UE pins for immediate wiring.",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "nodeClassPath": {
+                          "type": "string"
+                        },
+                        "position": {
+                          "type": "object"
+                        },
+                        "pins": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string"
+                              },
+                              "direction": {
+                                "type": "string",
+                                "enum": [
+                                  "input",
+                                  "output",
+                                  "unknown"
+                                ]
+                              },
+                              "category": {
+                                "type": "string"
+                              },
+                              "subCategory": {
+                                "type": "string"
+                              },
+                              "subCategoryObject": {
+                                "type": "string"
+                              },
+                              "isReference": {
+                                "type": "boolean"
+                              },
+                              "isConst": {
+                                "type": "boolean"
+                              },
+                              "isArray": {
+                                "type": "boolean"
+                              },
+                              "type": {
+                                "type": "object"
+                              }
+                            },
+                            "additionalProperties": true
+                          }
+                        }
+                      },
+                      "additionalProperties": true
+                    }
+                  },
+                  "additionalProperties": true
+                }
               }
             },
             "required": [

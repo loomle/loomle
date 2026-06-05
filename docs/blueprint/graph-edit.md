@@ -196,6 +196,9 @@ Rules:
 - `entry` should be the full palette entry returned by `blueprint_graph_palette`.
 - `context` is normally inherited from `entry.context`; agents should pass the
   full returned entry for component/widget bound events.
+- `paletteContext` is normally inherited from the full returned entry; agents
+  should pass it through for pin-context actions such as functions discovered
+  from a dragged-from pin.
 - `eventName` applies to palette actions that create an attached
   `UK2Node_CustomEvent`, such as `Assign Delegate`. If omitted, Loomle ensures
   the generated companion event name is unique in the owning Blueprint.
@@ -207,6 +210,14 @@ Rules:
 - dry run must resolve the same palette entry but must not mutate the graph.
 - schema actions are listed by `blueprint_graph_palette` but rejected with
   `PALETTE_ENTRY_NOT_EXECUTABLE`.
+
+Successful non-dry-run `addFromPalette` operation results include a lightweight
+`node` snapshot for the created node. The snapshot is read from the real
+`UEdGraphNode` after UE spawns the node and includes `id`, title/class fields,
+position, and visible `pins` with each pin's true name, direction, and type
+fields. Agents should use this snapshot for immediate follow-up connections in
+the same workflow, and should still call `blueprint_node_inspect` when they need
+full defaults, existing links, layout details, or member-specific metadata.
 
 ### connect
 
