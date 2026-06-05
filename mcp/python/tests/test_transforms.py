@@ -438,6 +438,67 @@ class TransformTests(unittest.TestCase):
         self.assertEqual(payload["ops"][0]["clientRef"], "branch")
         self.assertEqual(payload["ops"][0]["args"]["entryId"], "palette:branch")
 
+        alias_payload = apply_args_transform(
+            {"transform": "blueprint.graph.edit.args.v1"},
+            {
+                "assetPath": "/Game/BP_Test",
+                "graph": {"name": "EventGraph"},
+                "commands": [
+                    {
+                        "kind": "addFromPalette",
+                        "entry": {"id": "palette:branch"},
+                        "alias": "branch",
+                    },
+                    {
+                        "kind": "addFromPalette",
+                        "entry": {"id": "palette:print"},
+                        "alias": "print",
+                        "fromPins": [{"node": {"alias": "branch"}, "pin": "Then"}],
+                        "defaults": [{"pin": "InString", "value": "hello"}],
+                    },
+                    {
+                        "kind": "connect",
+                        "from": {"node": {"id": "event"}, "pin": "Then"},
+                        "to": {"node": {"alias": "print"}, "pin": "execute"},
+                    },
+                    {
+                        "kind": "setPinDefault",
+                        "target": {"node": {"alias": "print"}, "pin": "InString"},
+                        "value": "hello",
+                    },
+                    {
+                        "kind": "removeNode",
+                        "node": {"alias": "print"},
+                    },
+                ],
+            },
+        )
+
+        self.assertEqual(alias_payload["ops"][0]["clientRef"], "branch")
+        self.assertEqual(alias_payload["ops"][1]["clientRef"], "print")
+        self.assertEqual(alias_payload["ops"][1]["args"]["fromPins"][0]["nodeRef"], "branch")
+        self.assertEqual(alias_payload["ops"][2]["args"]["target"]["nodeRef"], "print")
+        self.assertEqual(alias_payload["ops"][3]["args"]["to"]["nodeRef"], "print")
+        self.assertEqual(alias_payload["ops"][4]["args"]["target"]["nodeRef"], "print")
+        self.assertEqual(alias_payload["ops"][5]["args"]["nodeRef"], "print")
+        self.assertNotIn("clientRef", alias_payload["ops"][3]["args"]["to"])
+
+        with self.assertRaisesRegex(TransformError, "defaults requires alias"):
+            apply_args_transform(
+                {"transform": "blueprint.graph.edit.args.v1"},
+                {
+                    "assetPath": "/Game/BP_Test",
+                    "graph": {"name": "EventGraph"},
+                    "commands": [
+                        {
+                            "kind": "addFromPalette",
+                            "entry": {"id": "palette:print"},
+                            "defaults": [{"pin": "InString", "value": "hello"}],
+                        }
+                    ],
+                },
+            )
+
         with self.assertRaises(TransformError):
             apply_args_transform(
                 {"transform": "blueprint.graph.edit.args.v1"},
@@ -488,7 +549,7 @@ class TransformTests(unittest.TestCase):
         )
 
         self.assertEqual(payload["ops"][0]["op"], "setProperty")
-        self.assertEqual(payload["ops"][0]["clientRef"], "sampler")
+        self.assertEqual(payload["ops"][0]["nodeRef"], "sampler")
         self.assertEqual(payload["ops"][0]["value"], '{"x":100}')
 
 

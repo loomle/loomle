@@ -229,6 +229,28 @@ def normalize_blueprint_palette_from_pins(value: Any, tool_name: str) -> list[di
     return normalized
 
 
+def normalize_blueprint_graph_edit_from_pins(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        raise TransformError("addFromPalette fromPins must be an array.")
+    normalized: list[dict[str, str]] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise TransformError(f"addFromPalette fromPins[{index}] must be an object.")
+        node = item.get("node")
+        if not isinstance(node, dict):
+            raise TransformError(f"addFromPalette fromPins[{index}] requires node.")
+        pin = item.get("pin")
+        if not isinstance(pin, str) or not pin:
+            raise TransformError(f"addFromPalette fromPins[{index}] requires pin.")
+        if isinstance(node.get("id"), str) and node["id"]:
+            normalized.append({"nodeId": node["id"], "pin": pin})
+        elif isinstance(node.get("alias"), str) and node["alias"]:
+            normalized.append({"nodeRef": node["alias"], "pin": pin})
+        else:
+            raise TransformError(f"addFromPalette fromPins[{index}] requires node.id or node.alias.")
+    return normalized
+
+
 def copy_mutation_controls(source: dict[str, Any], target: dict[str, Any]) -> None:
     for field in [
         "expectedRevision",
@@ -560,7 +582,7 @@ def compile_blueprint_graph_command(command: Any) -> list[dict[str, Any]]:
         for field in ["position", "anchor", "from", "contextSensitive"]:
             copy_if_present(command, args, field)
         if "fromPins" in command:
-            args["fromPins"] = normalize_blueprint_palette_from_pins(command["fromPins"], "addFromPalette")
+            args["fromPins"] = normalize_blueprint_graph_edit_from_pins(command["fromPins"])
         if "contextSensitive" not in args and isinstance(entry.get("contextSensitive"), bool):
             args["contextSensitive"] = entry["contextSensitive"]
         op: dict[str, Any] = {"op": "addFromPalette", "args": args}
@@ -569,7 +591,9 @@ def compile_blueprint_graph_command(command: Any) -> list[dict[str, Any]]:
             op["clientRef"] = alias
         ops = [op]
         defaults = command.get("defaults")
-        if isinstance(defaults, list) and alias is not None:
+        if isinstance(defaults, list):
+            if alias is None:
+                raise TransformError("addFromPalette defaults requires alias.")
             for default in defaults:
                 if not isinstance(default, dict):
                     continue
@@ -1569,7 +1593,7 @@ def node_ref_token(node: dict[str, Any]) -> dict[str, Any]:
     if isinstance(node.get("id"), str) and node["id"]:
         return {"nodeId": node["id"]}
     if isinstance(node.get("alias"), str) and node["alias"]:
-        return {"clientRef": node["alias"]}
+        return {"nodeRef": node["alias"]}
     raise TransformError("node reference requires id or alias.")
 
 

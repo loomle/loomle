@@ -1357,11 +1357,15 @@ Rules:
 - `entry` should come directly from `blueprint_graph_palette`; callers should not
   guess Blueprint node classes in public requests
 - `defaults` only initializes pin defaults on the new node
+- `defaults` requires `alias`, because Loomle applies defaults through a
+  follow-up `setPinDefault` operation that references the created node
 - when `position` is omitted, `addFromPalette` uses deterministic default
   placement instead of the graph origin
 - when `fromPins` contains an exec output pin, the new node is placed to the
   right of the source node and its primary exec input anchor is aligned to the
   source exec output anchor
+- `fromPins` may reference an existing node by `id` or a node created earlier
+  in the same request by `alias`
 - `addFromPalette` does not implicitly attach the node to existing structure
   except where UE's palette action uses `fromPins` for native autowiring
 - Self references, macro instances, and schema actions are selected through

@@ -1251,6 +1251,21 @@ fn blueprint_graph_edit_operation_schema(
                     "position":{"$ref":"#/$defs/position"},
                     "alias":{"type":"string","minLength":1},
                     "fromPins":{"type":"array","items":{"$ref":"#/$defs/pinRef"}},
+                    "defaults":{
+                        "type":"array",
+                        "description":"Initial pin defaults for the created node; requires alias.",
+                        "items":{
+                            "type":"object",
+                            "properties":{
+                                "pin":{"type":"string","minLength":1},
+                                "pinName":{"type":"string","minLength":1},
+                                "value":{}
+                            },
+                            "oneOf":[{"required":["pin"]},{"required":["pinName"]}],
+                            "required":["value"],
+                            "additionalProperties":false
+                        }
+                    },
                     "eventName":{
                         "type":"string",
                         "minLength":1,
@@ -1287,10 +1302,10 @@ fn blueprint_graph_edit_operation_schema(
                 "additionalProperties":false
             }),
             vec![
-                serde_json::json!({"kind":"addFromPalette","entry":{"id":"palette:..."},"position":{"x":400,"y":200},"alias":"branch"}),
+                serde_json::json!({"kind":"addFromPalette","entry":{"id":"palette:..."},"position":{"x":400,"y":200},"alias":"branch","defaults":[{"pin":"Condition","value":true}]}),
             ],
             vec!["PALETTE_ENTRY_NOT_EXECUTABLE"],
-            vec!["entry should be the full object returned by blueprint.graph.palette."],
+            vec!["entry should be the full object returned by blueprint.graph.palette.", "defaults requires alias because it is applied through a follow-up setPinDefault op."],
         ),
         "connect" => (
             "core",

@@ -7393,8 +7393,90 @@
                     "$ref": "#/$defs/pinRef"
                   }
                 },
+                "defaults": {
+                  "type": "array",
+                  "description": "Initial pin defaults for the created node; requires alias.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "pin": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "pinName": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "value": {}
+                    },
+                    "oneOf": [
+                      {
+                        "required": [
+                          "pin"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "pinName"
+                        ]
+                      }
+                    ],
+                    "required": [
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "eventName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Optional custom event name for palette actions that create an attached UK2Node_CustomEvent, such as Assign Delegate."
+                },
                 "contextSensitive": {
                   "type": "boolean"
+                },
+                "context": {
+                  "type": "object",
+                  "description": "Optional UE action-menu context. Usually inherited from the selected palette entry.",
+                  "properties": {
+                    "selectedObjects": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "component_property"
+                            ]
+                          },
+                          "name": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "name"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "component": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
                 }
               },
               "additionalProperties": false,
@@ -7478,14 +7560,21 @@
                   "x": 400,
                   "y": 200
                 },
-                "alias": "branch"
+                "alias": "branch",
+                "defaults": [
+                  {
+                    "pin": "Condition",
+                    "value": true
+                  }
+                ]
               }
             ],
             "errors": [
               "PALETTE_ENTRY_NOT_EXECUTABLE"
             ],
             "notes": [
-              "entry should be the full object returned by blueprint_graph_palette."
+              "entry should be the full object returned by blueprint_graph_palette.",
+              "defaults requires alias because it is applied through a follow-up setPinDefault op."
             ]
           },
           {

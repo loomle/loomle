@@ -186,6 +186,7 @@ Optional fields:
 - `position`
 - `alias`
 - `fromPins`
+- `defaults`
 - `eventName`
 - `contextSensitive`
 - `context`
@@ -199,6 +200,10 @@ Rules:
   `UK2Node_CustomEvent`, such as `Assign Delegate`. If omitted, Loomle ensures
   the generated companion event name is unique in the owning Blueprint.
 - `alias` is request-local and is chosen by the agent.
+- `fromPins` may reference an existing node by `id` or a node created earlier
+  in the same request by `alias`.
+- `defaults` requires `alias`; Loomle applies defaults through a follow-up
+  `setPinDefault` operation against the created node.
 - dry run must resolve the same palette entry but must not mutate the graph.
 - schema actions are listed by `blueprint_graph_palette` but rejected with
   `PALETTE_ENTRY_NOT_EXECUTABLE`.

@@ -5830,37 +5830,38 @@ fn compile_add_from_palette_command(
 
     let mut ops = vec![serde_json::Value::Object(op)];
     if let Some(defaults) = command.get("defaults").and_then(|value| value.as_array()) {
-        if let Some(alias) = command.get("alias").and_then(|value| value.as_str()) {
-            for default in defaults {
-                let Some(default_obj) = default.as_object() else {
-                    continue;
-                };
-                let Some(pin_name) = default_obj
-                    .get("pin")
-                    .and_then(|value| value.as_str())
-                    .or_else(|| default_obj.get("pinName").and_then(|value| value.as_str()))
-                else {
-                    continue;
-                };
-                let mut set_default_args = serde_json::Map::new();
-                set_default_args.insert(
-                    "target".into(),
-                    serde_json::json!({
-                        "nodeRef": alias,
-                        "pin": pin_name
-                    }),
-                );
-                set_default_args.insert(
-                    "value".into(),
-                    serde_json::json!(json_string_value(
-                        default_obj.get("value").unwrap_or(&serde_json::Value::Null)
-                    )),
-                );
-                ops.push(serde_json::json!({
-                    "op": "setPinDefault",
-                    "args": set_default_args
-                }));
-            }
+        let Some(alias) = command.get("alias").and_then(|value| value.as_str()) else {
+            return Err("addFromPalette defaults requires alias.".to_owned());
+        };
+        for default in defaults {
+            let Some(default_obj) = default.as_object() else {
+                continue;
+            };
+            let Some(pin_name) = default_obj
+                .get("pin")
+                .and_then(|value| value.as_str())
+                .or_else(|| default_obj.get("pinName").and_then(|value| value.as_str()))
+            else {
+                continue;
+            };
+            let mut set_default_args = serde_json::Map::new();
+            set_default_args.insert(
+                "target".into(),
+                serde_json::json!({
+                    "nodeRef": alias,
+                    "pin": pin_name
+                }),
+            );
+            set_default_args.insert(
+                "value".into(),
+                serde_json::json!(json_string_value(
+                    default_obj.get("value").unwrap_or(&serde_json::Value::Null)
+                )),
+            );
+            ops.push(serde_json::json!({
+                "op": "setPinDefault",
+                "args": set_default_args
+            }));
         }
     }
     Ok(ops)
@@ -5879,19 +5880,35 @@ fn normalize_blueprint_graph_edit_from_pins(
                 "addFromPalette fromPins[{index}] must be an object."
             ));
         };
-        let node_id = object
+        let node = object
             .get("node")
             .and_then(|value| value.as_object())
-            .and_then(|node| node.get("id"))
-            .and_then(|value| value.as_str())
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| format!("addFromPalette fromPins[{index}] requires node.id."))?;
+            .ok_or_else(|| format!("addFromPalette fromPins[{index}] requires node."))?;
         let pin = object
             .get("pin")
             .and_then(|value| value.as_str())
             .filter(|value| !value.is_empty())
             .ok_or_else(|| format!("addFromPalette fromPins[{index}] requires pin."))?;
-        normalized.push(serde_json::json!({"nodeId": node_id, "pin": pin}));
+        let mut normalized_pin = serde_json::Map::new();
+        if let Some(node_id) = node
+            .get("id")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+        {
+            normalized_pin.insert("nodeId".into(), serde_json::json!(node_id));
+        } else if let Some(alias) = node
+            .get("alias")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+        {
+            normalized_pin.insert("nodeRef".into(), serde_json::json!(alias));
+        } else {
+            return Err(format!(
+                "addFromPalette fromPins[{index}] requires node.id or node.alias."
+            ));
+        }
+        normalized_pin.insert("pin".into(), serde_json::json!(pin));
+        normalized.push(serde_json::Value::Object(normalized_pin));
     }
     Ok(serde_json::Value::Array(normalized))
 }
@@ -11244,6 +11261,88 @@ mod tests {
                 .and_then(|value| value.as_str()),
             Some("OnClicked_BottomWorldNav")
         );
+    }
+
+    #[test]
+    fn blueprint_graph_edit_translates_add_from_palette_alias_references() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graph".into(), serde_json::json!({ "name": "EventGraph" }));
+        args.insert(
+            "commands".into(),
+            serde_json::json!([
+                {
+                    "kind": "addFromPalette",
+                    "alias": "branch",
+                    "entry": { "id": "palette:branch" }
+                },
+                {
+                    "kind": "addFromPalette",
+                    "alias": "print",
+                    "entry": { "id": "palette:print" },
+                    "fromPins": [
+                        { "node": { "alias": "branch" }, "pin": "Then" }
+                    ],
+                    "defaults": [
+                        { "pin": "InString", "value": "hello" }
+                    ]
+                }
+            ]),
+        );
+
+        let translated = translate_blueprint_graph_edit_args(&args).expect("translated args");
+        let ops = translated
+            .get("ops")
+            .and_then(|value| value.as_array())
+            .expect("ops");
+        assert_eq!(ops.len(), 3);
+        assert_eq!(
+            ops[1].get("clientRef").and_then(|value| value.as_str()),
+            Some("print")
+        );
+        assert_eq!(
+            ops[1]
+                .get("args")
+                .and_then(|value| value.get("fromPins"))
+                .and_then(|value| value.as_array())
+                .and_then(|items| items.first())
+                .and_then(|value| value.get("nodeRef"))
+                .and_then(|value| value.as_str()),
+            Some("branch")
+        );
+        assert_eq!(
+            ops[2]
+                .get("args")
+                .and_then(|value| value.get("target"))
+                .and_then(|value| value.get("nodeRef"))
+                .and_then(|value| value.as_str()),
+            Some("print")
+        );
+    }
+
+    #[test]
+    fn blueprint_graph_edit_rejects_add_from_palette_defaults_without_alias() {
+        let mut args = JsonObject::new();
+        args.insert("assetPath".into(), serde_json::json!("/Game/BP_Test"));
+        args.insert("graph".into(), serde_json::json!({ "name": "EventGraph" }));
+        args.insert(
+            "commands".into(),
+            serde_json::json!([
+                {
+                    "kind": "addFromPalette",
+                    "entry": { "id": "palette:print" },
+                    "defaults": [
+                        { "pin": "InString", "value": "hello" }
+                    ]
+                }
+            ]),
+        );
+
+        let error = translate_blueprint_graph_edit_args(&args).expect_err("expected error");
+        assert!(error
+            .content
+            .iter()
+            .any(|content| format!("{content:?}").contains("defaults requires alias")));
     }
 
     #[test]
