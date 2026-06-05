@@ -8178,6 +8178,7 @@ struct RuntimeRecord {
     project_root: PathBuf,
     uproject: Option<PathBuf>,
     endpoint: Option<PathBuf>,
+    pid: Option<u32>,
     #[serde(rename = "pluginPath")]
     plugin_path: Option<PathBuf>,
     #[serde(rename = "pluginInstallScope")]
@@ -8415,14 +8416,14 @@ fn project_record_to_project(
     record: ProjectRecord,
     runtime: Option<RuntimeRecord>,
 ) -> RuntimeProject {
-    let project_root = record.project_root;
+    let project_root = record.project_root.clone();
     let runtime_endpoint = runtime.as_ref().and_then(|record| record.endpoint.clone());
     let endpoint = runtime_endpoint.unwrap_or_else(|| {
         Environment::for_project_root(project_root.clone()).runtime_endpoint_path
     });
     let endpoint_available = runtime
         .as_ref()
-        .is_some_and(|_| runtime_endpoint_available(&endpoint));
+        .is_some_and(|record| runtime_record_is_live(record, &endpoint));
     let status = if endpoint_available {
         "online"
     } else {
@@ -8494,11 +8495,11 @@ fn project_record_to_project(
 
 fn runtime_record_to_project(record: RuntimeRecord) -> RuntimeProject {
     let project_id = runtime_record_project_id(&record);
-    let project_root = record.project_root;
-    let endpoint = record.endpoint.unwrap_or_else(|| {
+    let project_root = record.project_root.clone();
+    let endpoint = record.endpoint.clone().unwrap_or_else(|| {
         Environment::for_project_root(project_root.clone()).runtime_endpoint_path
     });
-    let endpoint_available = runtime_endpoint_available(&endpoint);
+    let endpoint_available = runtime_record_is_live(&record, &endpoint);
     let status = if endpoint_available {
         "online"
     } else {
@@ -8604,6 +8605,15 @@ fn runtime_endpoint_available(endpoint: &Path) -> bool {
     {
         endpoint.exists()
     }
+}
+
+fn runtime_record_is_live(record: &RuntimeRecord, endpoint: &Path) -> bool {
+    if let Some(pid) = record.pid {
+        if !process_is_running(pid) {
+            return false;
+        }
+    }
+    runtime_endpoint_available(endpoint)
 }
 
 fn read_global_active_version() -> Result<String, String> {
@@ -10859,6 +10869,97 @@ mod tests {
         assert_eq!(
             read_plugin_version(&online_project.join("Plugins").join("LoomleBridge")).as_deref(),
             Some("0.5.7")
+        );
+
+        if let Some(previous_root) = previous_root {
+            std::env::set_var("LOOMLE_INSTALL_ROOT", previous_root);
+        } else {
+            std::env::remove_var("LOOMLE_INSTALL_ROOT");
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn registered_project_sync_ignores_stale_runtime_with_dead_pid() {
+        let _env_lock = loomle_install_root_env_lock();
+        let root = std::env::temp_dir().join(format!(
+            "loomle-test-registered-stale-runtime-{}-{}",
+            std::process::id(),
+            super::unix_timestamp_secs()
+        ));
+        let previous_root = std::env::var_os("LOOMLE_INSTALL_ROOT");
+        std::env::set_var("LOOMLE_INSTALL_ROOT", &root);
+
+        fs::create_dir_all(root.join("install")).expect("install");
+        fs::write(
+            root.join("install").join("active.json"),
+            r#"{"activeVersion":"0.5.8","launcherPath":"/tmp/loomle","activeClientPath":"/tmp/loomle"}"#,
+        )
+        .expect("active");
+        let plugin_cache = root
+            .join("versions")
+            .join("0.5.8")
+            .join("plugin-cache")
+            .join("LoomleBridge");
+        fs::create_dir_all(&plugin_cache).expect("plugin cache");
+        fs::write(
+            plugin_cache.join("LoomleBridge.uplugin"),
+            r#"{"VersionName":"0.5.8"}"#,
+        )
+        .expect("cached uplugin");
+
+        let project_root = root.join("Projects").join("StaleRuntimeGame");
+        let endpoint = project_root.join("Intermediate").join("loomle.sock");
+        fs::create_dir_all(endpoint.parent().expect("endpoint parent")).expect("endpoint");
+        fs::write(&endpoint, "").expect("stale endpoint marker");
+        fs::create_dir_all(project_root.join("Plugins").join("LoomleBridge"))
+            .expect("project plugin");
+        fs::write(project_root.join("StaleRuntimeGame.uproject"), "{}\n").expect("uproject");
+        fs::write(
+            project_root
+                .join("Plugins")
+                .join("LoomleBridge")
+                .join("LoomleBridge.uplugin"),
+            r#"{"VersionName":"0.5.7"}"#,
+        )
+        .expect("old plugin");
+
+        let projects = root.join("state").join("projects");
+        let runtimes = root.join("state").join("runtimes");
+        fs::create_dir_all(&projects).expect("projects");
+        fs::create_dir_all(&runtimes).expect("runtimes");
+        let project_id = super::stable_project_id(&project_root);
+        fs::write(
+            projects.join(format!("{project_id}.json")),
+            serde_json::json!({
+                "name": "StaleRuntimeGame",
+                "projectRoot": project_root,
+                "pluginVersion": "0.5.7"
+            })
+            .to_string(),
+        )
+        .expect("project record");
+        fs::write(
+            runtimes.join(format!("{project_id}.json")),
+            serde_json::json!({
+                "name": "StaleRuntimeGame",
+                "projectRoot": project_root,
+                "endpoint": endpoint,
+                "pid": u32::MAX,
+                "pluginVersion": "0.5.7"
+            })
+            .to_string(),
+        )
+        .expect("stale runtime record");
+
+        let summary = sync_registered_project_support();
+        assert_eq!(summary.updated, 1);
+        assert_eq!(summary.unchanged, 0);
+        assert_eq!(summary.skipped_online, 0);
+        assert_eq!(summary.failed, 0);
+        assert_eq!(
+            read_plugin_version(&project_root.join("Plugins").join("LoomleBridge")).as_deref(),
+            Some("0.5.8")
         );
 
         if let Some(previous_root) = previous_root {
