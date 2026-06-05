@@ -49,7 +49,11 @@ def main() -> int:
     release_plugin_cache = output_dir / "plugin-cache" / "LoomleBridge"
 
     reset_dir(output_dir)
-    copy_tree(engine_plugin, release_plugin_cache, {"Intermediate", "Saved", ".DS_Store"})
+    copy_tree(
+        engine_plugin,
+        release_plugin_cache,
+        {"Intermediate", "Saved", ".DS_Store", "UnrealEditor.modules"},
+    )
 
     client_binary = Path(args.client_binary).resolve()
     copy_file(

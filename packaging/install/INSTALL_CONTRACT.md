@@ -74,6 +74,7 @@ The public installer must:
 9. print a friendly installation summary with MCP configuration status and next steps
 10. provide manual MCP configuration commands in next steps for hosts that were not configured
 11. be idempotent for repeated installs of the same version
+12. remove `Binaries/*/UnrealEditor.modules` from the installed plugin cache
 
 ## 6. Source-of-Truth Rule
 
@@ -101,6 +102,10 @@ project-local `Plugins/LoomleBridge/Binaries` build outputs. Unreal Editor owns
 the platform binary rebuild for the current engine build, and stale
 `UnrealEditor.modules` BuildId manifests must not be preserved across plugin
 updates.
+
+Release bundles and installed plugin caches must also exclude or delete
+`Binaries/*/UnrealEditor.modules`. LOOMLE should never patch that manifest's
+BuildId; Unreal owns regenerating it for the active editor target.
 
 Project sync failures should be reported per project. They should not make the
 global update fail after the global install has already succeeded.

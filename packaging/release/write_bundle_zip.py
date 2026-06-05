@@ -19,6 +19,8 @@ def main() -> int:
             if path.is_dir():
                 continue
             relative = path.relative_to(bundle_dir).as_posix()
+            if path.name == "UnrealEditor.modules":
+                continue
             archive.write(path, arcname=relative)
 
     return 0

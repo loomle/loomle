@@ -23,7 +23,7 @@ This site keeps install scripts at stable root URLs:
 - they install LOOMLE globally from the release manifest and platform zip
 - they do not download a temporary installer binary
 - they do not install into an Unreal project
-- project plugin install/update happens later through MCP `project_install`
+- project plugin install/update happens later through MCP `project.install`
 
 The documentation pages use the Just the Docs Jekyll theme.
 
@@ -34,4 +34,6 @@ bundle install
 bundle exec jekyll build --destination _site
 ```
 
-Keep the published bootstrap scripts aligned with `client/install.sh` and `client/install.ps1`.
+`client/install.sh` and `client/install.ps1` are the source bootstrap scripts.
+The Pages workflow copies them into `site/` before building, and the client test
+suite checks that the committed site copies stay identical.

@@ -48,6 +48,14 @@ function Copy-TreeReplace([string]$Source, [string]$Destination) {
   Copy-Item -LiteralPath $Source -Destination $Destination -Recurse -Force
 }
 
+function Remove-UnrealEditorModulesManifests([string]$Root) {
+  if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
+    return
+  }
+  Get-ChildItem -LiteralPath $Root -Filter UnrealEditor.modules -Recurse -File -ErrorAction SilentlyContinue |
+    Remove-Item -Force
+}
+
 function Copy-FileReplace([string]$Source, [string]$Destination) {
   if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) {
     Fail "install file not found: $Source"
@@ -329,7 +337,9 @@ try {
   if (-not $PreserveLauncher) {
     Copy-FileReplace -Source $ClientSource -Destination $LauncherPath
   }
+  Remove-UnrealEditorModulesManifests -Root $PluginCacheSource
   Copy-TreeReplace -Source $PluginCacheSource -Destination (Join-Path $VersionRoot "plugin-cache\LoomleBridge")
+  Remove-UnrealEditorModulesManifests -Root (Join-Path $VersionRoot "plugin-cache\LoomleBridge")
   Copy-FileReplace -Source $ManifestPath -Destination (Join-Path $VersionRoot "manifest.json")
   Write-ActiveState -ActiveStatePath $ActiveStatePath -Version $EffectiveVersion -InstallRoot $InstallRoot -LauncherPath $LauncherPath -ActiveClientPath $ActiveClientPath
   Ensure-PathEntry -BinDir (Join-Path $InstallRoot "bin")

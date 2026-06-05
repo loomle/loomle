@@ -16,11 +16,11 @@ are not currently online in Unreal Editor. Online projects are skipped so the
 loaded plugin is not overwritten; close Unreal Editor and run `loomle update`
 again to sync them.
 
-When a copied project plugin already contains `Binaries/<Platform>/UnrealEditor.modules`,
-the client reconciles that manifest `BuildId` against the active editor
-manifest at `Engine/Binaries/<Platform>/UnrealEditor.modules`. This matches
-Unreal's module loading check for installed builds and avoids carrying a stale
-release/cache `BuildId` into a project-local plugin.
+Release bundles, global plugin caches, and copied project plugins must not
+preserve `Binaries/<Platform>/UnrealEditor.modules`. That file is UE-generated
+module metadata tied to one editor target BuildId. `loomle update` deletes stale
+copies so Unreal Editor or UBT can regenerate metadata for the current project
+and editor build.
 
 Project registration is persistent under `~/.loomle/state/projects`. Runtime
 records under `~/.loomle/state/runtimes` only indicate currently running Bridge

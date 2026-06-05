@@ -15,7 +15,7 @@ Usage:
   install.sh [--version <Version>] [--manifest-url <URL>] [--asset-url <URL>] [--install-root <Path>]
 
 Installs LOOMLE globally for the current user. Unreal projects are prepared
-later through the MCP tool project_install.
+later through the MCP tool project.install.
 EOF
 }
 
@@ -97,6 +97,12 @@ copy_tree_replace() {
   remove_path_if_exists "$destination"
   mkdir -p "$(dirname "$destination")"
   cp -R "$source" "$destination"
+}
+
+remove_unreal_editor_modules_manifests() {
+  local root="$1"
+  [[ -d "$root" ]] || return 0
+  find "$root" -name UnrealEditor.modules -type f -delete
 }
 
 copy_file_replace() {
@@ -406,7 +412,9 @@ main() {
   mkdir -p "$install_root/bin" "$install_root/install" "$install_root/state/projects" "$install_root/state/runtimes" "$install_root/locks" "$install_root/logs"
   copy_file_replace "$bundle_dir/$client_name" "$active_client_path"
   copy_file_replace "$bundle_dir/$client_name" "$launcher_path"
+  remove_unreal_editor_modules_manifests "$bundle_dir/plugin-cache/LoomleBridge"
   copy_tree_replace "$bundle_dir/plugin-cache/LoomleBridge" "$version_root/plugin-cache/LoomleBridge"
+  remove_unreal_editor_modules_manifests "$version_root/plugin-cache/LoomleBridge"
   cp "$manifest_path" "$version_root/manifest.json"
   ensure_executable_if_present "$active_client_path"
   ensure_executable_if_present "$launcher_path"

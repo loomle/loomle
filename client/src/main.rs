@@ -8867,179 +8867,36 @@ fn clean_project_plugin_build_outputs(plugin_root: &Path) -> Result<bool, String
     Ok(true)
 }
 
-fn current_unreal_binary_platform_dir() -> Option<&'static str> {
-    if cfg!(target_os = "macos") {
-        Some("Mac")
-    } else if cfg!(windows) {
-        Some("Win64")
-    } else {
-        None
-    }
+fn is_unreal_editor_modules_manifest(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case("UnrealEditor.modules"))
 }
 
-fn read_modules_manifest_build_id(path: &Path) -> Option<String> {
-    let raw = fs::read_to_string(path).ok()?;
-    let value: serde_json::Value = serde_json::from_str(strip_utf8_bom(&raw)).ok()?;
-    value
-        .get("BuildId")
-        .and_then(|value| value.as_str())
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-}
-
-fn patch_modules_manifest_build_id(path: &Path, build_id: &str) -> Result<bool, String> {
-    let raw = fs::read_to_string(path)
-        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
-    let mut value: serde_json::Value = serde_json::from_str(strip_utf8_bom(&raw))
-        .map_err(|error| format!("failed to parse {}: {error}", path.display()))?;
-    if value
-        .get("BuildId")
-        .and_then(|value| value.as_str())
-        .is_some_and(|existing| existing == build_id)
-    {
+fn remove_unreal_editor_modules_manifests(root: &Path) -> Result<bool, String> {
+    if !root.exists() {
         return Ok(false);
     }
-    let Some(object) = value.as_object_mut() else {
-        return Err(format!(
-            "modules manifest must be a JSON object: {}",
-            path.display()
-        ));
-    };
-    object.insert(
-        "BuildId".to_string(),
-        serde_json::Value::String(build_id.to_string()),
-    );
-    fs::write(
-        path,
-        serde_json::to_string_pretty(&value)
-            .map_err(|error| format!("failed to encode {}: {error}", path.display()))?
-            + "\n",
-    )
-    .map_err(|error| format!("failed to write {}: {error}", path.display()))?;
-    Ok(true)
-}
-
-fn patch_plugin_modules_build_id_from_engine_manifest(
-    plugin_modules_path: &Path,
-    engine_modules_path: &Path,
-) -> Result<bool, String> {
-    let Some(engine_build_id) = read_modules_manifest_build_id(engine_modules_path) else {
-        return Err(format!(
-            "engine modules manifest is missing BuildId: {}",
-            engine_modules_path.display()
-        ));
-    };
-    patch_modules_manifest_build_id(plugin_modules_path, &engine_build_id)
-}
-
-fn read_project_engine_association(project_root: &Path) -> Option<String> {
-    let uproject = find_project_uproject(project_root)?;
-    let raw = fs::read_to_string(uproject).ok()?;
-    let value: serde_json::Value = serde_json::from_str(strip_utf8_bom(&raw)).ok()?;
-    value
-        .get("EngineAssociation")
-        .and_then(|value| value.as_str())
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-}
-
-fn engine_root_env_var_for_association(association: &str) -> Option<String> {
-    let suffix = if cfg!(target_os = "macos") {
-        "MAC"
-    } else if cfg!(windows) {
-        "WINDOWS"
-    } else {
-        return None;
-    };
-    let normalized = association.replace('.', "_").replace('-', "_");
-    Some(format!("UE_{}_ROOT_{}", normalized, suffix))
-}
-
-fn candidate_engine_roots_for_project(project_root: &Path) -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-    if let Some(path) = env::var_os("LOOMLE_UNREAL_ENGINE_ROOT") {
-        candidates.push(PathBuf::from(path));
-    }
-
-    let association = read_project_engine_association(project_root);
-    if let Some(association) = association.as_deref() {
-        if let Some(env_var) = engine_root_env_var_for_association(association) {
-            if let Some(path) = env::var_os(env_var) {
-                candidates.push(PathBuf::from(path));
+    let mut removed = false;
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(path) = pending.pop() {
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|error| format!("failed to inspect {}: {error}", path.display()))?;
+        if metadata.is_dir() && !metadata.file_type().is_symlink() {
+            for entry in fs::read_dir(&path)
+                .map_err(|error| format!("failed to read {}: {error}", path.display()))?
+            {
+                let entry =
+                    entry.map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+                pending.push(entry.path());
             }
-        }
-        let association_path = PathBuf::from(association);
-        if association_path.is_absolute() {
-            candidates.push(association_path);
-        }
-        if cfg!(target_os = "macos") {
-            candidates.push(PathBuf::from(format!(
-                "/Users/Shared/Epic Games/UE_{}",
-                association
-            )));
-        } else if cfg!(windows) {
-            candidates.push(PathBuf::from(format!(
-                "C:\\Program Files\\Epic Games\\UE_{}",
-                association
-            )));
+        } else if metadata.is_file() && is_unreal_editor_modules_manifest(&path) {
+            fs::remove_file(&path)
+                .map_err(|error| format!("failed to remove {}: {error}", path.display()))?;
+            removed = true;
         }
     }
-
-    if cfg!(target_os = "macos") {
-        if let Some(path) = env::var_os("UE_5_7_ROOT_MAC") {
-            candidates.push(PathBuf::from(path));
-        }
-        candidates.push(PathBuf::from("/Users/Shared/Epic Games/UE_5.7"));
-    } else if cfg!(windows) {
-        if let Some(path) = env::var_os("UE_5_7_ROOT_WINDOWS") {
-            candidates.push(PathBuf::from(path));
-        }
-        candidates.push(PathBuf::from("C:\\Program Files\\Epic Games\\UE_5.7"));
-    }
-
-    let mut seen = HashSet::new();
-    candidates
-        .into_iter()
-        .filter(|path| seen.insert(path.display().to_string()))
-        .collect()
-}
-
-fn resolve_engine_modules_manifest_for_project(
-    project_root: &Path,
-    platform_dir: &str,
-) -> Option<PathBuf> {
-    candidate_engine_roots_for_project(project_root)
-        .into_iter()
-        .map(|root| {
-            root.join("Engine")
-                .join("Binaries")
-                .join(platform_dir)
-                .join("UnrealEditor.modules")
-        })
-        .find(|path| path.is_file())
-}
-
-fn reconcile_project_plugin_modules_build_id(
-    project_root: &Path,
-    plugin_root: &Path,
-) -> Result<Option<bool>, String> {
-    let Some(platform_dir) = current_unreal_binary_platform_dir() else {
-        return Ok(None);
-    };
-    let plugin_modules_path = plugin_root
-        .join("Binaries")
-        .join(platform_dir)
-        .join("UnrealEditor.modules");
-    if !plugin_modules_path.is_file() {
-        return Ok(None);
-    }
-    let Some(engine_modules_path) =
-        resolve_engine_modules_manifest_for_project(project_root, platform_dir)
-    else {
-        return Ok(None);
-    };
-    patch_plugin_modules_build_id_from_engine_manifest(&plugin_modules_path, &engine_modules_path)
-        .map(Some)
+    Ok(removed)
 }
 
 fn cleanup_old_binaries() {
@@ -9108,6 +8965,9 @@ fn copy_dir_recursive(source: &Path, destination: &Path) -> Result<(), String> {
         if file_type.is_dir() {
             copy_dir_recursive(&source_path, &destination_path)?;
         } else if file_type.is_file() {
+            if is_unreal_editor_modules_manifest(&source_path) {
+                continue;
+            }
             fs::copy(&source_path, &destination_path).map_err(|error| {
                 format!(
                     "failed to copy {} to {}: {error}",
@@ -9314,32 +9174,25 @@ fn sync_project_support_to_version(
     }
     let previous_version = read_plugin_version(&plugin_destination);
     if previous_version.as_deref() == Some(active_version) && !force {
-        let modules_reconcile =
-            reconcile_project_plugin_modules_build_id(project_root, &plugin_destination)?;
-        let (reconciled_modules, cleaned_build_outputs) = match modules_reconcile {
-            Some(changed) => (changed, false),
-            None => (
-                false,
-                clean_project_plugin_build_outputs(&plugin_destination)?,
-            ),
-        };
+        let cleaned_build_outputs = clean_project_plugin_build_outputs(&plugin_destination)?;
+        let removed_modules = remove_unreal_editor_modules_manifests(&plugin_destination)?;
         write_project_registration(project_root, active_version, "project.sync")?;
         return Ok(ProjectSupportSyncOutcome {
             project_root: project_root.to_path_buf(),
             plugin_path: plugin_destination,
-            changed: reconciled_modules || cleaned_build_outputs,
+            changed: removed_modules || cleaned_build_outputs,
             previous_version,
             installed_version: active_version.to_string(),
-            requires_editor_restart: reconciled_modules || cleaned_build_outputs,
+            requires_editor_restart: removed_modules || cleaned_build_outputs,
             skipped_reason: None,
-            message: if reconciled_modules {
+            message: if cleaned_build_outputs {
                 Some(
-                    "Updated LoomleBridge module manifest BuildId to match the current Unreal Editor build."
+                    "Removed stale LoomleBridge build outputs so Unreal can rebuild plugin binaries for the current editor build."
                         .to_string(),
                 )
             } else {
-                cleaned_build_outputs.then(|| {
-                    "Removed stale LoomleBridge build outputs so Unreal can rebuild plugin binaries for the current editor build.".to_string()
+                removed_modules.then(|| {
+                    "Removed stale LoomleBridge UnrealEditor.modules manifests so Unreal can regenerate module metadata for the current editor build.".to_string()
                 })
             },
         });
@@ -9347,7 +9200,7 @@ fn sync_project_support_to_version(
 
     let _ = clean_project_plugin_build_outputs(&plugin_destination)?;
     copy_tree_replace(&plugin_source, &plugin_destination)?;
-    let _ = reconcile_project_plugin_modules_build_id(project_root, &plugin_destination)?;
+    let _ = remove_unreal_editor_modules_manifests(&plugin_destination)?;
     ensure_editor_performance_setting(project_root)?;
     write_project_registration(project_root, active_version, "project.sync")?;
 
@@ -10100,17 +9953,17 @@ mod tests {
         blueprint_graph_layout_schema, blueprint_node_edit_schema, blueprint_node_inspect_schema,
         blueprint_palette_schema, build_blueprint_graph_layout_plan, build_installer_args,
         call_schema_inspect, compare_semver, current_platform_client_binary_name,
-        current_unreal_binary_platform_dir, infer_attached_project_root,
-        material_graph_edit_schema, material_graph_inspect_schema, material_graph_layout_schema,
-        material_node_edit_schema, material_palette_schema, parse_active_install_state_json,
-        parse_blueprint_graph_layout_request, patch_plugin_modules_build_id_from_engine_manifest,
+        infer_attached_project_root, material_graph_edit_schema, material_graph_inspect_schema,
+        material_graph_layout_schema, material_node_edit_schema, material_palette_schema,
+        parse_active_install_state_json, parse_blueprint_graph_layout_request,
         pcg_compile_schema, pcg_graph_inspect_schema, pcg_graph_layout_schema,
         pcg_node_inspect_schema, pcg_palette_schema, pcg_parameter_edit_schema,
         play_participant_wait_conditions_met, play_schema,
         play_wait_participant_conditions_from_args, public_tool_name_to_internal,
-        read_cached_latest_version, read_file_lock_metadata, read_modules_manifest_build_id,
-        read_plugin_version, runtime_declared_tools, shape_blueprint_graph_inspect_result,
-        shape_pcg_compile_result, shape_pcg_graph_inspect_result, shape_pcg_node_inspect_result,
+        read_cached_latest_version, read_file_lock_metadata, read_plugin_version,
+        remove_unreal_editor_modules_manifests, runtime_declared_tools,
+        shape_blueprint_graph_inspect_result, shape_pcg_compile_result,
+        shape_pcg_graph_inspect_result, shape_pcg_node_inspect_result,
         shape_widget_tree_inspect_payload, switch_to_installed_version,
         sync_project_support_to_version, sync_registered_project_support,
         translate_blueprint_graph_edit_args, translate_blueprint_graph_inspect_args,
@@ -10266,6 +10119,22 @@ mod tests {
             "{}",
             script_path.display()
         );
+    }
+
+    #[test]
+    fn published_site_install_scripts_match_client_sources() {
+        let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("repo root")
+            .to_path_buf();
+
+        for name in ["install.sh", "install.ps1"] {
+            let client_script =
+                fs::read_to_string(repo_root.join("client").join(name)).expect("client script");
+            let site_script =
+                fs::read_to_string(repo_root.join("site").join(name)).expect("site script");
+            assert_eq!(site_script, client_script, "{name} drifted from client source");
+        }
     }
 
     fn layout_node(id: &str, x: i64, y: i64, exec_children: &[&str]) -> serde_json::Value {
@@ -10592,55 +10461,33 @@ mod tests {
     }
 
     #[test]
-    fn modules_manifest_build_id_patch_preserves_modules() {
+    fn unreal_editor_modules_manifest_cleanup_removes_manifests_only() {
         let root = std::env::temp_dir().join(format!(
-            "loomle-test-modules-build-id-{}-{}",
+            "loomle-test-modules-cleanup-{}-{}",
             std::process::id(),
             super::unix_timestamp_secs()
         ));
-        let engine_manifest = root
-            .join("Engine")
-            .join("Binaries")
-            .join("Mac")
-            .join("UnrealEditor.modules");
         let plugin_manifest = root
-            .join("Project")
-            .join("Plugins")
             .join("LoomleBridge")
             .join("Binaries")
             .join("Mac")
             .join("UnrealEditor.modules");
-        fs::create_dir_all(engine_manifest.parent().expect("engine parent")).expect("engine dir");
+        let plugin_binary = plugin_manifest
+            .parent()
+            .expect("plugin parent")
+            .join("UnrealEditor-LoomleBridge.dylib");
         fs::create_dir_all(plugin_manifest.parent().expect("plugin parent")).expect("plugin dir");
-        fs::write(
-            &engine_manifest,
-            r#"{"BuildId":"engine-build","Modules":{"Core":"UnrealEditor-Core.dylib"}}"#,
-        )
-        .expect("engine manifest");
         fs::write(
             &plugin_manifest,
             r#"{"BuildId":"old-build","Modules":{"LoomleBridge":"UnrealEditor-LoomleBridge.dylib"}}"#,
         )
         .expect("plugin manifest");
+        fs::write(&plugin_binary, "binary").expect("plugin binary");
 
-        assert!(patch_plugin_modules_build_id_from_engine_manifest(
-            &plugin_manifest,
-            &engine_manifest
-        )
-        .expect("patch"));
-        let patched: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(&plugin_manifest).expect("patched manifest"))
-                .expect("patched json");
-        assert_eq!(patched["BuildId"], "engine-build");
-        assert_eq!(
-            patched["Modules"]["LoomleBridge"],
-            "UnrealEditor-LoomleBridge.dylib"
-        );
-        assert!(!patch_plugin_modules_build_id_from_engine_manifest(
-            &plugin_manifest,
-            &engine_manifest
-        )
-        .expect("second patch"));
+        assert!(remove_unreal_editor_modules_manifests(&root).expect("cleanup"));
+        assert!(!plugin_manifest.exists());
+        assert!(plugin_binary.exists());
+        assert!(!remove_unreal_editor_modules_manifests(&root).expect("second cleanup"));
         let _ = fs::remove_dir_all(root);
     }
 
@@ -10734,14 +10581,7 @@ mod tests {
         assert!(cleaned.changed);
         assert!(cleaned.requires_editor_restart);
         let stale_manifest = stale_binaries.join("UnrealEditor.modules");
-        if stale_manifest.exists() {
-            assert_ne!(
-                read_modules_manifest_build_id(&stale_manifest).as_deref(),
-                Some("old")
-            );
-        } else {
-            assert!(!installed_plugin.join("Binaries").exists());
-        }
+        assert!(!stale_manifest.exists());
 
         let unchanged_after_clean =
             sync_project_support_to_version(&project_root, "0.5.8", false).expect("sync");
@@ -10757,10 +10597,8 @@ mod tests {
     }
 
     #[test]
-    fn project_support_sync_patches_installed_build_modules_manifest() {
-        let Some(platform_dir) = current_unreal_binary_platform_dir() else {
-            return;
-        };
+    fn project_support_sync_drops_cached_unreal_editor_modules_manifest() {
+        let platform_dir = if cfg!(windows) { "Win64" } else { "Mac" };
         let _env_lock = loomle_install_root_env_lock();
         let root = std::env::temp_dir().join(format!(
             "loomle-test-project-modules-sync-{}-{}",
@@ -10768,22 +10606,7 @@ mod tests {
             super::unix_timestamp_secs()
         ));
         let previous_root = std::env::var_os("LOOMLE_INSTALL_ROOT");
-        let previous_engine_root = std::env::var_os("LOOMLE_UNREAL_ENGINE_ROOT");
         std::env::set_var("LOOMLE_INSTALL_ROOT", &root);
-        let engine_root = root.join("UE");
-        std::env::set_var("LOOMLE_UNREAL_ENGINE_ROOT", &engine_root);
-
-        let engine_manifest = engine_root
-            .join("Engine")
-            .join("Binaries")
-            .join(platform_dir)
-            .join("UnrealEditor.modules");
-        fs::create_dir_all(engine_manifest.parent().expect("engine parent")).expect("engine dir");
-        fs::write(
-            &engine_manifest,
-            r#"{"BuildId":"current-editor-build","Modules":{"Core":"UnrealEditor-Core.dylib"}}"#,
-        )
-        .expect("engine manifest");
 
         let plugin_cache = root
             .join("versions")
@@ -10805,6 +10628,18 @@ mod tests {
             r#"{"BuildId":"stale-release-build","Modules":{"LoomleBridge":"UnrealEditor-LoomleBridge.dylib"}}"#,
         )
         .expect("cached modules manifest");
+        fs::write(
+            cached_manifest
+                .parent()
+                .expect("cached manifest parent")
+                .join(if cfg!(windows) {
+                    "UnrealEditor-LoomleBridge.dll"
+                } else {
+                    "UnrealEditor-LoomleBridge.dylib"
+                }),
+            "binary",
+        )
+        .expect("cached plugin binary");
 
         let project_root = root.join("Projects").join("Game");
         fs::create_dir_all(&project_root).expect("project");
@@ -10816,26 +10651,29 @@ mod tests {
 
         let outcome = sync_project_support_to_version(&project_root, "0.5.8", false).expect("sync");
         assert!(outcome.changed);
+        let installed_binary = project_root
+            .join("Plugins")
+            .join("LoomleBridge")
+            .join("Binaries")
+            .join(platform_dir)
+            .join(if cfg!(windows) {
+                "UnrealEditor-LoomleBridge.dll"
+            } else {
+                "UnrealEditor-LoomleBridge.dylib"
+            });
         let installed_manifest = project_root
             .join("Plugins")
             .join("LoomleBridge")
             .join("Binaries")
             .join(platform_dir)
             .join("UnrealEditor.modules");
-        assert_eq!(
-            read_modules_manifest_build_id(&installed_manifest).as_deref(),
-            Some("current-editor-build")
-        );
+        assert!(!installed_manifest.exists());
+        assert!(installed_binary.exists());
 
         if let Some(previous_root) = previous_root {
             std::env::set_var("LOOMLE_INSTALL_ROOT", previous_root);
         } else {
             std::env::remove_var("LOOMLE_INSTALL_ROOT");
-        }
-        if let Some(previous_engine_root) = previous_engine_root {
-            std::env::set_var("LOOMLE_UNREAL_ENGINE_ROOT", previous_engine_root);
-        } else {
-            std::env::remove_var("LOOMLE_UNREAL_ENGINE_ROOT");
         }
         let _ = fs::remove_dir_all(root);
     }

@@ -128,6 +128,7 @@ jobs:
             -Package="$package_dir" \
             -TargetPlatforms=Mac \
             -Rocket
+          find "$package_dir" -name UnrealEditor.modules -type f -delete
 
           mkdir -p "$plugin_dst"
           rsync -a --delete "$package_dir"/ "$plugin_dst"/

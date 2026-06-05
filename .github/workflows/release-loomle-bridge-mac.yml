@@ -90,6 +90,11 @@ jobs:
             -Package="$package_dir" \
             -TargetPlatforms=Mac \
             -Rocket
+          find "$package_dir" -name UnrealEditor.modules -type f -delete
+          if find "$package_dir" -name UnrealEditor.modules -type f | grep -q .; then
+            echo "Packaged LoomleBridge must not contain UnrealEditor.modules manifests" >&2
+            exit 1
+          fi
 
           cd "$GITHUB_WORKSPACE/client"
           cargo build --release

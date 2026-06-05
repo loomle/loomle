@@ -120,6 +120,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "BuildPlugin failed with exit code $LASTEXITCODE"
           }
+          Get-ChildItem -LiteralPath $packageDir -Filter UnrealEditor.modules -Recurse -File -ErrorAction SilentlyContinue |
+            Remove-Item -Force
+          if (Get-ChildItem -LiteralPath $packageDir -Filter UnrealEditor.modules -Recurse -File -ErrorAction SilentlyContinue) {
+            throw "Packaged LoomleBridge must not contain UnrealEditor.modules manifests"
+          }
 
           Push-Location (Join-Path $env:GITHUB_WORKSPACE "client")
           cargo build --release

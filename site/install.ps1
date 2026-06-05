@@ -48,13 +48,30 @@ function Copy-TreeReplace([string]$Source, [string]$Destination) {
   Copy-Item -LiteralPath $Source -Destination $Destination -Recurse -Force
 }
 
+function Remove-UnrealEditorModulesManifests([string]$Root) {
+  if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
+    return
+  }
+  Get-ChildItem -LiteralPath $Root -Filter UnrealEditor.modules -Recurse -File -ErrorAction SilentlyContinue |
+    Remove-Item -Force
+}
+
 function Copy-FileReplace([string]$Source, [string]$Destination) {
   if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) {
     Fail "install file not found: $Source"
   }
-  Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Destination) | Out-Null
+  if (Test-Path -LiteralPath $Destination) {
+    $OldPath = "$Destination.old"
+    Remove-Item -LiteralPath $OldPath -Force -ErrorAction SilentlyContinue
+    Rename-Item -LiteralPath $Destination -NewName (Split-Path -Leaf $OldPath) -Force
+  }
   Copy-Item -LiteralPath $Source -Destination $Destination -Force
+}
+
+function Write-TextUtf8NoBom([string]$Path, [string]$Value) {
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($Path, $Value, $utf8NoBom)
 }
 
 function Write-ActiveState(
@@ -76,7 +93,8 @@ function Write-ActiveState(
     versionsRoot = (Join-Path $InstallRoot "versions")
     pluginCacheRoot = (Join-Path $InstallRoot "versions\$Version\plugin-cache")
   }
-  $payload | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $ActiveStatePath -Encoding UTF8
+  $json = ($payload | ConvertTo-Json -Depth 5) + [Environment]::NewLine
+  Write-TextUtf8NoBom -Path $ActiveStatePath -Value $json
 }
 
 function ConvertTo-TomlBasicString([string]$Value) {
@@ -105,7 +123,7 @@ function Set-CodexMcpConfig([string]$LauncherPath) {
   $escapedLauncher = ConvertTo-TomlBasicString $LauncherPath
   $section = "`n[mcp_servers.loomle]`ncommand = `"$escapedLauncher`"`nargs = [`"mcp`"]`n"
   try {
-    ($text.TrimEnd() + $section) | Set-Content -LiteralPath $configPath -Encoding UTF8
+    Write-TextUtf8NoBom -Path $configPath -Value ($text.TrimEnd() + $section)
     return [pscustomobject]@{
       status = "configured"
       detail = $configPath
@@ -305,6 +323,9 @@ try {
   $ActiveClientPath = Join-Path $VersionRoot $ClientName
   $ActiveStatePath = Join-Path $InstallRoot "install\active.json"
 
+  Remove-Item -LiteralPath "$LauncherPath.old" -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath "$ActiveClientPath.old" -Force -ErrorAction SilentlyContinue
+
   if (-not (Test-Path -LiteralPath $ClientSource -PathType Leaf)) { Fail "bundle missing $ClientName" }
   if (-not (Test-Path -LiteralPath $PluginCacheSource -PathType Container)) { Fail "bundle missing plugin-cache/LoomleBridge" }
 
@@ -316,7 +337,9 @@ try {
   if (-not $PreserveLauncher) {
     Copy-FileReplace -Source $ClientSource -Destination $LauncherPath
   }
+  Remove-UnrealEditorModulesManifests -Root $PluginCacheSource
   Copy-TreeReplace -Source $PluginCacheSource -Destination (Join-Path $VersionRoot "plugin-cache\LoomleBridge")
+  Remove-UnrealEditorModulesManifests -Root (Join-Path $VersionRoot "plugin-cache\LoomleBridge")
   Copy-FileReplace -Source $ManifestPath -Destination (Join-Path $VersionRoot "manifest.json")
   Write-ActiveState -ActiveStatePath $ActiveStatePath -Version $EffectiveVersion -InstallRoot $InstallRoot -LauncherPath $LauncherPath -ActiveClientPath $ActiveClientPath
   Ensure-PathEntry -BinDir (Join-Path $InstallRoot "bin")
