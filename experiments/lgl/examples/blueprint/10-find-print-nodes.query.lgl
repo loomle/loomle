@@ -1,0 +1,11 @@
+# Query for locating PrintString nodes.
+query EventGraph
+
+find nodes where type = PrintString
+
+---
+
+graph EventGraph
+
+print@C2B0 = PrintString("Ready")
+debugPrint@D991 = PrintString("Debug")

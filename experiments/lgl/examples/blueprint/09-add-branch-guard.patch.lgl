@@ -1,0 +1,11 @@
+# Patch variant of inserting a Branch before an existing action.
+use Branch from palette "Branch"
+use GetVariable from palette "Get DoorIsUsable" where member = "DoorIsUsable"
+
+patch EventGraph
+
+add branch = Branch()
+add isUsable = GetVariable()
+rewire input.Pressed -> branch.Exec
+isUsable.Value -> branch.Condition
+branch.True -> openDoor

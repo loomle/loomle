@@ -1,0 +1,15 @@
+# Query for detailed pin readback on a node.
+query EventGraph
+
+find node details branch with pins, defaults
+
+---
+
+node details EventGraph
+
+branch@B004 = Branch()
+
+pin branch.Exec: exec in <- begin.Then
+pin branch.Condition: bool in <- threshold.ReturnValue
+pin branch.True: exec out -> dead.Exec
+pin branch.False: exec out -> alive.Exec

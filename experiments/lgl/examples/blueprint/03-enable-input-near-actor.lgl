@@ -1,0 +1,24 @@
+# Source: Epic documentation, "Setting Up Input on an Actor".
+# Tests overlap events, casts, player controller access, and key input.
+graph EventGraph
+
+beginOverlap@C001 = TriggerBeginOverlap()
+endOverlap@C002 = TriggerEndOverlap()
+castBegin@C003 = CastToFirstPersonCharacter()
+castEnd@C004 = CastToFirstPersonCharacter()
+playerControllerA@C005 = GetPlayerController(0)
+playerControllerB@C006 = GetPlayerController(0)
+enableInput@C007 = EnableInput()
+disableInput@C008 = DisableInput()
+keyE@C009 = KeyboardEvent(E)
+print@C00A = PrintString("Hello")
+
+beginOverlap -> castBegin -> enableInput
+beginOverlap.OtherActor -> castBegin.Object
+playerControllerA.ReturnValue -> enableInput.PlayerController
+
+endOverlap -> castEnd -> disableInput
+endOverlap.OtherActor -> castEnd.Object
+playerControllerB.ReturnValue -> disableInput.PlayerController
+
+keyE.Pressed -> print

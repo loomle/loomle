@@ -1,0 +1,6 @@
+graph EventGraph
+
+begin@H001 = EventBeginPlay()
+print@H002 = PrintString("Hello")
+
+begin -> print

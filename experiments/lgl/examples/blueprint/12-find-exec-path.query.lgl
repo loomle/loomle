@@ -1,0 +1,14 @@
+# Query for the execution path between two nodes.
+query EventGraph
+
+find exec path from begin to print
+
+---
+
+graph EventGraph
+
+begin@A001 = EventBeginPlay()
+delay@A002 = Delay(1.0)
+print@A003 = PrintString("Ready")
+
+begin -> delay -> print

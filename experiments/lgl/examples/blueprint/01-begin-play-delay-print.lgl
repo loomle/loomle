@@ -1,0 +1,9 @@
+# Source pattern: common Blueprint beginner flow.
+# Tests a simple exec chain with one literal default.
+graph EventGraph
+
+begin@A001 = EventBeginPlay()
+delay@A002 = Delay(1.0)
+print@A003 = PrintString("Ready")
+
+begin -> delay -> print

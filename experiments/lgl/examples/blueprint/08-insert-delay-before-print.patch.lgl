@@ -1,0 +1,8 @@
+# Patch variant of a beginner flow.
+use Delay from palette "Delay" where function = "/Script/Engine.KismetSystemLibrary.Delay"
+
+patch EventGraph
+
+add delay = Delay(1.0)
+rewire begin.Then -> delay.Exec
+delay -> print

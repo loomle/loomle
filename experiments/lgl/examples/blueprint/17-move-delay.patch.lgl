@@ -1,0 +1,5 @@
+# Patch variant for layout-only node movement.
+patch EventGraph
+
+move delay to (320, 0)
+move print by (240, 0)
