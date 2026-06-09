@@ -7,8 +7,7 @@ collaboration depends on small, reviewable edits.
 
 ```txt
 LGL patch
-  -> parse
-  -> Patch IR
+  -> parse patch objects
   -> palette/schema binding resolution
   -> schema validation
   -> adapter command plan
@@ -23,9 +22,9 @@ the same path as a real mutation, then stop before applying changes.
 
 ## Adapter Output
 
-The current compiler emits abstract commands. A future Blueprint adapter can map
-those commands to `blueprint_graph_edit` command batches without making LGL
-itself depend on Blueprint internals.
+A future Blueprint adapter can map validated patch objects to
+`blueprint_graph_edit` command batches without making LGL itself depend on
+Blueprint internals.
 
 Palette bindings are part of the command plan. They are not executable by
 themselves; the adapter resolves them before turning `add` commands into

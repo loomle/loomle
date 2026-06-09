@@ -1,6 +1,6 @@
 # Loomle Graph Lang Experiment
 
-This directory is an experimental TypeScript prototype for Loomle Graph Lang
+This directory is an experimental TypeScript scaffold for Loomle Graph Lang
 (LGL). It is not part of Loomle's public protocol, release package, MCP
 manifest, or Unreal Engine bridge.
 
@@ -9,35 +9,18 @@ format can improve agent workflows before any Loomle 0.7 integration decision.
 
 ## Current Scope
 
-- Parse a small LGL graph form into Graph IR.
-- Parse a small LGL patch form into Patch IR.
-- Parse explicit `use` bindings for palette queries, palette entry ids, component
-  context, from-pin context, and simple `where` disambiguation clauses.
-- Print parsed documents back to LGL-like text.
-- Compile patch operations to abstract edit commands shaped like future adapter
-  input.
-- Keep Unreal-specific behavior out of this package until the language and IR
-  model are stable.
-- Draft query and pin-detail syntax in docs/examples before implementation.
+- Keep Unreal-specific behavior out of this package while the language shape is
+  being discussed.
+- Keep TypeScript project scaffolding available for future parser and object
+  model experiments.
+- Preserve docs and examples as discussion material before implementation.
 
 ## Commands
 
 Install dependencies from this directory, then run:
 
 ```sh
-npm test
-```
-
-Parse an example:
-
-```sh
-npm run parse -- examples/blueprint/begin-play-print.lgl
-```
-
-Compile a patch example:
-
-```sh
-npm run compile -- examples/blueprint/insert-delay.patch.lgl
+npm run build
 ```
 
 ## Example Set
@@ -63,9 +46,6 @@ print@C2B0 = PrintString("Ready") at (640, 0) size (220, 120)
 
 begin -> delay -> print
 ```
-
-Current TypeScript parser support may lag these examples while the language is
-being discussed.
 
 Compact `graph` examples are readback snapshots and do not include `use`
 bindings. `use` appears in `patch` examples because patches need palette

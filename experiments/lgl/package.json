@@ -5,10 +5,7 @@
   "type": "module",
   "description": "Experimental TypeScript prototype for Loomle Graph Lang.",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node dist/tests/golden/run.js",
-    "parse": "npm run build && node dist/src/cli.js parse",
-    "compile": "npm run build && node dist/src/cli.js compile"
+    "build": "tsc -p tsconfig.json"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
