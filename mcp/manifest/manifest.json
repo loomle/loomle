@@ -11304,7 +11304,7 @@
     {
       "name": "diagnostic_tail",
       "title": "Diagnostic Tail",
-      "description": "Read persisted structured diagnostics incrementally by sequence cursor.",
+      "description": "Read persisted structured diagnostics. Omit fromSeq for the latest matching events; provide fromSeq for incremental cursor reads.",
       "availability": [
         "native",
         "python"
@@ -11316,7 +11316,7 @@
           "fromSeq": {
             "type": "integer",
             "minimum": 0,
-            "default": 0
+            "description": "Exclusive sequence cursor. Omit to return the latest matching events; provide to return events with seq > fromSeq."
           },
           "limit": {
             "type": "integer",
@@ -11355,7 +11355,7 @@
     {
       "name": "log_tail",
       "title": "Log Tail",
-      "description": "Read persisted Unreal output log events incrementally by sequence cursor.",
+      "description": "Read persisted Unreal output log events. Omit fromSeq for the latest matching events; provide fromSeq for incremental cursor reads.",
       "availability": [
         "native",
         "python"
@@ -11367,7 +11367,7 @@
           "fromSeq": {
             "type": "integer",
             "minimum": 0,
-            "default": 0
+            "description": "Exclusive sequence cursor. Omit to return the latest matching events; provide to return events with seq > fromSeq."
           },
           "limit": {
             "type": "integer",

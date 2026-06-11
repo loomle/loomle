@@ -7,8 +7,9 @@ nav_order: 10
 
 # Diagnostics and Log Tools
 
-Diagnostics and log tools read persisted runtime evidence incrementally. They
-use sequence cursors so an agent can continue from the last seen event.
+Diagnostics and log tools read persisted runtime evidence. Omitting `fromSeq`
+returns the latest matching events. Supplying `fromSeq` switches to incremental
+cursor reads so an agent can continue from the last seen event.
 
 ## Tool Summary
 
@@ -25,7 +26,7 @@ Reads structured LOOMLE diagnostic events.
 
 | Field | Required | Notes |
 | --- | --- | --- |
-| `fromSeq` | no | Start sequence; defaults to 0. |
+| `fromSeq` | no | Exclusive sequence cursor. Omit for latest matching events; provide to return `seq > fromSeq`. |
 | `limit` | no | 1 to 1000; defaults to 200. |
 | `filters.severity` | no | Filter by severity. |
 | `filters.category` | no | Filter by diagnostic category. |
@@ -45,12 +46,20 @@ Reads Unreal output log events.
 
 | Field | Required | Notes |
 | --- | --- | --- |
-| `fromSeq` | no | Start sequence; defaults to 0. |
+| `fromSeq` | no | Exclusive sequence cursor. Omit for latest matching events; provide to return `seq > fromSeq`. |
 | `limit` | no | 1 to 1000; defaults to 200. |
 | `filters.minVerbosity` | no | Minimum Unreal log verbosity. |
 | `filters.category` | no | Single Unreal log category. |
 | `filters.categories` | no | Multiple Unreal log categories. |
 | `filters.source` | no | Log source. |
+
+### Cursor Semantics
+
+Both tools return `items` in chronological order. When `fromSeq` is omitted,
+the page contains the latest `limit` matching events and `nextFromSeq` advances
+to `highWatermark` for the next polling call. When `fromSeq` is supplied, the
+page contains matching events with `seq > fromSeq`; use `nextFromSeq` for the
+next incremental call.
 
 ### Use When
 

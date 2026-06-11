@@ -3391,6 +3391,21 @@ def main() -> int:
             fail(f"diagnostic_tail latestSeq/highWatermark mismatch: {diagnostic_payload}")
         if not isinstance(diagnostic_payload.get("hasMore"), bool):
             fail(f"diagnostic_tail invalid hasMore: {diagnostic_payload}")
+        diagnostic_latest_payload = call_tool(client, 311, "diagnostic_tail", {"limit": 10})
+        diagnostic_latest_items = diagnostic_latest_payload.get("items")
+        if not isinstance(diagnostic_latest_items, list):
+            fail(f"diagnostic_tail latest missing items[]: {diagnostic_latest_payload}")
+        diagnostic_latest_high_watermark = diagnostic_latest_payload.get("highWatermark")
+        diagnostic_latest_next_from_seq = diagnostic_latest_payload.get("nextFromSeq")
+        if not isinstance(diagnostic_latest_high_watermark, int) or diagnostic_latest_high_watermark < 0:
+            fail(f"diagnostic_tail latest invalid highWatermark: {diagnostic_latest_payload}")
+        if diagnostic_latest_next_from_seq != diagnostic_latest_high_watermark:
+            fail(f"diagnostic_tail latest nextFromSeq should advance to highWatermark: {diagnostic_latest_payload}")
+        diagnostic_latest_seqs = [item.get("seq") for item in diagnostic_latest_items if isinstance(item, dict)]
+        if any(not isinstance(seq, int) for seq in diagnostic_latest_seqs):
+            fail(f"diagnostic_tail latest item missing integer seq: {diagnostic_latest_payload}")
+        if diagnostic_latest_seqs != sorted(diagnostic_latest_seqs):
+            fail(f"diagnostic_tail latest items not chronological: {diagnostic_latest_payload}")
         print("[PASS] diagnostic_tail is available")
 
         log_payload = call_tool(client, 32, "log_tail", {"fromSeq": 0, "limit": 10})
@@ -3413,6 +3428,21 @@ def main() -> int:
             fail(f"log_tail latestSeq/highWatermark mismatch: {log_payload}")
         if not isinstance(log_payload.get("hasMore"), bool):
             fail(f"log_tail invalid hasMore: {log_payload}")
+        log_latest_payload = call_tool(client, 321, "log_tail", {"limit": 10})
+        log_latest_items = log_latest_payload.get("items")
+        if not isinstance(log_latest_items, list):
+            fail(f"log_tail latest missing items[]: {log_latest_payload}")
+        log_latest_high_watermark = log_latest_payload.get("highWatermark")
+        log_latest_next_from_seq = log_latest_payload.get("nextFromSeq")
+        if not isinstance(log_latest_high_watermark, int) or log_latest_high_watermark < 0:
+            fail(f"log_tail latest invalid highWatermark: {log_latest_payload}")
+        if log_latest_next_from_seq != log_latest_high_watermark:
+            fail(f"log_tail latest nextFromSeq should advance to highWatermark: {log_latest_payload}")
+        log_latest_seqs = [item.get("seq") for item in log_latest_items if isinstance(item, dict)]
+        if any(not isinstance(seq, int) for seq in log_latest_seqs):
+            fail(f"log_tail latest item missing integer seq: {log_latest_payload}")
+        if log_latest_seqs != sorted(log_latest_seqs):
+            fail(f"log_tail latest items not chronological: {log_latest_payload}")
         print("[PASS] log_tail is available")
 
         _ = call_execute_exec_with_retry(

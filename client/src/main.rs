@@ -7803,7 +7803,11 @@ fn diagnostic_tail_schema() -> rmcp::model::JsonObject {
     schema_from_value(serde_json::json!({
         "type":"object",
         "properties":{
-            "fromSeq":{"type":"integer","minimum":0,"default":0},
+            "fromSeq":{
+                "type":"integer",
+                "minimum":0,
+                "description":"Exclusive sequence cursor. Omit to return the latest matching events; provide to return events with seq > fromSeq."
+            },
             "limit":{"type":"integer","minimum":1,"maximum":1000,"default":200},
             "filters":{
                 "type":"object",
@@ -7824,7 +7828,11 @@ fn log_tail_schema() -> rmcp::model::JsonObject {
     schema_from_value(serde_json::json!({
         "type":"object",
         "properties":{
-            "fromSeq":{"type":"integer","minimum":0,"default":0},
+            "fromSeq":{
+                "type":"integer",
+                "minimum":0,
+                "description":"Exclusive sequence cursor. Omit to return the latest matching events; provide to return events with seq > fromSeq."
+            },
             "limit":{"type":"integer","minimum":1,"maximum":1000,"default":200},
             "filters":{
                 "type":"object",

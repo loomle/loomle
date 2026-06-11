@@ -803,7 +803,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildDiagnosticTailToolResult(const
     }
 
     uint64 FromSeq = 0;
-    if (Arguments.IsValid() && Arguments->HasField(TEXT("fromSeq")))
+    const bool bHasExplicitFromSeq = Arguments.IsValid() && Arguments->HasField(TEXT("fromSeq"));
+    if (bHasExplicitFromSeq)
     {
         if (!TryReadJsonUInt64Field(Arguments, TEXT("fromSeq"), FromSeq))
         {
@@ -851,43 +852,84 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildDiagnosticTailToolResult(const
         FFileHelper::LoadFileToStringArray(Lines, *DiagnosticStoreFilePath);
     }
 
-    for (const FString& Line : Lines)
+    if (bHasExplicitFromSeq)
     {
-        if (Line.TrimStartAndEnd().IsEmpty())
+        for (const FString& Line : Lines)
         {
-            continue;
-        }
+            if (Line.TrimStartAndEnd().IsEmpty())
+            {
+                continue;
+            }
 
-        TSharedPtr<FJsonObject> Event;
-        const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Line);
-        if (!FJsonSerializer::Deserialize(Reader, Event) || !Event.IsValid())
+            TSharedPtr<FJsonObject> Event;
+            const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Line);
+            if (!FJsonSerializer::Deserialize(Reader, Event) || !Event.IsValid())
+            {
+                continue;
+            }
+
+            uint64 Seq = 0;
+            if (!TryReadJsonUInt64Field(Event, TEXT("seq"), Seq) || Seq <= FromSeq)
+            {
+                continue;
+            }
+
+            if (!DiagEventMatchesFilters(Event, Filters))
+            {
+                continue;
+            }
+
+            if (Items.Num() >= Limit)
+            {
+                bHasMore = true;
+                break;
+            }
+
+            Items.Add(MakeShared<FJsonValueObject>(Event));
+            NextSeq = Seq;
+        }
+    }
+    else
+    {
+        for (int32 Index = Lines.Num() - 1; Index >= 0; --Index)
         {
-            continue;
-        }
+            const FString& Line = Lines[Index];
+            if (Line.TrimStartAndEnd().IsEmpty())
+            {
+                continue;
+            }
 
-        uint64 Seq = 0;
-        if (!TryReadJsonUInt64Field(Event, TEXT("seq"), Seq) || Seq <= FromSeq)
-        {
-            continue;
-        }
+            TSharedPtr<FJsonObject> Event;
+            const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Line);
+            if (!FJsonSerializer::Deserialize(Reader, Event) || !Event.IsValid())
+            {
+                continue;
+            }
 
-        if (!DiagEventMatchesFilters(Event, Filters))
-        {
-            continue;
-        }
+            uint64 Seq = 0;
+            if (!TryReadJsonUInt64Field(Event, TEXT("seq"), Seq))
+            {
+                continue;
+            }
 
-        if (Items.Num() >= Limit)
-        {
-            bHasMore = true;
-            break;
-        }
+            if (!DiagEventMatchesFilters(Event, Filters))
+            {
+                continue;
+            }
 
-        Items.Add(MakeShared<FJsonValueObject>(Event));
-        NextSeq = Seq;
+            if (Items.Num() >= Limit)
+            {
+                bHasMore = true;
+                break;
+            }
+
+            Items.Insert(MakeShared<FJsonValueObject>(Event), 0);
+            NextSeq = FMath::Max(NextSeq, Seq);
+        }
     }
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    const uint64 NextFromSeq = bHasMore ? NextSeq : HighWatermark;
+    const uint64 NextFromSeq = bHasExplicitFromSeq && bHasMore ? NextSeq : HighWatermark;
     Result->SetBoolField(TEXT("isError"), false);
     Result->SetArrayField(TEXT("items"), Items);
     Result->SetNumberField(TEXT("fromSeq"), static_cast<double>(FromSeq));
@@ -907,7 +949,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildLogTailToolResult(const TShare
     }
 
     uint64 FromSeq = 0;
-    if (Arguments.IsValid() && Arguments->HasField(TEXT("fromSeq")))
+    const bool bHasExplicitFromSeq = Arguments.IsValid() && Arguments->HasField(TEXT("fromSeq"));
+    if (bHasExplicitFromSeq)
     {
         if (!TryReadJsonUInt64Field(Arguments, TEXT("fromSeq"), FromSeq))
         {
@@ -955,43 +998,84 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildLogTailToolResult(const TShare
         FFileHelper::LoadFileToStringArray(Lines, *LogStoreFilePath);
     }
 
-    for (const FString& Line : Lines)
+    if (bHasExplicitFromSeq)
     {
-        if (Line.TrimStartAndEnd().IsEmpty())
+        for (const FString& Line : Lines)
         {
-            continue;
-        }
+            if (Line.TrimStartAndEnd().IsEmpty())
+            {
+                continue;
+            }
 
-        TSharedPtr<FJsonObject> Event;
-        const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Line);
-        if (!FJsonSerializer::Deserialize(Reader, Event) || !Event.IsValid())
+            TSharedPtr<FJsonObject> Event;
+            const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Line);
+            if (!FJsonSerializer::Deserialize(Reader, Event) || !Event.IsValid())
+            {
+                continue;
+            }
+
+            uint64 Seq = 0;
+            if (!TryReadJsonUInt64Field(Event, TEXT("seq"), Seq) || Seq <= FromSeq)
+            {
+                continue;
+            }
+
+            if (!LogEventMatchesFilters(Event, Filters))
+            {
+                continue;
+            }
+
+            if (Items.Num() >= Limit)
+            {
+                bHasMore = true;
+                break;
+            }
+
+            Items.Add(MakeShared<FJsonValueObject>(Event));
+            NextSeq = Seq;
+        }
+    }
+    else
+    {
+        for (int32 Index = Lines.Num() - 1; Index >= 0; --Index)
         {
-            continue;
-        }
+            const FString& Line = Lines[Index];
+            if (Line.TrimStartAndEnd().IsEmpty())
+            {
+                continue;
+            }
 
-        uint64 Seq = 0;
-        if (!TryReadJsonUInt64Field(Event, TEXT("seq"), Seq) || Seq <= FromSeq)
-        {
-            continue;
-        }
+            TSharedPtr<FJsonObject> Event;
+            const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Line);
+            if (!FJsonSerializer::Deserialize(Reader, Event) || !Event.IsValid())
+            {
+                continue;
+            }
 
-        if (!LogEventMatchesFilters(Event, Filters))
-        {
-            continue;
-        }
+            uint64 Seq = 0;
+            if (!TryReadJsonUInt64Field(Event, TEXT("seq"), Seq))
+            {
+                continue;
+            }
 
-        if (Items.Num() >= Limit)
-        {
-            bHasMore = true;
-            break;
-        }
+            if (!LogEventMatchesFilters(Event, Filters))
+            {
+                continue;
+            }
 
-        Items.Add(MakeShared<FJsonValueObject>(Event));
-        NextSeq = Seq;
+            if (Items.Num() >= Limit)
+            {
+                bHasMore = true;
+                break;
+            }
+
+            Items.Insert(MakeShared<FJsonValueObject>(Event), 0);
+            NextSeq = FMath::Max(NextSeq, Seq);
+        }
     }
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    const uint64 NextFromSeq = bHasMore ? NextSeq : HighWatermark;
+    const uint64 NextFromSeq = bHasExplicitFromSeq && bHasMore ? NextSeq : HighWatermark;
     Result->SetBoolField(TEXT("isError"), false);
     Result->SetArrayField(TEXT("items"), Items);
     Result->SetNumberField(TEXT("fromSeq"), static_cast<double>(FromSeq));
