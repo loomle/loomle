@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loomle.dev/schemas/lgl-object.schema.json",
+  "title": "LGL Object Schema",
+  "description": "Foundation subset for normalized LGL JSON objects.",
+  "oneOf": [
+    { "$ref": "#/$defs/Target" },
+    { "$ref": "#/$defs/GraphRef" },
+    { "$ref": "#/$defs/Value" },
+    { "$ref": "#/$defs/Name" },
+    { "$ref": "#/$defs/PinRef" },
+    { "$ref": "#/$defs/Edge" }
+  ],
+  "$defs": {
+    "Target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain", "asset", "graph"],
+      "properties": {
+        "domain": { "type": "string", "minLength": 1 },
+        "asset": { "type": "string", "minLength": 1 },
+        "graph": { "$ref": "#/$defs/GraphRef" }
+      }
+    },
+    "GraphRef": {
+      "oneOf": [
+        { "$ref": "#/$defs/GraphNameRef" },
+        { "$ref": "#/$defs/GraphIdRef" }
+      ]
+    },
+    "GraphNameRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": { "const": "name" },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "GraphIdRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "const": "id" },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "Value": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string" },
+        { "$ref": "#/$defs/Name" },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Value" }
+        },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Value" },
+          "not": { "required": ["kind"] }
+        }
+      ]
+    },
+    "Name": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": { "const": "name" },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "PinRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "pin"],
+      "properties": {
+        "node": { "type": "string", "minLength": 1 },
+        "pin": { "type": "string", "minLength": 1 }
+      }
+    },
+    "Edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "$ref": "#/$defs/PinRef" },
+        "to": { "$ref": "#/$defs/PinRef" }
+      }
+    }
+  }
+}

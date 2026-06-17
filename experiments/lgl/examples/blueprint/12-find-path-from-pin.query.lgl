@@ -1,5 +1,10 @@
-# Source pattern: common Blueprint beginner flow.
-# Tests a simple exec chain with one literal default.
+# Query for a path starting at one output pin.
+query blueprint("/Game/BP_LGLExample"/EventGraph)
+
+find path from begin.Then
+
+---
+
 graph blueprint("/Game/BP_LGLExample"/EventGraph)
 
 begin@A001: EventBeginPlay()

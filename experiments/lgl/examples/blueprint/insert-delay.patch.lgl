@@ -1,8 +1,7 @@
-use Delay from palette "Delay" where function = "/Script/Engine.KismetSystemLibrary.Delay"
+patch blueprint("/Game/BP_LGLExample"/EventGraph)
 
-patch EventGraph
+Delay = palette({id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay"})
 
-set print.Text = "Game Started"
-add delay = Delay(1.0)
-rewire begin.Then -> delay.Exec
-delay -> print
+set print.InString = "Game Started"
+delay = Delay({Duration: 1.0})
+insert begin.Then -> delay.Exec/Completed -> print.Exec

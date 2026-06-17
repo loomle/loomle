@@ -1,0 +1,15 @@
+# Query for the upstream path feeding a branch condition pin.
+query blueprint("/Game/BP_LGLExample"/EventGraph)
+
+find path from branch.Condition
+
+---
+
+graph blueprint("/Game/BP_LGLExample"/EventGraph)
+
+health@B002: GetVariable({Name: Health})
+threshold@B003: LessEqualFloat({A: health, B: 0.0})
+branch@B004: Branch()
+
+health.Value -> threshold.A
+threshold.ReturnValue -> branch.Condition

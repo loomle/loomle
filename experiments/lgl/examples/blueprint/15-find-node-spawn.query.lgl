@@ -1,0 +1,22 @@
+# Query for detailed pin readback on SpawnActorFromClass.
+query blueprint("/Game/BP_LGLExample"/EventGraph)
+
+find node spawn with pins, defaults
+
+---
+
+graph blueprint("/Game/BP_LGLExample"/EventGraph)
+
+spawn@G004: SpawnActorFromClass({Class: BP_Projectile, CollisionHandlingOverride: AlwaysSpawn})
+
+spawn.Exec: exec in
+spawn.Class: class<Actor> in {BP_Projectile}
+spawn.SpawnTransform: transform in
+spawn.CollisionHandlingOverride: enum<SpawnActorCollisionHandlingMethod> in {AlwaysSpawn}
+spawn.Owner: object<Actor> in
+spawn.Then: exec out
+spawn.ReturnValue: object<BP_Projectile> out
+
+fire.Pressed -> spawn.Exec/Then -> print.Exec
+socketTransform.ReturnValue -> spawn.SpawnTransform
+owner.ReturnValue -> spawn.Owner

@@ -1,13 +1,13 @@
 # Source: Epic documentation, "Blueprints Quick Start Guide".
 # Tests overlap-to-cast-to-character-action flow.
-graph EventGraph
+graph blueprint("/Game/BP_LGLExample"/EventGraph)
 
-overlap@D001 = OnComponentBeginOverlap(Box)
-cast@D002 = CastToCharacter()
-velocity@D003 = MakeVector(0.0, 0.0, 1500.0)
-launch@D004 = LaunchCharacter(false, true)
+overlap@D001: OnComponentBeginOverlap({Component: Box})
+cast@D002: CastToCharacter()
+velocity@D003: MakeVector({X: 0.0, Y: 0.0, Z: 1500.0})
+launch@D004: LaunchCharacter({XYOverride: false, ZOverride: true})
 
-overlap -> cast -> launch
+overlap.Then -> cast.Exec/Then -> launch.Exec
 overlap.OtherActor -> cast.Object
 cast.AsCharacter -> launch.Target
 velocity.ReturnValue -> launch.LaunchVelocity

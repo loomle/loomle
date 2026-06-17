@@ -1,5 +1,10 @@
-# Source pattern: common Blueprint branch/if statement flow.
-# Tests exec fanout and a data value feeding Branch.Condition.
+# Query for local context around a branch node.
+query blueprint("/Game/BP_LGLExample"/EventGraph)
+
+find surrounding around branch depth 2
+
+---
+
 graph blueprint("/Game/BP_LGLExample"/EventGraph)
 
 begin@B001: EventBeginPlay()
@@ -10,6 +15,7 @@ dead@B005: PrintString({InString: "Dead"})
 alive@B006: PrintString({InString: "Alive"})
 
 begin.Then -> branch.Exec
+health.Value -> threshold.A
 threshold.ReturnValue -> branch.Condition
 branch.True -> dead.Exec
 branch.False -> alive.Exec

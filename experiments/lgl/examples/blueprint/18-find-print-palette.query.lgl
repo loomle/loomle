@@ -1,0 +1,10 @@
+# Query for palette entries that can create PrintString.
+query blueprint("/Game/BP_LGLExample"/EventGraph)
+
+find palette entry "Print String"
+
+---
+
+palette blueprint("/Game/BP_LGLExample"/EventGraph)
+
+PrintString = palette({id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString", title: "Print String", category: "Utilities/String"})

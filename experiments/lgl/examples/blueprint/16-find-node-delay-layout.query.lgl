@@ -1,0 +1,16 @@
+# Query for node and pin layout readback.
+query blueprint("/Game/BP_LGLExample"/EventGraph)
+
+find node delay with pins, defaults, layout
+
+---
+
+graph blueprint("/Game/BP_LGLExample"/EventGraph)
+
+delay@A002: Delay({Duration: 1.0}) {at: [320, 0], size: [200, 100]}
+
+delay.Exec: exec in {anchor: [320, 24]}
+delay.Duration: float in {1.0, anchor: [320, 72]}
+delay.Completed: exec out {anchor: [500, 24]}
+
+begin.Then -> delay.Exec/Completed -> print.Exec

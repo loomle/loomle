@@ -1,11 +1,11 @@
 # Query for locating PrintString nodes.
-query EventGraph
+query blueprint("/Game/BP_LGLExample"/EventGraph)
 
 find nodes where type = PrintString
 
 ---
 
-graph EventGraph
+graph blueprint("/Game/BP_LGLExample"/EventGraph)
 
-print@C2B0 = PrintString("Ready")
-debugPrint@D991 = PrintString("Debug")
+print@C2B0: PrintString({InString: "Ready"})
+debugPrint@D991: PrintString({InString: "Debug"})

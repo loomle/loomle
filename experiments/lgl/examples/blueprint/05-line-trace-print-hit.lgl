@@ -1,20 +1,20 @@
 # Source: Epic documentation, "Using a Single Line Trace (Raycast) by Channel".
 # Tests a per-tick trace, vector math, hit breaking, branch, and name printing.
-graph EventGraph
+graph blueprint("/Game/BP_LGLExample"/EventGraph)
 
-tick@E001 = EventTick()
-cameraLocation@E002 = GetCameraLocation()
-cameraForward@E003 = GetCameraForwardVector()
-distance@E004 = FloatConstant(1500.0)
-scaledForward@E005 = VectorTimesFloat()
-traceEnd@E006 = VectorPlusVector()
-trace@E007 = LineTraceByChannel(Visibility, false, ForOneFrame)
-breakHit@E008 = BreakHitResult()
-branch@E009 = Branch()
-hitActorName@E00A = GetDisplayName()
-print@E00B = PrintString()
+tick@E001: EventTick()
+cameraLocation@E002: GetCameraLocation()
+cameraForward@E003: GetCameraForwardVector()
+distance@E004: FloatConstant({Value: 1500.0})
+scaledForward@E005: VectorTimesFloat()
+traceEnd@E006: VectorPlusVector()
+trace@E007: LineTraceByChannel({TraceChannel: Visibility, TraceComplex: false, DrawDebugType: ForOneFrame})
+breakHit@E008: BreakHitResult()
+branch@E009: Branch()
+hitActorName@E00A: GetDisplayName()
+print@E00B: PrintString()
 
-tick -> trace -> branch
+tick.Then -> trace.Exec/Then -> branch.Exec/True -> print.Exec
 cameraForward.ReturnValue -> scaledForward.Vector
 distance.Value -> scaledForward.Float
 cameraLocation.ReturnValue -> trace.Start
@@ -23,6 +23,5 @@ scaledForward.ReturnValue -> traceEnd.B
 traceEnd.ReturnValue -> trace.End
 trace.ReturnValue -> branch.Condition
 trace.OutHit -> breakHit.Hit
-branch.True -> print
 breakHit.HitActor -> hitActorName.Object
 hitActorName.ReturnValue -> print.InString

@@ -1,24 +1,24 @@
 # Source: Epic documentation, "Setting Up Input on an Actor".
 # Tests overlap events, casts, player controller access, and key input.
-graph EventGraph
+graph blueprint("/Game/BP_LGLExample"/EventGraph)
 
-beginOverlap@C001 = TriggerBeginOverlap()
-endOverlap@C002 = TriggerEndOverlap()
-castBegin@C003 = CastToFirstPersonCharacter()
-castEnd@C004 = CastToFirstPersonCharacter()
-playerControllerA@C005 = GetPlayerController(0)
-playerControllerB@C006 = GetPlayerController(0)
-enableInput@C007 = EnableInput()
-disableInput@C008 = DisableInput()
-keyE@C009 = KeyboardEvent(E)
-print@C00A = PrintString("Hello")
+beginOverlap@C001: TriggerBeginOverlap()
+endOverlap@C002: TriggerEndOverlap()
+castBegin@C003: CastToFirstPersonCharacter()
+castEnd@C004: CastToFirstPersonCharacter()
+playerControllerA@C005: GetPlayerController({PlayerIndex: 0})
+playerControllerB@C006: GetPlayerController({PlayerIndex: 0})
+enableInput@C007: EnableInput()
+disableInput@C008: DisableInput()
+keyE@C009: KeyboardEvent({Key: E})
+print@C00A: PrintString({InString: "Hello"})
 
-beginOverlap -> castBegin -> enableInput
+beginOverlap.Then -> castBegin.Exec/Then -> enableInput.Exec
 beginOverlap.OtherActor -> castBegin.Object
 playerControllerA.ReturnValue -> enableInput.PlayerController
 
-endOverlap -> castEnd -> disableInput
+endOverlap.Then -> castEnd.Exec/Then -> disableInput.Exec
 endOverlap.OtherActor -> castEnd.Object
 playerControllerB.ReturnValue -> disableInput.PlayerController
 
-keyE.Pressed -> print
+keyE.Pressed -> print.Exec

@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Experimental TypeScript prototype for Loomle Graph Lang.",
+  "description": "Experimental TypeScript SDK scaffold for Loomle Graph Lang.",
   "scripts": {
     "build": "tsc -p tsconfig.json"
   },

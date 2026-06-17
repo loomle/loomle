@@ -1,0 +1,20 @@
+# Query for detailed pin readback on a node.
+query blueprint("/Game/BP_LGLExample"/EventGraph)
+
+find node branch with pins, defaults
+
+---
+
+graph blueprint("/Game/BP_LGLExample"/EventGraph)
+
+branch@B004: Branch()
+
+branch.Exec: exec in
+branch.Condition: bool in
+branch.True: exec out
+branch.False: exec out
+
+begin.Then -> branch.Exec
+threshold.ReturnValue -> branch.Condition
+branch.True -> dead.Exec
+branch.False -> alive.Exec

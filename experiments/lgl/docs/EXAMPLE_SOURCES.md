@@ -39,7 +39,7 @@ comfortable across common graph shapes.
 - Component references such as `Trigger`, `Box`, `Mesh`, and `Muzzle` are
   represented as identifiers until schema binding exists.
 - Timeline tracks are represented as node arguments, for example
-  `Timeline(DoorDriver)`, not as full nested timeline assets.
+  `Timeline({Name: DoorDriver})`, not as full nested timeline assets.
 - Complex values are built through explicit nodes such as `MakeVector` and
   `MakeRotator` because the current parser intentionally avoids nested function
   literals.

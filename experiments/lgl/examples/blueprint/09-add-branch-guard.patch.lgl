@@ -1,11 +1,11 @@
 # Patch variant of inserting a Branch before an existing action.
-use Branch from palette "Branch"
-use GetVariable from palette "Get DoorIsUsable" where member = "DoorIsUsable"
+patch blueprint("/Game/BP_LGLExample"/EventGraph)
 
-patch EventGraph
+Branch = palette({id: "palette:blueprint:schema:/Script/BlueprintGraph.K2Node_IfThenElse"})
+GetVariable = palette({id: "palette:blueprint:variable:/Game/BP_LGLExample.DoorIsUsable"})
 
-add branch = Branch()
-add isUsable = GetVariable()
-rewire input.Pressed -> branch.Exec
-isUsable.Value -> branch.Condition
-branch.True -> openDoor
+branch = Branch()
+isUsable = GetVariable()
+add isUsable
+insert input.Pressed -> branch.Exec/True -> openDoor.Exec
+connect isUsable.Value -> branch.Condition

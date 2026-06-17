@@ -3,30 +3,31 @@
 LGL is patch-first. Complete graph generation is useful, but agent
 collaboration depends on small, reviewable edits.
 
-## Pipeline
+## SDK Flow
 
 ```txt
 LGL patch
-  -> parse patch objects
-  -> palette/schema binding resolution
-  -> schema validation
-  -> adapter command plan
-  -> dry run or apply
+  -> SDK parse and source mapping
+  -> adapter palette/schema binding resolution
+  -> adapter validation
+  -> adapter change computation
+  -> dry run response or apply
 ```
 
 ## Dry Run
 
 When this experiment is integrated with Loomle, dry run must follow
-`docs/MUTATION_DRY_RUN_CONTRACT.md`: parse, resolve, validate, and plan through
-the same path as a real mutation, then stop before applying changes.
+`docs/MUTATION_DRY_RUN_CONTRACT.md`: parse, resolve, validate, and compute
+changes through the same path as a real mutation, then stop before applying
+changes.
 
 ## Adapter Output
 
-A future Blueprint adapter can map validated patch objects to
-`blueprint_graph_edit` command batches without making LGL itself depend on
-Blueprint internals.
+The SDK returns LGL-oriented diagnostics and computed changes. A Blueprint
+adapter can map validated patch operations to existing bridge command batches
+without making the SDK facade expose Blueprint internals.
 
-Palette bindings are part of the command plan. They are not executable by
+Palette bindings are part of patch execution. They are not executable by
 themselves; the adapter resolves them before turning `add` commands into
 `addFromPalette` operations.
 

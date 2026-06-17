@@ -1,19 +1,19 @@
 # Source: Unreal Community Wiki automated door tutorial and Epic community door tutorials.
 # Tests paired overlap events, Timeline play/reverse, interpolation, and component rotation.
-graph EventGraph
+graph blueprint("/Game/BP_LGLExample"/EventGraph)
 
-beginOverlap@F001 = OnComponentBeginOverlap(Box)
-endOverlap@F002 = OnComponentEndOverlap(Box)
-timeline@F003 = Timeline(DoorDriver)
-closedRot@F004 = MakeRotator(0.0, 0.0, 0.0)
-openRot@F005 = MakeRotator(0.0, 90.0, 0.0)
-lerpRot@F006 = LerpRotator()
-setDoorRotation@F007 = SetRelativeRotation()
+beginOverlap@F001: OnComponentBeginOverlap({Component: Box})
+endOverlap@F002: OnComponentEndOverlap({Component: Box})
+timeline@F003: Timeline({Name: DoorDriver})
+closedRot@F004: MakeRotator({Roll: 0.0, Pitch: 0.0, Yaw: 0.0})
+openRot@F005: MakeRotator({Roll: 0.0, Pitch: 0.0, Yaw: 90.0})
+lerpRot@F006: LerpRotator()
+setDoorRotation@F007: SetRelativeRotation()
 
 beginOverlap -> timeline.Play
 endOverlap -> timeline.Reverse
 
-timeline.Update -> setDoorRotation
+timeline.Update -> setDoorRotation.Exec
 timeline.Driver -> lerpRot.Alpha
 closedRot.ReturnValue -> lerpRot.A
 openRot.ReturnValue -> lerpRot.B

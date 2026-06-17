@@ -1,0 +1,10 @@
+{
+  "from": {
+    "node": "begin",
+    "pin": "Then"
+  },
+  "to": {
+    "node": "delay",
+    "pin": "Exec"
+  }
+}

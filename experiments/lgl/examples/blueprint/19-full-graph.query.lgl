@@ -1,5 +1,8 @@
-# Source pattern: common Blueprint beginner flow.
-# Tests a simple exec chain with one literal default.
+# Query for a compact full graph snapshot.
+query blueprint("/Game/BP_LGLExample"/EventGraph)
+
+---
+
 graph blueprint("/Game/BP_LGLExample"/EventGraph)
 
 begin@A001: EventBeginPlay()
