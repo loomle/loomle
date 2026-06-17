@@ -34,6 +34,7 @@ detail inside the SDK, not the design center.
   and palette text forms.
 - `docs/LGL_QUERY.md`: Query forms and result semantics.
 - `docs/LGL_PATCH.md`: Patch forms, dry-run intent, and mutation semantics.
+- `docs/LGL_NATIVE_BRIDGE.md`: Future LGL-native UE bridge architecture.
 - `docs/BLUEPRINT_ADAPTER.md`: Blueprint adapter responsibilities and how it
   maps LGL to existing Loomle/UE capabilities.
 - `docs/TOOL_SURFACE.md`: How MCP/CLI tools wrap the SDK.

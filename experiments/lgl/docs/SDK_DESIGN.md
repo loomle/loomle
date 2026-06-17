@@ -162,6 +162,9 @@ APIs:
 This keeps LGL parsing portable while preserving UE as the source of truth for
 Blueprint semantics.
 
+The proposed bridge architecture is documented in
+[`LGL_NATIVE_BRIDGE.md`](LGL_NATIVE_BRIDGE.md).
+
 ## JSON Schema Contract
 
 The normalized `LglObject` model is maintained as JSON Schema. The schema is the
