@@ -397,6 +397,9 @@ Test roles:
 
 ## First Spike Layout
 
+The behavior contract for this spike is documented in
+[`LGL_BRIDGE_QUERY_SPIKE.md`](LGL_BRIDGE_QUERY_SPIKE.md).
+
 The first implementation spike should touch only:
 
 ```txt
