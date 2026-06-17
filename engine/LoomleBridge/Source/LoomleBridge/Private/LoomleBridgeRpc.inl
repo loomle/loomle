@@ -111,6 +111,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
         TEXT("context"), TEXT("jobs"), TEXT("profiling"), TEXT("play"), TEXT("asset.create"), TEXT("asset.edit"), TEXT("editor.open"), TEXT("editor.focus"), TEXT("editor.screenshot"), TEXT("execute"),
         TEXT("blueprint.inspect"), TEXT("blueprint.class.inspect"), TEXT("blueprint.class.edit"), TEXT("blueprint.enum.inspect"), TEXT("blueprint.enum.edit"), TEXT("blueprint.member.edit"),
         TEXT("blueprint.graph.list"), TEXT("blueprint.graph.inspect"), TEXT("blueprint.graph.edit"), TEXT("blueprint.node.inspect"), TEXT("blueprint.node.edit"), TEXT("blueprint.compile"), TEXT("blueprint.palette"),
+        TEXT("lgl.object.query"),
         TEXT("material.list"), TEXT("material.graph.inspect"), TEXT("material.graph.edit"), TEXT("material.compile"), TEXT("material.node.inspect"), TEXT("material.node.edit"), TEXT("material.palette"),
         TEXT("pcg.graph.inspect"), TEXT("pcg.node.inspect"), TEXT("pcg.graph.edit"), TEXT("pcg.compile"), TEXT("pcg.palette"),
         TEXT("pcg.parameter.inspect"), TEXT("pcg.parameter.edit"),
@@ -367,6 +368,10 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     else if (Name.Equals(TEXT("blueprint.palette")))
     {
         Payload = BuildBlueprintPaletteToolResult(Arguments);
+    }
+    else if (Name.Equals(TEXT("lgl.object.query")))
+    {
+        Payload = Loomle::Lgl::FLglModule::BuildObjectQueryResult(Arguments);
     }
     else if (Name.Equals(TEXT("material.list")))
     {
