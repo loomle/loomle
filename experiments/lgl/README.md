@@ -38,6 +38,8 @@ detail inside the SDK, not the design center.
 - `docs/LGL_BRIDGE_CODE_LAYOUT.md`: Proposed LGL-native UE bridge code layout.
 - `docs/LGL_BRIDGE_QUERY_SPIKE.md`: First UE-backed `lgl.object.query` spike
   contract.
+- `docs/LGL_BRIDGE_QUERY_IMPLEMENTATION_NOTES.md`: UE bridge code references
+  and implementation notes for the query spike.
 - `docs/BLUEPRINT_ADAPTER.md`: Blueprint adapter responsibilities and how it
   maps LGL to existing Loomle/UE capabilities.
 - `docs/TOOL_SURFACE.md`: How MCP/CLI tools wrap the SDK.

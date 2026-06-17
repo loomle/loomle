@@ -5,6 +5,9 @@ This document defines the first UE-backed LGL-native bridge spike.
 The spike exists to prove the object RPC boundary and Blueprint readback path
 before adding mutation, palette lookup, or public LGL text tools.
 
+Implementation notes from the existing UE bridge are collected in
+[`LGL_BRIDGE_QUERY_IMPLEMENTATION_NOTES.md`](LGL_BRIDGE_QUERY_IMPLEMENTATION_NOTES.md).
+
 ## Goal
 
 Implement a minimal `lgl.object.query` path that accepts normalized LGL object
