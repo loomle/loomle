@@ -27,6 +27,9 @@ Agent / MCP / CLI
 The UE bridge receives normalized, schema-valid `LglObject` JSON. It does not
 parse raw LGL text.
 
+The proposed physical code layout is documented in
+[`LGL_BRIDGE_CODE_LAYOUT.md`](LGL_BRIDGE_CODE_LAYOUT.md).
+
 ## Why Not Only Wrap Existing Tools
 
 Wrapping existing tools with LGL would improve syntax, but it would not fully
