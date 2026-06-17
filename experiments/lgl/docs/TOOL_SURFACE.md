@@ -1,10 +1,13 @@
-# LGL Tool Surface Draft
+# LGL Tool Surface
 
 ## Intent
 
 Loomle tools should wrap the LGL SDK rather than expose parser internals or
 backend graph edit command shapes. The agent-facing surface should be small and
 domain-oriented.
+
+This document describes a future MCP/CLI surface. The current experiment
+implements the TypeScript SDK facade, not these tools.
 
 ## Blueprint Tools
 

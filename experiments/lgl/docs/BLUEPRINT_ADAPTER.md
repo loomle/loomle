@@ -1,10 +1,14 @@
-# Blueprint Adapter Draft
+# Blueprint Adapter
 
 ## Intent
 
 The Blueprint adapter makes LGL work against Unreal Blueprint graphs while
 preserving UE semantics. It should use existing Loomle bridge capabilities and
 UE creation paths instead of inventing its own Blueprint node model.
+
+This document is a future adapter design. The current LGL experiment closes the
+SDK-level loop with a memory adapter; it does not implement the Unreal
+Blueprint adapter.
 
 ## Responsibilities
 

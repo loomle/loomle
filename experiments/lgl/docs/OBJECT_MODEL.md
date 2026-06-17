@@ -1,20 +1,18 @@
-# LGL Object Model Draft
+# LGL Object Model
 
 ## Intent
 
-This document defines the TypeScript object model used inside the LGL package.
-It describes `LglObject` values after text parsing and before adapter-specific
-validation or bridge operation generation.
+This document explains the normalized LGL object model. It describes
+`LglObject` values after text parsing and before adapter-specific validation or
+bridge operation generation.
 
 The model should stay graph-domain neutral. Unreal Blueprint details belong in
 the Blueprint adapter, not in these core types.
 
-The normalized object model is intended to become a JSON Schema contract shared
-by TypeScript and C++ at the RPC boundary. TypeScript parses and formats LGL
-text; C++ consumes and produces `LglObject` JSON values that conform to the same
-schema. The planned machine-readable contract is
-`schema/lgl-object.schema.json`; this document remains the human-readable design
-source.
+The machine contract is `schema/lgl-object.schema.json`. TypeScript object-model
+types are generated from that schema into
+`src/generated/lgl-object-schema.ts`. This document is the human-readable guide;
+the schema is the source of truth for compatibility.
 
 ## Top-Level Object
 

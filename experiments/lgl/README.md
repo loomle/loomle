@@ -1,6 +1,6 @@
 # Loomle Graph Lang SDK Experiment
 
-This directory is an experimental TypeScript scaffold for a Loomle Graph Lang
+This directory is an experimental TypeScript package for a Loomle Graph Lang
 (LGL) SDK. It is not part of Loomle's public protocol, release package, MCP
 manifest, or Unreal Engine bridge.
 
@@ -13,11 +13,14 @@ detail inside the SDK, not the design center.
 
 ## Current Scope
 
-- Define the TypeScript SDK facade that tools, MCP, and CLI code would call.
-- Define the adapter contract that lets Blueprint, Material, PCG, and future
-  graph systems implement LGL behavior.
-- Preserve LGL syntax docs and examples as discussion material before
-  implementation.
+- Provide the `createLgl({ adapters })` facade used as `lgl.query(text)` and
+  `lgl.patch(text)`.
+- Parse accepted LGL text into normalized `LglObject` values.
+- Format normalized objects back to LGL text.
+- Validate normalized objects against `schema/lgl-object.schema.json`.
+- Generate TypeScript object-model types from the schema.
+- Exercise the adapter contract with `createMemoryGraphAdapter`.
+- Keep Blueprint examples under parser/formatter conformance tests.
 - Keep Unreal-specific behavior behind a Blueprint adapter; the SDK surface
   should not expose UE bridge internals directly.
 
@@ -27,15 +30,16 @@ detail inside the SDK, not the design center.
   types.
 - `docs/OBJECT_MODEL.md`: Parsed `LglObject` model for `Target`, `Graph`, nodes,
   pins, edges, and layout.
+- `docs/LGL_TEXT.md`: Current accepted LGL document, graph, pin, edge, value,
+  and palette text forms.
+- `docs/LGL_QUERY.md`: Query forms and result semantics.
+- `docs/LGL_PATCH.md`: Patch forms, dry-run intent, and mutation semantics.
 - `docs/BLUEPRINT_ADAPTER.md`: Blueprint adapter responsibilities and how it
   maps LGL to existing Loomle/UE capabilities.
 - `docs/TOOL_SURFACE.md`: How MCP/CLI tools wrap the SDK.
-- `docs/LGL_SPEC.md`: Current graph, query, patch, pin, and layout text forms.
-- `docs/PATCH_MODEL.md`: Patch execution, dry-run, and layout mutation boundary.
 - `docs/EXAMPLE_SOURCES.md`: Sources behind the Blueprint example set.
-- `schema/lgl-object.schema.json`: Draft JSON Schema for normalized LGL object
-  compatibility. The current file starts with foundation types and will expand
-  toward the full object model.
+- `schema/lgl-object.schema.json`: JSON Schema contract for normalized LGL
+  objects and adapter/RPC results.
 
 ## Commands
 
@@ -63,7 +67,8 @@ without making them part of the default conformance gate.
 The current parser/formatter is a minimal closed-loop implementation for the
 core examples. It covers document headers, graph node and edge lines, simple
 query forms, palette bindings, and a small patch set including `insert` and
-`move`. It is not yet a complete implementation of `docs/LGL_SPEC.md`.
+`move`. It covers the current Core and Extended Blueprint examples, with larger
+Reference examples available through `npm run test:examples:reference`.
 
 The current facade is `createLgl({ adapters })`, returning an object used as
 `lgl.query(text)` and `lgl.patch(text)`. It parses LGL text, dispatches by

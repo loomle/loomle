@@ -1,4 +1,4 @@
-# LGL SDK Design Draft
+# LGL SDK Design
 
 ## Intent
 
@@ -50,35 +50,13 @@ layout readback, query, patch, palette, and values.
 
 ## LGL Scope
 
-```txt
-query blueprint("/Game/BP_Door"/EventGraph)
+The accepted text forms are documented in:
 
-find nodes where type = PrintString
-```
-
-An empty query body requests a compact full graph snapshot:
-
-```txt
-query blueprint("/Game/BP_Door"/EventGraph)
-```
-
-Large full-graph results may be written to cache files by tools or adapters,
-with the SDK result returning a small LGL reference and diagnostics.
-
-The LGL header selects the operation and the full graph reference. The reference
-maps to `Target.domain`, `Target.asset`, and `Target.graph`. Future domains can
-use the same pattern:
-
-```txt
-query material("/Game/M_Wood"/MaterialGraph)
-```
-
-A graph id is scoped by the asset path. It is a Loomle graph reference id, not a
-global UE object id:
-
-```txt
-query blueprint("/Game/BP_Door"/id("graph-id"))
-```
+- [`LGL_TEXT.md`](LGL_TEXT.md): document headers, graph text, pins, edges,
+  values, and palette result documents.
+- [`LGL_QUERY.md`](LGL_QUERY.md): query forms and result semantics.
+- [`LGL_PATCH.md`](LGL_PATCH.md): patch forms, dry-run intent, and mutation
+  semantics.
 
 ## Pipeline
 
@@ -136,7 +114,7 @@ The first implementation checkpoint is a minimal TypeScript-only loop:
 parse representative LGL documents into normalized `LglObject` values, validate
 them against `schema/lgl-object.schema.json`, format them back to LGL text, and
 parse the formatted text again. This checkpoint intentionally does not invoke
-UE adapters or claim full `LGL_SPEC.md` coverage.
+UE adapters.
 
 The in-memory graph adapter is a test fixture for this checkpoint. It exercises
 the adapter contract and basic query/patch result flow using `Graph` objects,
@@ -186,8 +164,8 @@ Blueprint semantics.
 
 ## JSON Schema Contract
 
-The normalized `LglObject` model should be maintained as JSON Schema. The
-schema is the cross-language contract between TypeScript and C++:
+The normalized `LglObject` model is maintained as JSON Schema. The schema is the
+cross-language contract between TypeScript and C++:
 
 ```txt
 LGL text
@@ -203,41 +181,29 @@ LGL text
   -> LGL text
 ```
 
-TypeScript owns parser, normalizer, formatter, and developer ergonomics. C++ owns
-lightweight object-model structs/codecs and UE adapter behavior. Both sides
-conform to the same JSON Schema.
+TypeScript owns parser, formatter, developer ergonomics, and generated
+object-model types. C++ owns lightweight object-model codecs and UE adapter
+behavior. Both sides must conform to the same JSON Schema.
 
-The first schema should cover:
-
-- `LglObject`
-- `Target` and `GraphRef`
-- `Graph`, `Node`, `Pin`, `Edge`, and layout
-- `Value`, `Name`, `Binding`, and `Call`
-- `Palette` and palette bindings
-- `Query`, `Find`, `Condition`, and details
-- `Patch`, `Op`, and pin chains
-- `Diagnostic` and result envelopes
-
-Human-readable design remains in [`OBJECT_MODEL.md`](OBJECT_MODEL.md). The JSON
-Schema is the machine-verifiable source for RPC compatibility once added.
-
-Schema maintenance is schema-first for the RPC contract. The machine contract
-is:
+The machine contract is:
 
 ```txt
 schema/lgl-object.schema.json
 ```
 
-It now covers `LglObject`, `ObjectResult`, and `Diagnostic`, with accepted
-fixtures validating representative graph, query, patch, palette, edge, and
-diagnostic objects. Rejected fixtures cover contract boundaries such as required
-fields, closed object shapes, enum values, mutually exclusive fields, and
-reserved discriminators. TypeScript object-model types are generated from this
-schema into `src/generated/lgl-object-schema.ts`; public SDK facade types such
-as `Lgl`, `Adapter`, and `CreateLglOptions` remain hand-written. C++ may use
-generated code later, but the first C++ bridge can use lightweight hand-written
-structs and codecs as long as boundary JSON is validated against the same
-schema.
+It covers `LglObject`, `ObjectResult`, and `Diagnostic`, with accepted fixtures
+validating representative graph, query, patch, palette, edge, and diagnostic
+objects. Rejected fixtures cover contract boundaries such as required fields,
+closed object shapes, enum values, mutually exclusive fields, and reserved
+discriminators.
+
+TypeScript object-model types are generated from this schema into
+`src/generated/lgl-object-schema.ts`. Public SDK facade types such as `Lgl`,
+`Adapter`, and `CreateLglOptions` remain hand-written.
+
+C++ may use generated code later, but the first C++ bridge can use lightweight
+hand-written structs and codecs as long as boundary JSON is validated against
+the same schema.
 
 Suggested validation assets:
 
