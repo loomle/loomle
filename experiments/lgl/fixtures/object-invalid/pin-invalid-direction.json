@@ -1,0 +1,27 @@
+{
+  "kind": "graph",
+  "target": {
+    "domain": "blueprint",
+    "asset": "/Game/BP_Door",
+    "graph": {
+      "kind": "name",
+      "name": "EventGraph"
+    }
+  },
+  "nodes": [
+    {
+      "alias": "branch",
+      "type": "Branch",
+      "fields": {}
+    }
+  ],
+  "edges": [],
+  "pins": [
+    {
+      "node": "branch",
+      "name": "Condition",
+      "type": "bool",
+      "direction": "input"
+    }
+  ]
+}

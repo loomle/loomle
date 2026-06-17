@@ -43,7 +43,36 @@ Install dependencies from this directory, then run:
 
 ```sh
 npm run build
+npm test
 ```
+
+`npm test` validates the normalized object fixtures in `fixtures/object` against
+`schema/lgl-object.schema.json` and verifies that rejected boundary examples in
+`fixtures/object-invalid` fail schema validation.
+
+`npm run generate:types` regenerates TypeScript object-model types from
+`schema/lgl-object.schema.json`. `npm test` runs `npm run check:generated` first
+so schema changes fail unless the generated types are updated.
+
+`npm run test:examples:extended` runs the extended Blueprint example corpus on
+its own; the same check is included in the default `npm test` gate.
+
+`npm run test:examples:reference` audits the larger Blueprint reference examples
+without making them part of the default conformance gate.
+
+The current parser/formatter is a minimal closed-loop implementation for the
+core examples. It covers document headers, graph node and edge lines, simple
+query forms, palette bindings, and a small patch set including `insert` and
+`move`. It is not yet a complete implementation of `docs/LGL_SPEC.md`.
+
+The current facade is `createLgl({ adapters })`, returning an object used as
+`lgl.query(text)` and `lgl.patch(text)`. It parses LGL text, dispatches by
+target domain to an adapter, and formats adapter `ObjectResult` values back to
+LGL text.
+
+`createMemoryGraphAdapter` is an in-memory SDK test fixture for exercising the
+adapter contract without Unreal Editor. It is useful for query/patch closed-loop
+tests, but it is not a Blueprint semantics implementation.
 
 ## Example Set
 

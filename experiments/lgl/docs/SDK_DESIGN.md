@@ -16,15 +16,25 @@ contract is the SDK API plus the LGL text formats it accepts and returns.
 ## Facade
 
 ```ts
-interface Sdk {
+interface Lgl {
   query(text: LglText): Promise<TextResult>;
   patch(text: LglText): Promise<TextResult>;
 }
+
+declare function createLgl(options?: CreateLglOptions): Lgl;
 ```
 
 The SDK facade accepts self-describing LGL text. Domain, asset, graph, query
 shape, patch target, palette bindings, and dry-run intent live in LGL text, not
 in side parameters.
+
+Call sites should normally hold this facade as `lgl`:
+
+```ts
+const lgl = createLgl({ adapters: [blueprintAdapter] });
+await lgl.query(text);
+await lgl.patch(text);
+```
 
 ## Object Model
 
@@ -122,6 +132,17 @@ Adapter/resolver responsibilities:
 - compute dry-run changes through the same path used by real mutation
 - apply mutations when dry run is not requested
 
+The first implementation checkpoint is a minimal TypeScript-only loop:
+parse representative LGL documents into normalized `LglObject` values, validate
+them against `schema/lgl-object.schema.json`, format them back to LGL text, and
+parse the formatted text again. This checkpoint intentionally does not invoke
+UE adapters or claim full `LGL_SPEC.md` coverage.
+
+The in-memory graph adapter is a test fixture for this checkpoint. It exercises
+the adapter contract and basic query/patch result flow using `Graph` objects,
+but it must not become a replacement model for Blueprint, Material, PCG, or UE
+graph semantics.
+
 ## RPC Boundary
 
 For Unreal Engine, the SDK and UE editor communicate through an RPC boundary:
@@ -200,19 +221,23 @@ The first schema should cover:
 Human-readable design remains in [`OBJECT_MODEL.md`](OBJECT_MODEL.md). The JSON
 Schema is the machine-verifiable source for RPC compatibility once added.
 
-Schema maintenance should be schema-first for the RPC contract. The planned
-machine contract is:
+Schema maintenance is schema-first for the RPC contract. The machine contract
+is:
 
 ```txt
 schema/lgl-object.schema.json
 ```
 
-It should cover `LglObject`, `ObjectResult`, and `Diagnostic` once complete.
-The first checked-in draft may grow incrementally from foundation types such as
-`Target`, `GraphRef`, `Value`, `PinRef`, and `Edge`. TypeScript types may be
-generated from the schema or checked against it. C++ may use generated code
-later, but the first C++ bridge can use lightweight hand-written structs and
-codecs as long as boundary JSON is validated against the same schema.
+It now covers `LglObject`, `ObjectResult`, and `Diagnostic`, with accepted
+fixtures validating representative graph, query, patch, palette, edge, and
+diagnostic objects. Rejected fixtures cover contract boundaries such as required
+fields, closed object shapes, enum values, mutually exclusive fields, and
+reserved discriminators. TypeScript object-model types are generated from this
+schema into `src/generated/lgl-object-schema.ts`; public SDK facade types such
+as `Lgl`, `Adapter`, and `CreateLglOptions` remain hand-written. C++ may use
+generated code later, but the first C++ bridge can use lightweight hand-written
+structs and codecs as long as boundary JSON is validated against the same
+schema.
 
 Suggested validation assets:
 
@@ -220,6 +245,7 @@ Suggested validation assets:
 fixtures/object/graph-begin-delay-print.json
 fixtures/object/patch-insert-delay.json
 fixtures/object/palette-print-string.json
+fixtures/object-invalid/patch-missing-dry-run.json
 ```
 
 The important invariant is that TypeScript normalized objects and C++ response

@@ -1,6 +1,0 @@
-graph blueprint("/Game/BP_LGLExample"/EventGraph)
-
-begin@H001: EventBeginPlay()
-print@H002: PrintString({InString: "Hello"})
-
-begin.Then -> print.Exec

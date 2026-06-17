@@ -1,0 +1,15 @@
+{
+  "diagnostics": [
+    {
+      "severity": "error",
+      "code": "unknown_pin",
+      "message": "Node print has no pin named Execute.",
+      "span": {
+        "line": 5,
+        "column": 22,
+        "length": 7
+      },
+      "suggestion": "Run find node print with pins before patching."
+    }
+  ]
+}

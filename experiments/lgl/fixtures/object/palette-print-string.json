@@ -1,0 +1,25 @@
+{
+  "kind": "palette",
+  "target": {
+    "domain": "blueprint",
+    "asset": "/Game/BP_Door",
+    "graph": {
+      "kind": "name",
+      "name": "EventGraph"
+    }
+  },
+  "entries": [
+    {
+      "name": "PrintString",
+      "entry": {
+        "kind": "palette",
+        "id": "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString"
+      },
+      "meta": {
+        "title": "Print String",
+        "category": "Utilities/String",
+        "function": "/Script/Engine.KismetSystemLibrary.PrintString"
+      }
+    }
+  ]
+}

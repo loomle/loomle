@@ -1,0 +1,88 @@
+{
+  "kind": "graph",
+  "target": {
+    "domain": "blueprint",
+    "asset": "/Game/BP_Door",
+    "graph": {
+      "kind": "name",
+      "name": "EventGraph"
+    }
+  },
+  "nodes": [
+    {
+      "alias": "begin",
+      "id": "A001",
+      "type": "EventBeginPlay",
+      "fields": {},
+      "layout": {
+        "at": [0, 0],
+        "size": [180, 80]
+      }
+    },
+    {
+      "alias": "delay",
+      "id": "A002",
+      "type": "Delay",
+      "fields": {
+        "Duration": 1
+      },
+      "layout": {
+        "at": [320, 0],
+        "size": [200, 100]
+      }
+    },
+    {
+      "alias": "print",
+      "id": "A003",
+      "type": "PrintString",
+      "fields": {
+        "InString": "Ready"
+      },
+      "layout": {
+        "at": [640, 0],
+        "size": [220, 120]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": {
+        "node": "begin",
+        "pin": "Then"
+      },
+      "to": {
+        "node": "delay",
+        "pin": "Exec"
+      }
+    },
+    {
+      "from": {
+        "node": "delay",
+        "pin": "Completed"
+      },
+      "to": {
+        "node": "print",
+        "pin": "Exec"
+      }
+    }
+  ],
+  "pins": [
+    {
+      "node": "delay",
+      "name": "Duration",
+      "type": "float",
+      "direction": "in",
+      "value": 1,
+      "layout": {
+        "anchor": [320, 72]
+      }
+    },
+    {
+      "node": "print",
+      "name": "InString",
+      "type": "string",
+      "direction": "in",
+      "value": "Ready"
+    }
+  ]
+}

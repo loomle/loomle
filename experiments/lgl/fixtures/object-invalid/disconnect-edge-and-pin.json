@@ -1,0 +1,32 @@
+{
+  "kind": "patch",
+  "target": {
+    "domain": "blueprint",
+    "asset": "/Game/BP_Door",
+    "graph": {
+      "kind": "name",
+      "name": "EventGraph"
+    }
+  },
+  "dryRun": true,
+  "bindings": [],
+  "ops": [
+    {
+      "kind": "disconnect",
+      "edge": {
+        "from": {
+          "node": "begin",
+          "pin": "Then"
+        },
+        "to": {
+          "node": "print",
+          "pin": "Exec"
+        }
+      },
+      "pin": {
+        "node": "print",
+        "pin": "Exec"
+      }
+    }
+  ]
+}

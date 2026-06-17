@@ -10,8 +10,8 @@ openRot@F005: MakeRotator({Roll: 0.0, Pitch: 0.0, Yaw: 90.0})
 lerpRot@F006: LerpRotator()
 setDoorRotation@F007: SetRelativeRotation()
 
-beginOverlap -> timeline.Play
-endOverlap -> timeline.Reverse
+beginOverlap.Then -> timeline.Play
+endOverlap.Then -> timeline.Reverse
 
 timeline.Update -> setDoorRotation.Exec
 timeline.Driver -> lerpRot.Alpha

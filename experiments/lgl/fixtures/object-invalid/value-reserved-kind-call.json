@@ -1,0 +1,25 @@
+{
+  "kind": "graph",
+  "target": {
+    "domain": "blueprint",
+    "asset": "/Game/BP_Door",
+    "graph": {
+      "kind": "name",
+      "name": "EventGraph"
+    }
+  },
+  "nodes": [
+    {
+      "alias": "print",
+      "type": "PrintString",
+      "fields": {
+        "InString": {
+          "kind": "call",
+          "callee": "SomeFunction",
+          "args": {}
+        }
+      }
+    }
+  ],
+  "edges": []
+}

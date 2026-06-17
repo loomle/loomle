@@ -1,0 +1,13 @@
+{
+  "kind": "patch",
+  "target": {
+    "domain": "blueprint",
+    "asset": "/Game/BP_Door",
+    "graph": {
+      "kind": "name",
+      "name": "EventGraph"
+    }
+  },
+  "bindings": [],
+  "ops": []
+}

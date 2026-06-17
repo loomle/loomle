@@ -1,0 +1,16 @@
+{
+  "kind": "query",
+  "target": {
+    "domain": "blueprint",
+    "asset": "/Game/BP_Door",
+    "graph": {
+      "kind": "name",
+      "name": "EventGraph"
+    }
+  },
+  "find": {
+    "kind": "node",
+    "node": "branch",
+    "with": ["pins", "defaults", "layout"]
+  }
+}
