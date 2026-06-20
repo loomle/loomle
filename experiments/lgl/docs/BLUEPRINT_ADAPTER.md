@@ -17,7 +17,7 @@ The adapter owns:
 - exporting Blueprint graph snapshots as compact LGL `graph` documents
 - executing LGL `query` documents over Blueprint graph data
 - executing palette queries for Blueprint creation entries
-- resolving `Name = palette({id: "entry-id"})` bindings through UE palette/actions
+- resolving `Name = palette(id: "entry-id")` bindings through UE palette/actions
 - validating and applying `patch` documents through Blueprint graph mutation paths
 - mapping UE and bridge errors into LGL diagnostics
 
@@ -47,17 +47,21 @@ Full graph snapshots are cache/offline primitives reached through an empty
 query body, not a separate public SDK method:
 
 ```txt
-query blueprint("/Game/BP_Door"/EventGraph)
+bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+query g
+find nodes
 ```
 
 They may produce compact LGL:
 
 ```txt
-graph blueprint("/Game/BP_Door"/EventGraph)
+bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
 
-begin@A001: EventBeginPlay() {at: [0, 0], size: [180, 80]}
-delay@A002: Delay({Duration: 1.0}) {at: [320, 0], size: [200, 100]}
-print@A003: PrintString({InString: "Ready"}) {at: [640, 0], size: [220, 120]}
+begin = node(graph: g, type: EventBeginPlay, id: "A001", at: [0, 0], size: [180, 80])
+delay = node(graph: g, type: Delay, id: "A002", Duration: 1.0, at: [320, 0], size: [200, 100])
+print = node(graph: g, type: PrintString, id: "A003", InString: "Ready", at: [640, 0], size: [220, 120])
 
 begin.Then -> delay.Exec/Completed -> print.Exec
 ```
@@ -74,8 +78,9 @@ documents, which return small LGL snippets.
 `query` should accept LGL query text:
 
 ```txt
-query blueprint("/Game/BP_Door"/EventGraph)
-
+bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+query g
 find surrounding around branch depth 2
 ```
 
@@ -84,7 +89,8 @@ Query results should be LGL-first:
 - `find nodes` returns node lines.
 - `find path` returns a compact graph/path snippet.
 - `find surrounding` returns a compact `graph` snippet.
-- `find node` returns a compact `graph` snippet with requested pin/default/layout lines.
+- `find node` returns a compact graph snippet with requested pin/default and
+  editor readback metadata lines.
 - `find palette entry` returns palette entry documents for patch-time creation.
 
 ## Palette
@@ -95,8 +101,9 @@ palette through LGL query and patch documents. It is not a separate SDK method.
 Palette entries are discovered with query:
 
 ```txt
-query blueprint("/Game/BP_Door"/EventGraph)
-
+bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+query g
 find palette entry "Print String"
 ```
 
@@ -104,14 +111,14 @@ Patch documents bind stable palette entry ids after the patch header and before
 creating nodes. They do not perform fuzzy palette search:
 
 ```txt
-PrintString = palette({id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString"})
+PrintStringSource = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString")
 ```
 
 For context-sensitive entries, the palette query result must carry a stable
 entry id that encodes or restores the required context:
 
 ```txt
-TriggerBeginOverlap = palette({id: "palette:blueprint:component_event:/Game/BP_Door.Trigger.OnComponentBeginOverlap"})
+TriggerBeginOverlapSource = palette(id: "palette:blueprint:component_event:/Game/BP_Door.Trigger.OnComponentBeginOverlap")
 ```
 
 ## Patch
@@ -120,11 +127,13 @@ TriggerBeginOverlap = palette({id: "palette:blueprint:component_event:/Game/BP_D
 changes, and applies them unless the document requests `dry run`.
 
 ```txt
-patch blueprint("/Game/BP_Door"/EventGraph)
+bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+patch g
 
-Delay = palette({id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay"})
+DelaySource = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay")
 
-delay = Delay({Duration: 1.0})
+delay = node(graph: g, source: DelaySource, Duration: 1.0)
 add delay
 disconnect begin.Then -> print.Exec
 connect begin.Then -> delay.Exec/Completed -> print.Exec
@@ -134,27 +143,31 @@ move delay to (320, 0)
 `insert` creates a node and replaces an existing direct link:
 
 ```txt
-patch blueprint("/Game/BP_Door"/EventGraph)
+bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+patch g
 
-Delay = palette({id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay"})
+DelaySource = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay")
 
-delay = Delay({Duration: 1.0})
+delay = node(graph: g, source: DelaySource, Duration: 1.0)
 insert begin.Then -> delay.Exec/Completed -> print.Exec
 ```
 
 Single-link removal:
 
 ```txt
-patch blueprint("/Game/BP_Door"/EventGraph)
-
+bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+patch g
 disconnect health.Value -> branch.Condition
 ```
 
 Plain node removal:
 
 ```txt
-patch blueprint("/Game/BP_Door"/EventGraph)
-
+bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+patch g
 remove print
 ```
 
@@ -178,8 +191,8 @@ diagnostic-guided repair, but it is not the normal editing path.
 Layout readback:
 
 ```txt
-delay@A002: Delay({Duration: 1.0}) {at: [320, 0], size: [200, 100]}
-delay.Exec: exec in {anchor: [320, 24]}
+delay = node(graph: g, type: Delay, id: "A002", Duration: 1.0, at: [320, 0], size: [200, 100])
+delay.Exec = pin(type: exec, direction: in, anchor: [320, 24])
 ```
 
 Patch layout mutation starts with node movement only:

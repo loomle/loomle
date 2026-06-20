@@ -25,7 +25,13 @@ These tools are thin wrappers around the SDK plus the Blueprint adapter.
 
 `blueprint_graph_query`
 
-- accepts self-describing `query blueprint("/Game/BP_Door"/EventGraph)` text
+- accepts self-describing LGL query text such as:
+  ```lgl
+  bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
+  g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+  query g
+  find nodes
+  ```
 - returns LGL result documents or snippets
 - covers node search, paths, surrounding context, palette discovery, full
   snapshot cache reads, and detailed node output
@@ -33,7 +39,12 @@ These tools are thin wrappers around the SDK plus the Blueprint adapter.
 
 `blueprint_graph_patch`
 
-- accepts self-describing `patch blueprint("/Game/BP_Door"/EventGraph)` text
+- accepts self-describing LGL patch text such as:
+  ```lgl
+  bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
+  g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+  patch g dry run
+  ```
 - parses the patch before any mutation
 - resolves palette bindings
 - validates pins, aliases, and layout moves
@@ -72,7 +83,7 @@ Graph content should be returned as LGL text with diagnostics:
 
 ```json
 {
-  "text": "graph blueprint(\"/Game/BP_Door\"/EventGraph)\n\nprint@C2B0: PrintString({InString: \"Ready\"})\n",
+  "text": "bp = asset(path: \"/Game/BP_Door.BP_Door\", type: blueprint)\ng = graph(domain: blueprint, asset: bp, graph: EventGraph)\nprint = node(graph: g, type: PrintString, id: \"C2B0\", InString: \"Ready\")\n",
   "diagnostics": []
 }
 ```

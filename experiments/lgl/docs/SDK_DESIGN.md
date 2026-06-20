@@ -50,13 +50,14 @@ layout readback, query, patch, palette, and values.
 
 ## LGL Scope
 
-The accepted text forms are documented in:
+The target text forms are documented by the language core and module docs:
 
-- [`LGL_TEXT.md`](LGL_TEXT.md): document headers, graph text, pins, edges,
-  values, and palette result documents.
-- [`LGL_QUERY.md`](LGL_QUERY.md): query forms and result semantics.
-- [`LGL_PATCH.md`](LGL_PATCH.md): patch forms, dry-run intent, and mutation
-  semantics.
+- [`LANGUAGE_CORE.md`](LANGUAGE_CORE.md): shared statement, constructor, value,
+  and reference syntax.
+- [`modules/graph.md`](modules/graph.md): graph text, pins, edges, queries,
+  patches, palette sources, and normalized JSON.
+- [`notes/graph-migration.md`](notes/graph-migration.md): migration notes from
+  the current graph-first implementation.
 
 ## Pipeline
 
@@ -96,10 +97,10 @@ Normalizer responsibilities:
   side and `insert` using a two-sided chain
 
 Normalizer must not consult palette databases, graph schemas, default exec pin
-rules, or native graph state. Future compact forms such as positional arguments,
-palette positional calls, or omitted fields may be normalized here only when the
-rewrite is pure LGL syntax. Any rewrite that needs schema knowledge belongs in
-an adapter or should remain unsupported in the stable form.
+rules, or native graph state. Future compact forms such as omitted fields may
+be normalized here only when the rewrite is pure LGL syntax. Any rewrite that
+needs schema knowledge belongs in an adapter or should remain unsupported in
+the stable form.
 
 Adapter/resolver responsibilities:
 
@@ -252,7 +253,8 @@ The `Diagnostic` type is defined in [`OBJECT_MODEL.md`](OBJECT_MODEL.md).
 
 Examples:
 
-- `unbound_palette_binding`: add a `Name = palette({id: "entry-id"})` binding from a palette query result.
+- `unbound_palette_binding`: add a `Name = palette(id: "entry-id")`
+  binding from a palette query result.
 - `ambiguous_palette_query`: refine the `find palette entry` query before patching.
 - `unknown_pin`: run `find node <name> with pins`.
 - `unsafe_chain`: write explicit pin edges.

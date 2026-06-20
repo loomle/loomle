@@ -80,18 +80,22 @@ blueprint.lgl.patch
 
 The public inputs are LGL text documents:
 
-```txt
-query blueprint("/Game/BP_Door"/EventGraph)
-
-find node branch with pins, defaults
+```lgl
+bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+query g
+find node branch
+with pins, defaults
 ```
 
-```txt
-patch blueprint("/Game/BP_Door"/EventGraph) dry run
+```lgl
+bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+patch g dry run
 
-Delay = palette({id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay"})
+DelaySource = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay")
 
-delay = Delay({Duration: 1.0})
+delay = node(graph: g, source: DelaySource, Duration: 1.0)
 insert begin.Then -> delay.Exec/Completed -> print.Exec
 ```
 
@@ -208,7 +212,8 @@ Query execution should return small LGL object snippets by default.
 Supported first targets:
 
 - Empty query: compact graph snapshot.
-- `find nodes`: node snippets, optionally with pins/defaults/layout.
+- `find nodes`: node snippets, optionally with pins, defaults, and editor
+  readback metadata.
 - `find node`: one-node graph snippet.
 - `find path`: path graph snippet.
 - `find surrounding`: local context graph snippet.
@@ -325,7 +330,7 @@ Recommended sequence:
 
 The first UE-backed spike should prove:
 
-- A TypeScript `query blueprint(...)` document can become normalized JSON and
+- A TypeScript `query g` document can become normalized JSON and
   reach the UE bridge.
 - The UE bridge can validate/decode the object and dispatch to a Blueprint
   adapter.

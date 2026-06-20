@@ -1,5 +1,10 @@
 # LGL Object Model
 
+> Status: current implementation reference. The next module-oriented graph
+> design is being consolidated in [`modules/graph.md`](modules/graph.md), but
+> this document remains the human-readable guide to the current
+> `schema/lgl-object.schema.json` contract until that schema migrates.
+
 ## Intent
 
 This document explains the normalized LGL object model. It describes

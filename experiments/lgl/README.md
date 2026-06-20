@@ -4,12 +4,21 @@ This directory is an experimental TypeScript package for a Loomle Graph Lang
 (LGL) SDK. It is not part of Loomle's public protocol, release package, MCP
 manifest, or Unreal Engine bridge.
 
-The experiment exists to validate whether a compact graph text format can become
-the SDK-facing graph operation layer for Loomle. LGL is treated as the public
-SDK contract for graph query and graph patching. Full graph snapshots are
-cache/offline primitives requested through empty-body queries rather than a
-separate public snapshot method. Any parser or graph model is an implementation
-detail inside the SDK, not the design center.
+The experiment started as a compact graph text format. The next design direction
+is broader: LGL should become a line-oriented, agent-facing object language for
+UE work. Graph remains the first proven module, but asset and widget modules
+should use the same language core instead of inventing separate text formats.
+
+The design separates three layers:
+
+```txt
+sugar text
+  -> canonical text
+  -> normalized JSON
+```
+
+Agents use LGL text. The SDK parses and normalizes that text. The bridge and
+schema contract use normalized JSON.
 
 ## Current Scope
 
@@ -26,14 +35,30 @@ detail inside the SDK, not the design center.
 
 ## Documents
 
+The docs are in transition from the current graph-first experiment to the next
+module-oriented LGL design. New module docs should replace the older
+graph-first docs once implementation catches up.
+
+- `docs/OVERVIEW.md`: Next LGL direction, representation layers, and core
+  design rules.
+- `docs/LANGUAGE_CORE.md`: Shared statement, constructor, value, and reference
+  syntax.
+- `docs/MODULES.md`: How domain modules own their syntax, normalization, object
+  model, query, patch, diagnostics, and examples.
+- `docs/modules/graph.md`: Draft next graph module from sugar to canonical text
+  to normalized JSON.
+- `docs/notes/graph-migration.md`: Migration notes from the current
+  graph-first implementation to the target graph module design.
+- `docs/modules/asset.md`: Draft asset module for Asset Registry-backed search,
+  resolve, registry tags, and asset result text.
+- `docs/modules/blueprint.md`: Draft Blueprint module for class contract,
+  member declarations, custom events, and component tree structure.
+- `docs/modules/widget.md`: Draft widget module for UMG tree constructors,
+  slots, and widget patching.
 - `docs/SDK_DESIGN.md`: SDK facade, adapter contract, diagnostics, and result
-  types.
-- `docs/OBJECT_MODEL.md`: Parsed `LglObject` model for `Target`, `Graph`, nodes,
-  pins, edges, and layout.
-- `docs/LGL_TEXT.md`: Current accepted LGL document, graph, pin, edge, value,
-  and palette text forms.
-- `docs/LGL_QUERY.md`: Query forms and result semantics.
-- `docs/LGL_PATCH.md`: Patch forms, dry-run intent, and mutation semantics.
+  types for the current experiment.
+- `docs/OBJECT_MODEL.md`: Current parsed `LglObject` model for `Target`,
+  `Graph`, nodes, pins, edges, and layout.
 - `docs/LGL_NATIVE_BRIDGE.md`: Future LGL-native UE bridge architecture.
 - `docs/LGL_BRIDGE_CODE_LAYOUT.md`: Proposed LGL-native UE bridge code layout.
 - `docs/LGL_BRIDGE_QUERY_SPIKE.md`: First UE-backed `lgl.object.query` spike
@@ -100,7 +125,7 @@ Blueprint examples currently cover:
 - query examples for nodes, paths, surrounding context, palette discovery, and
   detailed node output
 
-The examples intentionally use the proposed stable inspect form:
+The examples currently use the implemented graph-first inspect form:
 
 ```txt
 begin@7A9D: EventBeginPlay() {at: [0, 0], size: [180, 80]}

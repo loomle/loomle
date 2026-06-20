@@ -2,6 +2,10 @@
 
 This document defines the first UE-backed LGL-native bridge spike.
 
+> Status: first implementation spike. This document follows the current
+> graph-first object schema where needed. The target agent-facing text syntax
+> is documented in `OVERVIEW.md`, `LANGUAGE_CORE.md`, and `modules/graph.md`.
+
 The spike exists to prove the object RPC boundary and Blueprint readback path
 before adding mutation, palette lookup, or public LGL text tools.
 
