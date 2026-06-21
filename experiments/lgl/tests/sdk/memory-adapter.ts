@@ -93,6 +93,28 @@ assert.match(delayPalette.text ?? "", /Delay = delay\(duration: 1\)/);
 assert.match(delayPalette.text ?? "", /Delay.Completed = pin\(type: exec, direction: out\)/);
 console.log("[PASS] memory adapter returns copyable palette entries");
 
+const orderedNodes = await lgl.query(`${graphHeader}
+query g
+find nodes
+order by type desc
+page limit 1
+`);
+assert.equal(orderedNodes.diagnostics.length, 0);
+assert.match(orderedNodes.text ?? "", /print = node\(graph: g, type: PrintString/);
+assert.doesNotMatch(orderedNodes.text ?? "", /begin = node/);
+
+const pagedPalette = await lgl.query(`${graphHeader}
+query g
+find palette entry
+order by name asc
+page limit 1
+page after "offset:1"
+`);
+assert.equal(pagedPalette.diagnostics.length, 0);
+assert.match(pagedPalette.text ?? "", /Delay = delay\(duration: 1\)/);
+assert.doesNotMatch(pagedPalette.text ?? "", /Branch = branch\(\)/);
+console.log("[PASS] memory adapter applies query ordering and pagination");
+
 const dryRunPatch = await lgl.patch(`${graphHeader}
 patch g dry run
 

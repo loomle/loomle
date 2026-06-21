@@ -45,6 +45,26 @@ page limit 10
 `,
   },
   {
+    name: "query find path to pin",
+    text: `bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+query g
+find path to print.Exec
+`,
+  },
+  {
+    name: "query palette entry with pin context",
+    text: `bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+query g
+find palette entry "Branch" from begin.Then
+with pins
+order by name asc
+page limit 5
+page after "offset:0"
+`,
+  },
+  {
     name: "palette print string",
     text: `bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
 g = graph(domain: blueprint, asset: bp, graph: EventGraph)

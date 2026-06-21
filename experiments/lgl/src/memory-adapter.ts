@@ -84,10 +84,13 @@ function executeQuery(graph: Graph, query: Query): ObjectResult {
 
   switch (find.kind) {
     case "nodes": {
-      const aliases = graph.nodes
+      const nodes = graph.nodes
         .filter((node) => matchesText(node, find.text))
-        .filter((node) => matchesCondition(node, graph, query.where))
-        .map((node) => node.alias);
+        .filter((node) => matchesCondition(node, graph, query.where));
+      const aliases = pageItems(
+        sortItems(nodes, query, (node, key) => readConditionField(node, graph, key.split("."))),
+        query,
+      ).map((node) => node.alias);
       return { object: graphSnippet(graph, aliases, query.with?.includes("pins") ?? false), diagnostics: [] };
     }
     case "path": {
@@ -116,7 +119,43 @@ function findPaletteEntries(find: FindPaletteEntry, query: Query): CreationEntry
   const entries = memoryPaletteEntries(includePins, includeDefaults)
     .filter((entry) => matchesPaletteText(entry, find.text))
     .filter((entry) => matchesPaletteCondition(entry, query.where));
-  return entries.slice(0, query.page?.limit ?? 50);
+  return pageItems(
+    sortItems(entries, query, (entry, key) => readPaletteField(entry, key.split("."))),
+    query,
+  );
+}
+
+function sortItems<T>(items: T[], query: Query, readField: (item: T, key: string) => unknown): T[] {
+  if (!query.orderBy || query.orderBy.length === 0) {
+    return items;
+  }
+  return [...items].sort((left, right) => {
+    for (const order of query.orderBy ?? []) {
+      const result = compareSortable(readField(left, order.key), readField(right, order.key));
+      if (result !== 0) {
+        return order.direction === "desc" ? -result : result;
+      }
+    }
+    return 0;
+  });
+}
+
+function pageItems<T>(items: T[], query: Query): T[] {
+  const start = query.page?.after ? cursorOffset(query.page.after) : 0;
+  const limit = query.page?.limit ?? 50;
+  return items.slice(start, start + limit);
+}
+
+function cursorOffset(cursor: string): number {
+  const match = /^offset:(\d+)$/.exec(cursor);
+  return match ? Number(match[1]) : 0;
+}
+
+function compareSortable(left: unknown, right: unknown): number {
+  if (typeof left === "number" && typeof right === "number") {
+    return left - right;
+  }
+  return String(left ?? "").localeCompare(String(right ?? ""));
 }
 
 function memoryPaletteEntries(includePins: boolean, includeDefaults: boolean): CreationEntry[] {
