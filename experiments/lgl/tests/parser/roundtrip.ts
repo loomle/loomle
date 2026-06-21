@@ -40,13 +40,18 @@ with pins, defaults
 g = graph(domain: blueprint, asset: bp, graph: EventGraph)
 query g
 find palette entry "Print String"
+with pins, defaults
+page limit 10
 `,
   },
   {
     name: "palette print string",
     text: `bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
 g = graph(domain: blueprint, asset: bp, graph: EventGraph)
-PrintString = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString")
+PrintString = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString", InString: "")
+PrintString.Exec = pin(type: exec, direction: in)
+PrintString.InString = pin(type: string, direction: in, value: "")
+PrintString.Then = pin(type: exec, direction: out)
 `,
   },
   {

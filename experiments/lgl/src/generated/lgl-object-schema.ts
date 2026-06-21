@@ -300,6 +300,9 @@ export interface CreationResult {
 export interface ShortcutCreationEntry {
   name: string;
   constructor: Call;
+  defaults?: {
+    [k: string]: Expr;
+  };
   pins?: Pin[];
 }
 export interface PaletteCreationEntry {
@@ -307,6 +310,9 @@ export interface PaletteCreationEntry {
   palette: PaletteSourceRef;
   label?: string;
   category?: string;
+  defaults?: {
+    [k: string]: Expr;
+  };
   pins?: Pin[];
 }
 export interface PaletteSourceRef {

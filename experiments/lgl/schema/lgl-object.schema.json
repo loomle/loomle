@@ -617,6 +617,10 @@
       "properties": {
         "name": { "type": "string", "minLength": 1 },
         "constructor": { "$ref": "#/$defs/Call" },
+        "defaults": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Expr" }
+        },
         "pins": {
           "type": "array",
           "items": { "$ref": "#/$defs/Pin" }
@@ -632,6 +636,10 @@
         "palette": { "$ref": "#/$defs/PaletteSourceRef" },
         "label": { "type": "string", "minLength": 1 },
         "category": { "type": "string", "minLength": 1 },
+        "defaults": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Expr" }
+        },
         "pins": {
           "type": "array",
           "items": { "$ref": "#/$defs/Pin" }

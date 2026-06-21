@@ -287,18 +287,27 @@ function parsePatch(lines: ParsedLine[], patchIndex: number, context: ParseConte
 
 function tryParseCreationResult(lines: ParsedLine[], context: ParseContext): LglObject | undefined {
   const entries: CreationEntry[] = [];
+  const pins: Pin[] = [];
   let target: Target | undefined = firstGraphTarget(context);
 
   for (const line of lines) {
     const binding = tryParseBinding(line);
-    if (!binding || binding.target.kind !== "local" || !isCall(binding.value)) {
+    if (!binding) {
+      continue;
+    }
+    if (binding.target.kind === "member" && isCall(binding.value) && binding.value.callee === "pin") {
+      pins.push(pinFromBinding(binding, line));
+      continue;
+    }
+    if (binding.target.kind !== "local" || !isCall(binding.value)) {
       continue;
     }
     if (binding.value.callee === "node" && typeof binding.value.args.palette === "string") {
-      const palette = binding.value.args.palette;
+      const { palette, ...defaults } = binding.value.args;
       entries.push({
         name: binding.target.name,
         palette: { kind: "palette", id: palette },
+        ...(Object.keys(defaults).length > 0 ? { defaults } : {}),
       });
       continue;
     }
@@ -316,6 +325,12 @@ function tryParseCreationResult(lines: ParsedLine[], context: ParseContext): Lgl
   target = target ?? firstGraphTarget(context);
   if (!target) {
     throw new ParseError("missing_graph_binding", "Creation result text requires a graph binding.", spanForLine(lines[0]));
+  }
+  for (const pin of pins) {
+    const entry = entries.find((candidate) => candidate.name === pin.node);
+    if (entry) {
+      entry.pins = [...(entry.pins ?? []), pin];
+    }
   }
   return { kind: "creation_result", target, entries };
 }

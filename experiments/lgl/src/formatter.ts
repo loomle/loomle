@@ -91,7 +91,7 @@ function formatCreationResult(target: Target, entries: CreationEntry[]): string 
   const lines = [...formatTargetBindings(target), ""];
   for (const entry of entries) {
     if ("palette" in entry) {
-      lines.push(`${entry.name} = node(palette: ${JSON.stringify(entry.palette.id)})`);
+      lines.push(`${entry.name} = node(${formatArgList({ palette: entry.palette.id, ...(entry.defaults ?? {}) })})`);
     } else {
       lines.push(`${entry.name} = ${formatCall(entry.constructor)}`);
     }

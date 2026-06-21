@@ -3,8 +3,10 @@ import type {
   Binding,
   Call,
   Condition,
+  CreationEntry,
   Edge,
   Expr,
+  FindPaletteEntry,
   Graph,
   Node,
   NodeCreation,
@@ -99,13 +101,147 @@ function executeQuery(graph: Graph, query: Query): ObjectResult {
         object: {
           kind: "creation_result",
           target: graph.target,
-          entries: [],
+          entries: findPaletteEntries(find, query),
         },
         diagnostics: [],
       };
     default:
       return assertNever(find);
   }
+}
+
+function findPaletteEntries(find: FindPaletteEntry, query: Query): CreationEntry[] {
+  const includePins = query.with?.includes("pins") ?? false;
+  const includeDefaults = query.with?.includes("defaults") ?? false;
+  const entries = memoryPaletteEntries(includePins, includeDefaults)
+    .filter((entry) => matchesPaletteText(entry, find.text))
+    .filter((entry) => matchesPaletteCondition(entry, query.where));
+  return entries.slice(0, query.page?.limit ?? 50);
+}
+
+function memoryPaletteEntries(includePins: boolean, includeDefaults: boolean): CreationEntry[] {
+  return [
+    {
+      name: "Delay",
+      constructor: call("delay", { duration: 1.0 }),
+      ...(includeDefaults ? { defaults: { duration: 1.0 } } : {}),
+      ...(includePins
+        ? {
+            pins: [
+              pin("Delay", "Exec", "exec", "in"),
+              pin("Delay", "Duration", "float", "in", 1.0),
+              pin("Delay", "Completed", "exec", "out"),
+            ],
+          }
+        : {}),
+    },
+    {
+      name: "Branch",
+      constructor: call("branch"),
+      ...(includePins
+        ? {
+            pins: [
+              pin("Branch", "Exec", "exec", "in"),
+              pin("Branch", "Condition", "boolean", "in"),
+              pin("Branch", "Then", "exec", "out"),
+              pin("Branch", "Else", "exec", "out"),
+            ],
+          }
+        : {}),
+    },
+    {
+      name: "PrintString",
+      palette: { kind: "palette", id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString" },
+      label: "Print String",
+      category: "Utilities/String",
+      ...(includeDefaults ? { defaults: { InString: "" } } : {}),
+      ...(includePins
+        ? {
+            pins: [
+              pin("PrintString", "Exec", "exec", "in"),
+              pin("PrintString", "InString", "string", "in", includeDefaults ? "" : undefined),
+              pin("PrintString", "Then", "exec", "out"),
+            ],
+          }
+        : {}),
+    },
+  ];
+}
+
+function call(callee: string, args: Record<string, Expr> = {}): Call {
+  return { kind: "call", callee, args };
+}
+
+function pin(node: string, name: string, type: string, direction: "in" | "out", value?: Expr): Pin {
+  return {
+    node,
+    name,
+    type,
+    direction,
+    ...(value !== undefined ? { value } : {}),
+  };
+}
+
+function matchesPaletteText(entry: CreationEntry, text: string | undefined): boolean {
+  if (!text) {
+    return true;
+  }
+  const lowered = text.toLowerCase();
+  return paletteSearchFields(entry).some((field) => field.toLowerCase().includes(lowered));
+}
+
+function paletteSearchFields(entry: CreationEntry): string[] {
+  if ("palette" in entry) {
+    return [entry.name, entry.label ?? "", entry.category ?? "", entry.palette.id];
+  }
+  return [entry.name, entry.constructor.callee];
+}
+
+function matchesPaletteCondition(entry: CreationEntry, condition: Condition | undefined): boolean {
+  if (!condition) {
+    return true;
+  }
+
+  switch (condition.kind) {
+    case "eq":
+      return String(readPaletteField(entry, condition.field.path)) === exprToConditionString(condition.value);
+    case "ne":
+      return String(readPaletteField(entry, condition.field.path)) !== exprToConditionString(condition.value);
+    case "contains":
+      return String(readPaletteField(entry, condition.field.path)).includes(exprToConditionString(condition.value));
+    case "compare":
+      return compareValues(readPaletteField(entry, condition.field.path), condition.op, condition.value);
+    case "not":
+      return !matchesPaletteCondition(entry, condition.condition);
+    case "and":
+      return condition.conditions.every((item) => matchesPaletteCondition(entry, item));
+    case "or":
+      return condition.conditions.some((item) => matchesPaletteCondition(entry, item));
+    default:
+      return assertNever(condition);
+  }
+}
+
+function readPaletteField(entry: CreationEntry, path: string[]): unknown {
+  const field = path.join(".");
+  if (field === "name") {
+    return entry.name;
+  }
+  if ("palette" in entry) {
+    if (field === "palette" || field === "id") {
+      return entry.palette.id;
+    }
+    if (field === "label") {
+      return entry.label;
+    }
+    if (field === "category") {
+      return entry.category;
+    }
+  }
+  if (!("palette" in entry) && (field === "constructor" || field === "type")) {
+    return entry.constructor.callee;
+  }
+  return undefined;
 }
 
 function executePatch(graph: Graph, patch: Patch): ObjectResult {

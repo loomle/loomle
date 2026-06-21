@@ -12,11 +12,15 @@
     "kind": "palette_entry",
     "text": "Print"
   },
+  "with": ["pins", "defaults"],
   "where": {
     "kind": "eq",
     "field": {
       "path": ["function"]
     },
     "value": "/Script/Engine.KismetSystemLibrary.PrintString"
+  },
+  "page": {
+    "limit": 10
   }
 }

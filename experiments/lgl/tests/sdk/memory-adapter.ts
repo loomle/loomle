@@ -69,6 +69,30 @@ assert.match(printNodes.text ?? "", /print = node\(graph: g, type: PrintString, 
 assert.match(printNodes.text ?? "", /print.InString = pin\(type: string, direction: in, value: "Ready"\)/);
 console.log("[PASS] memory adapter filters nodes and pins");
 
+const printPalette = await lgl.query(`${graphHeader}
+query g
+find palette entry "Print String"
+with pins, defaults
+page limit 10
+`);
+assert.equal(printPalette.diagnostics.length, 0);
+assert.match(
+  printPalette.text ?? "",
+  /PrintString = node\(palette: "palette:blueprint:function:\/Script\/Engine.KismetSystemLibrary.PrintString", InString: ""\)/,
+);
+assert.match(printPalette.text ?? "", /PrintString.Exec = pin\(type: exec, direction: in\)/);
+assert.match(printPalette.text ?? "", /PrintString.InString = pin\(type: string, direction: in, value: ""\)/);
+
+const delayPalette = await lgl.query(`${graphHeader}
+query g
+find palette entry "Delay"
+with pins, defaults
+`);
+assert.equal(delayPalette.diagnostics.length, 0);
+assert.match(delayPalette.text ?? "", /Delay = delay\(duration: 1\)/);
+assert.match(delayPalette.text ?? "", /Delay.Completed = pin\(type: exec, direction: out\)/);
+console.log("[PASS] memory adapter returns copyable palette entries");
+
 const dryRunPatch = await lgl.patch(`${graphHeader}
 patch g dry run
 
