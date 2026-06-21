@@ -2,174 +2,42 @@
 
 ## Intent
 
-This note tracks differences between the current graph-first implementation and
-the target graph domain design in `docs/domains/graph.md`.
+This note tracks remaining differences between the implemented graph-domain
+experiment and the target design in [`../domains/graph.md`](../domains/graph.md).
 
-The domain document should stay focused on the final shape. This note exists so
-implementation work can still audit the migration from parser, formatter,
-schema, fixtures, and examples.
+The graph domain document is the source of truth for the final language shape.
+This note should stay short and only record implementation audit items.
 
-## Current Headers
+## Completed
 
-The current parser accepts graph-first document headers:
+The TypeScript experiment has migrated the graph path to the current
+statement-list design:
 
-```lgl
-graph blueprint("/Game/BP_LGLExample"/EventGraph)
-query blueprint("/Game/BP_LGLExample"/EventGraph)
-patch blueprint("/Game/BP_LGLExample"/EventGraph)
-palette blueprint("/Game/BP_LGLExample"/EventGraph)
-```
+- graph, query, and patch documents use explicit `asset(...)` and `graph(...)`
+  bindings
+- node readback uses `name = node(graph: g, type: Type, id: "...")`
+- pin readback uses `node.pin = pin(type: ..., direction: ...)`
+- edge chains use `pin -> pin` sugar and normalize to explicit edge JSON
+- query text uses clause-per-line `find`, `where`, `with`, `order by`, and
+  `page`
+- patch text supports `add`, `insert`, `connect`, `disconnect`, `set`, `move`,
+  `remove`, and `reconstruct`
+- palette fallback creation uses `node(palette: "entry-id", defaults...)`
+- stable shortcut creation uses constructors such as `delay(...)`,
+  `branch(...)`, `get(...)`, and `event(...)`
+- patch execution in the memory adapter preflights the whole patch before
+  applying mutations
+- SDK query results expose opaque `page.next` cursors
 
-Target canonical text uses statement-list bindings:
+Old graph-first forms such as `alias@id: Type(...)`, `palette({id: ...})`, and
+`node(..., source: PaletteBinding)` are not target syntax.
 
-```lgl
-bp = asset(path: "/Game/BP_LGLExample.BP_LGLExample", type: blueprint)
-g = graph(domain: blueprint, asset: bp, graph: EventGraph)
-```
+## Remaining Audit Items
 
-## Current Node Readback
-
-Current:
-
-```lgl
-delay@A002: Delay({Duration: 1.0})
-```
-
-Target:
-
-```lgl
-delay = node(graph: g, type: Delay, id: "A002", Duration: 1.0)
-```
-
-The old `alias@id: Type(...)` form should not remain as permanent sugar.
-
-## Current Pin Readback
-
-Current:
-
-```lgl
-delay.Duration: float in {1.0, anchor: [320, 72]}
-```
-
-Target:
-
-```lgl
-delay.Duration = pin(type: float, direction: in, value: 1.0, anchor: [320, 72])
-```
-
-## Current Palette Binding
-
-Current:
-
-```lgl
-Delay = palette({id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay"})
-```
-
-Target:
-
-```lgl
-DelaySource = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay")
-delay = node(graph: g, source: DelaySource, Duration: 1.0)
-```
-
-## Current Query
-
-Current:
-
-```lgl
-query blueprint("/Game/BP_LGLExample"/EventGraph)
-
-find nodes where type = PrintString with pins, defaults
-```
-
-Target:
-
-```lgl
-query g
-find nodes
-where type = PrintString
-with pins, defaults
-```
-
-Next query syntax keeps `where` as a single condition expression:
-
-```lgl
-query g
-find nodes
-where type = PrintString and name ~= "Print"
-with pins, defaults
-order by name asc
-page limit 10
-```
-
-Old single-line query text should migrate to clause-per-line query text:
-
-```lgl
-query g find nodes where type = PrintString and name ~= "Print" with pins, defaults
-```
-
-The line above is an old form to migrate away from, not target syntax.
-
-## Current Patch Chains
-
-Current:
-
-```lgl
-connect begin.Then -> print.Exec
-insert begin.Then -> delay.Exec/Completed -> print.Exec
-```
-
-Target canonical text:
-
-```lgl
-connect(begin.Then, print.Exec)
-insert(delay, from: begin.Then, to: print.Exec, input: delay.Exec, output: delay.Completed)
-```
-
-The `->` forms remain accepted sugar.
-
-## Current Patch Binding Adds
-
-Current graph patches usually split node binding and add operations:
-
-```lgl
-delay = node(graph: g, source: DelaySource, Duration: 1.0)
-add delay
-```
-
-Target patch sugar also accepts inline add bindings:
-
-```lgl
-add delay = node(graph: g, source: DelaySource, Duration: 1.0)
-```
-
-Canonical text still splits this into one binding and one `add delay`
-operation before normalized JSON.
-
-## Schema Migrations
-
-Planned graph schema changes:
-
-```txt
-Node.layout.at        -> Node.at
-Node.layout.size      -> Node.size
-Pin.layout.anchor     -> Pin.anchor
-Connect.chain         -> Connect.edge
-Insert.chain          -> Insert.from / Insert.to / Insert.input / Insert.output
-node creation binding -> node(..., source: PaletteBindingName, ...)
-shortcut creation     -> get(...), set(...), event(...), call(...), etc.
-```
-
-## Implementation Checklist
-
-- Update schema fixtures for direct node and pin readback metadata.
-- Update parser to parse statement-list graph bindings.
-- Add normalizer pass for graph sugar to canonical text.
-- Update formatter to emit canonical graph text.
-- Update query parsing to use clause-per-line text and `page limit`.
-- Update patch binding parsing to support `add <binding>`,
-  `node(..., source: ...)`, and shortcut constructors.
-- Update `connect` JSON from chain to edge.
-- Update `insert` JSON from chain to explicit `from`, `to`, `input`, and
-  `output`.
-- Update examples from graph-first headers to canonical statement-list form.
+- Keep schema fixtures aligned with each normalized JSON section in
+  `domains/graph.md`.
+- Expand negative parser tests when new sugar is added.
+- Keep memory-adapter behavior as the executable model for SDK semantics, while
+  leaving UE-specific validation to the future bridge adapter.
+- When bridge implementation begins, compare UE behavior against the graph
+  domain document first, not old graph-first notes.

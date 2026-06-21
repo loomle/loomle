@@ -384,8 +384,7 @@ add overlap = event(component: Trigger, event: OnComponentBeginOverlap)
 Palette fallback construction:
 
 ```lgl
-GetHealthSource = palette(id: "palette:blueprint:variable:get:Health")
-add health = node(graph: g, source: GetHealthSource)
+add health = node(palette: "palette:blueprint:variable:get:Health")
 ```
 
 Both forms may create the same UE node class. The semantic form is preferred

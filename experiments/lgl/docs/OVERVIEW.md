@@ -150,7 +150,7 @@ language categories.
 - [`domains/blueprint.md`](domains/blueprint.md): Blueprint domain design.
 - [`domains/widget.md`](domains/widget.md): widget domain design.
 - [`notes/graph-migration.md`](notes/graph-migration.md): migration notes for
-  the current graph-first implementation.
+  remaining graph-domain implementation differences.
 
 Some implementation documents still describe the graph-first experiment. Treat
 them as factual implementation context until the schema and runtime are migrated

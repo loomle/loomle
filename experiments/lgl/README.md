@@ -35,30 +35,28 @@ schema contract use normalized JSON.
 
 ## Documents
 
-The docs are in transition from the current graph-first experiment to the next
-module-oriented LGL design. New module docs should replace the older
-graph-first docs once implementation catches up.
+The docs are organized around the shared language core plus UE domains. The
+graph domain is implemented by the TypeScript experiment; asset, Blueprint, and
+widget domains record target shapes for later adapters.
 
 - `docs/OVERVIEW.md`: Next LGL direction, representation layers, and core
   design rules.
 - `docs/LANGUAGE_CORE.md`: Shared statement, constructor, value, and reference
   syntax.
-- `docs/MODULES.md`: How domain modules own their syntax, normalization, object
+- `docs/DOMAINS.md`: How domains own their syntax, normalization, object
   model, query, patch, diagnostics, and examples.
-- `docs/modules/graph.md`: Draft next graph module from sugar to canonical text
+- `docs/domains/graph.md`: Graph domain from sugar to canonical text
   to normalized JSON.
-- `docs/notes/graph-migration.md`: Migration notes from the current
-  graph-first implementation to the target graph module design.
-- `docs/modules/asset.md`: Draft asset module for Asset Registry-backed search,
+- `docs/notes/graph-migration.md`: Migration notes for remaining graph-domain
+  implementation differences.
+- `docs/domains/asset.md`: Draft asset domain for Asset Registry-backed search,
   resolve, registry tags, and asset result text.
-- `docs/modules/blueprint.md`: Draft Blueprint module for class contract,
+- `docs/domains/blueprint.md`: Draft Blueprint domain for class contract,
   member declarations, custom events, and component tree structure.
-- `docs/modules/widget.md`: Draft widget module for UMG tree constructors,
+- `docs/domains/widget.md`: Draft widget domain for UMG tree constructors,
   slots, and widget patching.
 - `docs/SDK_DESIGN.md`: SDK facade, adapter contract, diagnostics, and result
   types for the current experiment.
-- `docs/OBJECT_MODEL.md`: Current parsed `LglObject` model for `Target`,
-  `Graph`, nodes, pins, edges, and layout.
 - `docs/LGL_NATIVE_BRIDGE.md`: Future LGL-native UE bridge architecture.
 - `docs/LGL_BRIDGE_CODE_LAYOUT.md`: Proposed LGL-native UE bridge code layout.
 - `docs/LGL_BRIDGE_QUERY_SPIKE.md`: First UE-backed `lgl.object.query` spike
@@ -125,31 +123,33 @@ Blueprint examples currently cover:
 - query examples for nodes, paths, surrounding context, palette discovery, and
   detailed node output
 
-The examples currently use the implemented graph-first inspect form:
+The examples use the implemented statement-list graph form:
 
 ```txt
-begin@7A9D: EventBeginPlay() {at: [0, 0], size: [180, 80]}
-delay@81EF: Delay({Duration: 1.0}) {at: [320, 0], size: [200, 100]}
-print@C2B0: PrintString({InString: "Ready"}) {at: [640, 0], size: [220, 120]}
+bp = asset(path: "/Game/BP_LGLExample.BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+
+begin = node(graph: g, type: EventBeginPlay, id: "7A9D", at: [0, 0], size: [180, 80])
+delay = node(graph: g, type: Delay, id: "81EF", Duration: 1.0, at: [320, 0], size: [200, 100])
+print = node(graph: g, type: PrintString, id: "C2B0", InString: "Ready", at: [640, 0], size: [220, 120])
 
 begin.Then -> delay.Exec/Completed -> print.Exec
 ```
 
 Compact `graph` examples are readback snapshots and do not include palette
-bindings. Patch examples bind stable palette entry ids when they create new
-nodes.
+bindings. Patch examples use stable palette entry ids or shortcut constructors
+when they create new nodes.
 
-Layout readback appears as trailing object metadata on node and pin detail
-lines, such as `{at: [x, y], size: [w, h]}`, `{anchor: [x, y]}`, and
-`{1.0, anchor: [x, y]}` for a pin default plus layout. Patch layout mutation is
-currently limited to `move node to (...)` and `move node by (...)`.
+Layout readback appears as named node and pin fields such as `at: [x, y]`,
+`size: [w, h]`, and `anchor: [x, y]`. Patch layout mutation is currently
+limited to `move node to (...)` and `move node by (...)`.
 
-Palette binding examples:
+Creation examples:
 
 ```txt
-PrintString = palette({id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString"})
-TriggerBeginOverlap = palette({id: "palette:blueprint:component_event:/Game/BP_Door.Trigger.OnComponentBeginOverlap"})
-GetDisplayName = palette({id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.GetDisplayName"})
+print = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString", InString: "Ready")
+delay = delay(duration: 1.0)
+overlap = event(component: Trigger, event: OnComponentBeginOverlap)
 ```
 
 ## Non-Goals

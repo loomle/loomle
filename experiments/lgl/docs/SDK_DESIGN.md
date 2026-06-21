@@ -51,9 +51,7 @@ source inside domains that expose creation entries.
 The normalized JSON model is internal to the SDK, adapters, schemas, and RPC
 boundary. Graph, asset, blueprint, widget, and future domains define their own
 normalized object shapes in domain documents. Those domain sections are the
-target design source. The current [`OBJECT_MODEL.md`](OBJECT_MODEL.md) remains
-a graph-first implementation reference until the schema migrates to the current
-domain design.
+target design source.
 
 ## LGL Scope
 
@@ -74,8 +72,8 @@ docs:
   component structure.
 - [`domains/widget.md`](domains/widget.md): widget tree constructors, slots,
   queries, and patches.
-- [`notes/graph-migration.md`](notes/graph-migration.md): migration notes from
-  the current graph-first implementation.
+- [`notes/graph-migration.md`](notes/graph-migration.md): migration notes for
+  remaining graph-domain implementation differences.
 
 ## Pipeline
 

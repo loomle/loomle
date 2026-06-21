@@ -107,5 +107,5 @@ must be migrated.
 - [`domains/widget.md`](domains/widget.md): modeled widget constructors, widget
   tree structure, slots, queries, and widget tree patching.
 
-Graph is drafted against the current graph-first implementation. Asset,
-blueprint, and widget are target designs.
+Graph is implemented by the TypeScript experiment. Asset, blueprint, and widget
+are target designs.
