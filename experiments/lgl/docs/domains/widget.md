@@ -357,6 +357,49 @@ entries against the target WidgetBlueprint and UE palette filtering rules:
 hidden and deprecated classes, editor-only widgets, project palette settings,
 the active WidgetBlueprint class, and unloaded WidgetBlueprint assets.
 
+### UE-Backed Adapter Rules
+
+The UE-backed adapter should model the UMG editor palette, not the older bridge
+shortcut that only enumerated loaded classes.
+
+Collection sources:
+
+1. Loaded native classes derived from `UWidget`.
+2. Loaded user widget classes derived from `UUserWidget`.
+3. Unloaded WidgetBlueprint and generated class assets discovered through the
+   Asset Registry.
+4. Project/editor palette filters such as hidden classes, deprecated classes,
+   editor-only widgets, engine/developer content visibility, and hidden
+   categories.
+
+Classification rules:
+
+1. Common native widgets with stable LGL meaning return constructor entries,
+   such as `Button()`, `TextBlock()`, `CanvasPanel()`, and `VerticalBox()`.
+2. User widgets, WidgetBlueprint assets, and plugin/native widgets whose class
+   path is the complete creation identity return `widget(class: "...")`.
+3. Special templates that cannot be represented by constructor or class path
+   return `widget(palette: "...")`.
+
+`with defaults` is intentionally small. It should return common writable
+creation arguments that make immediate patch authoring easier. It must not try
+to expose the full widget property surface, event list, or slot schema. Those
+belong to future `with properties`, `with events`, and `with slots` expansions.
+
+The adapter must validate palette entries against UE state before returning or
+executing them:
+
+1. The class or template resolves for the target WidgetBlueprint context.
+2. The class is not abstract, deprecated, hidden, or editor-only when the target
+   WidgetBlueprint disallows editor widgets.
+3. The class is not the same WidgetBlueprint class currently being edited.
+4. Asset Registry entries that are not loaded still provide enough metadata to
+   produce a stable `widget(class: "...")` result, or they fall back to
+   `widget(palette: "...")`.
+5. Parent compatibility and slot validity are checked during patch validation
+   and apply, because they depend on the actual `add parent.child = ...`
+   target.
+
 Normalized JSON:
 
 ```ts
