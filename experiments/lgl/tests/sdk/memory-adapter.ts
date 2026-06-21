@@ -221,3 +221,33 @@ assert.equal(
   false,
 );
 console.log("[PASS] memory adapter applies maintenance patch ops");
+
+const missingAddBinding = await lgl.patch(`${graphHeader}
+patch g
+
+add missingNode
+`);
+assert.equal(missingAddBinding.diagnostics[0]?.code, "unknown_node_binding");
+
+const missingInsertBinding = await lgl.patch(`${graphHeader}
+patch g
+
+insert begin.Then -> missingNode.Exec/Completed -> delay.Exec
+`);
+assert.equal(missingInsertBinding.diagnostics[0]?.code, "unknown_node_binding");
+
+const missingInsertEdge = await lgl.patch(`${graphHeader}
+patch g
+
+delay2 = delay(duration: 1.0)
+insert print.Then -> delay2.Exec/Completed -> begin.Exec
+`);
+assert.equal(missingInsertEdge.diagnostics[0]?.code, "missing_insert_edge");
+
+const missingDisconnectEdge = await lgl.patch(`${graphHeader}
+patch g
+
+disconnect begin.Then -> print.Exec
+`);
+assert.equal(missingDisconnectEdge.diagnostics[0]?.code, "missing_edge");
+console.log("[PASS] memory adapter reports patch validation diagnostics");
