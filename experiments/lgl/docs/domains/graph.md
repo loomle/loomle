@@ -329,12 +329,13 @@ Patch operations:
 | Disconnect edge | `disconnect pin -> pin` | `disconnect(pin, pin)` |
 | Disconnect pin | `disconnect pin` | same |
 | Insert node | `insert pin -> node.input/output -> pin` | `insert(node, from: pin, to: pin, input: pin, output: pin)` |
-| Remove binding | `remove name` | same |
+| Remove node | `remove name` | same |
 | Move node | `move name to (x, y)` | same |
 | Reconstruct node | `reconstruct name preserve links` | same |
 
-Palette bindings used in a patch should come from `find palette entry`; see
-Palette for creation-entry discovery and pin/default details.
+Palette-id creation templates used in a patch should come from
+`find palette entry`; see Palette for creation-entry discovery and pin/default
+details.
 
 `add name = node(...)` uses the shared patch sugar from the language core. Its
 canonical form is a graph node binding followed by `add name`.
@@ -342,7 +343,20 @@ canonical form is a graph node binding followed by `add name`.
 Normalized JSON:
 
 ```ts
-type GraphPatch = Patch<GraphPatchOp>;
+interface Patch {
+  kind: "patch";
+  target: Target;
+  dryRun: boolean;
+  bindings: Binding[];
+  ops: GraphPatchOp[];
+}
+
+interface Binding {
+  target: BindingTarget;
+  value: BindingValue;
+}
+
+type BindingValue = Expr | NodeCreation;
 
 type GraphPatchOp =
   | Set
@@ -623,28 +637,28 @@ Use palette fallback when any of these are true:
 The first batch should prefer constructors that are already stable in UE and
 already have direct or well-understood bridge paths.
 
-| UE concept | Preferred LGL | Normalized kind | Creation path | First batch |
+| UE concept | Preferred LGL | LGL callee / form | Creation path | First batch |
 | --- | --- | --- | --- | --- |
-| Variable getter | `get(variable: X)` | `variable_get` | `UK2Node_VariableGet` or UE schema helper | yes |
-| Variable setter | `set(variable: X)` | `variable_set` | `UK2Node_VariableSet` or UE schema helper | yes |
-| Component-bound event | `event(component: X, event: Y)` | `component_bound_event` | `UK2Node_ComponentBoundEvent` or bound-event spawner | yes |
-| Custom event node | `event(name: X)` | `custom_event_node` | `UK2Node_CustomEvent` | yes |
-| Native event node | `event(name: X, owner: C)` | `event_node` | `FKismetEditorUtilities::AddDefaultEventNode` | yes |
-| Function call | `call(function: X)` | `function_call` | `UK2Node_CallFunction` or function spawner | yes |
+| Variable getter | `get(variable: X)` | `get` | `UK2Node_VariableGet` or UE schema helper | yes |
+| Variable setter | `set(variable: X)` | `set` | `UK2Node_VariableSet` or UE schema helper | yes |
+| Component-bound event | `event(component: X, event: Y)` | `event` | `UK2Node_ComponentBoundEvent` or bound-event spawner | yes |
+| Custom event node | `event(name: X)` | `event` | `UK2Node_CustomEvent` | yes |
+| Native event node | `event(name: X, owner: C)` | `event` | `FKismetEditorUtilities::AddDefaultEventNode` | yes |
+| Function call | `call(function: X)` | `call` | `UK2Node_CallFunction` or function spawner | yes |
 | Branch | `branch()` | `branch` | `UK2Node_IfThenElse` | yes |
 | Sequence | `sequence()` | `sequence` | `UK2Node_ExecutionSequence` | yes |
-| Dynamic cast | `cast(to: X)` | `dynamic_cast` | `UK2Node_DynamicCast` | yes |
+| Dynamic cast | `cast(to: X)` | `cast` | `UK2Node_DynamicCast` | yes |
 | Reroute | `reroute()` | `reroute` | `UK2Node_Knot` | yes |
 | Comment | `comment(text: "...")` | `comment` | `UEdGraphNode_Comment` | yes |
 | Self | `self()` | `self` | `UK2Node_Self` | yes |
 | Delay | `delay(duration: X)` | `delay` | function call helper | yes |
 | Timeline | `timeline(name: X)` | `timeline` | `UK2Node_Timeline` | maybe |
-| Macro instance | `macro(library: A, graph: B)` | `macro_instance` | `UK2Node_MacroInstance` | maybe |
-| Function result | `return()` | `function_result` | `UK2Node_FunctionResult` | maybe |
-| Collapsed graph | `collapsed_graph(name: X)` | `composite` | `UK2Node_Composite` | maybe |
-| Add component node | `add_component(class: X)` | `add_component_node` | `UK2Node_AddComponent` / `UK2Node_AddComponentByClass` | later |
-| Delegate bind/assign/call | `bind(dispatcher: X)`, `assign(dispatcher: X)`, `call(dispatcher: X)` | delegate operation nodes | delegate spawners | later |
-| Plugin or unmodeled action | none | `palette_node` | Action Menu palette entry | no |
+| Macro instance | `macro(library: A, graph: B)` | `macro` | `UK2Node_MacroInstance` | maybe |
+| Function result | `return()` | `return` | `UK2Node_FunctionResult` | maybe |
+| Collapsed graph | `collapsed_graph(name: X)` | `collapsed_graph` | `UK2Node_Composite` | maybe |
+| Add component node | `add_component(class: X)` | `add_component` | `UK2Node_AddComponent` / `UK2Node_AddComponentByClass` | later |
+| Delegate bind/assign/call | `bind(dispatcher: X)`, `assign(dispatcher: X)`, `call(dispatcher: X)` | `bind` / `assign` / `call` | delegate spawners | later |
+| Plugin or unmodeled action | `node(palette: "...")` | `palette_node` | Action Menu palette entry | no |
 
 `yes` means the constructor should be part of the initial LGL graph creation
 surface. `maybe` means the UE concept is stable but needs a sharper text shape
@@ -667,7 +681,8 @@ Do not use inline value objects as the normal ref form:
 get(variable: { owner: door, name: Health })
 ```
 
-Normalized JSON can expand refs into owner/name/path fields. Agent-facing text
+Shortcut constructor arguments normalize as ordinary `Expr` values. The adapter
+resolves names, owned references, and paths against UE state. Agent-facing text
 should stay compact and readable.
 
 First-batch constructor argument forms:
@@ -704,16 +719,9 @@ Rules:
 10. `comment(text: X)` creates an editor comment node.
 
 `event` intentionally uses the agent-facing word `event` even when UE stores the
-component case as a multicast delegate property. Normalized JSON should preserve
-the UE term:
-
-```ts
-interface ComponentBoundEventCreation {
-  kind: "component_bound_event";
-  component: CreationRef;
-  delegate: string;
-}
-```
+component case as a multicast delegate property. Normalized JSON preserves the
+agent's constructor call through `ShortcutNodeCreation`; the adapter resolves
+that call to UE component and delegate metadata.
 
 If a short ref is ambiguous, the adapter should reject the request and suggest
 an owned member name or full path. It should not guess.
@@ -731,15 +739,6 @@ palette fallback     -> palette normalized JSON   -> bridge palette execution
 The bridge adapter may implement shortcut creation by using direct UE APIs,
 UE schema helpers, or UE Action Menu spawners. That implementation choice must
 not be exposed as the normalized LGL truth.
-
-Reference values should normalize into explicit structured refs:
-
-```ts
-type CreationRef =
-  | { kind: "local"; name: string }
-  | { kind: "owned"; owner: string; name: string }
-  | { kind: "path"; path: string };
-```
 
 Creation bindings should normalize by creation kind. There are exactly two
 agent-facing creation forms:
@@ -767,20 +766,19 @@ Normalized JSON preserves creation kind:
 
 ```ts
 type NodeCreation =
-  | { kind: "variable_get"; variable: CreationRef }
-  | { kind: "variable_set"; variable: CreationRef; value?: Value }
-  | { kind: "component_bound_event"; component: CreationRef; delegate: string }
-  | { kind: "custom_event_node"; name: string }
-  | { kind: "event_node"; name: string; owner: CreationRef }
-  | { kind: "function_call"; function: CreationRef; defaults?: Record<string, Value> }
-  | { kind: "branch" }
-  | { kind: "sequence" }
-  | { kind: "delay"; duration?: Value }
-  | { kind: "dynamic_cast"; targetClass: CreationRef }
-  | { kind: "reroute" }
-  | { kind: "comment"; text: string; size?: Point }
-  | { kind: "self" }
-  | { kind: "palette_node"; palette: string; defaults?: Record<string, Expr> };
+  | ShortcutNodeCreation
+  | PaletteNodeCreation;
+
+interface ShortcutNodeCreation {
+  kind: "shortcut_node";
+  constructor: Call;
+}
+
+interface PaletteNodeCreation {
+  kind: "palette_node";
+  palette: string;
+  defaults?: Record<string, Expr>;
+}
 ```
 
 Examples:
@@ -795,38 +793,57 @@ print = call(function: "/Script/Engine.KismetSystemLibrary.PrintString", InStrin
 ```json
 [
   {
-    "alias": "health",
-    "creation": {
-      "kind": "variable_get",
-      "variable": { "kind": "local", "name": "Health" }
+    "target": { "kind": "local", "name": "health" },
+    "value": {
+      "kind": "shortcut_node",
+      "constructor": {
+        "kind": "call",
+        "callee": "get",
+        "args": {
+          "variable": { "kind": "name", "name": "Health" }
+        }
+      }
     }
   },
   {
-    "alias": "setHealth",
-    "creation": {
-      "kind": "variable_set",
-      "variable": { "kind": "local", "name": "Health" },
-      "value": 100.0
+    "target": { "kind": "local", "name": "setHealth" },
+    "value": {
+      "kind": "shortcut_node",
+      "constructor": {
+        "kind": "call",
+        "callee": "set",
+        "args": {
+          "variable": { "kind": "name", "name": "Health" },
+          "value": 100.0
+        }
+      }
     }
   },
   {
-    "alias": "overlap",
-    "creation": {
-      "kind": "component_bound_event",
-      "component": { "kind": "local", "name": "Trigger" },
-      "delegate": "OnComponentBeginOverlap"
+    "target": { "kind": "local", "name": "overlap" },
+    "value": {
+      "kind": "shortcut_node",
+      "constructor": {
+        "kind": "call",
+        "callee": "event",
+        "args": {
+          "component": { "kind": "name", "name": "Trigger" },
+          "event": { "kind": "name", "name": "OnComponentBeginOverlap" }
+        }
+      }
     }
   },
   {
-    "alias": "print",
-    "creation": {
-      "kind": "function_call",
-      "function": {
-        "kind": "path",
-        "path": "/Script/Engine.KismetSystemLibrary.PrintString"
-      },
-      "defaults": {
-        "InString": "Ready"
+    "target": { "kind": "local", "name": "print" },
+    "value": {
+      "kind": "shortcut_node",
+      "constructor": {
+        "kind": "call",
+        "callee": "call",
+        "args": {
+          "function": "/Script/Engine.KismetSystemLibrary.PrintString",
+          "InString": "Ready"
+        }
       }
     }
   }
@@ -841,8 +858,8 @@ delay = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLib
 
 ```json
 {
-  "alias": "delay",
-  "creation": {
+  "target": { "kind": "local", "name": "delay" },
+  "value": {
     "kind": "palette_node",
     "palette": "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay",
     "defaults": {
@@ -852,9 +869,9 @@ delay = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLib
 }
 ```
 
-This separation keeps schema validation and error feedback specific. For
-example, `variable_get` can return `VARIABLE_NOT_FOUND`, while `palette_node`
-can return `PALETTE_ENTRY_NOT_FOUND` or `PALETTE_ENTRY_NOT_EXECUTABLE`.
+This separation keeps normalized creation intent stable. Shortcut constructors
+preserve the agent's semantic request for the adapter to validate, while
+palette fallback preserves the exact UE Action Menu id.
 
 ### Palette Entry Details
 
