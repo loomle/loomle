@@ -30,6 +30,10 @@ export interface MemoryGraphAdapter extends Adapter {
   getGraph(target: Target): Graph | undefined;
 }
 
+interface PatchPlanResult extends ObjectResult {
+  object?: Graph;
+}
+
 export function createMemoryGraphAdapter(
   options: CreateMemoryGraphAdapterOptions,
 ): MemoryGraphAdapter {
@@ -61,17 +65,20 @@ export function createMemoryGraphAdapter(
         return graphNotFound(patch.target);
       }
 
-      const working = cloneGraph(graph);
-      const result = executePatch(working, patch);
+      const result = planPatch(graph, patch);
       if (result.diagnostics.length > 0) {
         return result;
       }
 
-      if (!patch.dryRun) {
-        graphs.set(targetKey(patch.target), cloneGraph(working));
+      if (!result.object) {
+        return { diagnostics: [diagnostic("patch_plan_failed", "Patch planning did not produce a graph.")] };
       }
 
-      return { object: working, diagnostics: [] };
+      if (!patch.dryRun) {
+        graphs.set(targetKey(patch.target), cloneGraph(result.object));
+      }
+
+      return result;
     },
   };
 }
@@ -283,7 +290,8 @@ function readPaletteField(entry: CreationEntry, path: string[]): unknown {
   return undefined;
 }
 
-function executePatch(graph: Graph, patch: Patch): ObjectResult {
+function planPatch(graph: Graph, patch: Patch): PatchPlanResult {
+  const working = cloneGraph(graph);
   const bindingMap = new Map<string, Binding>();
   for (const binding of patch.bindings) {
     if (binding.target.kind === "local") {
@@ -291,14 +299,99 @@ function executePatch(graph: Graph, patch: Patch): ObjectResult {
     }
   }
 
+  const addedAliases = collectAddedAliases(patch.ops);
+  for (const alias of addedAliases) {
+    if (!nodeFromBinding(alias, bindingMap)) {
+      return { diagnostics: [diagnostic("unknown_node_binding", `No node binding exists for ${alias}.`)] };
+    }
+  }
+
   for (const op of patch.ops) {
-    const diagnostic = applyOp(graph, bindingMap, op);
+    const diagnostic = validateOpReferences(graph, bindingMap, addedAliases, op);
     if (diagnostic) {
       return { diagnostics: [diagnostic] };
     }
   }
 
-  return { object: graph, diagnostics: [] };
+  for (const op of patch.ops) {
+    const diagnostic = applyOp(working, bindingMap, op);
+    if (diagnostic) {
+      return { diagnostics: [diagnostic] };
+    }
+  }
+
+  return { object: working, diagnostics: [] };
+}
+
+function collectAddedAliases(ops: Op[]): Set<string> {
+  const aliases = new Set<string>();
+  for (const op of ops) {
+    if (op.kind === "add") {
+      aliases.add(op.binding);
+    } else if (op.kind === "insert") {
+      aliases.add(op.node);
+    }
+  }
+  return aliases;
+}
+
+function validateOpReferences(
+  graph: Graph,
+  bindings: Map<string, Binding>,
+  addedAliases: Set<string>,
+  op: Op,
+): ObjectResult["diagnostics"][number] | undefined {
+  switch (op.kind) {
+    case "insert":
+      if (!hasEdge(graph, { from: op.from, to: op.to })) {
+        return diagnostic("missing_insert_edge", "Insert requires an existing direct edge.");
+      }
+      return validateEdgeNodes(graph, addedAliases, { from: op.input, to: op.output });
+    case "connect":
+      return validateEdgeNodes(graph, addedAliases, op.edge);
+    case "add":
+      if (!nodeFromBinding(op.binding, bindings)) {
+        return diagnostic("unknown_node_binding", `No node binding exists for ${op.binding}.`);
+      }
+      return op.connect ? validateEdgeNodes(graph, addedAliases, op.connect) : undefined;
+    case "disconnect":
+      if ("edge" in op && !hasEdge(graph, op.edge)) {
+        return diagnostic("missing_edge", "Disconnect edge does not exist.");
+      }
+      return undefined;
+    case "move":
+      return graphHasNode(graph, op.node) || addedAliases.has(op.node)
+        ? undefined
+        : diagnostic("unknown_node", `Node ${op.node} does not exist.`);
+    case "set":
+      return graphHasNode(graph, op.target.object) || addedAliases.has(op.target.object)
+        ? undefined
+        : diagnostic("unknown_node", `Node ${op.target.object} does not exist.`);
+    case "remove":
+    case "reconstruct":
+      return graphHasNode(graph, op.node) || addedAliases.has(op.node)
+        ? undefined
+        : diagnostic("unknown_node", `Node ${op.node} does not exist.`);
+    default:
+      return assertNever(op);
+  }
+}
+
+function validateEdgeNodes(
+  graph: Graph,
+  addedAliases: Set<string>,
+  edge: Edge,
+): ObjectResult["diagnostics"][number] | undefined {
+  for (const pin of [edge.from, edge.to]) {
+    if (!graphHasNode(graph, pin.node) && !addedAliases.has(pin.node)) {
+      return diagnostic("unknown_node", `Node ${pin.node} does not exist.`);
+    }
+  }
+  return undefined;
+}
+
+function graphHasNode(graph: Graph, alias: string): boolean {
+  return graph.nodes.some((node) => node.alias === alias);
 }
 
 function applyOp(

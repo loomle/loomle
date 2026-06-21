@@ -250,4 +250,36 @@ patch g
 disconnect begin.Then -> print.Exec
 `);
 assert.equal(missingDisconnectEdge.diagnostics[0]?.code, "missing_edge");
+
+const forwardReferencePatch = await lgl.patch(`${graphHeader}
+patch g
+
+delay2 = delay(duration: 2.0)
+connect print.Then -> delay2.Exec
+add delay2
+`);
+assert.equal(forwardReferencePatch.diagnostics.length, 0);
+const afterForwardReference = adapter.getGraph(graph.target);
+assert.equal(afterForwardReference?.nodes.some((node) => node.alias === "delay2"), true);
+assert.equal(
+  afterForwardReference?.edges.some(
+    (edge) =>
+      edge.from.node === "print" &&
+      edge.from.pin === "Then" &&
+      edge.to.node === "delay2" &&
+      edge.to.pin === "Exec",
+  ),
+  true,
+);
+
+const atomicFailure = await lgl.patch(`${graphHeader}
+patch g
+
+set print.InString = "ShouldNotApply"
+connect missingNode.Then -> print.Exec
+`);
+assert.equal(atomicFailure.text, undefined);
+assert.equal(atomicFailure.diagnostics[0]?.code, "unknown_node");
+const afterAtomicFailure = adapter.getGraph(graph.target);
+assert.equal(afterAtomicFailure?.nodes.find((node) => node.alias === "print")?.fields.InString, "Updated");
 console.log("[PASS] memory adapter reports patch validation diagnostics");
