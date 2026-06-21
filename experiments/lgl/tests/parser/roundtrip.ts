@@ -68,6 +68,18 @@ door.Trigger = component(class: "/Script/Engine.BoxComponent", boxExtent: [100, 
 `,
   },
   {
+    name: "patch blueprint members",
+    text: `bpAsset = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
+door = blueprint(asset: bpAsset)
+patch door dry run
+
+door.Health = variable(type: float, default: 100.0, category: "Stats")
+add door.Health
+set door.parent = "/Script/Engine.Character"
+remove door.OldHealth
+`,
+  },
+  {
     name: "query widget tree",
     text: `widgetAsset = asset(path: "/Game/UI/WBP_Menu.WBP_Menu", type: widget)
 w = widget(asset: widgetAsset, root: mainCanvas)

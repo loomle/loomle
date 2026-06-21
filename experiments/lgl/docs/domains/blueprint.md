@@ -525,42 +525,33 @@ type BlueprintPatch = Patch<PatchOp>;
 type PatchOp =
   | Set
   | Add
+  | Remove
   | Rename
-  | Move
-  | Remove;
+  | Move;
 
 interface Set {
   kind: "set";
-  target: Ref;
+  target: FieldPath;
   value: Expr;
 }
 
 interface Add {
   kind: "add";
-  target: Ref;
-}
-
-interface Rename {
-  kind: "rename";
-  target: Ref;
-  name: string;
-}
-
-interface Move {
-  kind: "move";
-  target: Ref;
-  relativeTo: Ref;
-  position: "before" | "after";
+  target: FieldPath;
 }
 
 interface Remove {
   kind: "remove";
-  target: Ref;
+  target: FieldPath;
 }
 ```
 
-The adapter determines whether an `add`, `rename`, `move`, or `remove` target is
-a member or component, then routes through the corresponding UE-owned path.
+The TypeScript LGL experiment currently implements `add`, `set`, and `remove`.
+`rename` and component `move` remain designed text forms for the future UE
+adapter and should be added to the normalized schema when implemented.
+
+The adapter determines whether an operation target is a class field, member, or
+component, then routes through the corresponding UE-owned path.
 
 ## Normalized JSON
 

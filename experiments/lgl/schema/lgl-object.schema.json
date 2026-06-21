@@ -721,7 +721,8 @@
     },
     "PatchOp": {
       "oneOf": [
-        { "$ref": "#/$defs/GraphPatchOp" }
+        { "$ref": "#/$defs/GraphPatchOp" },
+        { "$ref": "#/$defs/BlueprintPatchOp" }
       ]
     },
     "GraphPatchOp": {
@@ -737,6 +738,41 @@
         { "$ref": "#/$defs/MoveBy" },
         { "$ref": "#/$defs/Reconstruct" }
       ]
+    },
+    "BlueprintPatchOp": {
+      "oneOf": [
+        { "$ref": "#/$defs/BlueprintSet" },
+        { "$ref": "#/$defs/BlueprintAdd" },
+        { "$ref": "#/$defs/BlueprintRemove" }
+      ]
+    },
+    "BlueprintSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target", "value"],
+      "properties": {
+        "kind": { "const": "set" },
+        "target": { "$ref": "#/$defs/FieldPath" },
+        "value": { "$ref": "#/$defs/Expr" }
+      }
+    },
+    "BlueprintAdd": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target"],
+      "properties": {
+        "kind": { "const": "add" },
+        "target": { "$ref": "#/$defs/FieldPath" }
+      }
+    },
+    "BlueprintRemove": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target"],
+      "properties": {
+        "kind": { "const": "remove" },
+        "target": { "$ref": "#/$defs/FieldPath" }
+      }
     },
     "Set": {
       "type": "object",

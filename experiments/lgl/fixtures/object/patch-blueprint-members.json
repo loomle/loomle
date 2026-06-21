@@ -1,0 +1,50 @@
+{
+  "kind": "patch",
+  "target": {
+    "domain": "blueprint",
+    "asset": "/Game/BP_Door.BP_Door"
+  },
+  "dryRun": true,
+  "bindings": [
+    {
+      "target": {
+        "kind": "member",
+        "object": "door",
+        "member": "Health"
+      },
+      "value": {
+        "kind": "call",
+        "callee": "variable",
+        "args": {
+          "type": {
+            "kind": "name",
+            "name": "float"
+          },
+          "default": 100,
+          "category": "Stats"
+        }
+      }
+    }
+  ],
+  "ops": [
+    {
+      "kind": "add",
+      "target": {
+        "path": ["door", "Health"]
+      }
+    },
+    {
+      "kind": "set",
+      "target": {
+        "path": ["door", "parent"]
+      },
+      "value": "/Script/Engine.Character"
+    },
+    {
+      "kind": "remove",
+      "target": {
+        "path": ["door", "OldHealth"]
+      }
+    }
+  ]
+}

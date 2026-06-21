@@ -75,3 +75,48 @@ find members
 assert.equal(missingBlueprint.text, undefined);
 assert.equal(missingBlueprint.diagnostics[0]?.code, "blueprint_not_found");
 console.log("[PASS] memory blueprint adapter reports missing blueprint");
+
+const dryRunPatch = await lgl.patch(`${header}
+patch bp dry run
+
+bp.MaxHealth = variable(type: float, default: 250, category: "Stats")
+add bp.MaxHealth
+set bp.parent = "/Script/Engine.Character"
+remove bp.Health
+`);
+assert.equal(dryRunPatch.diagnostics.length, 0);
+assert.match(dryRunPatch.text ?? "", /door = blueprint\(asset: "\/Game\/BP_Door.BP_Door", parent: "\/Script\/Engine.Character"/);
+assert.match(dryRunPatch.text ?? "", /door.MaxHealth = variable\(type: float, default: 250, category: "Stats"\)/);
+
+const afterDryRun = createMemoryBlueprintAdapter({ blueprints }).getBlueprints()[0];
+assert.equal(afterDryRun.parent, "/Script/Engine.Actor");
+assert.equal(afterDryRun.members?.some((member) => member.name === "MaxHealth"), false);
+console.log("[PASS] memory blueprint adapter dry run computes without mutating");
+
+const patchAdapter = createMemoryBlueprintAdapter({ blueprints });
+const patchLgl = createLgl({ adapters: [patchAdapter] });
+const applyPatch = await patchLgl.patch(`${header}
+patch bp
+
+bp.MaxHealth = variable(type: float, default: 250, category: "Stats")
+add bp.MaxHealth
+set bp.parent = "/Script/Engine.Character"
+remove bp.Health
+`);
+assert.equal(applyPatch.diagnostics.length, 0);
+const afterApply = patchAdapter.getBlueprints()[0];
+assert.equal(afterApply.parent, "/Script/Engine.Character");
+assert.equal(afterApply.members?.some((member) => member.name === "Health"), false);
+assert.equal(afterApply.members?.some((member) => member.name === "MaxHealth"), true);
+console.log("[PASS] memory blueprint adapter applies member patch");
+
+const atomicFailure = await patchLgl.patch(`${header}
+patch bp
+
+set bp.parent = "/Script/Engine.Pawn"
+remove bp.DoesNotExist
+`);
+assert.equal(atomicFailure.text, undefined);
+assert.equal(atomicFailure.diagnostics[0]?.code, "unknown_blueprint_remove_target");
+assert.equal(patchAdapter.getBlueprints()[0].parent, "/Script/Engine.Character");
+console.log("[PASS] memory blueprint adapter reports patch validation diagnostics");

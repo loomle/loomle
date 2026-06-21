@@ -31,6 +31,8 @@ schema contract use normalized JSON.
 - Exercise the adapter contract with the in-memory graph, asset, Blueprint, and
   widget adapters.
 - Keep Blueprint and widget examples under parser/formatter conformance tests.
+- Implement the first non-graph patch loop with Blueprint add/set/remove
+  operations in the TypeScript memory adapter.
 - Keep Unreal-specific behavior behind a Blueprint adapter; the SDK surface
   should not expose UE bridge internals directly.
 

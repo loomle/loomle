@@ -8,11 +8,11 @@ import type {
   Expr,
   FindPaletteEntry,
   Graph,
+  GraphPatchOp,
   GraphTarget,
   Node,
   NodeCreation,
   ObjectResult,
-  Op,
   Patch,
   Pin,
   PinRef,
@@ -367,6 +367,10 @@ function readPaletteField(entry: CreationEntry, path: string[]): unknown {
 }
 
 function planPatch(graph: Graph, patch: Patch): PatchPlanResult {
+  const ops = graphOpsFromPatch(patch);
+  if (!Array.isArray(ops)) {
+    return { diagnostics: [ops] };
+  }
   const working = cloneGraph(graph);
   const bindingMap = new Map<string, Binding>();
   for (const binding of patch.bindings) {
@@ -375,21 +379,21 @@ function planPatch(graph: Graph, patch: Patch): PatchPlanResult {
     }
   }
 
-  const addedAliases = collectAddedAliases(patch.ops);
+  const addedAliases = collectAddedAliases(ops);
   for (const alias of addedAliases) {
     if (!nodeFromBinding(alias, bindingMap)) {
       return { diagnostics: [diagnostic("unknown_node_binding", `No node binding exists for ${alias}.`)] };
     }
   }
 
-  for (const op of patch.ops) {
+  for (const op of ops) {
     const diagnostic = validateOpReferences(graph, bindingMap, addedAliases, op);
     if (diagnostic) {
       return { diagnostics: [diagnostic] };
     }
   }
 
-  for (const op of patch.ops) {
+  for (const op of ops) {
     const diagnostic = applyOp(working, bindingMap, op);
     if (diagnostic) {
       return { diagnostics: [diagnostic] };
@@ -399,7 +403,24 @@ function planPatch(graph: Graph, patch: Patch): PatchPlanResult {
   return { object: working, diagnostics: [] };
 }
 
-function collectAddedAliases(ops: Op[]): Set<string> {
+function graphOpsFromPatch(patch: Patch): GraphPatchOp[] | ObjectResult["diagnostics"][number] {
+  const ops: GraphPatchOp[] = [];
+  for (const op of patch.ops) {
+    if (op.kind === "add" && !("binding" in op)) {
+      return diagnostic("invalid_graph_patch_op", "Graph adapter received a non-graph add operation.");
+    }
+    if (op.kind === "set" && !("object" in op.target)) {
+      return diagnostic("invalid_graph_patch_op", "Graph adapter received a non-graph set operation.");
+    }
+    if (op.kind === "remove" && !("node" in op)) {
+      return diagnostic("invalid_graph_patch_op", "Graph adapter received a non-graph remove operation.");
+    }
+    ops.push(op as GraphPatchOp);
+  }
+  return ops;
+}
+
+function collectAddedAliases(ops: GraphPatchOp[]): Set<string> {
   const aliases = new Set<string>();
   for (const op of ops) {
     if (op.kind === "add") {
@@ -415,7 +436,7 @@ function validateOpReferences(
   graph: Graph,
   bindings: Map<string, Binding>,
   addedAliases: Set<string>,
-  op: Op,
+  op: GraphPatchOp,
 ): ObjectResult["diagnostics"][number] | undefined {
   switch (op.kind) {
     case "insert":
@@ -473,7 +494,7 @@ function graphHasNode(graph: Graph, alias: string): boolean {
 function applyOp(
   graph: Graph,
   bindings: Map<string, Binding>,
-  op: Op,
+  op: GraphPatchOp,
 ): ObjectResult["diagnostics"][number] | undefined {
   switch (op.kind) {
     case "insert": {

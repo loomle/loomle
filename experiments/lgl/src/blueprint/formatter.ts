@@ -1,13 +1,16 @@
-import type { Blueprint, BlueprintComponent, BlueprintMember, BlueprintResult, Expr, Query } from "../index.js";
+import type { Binding, Blueprint, BlueprintComponent, BlueprintMember, BlueprintPatchOp, BlueprintResult, Expr, Patch, Query } from "../index.js";
+import { formatBindingTarget } from "../core/binding.js";
 import { formatCondition } from "../core/condition.js";
-import { formatArgList } from "../core/expr.js";
+import { formatArgList, formatExpr } from "../core/expr.js";
 
-export function formatBlueprintLglObject(object: BlueprintResult | Query): string {
+export function formatBlueprintLglObject(object: BlueprintResult | Query | Patch): string {
   switch (object.kind) {
     case "blueprint_result":
       return formatBlueprintResult(object);
     case "query":
       return formatBlueprintQuery(object);
+    case "patch":
+      return formatBlueprintPatch(object);
     default:
       return assertNever(object);
   }
@@ -97,6 +100,61 @@ function formatBlueprintQuery(query: Query): string {
     lines.push(`page after ${JSON.stringify(query.page.after)}`);
   }
   return `${lines.join("\n")}\n`;
+}
+
+function formatBlueprintPatch(patch: Patch): string {
+  if (patch.target.domain !== "blueprint" || !("asset" in patch.target)) {
+    throw new Error("Blueprint formatter received a non-blueprint patch.");
+  }
+  const lines = [
+    `bpAsset = asset(path: ${JSON.stringify(patch.target.asset)}, type: blueprint)`,
+    "bp = blueprint(asset: bpAsset)",
+    "",
+    `patch bp${patch.dryRun ? " dry run" : ""}`,
+  ];
+  if (patch.bindings.length > 0) {
+    lines.push("", ...patch.bindings.map(formatBinding));
+  }
+  if (patch.ops.length > 0) {
+    lines.push(...patch.ops.map((op) => formatBlueprintOp(asBlueprintOp(op))));
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function formatBinding(binding: Binding): string {
+  if (isNodeCreation(binding.value)) {
+    throw new Error("Blueprint formatter received a graph node creation binding.");
+  }
+  return `${formatBindingTarget(binding.target)} = ${formatExpr(binding.value)}`;
+}
+
+function isNodeCreation(value: Binding["value"]): value is Exclude<Binding["value"], Expr> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "kind" in value &&
+    (value.kind === "palette_node" || value.kind === "shortcut_node")
+  );
+}
+
+function formatBlueprintOp(op: BlueprintPatchOp): string {
+  switch (op.kind) {
+    case "add":
+      return `add ${op.target.path.join(".")}`;
+    case "set":
+      return `set ${op.target.path.join(".")} = ${formatExpr(op.value)}`;
+    case "remove":
+      return `remove ${op.target.path.join(".")}`;
+    default:
+      return assertNever(op);
+  }
+}
+
+function asBlueprintOp(op: Patch["ops"][number]): BlueprintPatchOp {
+  if (!("target" in op) || !("path" in op.target)) {
+    throw new Error("Blueprint formatter received a non-blueprint patch operation.");
+  }
+  return op as BlueprintPatchOp;
 }
 
 function stringMapToValue(values: Record<string, string>): Record<string, { kind: "name"; name: string }> {

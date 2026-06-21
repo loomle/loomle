@@ -13,6 +13,7 @@ export type {
   Blueprint,
   BlueprintComponent,
   BlueprintMember,
+  BlueprintPatchOp,
   BlueprintResult,
   BlueprintTarget,
   Binding,

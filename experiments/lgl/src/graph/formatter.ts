@@ -7,10 +7,10 @@ import type {
   Expr,
   GraphFind,
   Graph,
+  GraphPatchOp,
   GraphTarget,
   Node,
   NodeCreation,
-  Op,
   Patch,
   Pin,
   PinRef,
@@ -91,7 +91,7 @@ function formatPatch(patch: Patch): string {
   if (patch.bindings.length > 0) {
     lines.push(...patch.bindings.map(formatBinding));
   }
-  lines.push(...patch.ops.map(formatOp));
+  lines.push(...patch.ops.map((op) => formatOp(asGraphOp(op))));
   return `${trimTrailingBlankLines(lines).join("\n")}\n`;
 }
 
@@ -180,7 +180,7 @@ function formatBinding(binding: Binding): string {
   return `${formatBindingTarget(binding.target)} = ${formatBindingValue(binding.value)}`;
 }
 
-function formatOp(op: Op): string {
+function formatOp(op: GraphPatchOp): string {
   switch (op.kind) {
     case "set":
       return `set ${op.target.object}.${op.target.field} = ${formatExpr(op.value)}`;
@@ -207,6 +207,19 @@ function formatOp(op: Op): string {
     default:
       return assertNever(op);
   }
+}
+
+function asGraphOp(op: Patch["ops"][number]): GraphPatchOp {
+  if (op.kind === "add" && !("binding" in op)) {
+    throw new Error("Graph formatter received a non-graph add operation.");
+  }
+  if (op.kind === "set" && !("object" in op.target)) {
+    throw new Error("Graph formatter received a non-graph set operation.");
+  }
+  if (op.kind === "remove" && !("node" in op)) {
+    throw new Error("Graph formatter received a non-graph remove operation.");
+  }
+  return op as GraphPatchOp;
 }
 
 function formatBindingValue(value: BindingValue): string {
