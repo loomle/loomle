@@ -159,7 +159,14 @@ function formatFind(find: GraphFind): string {
 }
 
 function asGraphFind(find: Query["find"]): GraphFind {
-  if (!find || find.kind === "assets" || find.kind === "members" || find.kind === "components") {
+  if (
+    !find ||
+    find.kind === "assets" ||
+    find.kind === "members" ||
+    find.kind === "components" ||
+    find.kind === "tree" ||
+    find.kind === "widgets"
+  ) {
     throw new Error("Graph formatter received a non-graph find clause.");
   }
   return find;

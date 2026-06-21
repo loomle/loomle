@@ -6,10 +6,10 @@ The widget domain describes UMG WidgetBlueprint trees in LGL. It is the domain
 closest to OpenUI-style component construction because widget trees are
 naturally hierarchical and component-like.
 
-This domain is not implemented yet. It records the target domain shape. Exact
-constructor names, slot properties, event bindings, and normalized JSON must be
-designed against UE UMG semantics and the existing widget tools before
-implementation.
+The TypeScript LGL experiment implements widget object readback, widget query
+normalization, formatting, schema validation, and an in-memory query adapter.
+Widget patching and the UE-backed adapter still need to be designed against UMG
+WidgetTree APIs before bridge implementation.
 
 ## Basic Form
 
@@ -68,19 +68,17 @@ Normalized JSON:
 
 ```ts
 interface Document {
-  kind: "widget";
   alias: string;
-  asset: Ref;
+  asset: string;
   root: string;
   widgets: Node[];
 }
 
 interface Node {
   alias: string;
-  class: Ref | Name;
-  parent?: string | null;
-  properties: Record<string, Value>;
-  slot?: Slot;
+  class: string;
+  parent?: string;
+  properties?: Record<string, Value>;
 }
 ```
 
@@ -207,7 +205,6 @@ Widget queries use the shared query shape:
 query menu
 find widgets "Start"
 where type = Button
-with slots, events
 order by name asc
 page limit 10
 ```
@@ -239,9 +236,9 @@ find widgets
 where parent = stack
 ```
 
-The default widget query result should include widget identity, class/type,
-name, parent, and order. `find tree` should return the tree in editor order.
-`with slots` expands slot metadata. `with events` expands event bindings.
+The default widget query result includes widget identity, class/type, name, and
+parent. `find tree` returns the tree in editor order. Slot and event expansion
+are future UE-backed adapter work, not part of the current TypeScript adapter.
 
 Normalized JSON:
 
@@ -339,16 +336,22 @@ Widget normalized JSON is defined beside each feature above. The summary below
 shows the top-level widget-domain payloads:
 
 ```ts
+interface WidgetResult {
+  kind: "widget_result";
+  documents: WidgetDocument[];
+}
+
 // Widget object text
-Document
+WidgetDocument
 
 // Widget query and patch text
 type WidgetQuery = Query<Find>;
 type WidgetPatch = Patch<PatchOp>;
 ```
 
-The real schema should be based on UMG WidgetTree tools and UE widget
-semantics.
+The current schema covers readback and query. Patch JSON must be added only
+after the widget mutation design is fixed against UMG WidgetTree tools and UE
+widget semantics.
 
 ## Adapter Boundary
 

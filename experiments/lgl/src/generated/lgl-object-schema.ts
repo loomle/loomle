@@ -20,7 +20,7 @@ export type LGLNormalizedObjectSchema =
   | Name
   | PinRef
   | Edge;
-export type LglObject = Graph | AssetResult | BlueprintResult | Query | Patch | CreationResult;
+export type LglObject = Graph | AssetResult | BlueprintResult | WidgetResult | Query | Patch | CreationResult;
 export type GraphRef = GraphNameRef | GraphIdRef;
 export type Expr = Value | Ref | Call;
 export type Value =
@@ -39,8 +39,14 @@ export type Ref = LocalRef | MemberRef | IdRef;
  * @maxItems 2
  */
 export type Point = [any, any];
-export type Target = AssetTarget | BlueprintTarget | GraphTarget;
-export type Find = FindAssets | FindBlueprintMembers | FindBlueprintComponents | GraphFind;
+export type Target = AssetTarget | BlueprintTarget | WidgetTarget | GraphTarget;
+export type Find =
+  | FindAssets
+  | FindBlueprintMembers
+  | FindBlueprintComponents
+  | FindWidgetTree
+  | FindWidgets
+  | GraphFind;
 export type GraphFind = FindNodes | FindPath | FindPaletteEntry;
 export type Condition =
   | EqCondition
@@ -202,6 +208,24 @@ export interface BlueprintComponent {
     [k: string]: Value;
   };
 }
+export interface WidgetResult {
+  kind: "widget_result";
+  documents: WidgetDocument[];
+}
+export interface WidgetDocument {
+  alias: string;
+  asset: string;
+  root: string;
+  widgets: WidgetNode[];
+}
+export interface WidgetNode {
+  alias: string;
+  class: string;
+  parent?: string;
+  properties?: {
+    [k: string]: Value;
+  };
+}
 export interface Query {
   kind: "query";
   target: Target;
@@ -218,6 +242,10 @@ export interface BlueprintTarget {
   domain: "blueprint";
   asset: string;
 }
+export interface WidgetTarget {
+  domain: "widget";
+  asset: string;
+}
 export interface FindAssets {
   kind: "assets";
   text?: string;
@@ -228,6 +256,13 @@ export interface FindBlueprintMembers {
 }
 export interface FindBlueprintComponents {
   kind: "components";
+  text?: string;
+}
+export interface FindWidgetTree {
+  kind: "tree";
+}
+export interface FindWidgets {
+  kind: "widgets";
   text?: string;
 }
 export interface FindNodes {

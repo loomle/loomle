@@ -6,8 +6,8 @@ manifest, or Unreal Engine bridge.
 
 The experiment started as a compact graph text format. The current design is
 broader: LGL is a line-oriented, agent-facing object language for UE work.
-Graph is the first proven domain; asset, Blueprint, and widget domains should
-use the same language core instead of inventing separate text formats.
+Graph is the first proven domain; asset, Blueprint, and widget now use the same
+language core instead of inventing separate text formats.
 
 The design separates three layers:
 
@@ -28,9 +28,9 @@ schema contract use normalized JSON.
 - Format normalized objects back to LGL text.
 - Validate normalized objects against `schema/lgl-object.schema.json`.
 - Generate TypeScript object-model types from the schema.
-- Exercise the adapter contract with `createMemoryGraphAdapter` and
-  `createMemoryAssetAdapter`.
-- Keep Blueprint examples under parser/formatter conformance tests.
+- Exercise the adapter contract with the in-memory graph, asset, Blueprint, and
+  widget adapters.
+- Keep Blueprint and widget examples under parser/formatter conformance tests.
 - Keep Unreal-specific behavior behind a Blueprint adapter; the SDK surface
   should not expose UE bridge internals directly.
 
@@ -45,15 +45,14 @@ schema contract use normalized JSON.
   in-memory asset adapter.
 - `src/blueprint/` contains Blueprint query parsing, Blueprint result
   formatting, and the in-memory Blueprint adapter.
-- Future `src/widget/` code should plug into the same root entry points instead
-  of extending graph internals.
+- `src/widget/` contains widget query parsing, widget result formatting, and
+  the in-memory widget adapter.
 
 ## Documents
 
 The docs are organized around the shared language core plus UE domains. The
-graph domain, first asset query loop, and first Blueprint query loop are
-implemented by the TypeScript experiment; widget records a target shape for a
-later adapter.
+graph, asset, Blueprint, and widget query loops are implemented by the
+TypeScript experiment. UE-backed adapters remain future bridge work.
 
 - `docs/OVERVIEW.md`: Next LGL direction, representation layers, and core
   design rules.
@@ -69,8 +68,8 @@ later adapter.
   resolve, registry tags, and asset result text.
 - `docs/domains/blueprint.md`: Draft Blueprint domain for class contract,
   member declarations, custom events, and component tree structure.
-- `docs/domains/widget.md`: Draft widget domain for UMG tree constructors,
-  slots, and widget patching.
+- `docs/domains/widget.md`: Widget domain for UMG tree constructors, tree
+  queries, and future widget patching.
 - `docs/SDK_DESIGN.md`: SDK facade, adapter contract, diagnostics, and result
   types for the current experiment.
 - `docs/LGL_NATIVE_BRIDGE.md`: Future LGL-native UE bridge architecture.

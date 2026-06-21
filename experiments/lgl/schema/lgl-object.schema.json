@@ -22,6 +22,7 @@
         { "$ref": "#/$defs/Graph" },
         { "$ref": "#/$defs/AssetResult" },
         { "$ref": "#/$defs/BlueprintResult" },
+        { "$ref": "#/$defs/WidgetResult" },
         { "$ref": "#/$defs/Query" },
         { "$ref": "#/$defs/Patch" },
         { "$ref": "#/$defs/CreationResult" }
@@ -31,6 +32,7 @@
       "oneOf": [
         { "$ref": "#/$defs/AssetTarget" },
         { "$ref": "#/$defs/BlueprintTarget" },
+        { "$ref": "#/$defs/WidgetTarget" },
         { "$ref": "#/$defs/GraphTarget" }
       ]
     },
@@ -58,6 +60,15 @@
       "required": ["domain", "asset"],
       "properties": {
         "domain": { "const": "blueprint" },
+        "asset": { "type": "string", "minLength": 1 }
+      }
+    },
+    "WidgetTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain", "asset"],
+      "properties": {
+        "domain": { "const": "widget" },
         "asset": { "type": "string", "minLength": 1 }
       }
     },
@@ -411,6 +422,46 @@
         }
       }
     },
+    "WidgetResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "documents"],
+      "properties": {
+        "kind": { "const": "widget_result" },
+        "documents": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/WidgetDocument" }
+        }
+      }
+    },
+    "WidgetDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alias", "asset", "root", "widgets"],
+      "properties": {
+        "alias": { "type": "string", "minLength": 1 },
+        "asset": { "type": "string", "minLength": 1 },
+        "root": { "type": "string", "minLength": 1 },
+        "widgets": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/WidgetNode" }
+        }
+      }
+    },
+    "WidgetNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alias", "class"],
+      "properties": {
+        "alias": { "type": "string", "minLength": 1 },
+        "class": { "type": "string", "minLength": 1 },
+        "parent": { "type": "string", "minLength": 1 },
+        "properties": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Value" }
+        }
+      }
+    },
     "Query": {
       "type": "object",
       "additionalProperties": false,
@@ -437,6 +488,8 @@
         { "$ref": "#/$defs/FindAssets" },
         { "$ref": "#/$defs/FindBlueprintMembers" },
         { "$ref": "#/$defs/FindBlueprintComponents" },
+        { "$ref": "#/$defs/FindWidgetTree" },
+        { "$ref": "#/$defs/FindWidgets" },
         { "$ref": "#/$defs/GraphFind" }
       ]
     },
@@ -464,6 +517,23 @@
       "required": ["kind"],
       "properties": {
         "kind": { "const": "components" },
+        "text": { "type": "string", "minLength": 1 }
+      }
+    },
+    "FindWidgetTree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "tree" }
+      }
+    },
+    "FindWidgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "widgets" },
         "text": { "type": "string", "minLength": 1 }
       }
     },

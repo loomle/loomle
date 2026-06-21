@@ -1,0 +1,10 @@
+{
+  "kind": "query",
+  "target": {
+    "domain": "widget",
+    "asset": "/Game/UI/WBP_Menu.WBP_Menu"
+  },
+  "find": {
+    "kind": "tree"
+  }
+}

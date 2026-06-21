@@ -122,6 +122,9 @@ function executeQuery(graph: Graph, query: Query): ObjectResult {
     case "members":
     case "components":
       return { diagnostics: [diagnostic("invalid_graph_find", "Graph adapter cannot execute blueprint queries.")] };
+    case "tree":
+    case "widgets":
+      return { diagnostics: [diagnostic("invalid_graph_find", "Graph adapter cannot execute widget queries.")] };
     default:
       return assertNever(find);
   }

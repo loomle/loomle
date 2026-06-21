@@ -68,6 +68,33 @@ door.Trigger = component(class: "/Script/Engine.BoxComponent", boxExtent: [100, 
 `,
   },
   {
+    name: "query widget tree",
+    text: `widgetAsset = asset(path: "/Game/UI/WBP_Menu.WBP_Menu", type: widget)
+w = widget(asset: widgetAsset, root: mainCanvas)
+query w
+find tree
+`,
+  },
+  {
+    name: "query widgets",
+    text: `widgetAsset = asset(path: "/Game/UI/WBP_Menu.WBP_Menu", type: widget)
+w = widget(asset: widgetAsset, root: mainCanvas)
+query w
+find widgets "Start"
+where type = Button
+page limit 10
+`,
+  },
+  {
+    name: "widget result",
+    text: `menu = widget(asset: "/Game/UI/WBP_Menu.WBP_Menu", root: mainCanvas)
+mainCanvas = CanvasPanel()
+mainCanvas.stack = VerticalBox()
+stack.title = TextBlock(text: "Main Menu", fontSize: 32)
+stack.start = Button(text: "Start")
+`,
+  },
+  {
     name: "query palette entry",
     text: `bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
 g = graph(domain: blueprint, asset: bp, graph: EventGraph)

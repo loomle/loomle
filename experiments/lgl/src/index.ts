@@ -34,6 +34,8 @@ export type {
   FindAssets,
   FindBlueprintComponents,
   FindBlueprintMembers,
+  FindWidgetTree,
+  FindWidgets,
   FindNodes,
   FindPaletteEntry,
   FindPath,
@@ -77,6 +79,10 @@ export type {
   SourceSpan,
   Target,
   Value,
+  WidgetDocument,
+  WidgetNode,
+  WidgetResult,
+  WidgetTarget,
 } from "./generated/lgl-object-schema.js";
 
 export type LglText = string;
@@ -123,3 +129,8 @@ export type {
   CreateMemoryBlueprintAdapterOptions,
   MemoryBlueprintAdapter,
 } from "./blueprint/memory-adapter.js";
+export { createMemoryWidgetAdapter } from "./widget/memory-adapter.js";
+export type {
+  CreateMemoryWidgetAdapterOptions,
+  MemoryWidgetAdapter,
+} from "./widget/memory-adapter.js";

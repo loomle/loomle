@@ -18,7 +18,8 @@
     "test:memory": "npm run build && node dist/tests/sdk/memory-adapter.js",
     "test:memory:asset": "npm run build && node dist/tests/sdk/memory-asset-adapter.js",
     "test:memory:blueprint": "npm run build && node dist/tests/sdk/memory-blueprint-adapter.js",
-    "test": "npm run check:generated && npm run test:schema && npm run test:invalid && npm run test:roundtrip && npm run test:examples && npm run test:examples:extended && npm run test:examples:reference && npm run test:facade && npm run test:memory && npm run test:memory:asset && npm run test:memory:blueprint"
+    "test:memory:widget": "npm run build && node dist/tests/sdk/memory-widget-adapter.js",
+    "test": "npm run check:generated && npm run test:schema && npm run test:invalid && npm run test:roundtrip && npm run test:examples && npm run test:examples:extended && npm run test:examples:reference && npm run test:facade && npm run test:memory && npm run test:memory:asset && npm run test:memory:blueprint && npm run test:memory:widget"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
